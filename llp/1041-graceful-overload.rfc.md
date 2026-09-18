@@ -4709,3 +4709,62 @@ manifest `c75bd47a389ba1eb41c48f491bcbaadf6578159e3ae01c456b751c61e5e94905`.
 Independent raw reconstruction reproduces the index scopes, first/current
 publication joins, source equality,18 resize chains and clipped unions. A
 reversed confirmation and continuous visible reflow remain separate work.
+
+### 8.76 Keep accepted Apple pixels while geometry changes, 2026-09-18
+
+An accepted viewport image can now remain visible while its replacement is being
+prepared. A fixed-size flipped image child retains the same CGImage/provider,
+logical size and backing scale. Its translation is accepted scroll minus actual
+NSClipView scroll; only exact integer device-pixel translations with the same
+fractional phase are admitted. The current viewport clips that image and paints
+the unchanged background in uncovered strips. No bitmap copy, image history,
+extra worker or new pixel budget is introduced. Empty overlap hides the image.
+
+This is display-only continuity. A separate retained witness describes coverage;
+the current-pixel witness and visible-publication field remain invalid there.
+Fresh text hits, copy and links are refused, and entering retention cancels the
+old contact. Ordinary selection-only highlight replacement keeps its existing
+qualified anchor behavior. Only accepted replacement pixels can change the
+scroll extent or reenable exact current input. The same pixel/profile owners
+remain charged through their last provider alias; opaque compositor storage is
+outside that accounting.
+
+Before applying a batch, the controller protects old and incoming region members,
+owner/content, current ancestors and the page-background provider. Source/style,
+tree, presentation or unknown/global operations invalidate retention before
+callbacks can observe partial changes. Disjoint sibling typing and neutral
+frame/extent changes may retain it. Invalidation retires the desired raster
+without releasing the active worker slot; returning to an old source or palette
+cannot simply redisplay the old image. Fresh accepted pixels must rearm it.
+Conservative refusals are intentional; this is not a general interactive subtree
+fallback. The separately tested §8.74 receive correction is preserved unchanged.
+
+The actual AppKit fixture changes viewport size while B's worker is blocked,
+then performs six actual NSClipView ±40 scroll steps. It verifies fixed image
+size/placement, clipping, provider bytes/scale, unchanged A extent/publication,
+fresh-input refusal and eventual B takeover. Source/style/background ABA and
+existing cached/sparse/terminal selection controls are included. Old production
+executes192 assertions with18 intended failures; candidate executes198 with0,
+including six byte comparisons reached only when A remains visible. Runtime
+and Presenter are fixture doubles; the NSWindow, surface, controller, worker and
+constructed NSEvent handlers are real. This is model-layer evidence, not OS
+input injection or a WindowServer screenshot.
+
+Eight new helper tests plus eight existing controls pass16 methods/222 assertions,
+including exact RGBA crop/background comparisons at scales1/2, fractional phase,
+empty/reverse/end-clamp cases, caps and last-alias retirement. An earlier218-assertion
+run fails two ownership assertions because test-owned CFData/provider temporaries
+remain alive; explicit scope closure and weak-owner/drop checks correct the test,
+without changing production ownership. Three compiler setup/warning failures
+remain separate from the behavioral RED. All70 private module sources typecheck
+with warnings as errors. No fullhost or native performance run is claimed.
+
+The three production paths and one test are preserved with276 artifacts/7,074,184B
+in `target/region-retained-validation/freeze-v2/`, manifest
+`5464b6283e2e86178e4fddfe669434671b501457f5f8d91b9be6bd8d7c20ec46`, patch
+`891145ddfe3615eef3d25e263e11361d577769edfde41ab7423e6c5770f15932`.
+Independent inverse checks recover all13 actual compiled production inputs per
+AppKit arm. All12 recorded processes/groups are absent before lane release.
+The numeric-index timing products do not contain this change. Continuous fresh
+reflow, retained coverage during the giant workload and physical120Hz still need
+their own evidence.

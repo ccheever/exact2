@@ -20,11 +20,22 @@ private final class RegionInkView: NSView {
         else { super.keyDown(with: event) }
     }
 }
+/// A fixed-size image child uses NSView's flipped placement, not a resizing
+/// contents layer on the viewport. Input always belongs to RegionInkView.
+private final class RegionImageView: NSView {
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {}
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
 final class RegionSurfaceMac: NSView {
     private weak var controller: RegionController?
     let scroller = ChainingScrollView(frame: .zero)
     private let document = FlippedView(frame: .zero)
     private let ink = RegionInkView(frame: .zero)
+    private let picture = RegionImageView(frame: .zero)
+    private var retained: RegionRetainedWitness?
+    private var retention = RegionRetentionValidity()
     private var observer: NSObjectProtocol?
     private let profiles = NativeProfileAccount()
     private var profile: NativeProfile?
@@ -56,6 +67,9 @@ final class RegionSurfaceMac: NSView {
         scroller.contentView.postsBoundsChangedNotifications = true
         addSubview(scroller)
         ink.surface = self; ink.wantsLayer = true
+        ink.layer?.masksToBounds = true
+        picture.wantsLayer = true
+        ink.addSubview(picture)
         pendingLabel.font = .systemFont(ofSize: 13); pendingLabel.isSelectable = false
         pendingLabel.frame = CGRect(x: 8,y: 8,width: 360,height: 24)
         ink.addSubview(pendingLabel)
@@ -77,17 +91,23 @@ final class RegionSurfaceMac: NSView {
         controller?.geometryChanged()
     }
     func invalidatePhase() {
-        if !displayable { clearVisible() }
+        if !displayable && !showRetained() { clearVisible() }
         ink.needsDisplay = true
     }
     private var displayable: Bool {
-        guard controller?.validateAppearance() == true, let visible, let presentation, let profile, let image,
+        guard retention.valid, retained == nil,
+              controller?.validateAppearance() == true, let visible, let presentation, let profile, let image,
               let raster, let current = currentRequest(for: presentation), raster.request.samePixels(as: current),
-              let shown = ink.layer?.contents as AnyObject?, shown === image else { return false }
+              picture.frame == CGRect(origin: .zero,size: raster.request.size),
+              let shown = picture.layer?.contents as AnyObject?, shown === image else { return false }
         return visible.matches(publication: presentation.snapshot.publication, size: ink.bounds.size,
             scroll: scrollOffset, profile: profile.bytes, scale: Int(window?.backingScaleFactor ?? 0))
     }
     func publish(_ raster: RegionRaster, image: CGImage, presentation: RegionPresentation) {
+        // A mutation invalidation may have left the kernel displaying old A
+        // while B is pending. Such an A answer is not permission to rearm it.
+        guard retention.valid || controller?.currentSourcePublication == raster.request.publication else { return }
+        retention.acceptedPixels()
         let sourceChanged = self.presentation?.snapshot.publication != presentation.snapshot.publication
         self.raster = raster; self.image = image; self.presentation = presentation
         if sourceChanged { selections.removeAll(); cancelContact() }
@@ -125,20 +145,30 @@ final class RegionSurfaceMac: NSView {
     /// A terminal refusal clears both the display and every input owner now,
     /// rather than waiting for a display pass which may never be scheduled.
     func suspend() {
+        retention.invalidate()
         cancelContact()
         clearVisible()
         raster = nil; image = nil; presentation = nil
         selections.removeAll(); cancelContact()
         ink.needsDisplay = true
     }
+    /// Called before protected source/style/tree changes and on sampled palette
+    /// changes. Dropping the cache prevents requestRaster's exact-A cache hit
+    /// from silently rearming it; pending worker ownership is not released here.
+    func invalidateRetainedSource() {
+        retention.invalidate()
+        cancelContact(); clearVisible()
+        raster = nil; image = nil
+        ink.needsDisplay = true
+    }
     private func clearVisible() {
-        visible = nil
+        visible = nil; retained = nil
         // Hiding stale selection pixels does not cancel their ongoing owner.
         // Every other phase/identity change still retires that owner immediately.
         if !selectionAnchorIsCurrent { contact = nil; contactPhase = nil }
         if let pendingLink, !phaseIsCurrent(pendingLink.phase) { self.pendingLink = nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        ink.layer?.contents = nil
+        picture.layer?.contents = nil
         CATransaction.commit()
         pendingLabel.isHidden = false
     }
@@ -146,41 +176,84 @@ final class RegionSurfaceMac: NSView {
     /// bitmap format; cacheDisplay's separate representation cannot certify it.
     /// Model-layer publication is observable, physical presentation is not.
     fileprivate func updateInk() {
-        guard let controller, controller.validateAppearance(), let layer = ink.layer,
+        guard let controller, controller.validateAppearance(),
               let candidate = controller.candidate, let current = currentRequest(for: candidate) else {
             clearVisible(); pendingLabel.stringValue = controller?.failure ?? "Preparing viewport…"; return
         }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer.backgroundColor = CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: current.background)
-        layer.isOpaque = true; layer.contentsScale = CGFloat(current.scale)
-        layer.contentsGravity = .resize; layer.contentsRect = CGRect(x: 0,y: 0,width: 1,height: 1)
-        layer.minificationFilter = .nearest; layer.magnificationFilter = .nearest
-        CATransaction.commit()
+        // Check A against the live context before issuing a new intent. A
+        // palette/DPR ABA may not redisplay cached pixels merely by returning.
+        invalidateChangedContext(current)
+        setBackground(current)
+        guard retention.valid || controller.currentSourcePublication == candidate.snapshot.publication else {
+            clearVisible(); return
+        }
         controller.requestRaster(size: current.size, scale: current.scale, profile: current.profile,
             format: current.format, background: current.background, selectionColor: current.selectionColor,
             scroll: current.scroll, selections: selections, interaction: current.interaction)
-        // Also match current selection/background when retaining a cached image.
-        // An older publication may remain readable while a new width is pending,
-        // but an image hidden by the current phase must never supply hits.
-        if let raster, let image, let presentation, let shown = currentRequest(for: presentation),
+        if retention.valid, let raster, let image, let presentation,
+           let shown = currentRequest(for: presentation),
            raster.request.samePixels(as: shown), raster.request.scroll == scrollOffset,
            MainActor.assumeIsolated({ raster.accepts(image, size: shown.size, scale: shown.scale, profile: shown.profile) }) {
-            CATransaction.begin(); CATransaction.setDisableActions(true)
-            layer.contents = image
-            CATransaction.commit()
-            if visible?.publication != raster.request.publication || !displayable { layerPublications += 1 }
+            let changed = visible?.publication != raster.request.publication || !displayable
+            place(image,request: raster.request,frame: CGRect(origin: .zero,size: raster.request.size))
+            retained = nil
+            if changed { layerPublications += 1 }
             visible = RegionVisibleWitness(publication: raster.request.publication, size: raster.request.size,
                 scroll: raster.request.scroll, profile: shown.profile.bytes, scale: raster.request.scale)
             pendingLabel.isHidden = true
             finishPendingLink()
-        } else {
+        } else if !showRetained() {
             clearVisible(); pendingLabel.stringValue = controller.failure ?? "Preparing viewport…"
         }
+    }
+    private func invalidateChangedContext(_ current: RegionRasterRequest) {
+        guard let old = raster?.request else { return }
+        if old.generation != current.generation || old.scale != current.scale || old.profile != current.profile ||
+            old.format != current.format || old.background != current.background || old.selectionColor != current.selectionColor {
+            invalidateRetainedSource()
+        }
+    }
+    /// No new raster, source adoption or input certificate. Reposition the same
+    /// provider at its original size; uncovered strips are the original palette.
+    @discardableResult private func showRetained() -> Bool {
+        guard retention.valid, let presentation, let current = currentRequest(for: presentation) else { return false }
+        invalidateChangedContext(current)
+        guard retention.valid, let raster, let image,
+              !raster.request.samePixels(as: current),
+              let mapping = RegionRetainedWitness(accepted: raster.request,current: current,
+                  actualScroll: scrollOffset,extent: presentation.extent,clip: ink.visibleRect),
+              MainActor.assumeIsolated({ raster.accepts(image,size: raster.request.size,
+                  scale: current.scale,profile: current.profile) }) else { return false }
+        cancelContact()
+        visible = nil; retained = mapping
+        place(image,request: raster.request,frame: mapping.imageFrame)
+        pendingLabel.isHidden = true
+        return true
+    }
+    private func setBackground(_ request: RegionRasterRequest) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        ink.layer?.backgroundColor = CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(),components: request.background)
+        ink.layer?.isOpaque = true; ink.layer?.contentsScale = CGFloat(request.scale)
+        CATransaction.commit()
+    }
+    private func place(_ image: CGImage, request: RegionRasterRequest, frame: CGRect) {
+        setBackground(request)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        picture.frame = frame
+        picture.bounds = CGRect(origin: .zero,size: request.size)
+        if let layer = picture.layer {
+            layer.contentsScale = CGFloat(request.scale)
+            layer.contentsGravity = .resize; layer.contentsRect = CGRect(x: 0,y: 0,width: 1,height: 1)
+            layer.minificationFilter = .nearest; layer.magnificationFilter = .nearest
+            layer.contents = image
+        }
+        CATransaction.commit()
     }
     /// Re-read native state on delivery, even between a bounds notification and
     /// updateLayer. No last-drawn witness is a certificate for a new publication.
     func accepts(_ request: RegionRasterRequest) -> Bool {
-        guard let candidate = controller?.candidate, let current = currentRequest(for: candidate) else { return false }
+        guard let candidate = controller?.candidate, let current = currentRequest(for: candidate),
+              retention.valid || controller?.currentSourcePublication == candidate.snapshot.publication else { return false }
         return request.sameOutput(as: current)
     }
     private func currentRequest(for presentation: RegionPresentation) -> RegionRasterRequest? {
@@ -236,12 +309,26 @@ final class RegionSurfaceMac: NSView {
         lastWheel = ["dx": event.scrollingDeltaX, "dy": event.scrollingDeltaY,
             "phase": event.phase.rawValue, "precise": event.hasPreciseScrollingDeltas]
     }
+    private var retainedDisplayable: Bool {
+        guard retention.valid, let retained, let raster, let image, let presentation,
+              let current = currentRequest(for: presentation),
+              let mapping = RegionRetainedWitness(accepted: raster.request,current: current,
+                  actualScroll: scrollOffset,extent: presentation.extent,clip: ink.visibleRect),
+              mapping == retained, picture.frame == mapping.imageFrame,
+              let shown = picture.layer?.contents as AnyObject?, shown === image else { return false }
+        return true
+    }
     var diagnostics: [String: Any] {
         ["certificate": certificate, "layerPublications": layerPublications, "displayable": displayable,
          "documentSize": [document.frame.width,document.frame.height],
          "clipSize": [scroller.contentView.bounds.width,scroller.contentView.bounds.height],
          "acceptedExtent": [presentation?.extent.width ?? 0,presentation?.extent.height ?? 0],
          "lastWheel": lastWheel,
+         "retainedDisplayOnly": retainedDisplayable,
+         "retainedPublication": String(retained?.publication ?? 0),
+         "retainedCoverage": retained.map { [$0.coverage.minX,$0.coverage.minY,$0.coverage.width,$0.coverage.height] } ?? [],
+         "retainedTranslation": retained.map { [$0.imageFrame.minX,$0.imageFrame.minY] } ?? [],
+         "retainedCoversViewport": retained?.coversViewport ?? false,
          "visiblePublication": String(displayable ? visible?.publication ?? 0 : 0)]
     }
     private func target(_ event: NSEvent) -> (RegionArtifact, RegionFrame, CGPoint)? {

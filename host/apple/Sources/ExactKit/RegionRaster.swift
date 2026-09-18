@@ -257,3 +257,44 @@ struct RegionVisibleWitness {
         self.publication == publication && self.size == size && self.scroll == scroll && self.profile == profile && self.scale == scale
     }
 }
+
+/// Display-only placement of one immutable accepted image. This is deliberately
+/// not a RegionVisibleWitness and cannot certify fresh hits or raster acceptance.
+struct RegionRetainedWitness: Equatable {
+    let publication: UInt64
+    let imageFrame: CGRect
+    let coverage: CGRect
+    let viewport: CGRect
+    var coversViewport: Bool { coverage == viewport }
+    init?(accepted a: RegionRasterRequest, current b: RegionRasterRequest,
+          actualScroll: CGPoint, extent: CGSize, clip: CGRect) {
+        guard a.bytes != nil, b.bytes != nil,
+              a.publication == b.publication, a.generation == b.generation, a.rows == b.rows,
+              a.scale == b.scale, a.profile == b.profile, a.format == b.format,
+              a.background == b.background, a.selectionColor == b.selectionColor,
+              actualScroll == b.scroll,
+              extent.width.isFinite, extent.height.isFinite, extent.width >= 0, extent.height >= 0,
+              b.scroll.x >= 0, b.scroll.y >= 0,
+              b.scroll.x <= max(0,extent.width - b.size.width),
+              b.scroll.y <= max(0,extent.height - b.size.height),
+              !clip.isNull, !clip.isInfinite, clip.width > 0, clip.height > 0 else { return nil }
+        let q = CGFloat(a.scale)
+        let t = CGPoint(x: a.scroll.x - b.scroll.x,y: a.scroll.y - b.scroll.y)
+        let edges = [t.x*q,t.y*q,clip.minX*q,clip.minY*q,clip.maxX*q,clip.maxY*q]
+        guard edges.allSatisfy({ $0.isFinite && $0.rounded() == $0 }),
+              (a.scroll.x*q).truncatingRemainder(dividingBy: 1) == (b.scroll.x*q).truncatingRemainder(dividingBy: 1),
+              (a.scroll.y*q).truncatingRemainder(dividingBy: 1) == (b.scroll.y*q).truncatingRemainder(dividingBy: 1) else { return nil }
+        let frame = CGRect(origin: t,size: a.size)
+        let viewport = CGRect(origin: .zero,size: b.size)
+        let coverage = frame.intersection(viewport).intersection(clip)
+        guard !coverage.isNull, coverage.width > 0, coverage.height > 0 else { return nil }
+        publication = a.publication; imageFrame = frame; self.coverage = coverage; self.viewport = viewport
+    }
+}
+/// Returning to an old context is not publication. Only accepted fresh pixels
+/// rearm a source/context invalidation; geometry-only pending keeps its owner.
+struct RegionRetentionValidity {
+    private(set) var valid = false
+    mutating func invalidate() { valid = false }
+    mutating func acceptedPixels() { valid = true }
+}

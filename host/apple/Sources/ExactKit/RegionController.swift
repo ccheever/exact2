@@ -40,6 +40,8 @@ final class RegionController {
     private(set) var failure: String?
     private var generation = -1
     var currentGeneration: Int { generation }
+    // The latest wire, not candidate.snapshot (which may describe older A).
+    var currentSourcePublication: UInt64? { snapshot?.current == true ? snapshot?.publication : nil }
     private var shapeCompletions = 0
     private var rasterCompletions = 0
     private var sourceCaptures = 0
@@ -69,6 +71,38 @@ final class RegionController {
     /// Before live create/style/children can trigger native painting or callbacks.
     func prepare(_ batch: Batch) {
         guard let session else { return }
+        // Read old ancestry before any create/children/style operation can hide
+        // its provenance. Include incoming members even when not mounted yet.
+        var protected = members
+        func protect(_ value: RegionSnapshot) {
+            protected.insert(value.owner); protected.insert(value.content)
+            var view: NSView? = session.presenter.views[value.owner]
+            while let node = view {
+                if let node = node as? NodeView { protected.insert(node.id) }
+                view = node.superview
+            }
+        }
+        if let snapshot { protect(snapshot) }
+        // Presenter pageBackground is supplied by the first root even when the
+        // region belongs to another root. Its paint changes are not disjoint.
+        if let page = session.presenter.root.subviews.first as? NodeView { protected.insert(page.id) }
+        var identityChanged = false
+        for op in batch.ops where op["op"] as? String == "region" {
+            guard let next = RegionSnapshot(op), let incoming = op["members"] as? [UInt32] else {
+                identityChanged = true; continue
+            }
+            protect(next); protected.formUnion(incoming)
+            if let snapshot {
+                identityChanged = identityChanged || snapshot.incarnation != next.incarnation ||
+                    snapshot.owner != next.owner || snapshot.content != next.content || Set(incoming) != members
+            }
+        }
+        if batch.error != nil || identityChanged || RegionRetentionInvalidation.required(ops: batch.ops,protected: protected) {
+            // Do not refund the running worker slot. Its old serial cannot rearm
+            // A after source/style ABA, even if its output later matches again.
+            desiredRaster = nil
+            surface?.invalidateRetainedSource()
+        }
         for op in batch.ops where op["op"] as? String == "region" {
             guard let next = RegionSnapshot(op) else { refuse("invalid region wire"); continue }
             if generation != session.generation || snapshot?.incarnation != next.incarnation {
@@ -266,6 +300,31 @@ final class RegionController {
             "refused": failure as Any? ?? NSNull(), "scrollY": surface?.scrollOffset.y ?? 0,
             "rasterScrollY": surface?.raster?.request.scroll.y ?? 0,
             "acceptedUTF16": accepted?.artifacts.values.reduce(0) { $0 + $1.metadata.source.utf16Count } ?? 0]
+    }
+}
+/// A deliberately small pre-apply classifier: only geometry and nonpainting
+/// motion-binding metadata are neutral. Protected full props/style dictionaries
+/// invalidate even if an apparent change might be geometry-only.
+enum RegionRetentionInvalidation {
+    static func required(ops: [[String: Any]], protected: Set<UInt32>) -> Bool {
+        for op in ops {
+            guard let kind = op["op"] as? String else { return true }
+            switch kind {
+            case "region", "frame", "content", "hold", "height-drag", "transform-drag", "retire-motion":
+                continue
+            case "create", "props", "style", "destroy", "present", "surface":
+                guard let id = op["id"] as? UInt32 else { return true }
+                if protected.contains(id) { return true }
+            case "children":
+                guard let id = op["id"] as? UInt32, let children = op["ids"] as? [UInt32] else { return true }
+                if protected.contains(id) || children.contains(where: protected.contains) { return true }
+            default:
+                // Roots, routing/commands, collection ownership and unknown
+                // operations have effects outside a single node dictionary.
+                return true
+            }
+        }
+        return false
     }
 }
 #endif
