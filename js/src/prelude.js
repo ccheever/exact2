@@ -216,8 +216,7 @@
       root = false;
       if (typeof item === "string" && item.length >= 65536) {
         var path = first ? [] : [key];
-        for (var link = first ? null : paths.get(this); link; link = link.parent) path.push(link.key);
-        path.reverse();
+        for (var link = first ? null : paths.get(this); link; link = link.parent) path = [link.key].concat(path);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
         captureString(JSON.stringify(path), item);
