@@ -123,20 +123,30 @@ final class RegionService: @unchecked Sendable {
                     beforeShape()
                     guard layouts.count < 64 else { return .refused(job, "region live artifact cap") }
                     let layout: RegionWorkerLayout
-                    if request.width.isFinite, request.width >= 0,
-                       let existing = layouts.values.first(where: {
-                           $0.generation == request.generation && $0.sourceID == request.sourceID &&
-                           $0.layout.source === request.source && $0.layout.metadata.offeredWidth == request.width
-                       }) {
+                    var existing: RegionWorkerLayout?
+                    var preparation: RegionPreparedSource?
+                    if request.width.isFinite, request.width >= 0 {
+                        // Same bounded live-ID lookup; never search paint-only
+                        // owners or keep a separate source/width history.
+                        for binding in layouts.values where binding.generation == request.generation &&
+                            binding.sourceID == request.sourceID && binding.layout.source === request.source {
+                            if preparation == nil { preparation = binding.layout.preparation }
+                            if binding.layout.metadata.offeredWidth == request.width {
+                                existing = binding.layout; break
+                            }
+                        }
+                    }
+                    if let existing {
                         // Shape depends on captured source and width, not the
                         // height offer. The fresh artifact still answers only
                         // this exact request ID/full kernel offer.
-                        layout = existing.layout
+                        layout = existing
                     } else {
                         let width = request.width == -2 ? RegionWorkerLayout.minimumWidth(request.source)
                             : request.width < 0 ? CGFloat.infinity : request.width
                         beforeLayoutConstruction()
-                        layout = RegionWorkerLayout.shape(request.source, width: width, retainHits: request.width >= 0)
+                        layout = RegionWorkerLayout.shape(request.source, width: width, retainHits: request.width >= 0,
+                                                          preparation: preparation)
                     }
                     guard layout.metadata.width.isFinite, layout.metadata.height.isFinite,
                           layout.metadata.width >= 0, layout.metadata.height >= 0,

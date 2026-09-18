@@ -4,11 +4,150 @@ import XCTest
 @testable import ExactKit
 
 @MainActor final class RegionReuseTests: XCTestCase {
-    private func source(_ text: String = "ffi e\u{301} אבג 👩🏽‍🚀 wrapped link words ", color: [Double] = [20,40,60,255]) -> RegionTextSource {
-        let run = Run(text: String(repeating: text, count: 4), size: 16, weight: 400, family: 0,
+    func testDifferentWidthsPrepareOnceWhileLayoutsAndHeightRequestIDsStayFresh() {
+        let h = RegionReuseHarness(), s = source()
+        defer { h.service.close() }
+        #if REGION_PREPARATION_SENTINEL
+        let before = RegionPreparationSentinel.count
+        #endif
+        let a = h.shape(1, source: s, width: 320, height: -2)
+        let b = h.shape(2, source: s, width: 270, height: -1)
+        let c = h.shape(3, source: s, width: 270, height: 400)
+        XCTAssertEqual(h.admissions.count, 3)
+        XCTAssertEqual(h.constructions.count, 2)
+        XCTAssertEqual([a.id,b.id,c.id], [1,2,3])
+        XCTAssertFalse(a.metadata === b.metadata)
+        XCTAssertTrue(b.metadata === c.metadata)
+        XCTAssertEqual([a.metadata.offeredWidth,b.metadata.offeredWidth,c.metadata.offeredWidth], [320,270,270])
+        XCTAssertEqual(b.metadata.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - before, 1, "actual attributed/typesetter construction, not admission or equal metrics")
+        #endif
+        withExtendedLifetime([a,b,c]) {}
+    }
+
+    func testPreparationUsesExactSourceIdentityAndExistingLiveBindingsOnly() {
+        let h = RegionReuseHarness(), s = source(), equal = source()
+        defer { h.service.close() }
+        #if REGION_PREPARATION_SENTINEL
+        let before = RegionPreparationSentinel.count
+        #endif
+        let a = h.shape(1, source: s)
+        let b = h.shape(2, source: s, width: 270)
+        let otherObject = h.shape(3, source: equal, width: 270)
+        let otherID = h.shape(4, source: s, sourceID: 8, width: 270)
+        let otherGeneration = h.shape(5, source: s, width: 270, generation: 2)
+        let otherPalette = h.shape(6, source: source(color: [80,20,110,255]), width: 270)
+        let otherFont = h.shape(7, source: source(size: 23), width: 270)
+        XCTAssertEqual(s.sourceSHA256, equal.sourceSHA256)
+        XCTAssertEqual(h.constructions.count, 7)
+        XCTAssertFalse(a.metadata === b.metadata)
+        for value in [otherObject,otherID,otherGeneration,otherPalette,otherFont] {
+            XCTAssertFalse(value.metadata === b.metadata)
+        }
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - before, 6)
+        #endif
+        withExtendedLifetime([a,b,otherObject,otherID,otherGeneration,otherPalette,otherFont]) {}
+    }
+
+    func testPreparedOwnerDropsWithLastLayoutAndNeverCrossesTheWorker() {
+        // This default-suite test checks the real owner without sentinel flags.
+        let s = source(), done = DispatchSemaphore(value: 0), result = PreparedLifetimeEvidence()
+        DispatchQueue(label: "prepared-lifetime-test").async {
+            autoreleasepool {
+                var a: RegionWorkerLayout? = RegionWorkerLayout.shape(s,width: 320)
+                weak var owner = a?.preparation
+                defer { owner = nil }
+                var b: RegionWorkerLayout? = RegionWorkerLayout.shape(s,width: 270,preparation: a!.preparation)
+                result.shared = a!.preparation === b!.preparation
+                result.sourceMatched = b!.preparation.source === s
+                a = nil
+                result.survivesFirstDrop = owner != nil
+                b = nil
+                result.dropsLast = owner == nil
+                result.worker = !Thread.isMainThread
+            }
+            done.signal()
+        }
+        done.wait()
+        XCTAssertTrue(result.shared)
+        XCTAssertTrue(result.sourceMatched)
+        XCTAssertTrue(result.survivesFirstDrop)
+        XCTAssertTrue(result.dropsLast)
+        XCTAssertTrue(result.worker)
+    }
+    func testSharedPreparationMatchesFreshWidthFontClampAndSelectionPixels() {
+        for (size, clamp) in [(CGFloat(16),0),(CGFloat(23),2)] {
+            autoreleasepool {
+                let s = source(size: size, clamp: clamp), h = RegionReuseHarness(), fresh = RegionReuseHarness()
+                defer { h.service.close(); fresh.service.close() }
+                let a = h.shape(1,source: s,width: 320)
+                let b = h.shape(2,source: s,width: 270)
+                let reference = fresh.shape(3,source: s,width: 270)
+                let x = b.metadata, y = reference.metadata
+                XCTAssertEqual(x.width,y.width); XCTAssertEqual(x.height,y.height)
+                XCTAssertEqual(x.baselines,y.baselines); XCTAssertEqual(x.lineBottoms,y.lineBottoms)
+                XCTAssertEqual(x.lines.count,y.lines.count)
+                for (l,r) in zip(x.lines,y.lines) {
+                    XCTAssertEqual(l.range,r.range); XCTAssertEqual(l.ink,r.ink)
+                    XCTAssertEqual(l.ascent,r.ascent); XCTAssertEqual(l.descent,r.descent)
+                    XCTAssertEqual(l.leading,r.leading); XCTAssertEqual(l.typographicWidth,r.typographicWidth)
+                    XCTAssertEqual(l.flushOffset,r.flushOffset)
+                }
+                let profile = h.profile(), selection = NSRange(location: 2,length: 15)
+                let pixels = h.raster(1,publication: 1,artifact: b,profile: profile,selection: selection)
+                let original = fresh.raster(1,publication: 1,artifact: reference,profile: profile,selection: selection)
+                XCTAssertEqual(pixels.image()!.dataProvider!.data! as Data,original.image()!.dataProvider!.data! as Data)
+                let box = CGRect(x: 0,y: 0,width: 270,height: x.height)
+                for yy in [CGFloat(0),x.firstBaseline,x.height] {
+                    for xx in [CGFloat(-2),0,17.25,269,290] {
+                        let point = CGPoint(x: xx,y: yy)
+                        let li = x.cachedIndex(at: point,in: box,artifact: b.id,hits: pixels.hits)
+                        let ri = y.cachedIndex(at: point,in: box,artifact: reference.id,hits: original.hits)
+                        XCTAssertEqual(li,ri)
+                        if let li, let ri { XCTAssertEqual(x.link(at: point,in: box,exactIndex: li),y.link(at: point,in: box,exactIndex: ri)) }
+                    }
+                }
+                XCTAssertEqual(x.copy(NSRange(location: 0,length: s.utf16Count)),s.text)
+                withExtendedLifetime(a) {}
+            }
+        }
+    }
+
+    func testCloseDropsPreparedSourceAndFontsWhilePixelAliasSurvives() {
+        let h = RegionReuseHarness()
+        weak var captured: RegionTextSource?
+        weak var font: RegionFontOwner?
+        defer { captured = nil; font = nil; h.service.close() }
+        var pixels: RegionRaster?
+        autoreleasepool {
+            let s = source()
+            captured = s; font = s.runs[0].font.owner
+            let a = h.shape(1,source: s,width: 320)
+            let b = h.shape(2,source: s,width: 270)
+            pixels = h.raster(1,publication: 1,artifact: b,profile: h.profile())
+            h.service.close()
+            withExtendedLifetime([a,b]) {}
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while captured != nil && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+        }
+        XCTAssertNil(captured)
+        XCTAssertNil(font)
+        autoreleasepool {
+            XCTAssertNotNil(pixels?.image(), "pixel aliases must not own source/font/layout preparation")
+        }
+        pixels = nil
+        XCTAssertEqual(h.service.pixels.stats.owners,0)
+    }
+
+    private func source(_ text: String = "ffi e\u{301} אבג 👩🏽‍🚀 wrapped link words ", color: [Double] = [20,40,60,255], size: CGFloat = 16, clamp: Int = 0) -> RegionTextSource {
+        let run = Run(text: String(repeating: text, count: 4), size: size, weight: 400, family: 0,
                       italic: true, lineHeight: 26.25, letterSpacing: 0,
                       decoration: "underline", href: "https://example.invalid/reuse")
-        return RegionTextSource.capture(Spec(runs: [run], align: 0, lineClamp: 0, color: color, strut: run),
+        return RegionTextSource.capture(Spec(runs: [run], align: 0, lineClamp: clamp, color: color, strut: run),
                                         engine: TextEngine(resolve: { _ in nil }))
     }
     func testThreeExactHeightRequestsShareOneConstructionButKeepFreshIdentities() {
@@ -51,6 +190,9 @@ import XCTest
         withExtendedLifetime([a,differentObject,differentID,differentGeneration,differentWidth,changedPaint]) {}
     }
     func testIntrinsicOffersNeverReuseButDefiniteZeroDoes() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let h = RegionReuseHarness(), s = source()
         defer { h.service.close() }
         var retained: [RegionArtifact] = []
@@ -66,6 +208,9 @@ import XCTest
         XCTAssertEqual(retained[5].metadata.offeredWidth, 0)
         XCTAssertFalse(retained[5].metadata.lines.isEmpty)
         withExtendedLifetime(retained) {}
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 5)
+        #endif
     }
     func testRetiringOldAliasStillRastersFreshIDWithExactPixelsAndHits() {
         let h = RegionReuseHarness(), s = source()
@@ -107,6 +252,9 @@ import XCTest
         withExtendedLifetime([before,after]) {}
     }
     func testAliasBindingsStillCountTowardLive64CapAndRetirementReopensOneSlot() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let h = RegionReuseHarness(), s = source("small cap source ")
         defer { h.service.close() }
         var retained: [RegionArtifact?] = []
@@ -123,8 +271,14 @@ import XCTest
         XCTAssertTrue(next.metadata === retained[1]?.metadata)
         XCTAssertEqual(h.constructions.count, 1)
         withExtendedLifetime(retained) {}
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 1)
+        #endif
     }
     func testDroppingLastDictionaryBindingDoesNotCreateRetainedLookupHistory() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let h = RegionReuseHarness(), s = source()
         defer { h.service.close() }
         var a: RegionArtifact? = h.shape(1, source: s)
@@ -136,8 +290,14 @@ import XCTest
         XCTAssertEqual(h.constructions.count, 2, "retired entries are not a history cache")
         XCTAssertNil(oldMetadata)
         XCTAssertEqual(b.id, 2)
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 2)
+        #endif
     }
     func testResetClearsReuseEvenWhenOldMetadataIsExternallyRetained() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let h = RegionReuseHarness(), s = source()
         defer { h.service.close() }
         let old = h.shape(1, source: s)
@@ -148,8 +308,14 @@ import XCTest
         XCTAssertEqual(next.generation, 2)
         XCTAssertEqual(old.metadata.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
         withExtendedLifetime(old) {}
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 2)
+        #endif
     }
     func testPaintOnlyOwnerIsNotAHistoryEntryAndCloseDropsIt() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let h = RegionReuseHarness(), s = source()
         defer { h.service.close() }
         var a: RegionArtifact? = h.shape(1, source: s)
@@ -169,8 +335,14 @@ import XCTest
         XCTAssertNil(oldMetadata, "close releases queue-owned paint/layout references")
         XCTAssertNotNil(raster.image(), "pixel payload can outlive service/cache without CTLine ownership")
         withExtendedLifetime(b) {}
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 2)
+        #endif
     }
     func testAdmissionBarrierStillRunsOnAReuseHitAndResetKeepsOneWorker() {
+        #if REGION_PREPARATION_SENTINEL
+        let preparationStart = RegionPreparationSentinel.count
+        #endif
         let gate = RegionReuseGate(blockAdmission: 2)
         let h = RegionReuseHarness(admission: { gate.enter() }), s = source()
         defer { h.service.close() }
@@ -191,6 +363,9 @@ import XCTest
         XCTAssertEqual(h.constructions.count, 2, "old same-source admission reuses before epoch rejection; new generation constructs")
         XCTAssertTrue(h.inbox.answers.isEmpty, "no old answer delivered")
         withExtendedLifetime(a) {}
+        #if REGION_PREPARATION_SENTINEL
+        XCTAssertEqual(RegionPreparationSentinel.count - preparationStart, 2)
+        #endif
     }
 }
 
@@ -244,9 +419,10 @@ private final class RegionReuseGate: @unchecked Sendable {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         return NativeProfile.capture(original: space,data: space.copyICCData(),account: NativeProfileAccount()).owner!
     }
-    func raster(_ serial: UInt64, publication: UInt64, artifact: RegionArtifact, profile: NativeProfile) -> RegionRaster {
+    func raster(_ serial: UInt64, publication: UInt64, artifact: RegionArtifact, profile: NativeProfile,
+                selection: NSRange = NSRange(location: 0,length: 0)) -> RegionRaster {
         let request = RegionRasterRequest(serial: serial,publication: publication,generation: artifact.generation,
-            rows: [RegionPaintRow(artifact: artifact.id,box: CGRect(x: 0,y: 0,width: 320,height: artifact.metadata.height))],
+            rows: [RegionPaintRow(artifact: artifact.id,box: CGRect(x: 0,y: 0,width: artifact.metadata.offeredWidth,height: artifact.metadata.height),selection: selection)],
             scroll: CGPoint(x: 0,y: 0.375),size: CGSize(width: 340,height: 100),scale: 1,
             profile: profile,format: CGImageAlphaInfo.premultipliedLast.rawValue,
             background: [1,1,1,1],selectionColor: [0.2,0.4,0.8,0.45])
@@ -256,3 +432,6 @@ private final class RegionReuseGate: @unchecked Sendable {
 }
 
 private final class ReuseSelectionReference: @unchecked Sendable { var rectangles: [CGRect] = [] }
+private final class PreparedLifetimeEvidence: @unchecked Sendable {
+    var shared = false, sourceMatched = false, survivesFirstDrop = false, dropsLast = false, worker = false
+}

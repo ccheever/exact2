@@ -1,5 +1,19 @@
 import Foundation
 import CoreText
+// Only live layouts own this preparation. It never crosses the worker queue or
+// attaches to Sendable source/metadata. Attributed and opaque typesetter storage
+// now live as long as their last layout; pixel/index budgets do not cover them.
+final class RegionPreparedSource {
+    let source: RegionTextSource
+    let attributed: NSAttributedString
+    let typesetter: CTTypesetter
+    init(_ source: RegionTextSource) {
+        precondition(!Thread.isMainThread, "region preparation must be worker-owned")
+        self.source = source
+        attributed = source.attributed()
+        typesetter = CTTypesetterCreateWithAttributedString(attributed)
+    }
+}
 // This record is deliberately NOT Sendable. CTLines and index survive all
 // viewport queries on one queue, then die there before metadata publication.
 final class RegionWorkerLayout {
@@ -7,14 +21,20 @@ final class RegionWorkerLayout {
     let lines: [CTLine]
     let baselines: [CGFloat]
     let metadata: RegionParagraph
-    private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph) {
+    let preparation: RegionPreparedSource
+    private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph,
+                 preparation: RegionPreparedSource) {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
+        self.preparation = preparation
     }
-    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true) -> RegionWorkerLayout {
+    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+                      preparation: RegionPreparedSource? = nil) -> RegionWorkerLayout {
         precondition(!Thread.isMainThread, "region shape must be worker-owned")
         let spec = source
-        let attributed = source.attributed()
-        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        let preparation = preparation ?? RegionPreparedSource(source)
+        precondition(preparation.source === source, "preparation belongs to this exact captured source")
+        let attributed = preparation.attributed
+        let typesetter = preparation.typesetter
         let length = source.utf16Count
         func extents(_ run: RegionTextRun) -> (CGFloat, CGFloat) {
             (run.font.above, run.font.below)
@@ -122,7 +142,8 @@ final class RegionWorkerLayout {
         let metadata = RegionParagraph(source: source, lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),
                                        lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false)
-        return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [], metadata: metadata)
+        return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],
+                                  metadata: metadata, preparation: preparation)
     }
 
     func exactIndex(at point: CGPoint, in bounds: CGRect) -> Int {

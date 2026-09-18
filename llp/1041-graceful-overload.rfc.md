@@ -4851,3 +4851,46 @@ Independent reconstruction checks complete child identities/containment/order,
 pixel hashes and all seven release records. Owned compile/runtime groups are
 absent. These results focus the next source investigation on metadata and repeated
 preparation while full-app retained-image continuity remains separately unproven.
+
+### 8.79 Share live worker preparation across widths, 2026-09-18
+
+New definite-width requests can reuse the attributed string and CTTypesetter of
+an existing live layout for the exact captured source object, source ID and
+generation. The existing scan of at most64 request bindings prioritizes an
+equal-width layout; otherwise it shares only preparation and builds new lines
+and metadata. Every request retains its own artifact ID and full offer.
+Intrinsic requests bypass this lookup. Nil-locale boundaries, ellipsis, glyph
+ink, source capture, admission and cancellation remain unchanged. There is no
+new worker, history cache or lookup through paint-only owners.
+
+The prepared object is not Sendable and stays on the serial worker. This trades
+longer attributed-string/typesetter residency for less repeated construction:
+the last layout, including legitimate paint ownership, releases it. Those opaque
+CoreText heaps are not measured here or included in pixel/index/hit budgets.
+The64-binding limit is not a source-byte or RSS bound.
+
+Tests first run the old implementation with a sentinel immediately after its
+actual non-ellipsis typesetter constructor. Two distinct widths while A remains
+live construct two preparations against an expected one; exact-key controls
+construct seven against an expected six. These are the only failures among
+36 methods/28,399 assertions. Candidate39 methods/33,986 assertions pass, including
+two distinct layouts from one preparation, fresh height-request identity,
+source/font/palette/generation misses, intrinsic and cap controls, reset/close,
+paint-only exclusion and weak last-owner release. Glyphs, metrics, selection,
+hits and selected pixels match unchanged ordinary or fresh-preparation references.
+The candidate's three additional new-API methods are omitted from the baseline;
+global suite constructor totals and execution times are not comparable gains.
+
+Both standalone arms compile with Swift6 strict concurrency and warnings as
+errors. All70 uninstrumented module sources typecheck in the host's Swift5 mode;
+their bytes match the integrated tree. The harness uses an assertion shim rather
+than full XCTest. No fullhost/iOS build, new native timing or physical120Hz result
+is claimed. The full1MiB/two-width oracle remains a separate pending validation.
+
+The exact two production files and two existing test files are archived at
+`target/region-prepared-source-validation/freeze-v1/`, with185 artifacts/4,254,710B,
+manifest `8b122289a636156fa9a1b57c05d05eefee570b415d0b7b7966e1b3bc337fd8bc`
+and complete patch `e634e23e36f08e845074c608b445d470b1be6d1964ea8d8ba610f401774f5970`.
+Independent constructor-instrumentation inverses recover both production arms;
+all10 recorded processes/five groups are absent. The measured repeated
+preparation in §8.78 motivates this change but does not quantify its saving.

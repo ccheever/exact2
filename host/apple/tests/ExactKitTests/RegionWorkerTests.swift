@@ -273,6 +273,59 @@ import CoreText
         XCTAssertTrue(coalesced, "fixture must exercise one glyph run intersecting multiple authored line-height spans")
     }
 
+    func testSharedPreparationGlyphsMetricsCaretsAndClampMatchOrdinary() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var coalesced = false
+        for clamp in [0, 2] { for wrap in [0, 1, 2] {
+            var spec = rangeSpec(clamp: clamp); spec.overflowWrap = wrap
+            let source = RegionTextSource.capture(spec, engine: engine)
+            for width: CGFloat in [0, 83.25, 213.5] {
+                let ordinary = engine.paragraph(spec, width: width)
+                let expectedGlyphs = ordinary.lines.map(RegionGlyphEvidence.init)
+                let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+                DispatchQueue(label: "region-range-parity").async {
+                    let first = RegionWorkerLayout.shape(source,width: 311)
+                    let layout = RegionWorkerLayout.shape(source, width: width, preparation: first.preparation)
+                    box.preparationShared = first.preparation === layout.preparation
+                    box.value = denseRegionReference(layout)
+                    box.glyphs = layout.lines.map(RegionGlyphEvidence.init)
+                    done.signal()
+                }
+                done.wait()
+                let result = box.value!
+                XCTAssertTrue(box.preparationShared)
+                XCTAssertFalse(result.shapedOnMainThread)
+                XCTAssertEqual(result.width, ordinary.width)
+                XCTAssertEqual(result.height, ordinary.height)
+                XCTAssertEqual(result.baselines, ordinary.baselines)
+                XCTAssertEqual(result.lineBottoms, ordinary.lineBottoms)
+                XCTAssertEqual(result.lines.count, ordinary.lines.count)
+                XCTAssertEqual(box.glyphs, expectedGlyphs)
+                XCTAssertEqual(result.copy(NSRange(location: 0, length: source.utf16Count)), source.text)
+                for (i, line) in ordinary.lines.enumerated() {
+                    let range = CTLineGetStringRange(line)
+                    XCTAssertEqual(result.lines[i].range, NSRange(location: range.location, length: range.length))
+                    for index in range.location...(range.location + range.length) {
+                        var secondary: CGFloat = 0
+                        let primary = CTLineGetOffsetForStringIndex(line, index, &secondary)
+                        XCTAssertEqual(result.lines[i].offsets(at: index).primary, primary)
+                        XCTAssertEqual(result.lines[i].offsets(at: index).secondary, secondary)
+                    }
+                    for x in stride(from: CGFloat(-2), through: ordinary.width + 2, by: 2.25) {
+                        XCTAssertEqual(result.lines[i].index(at: x), CTLineGetStringIndexForPosition(line, CGPoint(x: x, y: 0)))
+                    }
+                    for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                        let r = CTRunGetStringRange(run)
+                        if source.runs.filter({ $0.range.location < r.location + r.length && NSMaxRange($0.range) > r.location }).count > 1 {
+                            coalesced = true
+                        }
+                    }
+                }
+            }
+        } }
+        XCTAssertTrue(coalesced, "fixture must exercise one glyph run intersecting multiple authored line-height spans")
+    }
+
     func testMixedRunStationaryPixelsMatchOrdinary() {
         let engine = TextEngine(resolve: { _ in nil })
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -311,6 +364,48 @@ import CoreText
             } }
         }
     }
+
+    func testSharedPreparationStationaryPixelsMatchOrdinary() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let profile = NativeProfile.capture(original: space, data: space.copyICCData(), account: NativeProfileAccount()).owner!
+        for clamp in [0, 2] {
+            let spec = rangeSpec(clamp: clamp), source = RegionTextSource.capture(rangeSpec(clamp: clamp), engine: engine)
+            let ordinary = engine.paragraph(spec, width: 163.25)
+            for scale in [1, 2] { for scroll: CGFloat in [0, 27.375] {
+                let width = 240 * scale, height = 120 * scale
+                let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: [1, 1, 1, 1])!)
+                ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
+                TextEngine.draw(ordinary, spec: spec,
+                    in: CGRect(x: 7.25, y: 0.125 - scroll, width: 163.25, height: ordinary.height), context: ctx)
+                ctx.flush()
+                let expected = Data(bytes: ctx.data!, count: width * height * 4)
+                let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
+                    rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 163.25, height: ordinary.height))],
+                    scroll: CGPoint(x: 0, y: scroll), size: CGSize(width: 240, height: 120), scale: scale,
+                    profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
+                    background: [1, 1, 1, 1], selectionColor: [0.2, 0.4, 0.8, 0.45])
+                let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+                DispatchQueue(label: "region-range-pixels").async {
+                    do {
+                        let first = RegionWorkerLayout.shape(source,width: 311)
+                        let layout = RegionWorkerLayout.shape(source, width: 163.25, preparation: first.preparation)
+                        box.preparationShared = first.preparation === layout.preparation
+                        let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
+                        box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
+                    } catch { box.error = String(describing: error) }
+                    done.signal()
+                }
+                done.wait()
+                XCTAssertEqual(box.error, "")
+                XCTAssertTrue(box.preparationShared)
+                XCTAssertEqual(box.raster!.image()!.dataProvider!.data! as Data, expected)
+            } }
+        }
+    }
 }
 // Glyph/layout objects are read only on their owning executor; only these
 // owned scalar arrays cross the semaphore handoff for the parity assertion.
@@ -344,6 +439,7 @@ private struct RegionGlyphEvidence: Sendable, Equatable {
 private final class RegionTestBox: @unchecked Sendable {
     var value: RegionParagraph?
     var glyphs: [RegionGlyphEvidence] = []
+    var preparationShared = false
     var width: CGFloat = 0
     var raster: RegionRaster?
     var error = ""
