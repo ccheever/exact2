@@ -2755,11 +2755,47 @@ Tight capacity does not prove allocator AS/RSS release. Reallocation may retain
 the old block plus one replacement line; the unwrapped test's replacement is
 5,280,000 bytes, not viewport-bounded scratch. Ordinary layout adds a line-header
 scan; no overhead timings were collected. Full uncompacted output still exists
-before this step. The purpose is to reduce A retained during later B construction;
-the failed 4 MiB case has not yet been rerun with this change. The source/test
+before this step. The purpose is to reduce A retained during later B construction.
+The source/test
 freeze is `target/layout-capacity-validation/freeze-v1/`, manifest
 `f0cc711d4df9dc16246fb253812e31e6b6800d6d8ce3086aff1ea17f394971d0`;
 integrated logs are in the adjacent `integration/` directory.
+
+Separate compaction replays now retain the same workload, cap, guard, fonts,
+pointer policy and receiver. Both candidate and references were rebuilt from
+frozen ef12f06 plus the reviewed compaction, rather than a moving MAIN checkout.
+At 1 MiB the whole recipe passes again: both 26-field proofs, full accepted
+crops, retained-A typing/scrolling, input-free B publication and A retirement.
+Four jobs use one shape and two layouts/indexes. Known completed backing peaks
+at 404,207,930 bytes, versus 487,403,394 in the earlier run; sampled VmPeak/RSS
+is 1,279,952/544,064 KiB. These different accounting categories do not establish
+an isolated process-memory saving. All 303 events retain zero giant UI
+shape/layout/index construction counters.
+
+At 4 MiB, both fresh references pass but the candidate still aborts before B
+publication, now reporting a 3,145,728-byte allocation failure. Sampled VmPeak
+is again 2,621,432 KiB and RSS/HWM is 1,772,192 KiB. Accepted A still matches
+all 26 fields and its full crop, handles typing and scrolls 40→80 while B runs;
+the original 532,224-byte retained overlap remains exact. All 403 raw events
+retain zero giant UI construction counters. The last frame still paints A.
+B reaches the index-start marker after layout returns, but no completed B
+proof/index or picture follows. The marker and allocation size do not identify
+the failed allocation site. The completed-owner subtotal is 1,260,824,614 bytes,
+including compacted A lines at 349,198,048 bytes; in-progress B, font catalogs,
+allocator state, shrink transients and observer scratch remain excluded.
+
+The new 1 MiB archive is `target/novel-width-compaction-runtime-1m-v1/`,
+77 artifacts/31,145,130 bytes, manifest
+`f41425072cbb85d31e8ba0c16b60319f6089baae03848bbd6325be7c264d9c19`.
+The new failed 4 MiB archive is `target/novel-width-compaction-runtime-4m-v1/`,
+72 artifacts/23,722,850 bytes, manifest
+`79913d3078fcb63151f1708093d225335ec5b943152817877a0e891f252c9949`.
+Original runs remain untouched. All owned groups terminate; planned 1 MiB
+display shutdown remains distinct from the unsignaled 4 MiB SIGABRT. No cap
+increase or retry follows. The next discriminator is the production index and
+subsequent diagnostic proof allocation/lifetime path, before assigning a site
+or choosing another change. Continuous resizing and physical 120 Hz remain
+unproved.
 
 ### 8.37 Messages per-update stages identify remaining key work, 2026-09-17
 
