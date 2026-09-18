@@ -2682,3 +2682,53 @@ and unscored summaries, comparison decisions and cleanup receipts are under
 bytes, manifest `b19d8b75edcf123c7a92f430b830c980d70b55f37d972ed04fb85020522d7853`.
 The original six-cell archive and the supervisor's reproduced cleanup failure
 remain intact.
+
+### 8.36 Linux novel-width reflow: 1 MiB succeeds, 4 MiB exhausts the cap, 2026-09-17
+
+The unchanged ef12f06 candidate changes authored column width 640→1200,
+producing paragraph widths 600→984. Actual Linux uses the VKMS/display path
+and RFB input at a fixed 1024×768, CPU, scale 1. This is content reflow, not
+continuous window resizing. Each independent reference and candidate retains
+the same 2.5 GiB address-space cap and 60-second process guard.
+
+The first 1 MiB run completes its actions but fails the exact B crop: its
+software cursor is absent from the reference. That whole-run FAIL remains
+preserved. A separate reference-only correction specifies the independently
+derived document-center pointer, [512,443], with identical buttons and scale.
+It changes no candidate bytes, tolerance, crop or pixel mask. Both references
+run afresh before each corrected candidate.
+
+| Corrected workload | Completed candidate result | Sampled VmPeak / RSS |
+| --- | --- | --- |
+| 1 MiB | Full workload PASS; A and B match fresh references | 1,282,176 / 546,500 KiB |
+| 4 MiB | FAIL: SIGABRT while waiting for B publication | 2,621,432 / 1,767,596 KiB |
+
+At 1 MiB, all 26 proof fields and both entire 1,228,800-byte accepted crops
+match. A remains painted through typing and scrolling while B is built; B
+publishes without another input, then accepts further typing and scrolling.
+Four private jobs use one shape and two layouts/indexes, with same-width reuse;
+A retires after B adoption. Both original 40 px overlap comparisons remain
+exact. The known completed-backing checkpoint peaks at 487,403,394 bytes;
+it excludes in-progress arrays and private/process allocations.
+
+At 4 MiB, both independent references pass, and accepted A matches all 26
+fields and its full crop. Retained-A typing and scrolling also succeed while B
+runs. The candidate then reports `memory allocation of 11264 bytes failed` and
+exits -6. Sampled address space is only 8 KiB below the unchanged cap; no stack
+identifies the allocation site. Its final frame still paints A at scroll Y=80,
+with B pending publication. One shape, two layout starts and one index are
+recorded: the second start is not a completed B layout. No B picture, autonomous
+B publication or completed whole workload is claimed. The last known completed
+K/S/L/baseline/index subtotal is 1,546,250,942 bytes, excluding in-progress B
+and font/process costs. It is neither RSS nor the whole peak.
+
+Corrected 1 MiB evidence is under `target/novel-width-pointer-runtime-1m-v2/`,
+79 artifacts/31,344,261 bytes, manifest
+`a0692b2f0fdedb49bbebfe99fa0cc10dab742c07ce61bcb1f16bbf8fe3ebd97f`.
+The separate failed 4 MiB run is under
+`target/novel-width-pointer-runtime-4m-v2/`, 79 artifacts/23,651,831 bytes,
+manifest `dee0a82ce8c27c8ceeb2e3b3fb700626cf2db779ed5e163c1b501a107f545371`.
+All owned processes retire; planned display shutdown after the 1 MiB proofs is
+distinct from the unsignaled 4 MiB allocation abort. No cap increase or retry
+follows the 4 MiB failure. These instrumented, nonquiet cases establish neither
+an isolated memory saving, latency bound nor physical 120 Hz.
