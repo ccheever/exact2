@@ -1,0 +1,67 @@
+{
+  "selfRepairRounds": 2,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_15",
+        "item_16"
+      ]
+    },
+    {
+      "name": "current-game deterministic pins",
+      "repairs": 1,
+      "items": [
+        "item_18",
+        "item_20"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "readmeReads": [
+    {
+      "path": "game/README.md",
+      "lines": "1\u2013260",
+      "item": "item_2"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u2013320 (whole file)",
+      "item": "item_2"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u201342 (whole file)",
+      "item": "item_8"
+    }
+  ],
+  "recurrence": {
+    "repinUsed": true,
+    "pinFiles": 1,
+    "pinLinesAdded": 3,
+    "pinLinesDeleted": 3,
+    "historicalEvidenceChanged": false,
+    "unexpectedRouteStalls": false,
+    "inheritedStallDiagnosticRan": true,
+    "diagnosticNamedBlocker": "sign-board",
+    "actedOnUnexpectedStall": "not applicable",
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "taskBPhaseContract": "not applicable"
+  },
+  "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps. Agent used repin and then repeated required package tests and Linux proof.",
+  "quotes": [
+    {
+      "item": "item_19",
+      "text": "The full suite has one expected failure only: all three simulation modes agree byte-for-byte, but the committed scene hashes still describe the 12-lantern world."
+    },
+    {
+      "item": "item_23",
+      "text": "I\u2019m now rerunning the exact requested Rust command against the updated pins, followed by the exact requested Linux proof command."
+    }
+  ]
+}

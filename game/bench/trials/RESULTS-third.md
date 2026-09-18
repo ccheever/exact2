@@ -41,6 +41,7 @@ strict full acceptance, which also requires common-route and world-pixel checks.
 | After | [B2](evidence/I2/after/b-2/trial.json) | 400.0 | 18.2 | 18.7 | Fail: phase contract | 80,958 / 14,329 | 5 | 103 / 27 | 0 / 3 / 5 | 3 (2) |
 | After2 | [A1](evidence/I4/after2/a-1/trial.json) | 506.0 | 20.2 | 21.1 | Task pass | 310,295 / 12,631 | 8 | 130 / 13 | 0 / 2 / 2 | 1 (1) |
 | After2 | [B1](evidence/I4/after2/b-1/trial.json) | 258.3 | 20.2 | 20.3 | Task pass | 69,322 / 9,370 | 5 | 66 / 8 | 0 / 2 / 4 | 3 (1) |
+| After2 | [A2](evidence/I4/after2/a-2/trial.json) | 506.1 | 20.2 | 21.2 | Task pass | 80,136 / 10,829 | 7 | 130 / 13 | 0 / 2 / 4 | 2 (1) |
 | babylon reference | A1 | 407.2 | 2.0 | 20.9 | Pass | 63,450 / 13,307 | unknown | unknown | unknown | unknown |
 | babylon reference | A2 | 468.7 | 2.1 | 20.4 | Pass | 51,682 / 12,038 | unknown | unknown | unknown | unknown |
 | babylon reference | B1 | 220.4 | 2.2 | 20.2 | Pass | 49,007 / 8,330 | unknown | unknown | unknown | unknown |
@@ -93,3 +94,20 @@ unrelated root applications' `bool` field declarations; no other game's
 implementation appeared. No fixture edits or `--repin` were needed. Its derived
 `returnHome` publication leaves the public phase `playing`, and all seven v3 Task B
 checks pass. Both live-terminal capture assertions remain and pass.
+
+**After2 A2 — focused tests, formatting, one repin, then repeated verification.**
+[Log](evidence/I4/after2/a-2/agent.log),
+[diff](evidence/I4/after2/a-2/changes.diff),
+[audit](evidence/I4/after2/a-2/audit.json).
+It read README lines 1–260 (item_2). Its focused platform test and full-route test
+both passed before the full suite. A formatting failure led to one repair.
+Then the timing test failed: “all three simulation modes agree byte-for-byte,
+but the committed scene hashes still describe the 12-lantern world” (item_19).
+The documented `--repin` (item_20) succeeded, touching **one pin file, +3/−3 lines**,
+without changing the frozen engine evidence. It repeated the requested package
+tests and Linux proof: “I’m now rerunning the exact requested Rust command against
+the updated pins, followed by the exact requested Linux proof command” (item_23).
+**Two repairs in separate loops**. No unexpected route stall, capture hash failure,
+or borrow error occurred. The named sign-board stall is the inherited diagnostic
+proof; both live-terminal capture checks remain. This submission leaves the host
+proof unchanged and adds its new ordinary-input feature assertions in Rust.
