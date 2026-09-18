@@ -49,6 +49,9 @@ impl<K: Kind> Target for Id<K> {
     fn entity(self, world: &World) -> Option<Entity> {
         self.entity.entity(world)
     }
+    fn describe(&self, world: &World) -> String {
+        self.entity.describe(world)
+    }
 }
 impl<K: Kind> Data for Id<K> {
     fn write(&self, w: &mut dyn Writer) {
@@ -63,15 +66,42 @@ impl<K: Kind> Data for Id<K> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KindError(String);
 impl KindError {
+    /// Missing a required gameplay name.
+    pub fn unnamed<K: Kind>(world: &World, entity: Entity) -> Self {
+        Self(format!(
+            "name {} {}: entity is unnamed",
+            std::any::type_name::<K>(),
+            entity.describe(world)
+        ))
+    }
     /// Diagnostic used by generated component checks.
     #[doc(hidden)]
-    pub fn missing<K: Kind, C: Component>(entity: Entity) -> Self {
+    pub fn missing<K: Kind, C: Component>(world: &World, entity: Entity, operation: &str) -> Self {
         Self(format!(
-            "{} #{:?}: missing component {}",
+            "{operation} {} {}: missing component {}",
             std::any::type_name::<K>(),
-            entity,
+            entity.describe(world),
             C::NAME
         ))
+    }
+    /// Refuse declared child IDs that Data omits.
+    #[doc(hidden)]
+    pub fn saved_field<K: Kind, C: Component>(field: &str) -> Result<(), Self> {
+        if C::SAVED_FIELDS.contains(&field) {
+            Ok(())
+        } else {
+            Err(Self(format!("{} component {} field {field}: child binding must be saved; data(skip) is forbidden", std::any::type_name::<K>(), C::NAME)))
+        }
+    }
+    /// Reject aliases of the same component before spawning or leasing.
+    #[doc(hidden)]
+    pub fn unique<K: Kind>(fields: &[(std::any::TypeId, &str, &str)]) -> Result<(), Self> {
+        for (i, (id, field, ty)) in fields.iter().enumerate() {
+            if let Some((_, previous, _)) = fields[..i].iter().find(|(other, _, _)| other == id) {
+                return Err(Self(format!("{}: duplicate component {ty} in fields {previous} and {field} (including aliases); preflight before spawn or lease", std::any::type_name::<K>())));
+            }
+        }
+        Ok(())
     }
 }
 impl fmt::Display for KindError {
@@ -107,6 +137,18 @@ impl std::error::Error for KindError {}
 /// #[derive(Kind)] struct Generic<T> { value: T }
 /// ```
 pub trait Kind: Sized + 'static {
+    /// Component spellings for stale-identity diagnostics.
+    #[doc(hidden)]
+    const COMPONENTS: &'static str;
+    /// Resolve owned spawn values before any world mutation.
+    #[doc(hidden)]
+    fn prepare_spawn(&mut self, world: &World, name: &str) -> Result<(), KindError>;
+    /// Attach prevalidated child entities to the new parent.
+    #[doc(hidden)]
+    fn attach(world: &mut World, entity: Entity);
+    /// Whether this kind declares saved child bindings.
+    #[doc(hidden)]
+    const HAS_BINDINGS: bool;
     /// Shared row view.
     type Ref<'w>;
     /// Editing row view.
@@ -117,12 +159,31 @@ pub trait Kind: Sized + 'static {
     /// Existing editing storage query.
     #[doc(hidden)]
     type Write: Query;
+    /// Reject duplicate types, including aliases, before any mutation or lease.
+    #[doc(hidden)]
+    fn preflight() -> Result<(), KindError>;
+    /// Preflight all column leases without acquiring any.
+    #[doc(hidden)]
+    fn leases(
+        world: &World,
+        entity: Option<Entity>,
+        operation: &str,
+        mutable: bool,
+    ) -> Result<(), KindError>;
+    /// Initialize declared saved bindings at setup, or validate them on use.
+    #[doc(hidden)]
+    fn bindings(
+        world: &World,
+        entity: Entity,
+        initialize: bool,
+        operation: &str,
+    ) -> Result<(), KindError>;
     /// Insert fields into the ordinary component columns.
     #[doc(hidden)]
     fn insert(self, world: &mut World, entity: Entity);
     /// Check required component membership without acquiring mutable leases.
     #[doc(hidden)]
-    fn check(world: &World, entity: Entity) -> Result<(), KindError>;
+    fn check(world: &World, entity: Entity, operation: &str) -> Result<(), KindError>;
     /// Wrap a shared query row.
     #[doc(hidden)]
     fn view<'w>(id: Id<Self>, values: <Self::Read as Query>::Owned<'w>) -> Self::Ref<'w>;
@@ -131,10 +192,15 @@ pub trait Kind: Sized + 'static {
     fn view_mut<'w>(id: Id<Self>, values: <Self::Write as Query>::Owned<'w>) -> Self::Mut<'w>;
     /// Acquire shared leases for one entity.
     #[doc(hidden)]
-    fn row(world: &World, id: Id<Self>) -> Result<Self::Ref<'_>, KindError>;
+    fn row<'w>(world: &'w World, id: Id<Self>, operation: &str)
+        -> Result<Self::Ref<'w>, KindError>;
     /// Acquire editing leases for one entity.
     #[doc(hidden)]
-    fn row_mut(world: &World, id: Id<Self>) -> Result<Self::Mut<'_>, KindError>;
+    fn row_mut<'w>(
+        world: &'w World,
+        id: Id<Self>,
+        operation: &str,
+    ) -> Result<Self::Mut<'w>, KindError>;
 }
 
 /// Shared typed rows, in entity order, with one lease per column for the loop.
@@ -182,80 +248,202 @@ impl<'w, K: Kind> Iterator for KindRowsMut<'w, K> {
     }
 }
 
-impl World {
-    /// Spawn the kind's components without adding a kind column or tag.
-    pub fn spawn_kind<K: Kind>(&mut self, name: impl AsRef<str>, value: K) -> Id<K> {
-        let entity = self.spawn_named(name, ());
-        value.insert(self, entity);
-        Id::new(entity)
+// Active closure operations are diagnostic context only, never simulation state.
+struct Operation<'w>(&'w World);
+impl Drop for Operation<'_> {
+    fn drop(&mut self) {
+        self.0.kind_operations.borrow_mut().pop();
     }
-    /// Check an existing entity (including a scene entity) and give it a typed ID.
-    pub fn bind<K: Kind>(&self, target: impl Target) -> Result<Id<K>, KindError> {
+}
+
+impl World {
+    fn kind_operation<K: Kind>(&self, entity: Option<Entity>, operation: &str) -> Operation<'_> {
+        self.kind_operations.borrow_mut().push(format!(
+            "{operation} {} {}",
+            std::any::type_name::<K>(),
+            entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self))
+        ));
+        Operation(self)
+    }
+    /// Preflight a generated field's column without taking a lease.
+    #[doc(hidden)]
+    pub fn kind_lease<K: Kind, C: Component>(
+        &self,
+        entity: Option<Entity>,
+        operation: &str,
+        mutable: bool,
+    ) -> Result<(), KindError> {
+        if let Some(conflict) = self.storage::<C>().and_then(|s| s.lease_conflict(mutable)) {
+            return Err(KindError(format!("{operation} {} {}: component {} is already borrowed {conflict}; inside [{}]; drop the row before another overlapping operation", std::any::type_name::<K>(), entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self)), C::NAME, self.kind_operations.borrow().join(" -> "))));
+        }
+        Ok(())
+    }
+    fn checked<K: Kind>(&self, target: impl Target, operation: &str) -> Result<Id<K>, KindError> {
+        K::preflight()?;
+        let label = target.describe(self);
         let e = target.entity(self).ok_or_else(|| {
             KindError(format!(
-                "{}: entity is absent or stale",
+                "{operation} {} {label}: entity is absent or stale (generation check); components {}",
+                std::any::type_name::<K>(), K::COMPONENTS
+            ))
+        })?;
+        K::check(self, e, operation)?;
+        Ok(Id::new(e))
+    }
+    /// Spawn ordinary component columns, then initialize declared saved bindings.
+    /// Duplicate types are rejected before creation; an invalid binding rolls back the entity.
+    pub fn spawn_kind<K: Kind>(&mut self, name: impl AsRef<str>, mut value: K) -> Id<K> {
+        K::preflight().expect("spawn_kind preflight");
+        value
+            .prepare_spawn(self, name.as_ref())
+            .expect("spawn_kind binding preflight");
+        let entity = self.spawn_named(name, ());
+        value.insert(self, entity);
+        K::attach(self, entity);
+        match self.bind::<K>(entity) {
+            Ok(id) => id,
+            Err(error) => {
+                self.despawn(entity);
+                panic!("spawn_kind: {error}");
+            }
+        }
+    }
+    /// Setup boundary: fill default declared child IDs once; validate existing saved IDs.
+    pub fn bind<K: Kind>(&self, target: impl Target) -> Result<Id<K>, KindError> {
+        let id = self.checked::<K>(target, "bind")?;
+        K::leases(self, Some(id.entity), "bind", false)?;
+        K::bindings(self, id.entity, true, "bind")?;
+        Ok(id)
+    }
+    /// Resolve a direct named child at setup. Persist the returned ID as state.
+    pub fn child<K: Kind>(&self, parent: impl Target, name: &str) -> Result<Id<K>, KindError> {
+        let label = parent.describe(self);
+        let parent = parent.entity(self).ok_or_else(|| {
+            KindError(format!(
+                "child {} {label}: parent is absent or stale",
                 std::any::type_name::<K>()
             ))
         })?;
-        K::check(self, e)?;
-        Ok(Id::new(e))
-    }
-    /// Resolve a named direct child once. Store the resulting ID in a component
-    /// or resource; use data(skip) for a derived binding rebuilt after restore.
-    pub fn child<K: Kind>(&self, parent: impl Target, name: &str) -> Result<Id<K>, KindError> {
-        let parent = parent
-            .entity(self)
-            .ok_or_else(|| KindError("child's parent is absent".into()))?;
-        let prefix = self
-            .name(parent)
-            .ok_or_else(|| KindError("child's parent is unnamed".into()))?;
-        let path = format!("{prefix}/{name}");
-        let child = self
-            .bind::<K>(path.as_str())
-            .map_err(|e| KindError(format!("{path}: {e}")))?;
+        let prefix = self.name(parent).ok_or_else(|| {
+            KindError(format!(
+                "child {}: parent {label} is unnamed",
+                std::any::type_name::<K>()
+            ))
+        })?;
+        let child = self.checked::<K>(format!("{prefix}/{name}").as_str(), "child")?;
         if self
             .get::<crate::Parent>(child)
             .is_none_or(|p| p.0 != parent)
         {
             return Err(KindError(format!(
-                "{path}: expected direct child of {prefix}"
+                "child {} {}: component Parent must reference {label}",
+                std::any::type_name::<K>(),
+                child.describe(self)
             )));
         }
         Ok(child)
     }
-    /// Shared row access. Missing or stale components produce a named error.
+    /// Resolve an unparented, already spawned child before creating its parent.
+    #[doc(hidden)]
+    pub fn kind_spawn_child<K: Kind, C: Kind>(
+        &self,
+        name: &str,
+        child: &str,
+        saved: Id<C>,
+    ) -> Result<Id<C>, KindError> {
+        let id = self.checked::<C>(format!("{name}/{child}").as_str(), "spawn_kind child")?;
+        if (saved != Id::default() && saved != id) || self.has::<crate::Parent>(id.entity()) {
+            return Err(KindError(format!("spawn_kind {} entity {name:?} child {child}: expected unparented {} matching saved ID {saved:?}", std::any::type_name::<K>(), id.describe(self))));
+        }
+        Ok(id)
+    }
+    /// Generated child field resolution. Existing IDs are never retargeted by name.
+    #[doc(hidden)]
+    pub fn kind_child<K: Kind, C: Kind>(
+        &self,
+        entity: Entity,
+        name: &str,
+        field: &str,
+        saved: Id<C>,
+        initialize: bool,
+        operation: &str,
+    ) -> Result<Id<C>, KindError> {
+        let result = if initialize && saved == Id::default() {
+            self.child::<C>(entity, name)
+        } else {
+            self.checked::<C>(saved, operation).and_then(|id| {
+                if self.get::<crate::Parent>(id).is_none_or(|p| p.0 != entity) {
+                    Err(KindError(format!(
+                        "component Parent for {} must reference {}",
+                        id.describe(self),
+                        entity.describe(self)
+                    )))
+                } else {
+                    Ok(id)
+                }
+            })
+        };
+        result.map_err(|e| {
+            KindError(format!(
+                "{operation} {} {} field {field} (child {name}): {e}",
+                std::any::type_name::<K>(),
+                entity.describe(self)
+            ))
+        })
+    }
+    /// Shared row access; validates saved bindings without rebuilding or dirtying state.
     pub fn row<K: Kind>(&self, id: Id<K>) -> Result<K::Ref<'_>, KindError> {
-        self.bind::<K>(id)?;
-        K::row(self, id)
+        self.checked::<K>(id, "row")?;
+        K::leases(self, Some(id.entity), "row", false)?;
+        K::bindings(self, id.entity, false, "row")?;
+        K::row(self, id, "row")
     }
-    /// Read an established game invariant and release its shared leases at return.
-    /// A stale or incomplete ID panics with the kind and missing component.
-    pub fn with_row<K: Kind, R>(&self, id: Id<K>, f: impl FnOnce(&K::Ref<'_>) -> R) -> R {
-        f(&self.row(id).unwrap_or_else(|e| panic!("{e}")))
-    }
-    /// Edit an established game invariant, releasing all leases at return.
-    /// Validate before any mutable lease so a missing field does not dirty pages.
+    /// Edit an established game invariant. Failures name the operation, kind,
+    /// entity and column; all validation precedes mutable leases.
     pub fn edit<K: Kind, R>(&self, id: Id<K>, f: impl FnOnce(&mut K::Mut<'_>) -> R) -> R {
-        self.bind::<K>(id).unwrap_or_else(|e| panic!("{e}"));
-        f(&mut K::row_mut(self, id).unwrap_or_else(|e| panic!("{e}")))
+        self.checked::<K>(id, "edit").expect("edit validation");
+        K::leases(self, Some(id.entity), "edit", true).expect("edit lease preflight");
+        K::bindings(self, id.entity, false, "edit").expect("edit binding validation");
+        let _operation = self.kind_operation::<K>(Some(id.entity), "edit");
+        f(&mut K::row_mut(self, id, "edit").expect("edit row"))
     }
     /// Edit a resource, releasing its lease before returning the closure's result.
     pub fn edit_resource<T: Resource, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         f(&mut self.resource_mut::<T>())
     }
-    /// Shared entity-ordered rows; reads do not dirty pages or observation epochs.
+    fn prepare_kind<K: Kind>(&self, operation: &str, mutable: bool) {
+        K::preflight().expect("kind preflight");
+        self.kind_work_bound(operation);
+        K::leases(self, None, operation, mutable).expect("kind lease preflight");
+        if !K::HAS_BINDINGS {
+            return;
+        }
+        for entity in self.entities() {
+            if K::check(self, entity, operation).is_ok() {
+                K::bindings(self, entity, false, operation).expect("kind binding validation");
+            }
+        }
+    }
+    /// Shared entity-ordered rows. Saved child bindings are validated before leases.
     pub fn rows<K: Kind>(&self) -> KindRows<'_, K> {
+        self.prepare_kind::<K>("rows", false);
         KindRows(self.query::<K::Read>().into_iter())
     }
-    /// Entity-ordered rows with one editing lease per distinct component column.
+    /// Editing rows with one lease per column; preflight precedes every mutable lease.
     pub fn rows_mut<K: Kind>(&self) -> KindRowsMut<'_, K> {
+        self.prepare_kind::<K>("rows_mut", true);
         KindRowsMut(self.query::<K::Write>().into_iter())
     }
-    /// Exactly one matching entity. Zero or multiple matches panic, naming K.
+    /// Exactly one structural match. No implicit binding initialization.
     pub fn the<K: Kind>(&self) -> Id<K> {
+        K::preflight().expect("the preflight");
+        self.kind_work_bound("the");
         let mut found = None;
         let mut count = 0;
-        for e in self.entities().filter(|&e| K::check(self, e).is_ok()) {
+        for e in self
+            .entities()
+            .filter(|&e| K::check(self, e, "the").is_ok())
+        {
             found = Some(Id::new(e));
             count += 1;
         }

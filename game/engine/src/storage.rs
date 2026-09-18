@@ -131,6 +131,13 @@ impl<C> Default for Storage<C> {
     }
 }
 impl<C> Storage<C> {
+    pub(crate) fn lease_conflict(&self, mutable: bool) -> Option<&'static str> {
+        match self.borrowed.get() {
+            n if n < 0 => Some("mutably"),
+            n if mutable && n > 0 => Some("immutably"),
+            _ => None,
+        }
+    }
     pub(crate) fn len(&self) -> usize {
         self.len
     }
