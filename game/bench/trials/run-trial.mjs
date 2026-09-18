@@ -55,6 +55,10 @@ try {
   const target=resolve(work,'game/target');mkdirSync(target,{recursive:true});
   // Copy-on-write where supported; never a hardlink or a shared writable target.
   if(existsSync(resolve(root,'game/target')))sync('cp',['-a','--reflink=auto',`${root}/game/target/.`,target]);
+  // Cargo dep-info embeds absolute generated-source paths. Invalidate copied
+  // fingerprints before warming at this location; source paths must name this ref.
+  function invalidate(dir){for(const e of readdirSync(dir,{withFileTypes:true})){if(!e.isDirectory())continue;const p=resolve(dir,e.name);if(e.name==='.fingerprint')rmSync(p,{recursive:true,force:true});else invalidate(p);}}
+  invalidate(target);
   const tmp=resolve(work,'.trial-tmp'), codexHome=resolve(work,'.trial-codex');mkdirSync(tmp,{recursive:true});mkdirSync(codexHome,{recursive:true});
   // Only auth is copied: no history, memories, config, MCPs or skills.
   cpSync(resolve(home,'.codex/auth.json'),resolve(codexHome,'auth.json'));

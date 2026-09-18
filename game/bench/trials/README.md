@@ -76,3 +76,10 @@ Runner setup correction 2: the root workspace's filesystem helper also resolves
 `snapback-sb4` even for a game bake. Preserve that existing sibling path as another
 read-only dependency link. Its sources are not modified; all output remains in
 scratch. Both failed setup runs were before model dispatch, outside agent timing.
+
+Runner setup correction 3 (final repair in this loop): copied Cargo dep-info
+retained absolute generated-source paths into the original checkout, which the
+build receipt correctly refused. Invalidate copied Cargo fingerprints and warm
+at the new archive path before dispatch. This can recompile dependencies during
+setup; no setup time is charged to the model. If this repair fails, do not add a
+fourth repair or manufacture timed trial results.
