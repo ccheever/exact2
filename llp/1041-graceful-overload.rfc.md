@@ -4800,3 +4800,54 @@ only one external resize edge ran; eight recorded PIDs/three groups are absent
 with one owned mouse-up and no control poster. The next discriminator separates
 remaining full-shape costs using the current compact metadata; it does not
 replace this failed comparison. These products omit §8.74/8.76's later fixes.
+
+### 8.78 Remaining compact-worker costs at two widths, 2026-09-18
+
+A standalone optimized Swift6 fixture pins dd810d1's compact metadata and numeric
+paint index, before retained-image changes. One captured full1MiB source is shaped
+at940 then856 while A remains owned, followed by a fresh856/height400 request.
+Three admissions produce two layouts and one exact-width reuse. Existing worker
+phases partition each full construction without per-line clocks or a new queue:
+
+| Wall scope |940px ms|856px ms|
+|---|---:|---:|
+| Inclusive shape |142.717750|119.885208|
+| Attributed string and typesetter |47.426542|24.500458|
+| Nil-locale boundaries |9.958958|7.181834|
+| Breaking, line construction and metrics |16.477375|17.354875|
+| Compact line metadata |67.323041|69.487084|
+| Remaining parent wall |1.531834|1.360957|
+
+The height-only reuse takes0.002209ms and has no child phases. Metadata is the
+largest measured child, but includes range, typographic bounds, glyph-path ink,
+flush and allocations; these results do not isolate one CoreText call. Preparation
+repeats24.500458ms at the second width. No preparation-sharing implementation or
+gain is established. Full glyph hashing runs after the parent and between offers;
+submit-to-delivery includes that diagnostic work and is not production latency.
+Source capture14.931ms is separate. These are one ordered fixture's wall spans,
+not CPU, repeated native A/B or frame timing.
+
+Both complete layouts equal ordinary TextEngine for every line range, ink,
+metrics, baseline, bottom and full glyph/run digest. All six top/middle/end
+fractional-scroll/selection RGBA comparisons pass, retaining3,448,320 bytes.
+A retirement leaves B's fresh alias usable; reset refuses its old worker backing
+while external immutable metadata still copies the source. Seven raster scopes
+each prove weak pixel-owner disappearance, owners/bytes0 and exactly one drop
+before the next request. Successful numeric indexes take0.648/0.732/0.723ms;
+seven renders take1.704–5.396ms. The reset's failed index is reported separately.
+
+The first strict compile stops on a weak-variable warning; its helper-only
+correction compiles, but the next run refuses a third image because temporary
+provider aliases remain alive. The final helper gives each raster an explicit
+autorelease scope plus weak/account checks. Production caps, instrumentation,
+source and oracles are unchanged. Final compile/run/strict-reader exit0; actual
+13 dependency files prove the header/module inputs. Earlier failures remain
+failed. No further retry, GUI/fullhost or controller validation is implied.
+
+`target/apple-region-current-phases-dd810d1/execution-v3/manifest.json` binds
+109 retained files/7,848,531B, SHA
+`7c0ca263284960e316b2d5bd4c0055948048077d7fe0f027d85568d78586cccb`.
+Independent reconstruction checks complete child identities/containment/order,
+pixel hashes and all seven release records. Owned compile/runtime groups are
+absent. These results focus the next source investigation on metadata and repeated
+preparation while full-app retained-image continuity remains separately unproven.
