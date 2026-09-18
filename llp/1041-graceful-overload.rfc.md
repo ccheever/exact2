@@ -5471,3 +5471,64 @@ so this policy does not promise current publication during endless changes.
 Source and execution evidence is retained under
 `target/region-abandonment-validation/freeze-v1/`. Application timing remains a
 separate experiment against fresh products that include the atomic Surface fix.
+
+### 8.91 First full-app abandonment pair observes no abandonment, 2026-09-18
+
+Two fresh optimized products share base1e1cf3b, including the atomic Surface
+assignment fix. Treatment adds only the three production paths from8.90. Both
+use the same NativeMarkdownStress factory, full1MiB document, generated plan,
+toolchain and observer. Actual source receipts differ only in those three paths;
+the control is captured before building treatment. Both build and runtime cells
+exit0 without retries or watchdog actions.
+
+The guarded control→treatment pair matches the sampled963px starting clip and
+879px final clip, all18 resize dimensions, twelve input payloads and six full
+document Values. The paragraph reflows940→856px and8155→8988 lines. Input timing
+and worker progress remain unequal; sampled geometry does not establish equal
+work. Each cell has six typing and six signed40px wheel inputs, with handlers
+and conservative ACK brackets inside its AppKit resize edge.
+
+| Saved scope | Control | Treatment |
+|---|---:|---:|
+| Returned shapes, including aliases | 66 | 66 |
+| Returned rasters | 4 | 6 |
+| Typed abandoned / refused outcomes | 0 /0 | 0 /0 |
+| Completion returns without error, stage29 | 46 | 47 |
+| Resize whole sum / maximum,18 calls | 17.294 /3.802ms | 16.974 /3.570ms |
+| UI / worker wall unions inside resize | 30.857 /1680.244ms | 31.340 /1658.145ms |
+| First final-width layer after resize ends | 163.890ms | 198.543ms |
+| Typing / wheel ACK maxima | 3.681 /0.605ms | 3.904 /0.530ms |
+
+The new checkpoint does not fire in either cell. These results establish no
+avoided metadata construction or application benefit. Stage29 means only that
+the completion call returned without error; it is not proof of current kernel
+publication. Stage100 includes layout aliases, and stage103 includes empty or
+retirement turns. Worker104 outcome and UI27 delivery joins identify returned
+answers, but do not establish the time their last owners are released.
+
+Control frame/source1110/1111 joins acceptance1128 and first layer1131;
+treatment1126/1127 joins1143 and first1149. Acceptance-to-first delays are
+3.834583/12.067458ms. Latest1165/1177 are later repetitions. Both final-width
+publication-inside-resize endpoints remain not established. Source captures
+differ5→4, as do raster and completion progress. The overlapping interval unions
+are wall observations, not additive CPU costs or comparable construction totals.
+
+The frozen retention reader establishes control's24 discrete placements,
+23 inside, but refuses treatment at an accepted-assignment identity join.
+Independent raw reconstruction sees24 treatment placements across two accepted
+publications, not one fixed A. This does not revise the reader's not-established
+classification or prove continuous coverage, fresh hits or physical display.
+
+Primary/UI/worker trace omissions are zero. Passive-mode classification remains
+not established, and the recorded display is60Hz. All recorded resize and input
+ACK scopes are below8.33ms, while fresh final-width content still arrives after
+resizing ends. This is one instrumented pair, not a latency distribution or
+physical120Hz result. Both pointers are released and all nine recorded processes
+and four groups are absent. The116-file runtime archive is under
+`target/apple-region-abandonment-pair-execution-v1/`; immutable products have
+separate manifests and the independent lead reconstruction is a `lead-*` sidecar.
+
+The checkpoint precedes the entire metadata loop. The existing trace cannot
+locate supersession relative to that checkpoint. The next controlled fixture
+tests bounded checks during metadata construction; no pressure retuning or
+repeat of this pair is used to manufacture abandonment.
