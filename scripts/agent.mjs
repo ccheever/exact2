@@ -2,12 +2,14 @@
 // The agent API's driver (LLP 1012): the eight operations —
 //   tree · screenshot · tap · type · state · layout · logs · clock
 // — against a running app on either host, from one script, with the clock in
-// the driver's hands: nothing moves between two calls unless a call moved it.
+// the driver's hands until an explicit handoff returns it to live play.
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
-//   clock <ms|+ms|settle> | clock ticks <world> <count> | clock owner <human|agent>
+//   clock <ms|+ms|settle> | clock ticks <world> <count> | clock owner <human|agent> [detach]
+// Apple `clock owner human detach` / s.detach() leaves this launch playing;
+// ordinary s.close() still ends an isolated run. Detach has no reconnect.
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it — instead of a bare
@@ -343,11 +345,70 @@ export function jsonLines(readable, writable, hostLines) {
     }
   });
   const next = () => failure ? Promise.reject(failure) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  const fail = (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); };
+  readable.on('end', () => fail('the agent transport ended before replying'));
+  readable.on('error', e => fail(`the agent transport failed: ${e.message}`));
+  writable.on?.('error', e => fail(`the agent transport failed: ${e.message}`));
   return {
     next,
     ask: (req) => { const p = next(); if (!failure) writable.write(JSON.stringify(req) + '\n'); return p; },
-    fail: (why) => { failure ??= new Error(why); for (const w of waiting.splice(0)) w.reject(failure); },
+    fail,
   };
+}
+
+function ownershipRequest(host, device, req) {
+  if (!['agent', 'human'].includes(req.owner)) throw new Error('clock owner must be human or agent');
+  if (req.detach !== undefined && typeof req.detach !== 'boolean') throw new Error('clock detach must be boolean');
+  if (req.detach && req.owner !== 'human') throw new Error('detach requires owner human');
+  if (device || host === 'linux') throw new Error(`${device ? 'ios device' : host}: live handoff/detach unavailable on this carrier; close the isolated agent session and relaunch normally`);
+  if (req.detach && !['mac', 'macos', 'host', 'ios', 'host-ios'].includes(host)) throw new Error(`${host}: safe detach unavailable on this carrier; close the isolated agent session`);
+}
+
+/** Native ownership is an ACK, never inferred from the requested owner. A
+ * concurrent finally/close must wait for detach before deciding to end the app.
+ * @ref LLP 1041.006 §4 A1 */
+export function nativeControl({host, device = false, ask, close, detach, beforeHandoff, onHandoff, timeoutMs = 15000}) {
+  let pending = null, detached = false, closing = null, lostAck = false;
+  return {
+    async ask(req, ...args) {
+      if (detached || closing) throw new Error('native agent session is closed; detach has no reconnect');
+      if (lostAck) throw new Error('native ownership acknowledgement was lost; close the isolated session and relaunch normally');
+      if (pending) throw new Error('native ownership handoff is in progress; await its acknowledgement');
+      if (req.op !== 'clock' || (req.owner === undefined && req.detach === undefined)) return ask(req, ...args);
+      ownershipRequest(host, device, req);
+      pending = (async () => {
+        beforeHandoff?.();
+        let timer;
+        try {
+          const reply = await Promise.race([ask(req, ...args), new Promise((_, reject) => {
+            timer = setTimeout(() => { lostAck = true; reject(new Error(`clock ownership did not answer within ${timeoutMs} ms; close the isolated session and relaunch normally`)); }, timeoutMs);
+          })]);
+          const matches = r => r?.ownership?.owner === req.owner && r.ownership.clock === (req.owner === 'agent' ? 'controlled' : 'live') && !r.error && !r.worldHandoff;
+          if (!matches(reply) || (req.detach && (reply.detached !== true || (reply.sessions !== undefined && (!Array.isArray(reply.sessions) || reply.sessions.some(r => !matches(r))))))) {
+            throw Object.assign(new Error(`clock: ${reply?.error ?? reply?.worldHandoff?.reason ?? 'native host did not acknowledge the requested ownership/detach; close the isolated session and relaunch normally'}`), {reply});
+          }
+          onHandoff?.();
+          if (req.detach) { detached = true; await detach(); }
+          return reply;
+        } finally { clearTimeout(timer); }
+      })();
+      try { return await pending; } finally { pending = null; }
+    },
+    close() {
+      closing ??= (async () => { try { await pending; } catch {} if (!detached) await close(); })();
+      return closing;
+    },
+  };
+}
+
+/** EOF only after detached:true. Drain output while this parent lives, but no
+ * pipe, socket, or child handle may keep it alive; never wait for or kill the app. */
+export function detachNativeTransport(child, transport = child.stdin) {
+  transport.end();
+  transport.unref?.();
+  child.stdout?.unref();
+  child.stderr?.unref();
+  child.unref();
 }
 
 /** One launch, one phone connection; reject other peers before any agent request.
@@ -429,7 +490,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, detached: !linux, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
   if (device) child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -455,7 +516,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    const ask = async (req, session = state.session) => {
+    const control = nativeControl({host, device, close, detach: () => detachNativeTransport(child), ask: async (req, session = state.session) => {
       const reply = lines.ask(session ? { ...req, session } : req);
       if (!device) return reply;
       let timer;
@@ -467,7 +528,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
           }, 45000);
         })]);
       } finally { clearTimeout(timer); }
-    };
+    }});
+    const ask = control.ask;
     return {
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
@@ -494,7 +556,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
         }
         return r;
       },
-      close,
+      close: control.close,
     };
   } catch (e) {
     await close();
@@ -519,7 +581,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
   const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
-  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const hostLines = [];
   for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
   let consoleDone = false;
@@ -553,14 +615,16 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     }
     rmSync(dir, { recursive: true, force: true });
   };
+  let readyTimeout;
   try {
-    const ready = await Promise.race([lines.next(), sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    const ready = await Promise.race([lines.next(), new Promise((_, reject) => { readyTimeout = setTimeout(() => reject(new Error('the app never became ready; ' + hostLines.join('\n'))), 20000); })]);
+    clearTimeout(readyTimeout);
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
-    const ask = (req, session = state.session) => lines.ask(session ? { ...req, session } : req);
+    let ask = (req, session = state.session) => lines.ask(session ? { ...req, session } : req);
     // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
     // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
     // mouse on the Mac's desktop, posted into the Simulator's window by
@@ -677,6 +741,16 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       }
       await close();
     };
+    const control = nativeControl({host: hostFixture ? 'host-ios' : 'ios', ask, close: closeWithPointer,
+      beforeHandoff: () => { if (contact) throw new Error('release the Simulator desktop contact with pointer up before handing off ownership'); },
+      onHandoff: () => { canvasContact = false; },
+      detach: () => {
+        if (pointer) detachNativeTransport(pointer.child);
+        detachNativeTransport(console_, socket);
+        rmSync(dir, { recursive: true, force: true });
+      },
+    });
+    ask = control.ask;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       pointer: true,
@@ -707,12 +781,12 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
         if (r.error) throw new Error(r.error);
         return r;
       },
-      close: closeWithPointer,
+      close: control.close,
     };
   } catch (e) {
     await close();
     throw e;
-  }
+  } finally { clearTimeout(readyTimeout); }
 }
 
 // ---------------------------------------------------------------- the eight operations
@@ -802,10 +876,12 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
   const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, world, size, url, app, webDist });
+  const controlled = new Map(), ownershipKey = () => carrier.state?.session ?? carrier.sessions?.[0] ?? null;
   const s = {
     host: carrier.host,
     app: resolveApp(app),
-    controlled: true,
+    get controlled() { return controlled.get(ownershipKey()) ?? true; },
+    set controlled(value) { controlled.set(ownershipKey(), value); },
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
     sessions: carrier.sessions ?? null,
     get session() { return carrier.state?.session ?? null; },
@@ -941,9 +1017,14 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
       if (spec && typeof spec === 'object') {
-        if (spec.owner && host !== 'web') throw new Error(`${host}: live handoff unavailable on this carrier; close the isolated agent session and relaunch normally`);
-        const reply = await s.op({op:'clock', ...spec});
-        if (spec.owner) s.controlled = spec.owner === 'agent';
+        if (spec.owner !== undefined || spec.detach !== undefined) ownershipRequest(host, device, spec);
+        const selected = ownershipKey();
+        const reply = await s.op({...spec, op:'clock'});
+        if (spec.owner !== undefined) {
+          controlled.set(selected, (reply.ownership ?? reply.control)?.owner === 'agent');
+          for (const outcome of reply.sessions ?? []) controlled.set(outcome.session, outcome.ownership.owner === 'agent');
+          s.contact = null;
+        }
         if (Number.isFinite(reply.clock)) s.now = reply.clock;
         return reply;
       }
@@ -986,6 +1067,8 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
       for (const key of Object.keys(tags)) if (r[key] === undefined) r[key] = tags[key];
       return r;
     },
+    /** Explicit live handoff plus acknowledged transport closure; close remains cleanup. */
+    detach: () => s.clock({owner:'human', detach:true}),
     close: carrier.close,
   };
   return s;
@@ -1250,6 +1333,13 @@ async function main(argv) {
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
+  for (const [index, line] of ops.entries()) {
+    const [op, form, owner, detach, ...extra] = line.trim().split(/\s+/);
+    if (op !== 'clock' || form !== 'owner') continue;
+    if ((detach !== undefined && detach !== 'detach') || extra.length) throw new Error('usage: clock owner <human|agent> [detach]');
+    ownershipRequest(host, flags.device, {owner, detach:detach === 'detach'});
+    if (detach && index !== ops.length - 1) throw new Error('clock owner human detach must be the last operation; detach has no reconnect');
+  }
   if (host && flags.test) {
     const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url });
     for (const t of r.results) {
@@ -1260,7 +1350,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | clock ticks <world> <count> | clock owner <human|agent> [detach]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
@@ -1291,7 +1381,7 @@ async function main(argv) {
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
-        case 'clock': r = args[0] === 'ticks' ? await s.world(args[1]).ticks(Number(args[2])) : args[0] === 'owner' ? await s.clock({owner:args[1]}) : await s.clock(args[0] ?? 'settle'); break;
+        case 'clock': r = args[0] === 'ticks' ? await s.world(args[1]).ticks(Number(args[2])) : args[0] === 'owner' ? await s.clock({owner:args[1], ...(args[2] === 'detach' ? {detach:true} : {})}) : await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
