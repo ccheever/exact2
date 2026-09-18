@@ -323,6 +323,8 @@ fn presentation_trace_is_opt_in_read_once_and_never_advances_the_clock() {
     assert!(!reply.trace.overflow);
     assert_eq!(reply.trace.frames.len(), 42);
     let rows: Vec<_> = reply.trace.frames.chunks_exact(14).collect();
+    // Seekable T = [17, 25, 34] ms, L = 0, step = 1000/60 ms.
+    // R = T - step = [1/3, 25/3, 52/3] ms; x = R/step = [.02, .5, 1.04].
     for (row, x) in rows.iter().zip([0.02, 0.5, 1.04]) {
         assert!((row[2] - x).abs() < 1e-6);
         assert_eq!(&row[5..8], &[0., 0., 8.]);

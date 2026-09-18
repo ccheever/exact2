@@ -132,7 +132,7 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
   swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and
   `SAVE_VERSION`, world time and dynamic input; the first restored host clock
   establishes a new epoch.
-- **Time is an input.** `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
+- **Time is an input.** Under the seekable clock, `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
 - **Names are first class.** `world.get::<Transform>("fox")` accepts a name or an entity handle; `world:fox` addresses it in the agent. Consuming `query()` yields guarded items (mutable bindings use `mut`); `.iter()` yields `(Entity, item)` with plain references. `.one()` returns an item and refuses multiple matches in all builds.
@@ -142,8 +142,9 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
 
 ## Determinism — the contract (LLP 1041.001 D5)
 
-Same seed, same inputs, same clock ⇒ the same `world.hash()`, on every host, bit for
-bit. What that costs, and the only rules a game author must remember:
+Same seed, same tick-stamped inputs, same completed tick ⇒ the same `world.hash()`,
+on every host, bit for bit. The seekable clock fixes the input-to-tick mapping.
+What that costs, and the only rules a game author must remember:
 
 1. No clock but the world's. No randomness but `world.rng()`.
 2. Transcendentals come from `exact_game::math` (libm), never `f32::sin`.
@@ -329,6 +330,32 @@ Small is a feature. When something here feels clunky, slow or bloated, the move 
 to delete it and try again, not to configure it.
 
 ## The world dev loop
+
+Live frames run ticks whose deadlines fall strictly before the next frame. The
+lookahead is the last live frame delta, clamped to one simulation step, and is
+zero until two live frames have been seen. A display gap still contributes at
+most 250 ms of world time; pausing stops time. Matching 60 Hz frames and ticks run
+one tick per frame; 59.94 Hz frames occasionally catch up an extra 60 Hz tick.
+The live scheduler retains sub-microsecond frame precision to avoid rounding beats.
+Scheduling and interpolation use integer microseconds scaled by `hz` (one step is
+1,000,000 units), rounding only after scaling. Seekable clocks have no lookahead:
+`clock +16`, tick hashes and `settleAt` keep exactly their existing boundaries.
+Rendering uses `R = T + L - step`, one tick behind the scheduling horizon, and
+`alpha = (R - (tick - 1) * step) / step` between the previous and current tick.
+The Sim retains the exact lookahead used by its last advance. At steady live
+cadence alpha is in (0, 1]; the clamp only guards missing history at startup,
+restore, a clock-mode switch or the first frame after a stall. Tick zero draws the
+initial pose. Seekable rendering retains the old `frac(T / step)` interpolation.
+Live saves may carry one early tick; presentation lookahead is not saved.
+`tick_phase` is mean alpha on frames that run ticks: near 1 means ticks run just
+before they are needed.
+
+Input is consumed by stamp, strictly before the tick's deadline, on both clocks;
+future host stamps wait. A multi-tick catch-up therefore spreads input across its
+ticks. Only a gap exceeding the 250 ms live cap collapses its input onto the first
+remaining step. Inputs already delivered before an early tick's deadline need no
+special live bypass. Determinism is the tick-stamped input record with the same
+seed; seekable input retains its exact clock-to-tick mapping.
 
 `bun game/dev.mjs greybox` uses the same
 core dev server as every app. Rust source edits exclusive to the GPU cdylib's

@@ -50,6 +50,7 @@ pub enum Clock {
     Seekable,
     /// Limit one display gap to 250 milliseconds, dropping its excess.
     /// A hitch collapses input inside it onto the first step after the gap.
+    /// Run deadlines before the next frame early, using the last live frame delta.
     Live,
 }
 #[derive(Clone, Default, Data)]
@@ -90,6 +91,10 @@ pub struct Sim<G: Game> {
     pub(crate) last_us: Option<i64>,
     world_us: i64,
     observations: [crate::world::Observation; 2],
+    // Live frame precision only; never part of seekable time, saves or hashes.
+    live_time: Option<(f64, f64)>,
+    // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
+    lookahead_us_hz: i128,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -223,6 +228,8 @@ impl<G: Game> Sim<G> {
             last_us: None,
             world_us: 0,
             observations: Default::default(),
+            live_time: None,
+            lookahead_us_hz: 0,
             game: PhantomData,
         })
     }
@@ -288,6 +295,8 @@ impl<G: Game> Sim<G> {
             self.asset_mesh_revision = u64::MAX;
             self.world = world;
             self.world_us = 0;
+            self.live_time = None;
+            self.lookahead_us_hz = 0;
             self.queue.clear();
             let viewport = self.input.viewport;
             self.input = Input::new(G::actions());
@@ -452,6 +461,35 @@ impl<G: Game> Sim<G> {
         }
         self.input.clear_edges();
     }
+    fn live_time(&self, now_ms: f64, elapsed: i64) -> (f64, f64) {
+        match self.live_time {
+            Some((last, world)) => {
+                let delta = (now_ms - last).max(0.0);
+                (world + delta.min(250.0), delta.min(1000.0 / G::HZ as f64))
+            }
+            None => (self.world_us.saturating_add(elapsed) as f64 / 1000.0, 0.0),
+        }
+    }
+    fn phase_us(ms: f64) -> i128 {
+        // Scale before rounding: a rational display period must not lose whole
+        // microseconds and produce alternating beats. All boundary math is integer.
+        (ms * G::HZ as f64 * 1000.0).round() as i128
+    }
+    fn target(&self, now_ms: f64, clock: Clock, elapsed: i64) -> (u128, i128) {
+        if clock == Clock::Live {
+            let (world, lookahead) = self.live_time(now_ms, elapsed);
+            let lookahead = Self::phase_us(lookahead);
+            if lookahead > 0 {
+                let horizon = Self::phase_us(world) + lookahead;
+                // ceil(horizon / step) - 1: deadlines strictly before T + L.
+                return (((horizon - 1).max(0) / 1_000_000) as u128, lookahead);
+            }
+        }
+        (
+            self.world_us.saturating_add(elapsed) as u128 * G::HZ as u128 / 1_000_000,
+            0,
+        )
+    }
     /// Number of steps the next advance would complete. Presentation can skip
     /// timing samples that a long advance would immediately evict from its ring.
     pub fn ticks_due(&self, now_ms: f64, clock: Clock) -> u32 {
@@ -459,14 +497,16 @@ impl<G: Game> Sim<G> {
             return 0;
         }
         let now = micros(now_ms);
+        if self.last_us.is_some_and(|last| now < last) {
+            return 0;
+        }
         let gap = now.saturating_sub(self.last_us.unwrap_or(now)).max(0);
         let elapsed = if clock == Clock::Live {
             gap.min(250_000)
         } else {
             gap
         };
-        let us = self.world_us.saturating_add(elapsed);
-        let target = us as u128 * G::HZ as u128 / 1_000_000;
+        let (target, _) = self.target(now_ms, clock, elapsed);
         u32::try_from(target.saturating_sub(self.world.tick() as u128)).unwrap_or(u32::MAX)
     }
     /// Advance integer world time; the first call establishes the host epoch only.
@@ -483,6 +523,8 @@ impl<G: Game> Sim<G> {
         assert!(now_ms.is_finite(), "host clock must be finite");
         if self.setup_pending {
             self.last_us = Some(micros(now_ms));
+            self.live_time = None;
+            self.lookahead_us_hz = 0;
             return 0;
         }
         self.check_epoch();
@@ -506,6 +548,8 @@ impl<G: Game> Sim<G> {
         self.last_us = Some(now);
         if G::paused(&self.args) {
             self.flush_paused(now);
+            self.live_time = None;
+            self.lookahead_us_hz = 0;
             return 0;
         }
         let gap = now.saturating_sub(last);
@@ -514,6 +558,11 @@ impl<G: Game> Sim<G> {
         } else {
             gap
         };
+        let (target, lookahead) = self.target(now_ms, clock, elapsed);
+        let target = target as u64;
+        self.lookahead_us_hz = lookahead;
+        self.live_time =
+            (clock == Clock::Live).then(|| (now_ms, self.live_time(now_ms, elapsed).0));
         for e in &mut self.queue {
             if e.world_us.is_none() && e.host_us <= now {
                 let offset = if gap > elapsed {
@@ -528,7 +577,6 @@ impl<G: Game> Sim<G> {
             .world_us
             .checked_add(elapsed)
             .expect("simulation clock exhausted");
-        let target = (self.world_us as u128 * G::HZ as u128 / 1_000_000) as u64;
         let start = self.world.tick();
         // Exactly two samples per seek with work: before the last tick and after it.
         // A single-tick seek samples its starting state. Live never enters this path.
@@ -571,9 +619,23 @@ impl<G: Game> Sim<G> {
         }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
     }
-    /// Fraction of a tick remaining after the last completed boundary, in [0,1).
+    fn alpha_numerator(&self) -> i128 {
+        let world = self
+            .live_time
+            .map_or(self.world_us as i128 * G::HZ as i128, |(_, ms)| {
+                Self::phase_us(ms)
+            });
+        // R = T + L - step; alpha = (R - (tick - 1) * step) / step.
+        world + self.lookahead_us_hz - self.world.tick() as i128 * 1_000_000
+    }
+    /// Render one tick behind the scheduled horizon, between the last two ticks.
     pub fn alpha(&self) -> f32 {
-        (self.world_us as u128 * G::HZ as u128 % 1_000_000) as f32 / 1_000_000.0
+        if self.world.tick() == 0 {
+            return 0.0;
+        }
+        // Startup, restore, a clock-mode change or a shrinking horizon after a
+        // stall can lack the required history. Steady frames never hit this guard.
+        self.alpha_numerator().clamp(0, 1_000_000) as f32 / 1_000_000.0
     }
     /// Replacement generation for presentation caches; not saved or hashed.
     pub fn generation(&self) -> u64 {
@@ -833,9 +895,8 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("restore awaits declared assets"));
         }
         next.world.load(&s.world)?;
-        if next.world.hz() != G::HZ
-            || next.world.tick() as u128 != s.world_us as u128 * G::HZ as u128 / 1_000_000
-        {
+        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
+        if next.world.hz() != G::HZ || !(due..=due + 1).contains(&(next.world.tick() as u128)) {
             return Err(DataError::new("saved world and clock disagree"));
         }
         if s.version < G::SAVE_VERSION {
@@ -868,5 +929,51 @@ impl<G: Game> Sim<G> {
             .expect("presentation generation exhausted");
         *self = next;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod render_time_tests {
+    use super::*;
+    struct Ticker<const HZ: u32>;
+    impl<const HZ: u32> Game for Ticker<HZ> {
+        const ID: &'static str = "alpha-guard";
+        const HZ: u32 = HZ;
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    fn steady<const HZ: u32>() {
+        for frame_hz in [60.0, 59.94, 120.0] {
+            for epoch in [0.0, 1234.567, 1_000_000.123] {
+                for phase in [0.0, 0.1, 0.25, 0.4] {
+                    let mut s = Sim::<Ticker<HZ>>::new(()).unwrap();
+                    s.advance(epoch, Clock::Live);
+                    assert_eq!(s.lookahead_us_hz, 0);
+                    for frame in 1..=600 {
+                        let now =
+                            epoch + frame as f64 * 1000.0 / frame_hz + phase * 1000.0 / HZ as f64;
+                        let due = s.ticks_due(now, Clock::Live);
+                        assert_eq!(s.advance(now, Clock::Live), due);
+                        // Inspect the signed numerator BEFORE alpha's guard.
+                        let raw = s.alpha_numerator();
+                        assert!((0..=1_000_000).contains(&raw),
+                            "world {HZ}, display {frame_hz}, epoch {epoch}, phase {phase}, frame {frame}: {raw}");
+                        if s.world.tick() > 0 {
+                            assert_eq!(s.alpha(), raw as f32 / 1_000_000.0);
+                        }
+                    }
+                    // Seekable must never reuse the preceding live lookahead.
+                    s.advance(epoch + 602.0 * 1000.0 / frame_hz, Clock::Seekable);
+                    assert_eq!(s.lookahead_us_hz, 0);
+                    assert!(s.live_time.is_none());
+                }
+            }
+        }
+    }
+    #[test]
+    fn alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates() {
+        steady::<60>();
+        steady::<120>();
     }
 }

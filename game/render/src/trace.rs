@@ -219,7 +219,9 @@ mod tests {
                 continue;
             }
             let drawn = trace.values[(trace.count - 1) * STRIDE + 2];
-            let expected = (now * 0.06 - 1.).max(0.);
+            // T = frame * 1000/144 ms, L = 1000/144 ms, step = 1000/60 ms.
+            // R = T + L - step; x = R/step = (frame + 1)*60/144 - 1.
+            let expected = ((frame + 1) as f64 * 60. / 144. - 1.).max(0.);
             assert!(
                 (drawn - expected).abs() < 0.0001,
                 "{frame}: {drawn} != {expected}"
@@ -242,14 +244,17 @@ mod tests {
         trace.frame(17., sim.alpha(), 0, [0.; 3], [0.; 3]);
         assert_eq!(trace.count, 0); // No invented pre-arm pose.
         sim.advance_with(34., Clock::Live, |w, _| trace.feed(w));
-        assert_eq!(trace.prev[0], 1.);
+        // T = [17, 34] ms, L = step = 1000/60 ms, so R = T.
+        // x = [1.02, 2.04]; ticks = [2, 3], and the final history is [2, 3].
+        assert_eq!(trace.prev[0], 2.);
+        assert!((mix(trace.prev, trace.curr, sim.alpha())[0] - 2.04).abs() < 1e-6);
         sim.world()
             .get_mut::<Transform>("player")
             .unwrap()
             .position
             .x = 5.;
         trace.feed(sim.world());
-        assert_eq!((trace.prev[0], trace.curr[0]), (2., 5.));
+        assert_eq!((trace.prev[0], trace.curr[0]), (3., 5.));
         let player = sim.world().named("player").unwrap();
         sim.world_mut().teleport(player, Transform::at(20., 0., 0.));
         trace.feed(sim.world());
