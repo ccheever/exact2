@@ -17,16 +17,16 @@ settling, pause/resume, focused-button behavior, and byte-identical save continu
 in a second session. Artifacts are in `artifacts/` (`proof.txt`, `replies.json`, PNGs,
 saves, `process-cleanup.json`). macOS capture needs screen-recording permission;
 its existing proof skips screenshots when unavailable. iOS is supported by the
-harness but these game proofs have only been driven on web for this change.
+harness; this change was driven on web and macOS, with native parity also checked on x86-64 Linux.
 
 `GreyboxArgs` declares seed then `#[live] paused`. `Mesh` carries primitive sizes;
 a zero-lag `Follow` retains the original camera offset. The engine places the camera after setup; the game calls `scene::follow` in ticks.
-`Move` accelerates and brakes, `Jump` starts a ballistic hop, and `Gravity` steps
-vertical velocity; the game integrates position and clamps it to the ground. Seekable Sim
+`Character` composes `Move`, `Jump` and `Gravity`, integrates the pose, lands at
+0.9 metres and clamps XZ to ±19.6 metres. `near_xz` selects beacons by player name. Seekable Sim
 observes changed components, springs and explicitly reported work when settling.
 
-Current native/Chrome pins: setup `0xbba6329f68d0c2f1`, W for 1,500 ms
-`0x5d40bcb196c6e6e2`, player `[0, 0.9, -5.3666644]`. Read all components with
+Current arm64 macOS / x86-64 Linux / Chrome wasm pins: setup `0x5a3d65cc31e5a69d`, W for 1,500 ms
+`0x517bc794475cb853`, player `[0, 0.9, -5.3666644]`. Read all components with
 `state world:*`; hold a key with `type world KeyW for 1500`. These are forms of the
 existing eight operations.
 

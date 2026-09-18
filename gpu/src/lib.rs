@@ -21,6 +21,10 @@
 #![deny(missing_docs)]
 
 use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 pub use exact_plan::Value;
 pub use wgpu;
@@ -98,6 +102,8 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// Presentation was lost; release device resources without discarding owned state.
+    fn device_lost(&mut self) {}
     /// Drain an error discovered while rendering or advancing committed state.
     fn take_error(&mut self) -> Option<SurfaceError> {
         None
@@ -198,6 +204,7 @@ pub struct Registry {
 pub struct Module {
     registry: &'static Registry,
     gpu: Option<Gpu>,
+    device_lost: Arc<AtomicBool>,
     instances: HashMap<u32, Instance>,
     next: u32,
     error: String,
@@ -220,8 +227,7 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
-    target: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
+    presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     bound: bool,
     dirty: bool,
     children: Option<Children>,
@@ -266,6 +272,7 @@ impl Module {
         Module {
             registry,
             gpu: None,
+            device_lost: Arc::new(AtomicBool::new(false)),
             instances: HashMap::new(),
             next: 0,
             error: String::new(),
@@ -275,7 +282,18 @@ impl Module {
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
+        self.device_lost = Arc::new(AtomicBool::new(false));
+        let lost = self.device_lost.clone();
+        gpu.device.set_device_lost_callback(move |_, _| {
+            lost.store(true, Ordering::Release);
+        });
         self.gpu = Some(gpu);
+    }
+
+    fn check_device(&mut self) {
+        if self.gpu.is_some() && self.device_lost.load(Ordering::Acquire) {
+            self.lose_device();
+        }
     }
 
     /// The device, when loaded.
@@ -369,6 +387,23 @@ impl Module {
         }
         config.present_mode = wgpu::PresentMode::AutoVsync;
         target.configure(&gpu.device, &config);
+        self.insert(*factory, Some((target, config)))
+    }
+
+    /// Create surface ownership without a device, target, or registered shaders.
+    pub fn create_headless(&mut self, name: &str) -> Option<u32> {
+        let Some((_, _, factory)) = self.registry.surfaces.iter().find(|(n, _, _)| *n == name)
+        else {
+            return self.fail(format!("no surface named `{name}` in this module"));
+        };
+        self.insert(*factory, None)
+    }
+
+    fn insert(
+        &mut self,
+        factory: Factory,
+        presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
+    ) -> Option<u32> {
         self.next += 1;
         let id = self.next;
         self.instances.insert(
@@ -377,8 +412,7 @@ impl Module {
                 surface: factory(),
                 messages: Vec::new(),
                 published: None,
-                target,
-                config,
+                presentation,
                 bound: false,
                 dirty: false,
                 children: None,
@@ -387,6 +421,27 @@ impl Module {
             },
         );
         Some(id)
+    }
+
+    /// Release presentation resources while preserving every surface's state.
+    pub fn lose_device(&mut self) {
+        for inst in self.instances.values_mut() {
+            inst.surface.device_lost();
+            inst.presentation = None;
+            inst.children = None;
+            inst.each.clear();
+        }
+        self.gpu = None;
+    }
+
+    /// Whether this canvas has a device and presentation target.
+    pub fn has_device(&self, id: u32) -> bool {
+        self.gpu.is_some()
+            && !self.device_lost.load(Ordering::Acquire)
+            && self
+                .instances
+                .get(&id)
+                .is_some_and(|i| i.presentation.is_some())
     }
 
     /// Set once by an agent host: every frame honours the seekable clock.
@@ -403,6 +458,7 @@ impl Module {
 
     /// Deliver one device event and mark the canvas dirty.
     pub fn input(&mut self, id: u32, event: &InputEvent) -> bool {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
         };
@@ -439,6 +495,7 @@ impl Module {
 
     /// Ask this canvas an agent question; an answer or posted message marks it dirty.
     pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
@@ -685,6 +742,7 @@ impl Module {
     /// New inputs for a canvas; a refusal is reported and the surface keeps
     /// its last accepted inputs.
     pub fn bind(&mut self, id: u32, inputs: &[Value], at_ms: Option<f64>) -> bool {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
         };
@@ -704,6 +762,7 @@ impl Module {
 
     /// Capture state without advancing the surface or consuming its publications.
     pub fn carry(&mut self, id: u32) -> Option<Vec<u8>> {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
@@ -712,6 +771,7 @@ impl Module {
 
     /// Restore atomically; successful state is published before the next frame.
     pub fn restore(&mut self, id: u32, bytes: &[u8]) -> bool {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
             return false;
@@ -739,32 +799,37 @@ impl Module {
     }
 
     /// Render one frame for a canvas at the given size; returns whether the
-    /// surface wants another frame. Nothing happens before the first bind.
+    /// surface wants another frame. None with no error means no device/target.
+    /// Nothing happens before the first bind.
     pub fn render(&mut self, id: u32, frame: &Frame) -> Option<bool> {
+        self.check_device();
         let (w, h) = frame.pixels();
-        let Some(gpu) = self.gpu.as_ref() else {
-            return self.fail("no device");
-        };
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
+        let gpu = self.gpu.as_ref()?;
         if !inst.bound {
             return Some(false);
         }
-        if inst.config.width != w || inst.config.height != h {
-            inst.config.width = w;
-            inst.config.height = h;
-            inst.target.configure(&gpu.device, &inst.config);
+        let (target, config) = inst.presentation.as_mut()?;
+        if config.width != w || config.height != h {
+            config.width = w;
+            config.height = h;
+            target.configure(&gpu.device, config);
         }
         use wgpu::CurrentSurfaceTexture as Current;
-        let texture = match inst.target.get_current_texture() {
+        let texture = match target.get_current_texture() {
             Current::Success(t) => t,
             Current::Suboptimal(t) => {
-                inst.target.configure(&gpu.device, &inst.config);
+                target.configure(&gpu.device, config);
                 t
             }
             // Nothing to draw into this frame; the inputs stay dirty.
             Current::Timeout | Current::Occluded => return Some(true),
+            Current::Lost => {
+                self.lose_device();
+                return None;
+            }
             other => {
                 self.error = format!("surface: {other:?}");
                 return None;
@@ -779,7 +844,7 @@ impl Module {
         };
         let wants = inst
             .surface
-            .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
+            .render(&frame, &gpu.device, &gpu.queue, &view, config.format);
         inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;

@@ -511,3 +511,8 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
 - U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.
+
+- Game renderer: `render/tests/world.rs::beacons_designed_defaults` still expects
+  `ground.grid_spacing == 1`, but Beacons authors `Material::rgb` (spacing 0).
+  D7's local `cargo test --workspace --no-fail-fast` reproduces this stale fixture;
+  make its grid/fog/bloom inputs explicit without changing the game's pinned hashes.

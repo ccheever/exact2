@@ -35,10 +35,10 @@ test('a newly generated game builds, tests and proves without editing', async ()
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     registeredLock = readFileSync(lockfile);
     for (const file of ['Cargo.toml','Cargo.lock','web','apple','gpu']) assert.ok(!existsSync(resolve(app, file)), file);
-    const located = spawnSync('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; import {dirname} from "node:path"; const app=resolveApp(); console.log(JSON.stringify(["gpu","web","apple"].map(kind=>dirname(app.cargoPackage(kind).manifest_path))));'], {cwd:resolve(import.meta.dir,'..'), env, encoding:'utf8'});
+    const located = spawnSync('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; import {dirname} from "node:path"; const app=resolveApp(); console.log(JSON.stringify(["gpu","web","apple","linux"].map(kind=>dirname(app.cargoPackage(kind).manifest_path))));'], {cwd:resolve(import.meta.dir,'..'), env, encoding:'utf8'});
     assert.equal(located.status, 0, located.stderr);
     shellDirs = JSON.parse(located.stdout);
-    const shellFiles = shellDirs.flatMap((dir, index) => ['Cargo.toml','src/lib.rs', ...(index === 0 ? [] : ['build.rs'])].map(file=>resolve(dir,file)));
+    const shellFiles = shellDirs.flatMap((dir, index) => ['Cargo.toml',index === 3 ? 'src/main.rs' : 'src/lib.rs', ...(index === 0 ? [] : ['build.rs'])].map(file=>resolve(dir,file)));
     const stamps = shellFiles.map(file => statSync(file).mtimeMs);
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');

@@ -2,6 +2,7 @@
 use exact_runner::{DataError, DataSource, Value};
 use std::{env, fs, path::PathBuf};
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -50,9 +51,11 @@ pub fn bake(platform: &str, app_dir: &str) {
         "macos" | "ios" => {
             "exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);"
         }
+        "linux" => "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }",
         _ => panic!("unsupported game app platform: {platform}"),
     };
     fs::write(out.join("entry.rs"), format!(r#"
+#[derive(Default)]
 struct NoData;
 impl exact_runner::DataSource for NoData {{
     fn query(&mut self, source: &str, _: &[exact_runner::Value]) -> Result<exact_runner::Value, exact_runner::DataError> {{

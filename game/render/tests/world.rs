@@ -271,7 +271,7 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
 }
 
 #[test]
-fn beacons_designed_defaults() {
+fn beacons_grid_fog_and_bloom() {
     use beacons_logic::{Beacons, Options};
     let Some(gpu) = gpu() else { return };
     let mut sim = exact_game::Sim::<Beacons>::new(Options {
@@ -280,6 +280,11 @@ fn beacons_designed_defaults() {
         round: 0,
     })
     .unwrap();
+    // This render fixture opts into a grid; the consumer's ground is plain.
+    sim.world()
+        .get_mut::<Material>("ground")
+        .unwrap()
+        .grid_spacing = 1.0;
     let player = sim.world().named("player").unwrap();
     sim.world_mut()
         .teleport(player, Transform::at(8.0, 0.9, 0.0));

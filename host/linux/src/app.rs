@@ -410,6 +410,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     // drive named an origin; a headless run has no user to wait for.
     let _ = p.frame();
     p.first_pixel();
+    p.sync_surfaces();
     p.poll_development(D::default);
     if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
         p.check_update();

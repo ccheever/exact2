@@ -1,0 +1,138 @@
+   Compiling indexmap v2.14.1
+   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
+   Compiling naga v29.0.4
+   Compiling vello_shaders v0.10.0
+   Compiling vello v0.10.0
+   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.41s
+     Running unittests src/lib.rs (target/debug/deps/exact_gpu-cfb7df385a6fd0b6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fixture.rs (target/debug/deps/fixture-e3951201ba160322)
+
+running 5 tests
+test a_pixel_off_the_picture_panics - should panic ... ok
+test save_creates_the_directory_it_is_pointed_at ... ok
+test a_frame_reads_back_unpadded_and_as_a_ppm ... ok
+test a_bgra_texture_comes_back_rgba ... ok
+test other_formats_and_array_textures_are_refused_by_name ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/idle.rs (target/debug/deps/idle-1a716a34393ba2bc)
+
+running 1 test
+test idle_message_abi_allocates_nothing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/module.rs (target/debug/deps/module-899c27e630297838)
+
+running 6 tests
+test a_byte_count_that_overflows_is_refused_by_name ... ok
+test empty_null_carry_and_oversized_length_are_distinct ... ok
+test a_null_pointer_is_refused_by_the_abi ... ok
+test module_errors_are_consumed_in_sequence ... ok
+test headless_ownership_keeps_every_non_drawing_seam ... ok
+test device_event_json_preserves_every_variant_and_refuses_fields_by_name ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shaders.rs (target/debug/deps/shaders-6399493878dc2ffb)
+
+running 1 test
+test a_shader_is_registered_at_its_interface_and_refused_off_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/exact_linux-af45e227c47bbf15)
+
+running 10 tests
+test app::tests::a_dev_plan_locator_stands_a_persisted_selection_aside ... ok
+test app::tests::a_core_only_entry_refuses_an_update_capable_compatibility_record ... ok
+test app::tests::launch_arguments_share_url_interpretation_with_other_hosts ... ok
+test navigation::tests::selected_route_and_only_its_modal_underlay_are_visible ... ok
+test fetch::tests::origin_includes_scheme_host_and_effective_port ... ok
+test fetch::tests::envelope_json_is_typed_bounded_and_rejects_duplicates ... ok
+test executor::tests::continuations_run_on_worker_and_missing_tokens_refuse_without_network ... ok
+test fetch::tests::a_page_that_never_ends_is_refused ... ok
+test fetch::tests::a_plan_larger_than_its_envelope_is_refused_as_it_arrives ... ok
+test fetch::tests::polling_a_rust_generation_skips_unchanged_artifacts_and_fetches_new_pairs ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/host.rs (target/debug/deps/host-1799cca73a3c79fc)
+
+running 18 tests
+test an_analysis_core_entry_refuses_before_constructing_app_data ... ok
+test a_launch_location_precedes_initializers_and_root_type_navigates_once ... ok
+test the_agent_tree_declares_iframes_unavailable ... ok
+test disabled_controls_refuse_pointer_and_text_input ... ok
+test unsupported_emoji_picker_does_not_dispatch_a_fake_selection ... ok
+test a_request_runs_on_the_executor_and_its_reply_commits ... ok
+test a_spring_arrives_as_presentation_values_frame_by_frame ... ok
+test a_nested_scroll_container_takes_the_wheel_then_chains_to_the_page ... ok
+test an_embedded_image_is_not_opened_on_the_boot_thread ... ok
+test an_image_lays_out_from_its_decoded_size ... ok
+test the_tree_lays_out_with_real_text_and_every_node_has_a_box ... ok
+test layout_json_is_the_agent_api_shape ... ok
+test the_clock_fires_timers_at_their_due_times ... ok
+test typing_replaces_the_value_and_the_runner_hears_one_change ... ok
+test a_press_goes_through_hit_testing_and_bubbles_to_the_handler ... ok
+test a_wheel_scrolls_the_apps_scroll_node_and_the_page_stays ... ok
+test a_reload_carries_state_and_starts_the_pictures_over ... ok
+test agent_requests_answer_on_the_wire ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+     Running tests/paint.rs (target/debug/deps/paint-352451d7c952056d)
+
+running 10 tests
+test the_two_painters_agree_within_a_band ... ok
+test an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action ... ok
+test a_scroll_container_clips_what_it_scrolled_out ... ok
+test accessibility_focus_is_session_scoped_and_buttons_activate_from_keys ... ok
+test a_device_scale_paints_more_pixels_for_the_same_points ... ok
+test border_style_controls_pixels_and_layout_with_current_color ... ok
+test motion_presents_as_a_transform_and_a_group_opacity ... ok
+test text_and_images_leave_ink_in_their_boxes ... ok
+test backgrounds_land_in_their_boxes_with_their_radii ... ok
+test a_screenshot_is_the_viewport_as_a_png ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/text.rs (target/debug/deps/text-46380d428aae8d2d)
+
+running 7 tests
+test fixed_line_height_keeps_each_inline_fonts_shared_baseline_extents ... ok
+test line_height_resolves_zero_and_paragraph_minimum_in_the_painted_cache ... ok
+test normal_paragraph_preserves_fractional_explicit_child_boxes ... ok
+test emergency_wrapping_preserves_the_two_intrinsic_width_rules ... ok
+test a_weight_the_family_lacks_resolves_within_the_family ... ok
+test declared_bytes_are_the_resolved_faces_and_the_painted_geometry ... ok
+test a_rejected_reload_keeps_the_running_font_catalog ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/viewport.rs (target/debug/deps/viewport-b806ab279b344cb0)
+
+running 1 test
+test viewport_resize_reanswers_before_native_layout ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_linux
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,5 +1,5 @@
 //! Beacons: a deterministic, one-screen search for three lights.
-use exact_game::motion::{Gravity, Jump, Move};
+use exact_game::character::Character;
 use exact_game::*;
 
 #[derive(Default, Args)]
@@ -11,7 +11,7 @@ pub struct Options {
 }
 #[derive(Default, Component)]
 pub struct Player {
-    pub velocity: Vec3,
+    pub character: Character,
 }
 #[derive(Default, Component)]
 pub struct Beacon {
@@ -44,7 +44,16 @@ impl Game for Beacons {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.96, 0.65, 0.22),
-                Player::default(),
+                Player {
+                    character: Character::new()
+                        .speed(4.0)
+                        .accel(12.0)
+                        .brake(20.0)
+                        .jump(1.2)
+                        .gravity(9.81)
+                        .ground(0.9)
+                        .bounds_xz(-19.6..=19.6),
+                },
             ),
         );
         w.spawn_named(
@@ -94,45 +103,23 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
         let now = w.now();
-        let mut position = Vec3::ZERO;
         if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
-            Move {
-                speed: 4.0,
-                accel: 12.0,
-                brake: 20.0,
-            }
-            .step(&mut player.velocity, input.stick_xz("move"), dt);
-            if input.pressed("jump") && pose.position.y <= 0.9 {
-                Jump {
-                    height: 1.2,
-                    gravity: 9.81,
-                }
-                .start(&mut player.velocity);
-            }
-            pose.position.x += player.velocity.x * dt;
-            pose.position.z += player.velocity.z * dt;
-            if pose.position.y > 0.9 || player.velocity.y > 0.0 {
-                pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                Gravity(9.81).step(&mut player.velocity, dt);
-                if pose.position.y <= 0.9 {
-                    pose.position.y = 0.9;
-                    player.velocity.y = 0.0;
+            player
+                .character
+                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+        }
+        if input.pressed("light") {
+            for (entity, _) in w.near_xz::<Beacon>("player", 1.5) {
+                let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
+                if !beacon.lit {
+                    beacon.lit = true;
+                    beacon.glow.to(now, 1.0, 0.5);
+                    w.log("beacon lit");
                 }
             }
-            position = pose.position;
         }
         let mut count = 0;
-        for (mut beacon, pose, mut material) in
-            w.query::<(&mut Beacon, &Transform, &mut Material)>()
-        {
-            if !beacon.lit
-                && input.pressed("light")
-                && position.distance_squared(pose.position) <= 1.5 * 1.5
-            {
-                beacon.lit = true;
-                beacon.glow.to(now, 1.0, 0.5);
-                w.log("beacon lit");
-            }
+        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             let glow = beacon.glow.value(now);
             material.emissive = [glow * 0.7, glow * 2.5, glow * 3.0];
             count += u32::from(beacon.lit);

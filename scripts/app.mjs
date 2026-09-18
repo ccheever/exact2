@@ -429,7 +429,7 @@ export function buildBake(app, platform, target, options = {}) {
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
-  const graph=buildGraph(app,target,kind,env,platform!=='linux'&&app.hasGpu),messages=[],roots=[];
+  const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
   const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);

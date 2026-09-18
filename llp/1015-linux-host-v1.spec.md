@@ -458,6 +458,11 @@ only path today. Nothing else in the host knows which backend paints;
 `EXACT_PAINTER=cpu` is one environment variable away. The two-wgpu build
 (vello 0.10 pins 29, the GPU module 30) ends when vello moves.
 
+**D7 headless module (2026-09-17):** the headless host loads the app's adjacent
+GPU module after first pixel and creates canvases without a device. Surface
+reads, input, publications, messages and carry/restore work; Contract screenshots
+leave canvas rectangles flat. Presentation on the painter's device remains below.
+
 Also not in v1, each declared: authentication or encryption on the VNC
 server (`EXACT_VNC` is for a private network), and its `Raw` encoding
 only (8 MB a frame at 1080p — a LAN's, not a WAN's); a KMS surface for the GPU (`VK_KHR_display`

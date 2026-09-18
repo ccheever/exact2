@@ -464,6 +464,48 @@ impl World {
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
+    /// Entities carrying C within an inclusive radius, in entity order.
+    /// Distances use authored Transform positions; missing origins yield no rows.
+    pub fn near<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+        self.near_in::<C>(origin, radius, false)
+    }
+    /// Like near, ignoring Y. Rows contain the entity handle and its pose;
+    /// the component C remains free to borrow mutably inside the loop.
+    pub fn near_xz<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+        self.near_in::<C>(origin, radius, true)
+    }
+    fn near_in<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+        planar: bool,
+    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+        assert!(radius.is_finite() && radius >= 0.0);
+        let origin = self.get::<crate::Transform>(origin).map(|p| p.position);
+        self.entities().filter_map(move |entity| {
+            if !self.has::<C>(entity) {
+                return None;
+            }
+            let pose = self.get::<crate::Transform>(entity)?;
+            origin
+                .is_some_and(|origin| {
+                    let mut delta = pose.position - origin;
+                    if planar {
+                        delta.y = 0.0;
+                    }
+                    delta.length_squared() <= radius * radius
+                })
+                .then_some((entity, pose))
+        })
+    }
     /// Allocated component pages in entity-index order, under a shared lease.
     /// Each view supplies its first index, presence words, and a raw pointer valid
     /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().

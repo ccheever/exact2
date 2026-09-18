@@ -92,6 +92,16 @@ pub fn load(registry: &'static Registry) -> u32 {
     }
 }
 
+/// Load surface ownership only; no adapter is requested.
+pub fn load_headless(registry: &'static Registry) {
+    MODULE.with(|m| *m.borrow_mut() = Some(Module::new(registry)));
+}
+
+/// Create a surface without presentation; zero means refusal.
+pub fn create_headless(name: &str) -> u32 {
+    with(|m| m.create_headless(name)).flatten().unwrap_or(0)
+}
+
 /// Drop the device and every canvas; [`load`] may run again. A thread that
 /// loaded a module must not leave it for thread-local teardown: wgpu's own
 /// thread-locals may already be gone by then, and dropping a device without
@@ -194,7 +204,7 @@ pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
 }
 
 /// Render one frame. Returns 1 when the surface wants another frame, 0
-/// otherwise, 2 on failure.
+/// otherwise, 2 on failure, 3 when presentation has no device.
 pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
     let frame = Frame {
         width,
@@ -208,6 +218,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,
         Some(false) => 0,
+        None if with(|m| m.instances.contains_key(&id) && !m.has_device(id)).unwrap_or(false) => 3,
         None => 2,
     }
 }
@@ -392,6 +403,24 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_load() -> u32 {
             $crate::native::load(&$registry)
+        }
+
+        /// Release all instances and module TLS before unloading the library.
+        #[no_mangle]
+        pub extern "C" fn gpu_unload() { $crate::native::unload(); }
+
+        /// Load ownership without a GPU.
+        #[no_mangle]
+        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry); }
+
+        /// Create ownership without a presentation target. Zero means refusal.
+        /// # Safety
+        /// `name` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_create_headless(name: *const u8, len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_create_headless", name, len) }) else { return 0 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_create_headless: invalid UTF-8"); return 0 };
+            $crate::native::create_headless(name)
         }
 
         /// Create a canvas's surface on a CAMetalLayer. The canvas id, or 0.

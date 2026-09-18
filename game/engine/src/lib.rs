@@ -8,6 +8,7 @@ extern crate self as exact_game;
 mod agent;
 #[doc(hidden)]
 pub mod args;
+pub mod character;
 pub mod data;
 mod environment;
 mod input;

@@ -436,3 +436,111 @@ fn empty_null_carry_and_oversized_length_are_distinct() {
     assert_eq!(exact_gpu::native::carry_length(u32::MAX as usize + 1), None);
     assert!(exact_gpu::native::error().contains("carry exceeds ABI byte limit"));
 }
+
+#[test]
+fn headless_ownership_keeps_every_non_drawing_seam() {
+    use exact_gpu::{wgpu, Frame, InputEvent, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Probe {
+        at: f64,
+        bytes: Vec<u8>,
+        output: bool,
+        error: bool,
+    }
+    impl Surface for Probe {
+        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+            self.output = true;
+            Ok(())
+        }
+        fn bind_at(&mut self, v: &[Value], at: Option<f64>) -> Result<(), SurfaceError> {
+            self.at = at.unwrap_or_default();
+            self.bind(v)
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            panic!("headless never draws")
+        }
+        fn wants_input(&self) -> bool {
+            true
+        }
+        fn input(&mut self, _: &InputEvent) {
+            self.output = true;
+        }
+        fn messages(&mut self) -> Vec<String> {
+            if self.output {
+                vec!["message".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn published(&mut self) -> Option<String> {
+            std::mem::take(&mut self.output).then(|| "{}".into())
+        }
+        fn agent(&mut self, q: &str) -> Option<String> {
+            self.error = q == "fail";
+            self.output = true;
+            Some(self.at.to_string())
+        }
+        fn take_error(&mut self) -> Option<SurfaceError> {
+            std::mem::take(&mut self.error).then(|| SurfaceError("probe refused".into()))
+        }
+        fn carry(&mut self) -> Option<Vec<u8>> {
+            Some(self.bytes.clone())
+        }
+        fn restore(&mut self, b: &[u8]) -> Result<(), String> {
+            self.bytes = b.to_vec();
+            self.output = true;
+            Ok(())
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("probe", 0, || Box::<Probe>::default())],
+        shaders: &[("unregistered", 123)],
+    };
+    let mut m = Module::new(&REGISTRY);
+    assert!(m.create_headless("missing").is_none());
+    assert!(m.take_error().contains("missing"));
+    let id = m.create_headless("probe").unwrap();
+    assert!(!m.has_device(id));
+    assert!(m.bind(id, &[], None));
+    assert!(m.bind(id, &[], Some(23.)));
+    assert_eq!(m.agent(id, "state").as_deref(), Some("23"));
+    assert!(m.wants_input(id));
+    assert!(m.input(id, &InputEvent::Blur { at_ms: 23. }));
+    assert!(!m.take_messages(id).is_empty());
+    assert!(m.take_messages(id).is_empty());
+    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
+    assert!(m.take_published(id).is_none());
+    assert!(m.restore(id, &[1, 2, 3]));
+    assert_eq!(m.carry(id), Some(vec![1, 2, 3]));
+    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
+    let f = Frame {
+        width: 10.,
+        height: 10.,
+        scale: 1.,
+        now_ms: 23.,
+        seekable: true,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    for _ in 0..2 {
+        assert_eq!(m.render(id, &f), None);
+        assert_eq!(m.take_error(), "");
+    }
+    m.lose_device();
+    assert_eq!(m.agent(id, "state").as_deref(), Some("23"));
+    assert!(m.agent(id, "fail").is_none());
+    assert_eq!(m.take_error(), "probe refused");
+    assert_eq!(m.take_error(), "");
+    assert!(m.restore(id, &[]));
+    assert_eq!(m.carry(id), Some(vec![]));
+    m.destroy(id);
+    assert!(m.agent(id, "state").is_none());
+    assert_eq!(m.take_error(), "no such canvas");
+}

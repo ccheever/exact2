@@ -1,7 +1,7 @@
 //! The first game: a capsule, landmarks, and one beacon. No host and no GPU.
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
-use exact_game::motion::{Gravity, Jump, Move};
+use exact_game::character::Character;
 use exact_game::{
     scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
     Spring, Stick, Transform, Vec3, World,
@@ -11,7 +11,7 @@ use exact_game::{
 #[derive(Default, Component)]
 pub struct Player {
     /// Current velocity, carried by saves along with the pose.
-    pub velocity: Vec3,
+    pub character: Character,
 }
 /// A one-shot beacon whose glow can be sampled at any tick.
 #[derive(Default, Component)]
@@ -58,7 +58,16 @@ impl Game for Greybox {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.45, 0.15),
-                Player::default(),
+                Player {
+                    character: Character::new()
+                        .speed(4.0)
+                        .accel(12.0)
+                        .brake(20.0)
+                        .jump(1.2)
+                        .gravity(9.81)
+                        .ground(0.9)
+                        .bounds_xz(-19.6..=19.6),
+                },
             ),
         );
         world.spawn_named(
@@ -103,45 +112,23 @@ impl Game for Greybox {
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
         let now = world.now();
-        let mut position = Vec3::ZERO;
         if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
-            Move {
-                speed: 4.0,
-                accel: 12.0,
-                brake: 20.0,
-            }
-            .step(&mut player.velocity, input.stick_xz("move"), dt);
-            if input.pressed("jump") && pose.position.y <= 0.9 {
-                Jump {
-                    height: 1.2,
-                    gravity: 9.81,
-                }
-                .start(&mut player.velocity);
-            }
-            pose.position.x += player.velocity.x * dt;
-            pose.position.z += player.velocity.z * dt;
-            if pose.position.y > 0.9 || player.velocity.y > 0.0 {
-                pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                Gravity(9.81).step(&mut player.velocity, dt);
-                if pose.position.y <= 0.9 {
-                    pose.position.y = 0.9;
-                    player.velocity.y = 0.0;
-                }
-            }
-            position = pose.position;
+            player
+                .character
+                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
         }
-        for (mut beacon, pose, mut material) in
-            world.query::<(&mut Beacon, &Transform, &mut Material)>()
-        {
-            if !beacon.lit
-                && input.pressed("act")
-                && position.distance_squared(pose.position) <= 1.5 * 1.5
-            {
-                beacon.lit = true;
-                beacon.glow.set_target(now, 1.0);
-                world.publish("beacons", 1);
-                world.log("beacon-1 lit");
+        if input.pressed("act") {
+            for (entity, _) in world.near_xz::<Beacon>("player", 1.5) {
+                let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
+                if !beacon.lit {
+                    beacon.lit = true;
+                    beacon.glow.set_target(now, 1.0);
+                    world.publish("beacons", 1);
+                    world.log("beacon-1 lit");
+                }
             }
+        }
+        for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(now) * 3.0; 3];
         }
         scene::follow(world);

@@ -202,7 +202,8 @@ test('world convenience keeps simulation fields only and dispatches the existing
   let clock=0, epoch=1, incarnation=1;
   const raw = {
     world(name) { return worldView(this, name); },
-    async state(target) { return {tick:90, hash:'0x123', entities, truncated:false, clock, epoch, incarnation}; },
+    async clock(value) { return {settled:value === 'settle'}; },
+    async state(target) { return {entity: target === 'arena:player' ? entities[0] : undefined, tick:90, hash:'0x123', entities, truncated:false, clock, epoch, incarnation}; },
     async type(...args) { return {clock, epoch, incarnation, args}; },
     async screenshot(...args) { return {clock, epoch, incarnation, args}; },
   };
@@ -219,11 +220,20 @@ test('world convenience keeps simulation fields only and dispatches the existing
   expect(Object.keys(before)).toEqual(['tick','hash','entities','truncated']);
   expect(before).toEqual({tick:90,hash:'0x123',entities,truncated:false});
   await w.state('player'); await w.save('checkpoint.world');
-  await w.key('KeyW', {phase:'down'}); await w.key('KeyE'); await w.hold('KeyW',1500);
+  await w.key_down('KeyW'); await w.tap('KeyE'); await w.hold('KeyW',1500);
+  await w.key_up('KeyW'); await w.run(100);
+  expect(await w.settle()).toBe(true);
+  expect(await w.position('player')).toEqual([0,0.9,0]);
+  expect(await w.get('player','Transform')).toEqual({position:[0,0.9,0]});
+  expect(await w.position('missing')).toBeUndefined();
+  expect(await w.get('player','Missing')).toBeUndefined();
+  for (const ms of [-1, NaN, Infinity]) expect(() => w.run(ms)).toThrow();
   expect(calls.map(c => [c.method,...c.args])).toEqual([
     ['state','arena:*'], ['state','arena:*'], ['state','arena:*'], ['state','arena:player'],
     ['screenshot','checkpoint.world','arena','save'], ['type','arena',{key:'KeyW',phase:'down'}],
     ['type','arena',{key:'KeyE'}], ['type','arena',{key:'KeyW',for:1500}],
+    ['type','arena',{key:'KeyW',phase:'up'}], ['clock','+100'], ['clock','settle'],
+    ['state','arena:player'], ['state','arena:player'], ['state','arena:missing'], ['state','arena:player'],
   ]);
   expect(calls[1].reply).toMatchObject({clock:2000,epoch:1,incarnation:1});
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
@@ -236,13 +246,14 @@ test('author examples and documentation describe current motion, placement and p
   for (const source of [main, read('new/logic/src/lib.rs')]) {
     const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
     expect(setup).not.toContain('scene::follow');
-    for (const motion of ['Move', 'Jump', 'Gravity']) expect(source).toContain(motion);
+    expect(source).toContain('Character');
+    expect(source).toContain('near_xz::<Beacon>');
   }
   expect(main).not.toContain('Call it at the\nend of `setup`');
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');
   expect(greybox).not.toContain('math::ease');
   const proof = read('games/greybox/proof.mjs');
-  for (const pin of ['0xbba6329f68d0c2f1', '0x5d40bcb196c6e6e2', '[0, 0.9, -5.3666644]']) {
+  for (const pin of ['0x5a3d65cc31e5a69d', '0x517bc794475cb853', '[0, 0.9, -5.3666644]']) {
     expect(proof).toContain(pin);
     expect(greybox).toContain(pin);
   }

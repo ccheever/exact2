@@ -1,0 +1,3157 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 1bb2b76c..4e2c1630 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -750,6 +750,7 @@ dependencies = [
+ name = "exact-linux"
+ version = "0.1.0"
+ dependencies = [
++ "base64 0.22.1",
+  "caltrain",
+  "caltrain-data",
+  "contract",
+@@ -764,6 +765,7 @@ dependencies = [
+  "exact-runner",
+  "ibex2",
+  "libc",
++ "libloading",
+  "png",
+  "serde",
+  "serde_json",
+diff --git a/QUEUE.md b/QUEUE.md
+index c5a97cbb..bd95e665 100644
+--- a/QUEUE.md
++++ b/QUEUE.md
+@@ -511,3 +511,8 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
+ 
+ - Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
+ - U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.
++
++- Game renderer: `render/tests/world.rs::beacons_designed_defaults` still expects
++  `ground.grid_spacing == 1`, but Beacons authors `Material::rgb` (spacing 0).
++  D7's local `cargo test --workspace --no-fail-fast` reproduces this stale fixture;
++  make its grid/fog/bloom inputs explicit without changing the game's pinned hashes.
+diff --git a/game/Cargo.lock b/game/Cargo.lock
+index f500abd2..44593104 100644
+--- a/game/Cargo.lock
++++ b/game/Cargo.lock
+@@ -2,6 +2,12 @@
+ # It is not intended for manual editing.
+ version = 4
+ 
++[[package]]
++name = "adler2"
++version = "2.0.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
++
+ [[package]]
+ name = "allocator-api2"
+ version = "0.2.21"
+@@ -26,6 +32,12 @@ dependencies = [
+  "num-traits",
+ ]
+ 
++[[package]]
++name = "arrayref"
++version = "0.3.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
++
+ [[package]]
+ name = "arrayvec"
+ version = "0.7.8"
+@@ -82,6 +94,15 @@ dependencies = [
+  "web-sys",
+ ]
+ 
++[[package]]
++name = "beacons-linux"
++version = "0.1.0"
++dependencies = [
++ "exact-game-app",
++ "exact-linux",
++ "exact-runner",
++]
++
+ [[package]]
+ name = "beacons-logic"
+ version = "0.1.0"
+@@ -118,6 +139,15 @@ dependencies = [
+  "web-sys",
+ ]
+ 
++[[package]]
++name = "bench-cubes-linux"
++version = "0.1.0"
++dependencies = [
++ "exact-game-app",
++ "exact-linux",
++ "exact-runner",
++]
++
+ [[package]]
+ name = "bench-cubes-logic"
+ version = "0.1.0"
+@@ -143,6 +173,15 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "bit-set"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "34ddef2995421ab6a5c779542c81ee77c115206f4ad9d5a8e05f4ff49716a3dd"
++dependencies = [
++ "bit-vec",
++]
++
+ [[package]]
+ name = "bit-set"
+ version = "0.10.0"
+@@ -167,6 +206,18 @@ dependencies = [
+  "serde_core",
+ ]
+ 
++[[package]]
++name = "bitvec"
++version = "1.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ddcec3d12c579d40898fe0a9a358a803c23e9c52ca3c425707f81c9436211837"
++dependencies = [
++ "funty",
++ "radium",
++ "tap",
++ "wyz",
++]
++
+ [[package]]
+ name = "block-buffer"
+ version = "0.10.4"
+@@ -256,6 +307,12 @@ dependencies = [
+  "unicode-width",
+ ]
+ 
++[[package]]
++name = "color"
++version = "0.3.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2ec7c5eb7a16992b1904d76c517d170ab353b0e0b3d5a0c81a8a0cd1037893cf"
++
+ [[package]]
+ name = "contract"
+ version = "0.1.0"
+@@ -321,6 +378,39 @@ version = "0.8.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+ 
++[[package]]
++name = "core_maths"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "77745e017f5edba1a9c1d854f6f3a52dac8a12dd5af5d2f54aecf61e43d80d30"
++dependencies = [
++ "libm",
++]
++
++[[package]]
++name = "cosmic-text"
++version = "0.19.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "be17b688510d934ce13f48a2beba700e11583e281e0fda99c22bb256a14eda73"
++dependencies = [
++ "bitflags",
++ "fontdb",
++ "harfrust",
++ "linebender_resource_handle",
++ "log",
++ "rangemap",
++ "rustc-hash 2.1.3",
++ "self_cell",
++ "skrifa 0.40.0",
++ "smol_str",
++ "swash",
++ "sys-locale",
++ "unicode-bidi",
++ "unicode-linebreak",
++ "unicode-script",
++ "unicode-segmentation",
++]
++
+ [[package]]
+ name = "cpufeatures"
+ version = "0.2.17"
+@@ -330,6 +420,15 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "crc32fast"
++version = "1.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
++dependencies = [
++ "cfg-if",
++]
++
+ [[package]]
+ name = "crunchy"
+ version = "0.2.4"
+@@ -403,6 +502,15 @@ dependencies = [
+  "syn 3.0.6",
+ ]
+ 
++[[package]]
++name = "dlib"
++version = "0.5.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
++dependencies = [
++ "libloading",
++]
++
+ [[package]]
+ name = "document-features"
+ version = "0.2.12"
+@@ -418,6 +526,47 @@ version = "2.0.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
+ 
++[[package]]
++name = "drm"
++version = "0.15.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7a41816e58f47f49acfd956651055ddcf137c4882c2098c30c448817af21183a"
++dependencies = [
++ "bitflags",
++ "bytemuck",
++ "bytemuck_derive",
++ "drm-ffi",
++ "drm-fourcc",
++ "libc",
++ "rustix",
++]
++
++[[package]]
++name = "drm-ffi"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "51a91c9b32ac4e8105dec255e849e0d66e27d7c34d184364fb93e469db08f690"
++dependencies = [
++ "drm-sys",
++ "rustix",
++]
++
++[[package]]
++name = "drm-fourcc"
++version = "2.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0aafbcdb8afc29c1a7ee5fbe53b5d62f4565b35a042a662ca9fecd0b54dae6f4"
++
++[[package]]
++name = "drm-sys"
++version = "0.8.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ecc8e1361066d91f5ffccff060a3c3be9c3ecde15be2959c1937595f7a82a9f8"
++dependencies = [
++ "libc",
++ "linux-raw-sys 0.9.4",
++]
++
+ [[package]]
+ name = "ed25519"
+ version = "2.2.3"
+@@ -460,6 +609,37 @@ version = "1.0.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+ 
++[[package]]
++name = "errno"
++version = "0.3.14"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
++dependencies = [
++ "libc",
++ "windows-sys 0.61.2",
++]
++
++[[package]]
++name = "euclid"
++version = "0.22.14"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
++dependencies = [
++ "num-traits",
++]
++
++[[package]]
++name = "evdev"
++version = "0.13.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "25b686663ba7f08d92880ff6ba22170f1df4e83629341cba34cf82cd65ebea99"
++dependencies = [
++ "bitvec",
++ "cfg-if",
++ "libc",
++ "nix",
++]
++
+ [[package]]
+ name = "exact-apple"
+ version = "0.1.0"
+@@ -550,14 +730,14 @@ dependencies = [
+  "wasm-bindgen",
+  "wasm-bindgen-futures",
+  "web-sys",
+- "wgpu",
++ "wgpu 30.0.1",
+ ]
+ 
+ [[package]]
+ name = "exact-gpu-reflect"
+ version = "0.1.0"
+ dependencies = [
+- "naga",
++ "naga 30.0.1",
+  "sha2",
+ ]
+ 
+@@ -572,6 +752,32 @@ dependencies = [
+  "taffy",
+ ]
+ 
++[[package]]
++name = "exact-linux"
++version = "0.1.0"
++dependencies = [
++ "base64 0.22.1",
++ "cosmic-text",
++ "drm",
++ "evdev",
++ "exact-data",
++ "exact-kernel",
++ "exact-motion",
++ "exact-plan",
++ "exact-route",
++ "exact-runner",
++ "ibex2",
++ "libc",
++ "libloading",
++ "png",
++ "serde",
++ "serde_json",
++ "sha2",
++ "tiny-skia",
++ "vello",
++ "wgpu 29.0.4",
++]
++
+ [[package]]
+ name = "exact-motion"
+ version = "0.1.0"
+@@ -624,6 +830,15 @@ dependencies = [
+  "exact-runner",
+ ]
+ 
++[[package]]
++name = "fdeflate"
++version = "0.3.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
++dependencies = [
++ "simd-adler32",
++]
++
+ [[package]]
+ name = "fiat-crypto"
+ version = "0.2.9"
+@@ -636,12 +851,70 @@ version = "0.1.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
+ 
++[[package]]
++name = "flate2"
++version = "1.1.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
++dependencies = [
++ "crc32fast",
++ "miniz_oxide 0.9.1",
++ "zlib-rs",
++]
++
++[[package]]
++name = "foldhash"
++version = "0.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
++
+ [[package]]
+ name = "foldhash"
+ version = "0.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+ 
++[[package]]
++name = "font-types"
++version = "0.11.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
++dependencies = [
++ "bytemuck",
++]
++
++[[package]]
++name = "font-types"
++version = "0.12.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b8eb065f3251655b3c90e22e5e363f310fc5332fb3402e37bbc94752283248f6"
++dependencies = [
++ "bytemuck",
++]
++
++[[package]]
++name = "fontconfig-parser"
++version = "0.5.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "bbc773e24e02d4ddd8395fd30dc147524273a83e54e0f312d986ea30de5f5646"
++dependencies = [
++ "roxmltree",
++]
++
++[[package]]
++name = "fontdb"
++version = "0.23.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "457e789b3d1202543297a350643cf459f836cade38934e7a4cf6a39e7cde2905"
++dependencies = [
++ "fontconfig-parser",
++ "log",
++ "memmap2",
++ "slotmap",
++ "tinyvec",
++ "ttf-parser",
++]
++
+ [[package]]
+ name = "form_urlencoded"
+ version = "1.2.2"
+@@ -651,12 +924,29 @@ dependencies = [
+  "percent-encoding",
+ ]
+ 
++[[package]]
++name = "funty"
++version = "2.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
++
+ [[package]]
+ name = "futures-core"
+ version = "0.3.34"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
+ 
++[[package]]
++name = "futures-intrusive"
++version = "0.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
++dependencies = [
++ "futures-core",
++ "lock_api",
++ "parking_lot",
++]
++
+ [[package]]
+ name = "futures-task"
+ version = "0.3.34"
+@@ -696,6 +986,17 @@ dependencies = [
+  "wasi",
+ ]
+ 
++[[package]]
++name = "gl_generator"
++version = "0.14.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
++dependencies = [
++ "khronos_api",
++ "log",
++ "xml-rs",
++]
++
+ [[package]]
+ name = "glam"
+ version = "0.30.10"
+@@ -739,6 +1040,27 @@ dependencies = [
+  "simba",
+ ]
+ 
++[[package]]
++name = "glow"
++version = "0.17.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "29038e1c483364cc6bb3cf78feee1816002e127c331a1eec55a4d202b9e1adb5"
++dependencies = [
++ "js-sys",
++ "slotmap",
++ "wasm-bindgen",
++ "web-sys",
++]
++
++[[package]]
++name = "glutin_wgl_sys"
++version = "0.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
++dependencies = [
++ "gl_generator",
++]
++
+ [[package]]
+ name = "gpu-allocator"
+ version = "0.28.0"
+@@ -750,6 +1072,27 @@ dependencies = [
+  "log",
+  "presser",
+  "thiserror",
++ "windows",
++]
++
++[[package]]
++name = "gpu-descriptor"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b89c83349105e3732062a895becfc71a8f921bb71ecbbdd8ff99263e3b53a0ca"
++dependencies = [
++ "bitflags",
++ "gpu-descriptor-types",
++ "hashbrown 0.15.5",
++]
++
++[[package]]
++name = "gpu-descriptor-types"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
++dependencies = [
++ "bitflags",
+ ]
+ 
+ [[package]]
+@@ -772,6 +1115,15 @@ dependencies = [
+  "web-sys",
+ ]
+ 
++[[package]]
++name = "greybox-linux"
++version = "0.1.0"
++dependencies = [
++ "exact-game-app",
++ "exact-linux",
++ "exact-runner",
++]
++
+ [[package]]
+ name = "greybox-logic"
+ version = "0.1.0"
+@@ -794,6 +1146,16 @@ version = "1.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
+ 
++[[package]]
++name = "guillotiere"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6b17e70c989c36bad147b27a58d148c0741c51448aa5653436547323e524d0ab"
++dependencies = [
++ "euclid",
++ "svg_fmt",
++]
++
+ [[package]]
+ name = "half"
+ version = "2.7.1"
+@@ -806,6 +1168,19 @@ dependencies = [
+  "zerocopy",
+ ]
+ 
++[[package]]
++name = "harfrust"
++version = "0.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9da2e5ae821f6e96664977bf974d6d6a2d6682f9ccee23e62ec1d134246845f9"
++dependencies = [
++ "bitflags",
++ "bytemuck",
++ "core_maths",
++ "read-fonts 0.37.0",
++ "smallvec",
++]
++
+ [[package]]
+ name = "hash32"
+ version = "0.3.1"
+@@ -815,6 +1190,15 @@ dependencies = [
+  "byteorder",
+ ]
+ 
++[[package]]
++name = "hashbrown"
++version = "0.15.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
++dependencies = [
++ "foldhash 0.1.5",
++]
++
+ [[package]]
+ name = "hashbrown"
+ version = "0.16.1"
+@@ -823,7 +1207,7 @@ checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+ dependencies = [
+  "allocator-api2",
+  "equivalent",
+- "foldhash",
++ "foldhash 0.2.0",
+ ]
+ 
+ [[package]]
+@@ -832,7 +1216,7 @@ version = "0.17.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+ dependencies = [
+- "foldhash",
++ "foldhash 0.2.0",
+  "serde",
+  "serde_core",
+ ]
+@@ -847,6 +1231,12 @@ dependencies = [
+  "stable_deref_trait",
+ ]
+ 
++[[package]]
++name = "hexf-parse"
++version = "0.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
++
+ [[package]]
+ name = "http"
+ version = "1.5.0"
+@@ -1003,22 +1393,79 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+ 
+ [[package]]
+-name = "js-sys"
+-version = "0.3.104"
++name = "jni-sys"
++version = "0.3.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0e0c1080212aad755ea003d18543e8768dd432c48819efd73a7bf1e39b7a5a3a"
++checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
+ dependencies = [
+- "cfg-if",
+- "futures-util",
+- "wasm-bindgen",
++ "jni-sys 0.4.1",
+ ]
+ 
+ [[package]]
+-name = "libc"
+-version = "0.2.189"
++name = "jni-sys"
++version = "0.4.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+-
++checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
++dependencies = [
++ "jni-sys-macros",
++]
++
++[[package]]
++name = "jni-sys-macros"
++version = "0.4.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
++dependencies = [
++ "quote",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "js-sys"
++version = "0.3.104"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0e0c1080212aad755ea003d18543e8768dd432c48819efd73a7bf1e39b7a5a3a"
++dependencies = [
++ "cfg-if",
++ "futures-util",
++ "wasm-bindgen",
++]
++
++[[package]]
++name = "khronos-egl"
++version = "6.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
++dependencies = [
++ "libc",
++ "libloading",
++ "pkg-config",
++]
++
++[[package]]
++name = "khronos_api"
++version = "3.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
++
++[[package]]
++name = "kurbo"
++version = "0.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
++dependencies = [
++ "arrayvec",
++ "euclid",
++ "polycool",
++ "smallvec",
++]
++
++[[package]]
++name = "libc"
++version = "0.2.189"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
++
+ [[package]]
+ name = "libloading"
+ version = "0.8.9"
+@@ -1035,6 +1482,24 @@ version = "0.2.16"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+ 
++[[package]]
++name = "linebender_resource_handle"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
++
++[[package]]
++name = "linux-raw-sys"
++version = "0.9.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
++
++[[package]]
++name = "linux-raw-sys"
++version = "0.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
++
+ [[package]]
+ name = "litemap"
+ version = "0.8.3"
+@@ -1078,6 +1543,61 @@ version = "2.8.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+ 
++[[package]]
++name = "memmap2"
++version = "0.9.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
++dependencies = [
++ "libc",
++]
++
++[[package]]
++name = "miniz_oxide"
++version = "0.8.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
++dependencies = [
++ "adler2",
++ "simd-adler32",
++]
++
++[[package]]
++name = "miniz_oxide"
++version = "0.9.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
++dependencies = [
++ "adler2",
++ "simd-adler32",
++]
++
++[[package]]
++name = "naga"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b2bf919621e7975acb27d881bae2fb993e0d45c8e0446e85e6272971e00dc8df"
++dependencies = [
++ "arrayvec",
++ "bit-set 0.9.1",
++ "bitflags",
++ "cfg-if",
++ "cfg_aliases",
++ "codespan-reporting",
++ "half",
++ "hashbrown 0.16.1",
++ "hexf-parse",
++ "indexmap",
++ "libm",
++ "log",
++ "num-traits",
++ "once_cell",
++ "rustc-hash 1.1.0",
++ "spirv",
++ "thiserror",
++ "unicode-ident",
++]
++
+ [[package]]
+ name = "naga"
+ version = "30.0.1"
+@@ -1085,7 +1605,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
+ dependencies = [
+  "arrayvec",
+- "bit-set",
++ "bit-set 0.10.0",
+  "bitflags",
+  "cfg-if",
+  "cfg_aliases",
+@@ -1098,7 +1618,7 @@ dependencies = [
+  "naga-types",
+  "num-traits",
+  "once_cell",
+- "rustc-hash",
++ "rustc-hash 1.1.0",
+  "spirv",
+  "thiserror",
+  "unicode-ident",
+@@ -1112,7 +1632,7 @@ checksum = "590afbf58a6f4f62873cd5cff4468061844bafa1cdf399cc954537c22d768d49"
+ dependencies = [
+  "hashbrown 0.17.1",
+  "indexmap",
+- "rustc-hash",
++ "rustc-hash 1.1.0",
+  "thiserror",
+ ]
+ 
+@@ -1148,6 +1668,27 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "ndk-sys"
++version = "0.6.0+11769913"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
++dependencies = [
++ "jni-sys 0.3.1",
++]
++
++[[package]]
++name = "nix"
++version = "0.29.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
++dependencies = [
++ "bitflags",
++ "cfg-if",
++ "cfg_aliases",
++ "libc",
++]
++
+ [[package]]
+ name = "num-bigint"
+ version = "0.4.8"
+@@ -1353,7 +1894,7 @@ dependencies = [
+  "downcast-rs",
+  "either",
+  "ena",
+- "foldhash",
++ "foldhash 0.2.0",
+  "glamx",
+  "hashbrown 0.17.1",
+  "indexmap",
+@@ -1372,6 +1913,18 @@ dependencies = [
+  "thiserror",
+ ]
+ 
++[[package]]
++name = "peniko"
++version = "0.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "839c8299360d2e998bdb106dc0a6cd71dcc5f4df51df1b620361bf50e283cca6"
++dependencies = [
++ "color",
++ "kurbo",
++ "linebender_resource_handle",
++ "smallvec",
++]
++
+ [[package]]
+ name = "percent-encoding"
+ version = "2.3.2"
+@@ -1384,6 +1937,34 @@ version = "0.2.17"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+ 
++[[package]]
++name = "pkg-config"
++version = "0.3.34"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
++
++[[package]]
++name = "png"
++version = "0.18.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
++dependencies = [
++ "bitflags",
++ "crc32fast",
++ "fdeflate",
++ "flate2",
++ "miniz_oxide 0.8.9",
++]
++
++[[package]]
++name = "polycool"
++version = "0.4.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
++dependencies = [
++ "arrayvec",
++]
++
+ [[package]]
+ name = "portable-atomic"
+ version = "1.15.0"
+@@ -1451,6 +2032,24 @@ dependencies = [
+  "proc-macro2",
+ ]
+ 
++[[package]]
++name = "radium"
++version = "0.7.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
++
++[[package]]
++name = "range-alloc"
++version = "0.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
++
++[[package]]
++name = "rangemap"
++version = "1.8.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a611d15b50743feb4c76b7d03edcb0e64f399c26961e4efe6975bc398be6aa3d"
++
+ [[package]]
+ name = "rapier3d"
+ version = "0.35.3"
+@@ -1497,6 +2096,28 @@ version = "0.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
+ 
++[[package]]
++name = "read-fonts"
++version = "0.37.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b634fabf032fab15307ffd272149b622260f55974d9fad689292a5d33df02e5"
++dependencies = [
++ "bytemuck",
++ "core_maths",
++ "font-types 0.11.3",
++]
++
++[[package]]
++name = "read-fonts"
++version = "0.41.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
++dependencies = [
++ "bytemuck",
++ "font-types 0.12.5",
++ "once_cell",
++]
++
+ [[package]]
+ name = "redox_syscall"
+ version = "0.5.18"
+@@ -1532,6 +2153,12 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+ 
++[[package]]
++name = "roxmltree"
++version = "0.20.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
++
+ [[package]]
+ name = "rstar"
+ version = "0.13.0"
+@@ -1549,6 +2176,12 @@ version = "1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
+ 
++[[package]]
++name = "rustc-hash"
++version = "2.1.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
++
+ [[package]]
+ name = "rustc_version"
+ version = "0.4.1"
+@@ -1558,6 +2191,19 @@ dependencies = [
+  "semver",
+ ]
+ 
++[[package]]
++name = "rustix"
++version = "1.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
++dependencies = [
++ "bitflags",
++ "errno",
++ "libc",
++ "linux-raw-sys 0.12.1",
++ "windows-sys 0.61.2",
++]
++
+ [[package]]
+ name = "rustls"
+ version = "0.23.44"
+@@ -1668,6 +2314,12 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "self_cell"
++version = "1.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813"
++
+ [[package]]
+ name = "semver"
+ version = "1.0.28"
+@@ -1762,6 +2414,32 @@ dependencies = [
+  "wide",
+ ]
+ 
++[[package]]
++name = "simd-adler32"
++version = "0.3.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
++
++[[package]]
++name = "skrifa"
++version = "0.40.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
++dependencies = [
++ "bytemuck",
++ "read-fonts 0.37.0",
++]
++
++[[package]]
++name = "skrifa"
++version = "0.44.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
++dependencies = [
++ "bytemuck",
++ "read-fonts 0.41.0",
++]
++
+ [[package]]
+ name = "slab"
+ version = "0.4.12"
+@@ -1783,6 +2461,12 @@ version = "1.16.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+ 
++[[package]]
++name = "smol_str"
++version = "0.3.6"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
++
+ [[package]]
+ name = "socket2"
+ version = "0.6.5"
+@@ -1827,12 +2511,35 @@ version = "1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+ 
++[[package]]
++name = "strict-num"
++version = "0.1.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
++
+ [[package]]
+ name = "subtle"
+ version = "2.6.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+ 
++[[package]]
++name = "svg_fmt"
++version = "0.4.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb"
++
++[[package]]
++name = "swash"
++version = "0.2.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
++dependencies = [
++ "skrifa 0.44.0",
++ "yazi",
++ "zeno",
++]
++
+ [[package]]
+ name = "syn"
+ version = "2.0.119"
+@@ -1866,6 +2573,15 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "sys-locale"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "taffy"
+ version = "0.9.2"
+@@ -1876,6 +2592,12 @@ dependencies = [
+  "slotmap",
+ ]
+ 
++[[package]]
++name = "tap"
++version = "1.0.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
++
+ [[package]]
+ name = "termcolor"
+ version = "1.4.1"
+@@ -1905,6 +2627,32 @@ dependencies = [
+  "syn 3.0.6",
+ ]
+ 
++[[package]]
++name = "tiny-skia"
++version = "0.12.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
++dependencies = [
++ "arrayref",
++ "arrayvec",
++ "bytemuck",
++ "cfg-if",
++ "log",
++ "png",
++ "tiny-skia-path",
++]
++
++[[package]]
++name = "tiny-skia-path"
++version = "0.12.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
++dependencies = [
++ "arrayref",
++ "bytemuck",
++ "strict-num",
++]
++
+ [[package]]
+ name = "tinystr"
+ version = "0.8.4"
+@@ -1915,18 +2663,57 @@ dependencies = [
+  "zerovec",
+ ]
+ 
++[[package]]
++name = "tinyvec"
++version = "1.13.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
++
++[[package]]
++name = "ttf-parser"
++version = "0.25.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
++dependencies = [
++ "core_maths",
++]
++
+ [[package]]
+ name = "typenum"
+ version = "1.20.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+ 
++[[package]]
++name = "unicode-bidi"
++version = "0.3.18"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
++
+ [[package]]
+ name = "unicode-ident"
+ version = "1.0.26"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+ 
++[[package]]
++name = "unicode-linebreak"
++version = "0.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
++
++[[package]]
++name = "unicode-script"
++version = "0.5.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
++
++[[package]]
++name = "unicode-segmentation"
++version = "1.13.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
++
+ [[package]]
+ name = "unicode-width"
+ version = "0.2.2"
+@@ -1991,6 +2778,51 @@ version = "1.0.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+ 
++[[package]]
++name = "vello"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "af76ceb17b2869be23598baef40a9c8db4de86b87c60510c3bc245559275a617"
++dependencies = [
++ "bytemuck",
++ "futures-intrusive",
++ "log",
++ "peniko",
++ "png",
++ "skrifa 0.44.0",
++ "static_assertions",
++ "thiserror",
++ "vello_encoding",
++ "vello_shaders",
++ "wgpu 29.0.4",
++]
++
++[[package]]
++name = "vello_encoding"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1e31cd622201690d8dfe9fd8fea8d1ae59db1bfeea414856a617d1d03438418c"
++dependencies = [
++ "bytemuck",
++ "guillotiere",
++ "peniko",
++ "skrifa 0.44.0",
++ "smallvec",
++]
++
++[[package]]
++name = "vello_shaders"
++version = "0.10.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "abf943bd2920bfd22928a9c1bad39866f7ffcc1109b6ed924ab52773e3868a83"
++dependencies = [
++ "bytemuck",
++ "log",
++ "naga 29.0.4",
++ "thiserror",
++ "vello_encoding",
++]
++
+ [[package]]
+ name = "version_check"
+ version = "0.9.5"
+@@ -2058,6 +2890,18 @@ dependencies = [
+  "unicode-ident",
+ ]
+ 
++[[package]]
++name = "wayland-sys"
++version = "0.31.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
++dependencies = [
++ "dlib",
++ "log",
++ "once_cell",
++ "pkg-config",
++]
++
+ [[package]]
+ name = "web-sys"
+ version = "0.3.104"
+@@ -2077,6 +2921,36 @@ dependencies = [
+  "rustls-pki-types",
+ ]
+ 
++[[package]]
++name = "wgpu"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "76e8840e1ba2881d4cbb18d2147627a56af426ff064c0401eb0c8410c6325d07"
++dependencies = [
++ "arrayvec",
++ "bitflags",
++ "bytemuck",
++ "cfg-if",
++ "cfg_aliases",
++ "document-features",
++ "hashbrown 0.16.1",
++ "js-sys",
++ "log",
++ "naga 29.0.4",
++ "parking_lot",
++ "portable-atomic",
++ "profiling",
++ "raw-window-handle",
++ "smallvec",
++ "static_assertions",
++ "wasm-bindgen",
++ "wasm-bindgen-futures",
++ "web-sys",
++ "wgpu-core 29.0.4",
++ "wgpu-hal 29.0.4",
++ "wgpu-types 29.0.4",
++]
++
+ [[package]]
+ name = "wgpu"
+ version = "30.0.1"
+@@ -2092,7 +2966,7 @@ dependencies = [
+  "hashbrown 0.17.1",
+  "js-sys",
+  "log",
+- "naga",
++ "naga 30.0.1",
+  "portable-atomic",
+  "profiling",
+  "raw-window-handle",
+@@ -2101,9 +2975,42 @@ dependencies = [
+  "wasm-bindgen",
+  "wasm-bindgen-futures",
+  "web-sys",
+- "wgpu-core",
+- "wgpu-hal",
+- "wgpu-types",
++ "wgpu-core 30.0.1",
++ "wgpu-hal 30.0.1",
++ "wgpu-types 30.0.1",
++]
++
++[[package]]
++name = "wgpu-core"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2f519832254e56965a9940c4af57dcb75f702b6f6fa4a0b172f685395843a4d7"
++dependencies = [
++ "arrayvec",
++ "bit-set 0.9.1",
++ "bit-vec",
++ "bitflags",
++ "bytemuck",
++ "cfg_aliases",
++ "document-features",
++ "hashbrown 0.16.1",
++ "indexmap",
++ "log",
++ "naga 29.0.4",
++ "once_cell",
++ "parking_lot",
++ "portable-atomic",
++ "profiling",
++ "raw-window-handle",
++ "rustc-hash 1.1.0",
++ "smallvec",
++ "thiserror",
++ "wgpu-core-deps-apple 29.0.4",
++ "wgpu-core-deps-emscripten",
++ "wgpu-core-deps-windows-linux-android 29.0.4",
++ "wgpu-hal 29.0.4",
++ "wgpu-naga-bridge 29.0.4",
++ "wgpu-types 29.0.4",
+ ]
+ 
+ [[package]]
+@@ -2113,7 +3020,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "14c018fce9b6270aa203c2fdd56f3cce996713534bd757e4ea58c8560b121f14"
+ dependencies = [
+  "arrayvec",
+- "bit-set",
++ "bit-set 0.10.0",
+  "bit-vec",
+  "bitflags",
+  "bytemuck",
+@@ -2122,21 +3029,30 @@ dependencies = [
+  "hashbrown 0.17.1",
+  "indexmap",
+  "log",
+- "naga",
++ "naga 30.0.1",
+  "naga-types",
+  "once_cell",
+  "parking_lot",
+  "portable-atomic",
+  "profiling",
+  "raw-window-handle",
+- "rustc-hash",
++ "rustc-hash 1.1.0",
+  "smallvec",
+  "thiserror",
+- "wgpu-core-deps-apple",
+- "wgpu-core-deps-windows-linux-android",
+- "wgpu-hal",
+- "wgpu-naga-bridge",
+- "wgpu-types",
++ "wgpu-core-deps-apple 30.0.1",
++ "wgpu-core-deps-windows-linux-android 30.0.1",
++ "wgpu-hal 30.0.1",
++ "wgpu-naga-bridge 30.0.1",
++ "wgpu-types 30.0.1",
++]
++
++[[package]]
++name = "wgpu-core-deps-apple"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f5e39e26c4c0e07589e67d18546cf79ff45383659fc72fca4dd293358a0347f3"
++dependencies = [
++ "wgpu-hal 29.0.4",
+ ]
+ 
+ [[package]]
+@@ -2145,7 +3061,25 @@ version = "30.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "061f3d319a40d39d00b1ecc2c33b89fe21d4e6fe01859df3500a3a8ecccd6b68"
+ dependencies = [
+- "wgpu-hal",
++ "wgpu-hal 30.0.1",
++]
++
++[[package]]
++name = "wgpu-core-deps-emscripten"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "01e09be551dc939498bdd5f6b2c66e55ab275dad25825267a08605a80fc9f0af"
++dependencies = [
++ "wgpu-hal 29.0.4",
++]
++
++[[package]]
++name = "wgpu-core-deps-windows-linux-android"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4e592c1bbef6ad047647ae6e666ebd8cee7a32bb4544d9700ec96cbf73230257"
++dependencies = [
++ "wgpu-hal 29.0.4",
+ ]
+ 
+ [[package]]
+@@ -2154,7 +3088,61 @@ version = "30.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7586165fd5f6d881cb9ce4bb71f40d6caab2c0f1837e3fc1d9788a197fb6004f"
+ dependencies = [
+- "wgpu-hal",
++ "wgpu-hal 30.0.1",
++]
++
++[[package]]
++name = "wgpu-hal"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "97ace1c17727311c22a46e4e3faf56ea6de81af99dcc839bdfb54857b94d448d"
++dependencies = [
++ "android_system_properties",
++ "arrayvec",
++ "ash",
++ "bit-set 0.9.1",
++ "bitflags",
++ "block2",
++ "bytemuck",
++ "cfg-if",
++ "cfg_aliases",
++ "glow",
++ "glutin_wgl_sys",
++ "gpu-allocator",
++ "gpu-descriptor",
++ "hashbrown 0.16.1",
++ "js-sys",
++ "khronos-egl",
++ "libc",
++ "libloading",
++ "log",
++ "naga 29.0.4",
++ "ndk-sys",
++ "objc2",
++ "objc2-core-foundation",
++ "objc2-foundation",
++ "objc2-metal",
++ "objc2-quartz-core",
++ "once_cell",
++ "ordered-float",
++ "parking_lot",
++ "portable-atomic",
++ "portable-atomic-util",
++ "profiling",
++ "range-alloc",
++ "raw-window-handle",
++ "raw-window-metal",
++ "renderdoc-sys",
++ "smallvec",
++ "thiserror",
++ "wasm-bindgen",
++ "wayland-sys",
++ "web-sys",
++ "wgpu-naga-bridge 29.0.4",
++ "wgpu-types 29.0.4",
++ "windows",
++ "windows-core",
++ "windows-result",
+ ]
+ 
+ [[package]]
+@@ -2176,7 +3164,7 @@ dependencies = [
+  "libc",
+  "libloading",
+  "log",
+- "naga",
++ "naga 30.0.1",
+  "naga-types",
+  "objc2",
+  "objc2-core-foundation",
+@@ -2195,19 +3183,43 @@ dependencies = [
+  "smallvec",
+  "static_assertions",
+  "thiserror",
+- "wgpu-naga-bridge",
+- "wgpu-types",
++ "wgpu-naga-bridge 30.0.1",
++ "wgpu-types 30.0.1",
+  "windows",
+ ]
+ 
++[[package]]
++name = "wgpu-naga-bridge"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "95226013f547544b223281cd16a4fb549aa9dcb562adbda0faae4c73ffbbc161"
++dependencies = [
++ "naga 29.0.4",
++ "wgpu-types 29.0.4",
++]
++
+ [[package]]
+ name = "wgpu-naga-bridge"
+ version = "30.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d2f62e73117bb7a62bfd9c5a5841438a823f6566c6442a808ee269d2d055c081"
+ dependencies = [
+- "naga",
+- "wgpu-types",
++ "naga 30.0.1",
++ "wgpu-types 30.0.1",
++]
++
++[[package]]
++name = "wgpu-types"
++version = "29.0.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "84bf84cd9ca8ca45e2b223a3868f1adf9bfc0c66aeac212e76ee7e40fdadf8f5"
++dependencies = [
++ "bitflags",
++ "bytemuck",
++ "js-sys",
++ "log",
++ "raw-window-handle",
++ "web-sys",
+ ]
+ 
+ [[package]]
+@@ -2443,6 +3455,27 @@ version = "0.6.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+ 
++[[package]]
++name = "wyz"
++version = "0.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
++dependencies = [
++ "tap",
++]
++
++[[package]]
++name = "xml-rs"
++version = "0.8.29"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
++
++[[package]]
++name = "yazi"
++version = "0.2.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e01738255b5a16e78bbb83e7fbba0a1e7dd506905cfc53f4622d89015a03fbb5"
++
+ [[package]]
+ name = "yoke"
+ version = "0.8.3"
+@@ -2466,6 +3499,12 @@ dependencies = [
+  "synstructure",
+ ]
+ 
++[[package]]
++name = "zeno"
++version = "0.3.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
++
+ [[package]]
+ name = "zerocopy"
+ version = "0.8.57"
+@@ -2546,6 +3585,12 @@ dependencies = [
+  "syn 3.0.6",
+ ]
+ 
++[[package]]
++name = "zlib-rs"
++version = "0.6.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "34b31d188d9d685a4f9c7b46d6e36631b07058d2cfe190267adce54dc230bf12"
++
+ [[package]]
+ name = "zmij"
+ version = "1.0.23"
+diff --git a/game/Cargo.toml b/game/Cargo.toml
+index f15c6a08..b257a011 100644
+--- a/game/Cargo.toml
++++ b/game/Cargo.toml
+@@ -18,6 +18,7 @@ exact-game-physics = { path = "physics" }
+ exact-game-audio = { path = "audio" }
+ exact-game-app = { path = "app" }
+ exact-web = { path = "../host/web" }
++exact-linux = { path = "../host/linux" }
+ exact-apple = { path = "../host/apple" }
+ exact-runner = { path = "../runner" }
+ wasm-bindgen = "=0.2.127"
+diff --git a/game/README.md b/game/README.md
+index 31492087..db5bffb7 100644
+--- a/game/README.md
++++ b/game/README.md
+@@ -169,8 +169,10 @@ reach the world through one export on the module; an entity is a target
+ agent hears. Capture the complete simulation with `s.screenshot('run.world', 'world', 'save')`
+ (CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
+ `--world run.world` holds the bytes until Play creates the first carrying surface,
+-then restores before its first render. Web, macOS and the iOS Simulator use the
+-same forms. Both carriers refuse input files and captures above 256 MiB before
++then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
++same forms. Linux loads the same module with no device: simulation reads, input,
++clock, publications and saves work; canvas pixels and picks report unavailable.
++Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers refuse input files and captures above 256 MiB before
+ reading/encoding the carrier. A refused restore is reported once by the creating
+ operation and remains in that canvas's `state.world.restoreError` and journal;
+ other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
+@@ -187,7 +189,7 @@ then releases on the same carrier even if the clock fails. CLI: `type world key
+ and records every operation. `check(label, condition)` reports failures without
+ stopping independent assertions; `equal(a, b)` compares JSON values. Every session
+ is closed and recorded children are checked before exit. Artifacts are in the game's
+-`artifacts/` directory; the first CLI argument selects web, macOS, or iOS.
++`artifacts/` directory; the first CLI argument selects web, macOS, iOS, or Linux.
+ 
+ ## Working here
+ 
+@@ -196,7 +198,7 @@ From the repository root:
+ ```sh
+ bun game/new.mjs my-game                 # create the three files and logic crate
+ bun game/dev.mjs my-game                 # the shared dev loop, on loopback
+-bun game/games/my-game/proof.mjs web      # or macos
++bun game/games/my-game/proof.mjs web      # or linux / macos
+ ```
+ 
+ Games are members of this workspace: one lockfile, profiles and dependency pins in
+@@ -214,8 +216,8 @@ game/games/my-game/
+ `app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
+ The crate is the package in `logic/`; its name ends in `-logic`. The type can
+ include a module path. Resolving the app for dev, proof, build or deploy generates
+-`game/.shells/<app-id-hash>-{gpu,web,apple}/` before Cargo metadata. These ignored
+-crates contain the GPU module and web/Apple bakes. Complete replacements are staged
++`game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored
++crates contain the GPU module and web/Apple/Linux bakes. Complete replacements are staged
+ outside the member glob and installed by rename; unchanged inputs keep their timestamps.
+ Renaming a logic crate reuses the app identity, and resolving removes deleted games’ shells.
+ The workspace glob includes them; its tracked `.gitignore` lets Cargo resolve an
+diff --git a/game/app/shells.mjs b/game/app/shells.mjs
+index 169955a0..3a31c1a8 100644
+--- a/game/app/shells.mjs
++++ b/game/app/shells.mjs
+@@ -53,15 +53,15 @@ export function gameShells(dir, game, workspace) {
+     }
+     const name = crate.slice(0, -'-logic'.length);
+     const key = createHash('sha256').update(app.app.id).digest('hex').slice(0, 24);
+-    for (const kind of ['gpu', 'web', 'apple']) {
++    for (const kind of ['gpu', 'web', 'apple', 'linux']) {
+       const shellName = `${key}-${kind}`, shell = resolve(root, shellName);
+-      const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]\n\n[dependencies]\n`;
++      const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false${kind === 'linux' ? '' : `\n\n[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]`}\n\n[dependencies]\n`;
+       const dependencies = kind === 'gpu'
+         ? `exact-game-render.workspace = true\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n`
+         : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;
+       desired.set(shellName, {
+         'Cargo.toml': header + dependencies,
+-        'src/lib.rs': kind === 'gpu' ? `exact_game_render::module!(game_logic::${type});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
++        [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+         ...(kind === 'gpu' ? {} : {'build.rs': `fn main() {\n    exact_game_app::bake("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`}),
+       });
+     }
+diff --git a/game/app/src/lib.rs b/game/app/src/lib.rs
+index 6a62a954..b456f9f0 100644
+--- a/game/app/src/lib.rs
++++ b/game/app/src/lib.rs
+@@ -2,6 +2,7 @@
+ use exact_runner::{DataError, DataSource, Value};
+ use std::{env, fs, path::PathBuf};
+ 
++#[derive(Default)]
+ struct NoData;
+ impl DataSource for NoData {
+     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+@@ -50,9 +51,11 @@ pub fn bake(platform: &str, app_dir: &str) {
+         "macos" | "ios" => {
+             "exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);"
+         }
++        "linux" => "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }",
+         _ => panic!("unsupported game app platform: {platform}"),
+     };
+     fs::write(out.join("entry.rs"), format!(r#"
++#[derive(Default)]
+ struct NoData;
+ impl exact_runner::DataSource for NoData {{
+     fn query(&mut self, source: &str, _: &[exact_runner::Value]) -> Result<exact_runner::Value, exact_runner::DataError> {{
+diff --git a/game/games/beacons/proof.mjs b/game/games/beacons/proof.mjs
+index 9ad21c88..1e3728dd 100644
+--- a/game/games/beacons/proof.mjs
++++ b/game/games/beacons/proof.mjs
+@@ -92,7 +92,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
+     check('no browser or GPU errors', !logs.host?.some(l=>/^(exception:|console\.error:|error:)/.test(l)), logs.host);
+     await s.close();
+   }
+-  say('Original browsers closed; restoring into a fresh browser process.');
++  say('Original sessions closed; restoring into a fresh process.');
+   const restored = await open({world:checkpointFile});
+   await restored.tap('play');
+   check('fresh process reports restored', (await restored.state()).world[0].restored === true);
+diff --git a/game/games/greybox/proof.mjs b/game/games/greybox/proof.mjs
+index 16266901..2218df31 100644
+--- a/game/games/greybox/proof.mjs
++++ b/game/games/greybox/proof.mjs
+@@ -8,7 +8,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
+ const position = state => state?.entity?.components?.Transform?.position;
+   let session = await open();
+   const s = session;
+-  const screenshot = path => host === 'web' ? s.screenshot(path) : (say('SKIP macOS screenshot: screencapture has no permission in this session'), Promise.resolve({skipped:'screen capture permission'}));
++  const screenshot = path => host === 'web' || host === 'linux' ? s.screenshot(path) : (say('SKIP macOS screenshot: screencapture has no permission in this session'), Promise.resolve({skipped:'screen capture permission'}));
+   const title = await s.tree();
+   check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
+@@ -47,7 +47,14 @@ const position = state => state?.entity?.components?.Transform?.position;
+     && box.w > 0 && box.h > 0 && box.x >= 0 && box.y >= 0
+     && box.x + box.w <= 1280 && box.y + box.h <= 720, box);
+   await s.world('world').key('KeyW', {phase: 'up'});
+-  if (box) {
++  if (host === 'linux') {
++    check('headless world reports device false', initial.world[0].device === false);
++    check('headless pick is explicitly unavailable', (await s.layout('world', [1,1])).unavailable === true);
++    check('headless occlusion is explicitly unavailable', layout.entity.visible.occluded.unavailable === true);
++    check('headless canvas capture is explicitly unavailable', (await s.screenshot(resolve(out,'unavailable.png'),'world')).unavailable === true);
++    say('SKIP entity pick and entity tap on linux: canvas picks require a device; held contacts are unsupported');
++  }
++  if (box && host !== 'linux') {
+     const pick = await s.layout('world', [box.x + box.w / 2, box.y + box.h / 2]);
+     check('pick at the player box reaches player', pick?.hit?.name === 'player', pick);
+     const tap = await s.tap('world:player');
+@@ -88,7 +95,7 @@ const position = state => state?.entity?.components?.Transform?.position;
+     const resource = perf?.resources?.find(r => r.name === name);
+     check(`${name} fetched only after title paint and Play`, resource?.startMs > perf?.navigationToFirstContentfulPaintMs && resource?.startMs >= perf?.inputMs, resource);
+   }
+-  } else say('SKIP browser resource/paint timings on macOS: this host does not expose them');
++  } else say(`SKIP browser resource/paint timings on ${host}: this host does not expose them`);
+   say(`TIMINGS ${JSON.stringify(perf)}`);
+   writeFileSync(resolve(out, 'state.json'), JSON.stringify(finalState, null, 2) + '\n');
+   // Key events from HUD descendants fall through, except the control's own keys.
+diff --git a/game/proof.mjs b/game/proof.mjs
+index bd906da1..7c9390ee 100644
+--- a/game/proof.mjs
++++ b/game/proof.mjs
+@@ -21,6 +21,8 @@ export function artifactDigest(host, dist, artifacts) {
+     if (host === 'web') {
+       readFileSync(resolve(dist, 'exact.json'));
+       walk(dist, 'dist');
++    } else if (host === 'linux') {
++      for (const path of [artifacts.binary, artifacts.module]) manifest.push([basename(path), createHash('sha256').update(readFileSync(path)).digest('hex')]);
+     } else {
+       const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
+       readFileSync(executable);
+@@ -115,9 +117,18 @@ export async function proof(meta, script) {
+     }});
+   };
+   try {
+-    if (!['web','macos','ios'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
++    if (!['web','macos','ios','linux'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
+     const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
+-    if (files.status !== 0) throw new Error('cannot enumerate build inputs');
++    // Fleet source exports have no .git directory. Walk the same source tree,
++    // excluding build outputs; the extension/path filters below still apply.
++    if (files.status !== 0) {
++      const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
++        if (['.git','target','node_modules','.build','.shells','dist','artifacts'].includes(entry.name)) return [];
++        const path = prefix + entry.name;
++        return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
++      });
++      files.stdout = walk(root).join('\n');
++    }
+     const hash = createHash('sha256').update(host).update(resolveApp(name).target);
+     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
+       if (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file)
+@@ -131,12 +142,15 @@ export async function proof(meta, script) {
+       hash.update(file).update(readFileSync(resolve(root,file)));
+     }
+     const digest = hash.digest('hex'), receipt = resolve(out, `build-${host}.sha256`);
+-    const artifacts = host === 'web' ? null : appleArtifacts(resolveApp(name), {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
++    const appInfo = resolveApp(name);
++    const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
+     let artifact = artifactDigest(host, dist, artifacts);
+     const stamp = () => JSON.stringify({inputs:digest, artifact});
+     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
+       say(`BUILD ${name} ${host}`);
+-      const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
++      const child = host === 'linux'
++        ? spawn('cargo', ['build','--release','-p',appInfo.crate('gpu'),'-p',appInfo.crate('linux')], {cwd:appInfo.workspace, env:{...process.env, CARGO_TARGET_DIR:appInfo.target}, stdio:'inherit'})
++        : spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+       sample();
+       const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
+       if (code !== 0) throw new Error(`app build exited ${code}`);
+diff --git a/game/render/src/surface.rs b/game/render/src/surface.rs
+index 9e7f1d0a..db84d1f6 100644
+--- a/game/render/src/surface.rs
++++ b/game/render/src/surface.rs
+@@ -133,6 +133,11 @@ impl<G: Game> Surface for WorldSurface<G> {
+         self.perf = Perf::default();
+         Ok(())
+     }
++    fn device_lost(&mut self) {
++        self.render = None;
++        self.format = None;
++        self.dirty = true;
++    }
+     fn take_error(&mut self) -> Option<SurfaceError> {
+         if self.reported {
+             return None;
+@@ -362,6 +367,11 @@ impl<G: Game> Surface for WorldSurface<G> {
+                 self.perf.reset();
+             }
+             reply.truncate(reply.len() - 2);
++            reply.push_str(if self.render.is_some() {
++                ",\"device\":true"
++            } else {
++                ",\"device\":false"
++            });
+             self.perf.append(&mut reply);
+             reply.push_str("}}");
+         }
+diff --git a/game/render/src/surface_tests.rs b/game/render/src/surface_tests.rs
+index 938100f1..c683639f 100644
+--- a/game/render/src/surface_tests.rs
++++ b/game/render/src/surface_tests.rs
+@@ -347,3 +347,36 @@ fn full_seekable_render_has_no_performance_samples() {
+         assert_eq!(crate::perf::CLOCK_READS.with(|n| n.get()), 0);
+     }
+ }
++
++#[test]
++fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
++    use exact_gpu::{Module, Registry};
++    static REGISTRY: Registry = Registry {
++        surfaces: &[("world", 2, || {
++            Box::<WorldSurface<greybox_logic::Greybox>>::default()
++        })],
++        shaders: &[],
++    };
++    let mut module = Module::new(&REGISTRY);
++    let id = module.create_headless("world").unwrap();
++    assert!(module.bind(id, &[Value::Number(7.), Value::Bool(false)], Some(0.)));
++    let setup = module
++        .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
++        .unwrap();
++    assert!(setup.contains("0xbba6329f68d0c2f1"), "{setup}");
++    assert!(setup.contains("\"device\":false"));
++    assert!(module.input_json(
++        id,
++        r#"{"t":"key","code":"KeyW","key":"w","down":true,"repeat":false,"at":0}"#
++    ));
++    let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
++    assert!(tick.contains("\"tick\":90"), "{tick}");
++    assert!(tick.contains("0x5d40bcb196c6e6e2"), "{tick}");
++    assert_eq!(module.render(id, &frame(1500.)), None);
++    assert_eq!(module.take_error(), "");
++    let save = module.carry(id).unwrap();
++    module.lose_device();
++    assert!(module.restore(id, &save));
++    let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
++    assert!(state.contains("0x5d40bcb196c6e6e2"), "{state}");
++}
+diff --git a/gpu/src/lib.rs b/gpu/src/lib.rs
+index e144cc8b..8d13b21e 100644
+--- a/gpu/src/lib.rs
++++ b/gpu/src/lib.rs
+@@ -21,6 +21,10 @@
+ #![deny(missing_docs)]
+ 
+ use std::collections::HashMap;
++use std::sync::{
++    atomic::{AtomicBool, Ordering},
++    Arc,
++};
+ 
+ pub use exact_plan::Value;
+ pub use wgpu;
+@@ -98,6 +102,8 @@ pub trait Surface {
+         target: &wgpu::TextureView,
+         format: wgpu::TextureFormat,
+     ) -> bool;
++    /// Presentation was lost; release device resources without discarding owned state.
++    fn device_lost(&mut self) {}
+     /// Drain an error discovered while rendering or advancing committed state.
+     fn take_error(&mut self) -> Option<SurfaceError> {
+         None
+@@ -198,6 +204,7 @@ pub struct Registry {
+ pub struct Module {
+     registry: &'static Registry,
+     gpu: Option<Gpu>,
++    device_lost: Arc<AtomicBool>,
+     instances: HashMap<u32, Instance>,
+     next: u32,
+     error: String,
+@@ -220,8 +227,7 @@ struct Instance {
+     surface: Box<dyn Surface>,
+     messages: Vec<String>,
+     published: Option<String>,
+-    target: wgpu::Surface<'static>,
+-    config: wgpu::SurfaceConfiguration,
++    presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
+     bound: bool,
+     dirty: bool,
+     children: Option<Children>,
+@@ -266,6 +272,7 @@ impl Module {
+         Module {
+             registry,
+             gpu: None,
++            device_lost: Arc::new(AtomicBool::new(false)),
+             instances: HashMap::new(),
+             next: 0,
+             error: String::new(),
+@@ -275,9 +282,20 @@ impl Module {
+ 
+     /// Adopt a device (the platform-specific loader made it).
+     pub fn set_gpu(&mut self, gpu: Gpu) {
++        self.device_lost = Arc::new(AtomicBool::new(false));
++        let lost = self.device_lost.clone();
++        gpu.device.set_device_lost_callback(move |_, _| {
++            lost.store(true, Ordering::Release);
++        });
+         self.gpu = Some(gpu);
+     }
+ 
++    fn check_device(&mut self) {
++        if self.gpu.is_some() && self.device_lost.load(Ordering::Acquire) {
++            self.lose_device();
++        }
++    }
++
+     /// The device, when loaded.
+     pub fn gpu(&self) -> Option<&Gpu> {
+         self.gpu.as_ref()
+@@ -369,6 +387,23 @@ impl Module {
+         }
+         config.present_mode = wgpu::PresentMode::AutoVsync;
+         target.configure(&gpu.device, &config);
++        self.insert(*factory, Some((target, config)))
++    }
++
++    /// Create surface ownership without a device, target, or registered shaders.
++    pub fn create_headless(&mut self, name: &str) -> Option<u32> {
++        let Some((_, _, factory)) = self.registry.surfaces.iter().find(|(n, _, _)| *n == name)
++        else {
++            return self.fail(format!("no surface named `{name}` in this module"));
++        };
++        self.insert(*factory, None)
++    }
++
++    fn insert(
++        &mut self,
++        factory: Factory,
++        presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
++    ) -> Option<u32> {
+         self.next += 1;
+         let id = self.next;
+         self.instances.insert(
+@@ -377,8 +412,7 @@ impl Module {
+                 surface: factory(),
+                 messages: Vec::new(),
+                 published: None,
+-                target,
+-                config,
++                presentation,
+                 bound: false,
+                 dirty: false,
+                 children: None,
+@@ -389,6 +423,27 @@ impl Module {
+         Some(id)
+     }
+ 
++    /// Release presentation resources while preserving every surface's state.
++    pub fn lose_device(&mut self) {
++        for inst in self.instances.values_mut() {
++            inst.surface.device_lost();
++            inst.presentation = None;
++            inst.children = None;
++            inst.each.clear();
++        }
++        self.gpu = None;
++    }
++
++    /// Whether this canvas has a device and presentation target.
++    pub fn has_device(&self, id: u32) -> bool {
++        self.gpu.is_some()
++            && !self.device_lost.load(Ordering::Acquire)
++            && self
++                .instances
++                .get(&id)
++                .is_some_and(|i| i.presentation.is_some())
++    }
++
+     /// Set once by an agent host: every frame honours the seekable clock.
+     pub fn set_seekable(&mut self, on: bool) {
+         self.seekable = on;
+@@ -403,6 +458,7 @@ impl Module {
+ 
+     /// Deliver one device event and mark the canvas dirty.
+     pub fn input(&mut self, id: u32, event: &InputEvent) -> bool {
++        self.check_device();
+         let Some(inst) = self.instances.get_mut(&id) else {
+             return self.fail::<()>("no such canvas").is_some();
+         };
+@@ -439,6 +495,7 @@ impl Module {
+ 
+     /// Ask this canvas an agent question; an answer or posted message marks it dirty.
+     pub fn agent(&mut self, id: u32, request: &str) -> Option<String> {
++        self.check_device();
+         let Some(inst) = self.instances.get_mut(&id) else {
+             return self.fail("no such canvas");
+         };
+@@ -685,6 +742,7 @@ impl Module {
+     /// New inputs for a canvas; a refusal is reported and the surface keeps
+     /// its last accepted inputs.
+     pub fn bind(&mut self, id: u32, inputs: &[Value], at_ms: Option<f64>) -> bool {
++        self.check_device();
+         let Some(inst) = self.instances.get_mut(&id) else {
+             return self.fail::<()>("no such canvas").is_some();
+         };
+@@ -704,6 +762,7 @@ impl Module {
+ 
+     /// Capture state without advancing the surface or consuming its publications.
+     pub fn carry(&mut self, id: u32) -> Option<Vec<u8>> {
++        self.check_device();
+         let Some(inst) = self.instances.get_mut(&id) else {
+             return self.fail("no such canvas");
+         };
+@@ -712,6 +771,7 @@ impl Module {
+ 
+     /// Restore atomically; successful state is published before the next frame.
+     pub fn restore(&mut self, id: u32, bytes: &[u8]) -> bool {
++        self.check_device();
+         let Some(inst) = self.instances.get_mut(&id) else {
+             self.error = "no such canvas".into();
+             return false;
+@@ -739,32 +799,37 @@ impl Module {
+     }
+ 
+     /// Render one frame for a canvas at the given size; returns whether the
+-    /// surface wants another frame. Nothing happens before the first bind.
++    /// surface wants another frame. None with no error means no device/target.
++    /// Nothing happens before the first bind.
+     pub fn render(&mut self, id: u32, frame: &Frame) -> Option<bool> {
++        self.check_device();
+         let (w, h) = frame.pixels();
+-        let Some(gpu) = self.gpu.as_ref() else {
+-            return self.fail("no device");
+-        };
+         let Some(inst) = self.instances.get_mut(&id) else {
+             return self.fail("no such canvas");
+         };
++        let gpu = self.gpu.as_ref()?;
+         if !inst.bound {
+             return Some(false);
+         }
+-        if inst.config.width != w || inst.config.height != h {
+-            inst.config.width = w;
+-            inst.config.height = h;
+-            inst.target.configure(&gpu.device, &inst.config);
++        let (target, config) = inst.presentation.as_mut()?;
++        if config.width != w || config.height != h {
++            config.width = w;
++            config.height = h;
++            target.configure(&gpu.device, config);
+         }
+         use wgpu::CurrentSurfaceTexture as Current;
+-        let texture = match inst.target.get_current_texture() {
++        let texture = match target.get_current_texture() {
+             Current::Success(t) => t,
+             Current::Suboptimal(t) => {
+-                inst.target.configure(&gpu.device, &inst.config);
++                target.configure(&gpu.device, config);
+                 t
+             }
+             // Nothing to draw into this frame; the inputs stay dirty.
+             Current::Timeout | Current::Occluded => return Some(true),
++            Current::Lost => {
++                self.lose_device();
++                return None;
++            }
+             other => {
+                 self.error = format!("surface: {other:?}");
+                 return None;
+@@ -779,7 +844,7 @@ impl Module {
+         };
+         let wants = inst
+             .surface
+-            .render(&frame, &gpu.device, &gpu.queue, &view, inst.config.format);
++            .render(&frame, &gpu.device, &gpu.queue, &view, config.format);
+         inst.drain();
+         if let Some(SurfaceError(e)) = inst.surface.take_error() {
+             self.error = e;
+diff --git a/gpu/src/native.rs b/gpu/src/native.rs
+index 454136bf..a3d9a72f 100644
+--- a/gpu/src/native.rs
++++ b/gpu/src/native.rs
+@@ -92,6 +92,16 @@ pub fn load(registry: &'static Registry) -> u32 {
+     }
+ }
+ 
++/// Load surface ownership only; no adapter is requested.
++pub fn load_headless(registry: &'static Registry) {
++    MODULE.with(|m| *m.borrow_mut() = Some(Module::new(registry)));
++}
++
++/// Create a surface without presentation; zero means refusal.
++pub fn create_headless(name: &str) -> u32 {
++    with(|m| m.create_headless(name)).flatten().unwrap_or(0)
++}
++
+ /// Drop the device and every canvas; [`load`] may run again. A thread that
+ /// loaded a module must not leave it for thread-local teardown: wgpu's own
+ /// thread-locals may already be gone by then, and dropping a device without
+@@ -194,7 +204,7 @@ pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
+ }
+ 
+ /// Render one frame. Returns 1 when the surface wants another frame, 0
+-/// otherwise, 2 on failure.
++/// otherwise, 2 on failure, 3 when presentation has no device.
+ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
+     let frame = Frame {
+         width,
+@@ -208,6 +218,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32
+     match with(|m| m.render(id, &frame)).flatten() {
+         Some(true) => 1,
+         Some(false) => 0,
++        None if with(|m| m.instances.contains_key(&id) && !m.has_device(id)).unwrap_or(false) => 3,
+         None => 2,
+     }
+ }
+@@ -394,6 +405,24 @@ macro_rules! module {
+             $crate::native::load(&$registry)
+         }
+ 
++        /// Release all instances and module TLS before unloading the library.
++        #[no_mangle]
++        pub extern "C" fn gpu_unload() { $crate::native::unload(); }
++
++        /// Load ownership without a GPU.
++        #[no_mangle]
++        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry); }
++
++        /// Create ownership without a presentation target. Zero means refusal.
++        /// # Safety
++        /// `name` is `len` readable bytes.
++        #[no_mangle]
++        pub unsafe extern "C" fn gpu_create_headless(name: *const u8, len: usize) -> u32 {
++            let Some(name) = (unsafe { $crate::native::bytes("gpu_create_headless", name, len) }) else { return 0 };
++            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_create_headless: invalid UTF-8"); return 0 };
++            $crate::native::create_headless(name)
++        }
++
+         /// Create a canvas's surface on a CAMetalLayer. The canvas id, or 0.
+         ///
+         /// # Safety
+diff --git a/gpu/tests/module.rs b/gpu/tests/module.rs
+index c80efe2a..1b88910c 100644
+--- a/gpu/tests/module.rs
++++ b/gpu/tests/module.rs
+@@ -436,3 +436,111 @@ fn empty_null_carry_and_oversized_length_are_distinct() {
+     assert_eq!(exact_gpu::native::carry_length(u32::MAX as usize + 1), None);
+     assert!(exact_gpu::native::error().contains("carry exceeds ABI byte limit"));
+ }
++
++#[test]
++fn headless_ownership_keeps_every_non_drawing_seam() {
++    use exact_gpu::{wgpu, Frame, InputEvent, Surface, SurfaceError, Value};
++    #[derive(Default)]
++    struct Probe {
++        at: f64,
++        bytes: Vec<u8>,
++        output: bool,
++        error: bool,
++    }
++    impl Surface for Probe {
++        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
++            self.output = true;
++            Ok(())
++        }
++        fn bind_at(&mut self, v: &[Value], at: Option<f64>) -> Result<(), SurfaceError> {
++            self.at = at.unwrap_or_default();
++            self.bind(v)
++        }
++        fn render(
++            &mut self,
++            _: &Frame,
++            _: &wgpu::Device,
++            _: &wgpu::Queue,
++            _: &wgpu::TextureView,
++            _: wgpu::TextureFormat,
++        ) -> bool {
++            panic!("headless never draws")
++        }
++        fn wants_input(&self) -> bool {
++            true
++        }
++        fn input(&mut self, _: &InputEvent) {
++            self.output = true;
++        }
++        fn messages(&mut self) -> Vec<String> {
++            if self.output {
++                vec!["message".into()]
++            } else {
++                vec![]
++            }
++        }
++        fn published(&mut self) -> Option<String> {
++            std::mem::take(&mut self.output).then(|| "{}".into())
++        }
++        fn agent(&mut self, q: &str) -> Option<String> {
++            self.error = q == "fail";
++            self.output = true;
++            Some(self.at.to_string())
++        }
++        fn take_error(&mut self) -> Option<SurfaceError> {
++            std::mem::take(&mut self.error).then(|| SurfaceError("probe refused".into()))
++        }
++        fn carry(&mut self) -> Option<Vec<u8>> {
++            Some(self.bytes.clone())
++        }
++        fn restore(&mut self, b: &[u8]) -> Result<(), String> {
++            self.bytes = b.to_vec();
++            self.output = true;
++            Ok(())
++        }
++    }
++    static REGISTRY: Registry = Registry {
++        surfaces: &[("probe", 0, || Box::<Probe>::default())],
++        shaders: &[("unregistered", 123)],
++    };
++    let mut m = Module::new(&REGISTRY);
++    assert!(m.create_headless("missing").is_none());
++    assert!(m.take_error().contains("missing"));
++    let id = m.create_headless("probe").unwrap();
++    assert!(!m.has_device(id));
++    assert!(m.bind(id, &[], None));
++    assert!(m.bind(id, &[], Some(23.)));
++    assert_eq!(m.agent(id, "state").as_deref(), Some("23"));
++    assert!(m.wants_input(id));
++    assert!(m.input(id, &InputEvent::Blur { at_ms: 23. }));
++    assert!(!m.take_messages(id).is_empty());
++    assert!(m.take_messages(id).is_empty());
++    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
++    assert!(m.take_published(id).is_none());
++    assert!(m.restore(id, &[1, 2, 3]));
++    assert_eq!(m.carry(id), Some(vec![1, 2, 3]));
++    assert_eq!(m.take_published(id).as_deref(), Some("{}"));
++    let f = Frame {
++        width: 10.,
++        height: 10.,
++        scale: 1.,
++        now_ms: 23.,
++        seekable: true,
++        children_generation: 0,
++        shader_generation: 0,
++    };
++    for _ in 0..2 {
++        assert_eq!(m.render(id, &f), None);
++        assert_eq!(m.take_error(), "");
++    }
++    m.lose_device();
++    assert_eq!(m.agent(id, "state").as_deref(), Some("23"));
++    assert!(m.agent(id, "fail").is_none());
++    assert_eq!(m.take_error(), "probe refused");
++    assert_eq!(m.take_error(), "");
++    assert!(m.restore(id, &[]));
++    assert_eq!(m.carry(id), Some(vec![]));
++    m.destroy(id);
++    assert!(m.agent(id, "state").is_none());
++    assert_eq!(m.take_error(), "no such canvas");
++}
+diff --git a/host/linux/Cargo.toml b/host/linux/Cargo.toml
+index 515977fd..557b9460 100644
+--- a/host/linux/Cargo.toml
++++ b/host/linux/Cargo.toml
+@@ -33,6 +33,8 @@ ibex2 = { path = "../../../ibex/crates/ibex2", default-features = false }
+ sha2 = "0.10"
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
++libloading = "0.8"
++base64 = "0.22"
+ tiny-skia = "0.12"
+ cosmic-text = { version = "0.19", features = ["peniko"] }
+ png = "0.18"
+diff --git a/host/linux/src/agent.rs b/host/linux/src/agent.rs
+index 1beeda84..d4d2fe0c 100644
+--- a/host/linux/src/agent.rs
++++ b/host/linux/src/agent.rs
+@@ -64,7 +64,12 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
+     p.poll_update();
+     p.poll_development(D::default);
+     p.run_commands(D::default);
++    p.sync_surfaces();
+     let reply = answer(p, line);
++    p.sync_surfaces();
++    let reply = p.merge_surfaces(line, reply);
++    p.sync_surfaces();
++    let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
+     p.run_commands(D::default);
+     // In the headless carrier a completed paint is presentation. A command
+     // may activate a generation after the initial boot's frame was counted.
+@@ -82,13 +87,13 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
+ /// alone.
+ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> String {
+     let op = field_str(line, "op");
+-    let host_reply = matches!(
+-        op.as_deref(),
+-        Some("layout" | "tap" | "type" | "clock" | "screenshot")
+-    );
++    let host_reply = op.is_some();
+     if !host_reply || !reply.ends_with('}') || reply.starts_with("{\"error\"") {
+         return reply;
+     }
++    if field_num(&reply, "epoch").is_some() {
++        return reply;
++    }
+     let tags = p.host().agent("{\"op\":\"tags\"}");
+     let (Some(epoch), Some(incarnation), Some(clock)) = (
+         field_num(&tags, "epoch"),
+@@ -112,6 +117,12 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
+ 
+ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+     let id = || field_num(line, "id").map(|n| n as u32);
++    let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
++    if let Some(view) = id() {
++        if q["entity"].is_string() || field_bool(line, "world") || (q["op"] == "state") {
++            return p.surface_request(view, q).to_string();
++        }
++    }
+     match field_str(line, "op").as_deref() {
+         Some("tree") => accessibility_tree(p),
+         Some("state") => {
+@@ -154,9 +165,12 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+                 return error("type needs an id");
+             };
+             if let Some(key) = field_str(line, "key") {
+-                return p
+-                    .type_key(id, &key, field_str(line, "phase").as_deref() != Some("up"))
+-                    .unwrap_or_else(|e| error(&e));
++                let phase = field_str(line, "phase");
++                let r = p.type_key(id, &key, phase.as_deref() != Some("up"));
++                if phase.is_none() && r.is_ok() {
++                    let _ = p.type_key(id, &key, false);
++                }
++                return r.unwrap_or_else(|e| error(&e));
+             }
+             let text = field_str(line, "text").unwrap_or_default();
+             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
+@@ -252,24 +266,45 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+             return format!("{s},\"clock\":{}}}", num(landed));
+         }
++        p.sync_surfaces();
++        let world = p.worlds(serde_json::json!({"op":"clock","settle":settle_to_end}));
++        p.sync_surfaces();
++        let response = |settled: Option<bool>| {
++            let mut r = format!("{{\"clock\":{}", num(landed));
++            if let Some(s) = settled {
++                r.push_str(&format!(",\"settled\":{s}"));
++            }
++            if !world.is_empty() {
++                r.push_str(&format!(",\"world\":{}", serde_json::json!(world)));
++            }
++            if settled == Some(false) && world.iter().any(|w| w["quiescent"] == false) {
++                r.push_str(",\"reason\":\"world\"");
++            }
++            r.push('}');
++            r
++        };
+         if !settle_to_end {
+-            return format!("{{\"clock\":{}}}", num(landed));
++            return response(None);
+         }
+         if p.pending() {
+             rounds += 1;
+             if rounds >= 16 {
+-                return format!("{{\"clock\":{},\"settled\":false}}", num(landed));
++                return response(Some(false));
+             }
+             wait_for_replies(p);
+             continue;
+         }
+-        let next = landed.max(settle(p).unwrap_or(landed));
++        let next = world
++            .iter()
++            .filter(|w| w["quiescent"] == false)
++            .filter_map(|w| w["settleAt"].as_f64())
++            .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
+         if next <= landed {
+-            return format!("{{\"clock\":{},\"settled\":true}}", num(landed));
++            return response(Some(true));
+         }
+         rounds += 1;
+         if rounds >= 16 {
+-            return format!("{{\"clock\":{},\"settled\":false}}", num(landed));
++            return response(Some(false));
+         }
+         to = next;
+     }
+diff --git a/host/linux/src/app.rs b/host/linux/src/app.rs
+index 2db8ff99..a102190a 100644
+--- a/host/linux/src/app.rs
++++ b/host/linux/src/app.rs
+@@ -410,6 +410,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
+     // drive named an origin; a headless run has no user to wait for.
+     let _ = p.frame();
+     p.first_pixel();
++    p.sync_surfaces();
+     p.poll_development(D::default);
+     if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
+         p.check_update();
+diff --git a/host/linux/src/host.rs b/host/linux/src/host.rs
+index bb3c6ce4..907ad0ab 100644
+--- a/host/linux/src/host.rs
++++ b/host/linux/src/host.rs
+@@ -183,6 +183,23 @@ impl<D: DataSource> Host<D> {
+         &self.runner
+     }
+ 
++    pub(crate) fn take_surface_updates(&mut self) -> Vec<exact_runner::SurfaceUpdate> {
++        self.runner.take_surface_updates()
++    }
++    pub(crate) fn surface_record(&mut self, name: &str, json: Option<&str>) -> Option<String> {
++        match self.runner.set_surface_record(name, json) {
++            Ok(Some(receipt)) => self.commit(
++                &[Timed {
++                    at_ms: self.now_ms,
++                    receipt,
++                }],
++                None,
++            ),
++            Ok(None) => None,
++            Err(e) => Some(format!("surface {name}: {e:?}")),
++        }
++    }
++
+     /// The kernel.
+     pub fn kernel(&self) -> &Kernel {
+         self.runner.kernel()
+diff --git a/host/linux/src/lib.rs b/host/linux/src/lib.rs
+index 88be2c6e..b295a715 100644
+--- a/host/linux/src/lib.rs
++++ b/host/linux/src/lib.rs
+@@ -53,6 +53,7 @@ pub mod navigation;
+ pub mod paint;
+ pub mod presenter;
+ pub mod raster;
++mod surfaces;
+ pub mod text;
+ #[cfg(target_os = "linux")]
+ pub mod vnc;
+diff --git a/host/linux/src/presenter.rs b/host/linux/src/presenter.rs
+index fdd4637b..5e1835d6 100644
+--- a/host/linux/src/presenter.rs
++++ b/host/linux/src/presenter.rs
+@@ -33,7 +33,8 @@ use tiny_skia::Pixmap;
+ 
+ /// The presenter: one host, its painter, and the host state.
+ pub struct Presenter<D: DataSource> {
+-    host: Host<D>,
++    pub(crate) host: Host<D>,
++    pub(crate) surfaces: crate::surfaces::Surfaces,
+     module: Option<crate::delivery::Module>,
+     painted: bool,
+     activation_failed: bool,
+@@ -302,6 +303,7 @@ impl<D: DataSource> Presenter<D> {
+             pointer: None,
+             boxes: Vec::new(),
+             dirty: true,
++            surfaces: Default::default(),
+             module: None,
+             painted: false,
+             activation_failed: false,
+@@ -730,7 +732,7 @@ impl<D: DataSource> Presenter<D> {
+     /// After anything that may have committed: images follow the tree,
+     /// offsets stay in range, focus stays on a live input, the picture is
+     /// stale.
+-    fn after_commit(&mut self) -> Option<String> {
++    pub(crate) fn after_commit(&mut self) -> Option<String> {
+         self.dirty = true;
+         // What the commit asked the host to run goes to the executor (LLP
+         // 1016 D2); the reply comes back through `pump`. Its commands wait
+@@ -1047,7 +1049,9 @@ impl<D: DataSource> Presenter<D> {
+             self.focus = focus;
+             self.dirty = true;
+         }
+-        let target = self.handler_target(hit, EventKind::Press)?;
++        let Some(target) = self.handler_target(hit, EventKind::Press) else {
++            return self.surface_pointer(hit, x, y, now_ms);
++        };
+         if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+             eprintln!("exact: {e}");
+         }
+@@ -1214,6 +1218,21 @@ impl<D: DataSource> Presenter<D> {
+ 
+     /// Agent keyboard input uses the same focus and activation path as evdev.
+     pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
++        let node = self
++            .host
++            .kernel()
++            .node(id)
++            .ok_or_else(|| format!("no view {id}"))?;
++        let editable = node.node_type == NodeType::TextInput;
++        let activation = matches!(key, "Space" | "Enter")
++            && matches!(
++                node.props.str(PropId::AccessibilityRole),
++                Some("button" | "link")
++            );
++        if !self.host.route_visibility(id).1 && !editable && key != "Tab" && (!down || !activation)
++            && self.surface_input(id, serde_json::json!({"t":"key","code":key,"key":key,"down":down,"repeat":false,"at":self.host.now()})) {
++            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
++        }
+         if !self.focusable(id) || self.host.route_visibility(id).1 {
+             return Err(format!("view {id} cannot take focus"));
+         }
+diff --git a/host/linux/src/surfaces.rs b/host/linux/src/surfaces.rs
+new file mode 100644
+index 00000000..9c46dfb0
+--- /dev/null
++++ b/host/linux/src/surfaces.rs
+@@ -0,0 +1,491 @@
++//! Device-free canvas ownership over the same dynamic module ABI as Apple.
++//! @ref LLP 1041.001 D7; LLP 1015 §7
++#![allow(unsafe_code)]
++use crate::{Host, Presenter};
++use base64::Engine;
++use exact_runner::{DataSource, Event};
++use libloading::Library;
++use serde_json::{json, Value};
++use std::{
++    collections::{BTreeMap, BTreeSet},
++    path::PathBuf,
++};
++
++const LIMIT: usize = 256 * 1024 * 1024;
++type Read = unsafe extern "C" fn(u32) -> u32;
++type Text = unsafe extern "C" fn(u32, *const u8, usize) -> u32;
++
++struct Abi {
++    // Symbols never outlive this library; unload TLS before dlclose.
++    library: Library,
++}
++impl Abi {
++    fn open() -> Result<Self, String> {
++        let binary = std::env::current_exe().map_err(|e| e.to_string())?;
++        let stem = binary.file_stem().unwrap().to_string_lossy();
++        let name = stem
++            .strip_suffix("-linux")
++            .unwrap_or(&stem)
++            .replace('-', "_");
++        let path = std::env::var_os("EXACT_GPU_MODULE")
++            .map(PathBuf::from)
++            .unwrap_or_else(|| {
++                binary.with_file_name(format!("lib{name}_gpu.{}", std::env::consts::DLL_EXTENSION))
++            });
++        // SAFETY: the app's own module, with the ABI checked before any call.
++        let abi = Self {
++            library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
++        };
++        unsafe {
++            for name in [
++                "gpu_load_headless",
++                "gpu_unload",
++                "gpu_create_headless",
++                "gpu_bind_at",
++                "gpu_agent",
++                "gpu_input",
++                "gpu_wants_input",
++                "gpu_published",
++                "gpu_messages",
++                "gpu_carry",
++                "gpu_restore",
++                "gpu_destroy",
++                "gpu_error",
++                "gpu_out_ptr",
++            ] {
++                abi.library
++                    .get::<*const ()>(name.as_bytes())
++                    .map_err(|e| e.to_string())?;
++            }
++            abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
++        }
++        Ok(abi)
++    }
++    // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
++    unsafe fn symbol<T: Copy>(&self, name: &[u8]) -> T {
++        *unsafe { self.library.get::<T>(name) }.expect("validated module ABI")
++    }
++    fn bytes(&self, len: u32) -> Option<Vec<u8>> {
++        if len == u32::MAX {
++            return None;
++        }
++        assert!(len as usize <= LIMIT, "surface output exceeds 256 MiB");
++        // SAFETY: the ABI buffer is readable until the next call, copied now.
++        Some(unsafe {
++            let ptr = self.symbol::<unsafe extern "C" fn() -> *const u8>(b"gpu_out_ptr")();
++            std::slice::from_raw_parts(ptr, len as usize).to_vec()
++        })
++    }
++    fn read(&self, name: &[u8], id: u32) -> Option<Vec<u8>> {
++        self.bytes(unsafe { self.symbol::<Read>(name)(id) })
++    }
++    fn text(&self, name: &[u8], id: u32, text: &str) -> u32 {
++        unsafe { self.symbol::<Text>(name)(id, text.as_ptr(), text.len()) }
++    }
++    fn error(&self) -> Option<String> {
++        let n = unsafe { self.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_error")() };
++        (n > 0).then(|| String::from_utf8_lossy(&self.bytes(n).unwrap()).into_owned())
++    }
++    fn agent(&self, id: u32, q: &Value) -> Value {
++        let n = self.text(b"gpu_agent", id, &q.to_string());
++        let bytes = self.bytes(n).unwrap();
++        if let Some(error) = self.error() {
++            return json!({"error":error});
++        }
++        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
++    }
++    fn destroy(&self, id: u32) {
++        unsafe { self.symbol::<unsafe extern "C" fn(u32)>(b"gpu_destroy")(id) }
++    }
++}
++impl Drop for Abi {
++    fn drop(&mut self) {
++        // A missing symbol can occur during validation of an older artifact.
++        if let Ok(unload) = unsafe { self.library.get::<unsafe extern "C" fn()>(b"gpu_unload") } {
++            unsafe { unload() };
++        }
++    }
++}
++struct Canvas {
++    id: u32,
++    name: String,
++    owner: bool,
++    since: u64,
++    held: BTreeSet<String>,
++    restore_error: Option<String>,
++    restore_logged: bool,
++}
++#[derive(Default)]
++pub(crate) struct Surfaces {
++    abi: Option<Abi>,
++    attempted: bool,
++    canvases: BTreeMap<u32, Canvas>,
++    restore: Option<Result<Vec<u8>, String>>,
++    restore_read: bool,
++    pub(crate) error: Option<String>,
++}
++impl Surfaces {
++    fn sync<D: DataSource>(&mut self, host: &mut Host<D>) -> bool {
++        let mut changed = false;
++        let dead: Vec<_> = self
++            .canvases
++            .keys()
++            .copied()
++            .filter(|id| host.kernel().node(*id).is_none())
++            .collect();
++        for view in dead {
++            let c = self.canvases.remove(&view).unwrap();
++            self.abi.as_ref().unwrap().destroy(c.id);
++            if c.owner {
++                self.error = self.error.take().or(host.surface_record(&c.name, None));
++                changed = true;
++            }
++        }
++        let updates = host.take_surface_updates();
++        if !updates.is_empty() && !self.attempted {
++            self.attempted = true;
++            match Abi::open() {
++                Ok(abi) => self.abi = Some(abi),
++                Err(e) => host.log(format!("surface module unavailable: {e}")),
++            }
++        }
++        let Some(abi) = &self.abi else {
++            return changed;
++        };
++        for update in updates {
++            if self
++                .canvases
++                .get(&update.view)
++                .is_some_and(|c| c.name != update.name)
++            {
++                let old = self.canvases.remove(&update.view).unwrap();
++                abi.destroy(old.id);
++                if old.owner {
++                    self.error = self.error.take().or(host.surface_record(&old.name, None));
++                    changed = true;
++                }
++            }
++            if !self.canvases.contains_key(&update.view) {
++                let id = unsafe {
++                    abi.symbol::<unsafe extern "C" fn(*const u8, usize) -> u32>(
++                        b"gpu_create_headless",
++                    )(update.name.as_ptr(), update.name.len())
++                };
++                if id == 0 {
++                    self.error = abi.error();
++                    continue;
++                }
++                let owner = !self.canvases.values().any(|c| c.name == update.name);
++                if !owner {
++                    host.log(format!(
++                        "surface {}: duplicate canvas cannot publish",
++                        update.name
++                    ));
++                }
++                self.canvases.insert(
++                    update.view,
++                    Canvas {
++                        id,
++                        name: update.name.clone(),
++                        owner,
++                        since: 0,
++                        held: BTreeSet::new(),
++                        restore_error: None,
++                        restore_logged: false,
++                    },
++                );
++            }
++            let c = self.canvases.get_mut(&update.view).unwrap();
++            let values = value_json(&exact_runner::Value::List(update.values.into())).to_string();
++            let code = unsafe {
++                abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, f64) -> u32>(
++                    b"gpu_bind_at",
++                )(c.id, values.as_ptr(), values.len(), host.now())
++            };
++            if code != 0 {
++                self.error = abi.error();
++                continue;
++            }
++            if !self.restore_read {
++                self.restore_read = true;
++                self.restore = std::env::var_os("EXACT_WORLD").map(|path| {
++                    std::fs::metadata(&path)
++                        .map_err(|e| e.to_string())
++                        .and_then(|m| {
++                            if m.len() > LIMIT as u64 {
++                                Err("world carrier exceeds 256 MiB limit".into())
++                            } else {
++                                std::fs::read(path).map_err(|e| e.to_string())
++                            }
++                        })
++                });
++            }
++            if self.restore.is_some() && abi.read(b"gpu_carry", c.id).is_some() {
++                let result = self.restore.take().unwrap().and_then(|bytes| {
++                    let ok = unsafe {
++                        abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize) -> bool>(
++                            b"gpu_restore",
++                        )(c.id, bytes.as_ptr(), bytes.len())
++                    };
++                    if ok {
++                        let state = abi.agent(c.id, &json!({"op":"state"}));
++                        c.held = state["world"]["input"]["forwarded"]
++                            .as_array()
++                            .into_iter()
++                            .flatten()
++                            .filter_map(|v| v.as_str().map(str::to_owned))
++                            .collect();
++                        Ok(())
++                    } else {
++                        Err(abi.error().unwrap_or("surface refused save".into()))
++                    }
++                });
++                if let Err(e) = result {
++                    let e = format!("restore refused: {e}");
++                    c.restore_error = Some(e.clone());
++                    self.error = Some(e);
++                }
++            }
++        }
++        for (&view, c) in &self.canvases {
++            if let Some(bytes) = abi.read(b"gpu_published", c.id) {
++                if c.owner {
++                    let record = String::from_utf8_lossy(&bytes);
++                    self.error = self
++                        .error
++                        .take()
++                        .or(host.surface_record(&c.name, Some(&record)));
++                    changed = true;
++                }
++            }
++            if let Some(bytes) = abi.read(b"gpu_messages", c.id) {
++                if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
++                    for message in messages {
++                        self.error = self.error.take().or(host.dispatch_at(
++                            view,
++                            Event::Message(message),
++                            host.now(),
++                        ));
++                        changed = true;
++                    }
++                }
++            }
++        }
++        changed
++    }
++    fn wants_input(&self, view: u32) -> bool {
++        self.canvases.get(&view).is_some_and(|c| unsafe {
++            self.abi
++                .as_ref()
++                .unwrap()
++                .symbol::<Read>(b"gpu_wants_input")(c.id)
++                != 0
++        })
++    }
++    fn input(&mut self, view: u32, event: Value) {
++        if let Some(c) = self.canvases.get_mut(&view) {
++            if event["t"] == "key" {
++                let code = event["code"].as_str().unwrap_or_default().to_string();
++                if event["down"] == true {
++                    c.held.insert(code);
++                } else if !c.held.remove(&code) {
++                    return;
++                }
++            }
++            let abi = self.abi.as_ref().unwrap();
++            if abi.text(b"gpu_input", c.id, &event.to_string()) != 0 {
++                self.error = abi.error();
++            }
++        }
++    }
++}
++impl<D: DataSource> Presenter<D> {
++    pub(crate) fn sync_surfaces(&mut self) {
++        // A publication/message may change the canvas arguments. Drain to a fixed
++        // point; an app feedback loop is refused rather than hanging the carrier.
++        for _ in 0..16 {
++            if !self.surfaces.sync(&mut self.host) {
++                return;
++            }
++            if let Some(e) = self.after_commit() {
++                self.surfaces.error = Some(e);
++            }
++        }
++        self.surfaces.error = Some("surface publication did not settle".into());
++    }
++    pub(crate) fn surface_input(&mut self, id: u32, event: Value) -> bool {
++        let mut cursor = Some(id);
++        while let Some(view) = cursor {
++            if self.surfaces.wants_input(view) {
++                self.surfaces.input(view, event);
++                return true;
++            }
++            cursor = self.host.kernel().node(view).and_then(|n| n.parent);
++        }
++        false
++    }
++    pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
++        let mut cursor = Some(id);
++        while let Some(view) = cursor {
++            if self.surfaces.wants_input(view) {
++                let (ox, oy, _, _) = self.rect_of(view)?;
++                for (phase, buttons) in [("down", 1), ("up", 0)] {
++                    self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}));
++                }
++                return Some(view);
++            }
++            cursor = self.host.kernel().node(view).and_then(|n| n.parent);
++        }
++        None
++    }
++    pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
++        let rect = self.rect_of(view);
++        let Some(c) = self.surfaces.canvases.get_mut(&view) else {
++            return json!({"unavailable":true,"device":false});
++        };
++        let abi = self.surfaces.abi.as_ref().unwrap();
++        q["now"] = self.host.now().into();
++        if let Some((x, y, w, h)) = rect.filter(|r| r.2 > 0. && r.3 > 0.) {
++            q["width"] = w.into();
++            q["height"] = h.into();
++            if let Some(v) = q["x"].as_f64() {
++                q["x"] = (v - f64::from(x)).into();
++            }
++            if let Some(v) = q["y"].as_f64() {
++                q["y"] = (v - f64::from(y)).into();
++            }
++        }
++        if q["op"] == "screenshot" {
++            if q["form"] != "save" {
++                return json!({"unavailable":true,"device":false,"reason":"canvas pixels require a device"});
++            }
++            let state = abi.agent(c.id, &json!({"op":"state","now":self.host.now()}));
++            return match abi.read(b"gpu_carry", c.id) {
++                Some(bytes) => {
++                    json!({"bytes":bytes.len(),"data":base64::engine::general_purpose::STANDARD.encode(&bytes),"tick":state["world"]["tick"],"hash":state["world"]["hash"]})
++                }
++                None => json!({"error":"surface carries no state"}),
++            };
++        }
++        if q["op"] == "layout" && !q["entity"].is_string() {
++            return json!({"unavailable":true,"device":false,"reason":"canvas picks require a device"});
++        }
++        if q["op"] == "logs" {
++            q["since"] = c.since.into();
++        }
++        let mut r = abi.agent(c.id, &q);
++        if q["op"] == "logs" {
++            c.since = r["next"].as_u64().unwrap_or(c.since);
++            if !c.restore_logged {
++                if let Some(e) = c.restore_error.as_ref() {
++                    if let Some(lines) = r.get_mut("lines").and_then(Value::as_array_mut) {
++                        lines.push(e.clone().into());
++                        c.restore_logged = true;
++                    }
++                }
++            }
++        }
++        if let Some(world) = r.get_mut("world").and_then(Value::as_object_mut) {
++            world.insert("canvas".into(), view.into());
++            world.insert("device".into(), false.into());
++            if let Some(e) = &c.restore_error {
++                world.insert("restoreError".into(), e.clone().into());
++            }
++        }
++        if let Some(visible) = r
++            .pointer_mut("/entity/visible")
++            .and_then(Value::as_object_mut)
++        {
++            visible.insert("occluded".into(), json!({"unavailable":true}));
++        }
++        if let Some((x, y, _, _)) = rect {
++            if let Some(b) = r
++                .pointer_mut("/entity/screen")
++                .and_then(Value::as_object_mut)
++            {
++                for (key, offset) in [("x", x), ("y", y)] {
++                    if let Some(v) = b.get(key).and_then(Value::as_f64) {
++                        b.insert(key.into(), (v + f64::from(offset)).into());
++                    }
++                }
++            }
++        }
++        r
++    }
++    pub(crate) fn worlds(&mut self, q: Value) -> Vec<Value> {
++        let views: Vec<_> = self.surfaces.canvases.keys().copied().collect();
++        views
++            .into_iter()
++            .filter_map(|view| {
++                let mut r = self.surface_request(view, q.clone());
++                if r.is_null() {
++                    return None;
++                }
++                if r["world"].is_object() {
++                    r = r["world"].take();
++                }
++                r["canvas"] = view.into();
++                Some(r)
++            })
++            .collect()
++    }
++    pub(crate) fn merge_surfaces(&mut self, line: &str, reply: String) -> String {
++        if self.surfaces.canvases.is_empty() {
++            return reply;
++        }
++        let q: Value = serde_json::from_str(line).unwrap_or(Value::Null);
++        if !matches!(
++            q["op"].as_str(),
++            Some("tree" | "state" | "logs" | "screenshot")
++        ) {
++            return reply;
++        }
++        if q["entity"].is_string()
++            || q["world"] == true
++            || (q["op"] == "state" && q["id"].is_number())
++        {
++            return reply;
++        }
++        let mut r: Value = serde_json::from_str(&reply).unwrap_or(Value::Null);
++        if r.get("error").is_some() {
++            return reply;
++        }
++        match q["op"].as_str() {
++            Some("tree") => {
++                if let Some(nodes) = r["nodes"].as_array_mut() {
++                    for row in nodes {
++                        if let Some(view) = row["id"]
++                            .as_u64()
++                            .filter(|v| self.surfaces.canvases.contains_key(&(*v as u32)))
++                        {
++                            let w = self
++                                .surface_request(view as u32, json!({"op":"tree","summary":true}));
++                            if w["world"].is_object() {
++                                row["world"] = w["world"].clone();
++                            }
++                        }
++                    }
++                }
++            }
++            Some("state") => r["world"] = self.worlds(json!({"op":"state"})).into(),
++            Some("logs") => r["world"] = self.worlds(json!({"op":"logs"})).into(),
++            Some("screenshot") if !self.surfaces.canvases.is_empty() => {
++                r["note"] = "Contract painted; canvas rectangles are flat (no device)".into()
++            }
++            _ => {}
++        }
++        r.to_string()
++    }
++}
++
++fn value_json(v: &exact_runner::Value) -> Value {
++    use exact_runner::Value as V;
++    match v {
++        V::Number(n) => json!(n),
++        V::Bool(b) => json!(b),
++        V::Str(s) => json!(s.as_ref()),
++        V::List(items) | V::Record(items) => items.iter().map(value_json).collect(),
++        V::Option(Some(v)) => value_json(v),
++        _ => Value::Null,
++    }
++}
+diff --git a/llp/1015-linux-host-v1.spec.md b/llp/1015-linux-host-v1.spec.md
+index 220973df..8c843725 100644
+--- a/llp/1015-linux-host-v1.spec.md
++++ b/llp/1015-linux-host-v1.spec.md
+@@ -458,6 +458,11 @@ only path today. Nothing else in the host knows which backend paints;
+ `EXACT_PAINTER=cpu` is one environment variable away. The two-wgpu build
+ (vello 0.10 pins 29, the GPU module 30) ends when vello moves.
+ 
++**D7 headless module (2026-09-17):** the headless host loads the app's adjacent
++GPU module after first pixel and creates canvases without a device. Surface
++reads, input, publications, messages and carry/restore work; Contract screenshots
++leave canvas rectangles flat. Presentation on the painter's device remains below.
++
+ Also not in v1, each declared: authentication or encryption on the VNC
+ server (`EXACT_VNC` is for a private network), and its `Raw` encoding
+ only (8 MB a frame at 1080p — a LAN's, not a WAN's); a KMS surface for the GPU (`VK_KHR_display`
+diff --git a/scripts/agent.mjs b/scripts/agent.mjs
+index b8c63f15..66b9fe48 100644
+--- a/scripts/agent.mjs
++++ b/scripts/agent.mjs
+@@ -420,6 +420,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
+     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
+     // paints the host's text on every machine, so a pixel fixture recorded
+     // here matches on a builder (LLP 1015 §5). The environment still wins.
++    env.EXACT_PAINTER ??= 'cpu';
+     env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
+     env.EXACT_FONT ??= 'DejaVu Sans';
+   }
+@@ -734,7 +735,7 @@ export function worldView(session, name) {
+  * the same app address on each host; `plan` boots a local compiled contract;
+  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
+ export async function open({ host = 'web', plan, world, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
+-  if (world && (device || !['web','mac','macos','ios'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
++  if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
+   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit');
+   if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
+   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
+@@ -903,7 +904,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
+     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
+     screenshot: async (path, target = false, form) => {
+       if (form === 'save') {
+-        if (!['web','macos','ios'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
++        if (!['web','macos','ios','linux'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+         const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
+         const {data, ...metadata} = reply;
+         if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes`);
+@@ -914,6 +915,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
+         return s.tagged({...metadata, screenshot:resolve(path)});
+       }
+       if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
++      if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
+       return s.tagged(await carrier.screenshot(resolve(path), target));
+     },
+     /**
+diff --git a/scripts/app.mjs b/scripts/app.mjs
+index 4a683e1b..1b130533 100644
+--- a/scripts/app.mjs
++++ b/scripts/app.mjs
+@@ -429,7 +429,7 @@ export function buildBake(app, platform, target, options = {}) {
+   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
+   const rustBundle=prepareRustBundle(app,platform,target,env);
+   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
+-  const graph=buildGraph(app,target,kind,env,platform!=='linux'&&app.hasGpu),messages=[],roots=[];
++  const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
+   const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
+     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
+     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);

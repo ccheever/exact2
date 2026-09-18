@@ -3,8 +3,8 @@
 //! clamping stick length to one and arriving exactly without overshoot. Y is
 //! untouched. `Jump` sets upward velocity to sqrt(2 × gravity × height), with
 //! height in metres and positive downward gravity in m/s²; `Gravity` subtracts
-//! gravity × dt from Y. Steps take seconds. The game owns grounding and position
-//! integration (use v × dt − gravity × dt² / 2 for a ballistic hop).
+//! gravity × dt from Y. Steps take seconds. [`crate::character::Character`]
+//! composes these pieces with position integration, grounding and bounds.
 use crate::{math, Vec3};
 
 /// Accelerate toward a planar wish velocity; brake to an exact stop on release.

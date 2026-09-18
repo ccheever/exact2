@@ -21,6 +21,8 @@ export function artifactDigest(host, dist, artifacts) {
     if (host === 'web') {
       readFileSync(resolve(dist, 'exact.json'));
       walk(dist, 'dist');
+    } else if (host === 'linux') {
+      for (const path of [artifacts.binary, artifacts.module]) manifest.push([basename(path), createHash('sha256').update(readFileSync(path)).digest('hex')]);
     } else {
       const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
       readFileSync(executable);
@@ -115,9 +117,18 @@ export async function proof(meta, script) {
     }});
   };
   try {
-    if (!['web','macos','ios'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
+    if (!['web','macos','ios','linux'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
-    if (files.status !== 0) throw new Error('cannot enumerate build inputs');
+    // Fleet source exports have no .git directory. Walk the same source tree,
+    // excluding build outputs; the extension/path filters below still apply.
+    if (files.status !== 0) {
+      const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+        if (['.git','target','node_modules','.build','.shells','dist','artifacts'].includes(entry.name)) return [];
+        const path = prefix + entry.name;
+        return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
+      });
+      files.stdout = walk(root).join('\n');
+    }
     const hash = createHash('sha256').update(host).update(resolveApp(name).target);
     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
       if (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file)
@@ -131,12 +142,15 @@ export async function proof(meta, script) {
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
     const digest = hash.digest('hex'), receipt = resolve(out, `build-${host}.sha256`);
-    const artifacts = host === 'web' ? null : appleArtifacts(resolveApp(name), {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
+    const appInfo = resolveApp(name);
+    const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
     let artifact = artifactDigest(host, dist, artifacts);
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
-      const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+      const child = host === 'linux'
+        ? spawn('cargo', ['build','--release','-p',appInfo.crate('gpu'),'-p',appInfo.crate('linux')], {cwd:appInfo.workspace, env:{...process.env, CARGO_TARGET_DIR:appInfo.target}, stdio:'inherit'})
+        : spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
       sample();
       const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
       if (code !== 0) throw new Error(`app build exited ${code}`);

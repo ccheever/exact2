@@ -504,6 +504,18 @@ impl<G: Game> Sim<G> {
         self.world.unobserve();
         self.settle_delay.set(100);
     }
+    /// Read a component by entity handle or name.
+    pub fn get<C: crate::Component>(
+        &self,
+        entity: impl crate::Target,
+    ) -> Option<crate::Ref<'_, C>> {
+        self.world.get::<C>(entity)
+    }
+    /// Read the entity's authored position, or None when it has no Transform.
+    pub fn position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
+        self.get::<crate::Transform>(entity)
+            .map(|pose| pose.position)
+    }
     /// Advance by milliseconds on the seekable clock, establishing an epoch if needed.
     pub fn run(&mut self, ms: f64) -> u32 {
         assert!(

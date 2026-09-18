@@ -1,0 +1,93 @@
+    Checking bitflags v2.13.1
+    Checking exact-motion v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/motion)
+   Compiling exact-plan v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/plan)
+   Compiling exact-kernel v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/kernel)
+    Checking exact-route v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/route)
+    Checking bytemuck v1.25.2
+    Checking smallvec v1.15.2
+    Checking contract-syntax v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/syntax)
+    Checking exact-update v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/update)
+    Checking gpu-allocator v0.28.0
+   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu/reflect)
+    Checking dlib v0.5.3
+    Checking wayland-sys v0.31.11
+    Checking spirv v0.4.0+sdk-1.4.341.0
+    Checking parking_lot_core v0.9.12
+    Checking wgpu-types v30.0.1
+    Checking font-types v0.12.4
+    Checking wgpu-types v29.0.4
+    Checking gpu-descriptor-types v0.2.0
+    Checking parking_lot v0.12.5
+    Checking khronos-egl v6.0.0
+    Checking gpu-descriptor v0.3.2
+    Checking getrandom v0.2.17
+   Compiling naga v29.0.4
+    Checking kurbo v0.13.1
+    Checking read-fonts v0.41.0
+    Checking ring v0.17.14
+    Checking icu_normalizer v2.3.0
+    Checking font-types v0.11.3
+    Checking crc32fast v1.5.1
+    Checking flate2 v1.1.10
+    Checking idna_adapter v1.2.2
+    Checking tinyvec_macros v0.1.1
+    Checking read-fonts v0.37.0
+    Checking rustix v1.1.4
+    Checking contract-types v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/types)
+    Checking png v0.18.1
+    Checking peniko v0.6.1
+    Checking naga v30.0.1
+    Checking contract-analyze v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/analyze)
+    Checking tinyvec v1.12.0
+    Checking exact-runner v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/runner)
+    Checking contract-lower v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/lower)
+    Checking rustls-webpki v0.103.15
+    Checking idna v1.1.0
+    Checking tiny-skia-path v0.12.0
+    Checking futures-intrusive v0.5.0
+    Checking url v2.5.8
+    Checking fontdb v0.23.0
+    Checking rustls v0.23.43
+    Checking caltrain-data v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/data)
+    Checking nix v0.29.0
+    Checking exact-data v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/data)
+    Checking tiny-skia v0.12.0
+    Checking drm-ffi v0.9.1
+    Checking drm v0.15.0
+    Checking evdev v0.13.2
+   Compiling curve25519-dalek v4.1.3
+   Compiling caltrain-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/gpu)
+    Checking wasmparser v0.228.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling exact-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic)
+    Checking exact-logic-abi v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic/abi)
+   Compiling weatherlight-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/weatherlight/gpu)
+    Checking ureq v3.4.0
+    Checking skrifa v0.40.0
+    Checking harfrust v0.5.2
+    Checking ibex2 v0.1.0 (/home/ccheever/lanes/game/ibex/crates/ibex2)
+    Checking skrifa v0.44.0
+    Checking wgpu-naga-bridge v30.0.1
+    Checking wgpu-hal v30.0.1
+    Checking wasmi v2.0.0
+    Checking contract v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/cli)
+    Checking vello_encoding v0.10.0
+    Checking swash v0.2.10
+    Checking caltrain v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain)
+    Checking wgpu-core-deps-windows-linux-android v30.0.1
+    Checking wgpu-naga-bridge v29.0.4
+    Checking wgpu-core v30.0.1
+    Checking wgpu-hal v29.0.4
+   Compiling caltrain-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/linux)
+   Compiling vello_shaders v0.10.0
+    Checking exact-filesystem v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/filesystem)
+    Checking cosmic-text v0.19.0
+    Checking wgpu-core-deps-windows-linux-android v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking wgpu v30.0.1
+    Checking exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
+    Checking wgpu v29.0.4
+    Checking vello v0.10.0
+    Checking exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
+    Checking exact-linux-update v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux-update)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.74s

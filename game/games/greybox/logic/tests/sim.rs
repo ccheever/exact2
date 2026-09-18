@@ -35,7 +35,7 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         Vec3::new(0.0, 0.9, -5.3666644)
     );
-    assert_eq!(one.world().hash(), 0x5d40bcb196c6e6e2);
+    assert_eq!(one.world().hash(), 0x517bc794475cb853);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {

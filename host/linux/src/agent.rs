@@ -64,7 +64,12 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.poll_update();
     p.poll_development(D::default);
     p.run_commands(D::default);
+    p.sync_surfaces();
     let reply = answer(p, line);
+    p.sync_surfaces();
+    let reply = p.merge_surfaces(line, reply);
+    p.sync_surfaces();
+    let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
     p.run_commands(D::default);
     // In the headless carrier a completed paint is presentation. A command
     // may activate a generation after the initial boot's frame was counted.
@@ -82,11 +87,11 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
 /// alone.
 fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> String {
     let op = field_str(line, "op");
-    let host_reply = matches!(
-        op.as_deref(),
-        Some("layout" | "tap" | "type" | "clock" | "screenshot")
-    );
+    let host_reply = op.is_some();
     if !host_reply || !reply.ends_with('}') || reply.starts_with("{\"error\"") {
+        return reply;
+    }
+    if field_num(&reply, "epoch").is_some() {
         return reply;
     }
     let tags = p.host().agent("{\"op\":\"tags\"}");
@@ -112,6 +117,12 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 
 fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
+    let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+    if let Some(view) = id() {
+        if q["entity"].is_string() || field_bool(line, "world") || (q["op"] == "state") {
+            return p.surface_request(view, q).to_string();
+        }
+    }
     match field_str(line, "op").as_deref() {
         Some("tree") => accessibility_tree(p),
         Some("state") => {
@@ -154,9 +165,12 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return error("type needs an id");
             };
             if let Some(key) = field_str(line, "key") {
-                return p
-                    .type_key(id, &key, field_str(line, "phase").as_deref() != Some("up"))
-                    .unwrap_or_else(|e| error(&e));
+                let phase = field_str(line, "phase");
+                let r = p.type_key(id, &key, phase.as_deref() != Some("up"));
+                if phase.is_none() && r.is_ok() {
+                    let _ = p.type_key(id, &key, false);
+                }
+                return r.unwrap_or_else(|e| error(&e));
             }
             let text = field_str(line, "text").unwrap_or_default();
             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
@@ -252,24 +266,45 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
             return format!("{s},\"clock\":{}}}", num(landed));
         }
+        p.sync_surfaces();
+        let world = p.worlds(serde_json::json!({"op":"clock","settle":settle_to_end}));
+        p.sync_surfaces();
+        let response = |settled: Option<bool>| {
+            let mut r = format!("{{\"clock\":{}", num(landed));
+            if let Some(s) = settled {
+                r.push_str(&format!(",\"settled\":{s}"));
+            }
+            if !world.is_empty() {
+                r.push_str(&format!(",\"world\":{}", serde_json::json!(world)));
+            }
+            if settled == Some(false) && world.iter().any(|w| w["quiescent"] == false) {
+                r.push_str(",\"reason\":\"world\"");
+            }
+            r.push('}');
+            r
+        };
         if !settle_to_end {
-            return format!("{{\"clock\":{}}}", num(landed));
+            return response(None);
         }
         if p.pending() {
             rounds += 1;
             if rounds >= 16 {
-                return format!("{{\"clock\":{},\"settled\":false}}", num(landed));
+                return response(Some(false));
             }
             wait_for_replies(p);
             continue;
         }
-        let next = landed.max(settle(p).unwrap_or(landed));
+        let next = world
+            .iter()
+            .filter(|w| w["quiescent"] == false)
+            .filter_map(|w| w["settleAt"].as_f64())
+            .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
         if next <= landed {
-            return format!("{{\"clock\":{},\"settled\":true}}", num(landed));
+            return response(Some(true));
         }
         rounds += 1;
         if rounds >= 16 {
-            return format!("{{\"clock\":{},\"settled\":false}}", num(landed));
+            return response(Some(false));
         }
         to = next;
     }

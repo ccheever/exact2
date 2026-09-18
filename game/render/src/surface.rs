@@ -133,6 +133,11 @@ impl<G: Game> Surface for WorldSurface<G> {
         self.perf = Perf::default();
         Ok(())
     }
+    fn device_lost(&mut self) {
+        self.render = None;
+        self.format = None;
+        self.dirty = true;
+    }
     fn take_error(&mut self) -> Option<SurfaceError> {
         if self.reported {
             return None;
@@ -362,6 +367,11 @@ impl<G: Game> Surface for WorldSurface<G> {
                 self.perf.reset();
             }
             reply.truncate(reply.len() - 2);
+            reply.push_str(if self.render.is_some() {
+                ",\"device\":true"
+            } else {
+                ",\"device\":false"
+            });
             self.perf.append(&mut reply);
             reply.push_str("}}");
         }

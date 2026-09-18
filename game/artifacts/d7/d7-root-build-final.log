@@ -1,0 +1,80 @@
+   Compiling bitflags v2.13.1
+   Compiling smallvec v1.15.2
+   Compiling bytemuck v1.25.2
+   Compiling gpu-allocator v0.28.0
+   Compiling naga v30.0.1
+   Compiling dlib v0.5.3
+   Compiling crc32fast v1.5.1
+   Compiling khronos-egl v6.0.0
+   Compiling getrandom v0.2.17
+   Compiling naga v29.0.4
+   Compiling contract-lower v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/lower)
+   Compiling tinyvec_macros v0.1.1
+   Compiling wayland-sys v0.31.11
+   Compiling tinyvec v1.12.0
+   Compiling spirv v0.4.0+sdk-1.4.341.0
+   Compiling parking_lot_core v0.9.12
+   Compiling font-types v0.12.4
+   Compiling wgpu-types v29.0.4
+   Compiling gpu-descriptor-types v0.2.0
+   Compiling parking_lot v0.12.5
+   Compiling gpu-descriptor v0.3.2
+   Compiling wgpu-types v30.0.1
+   Compiling font-types v0.11.3
+   Compiling kurbo v0.13.1
+   Compiling read-fonts v0.41.0
+   Compiling icu_normalizer v2.3.0
+   Compiling ring v0.17.14
+   Compiling read-fonts v0.37.0
+   Compiling flate2 v1.1.10
+   Compiling rustix v1.1.4
+   Compiling idna_adapter v1.2.2
+   Compiling png v0.18.1
+   Compiling idna v1.1.0
+   Compiling rustls-webpki v0.103.15
+   Compiling peniko v0.6.1
+   Compiling tiny-skia-path v0.12.0
+   Compiling rustls v0.23.43
+   Compiling drm-ffi v0.9.1
+   Compiling futures-intrusive v0.5.0
+   Compiling fontdb v0.23.0
+   Compiling url v2.5.8
+   Compiling nix v0.29.0
+   Compiling drm v0.15.0
+   Compiling wasmparser v0.228.0
+   Compiling tiny-skia v0.12.0
+   Compiling exact-logic-abi v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic/abi)
+   Compiling evdev v0.13.2
+   Compiling exact-filesystem v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/filesystem)
+   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu/reflect)
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.40.0
+   Compiling ureq v3.4.0
+   Compiling skrifa v0.44.0
+   Compiling vello_shaders v0.10.0
+   Compiling ibex2 v0.1.0 (/home/ccheever/lanes/game/ibex/crates/ibex2)
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling wgpu-hal v30.0.1
+   Compiling contract v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/contract/cli)
+   Compiling vello_encoding v0.10.0
+   Compiling swash v0.2.10
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling wgpu-hal v29.0.4
+   Compiling caltrain-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/gpu)
+   Compiling weatherlight-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/weatherlight/gpu)
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling wasmi v2.0.0
+   Compiling wgpu-core v30.0.1
+   Compiling caltrain-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain/linux)
+   Compiling caltrain v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/apps/caltrain)
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-core-deps-windows-linux-android v29.0.4
+   Compiling wgpu-core v29.0.4
+   Compiling wgpu v30.0.1
+   Compiling exact-logic v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/logic)
+   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/gpu)
+   Compiling wgpu v29.0.4
+   Compiling vello v0.10.0
+   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux)
+   Compiling exact-linux-update v0.1.0 (/home/ccheever/lanes/game/exact2-wt-game/host/linux-update)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.56s

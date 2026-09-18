@@ -7,9 +7,6 @@ fn sim(seed: u64) -> Sim<Beacons> {
     })
     .unwrap()
 }
-fn position(s: &Sim<Beacons>) -> Vec3 {
-    s.world().get::<Transform>("player").unwrap().position
-}
 #[test]
 fn movement_seed_and_partitioning() {
     let mut a = sim(7);
@@ -26,18 +23,23 @@ fn movement_seed_and_partitioning() {
         b.run(1.0);
     }
     assert_eq!(a.save(), b.save());
-    assert!((position(&a).z + 5.3666644).abs() < 0.001);
+    assert_eq!(a.world().hash(), 0xdf4c4b907c6e216a);
+    assert_eq!(a.position("player"), Some(Vec3::new(0.0, 0.9, -5.3666644)));
     println!(
         "1500ms position={:?}, hash={:016x}",
-        position(&a),
+        a.position("player").unwrap(),
         a.world().hash()
     );
     a.key_up("KeyW");
     a.run(100.0);
-    assert!(position(&a).z < -5.3666644);
+    assert!(a.position("player").unwrap().z < -5.3666644);
     assert!(a.settle());
     assert_eq!(
-        a.world().get::<Player>("player").unwrap().velocity,
+        a.world()
+            .get::<Player>("player")
+            .unwrap()
+            .character
+            .velocity,
         Vec3::ZERO
     );
 }
@@ -51,10 +53,10 @@ fn jump_no_double_jump_and_restore() {
     a.tap("Space");
     a.run(250.0);
     b.run(250.0);
-    assert_eq!(position(&a), position(&b));
-    assert!((position(&a).y - 2.1).abs() < 0.005);
+    assert_eq!(a.position("player").unwrap(), b.position("player").unwrap());
+    assert!((a.position("player").unwrap().y - 2.1).abs() < 0.005);
     a.run(1000.0);
-    assert_eq!(position(&a).y, 0.9);
+    assert_eq!(a.position("player").unwrap().y, 0.9);
     b.key_down("ArrowRight");
     b.run(713.0);
     a.restore(&b.save()).unwrap();

@@ -87,7 +87,7 @@ function fixture(body) {
   };
   try {
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
-    const deps = ['exact-game','exact-game-render','exact-game-app','exact-runner','exact-web','exact-apple','wasm-bindgen','wasm-bindgen-futures','web-sys'];
+    const deps = ['exact-game','exact-game-render','exact-game-app','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","games/*/logic",".shells/*","ordinary/*"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);

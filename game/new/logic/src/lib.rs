@@ -1,58 +1,110 @@
+use exact_game::character::Character;
 use exact_game::*;
-use exact_game::motion::{Move, Jump, Gravity};
 
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
+    // Restart idiom: round is the world's identity; Play again increments it.
+    pub round: u32,
 }
 #[derive(Default, Component)]
-struct Player { velocity: Vec3 }
+struct Player {
+    character: Character,
+}
 #[derive(Default, Component)]
-struct Beacon { glow: Spring }
+pub struct Beacon {
+    pub lit: bool,
+    glow: Spring,
+}
 pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "small-game";
     type Args = Options;
     fn actions() -> Actions {
-        Actions::new().stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"]).button("jump", &["Space"])
+        Actions::new()
+            .stick("move", Stick::wasd().or_arrows())
+            .button("light", &["KeyE"])
+            .button("jump", &["Space"])
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::grid([0.16, 0.23, 0.24], 1.0)));
-        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1), Player::default()));
-        w.spawn_named("camera", (Transform::default(), Camera::default(),
-            Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
-        w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(40.0, 40.0),
+            Material::grid([0.16, 0.23, 0.24], 1.0),
+        ));
+        let player = w.spawn_named(
+            "player",
+            (
+                Transform::at(0.0, 0.9, 0.0),
+                Mesh::capsule(0.4, 1.8),
+                Material::rgb(0.8, 0.4, 0.1),
+                Player {
+                    character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
+                },
+            ),
+        );
+        w.spawn_named(
+            "camera",
+            (
+                Transform::default(),
+                Camera::default(),
+                Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15),
+            ),
+        );
+        for (i, x) in [2.0, 6.0].into_iter().enumerate() {
+            w.spawn_named(
+                format!("plinth-{}", i + 1),
+                (
+                    Transform::at(x, 0.1, 0.0),
+                    Mesh::cylinder(0.9, 0.2),
+                    Material::rgb(0.3, 0.4, 0.42),
+                ),
+            );
+            w.spawn_named(
+                format!("beacon-{}", i + 1),
+                (
+                    Transform::at(x, 0.7, 0.0),
+                    Mesh::sphere(0.5),
+                    Material::default(),
+                    Beacon::default(),
+                ),
+            );
+        }
         w.publish("lit", 0);
+        w.publish("near", "");
     }
-    fn paused(args: &Options) -> bool { args.paused }
+    fn paused(args: &Options) -> bool {
+        args.paused
+    }
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
         if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
-            Move { speed: 4.0, accel: 12.0, brake: 20.0 }
-                .step(&mut player.velocity, input.stick_xz("move"), dt);
-            if input.pressed("jump") && pose.position.y <= 0.9 {
-                Jump { height: 1.2, gravity: 9.81 }.start(&mut player.velocity);
+            player
+                .character
+                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+        }
+        let position = w.get::<Transform>("player").unwrap().position;
+        let mut nearest = None;
+        for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
+            let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
+            if !beacon.lit && input.pressed("light") {
+                beacon.lit = true;
+                beacon.glow.set_target(w.now(), 1.0);
             }
-            pose.position.x += player.velocity.x * dt;
-            pose.position.z += player.velocity.z * dt;
-            if pose.position.y > 0.9 || player.velocity.y > 0.0 {
-                pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                Gravity(9.81).step(&mut player.velocity, dt);
-                if pose.position.y <= 0.9 {
-                    pose.position.y = 0.9;
-                    player.velocity.y = 0.0;
-                }
+            let distance = Vec2::new(pose.position.x - position.x, pose.position.z - position.z)
+                .length_squared();
+            if !beacon.lit && nearest.is_none_or(|(_, old)| distance < old) {
+                nearest = Some((entity, distance));
             }
         }
+        w.publish("near", nearest.and_then(|(e, _)| w.name(e)).unwrap_or(""));
         let mut count = 0;
-        for (mut beacon, mut material) in w.query::<(&mut Beacon, &mut Material)>() {
-            if input.pressed("light") { beacon.glow.set_target(w.now(), 1.0); }
+        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
-            count += u32::from(beacon.glow.target == 1.0);
+            count += u32::from(beacon.lit);
         }
         w.publish("lit", count);
         scene::follow(w);

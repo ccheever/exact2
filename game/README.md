@@ -31,19 +31,21 @@ canvas children are the HUD, a placement is a sign in the world.
 The complete example below is compiled and run by `cargo test --doc -p exact-game`.
 
 ```rust
+use exact_game::character::Character;
 use exact_game::*;
-use exact_game::motion::{Move, Jump, Gravity};
 
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
+    // Restart idiom: round is the world's identity; Play again increments it.
+    pub round: u32,
 }
 #[derive(Default, Component)]
-struct Player { velocity: Vec3 }
+struct Player { character: Character }
 #[derive(Default, Component)]
-struct Beacon { glow: Spring }
+pub struct Beacon { pub lit: bool, glow: Spring }
 pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "small-game";
@@ -55,59 +57,66 @@ impl Game for SmallGame {
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::grid([0.16, 0.23, 0.24], 1.0)));
-        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1), Player::default()));
+        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1),
+            Player { character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6) }));
         w.spawn_named("camera", (Transform::default(), Camera::default(),
             Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
-        w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
+        for (i, x) in [2.0, 6.0].into_iter().enumerate() {
+            w.spawn_named(format!("plinth-{}", i + 1), (Transform::at(x, 0.1, 0.0),
+                Mesh::cylinder(0.9, 0.2), Material::rgb(0.3, 0.4, 0.42)));
+            w.spawn_named(format!("beacon-{}", i + 1), (Transform::at(x, 0.7, 0.0),
+                Mesh::sphere(0.5), Material::default(), Beacon::default()));
+        }
         w.publish("lit", 0);
+        w.publish("near", "");
     }
     fn paused(args: &Options) -> bool { args.paused }
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
         if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
-            Move { speed: 4.0, accel: 12.0, brake: 20.0 }
-                .step(&mut player.velocity, input.stick_xz("move"), dt);
-            if input.pressed("jump") && pose.position.y <= 0.9 {
-                Jump { height: 1.2, gravity: 9.81 }.start(&mut player.velocity);
+            player.character.step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+        }
+        let position = w.get::<Transform>("player").unwrap().position;
+        let mut nearest = None;
+        for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
+            let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
+            if !beacon.lit && input.pressed("light") {
+                beacon.lit = true;
+                beacon.glow.set_target(w.now(), 1.0);
             }
-            pose.position.x += player.velocity.x * dt;
-            pose.position.z += player.velocity.z * dt;
-            if pose.position.y > 0.9 || player.velocity.y > 0.0 {
-                pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                Gravity(9.81).step(&mut player.velocity, dt);
-                if pose.position.y <= 0.9 {
-                    pose.position.y = 0.9;
-                    player.velocity.y = 0.0;
-                }
+            let distance = Vec2::new(pose.position.x - position.x, pose.position.z - position.z).length_squared();
+            if !beacon.lit && nearest.is_none_or(|(_, old)| distance < old) {
+                nearest = Some((entity, distance));
             }
         }
+        w.publish("near", nearest.and_then(|(e, _)| w.name(e)).unwrap_or(""));
         let mut count = 0;
-        for (mut beacon, mut material) in w.query::<(&mut Beacon, &mut Material)>() {
-            if input.pressed("light") { beacon.glow.set_target(w.now(), 1.0); }
+        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
-            count += u32::from(beacon.glow.target == 1.0);
+            count += u32::from(beacon.lit);
         }
         w.publish("lit", count);
         scene::follow(w);
     }
 }
 fn main() {
-    let mut game = Sim::<SmallGame>::new(Options { seed: 7, paused: false }).unwrap();
-    // The engine places the follower before the first tick.
-    assert!(game.world().get::<Transform>("camera").unwrap().position.y > 9.0);
-    game.hold("KeyW", 100.0);
-    let z = game.world().get::<Transform>("player").unwrap().position.z;
-    assert!(z < 0.0 && z > -0.35);
-    game.tap("Space");
-    game.run(400.0);
-    assert!(game.world().get::<Transform>("player").unwrap().position.y > 1.8);
-    game.tap("KeyE");
+    let mut game = Sim::<SmallGame>::new(Options { seed: 7, ..Options::default() }).unwrap();
+    game.hold("KeyD", 500.0);
     assert!(game.settle());
-    assert_eq!(game.world().get::<Transform>("player").unwrap().position.y, 0.9);
-    assert_eq!(game.world().published("lit").unwrap().as_number(), Some(1.0));
+    assert_eq!(game.world().published("near").unwrap().as_str(), Some("beacon-1"));
+    game.tap("KeyE");
+    game.run(100.0);
+    assert!(game.get::<Beacon>("beacon-1").unwrap().lit);
 }
 
 ```
+
+`Character` composes `Move`, `Jump` and `Gravity`. Its velocity and configuration
+are saved and hashed inside the player's component. `step` reports `grounded`,
+`jumped` and `landed`; bounds stop outward velocity, braking and landing arrive
+exactly. It uses no physics dependency; collider worlds can use Rapier's controller.
+`near` and `near_xz` return `(entity, pose)` in entity order, with an inclusive radius
+and authored Transform positions (XZ ignores height). A missing origin yields no rows.
 
 - **A tick is a function that calls functions.** No scheduler, no plugins, no
   system parameters. Physics is `physics::step(world)`, written where it runs.
@@ -169,8 +178,10 @@ reach the world through one export on the module; an entity is a target
 agent hears. Capture the complete simulation with `s.screenshot('run.world', 'world', 'save')`
 (CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
 `--world run.world` holds the bytes until Play creates the first carrying surface,
-then restores before its first render. Web, macOS and the iOS Simulator use the
-same forms. Both carriers refuse input files and captures above 256 MiB before
+then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
+same forms. Linux loads the same module with no device: simulation reads, input,
+clock, publications and saves work; canvas pixels and picks report unavailable.
+Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers refuse input files and captures above 256 MiB before
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
@@ -187,7 +198,7 @@ then releases on the same carrier even if the clock fails. CLI: `type world key 
 and records every operation. `check(label, condition)` reports failures without
 stopping independent assertions; `equal(a, b)` compares JSON values. Every session
 is closed and recorded children are checked before exit. Artifacts are in the game's
-`artifacts/` directory; the first CLI argument selects web, macOS, or iOS.
+`artifacts/` directory; the first CLI argument selects web, macOS, iOS, or Linux.
 
 ## Working here
 
@@ -196,7 +207,7 @@ From the repository root:
 ```sh
 bun game/new.mjs my-game                 # create the three files and logic crate
 bun game/dev.mjs my-game                 # the shared dev loop, on loopback
-bun game/games/my-game/proof.mjs web      # or macos
+bun game/games/my-game/proof.mjs web      # or linux / macos
 ```
 
 Games are members of this workspace: one lockfile, profiles and dependency pins in
@@ -214,8 +225,8 @@ game/games/my-game/
 `app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
-`game/.shells/<app-id-hash>-{gpu,web,apple}/` before Cargo metadata. These ignored
-crates contain the GPU module and web/Apple bakes. Complete replacements are staged
+`game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored
+crates contain the GPU module and web/Apple/Linux bakes. Complete replacements are staged
 outside the member glob and installed by rename; unchanged inputs keep their timestamps.
 Renaming a logic crate reuses the app identity, and resolving removes deleted games’ shells.
 The workspace glob includes them; its tracked `.gitignore` lets Cargo resolve an
@@ -285,3 +296,11 @@ because their reassigned view ids cannot identify them honestly. A GPU swap stag
 all replacement canvases before cutover; a create/bind/render failure leaves the
 old worlds running. Dev bindgen glue has function scope so old Wasm instances can
 be collected; production keeps its static ES module loader.
+
+The native `Sim` and `session.world("world")` share `run(ms)`, `settle()`,
+`tap(code)`, `hold(code, ms)`, `key_down`, `key_up`, `position(entity)` and `get`.
+Rust reads use `get::<Component>(entity)`; JavaScript uses `get(entity, "Component")`.
+JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` keeps
+simulation fields only. These helpers dispatch the existing eight agent operations.
+The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
+world's restart identity, with the same movement/light sequence in its test and proof.

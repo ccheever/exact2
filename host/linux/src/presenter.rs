@@ -33,7 +33,8 @@ use tiny_skia::Pixmap;
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
-    host: Host<D>,
+    pub(crate) host: Host<D>,
+    pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
     activation_failed: bool,
@@ -302,6 +303,7 @@ impl<D: DataSource> Presenter<D> {
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
+            surfaces: Default::default(),
             module: None,
             painted: false,
             activation_failed: false,
@@ -730,7 +732,7 @@ impl<D: DataSource> Presenter<D> {
     /// After anything that may have committed: images follow the tree,
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
-    fn after_commit(&mut self) -> Option<String> {
+    pub(crate) fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
@@ -1047,7 +1049,9 @@ impl<D: DataSource> Presenter<D> {
             self.focus = focus;
             self.dirty = true;
         }
-        let target = self.handler_target(hit, EventKind::Press)?;
+        let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            return self.surface_pointer(hit, x, y, now_ms);
+        };
         if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
             eprintln!("exact: {e}");
         }
@@ -1214,6 +1218,21 @@ impl<D: DataSource> Presenter<D> {
 
     /// Agent keyboard input uses the same focus and activation path as evdev.
     pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
+        let node = self
+            .host
+            .kernel()
+            .node(id)
+            .ok_or_else(|| format!("no view {id}"))?;
+        let editable = node.node_type == NodeType::TextInput;
+        let activation = matches!(key, "Space" | "Enter")
+            && matches!(
+                node.props.str(PropId::AccessibilityRole),
+                Some("button" | "link")
+            );
+        if !self.host.route_visibility(id).1 && !editable && key != "Tab" && (!down || !activation)
+            && self.surface_input(id, serde_json::json!({"t":"key","code":key,"key":key,"down":down,"repeat":false,"at":self.host.now()})) {
+            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        }
         if !self.focusable(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} cannot take focus"));
         }

@@ -420,6 +420,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
     // paints the host's text on every machine, so a pixel fixture recorded
     // here matches on a builder (LLP 1015 §5). The environment still wins.
+    env.EXACT_PAINTER ??= 'cpu';
     env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
@@ -725,7 +726,18 @@ export function worldView(session, name) {
     },
     state: entity => session.state(`${name}:${entity}`),
     save: path => session.screenshot(path, name, 'save'),
-    key: (code, opts = {}) => session.type(name, {...opts, key:code}),
+    run: ms => {
+      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      return session.clock(`+${ms}`);
+    },
+    settle: async () => (await session.clock('settle')).settled === true,
+    tap: code => session.type(name, {key:code}),
+    key_down: code => session.type(name, {key:code, phase:'down'}),
+    key_up: code => session.type(name, {key:code, phase:'up'}),
+    async position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async get(entity, component) {
+      return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+    },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
 }
@@ -734,7 +746,7 @@ export function worldView(session, name) {
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
 export async function open({ host = 'web', plan, world, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
-  if (world && (device || !['web','mac','macos','ios'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit');
   if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
@@ -903,7 +915,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
     screenshot: async (path, target = false, form) => {
       if (form === 'save') {
-        if (!['web','macos','ios'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+        if (!['web','macos','ios','linux'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
         const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
         const {data, ...metadata} = reply;
         if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes`);
@@ -914,6 +926,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
         return s.tagged({...metadata, screenshot:resolve(path)});
       }
       if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
+      if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
       return s.tagged(await carrier.screenshot(resolve(path), target));
     },
     /**
