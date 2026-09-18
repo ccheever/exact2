@@ -333,6 +333,88 @@ impl World {
 mod measurements {
     use super::*;
     #[test]
+    fn an_unwritten_mutable_lease_invalidates_then_observes_still() {
+        for full in [false, true] {
+            let mut w = World::new(60, 0);
+            let e = w.spawn_named("player", crate::Transform::default());
+            let mut before = Observation::default();
+            let mut after = Observation::default();
+            w.observe_with_hash(&mut before, full);
+            w.compare(&before, &before);
+            assert!(w.quiescent());
+            let hash = w.hash();
+            let bytes = w.save();
+            let epoch = w.mutation_epoch();
+            let generation = w
+                .pages::<crate::Transform>()
+                .iter()
+                .next()
+                .unwrap()
+                .generation;
+            drop(w.get_mut::<crate::Transform>(e).unwrap());
+            assert_ne!(w.mutation_epoch(), epoch);
+            assert_ne!(
+                w.pages::<crate::Transform>()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .generation,
+                generation
+            );
+            assert!(!w.quiescent());
+            assert_eq!(w.changing(), ["not observed"]);
+            w.observe_with_hash(&mut after, full);
+            w.compare(&before, &after);
+            assert!(w.quiescent());
+            assert!(w.changing().is_empty());
+            assert_eq!(w.hash(), hash);
+            assert_eq!(w.save(), bytes);
+        }
+    }
+
+    #[test]
+    fn recycling_a_slot_observes_the_new_incarnation() {
+        for full in [false, true] {
+            for component in [false, true] {
+                let mut w = World::new(60, 0);
+                let old = w.spawn_named("player", ());
+                if component {
+                    w.insert(old, crate::Transform::default());
+                }
+                let mut before = Observation::default();
+                let mut after = Observation::default();
+                w.observe_with_hash(&mut before, full);
+                let hash = w.hash();
+                assert!(w.despawn(old));
+                let new = w.spawn_named("player", ());
+                if component {
+                    w.insert(new, crate::Transform::default());
+                }
+                assert_eq!(old.index(), new.index());
+                assert_ne!(old.generation(), new.generation());
+                w.observe_with_hash(&mut after, full);
+                w.compare(&before, &after);
+                assert!(!w.quiescent());
+                // A removed and an added incarnation each supply a reason, in
+                // the existing category/name/entity order (without deduping).
+                let mut expected = vec!["#0.exists", "player.exists"];
+                if component {
+                    expected.extend(["#0.Transform", "player.Transform"]);
+                }
+                assert_eq!(w.changing(), expected);
+                assert_ne!(w.hash(), hash);
+                assert_eq!(w.hash(), {
+                    let mut canonical = crate::hash::Hasher::default();
+                    w.write(&mut canonical, false);
+                    canonical.finish()
+                });
+                w.compare(&after, &after);
+                assert!(w.quiescent());
+            }
+        }
+    }
+
+    #[test]
     fn name_index_is_not_saved_hashed_or_observed() {
         let mut w = World::new(60, 0);
         w.spawn_named("name", crate::Transform::default());
@@ -398,6 +480,65 @@ mod measurements {
                 "stillness hash {count} Transform entities: {:.6} ms median, {:.6} ms p95",
                 samples[50], samples[95]
             );
+        }
+        // Spread 100 movers across 100 pages as well as clustering them in one.
+        // Advance the tick even in the still case: otherwise World::hash merely
+        // reads its whole-world epoch cache and hides the seekable-tick cost.
+        for (label, movers, stride) in [
+            ("still", 0, 1),
+            ("clustered", 100, 1),
+            ("spread", 100, 2000),
+        ] {
+            for operation in ["observe", "hash", "observe+hash", "seek-pair"] {
+                let mut w = World::new(60, 0);
+                for i in 0..200_000 {
+                    w.spawn(crate::Transform::at(i as f32, 0.0, 0.0));
+                }
+                let moving: Vec<_> = (0..movers).map(|i| w.entity_at(i * stride)).collect();
+                let mut before = Observation::default();
+                let mut after = Observation::default();
+                let mut samples = Vec::new();
+                for sample in 0..105 {
+                    w.begin_tick();
+                    w.state.tick += 1;
+                    for &e in &moving {
+                        w.get_mut::<crate::Transform>(e).unwrap().position.x += 1.0;
+                    }
+                    let start = std::time::Instant::now();
+                    match operation {
+                        "observe" => w.observe(&mut after),
+                        "hash" => {
+                            std::hint::black_box(w.hash());
+                        }
+                        "observe+hash" => {
+                            w.observe_with_hash(&mut after, true);
+                            std::hint::black_box(w.hash());
+                        }
+                        _ => {
+                            w.observe(&mut before);
+                            // Include one intervening tick's 100 writes, as in a
+                            // seek's final two samples, and the reason comparison.
+                            w.begin_tick();
+                            w.state.tick += 1;
+                            for &e in &moving {
+                                w.get_mut::<crate::Transform>(e).unwrap().position.x += 1.0;
+                            }
+                            w.observe_with_hash(&mut after, true);
+                            w.compare(&before, &after);
+                            std::hint::black_box(w.hash());
+                        }
+                    }
+                    std::hint::black_box(&after);
+                    if sample >= 5 {
+                        samples.push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                samples.sort_by(f64::total_cmp);
+                println!(
+                    "{label} {movers}/200000 movers {operation}: {:.6} ms median, {:.6} ms p95",
+                    samples[50], samples[95]
+                );
+            }
         }
     }
 }
