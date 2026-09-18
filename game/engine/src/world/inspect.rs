@@ -194,11 +194,136 @@ pub(crate) struct Observation {
     entries: Vec<(u8, &'static str, Entity, u64)>,
     scratch: Vec<(usize, u64)>,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PageKey {
+    entities: u64,
+    parents: u64,
+    globals: u64,
+    mask: [u64; storage::PAGE / 64],
+}
+#[derive(Default)]
+struct ObservedPage {
+    key: Option<PageKey>,
+    entries: Vec<(Entity, u64)>,
+}
+#[derive(Default)]
+pub(super) struct Cache {
+    identity: Option<(WorldId, u64)>,
+    exists: Vec<ObservedPage>,
+    globals: Vec<ObservedPage>,
+}
 impl World {
+    pub(super) fn mark_entity_page(&mut self, index: usize) {
+        let page = index / storage::PAGE;
+        if page >= self.entity_pages.len() {
+            self.entity_pages.resize(page + 1, 0);
+        }
+        self.entity_pages[page] = self.entities_revision;
+    }
+    fn prepare_observation(&self) {
+        let mut cache = self.observation_cache.borrow_mut();
+        if cache.identity.as_ref().is_some_and(|(id, generation)| {
+            *id == self.id && *generation == self.presentation_generation
+        }) {
+            return;
+        }
+        *cache = Cache {
+            identity: Some((self.id(), self.presentation_generation)),
+            ..Cache::default()
+        };
+        self.rng.reset_observation();
+        for storage in self.components.values().chain(self.resources.values()) {
+            storage.reset_observation();
+        }
+    }
+    fn observe_structure(&self, out: &mut Observation) {
+        const WORDS: usize = storage::PAGE / 64;
+        let ambient = self.storage::<crate::Ambient>();
+        let parents = self.storage::<crate::Parent>();
+        let mut cache = self.observation_cache.borrow_mut();
+        for kind in 0..2 {
+            let (pages, count, name) = if kind == 0 {
+                (
+                    &mut cache.exists,
+                    self.alive_mask.len().div_ceil(WORDS),
+                    "exists",
+                )
+            } else {
+                (
+                    &mut cache.globals,
+                    parents.map_or(0, Storage::page_count),
+                    "global",
+                )
+            };
+            pages.resize_with(count, ObservedPage::default);
+            for (page, cached) in pages.iter_mut().enumerate() {
+                let mut mask = if kind == 0 {
+                    std::array::from_fn(|word| {
+                        self.alive_mask
+                            .get(page * WORDS + word)
+                            .copied()
+                            .unwrap_or(0)
+                    })
+                } else {
+                    parents.unwrap().page_mask(page)
+                };
+                if let Some(ambient) = ambient {
+                    for (bits, skip) in mask.iter_mut().zip(ambient.page_mask(page)) {
+                        *bits &= !skip;
+                    }
+                }
+                let key = PageKey {
+                    entities: self.entity_pages.get(page).copied().unwrap_or(0),
+                    parents: if kind == 0 {
+                        0
+                    } else {
+                        parents.unwrap().page_generation(page)
+                    },
+                    globals: if kind == 0 {
+                        0
+                    } else {
+                        self.hierarchy.page_generation(page)
+                    },
+                    mask,
+                };
+                if cached.key != Some(key) {
+                    cached.key = None;
+                    cached.entries.clear();
+                    for (word, &bits) in mask.iter().enumerate() {
+                        let mut bits = bits;
+                        while bits != 0 {
+                            let index =
+                                page * storage::PAGE + word * 64 + bits.trailing_zeros() as usize;
+                            bits &= bits - 1;
+                            let entity = self.entity_at(index);
+                            let hash = if kind == 0 {
+                                Some(0)
+                            } else {
+                                self.global(entity)
+                                    .map(|pose| crate::hash::of(&pose.to_cols_array()))
+                            };
+                            if let Some(hash) = hash {
+                                cached.entries.push((entity, hash));
+                            }
+                        }
+                    }
+                    cached.key = Some(key);
+                }
+                out.entries.extend(
+                    cached
+                        .entries
+                        .iter()
+                        .map(|&(e, hash)| (kind, name, e, hash)),
+                );
+            }
+        }
+    }
     pub(crate) fn observe(&self, out: &mut Observation) {
         self.observe_with_hash(out, false);
     }
     pub(crate) fn observe_with_hash(&self, out: &mut Observation, full: bool) {
+        self.prepare_observation();
         let mut full = full.then(crate::hash::Hasher::default);
         if let Some(w) = &mut full {
             w.begin_struct();
@@ -206,28 +331,10 @@ impl World {
             self.state.write(w);
             w.field("rng");
         }
-        let rng = self.rng.get().unwrap();
-        let rng_hash = match &mut full {
-            Some(w) => w.with_observation(&*rng),
-            None => crate::hash::of(&*rng),
-        };
+        let rng_hash = self.rng.observation_hash(full.as_mut()).unwrap();
         out.entries.clear();
         let ambient = self.storage::<crate::Ambient>();
-        for e in self.entities() {
-            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
-                continue;
-            }
-            out.entries.push((0, "exists", e, 0));
-        }
-        for (e, _) in self.query::<&crate::Parent>().iter() {
-            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
-                continue;
-            }
-            if let Some(pose) = self.global(e) {
-                out.entries
-                    .push((1, "global", e, crate::hash::of(&pose.to_cols_array())));
-            }
-        }
+        self.observe_structure(out);
         if let Some(w) = &mut full {
             w.field("components");
             w.begin_struct();
@@ -328,6 +435,10 @@ impl World {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "observation_tests.rs"]
+mod observation_tests;
 
 #[cfg(test)]
 mod measurements {
