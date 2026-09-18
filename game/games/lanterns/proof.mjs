@@ -29,4 +29,13 @@ await proof(import.meta, async ({open, check, equal, out, host}) => {
   check('the browser and GPU report no errors',
     !logs.host?.some(line => /^(exception:|console\.error:|error:)/.test(line)), logs.host);
   await s.close();
+  const blocked = await open();
+  await blocked.tap('play');
+  await blocked.world('world').run(0);
+  let diagnostic = '';
+  try { await blocked.world('world').moveTo('player', [4.8,8]); }
+  catch (error) { diagnostic = error.message; }
+  check('stalled direct crate route names sign-board, bounds and nearest clear side',
+    ['sign-board','bounds','nearestClearSide','minX'].every(part => diagnostic.includes(part)), diagnostic);
+  await blocked.close();
 });

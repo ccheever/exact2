@@ -27,36 +27,10 @@ fn press(sim: &mut Sim<Lanterns>, name: &str) {
     sim.bind(&values, None).unwrap();
 }
 fn steer(sim: &mut Sim<Lanterns>, x: f32, z: f32, tolerance: f32) {
-    for _ in 0..160 {
-        let at = sim.position("player").unwrap();
-        let dx = x - at.x;
-        let dz = z - at.z;
-        if dx.hypot(dz) <= tolerance {
-            return;
-        }
-        let x_axis = dx.abs() >= dz.abs();
-        let gap = if x_axis { dx } else { dz };
-        let key = if x_axis {
-            if gap > 0.0 {
-                "KeyD"
-            } else {
-                "KeyA"
-            }
-        } else if gap > 0.0 {
-            "KeyS"
-        } else {
-            "KeyW"
-        };
-        let count =
-            (((gap.abs() - tolerance * 0.45).max(0.075) / 0.075).floor() as u32).clamp(1, 10);
-        hold(sim, key, count);
-        ticks(sim, 1);
-    }
-    panic!(
-        "route stalled toward {x},{z} at {:?}",
-        sim.position("player")
-    );
+    sim.move_to("player", exact_game::Vec3::new(x, 0.0, z), tolerance, 4.5)
+        .unwrap();
 }
+
 fn land(sim: &mut Sim<Lanterns>, floor: f32) {
     for _ in 0..72 {
         if sim.world().get::<Character>("player").unwrap().grounded
@@ -70,20 +44,7 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
 }
 #[test]
 fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
-    let mut sim = Sim::<Lanterns>::new(Options {
-        seed: 1_041_003,
-        started: true,
-        sound: true,
-        scene: exact_game_scene::bake::compile(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scene.json"),
-            &lanterns_logic::scene_types(),
-            <Lanterns as exact_game::Game>::assets(),
-        )
-        .unwrap()
-        .content,
-        ..Default::default()
-    })
-    .unwrap();
+    let mut sim = game();
     ticks(&mut sim, 2);
     steer(&mut sim, -8.0, 12.0, 0.18);
     for index in 1..=11 {
@@ -158,4 +119,53 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
         Sim::<Lanterns>::replay_capture(terminal_capture, "test-executable:lanterns-route", None)
             .unwrap();
     assert_eq!(replay.world().resource::<Session>().phase, 2);
+}
+
+fn game() -> Sim<Lanterns> {
+    Sim::<Lanterns>::new(Options {
+        seed: 1_041_003,
+        started: true,
+        sound: true,
+        scene: exact_game_scene::bake::compile(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scene.json"),
+            &lanterns_logic::scene_types(),
+            <Lanterns as exact_game::Game>::assets(),
+        )
+        .unwrap()
+        .content,
+        ..Default::default()
+    })
+    .unwrap()
+}
+
+#[test]
+fn direct_crate_stall_names_sign_board_and_clear_side() {
+    let mut sim = game();
+    ticks(&mut sim, 2);
+    let error = sim
+        .move_to("player", exact_game::Vec3::new(4.8, 0.0, 8.0), 0.18, 4.5)
+        .unwrap_err();
+    for part in [
+        "sign-board",
+        "bounds",
+        "nearestClearSide",
+        "position",
+        "160 bursts",
+    ] {
+        assert!(error.contains(part), "{error}");
+    }
+    assert!(!error.contains("nearestClearSide\":null"), "{error}");
+    assert!(sim.world().tick() <= 1762);
+    println!("{error}");
+    let from = exact_game::Vec3::new(0.0, 1.3, 12.0);
+    let to = exact_game::Vec3::new(4.8, 1.3, 8.0);
+    // Removal is the negative control: a fabricated/empty diagnostic fails above.
+    let sign = sim.world().named("sign-board").unwrap();
+    sim.world_mut().despawn(sign);
+    let clear = sim.route_diagnostic("player", from, to).unwrap();
+    assert!(!clear.contains("sign-board"), "{clear}");
+    assert!(sim
+        .move_to("player", to, 0.0, 4.5)
+        .unwrap_err()
+        .contains("positive"));
 }
