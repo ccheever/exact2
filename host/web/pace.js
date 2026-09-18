@@ -17,10 +17,17 @@
 // goes through here.
 export function pacer({ window = 256, gain = 0.02 } = {}) {
   let origin = null, period = null, last = null, misfit = 0, paced = -Infinity;
+  let displayPeriod = 0, publishFit = true;
   let deltas = [];
   // The paced clock never runs backwards: a callback that lands before the last
   // slot (a callback delivered early, a bootstrap sample) redraws at that slot.
-  return now => paced = Math.max(paced, step(now));
+  const pace = now => paced = Math.max(paced, step(now));
+  // Publish a fitted display period, not a new lookahead on every noisy sample.
+  // Until the first fit has a full window it is unknown. A stall can move the
+  // lattice's origin without changing its rate: retain L while fitting again,
+  // and replace it only when the new rate differs beyond sampling noise (1%).
+  Object.defineProperty(pace, 'period_ms', { get: () => displayPeriod });
+  return pace;
   function step(now) {
     if (last === null) { last = origin = now; return now; }
     const delta = now - last;
@@ -39,11 +46,15 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
     // A lattice that fits leaves residuals well inside a slot; one that does not
     // (callbacks at another rate) leaves them near ±period/2 on most frames.
     misfit += (Math.abs(residual) / period - misfit) / 8;
-    if (misfit > 1 / 6) { period = null; misfit = 0; origin = now; return now; }
+    if (misfit > 1 / 6) { period = null; publishFit = true; deltas = []; misfit = 0; origin = now; return now; }
     if (k === 1) {
       deltas.push(delta);
       if (deltas.length > window) deltas.shift();
       period = deltas.reduce((sum, d) => sum + d, 0) / deltas.length;
+      if (deltas.length === window && publishFit) {
+        if (!displayPeriod || Math.abs(period - displayPeriod) > displayPeriod * 0.01) displayPeriod = period;
+        publishFit = false;
+      }
     }
     // A young estimate drifts faster than a small gain can follow; let the phase
     // move freely until the window has filled enough to trust the period.

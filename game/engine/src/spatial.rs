@@ -126,13 +126,18 @@ pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
         Vec3::ZERO
     }
 }
-pub(crate) fn bounds(w: &World, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
+pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
     if let Some(Mesh::Asset(name)) = mesh {
         if let Some(model) = w.model(name) {
             let lo = Vec3::from_slice(&model.bounds[..3]);
             let hi = Vec3::from_slice(&model.bounds[3..]);
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);
         }
+    }
+    if let Some(b) = w.get::<crate::asset::ModelBounds>(entity) {
+        let lo = Vec3::from_slice(&b.0[..3]);
+        let hi = Vec3::from_slice(&b.0[3..]);
+        return ((hi - lo) * 0.5, (hi + lo) * 0.5);
     }
     (extent(mesh), center(mesh))
 }
@@ -263,9 +268,13 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
             Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
             Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
             Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
-            Mesh::Asset(name) if w.model(name).is_none() => None,
+            Mesh::Asset(name)
+                if w.model(name).is_none() && w.get::<crate::asset::ModelBounds>(e).is_none() =>
+            {
+                None
+            }
             _ => {
-                let (half, center) = bounds(w, Some(mesh));
+                let (half, center) = bounds(w, e, Some(mesh));
                 slab(o - center, d, half)
             }
         };

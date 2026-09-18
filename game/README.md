@@ -300,63 +300,129 @@ Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
 `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
-colour and adds emission. Models supply layout/pick bounds after arrival; absent
-models have no stand-in geometry.
+colour and adds emission. Only declared models supply simulation data and baked
+layout/pick bounds. An undeclared model is presentation-only: `world.model(name)`
+always returns `None`. Give it authored bounds with
+`Mesh::asset("prop.model").bounds([-1., -1., -1., 1., 1., 1.])` inside a spawn
+bundle, or leave it unpickable. Arrival cannot change a game's reads or bounds.
 
 Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
-Setup and tick zero wait for all declared bytes, on headless hosts too. Missing or
-malformed files refuse by name through the surface error. `state.world.loading`
-lists outstanding names. Later `Mesh::asset` references request on first sight and
-pop in when delivered; declare them up front if simulation reads their data.
-`world.model(name)` reads immutable Data. Asset caches are excluded from saves and
-hashes; restore and module carry re-request declarations before continuing.
+Declaring a model also declares every texture it references. Setup, tick zero,
+clocks and saves wait for those dependencies. On a device, `Loaded` means geometry
+and textures uploaded and every needed forward/shadow pipeline variant prepared,
+including mirrored nodes; headless hosts validate the same bytes without GPU work.
+A loading carry returns an already pending restore, or refuses a new save.
+`Sim::save()` requires completed declarations. Every web agent operation waits at
+the same bounded delivery barrier, including world-save screenshots. Loading does
+not establish or advance the simulation's host clock epoch.
 
-Put `.glb`/`.gltf` sources and their image/buffer dependencies in a game's `art/`.
-The synthesized GPU shell's `build.rs` calls `exact_game_bake::bake_art`; Cargo builds
-the GPU product before the app bake and host asset copy. Each model becomes
-`assets/<stem>.model`; add `/assets/*.model` to that game's `.gitignore`. Stems must
-be unique even across art subdirectories. The standalone equivalent is
-`cargo run -p exact-game-bake -- art/fox.glb assets/fox.model` (from `game/`).
+`state.world.loading` lists pending names. `state.world.assets` lists each declared
+or requested name as `{name, state: "Pending" | "Loaded" | "Failed", reason?}`.
+Failed declarations keep setup gated; refused clocks retain their named failures.
+Missing or malformed cosmetic assets leave other presentation running. Asset
+failures never use the surface's sticky rendering error. Caches, readiness and
+failures are outside saves/hashes; a fresh restore re-requests declarations before
+applying the saved tick, world and forwarded input.
 
-The runtime decodes only `bin` Data and uploads plain vertices/RGBA8 mip chains.
-No glTF, JSON asset parser or image decoder enters the module. The existing typed
-bulk `Vec<f32/u32/u16/u8>` codec is unchanged: EXGAME v3 and EXSIM v5 remain current,
-and existing saves retain identical bytes. The baker refuses sparse accessors,
-morph targets, non-triangle primitives, unsupported vertex channels and extensions
-other than `KHR_materials_emissive_strength`/`KHR_texture_transform` by name. UV0
-transforms are baked per material texture; additional UV sets are currently refused.
-Skins and TRS animation tracks round-trip as Data but are not played until S3b.
+Put `.glb`/`.gltf` sources and image/buffer dependencies in a game's `art/`.
+The GPU shell's build script produces `assets/<stem>.model` containing geometry,
+materials, nodes, skins, clips and named texture references. Each
+`assets/<stem>/<name>.tex` is one RGBA8 texture with its complete mip chain. The
+renderer requests textures as model materials arrive, shares them by name across
+materials/models, uploads each once and releases the CPU mip payload. Models use
+shared 1×1 placeholders until textures arrive. The `.baked-assets.json` manifest
+owns generated outputs: renamed/deleted sources prune only those files, including
+when `art/` disappears; authored collisions refuse. Ignore this manifest and the
+generated `.model`/`.tex` files. Stems must be unique across art subdirectories.
+The standalone baker is `cargo run -p exact-game-bake -- art/fox.glb assets/fox.model`
+(from `game/`); its texture files accompany the model under the output directory.
+
+Names use the shared `gpu::asset_name` rule: nonempty ASCII, at most 128 bytes,
+slash-separated nonempty segments other than `.` and `..`, no backslashes or
+control characters. Spaces and punctuation are permitted and URL-encoded by the
+web host. Invalid declarations refuse at bind. The baker, module, Linux resolver,
+web and Swift resolver use the same cases. Names are answered once per surface
+instance. Hosts drain at most sixteen rounds. Web fetches make at most three
+attempts with five-second attempt deadlines, 250/500 ms retry delays and a
+20-second total deadline. A 404 is missing; 5xx/offline failures retry and then
+become named failures. Destruction/recreation cancels flights. `settled()` returns
+remaining flight names when its sixteen rounds or deadline expire.
+
+The runtime decodes only `bin` Data. No glTF or image decoder enters the module.
+EXGAME v3 and EXSIM v5 remain unchanged for existing games. The baker refuses
+textures above 2048×2048 and files above the 64 MiB carrier limit. It traverses
+only the single default scene and refuses multi-scene/no-default inputs, sparse
+accessors, morph targets, non-triangle primitives, missing UVs on textured meshes,
+joints/weights mismatches and unsupported channels/extensions by name. UV0
+transforms, authored nearest/linear filters and wrap modes survive baking. Colour
+mips filter in linear premultiplied-alpha space; MASK coverage is retained to the
+nearest representable texel count. Bake and runtime share model/texture validation,
+including finite scalars and inverse binds, ordered bounds, clip node/arity/time
+invariants and nonsingular node transforms. Skins and clips remain data until S3b.
+The 16×16 crate pins both output files; Khronos test inputs are digest-pinned.
+
+Model pipelines are lazy and share shader modules/layouts. A primitive-only world
+creates no model pipelines or texture uploads. Declared asset work finishes inside
+`Pending → Loaded`, before play; the peer surface test asserts unchanged asset
+compilation/upload counts through ticking and drawing. An undeclared cosmetic
+pop-in is the explicit exception: its arrival can prepare/upload during play.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.
 
 ## The world dev loop
 
-Live frames run ticks whose deadlines fall strictly before the next frame. The
-lookahead is the last live frame delta, clamped to one simulation step, and is
-zero until two live frames have been seen. A display gap still contributes at
-most 250 ms of world time; pausing stops time. Matching 60 Hz frames and ticks run
-one tick per frame; 59.94 Hz frames occasionally catch up an extra 60 Hz tick.
-The live scheduler retains sub-microsecond frame precision to avoid rounding beats.
-Scheduling and interpolation use integer microseconds scaled by `hz` (one step is
-1,000,000 units), rounding only after scaling. Seekable clocks have no lookahead:
-`clock +16`, tick hashes and `settleAt` keep exactly their existing boundaries.
-Rendering uses `R = T + L - step`, one tick behind the scheduling horizon, and
-`alpha = (R - (tick - 1) * step) / step` between the previous and current tick.
-The Sim retains the exact lookahead used by its last advance. At steady live
-cadence alpha is in (0, 1]; the clamp only guards missing history at startup,
-restore, a clock-mode switch or the first frame after a stall. Tick zero draws the
-initial pose. Seekable rendering retains the old `frac(T / step)` interpolation.
-Live saves may carry one early tick; presentation lookahead is not saved.
-`tick_phase` is mean alpha on frames that run ticks: near 1 means ticks run just
-before they are needed.
+Host integration for `Frame::period_ms` is pending: production hosts currently
+leave the period unknown. `Sim::frame_period` and the pacer's fitted-period export
+are implemented; the following clock rules apply once a host supplies that period.
 
-Input is consumed by stamp, strictly before the tick's deadline, on both clocks;
-future host stamps wait. A multi-tick catch-up therefore spreads input across its
-ticks. Only a gap exceeding the 250 ms live cap collapses its input onto the first
-remaining step. Inputs already delivered before an early tick's deadline need no
-special live bypass. Determinism is the tick-stamped input record with the same
-seed; seekable input retains its exact clock-to-tick mapping.
+Live frames use the host's display period, not the last frame delta. The web
+exports its pacer's fitted period; Apple supplies `CADisplayLink.duration`;
+headless and an uncalibrated display report zero. With world time `T`, fixed step
+`step = 1000/hz`, and `L = min(period, step)`, ticks run strictly before the
+scheduling horizon `T + L`. Unknown periods and Seekable use `L = 0`. A live gap
+still contributes at most 250 ms; pause stops time and unpause seeds the clock
+without consuming the pause gap.
+
+Rendering uses `R = T + L - step`, with
+`alpha = (T + L - tick * step) / step` between the last two completed poses.
+A fixed display period gives `ΔR = ΔT`: a 40 ms stall moves the pose by 40 ms,
+and its very next frame moves it by one normal frame interval. The last frame's
+delta never changes L. Tick zero draws the initial pose; the alpha guard handles
+missing history at startup, restore or a display-rate change. Seekable retains
+its original `frac(T / step)` interpolation and exact integer-microsecond seeks.
+
+The live clock adjusts its origin toward the nearest frame on the display
+lattice, dilating or contracting elapsed time by at most 0.25% per frame until
+the phase error reaches zero (within 0.2 ms in at most four seconds at 60 Hz or
+faster), then holds. It acquires again when the display period changes. This is
+one origin adjustment: at 60/60, 120/60 and 240/60 every tick deadline then sits
+on a frame; at 144/60 the remaining phases cycle. During acquisition,
+`|ΔR - frame_delta| <= 0.0025 * frame_delta` for an unchanged period. At aligned
+60/60, the tick runs at the frame and alpha is 1: no interpolation lag.
+`tick_phase` is mean alpha on ticking frames, about 1 at 60/60 and 0.5 at 120/60.
+
+Live phase is an integer accumulator of microseconds multiplied by `hz`
+(1,000,000 units per tick), plus a fractional residual bounded to half a unit.
+It never accumulates world milliseconds in an `f64`. A raw backwards host stamp
+changes neither phase nor lookahead. Period, residual and slew are host-only:
+absent from saves, state, snapshots and hashes, and never applied under Seekable.
+If a live tick ran early, a save is taken at that tick's exact deadline, encoded
+as `ceil(tick * 1_000_000 / hz)` microseconds. Live→Seekable makes the same clock
+catch-up without another `Game::tick`, then clears L. Restore again requires
+`tick == floor(world_us * hz / 1_000_000)`; a one-tick-ahead save is refused.
+
+With aligned commensurate grids, an input is consumed by the first tick whose
+deadline is at or after its arrival, and ticks run at their deadlines. This
+includes input delivered after the preceding frame: there is no early delivery
+cutoff window. During acquisition, at noncommensurate rates, or with an off-lattice
+callback, a tick can still run early; input delivered after that execution waits
+for the next eligible tick. Seekable preserves its strict `stamp < deadline`
+rule, including exact-boundary inputs going to the following tick. Queued input
+stays stamp-ordered, future host stamps wait, and multi-tick catch-up spreads
+input across ticks. Only a gap beyond the 250 ms cap collapses its input onto
+the first remaining step. The deterministic record is the tick-stamped input
+sequence with the same seed; live host stamps alone are not a seekable replay.
 
 `bun game/dev.mjs greybox` uses the same
 core dev server as every app. Rust source edits exclusive to the GPU cdylib's

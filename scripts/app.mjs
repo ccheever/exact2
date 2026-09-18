@@ -334,7 +334,9 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     usedPackages.add(m.package_id);
     const selected = roots.find((r) => r.package === m.package_id && m.target.name === r.name);
     const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,selected?.dep), 'utf8');
-    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
+    // Cargo also puts the baker's optional art-directory watch in dep-info.
+    // Its absence is an asset-root input, so creating it invalidates the bake.
+    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, !!app.manifest.game && resolve(path) === resolve(app.dir, 'art'));
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
   }

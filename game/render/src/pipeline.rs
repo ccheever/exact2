@@ -4,7 +4,7 @@ use exact_gpu::wgpu;
 const FRAME: &str = include_str!("shaders/frame.wgsl");
 const TRANSFORM: &str = include_str!("shaders/transform.wgsl");
 
-pub(crate) fn shader_sources() -> [String; 7] {
+fn primitive_sources() -> [String; 5] {
     [
         [
             FRAME,
@@ -17,12 +17,16 @@ pub(crate) fn shader_sources() -> [String; 7] {
         [FRAME, include_str!("shaders/sky.wgsl")].concat(),
         [FRAME, include_str!("shaders/tonemap.wgsl")].concat(),
         [FRAME, include_str!("shaders/bloom.wgsl")].concat(),
-        model_source(false),
-        model_source(true),
     ]
 }
 
-fn model_source(shadow: bool) -> String {
+#[cfg(test)]
+pub(crate) fn shader_sources() -> [String; 7] {
+    let [a, b, c, d, e] = primitive_sources();
+    [a, b, c, d, e, model_source(false), model_source(true)]
+}
+
+pub(crate) fn model_source(shadow: bool) -> String {
     // Separate entry points leave the primitive path free of texture bindings/samples.
     let source = [
         FRAME,
@@ -47,11 +51,7 @@ fn model_source(shadow: bool) -> String {
 }
 
 pub(crate) struct Pipelines {
-    pub model_forward: [wgpu::RenderPipeline; 16],
-    pub model_shadow: [wgpu::RenderPipeline; 2],
-    pub model_empty_layout: wgpu::BindGroupLayout,
-    pub model_material_layout: wgpu::BindGroupLayout,
-    pub model_instance_layout: wgpu::BindGroupLayout,
+    pub models: Option<ModelPipelines>,
     pub forward: [wgpu::RenderPipeline; 4],
     pub shadow: wgpu::RenderPipeline,
     pub sky: wgpu::RenderPipeline,
@@ -165,7 +165,7 @@ impl Pipelines {
                 sampler(2, wgpu::SamplerBindingType::Filtering),
             ],
         );
-        let sources = shader_sources();
+        let sources = primitive_sources();
         let shaders: [_; 5] = std::array::from_fn(|i| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(
@@ -283,47 +283,8 @@ impl Pipelines {
                 &[],
             )
         });
-        let model_empty_layout = layout("game no shadows", &[]);
-        let model_material_layout = crate::model_pipeline::material_layout(device);
-        let model_instance_layout = crate::model_pipeline::instance_layout(device);
-        let model_forward = std::array::from_fn(|i| {
-            crate::model_pipeline::pipeline(
-                device,
-                &sources[5],
-                &[
-                    Some(&scene_layout),
-                    Some(if i & 1 != 0 {
-                        &shadow_layout
-                    } else {
-                        &model_empty_layout
-                    }),
-                    Some(&model_material_layout),
-                    Some(&model_instance_layout),
-                ],
-                i,
-                false,
-            )
-        });
-        let model_shadow = std::array::from_fn(|i| {
-            crate::model_pipeline::pipeline(
-                device,
-                &sources[6],
-                &[
-                    Some(&scene_layout),
-                    Some(&camera_layout),
-                    Some(&model_material_layout),
-                    Some(&model_instance_layout),
-                ],
-                i * 4,
-                true,
-            )
-        });
         Self {
-            model_forward,
-            model_shadow,
-            model_material_layout,
-            model_instance_layout,
-            model_empty_layout,
+            models: None,
             forward,
             shadow,
             sky,
@@ -334,6 +295,92 @@ impl Pipelines {
             shadow_layout,
             camera_layout,
             bloom_layout,
+        }
+    }
+}
+
+pub(crate) struct ModelPipelines {
+    pub empty: wgpu::BindGroupLayout,
+    pub material: wgpu::BindGroupLayout,
+    pub instance: wgpu::BindGroupLayout,
+    pub forward: [Option<wgpu::RenderPipeline>; 32],
+    pub shadow: [Option<wgpu::RenderPipeline>; 4],
+    shaders: [wgpu::ShaderModule; 2],
+    layouts: [wgpu::PipelineLayout; 3],
+}
+impl Pipelines {
+    pub fn prepare_model(&mut self, device: &wgpu::Device, model: &exact_game::asset::Model) {
+        let family = self.models.get_or_insert_with(|| {
+            let empty = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("game no shadows"),
+                entries: &[],
+            });
+            let material = crate::model_pipeline::material_layout(device);
+            let instance = crate::model_pipeline::instance_layout(device);
+            let shaders = std::array::from_fn(|i| {
+                device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("game model shader"),
+                    source: wgpu::ShaderSource::Wgsl(model_source(i == 1).into()),
+                })
+            });
+            let layouts = std::array::from_fn(|i| {
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("game model pipeline layout"),
+                    bind_group_layouts: &[
+                        Some(&self.scene_layout),
+                        Some(match i {
+                            0 => &empty,
+                            1 => &self.shadow_layout,
+                            _ => &self.camera_layout,
+                        }),
+                        Some(&material),
+                        Some(&instance),
+                    ],
+                    immediate_size: 0,
+                })
+            });
+            ModelPipelines {
+                empty,
+                material,
+                instance,
+                forward: std::array::from_fn(|_| None),
+                shadow: std::array::from_fn(|_| None),
+                shaders,
+                layouts,
+            }
+        });
+        let offsets = model.offsets().expect("validated model");
+        for (node, local) in model.nodes.iter().zip(offsets) {
+            let Some(mesh) = node.mesh else { continue };
+            let m = &model.materials[model.meshes[mesh as usize].material as usize];
+            let mirrored = usize::from(local.determinant() < 0.);
+            let base = 4 * usize::from(m.double_sided)
+                + 8 * usize::from(m.alpha_mode == exact_game::asset::AlphaMode::Blend)
+                + 16 * mirrored;
+            for effect in 0..4 {
+                let i = base + effect;
+                family.forward[i].get_or_insert_with(|| {
+                    crate::model_pipeline::pipeline(
+                        device,
+                        &family.shaders[0],
+                        &family.layouts[i & 1],
+                        i,
+                        false,
+                    )
+                });
+            }
+            if m.alpha_mode != exact_game::asset::AlphaMode::Blend {
+                let i = usize::from(m.double_sided) + mirrored * 2;
+                family.shadow[i].get_or_insert_with(|| {
+                    crate::model_pipeline::pipeline(
+                        device,
+                        &family.shaders[1],
+                        &family.layouts[2],
+                        base,
+                        true,
+                    )
+                });
+            }
         }
     }
 }

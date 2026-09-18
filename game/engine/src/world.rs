@@ -87,8 +87,8 @@ impl Bundle for () {
 }
 macro_rules! bundles {
     ($($T:ident:$i:tt),+) => {
-        impl<$($T: Component),+> Bundle for ($($T,)+) {
-            fn insert(self, w: &mut World, e: Entity) { $(w.insert(e, self.$i);)+ }
+        impl<$($T: Bundle),+> Bundle for ($($T,)+) {
+            fn insert(self, w: &mut World, e: Entity) { $(self.$i.insert(w, e);)+ }
         }
     };
 }

@@ -78,6 +78,13 @@ final class Canvases {
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
     var module: GpuModule?
+    /// The display period last handed to the module; the session reports each change.
+    var sentPeriod = 0.0
+    func period(_ ms: Double) {
+        guard ms != sentPeriod, let m = module else { return }
+        sentPeriod = ms
+        m.period?(ms)
+    }
     var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
     var terminalRestoreReported = false
     var restoreJournal: [[String: Any]] = []

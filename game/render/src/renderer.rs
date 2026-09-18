@@ -18,7 +18,7 @@ struct Mesh {
     radius: f32,
 }
 
-/// Persistent GPU arenas, tick history, draw lists and eagerly compiled pipelines.
+/// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
 /// Uses four storage bindings and 4× MSAA HDR; requires WebGPU (not WebGL).
 pub struct Renderer {
     pub(crate) device: wgpu::Device,
@@ -45,6 +45,13 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    fn model_mirrored(&self, index: usize) -> bool {
+        let slot = self.slot_list[self.batches[index].slots.start as usize];
+        self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize]
+            .local
+            .determinant()
+            < 0.
+    }
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Starts small; all arenas grow on demand and never shrink.
@@ -86,13 +93,8 @@ impl Renderer {
             &slots,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
-        let models = crate::models::Models::new(
-            device,
-            &pipelines.model_instance_layout,
-            &pipelines.model_empty_layout,
-        );
         Self {
-            models,
+            models: crate::models::Models::default(),
             model_batches: Vec::new(),
             slot_list: Vec::new(),
             device: device.clone(),
@@ -430,10 +432,16 @@ impl Renderer {
                             continue;
                         }
                         pass.set_pipeline(
-                            &self.pipelines.model_shadow[usize::from(material.double_sided)],
+                            self.pipelines.models.as_ref().unwrap().shadow[usize::from(
+                                material.double_sided,
+                            ) + 2 * usize::from(
+                                self.model_mirrored(index),
+                            )]
+                            .as_ref()
+                            .unwrap(),
                         );
                         pass.set_bind_group(2, &material.bind, &[]);
-                        pass.set_bind_group(3, &self.models.bind, &[]);
+                        pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                     } else {
                         pass.set_pipeline(&self.pipelines.shadow);
                     }
@@ -496,18 +504,21 @@ impl Renderer {
                         continue;
                     }
                     pass.set_pipeline(
-                        &self.pipelines.model_forward
-                            [variant + 4 * usize::from(material.double_sided)],
+                        self.pipelines.models.as_ref().unwrap().forward[variant
+                            + 4 * usize::from(material.double_sided)
+                            + 16 * usize::from(self.model_mirrored(index))]
+                        .as_ref()
+                        .unwrap(),
                     );
                     pass.set_bind_group(
                         1,
                         self.shadows
                             .as_ref()
-                            .map_or(&self.models.no_shadow, |s| &s.sample),
+                            .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
                         &[],
                     );
                     pass.set_bind_group(2, &material.bind, &[]);
-                    pass.set_bind_group(3, &self.models.bind, &[]);
+                    pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 } else {
                     pass.set_pipeline(&self.pipelines.forward[variant]);
                 }
@@ -523,19 +534,23 @@ impl Renderer {
                 let batch = &self.batches[index];
                 let material = &self.models.materials[self.model_batches[index].unwrap().0];
                 pass.set_pipeline(
-                    &self.pipelines.model_forward
-                        [variant + 4 * usize::from(material.double_sided) + 8],
+                    self.pipelines.models.as_ref().unwrap().forward[variant
+                        + 4 * usize::from(material.double_sided)
+                        + 8
+                        + 16 * usize::from(self.model_mirrored(index))]
+                    .as_ref()
+                    .unwrap(),
                 );
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
                 pass.set_bind_group(
                     1,
                     self.shadows
                         .as_ref()
-                        .map_or(&self.models.no_shadow, |s| &s.sample),
+                        .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
                     &[],
                 );
                 pass.set_bind_group(2, &material.bind, &[]);
-                pass.set_bind_group(3, &self.models.bind, &[]);
+                pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 let mesh = &self.meshes[batch.mesh.0];
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 extra_draws += 1;

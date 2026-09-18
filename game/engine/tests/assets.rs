@@ -46,3 +46,95 @@ fn missing_declared_model_refuses_by_name_and_never_ticks() {
     sim.run(1000.);
     assert_eq!(sim.world().tick(), 0);
 }
+
+struct Cosmetic;
+impl Game for Cosmetic {
+    const ID: &'static str = "cosmetic";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("late", (Transform::default(), Mesh::asset("late.model")));
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        w.publish("sees_model", w.model("late.model").is_some());
+    }
+}
+#[test]
+fn undeclared_arrival_cannot_change_simulation_reads_or_layout() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    let before = sim.agent(r#"{"op":"layout","entity":"late"}"#);
+    assert!(before.contains("\"bounds\":null"), "{before}");
+    sim.take_assets();
+    let model = asset::Model {
+        bounds: [-2., -2., -2., 2., 2., 2.],
+        ..Default::default()
+    };
+    sim.asset("late.model", Some(&bin::to_vec(&model))).unwrap();
+    assert!(sim.world().model("late.model").is_none());
+    assert_eq!(sim.agent(r#"{"op":"layout","entity":"late"}"#), before);
+}
+#[test]
+fn failures_are_named_in_state_and_refused_clock() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    let _ = sim.asset("crate.model", None);
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(state.contains("\"state\":\"Failed\""), "{state}");
+    let clock = sim.agent(r#"{"op":"clock","now":1000}"#);
+    assert!(
+        clock.contains("crate.model") && clock.contains("missing file"),
+        "{clock}"
+    );
+}
+#[test]
+fn loading_save_refuses_and_clock_does_not_establish_an_epoch() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.save())).is_err());
+    sim.advance(5000., Clock::Seekable);
+    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
+        .unwrap();
+    assert_eq!(sim.advance(9000., Clock::Seekable), 0);
+    assert_eq!(sim.advance(9500., Clock::Seekable), 30);
+}
+
+struct InvalidDeclaration;
+impl Game for InvalidDeclaration {
+    const ID: &'static str = "invalid-asset-declaration";
+    const ASSETS: &'static [&'static str] = &["bad/./name.model"];
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {
+        panic!("must refuse before setup")
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn invalid_declaration_refuses_at_bind_with_the_name() {
+    let error = Sim::<InvalidDeclaration>::new(()).err().unwrap();
+    assert!(error.contains("bad/./name.model"), "{error}");
+}
+struct BoundedCosmetic;
+impl Game for BoundedCosmetic {
+    const ID: &'static str = "bounded-cosmetic";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "late",
+            (
+                Transform::default(),
+                Mesh::asset("late.model").bounds([-1., -2., -3., 1., 2., 3.]),
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn authored_cosmetic_bounds_survive_arrival_and_save() {
+    let mut sim = Sim::<BoundedCosmetic>::new(()).unwrap();
+    let layout = sim.agent(r#"{"op":"layout","entity":"late"}"#);
+    let bytes = bin::to_vec(&asset::Model {
+        bounds: [-9., -9., -9., 9., 9., 9.],
+        ..Default::default()
+    });
+    sim.asset("late.model", Some(&bytes)).unwrap();
+    assert_eq!(layout, sim.agent(r#"{"op":"layout","entity":"late"}"#));
+    sim.restore(&sim.save()).unwrap();
+    assert_eq!(layout, sim.agent(r#"{"op":"layout","entity":"late"}"#));
+}

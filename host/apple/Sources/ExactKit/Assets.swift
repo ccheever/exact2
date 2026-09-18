@@ -24,6 +24,7 @@ public final class AssetResolver {
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
 
     func bytes(_ name: String) -> Data? {
+        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { return nil }
         if let bytes = cache[name] { return bytes }
         if let read {
             guard names?.contains(name) == true else { return nil }
@@ -67,9 +68,16 @@ public final class AssetResolver {
         return sources
     }
 
+    /// The same cases and byte limit as gpu::asset_name.
+    static func validAssetName(_ name: String) -> Bool {
+        let bytes = Array(name.utf8)
+        return !bytes.isEmpty && bytes.count <= 128
+            && bytes.allSatisfy { $0 >= 32 && $0 < 127 && $0 != 92 }
+            && name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
     private func embeddedURL(_ name: String) -> URL? {
-        guard !name.isEmpty, !name.hasPrefix("/"), !name.contains(":"), !name.contains("\\"),
-              name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
         return url.path.hasPrefix(base.path + "/") ? url : nil

@@ -33,6 +33,7 @@ fn frame(now_ms: f64) -> Frame {
         scale: 1.,
         now_ms,
         seekable: true,
+        period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
     }
@@ -271,7 +272,7 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
 }
 
 #[test]
-fn asset_refusal_reaches_the_surface_error_with_its_name() {
+fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
@@ -281,11 +282,13 @@ fn asset_refusal_reaches_the_surface_error_with_its_name() {
     fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
     assert_eq!(s.assets(), ["castle"]);
     s.asset("castle", None);
-    let error = s.take_error().expect("a missing asset is refused").0;
+    assert!(s.take_error().is_none());
+    let state = s.agent(r#"{"op":"state"}"#).unwrap();
     assert!(
-        error.contains("castle") && error.contains("missing file"),
-        "{error}"
+        state.contains("castle") && state.contains("missing file"),
+        "{state}"
     );
+    fixture::render(&gpu, &mut s, &frame(17.)).unwrap();
 }
 
 #[test]
@@ -494,4 +497,117 @@ fn device_state_reports_target_before_first_draw_and_after_loss() {
         .agent(r#"{"op":"state"}"#)
         .unwrap()
         .contains("\"device\":false"));
+}
+
+struct Art;
+impl Game for Art {
+    const ID: &'static str = "asset-window";
+    const ASSETS: &'static [&'static str] = &["crate.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn((Transform::default(), Mesh::asset("crate.model")));
+        w.spawn((Transform::at(0., 0., 8.), Camera::default()));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_window_honest() {
+    let Some(gpu) = gpu() else { return };
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../games/asset-fixture/art/crate.gltf");
+    let (mut model, textures) = exact_game_bake::assets(&path).unwrap();
+    for material in &mut model.materials {
+        material.double_sided = false;
+    }
+    let mut mirrored = model.nodes[0].clone();
+    mirrored.transform = (glam::Mat4::from_scale(Vec3::new(-1., 1., 1.))
+        * glam::Mat4::from_cols_array(&mirrored.transform))
+    .to_cols_array();
+    model.nodes.push(mirrored);
+    let bytes = exact_game::bin::to_vec(&model);
+    let fresh = || {
+        let mut s = WorldSurface::<Art>::default();
+        s.device_ready();
+        s.bind(&[]).unwrap();
+        s
+    };
+    let deliver = |s: &mut WorldSurface<Art>| {
+        assert_eq!(s.assets(), ["crate.model"]);
+        s.asset("crate.model", Some(&bytes));
+        assert!(s.sim().unwrap().is_loading());
+        s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert!(
+            s.sim().unwrap().is_loading(),
+            "texture upload still gates setup"
+        );
+        assert_eq!(s.assets(), textures.keys().cloned().collect::<Vec<_>>());
+        for (name, data) in &textures {
+            s.asset(name, Some(&exact_game::bin::to_vec(data)));
+        }
+        assert!(
+            s.sim().unwrap().is_loading(),
+            "bytes alone cannot report Loaded"
+        );
+        s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert!(!s.sim().unwrap().is_loading());
+        assert!(
+            s.sim.as_mut().unwrap().take_textures().is_empty(),
+            "CPU mips released"
+        );
+    };
+    let mut original = fresh();
+    assert!(original.carry().is_none());
+    deliver(&mut original);
+    let work = original.render.as_ref().unwrap().0.asset_work();
+    assert_eq!(
+        work,
+        (10, 4),
+        "both winding variants and one shared texture plus three defaults"
+    );
+    for tick in 0..=30 {
+        fixture::render(&gpu, &mut original, &frame(tick as f64 * 1000. / 60.)).unwrap();
+        assert_eq!(
+            original.render.as_ref().unwrap().0.asset_work(),
+            work,
+            "no asset compilation/upload during play"
+        );
+    }
+    original.input(&InputEvent::Key {
+        code: "KeyW".into(),
+        key: "w".into(),
+        down: true,
+        repeat: false,
+        at_ms: 500.,
+    });
+    let saved = original.carry().unwrap();
+    let hash = original.sim().unwrap().world().hash();
+    let mut restored = fresh();
+    restored.restore(&saved).unwrap();
+    let state = restored.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(
+        state.contains("\"tick\":0")
+            && state.contains("\"loading\":[\"crate.model\"]")
+            && state.contains("\"restored\":false"),
+        "{state}"
+    );
+    assert_eq!(restored.carry().unwrap(), saved);
+    deliver(&mut restored);
+    assert_eq!(restored.sim().unwrap().world().tick(), 30);
+    assert_eq!(restored.sim().unwrap().world().hash(), hash);
+    let state = restored.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(
+        state.contains("\"restored\":true") && state.contains("\"forwarded\":[\"KeyW\"]"),
+        "{state}"
+    );
+    let mut primitive = surface();
+    fixture::render(&gpu, &mut primitive, &frame(0.)).unwrap();
+    assert_eq!(primitive.render.as_ref().unwrap().0.asset_work(), (0, 0));
+    assert!(primitive
+        .render
+        .as_ref()
+        .unwrap()
+        .0
+        .models
+        .instances
+        .is_none());
 }

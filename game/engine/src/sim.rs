@@ -50,7 +50,7 @@ pub enum Clock {
     Seekable,
     /// Limit one display gap to 250 milliseconds, dropping its excess.
     /// A hitch collapses input inside it onto the first step after the gap.
-    /// Run deadlines before the next frame early, using the last live frame delta.
+    /// Look ahead by the display period, aligning the tick origin to its lattice.
     Live,
 }
 #[derive(Clone, Default, Data)]
@@ -73,11 +73,22 @@ struct Saved {
     overflow_logged: bool,
     published: std::collections::BTreeMap<String, Value>,
 }
+// Host-only phase: one tick is 1_000_000 units. Only the bounded remainder is
+// floating point; neither elapsed world time nor the slew grows in an f64.
+#[derive(Clone, Copy)]
+struct LiveTime {
+    phase: i128,
+    remainder: f64,
+    period_ms: f64,
+    slew_left: Option<f64>,
+}
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
     setup_pending: bool,
     asset_mesh_revision: u64,
+    defer_assets: bool,
+    textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
     pub(crate) restored_from: Option<String>,
     settle_delay: std::cell::Cell<u32>,
@@ -92,7 +103,10 @@ pub struct Sim<G: Game> {
     world_us: i64,
     observations: [crate::world::Observation; 2],
     // Live frame precision only; never part of seekable time, saves or hashes.
-    live_time: Option<(f64, f64)>,
+    live_time: Option<LiveTime>,
+    last_ms: Option<f64>,
+    period_ms: f64,
+    paused_clock: bool,
     // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
     lookahead_us_hz: i128,
     game: PhantomData<G>,
@@ -107,14 +121,11 @@ impl<G: Game> Sim<G> {
         world.assets = assets;
         world.register_scene();
         for &name in G::ASSETS {
-            if !world.assets.models.contains_key(name) {
-                world.assets.pending.insert(name.into());
-            }
+            world.assets.declared.insert(name.into());
+            world.assets.required.insert(name.into());
+            world.assets.request(name);
         }
-        if G::ASSETS
-            .iter()
-            .any(|name| !world.assets.models.contains_key(*name))
-        {
+        if !world.assets.ready() {
             return world;
         }
         G::setup(&mut world, args);
@@ -144,61 +155,148 @@ impl<G: Game> Sim<G> {
                 })
                 .collect();
             for name in names {
-                if !self.world.assets.models.contains_key(&name)
-                    && !self.world.assets.failed.contains_key(&name)
-                {
-                    self.world.assets.pending.insert(name);
-                }
+                self.world.assets.request(&name);
             }
             self.asset_mesh_revision = revision;
         }
         let assets = &mut self.world.assets;
         let names: Vec<_> = assets
-            .pending
-            .difference(&assets.requested)
-            .cloned()
+            .states
+            .iter()
+            .filter(|(n, s)| {
+                **s == crate::asset::AssetState::Pending && !assets.requested.contains(*n)
+            })
+            .map(|(n, _)| n.clone())
             .collect();
         assets.requested.extend(names.iter().cloned());
         names
     }
-    /// Install baked model bytes without a device. Missing or malformed models refuse by name.
-    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
-        let result = bytes
-            .ok_or_else(|| format!("asset `{name}`: missing file"))
-            .and_then(|bytes| {
-                bin::from_slice::<crate::asset::Model>(bytes)
-                    .map_err(|e| format!("asset `{name}`: {e}"))
-            })
-            .and_then(|model| {
-                model
-                    .validate()
-                    .map_err(|e| format!("asset `{name}`: {e}"))?;
-                Ok(model)
-            });
-        self.world.assets.pending.remove(name);
+    /// Device-backed surfaces defer readiness until pipeline preparation and upload finish.
+    pub fn defer_assets(&mut self, defer: bool) {
+        self.defer_assets = defer;
+    }
+    /// Renderer-only model feed; games receive World, whose reads enforce declarations.
+    pub fn presentation_models(&self) -> impl Iterator<Item = (&str, &crate::asset::Model)> {
+        self.world
+            .assets
+            .models
+            .iter()
+            .map(|(n, m)| (n.as_str(), m.as_ref()))
+    }
+    /// Move texture payloads to the renderer; no CPU mip copy survives upload.
+    pub fn take_textures(
+        &mut self,
+    ) -> std::collections::BTreeMap<String, crate::asset::TextureData> {
+        std::mem::take(&mut self.textures)
+    }
+    /// A named preparation/upload completed, or failed without poisoning the surface.
+    pub fn asset_prepared(&mut self, name: &str, result: Result<(), String>) {
+        use crate::asset::AssetState;
         match result {
-            Ok(model) => {
-                self.world
-                    .assets
-                    .models
-                    .insert(name.into(), std::sync::Arc::new(model));
+            Ok(()) => {
+                self.world.assets.prepared.insert(name.into());
+                if name.ends_with(".tex") {
+                    self.world
+                        .assets
+                        .states
+                        .insert(name.into(), AssetState::Loaded);
+                }
             }
-            Err(error) => {
-                self.world.assets.failed.insert(name.into(), error.clone());
-                return Err(error);
+            Err(reason) => {
+                self.world.assets.states.insert(
+                    name.into(),
+                    AssetState::Failed(format!("asset `{name}`: {reason}")),
+                );
             }
         }
-        self.world.assets.revision += 1;
-        if self.setup_pending
-            && G::ASSETS
+        self.finish_assets();
+    }
+    fn finish_assets(&mut self) {
+        use crate::asset::AssetState;
+        let assets = &mut self.world.assets;
+        for (name, model) in &assets.models {
+            if matches!(assets.states.get(name), Some(AssetState::Failed(_))) {
+                continue;
+            }
+            let failed = model
+                .textures
                 .iter()
-                .all(|name| self.world.assets.models.contains_key(*name))
-        {
+                .find_map(|n| match assets.states.get(n) {
+                    Some(AssetState::Failed(e)) => Some(e.clone()),
+                    _ => None,
+                });
+            if let Some(reason) = failed {
+                assets
+                    .states
+                    .insert(name.clone(), AssetState::Failed(reason));
+            } else if assets.prepared.contains(name)
+                && model
+                    .textures
+                    .iter()
+                    .all(|n| assets.states.get(n) == Some(&AssetState::Loaded))
+            {
+                assets.states.insert(name.clone(), AssetState::Loaded);
+            }
+        }
+        if self.setup_pending && assets.ready() {
             self.world = Self::build(&self.args, self.world.assets.clone());
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }
-        Ok(())
+    }
+    /// Transport failure after the host's bounded retries.
+    pub fn asset_failed(&mut self, name: &str, reason: &str) {
+        self.world.assets.requested.insert(name.into());
+        self.asset_prepared(name, Err(reason.into()));
+    }
+    /// Install and validate one named model/texture. A declaration includes its textures.
+    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+        use crate::asset::{AssetState, Model, TextureData};
+        self.world.assets.request(name);
+        self.world.assets.requested.insert(name.into());
+        let result: Result<(), String> = (|| {
+            if !crate::asset::asset_name(name) {
+                return Err("invalid asset name".into());
+            }
+            let bytes = bytes.ok_or_else(|| "missing file".to_string())?;
+            if name.ends_with(".tex") {
+                let texture: TextureData = bin::from_slice(bytes).map_err(|e| e.to_string())?;
+                texture.validate()?;
+                if self.defer_assets {
+                    self.textures.insert(name.into(), texture);
+                } else {
+                    self.world
+                        .assets
+                        .states
+                        .insert(name.into(), AssetState::Loaded);
+                }
+            } else {
+                let model: Model = bin::from_slice(bytes).map_err(|e| e.to_string())?;
+                model.validate()?;
+                for texture in &model.textures {
+                    self.world.assets.request(texture);
+                    if self.world.assets.declared.contains(name) {
+                        self.world.assets.required.insert(texture.clone());
+                    }
+                }
+                self.world
+                    .assets
+                    .models
+                    .insert(name.into(), std::sync::Arc::new(model));
+                if !self.defer_assets {
+                    self.world.assets.prepared.insert(name.into());
+                }
+            }
+            Ok(())
+        })();
+        if let Err(reason) = &result {
+            self.world.assets.states.insert(
+                name.into(),
+                AssetState::Failed(format!("asset `{name}`: {reason}")),
+            );
+        }
+        self.finish_assets();
+        result.map_err(|e| format!("asset `{name}`: {e}"))
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn from_values(values: &[Value]) -> Result<Self, String> {
@@ -209,12 +307,19 @@ impl<G: Game> Sim<G> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
+        for name in G::ASSETS {
+            if !crate::asset::asset_name(name) {
+                return Err(format!("asset `{name}`: invalid declaration name"));
+            }
+        }
         args.check_scalars()?;
         G::validate(&args)?;
         Ok(Self {
             world: Self::build(&args, Default::default()),
             setup_pending: !G::ASSETS.is_empty(),
             asset_mesh_revision: u64::MAX,
+            defer_assets: false,
+            textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             args,
             last_epoch: std::cell::Cell::new(0),
@@ -229,6 +334,9 @@ impl<G: Game> Sim<G> {
             world_us: 0,
             observations: Default::default(),
             live_time: None,
+            last_ms: None,
+            period_ms: 0.0,
+            paused_clock: false,
             lookahead_us_hz: 0,
             game: PhantomData,
         })
@@ -289,9 +397,7 @@ impl<G: Game> Sim<G> {
                 .presentation_generation
                 .checked_add(1)
                 .expect("presentation generation exhausted");
-            self.setup_pending = G::ASSETS
-                .iter()
-                .any(|name| !world.assets.models.contains_key(*name));
+            self.setup_pending = !world.assets.ready();
             self.asset_mesh_revision = u64::MAX;
             self.world = world;
             self.world_us = 0;
@@ -313,6 +419,10 @@ impl<G: Game> Sim<G> {
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
+            self.world_us = self.exact_world_us();
+            self.live_time = None;
+            self.lookahead_us_hz = 0;
+            self.paused_clock = true;
         }
         Ok(())
     }
@@ -461,34 +571,82 @@ impl<G: Game> Sim<G> {
         }
         self.input.clear_edges();
     }
-    fn live_time(&self, now_ms: f64, elapsed: i64) -> (f64, f64) {
-        match self.live_time {
-            Some((last, world)) => {
-                let delta = (now_ms - last).max(0.0);
-                (world + delta.min(250.0), delta.min(1000.0 / G::HZ as f64))
-            }
-            None => (self.world_us.saturating_add(elapsed) as f64 / 1000.0, 0.0),
-        }
+    /// Host display period in milliseconds; zero means not yet known. Applied
+    /// only by the next accepted live advance, never by a backwards sample.
+    pub fn frame_period(&mut self, period_ms: f64) {
+        self.period_ms = if period_ms.is_finite() && period_ms > 0.0 {
+            period_ms
+        } else {
+            0.0
+        };
     }
     fn phase_us(ms: f64) -> i128 {
-        // Scale before rounding: a rational display period must not lose whole
-        // microseconds and produce alternating beats. All boundary math is integer.
         (ms * G::HZ as f64 * 1000.0).round() as i128
     }
-    fn target(&self, now_ms: f64, clock: Clock, elapsed: i64) -> (u128, i128) {
-        if clock == Clock::Live {
-            let (world, lookahead) = self.live_time(now_ms, elapsed);
-            let lookahead = Self::phase_us(lookahead);
-            if lookahead > 0 {
-                let horizon = Self::phase_us(world) + lookahead;
-                // ceil(horizon / step) - 1: deadlines strictly before T + L.
-                return (((horizon - 1).max(0) / 1_000_000) as u128, lookahead);
-            }
+    fn live_time(&self, now_ms: f64) -> LiveTime {
+        let mut live = self.live_time.unwrap_or(LiveTime {
+            phase: self.world_us as i128 * G::HZ as i128,
+            remainder: 0.0,
+            period_ms: 0.0,
+            slew_left: None,
+        });
+        let delta = if self.paused_clock {
+            0.0
+        } else {
+            (now_ms - self.last_ms.unwrap_or(now_ms)).clamp(0.0, 250.0)
+        };
+        if live.period_ms != self.period_ms {
+            live.period_ms = self.period_ms;
+            live.slew_left = None;
         }
-        (
-            self.world_us.saturating_add(elapsed) as u128 * G::HZ as u128 / 1_000_000,
-            0,
-        )
+        let units = delta * G::HZ as f64 * 1000.0;
+        let increment = units + live.remainder;
+        live.phase += increment.round() as i128;
+        live.remainder = increment - increment.round();
+        if live.period_ms > 0.0 && delta > 0.0 {
+            let period = live.period_ms * G::HZ as f64 * 1000.0;
+            let left = live.slew_left.get_or_insert_with(|| {
+                // Move the origin to the nearest frame, not every successive
+                // deadline: noncommensurate grids must not chase a cyclic phase.
+                let until = -(live.phase.rem_euclid(1_000_000) as f64) - live.remainder;
+                let phase = until.rem_euclid(period);
+                if phase > period / 2.0 {
+                    phase - period
+                } else {
+                    phase
+                }
+            });
+            let correction = left.clamp(-units * 0.0025, units * 0.0025);
+            *left -= correction;
+            let increment = correction + live.remainder;
+            live.phase += increment.round() as i128;
+            live.remainder = increment - increment.round();
+        }
+        live
+    }
+    fn lookahead(live: LiveTime) -> i128 {
+        Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64))
+    }
+    fn target(phase: i128, lookahead: i128) -> u64 {
+        // ceil(horizon / step) - 1 with L; equality waits for the next frame.
+        ((phase + lookahead - i128::from(lookahead > 0)).max(0) / 1_000_000) as u64
+    }
+    fn exact_world_us(&self) -> i64 {
+        let deadline = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128);
+        self.world_us
+            .max(i64::try_from(deadline).expect("simulation clock exhausted"))
+    }
+    fn backwards(&self, now_ms: f64) -> bool {
+        self.last_ms.is_some_and(|last| now_ms < last)
+    }
+    fn seek_time(&self, now: i64) -> i64 {
+        let base = if self.live_time.is_some() {
+            self.exact_world_us()
+        } else {
+            self.world_us
+        };
+        base.checked_add(now.saturating_sub(self.last_us.unwrap_or(now)))
+            .expect("simulation clock exhausted")
     }
     /// Number of steps the next advance would complete. Presentation can skip
     /// timing samples that a long advance would immediately evict from its ring.
@@ -496,18 +654,16 @@ impl<G: Game> Sim<G> {
         if self.setup_pending || !now_ms.is_finite() || G::paused(&self.args) {
             return 0;
         }
-        let now = micros(now_ms);
-        if self.last_us.is_some_and(|last| now < last) {
+        if self.backwards(now_ms) {
             return 0;
         }
-        let gap = now.saturating_sub(self.last_us.unwrap_or(now)).max(0);
-        let elapsed = if clock == Clock::Live {
-            gap.min(250_000)
+        let target = if clock == Clock::Live {
+            let live = self.live_time(now_ms);
+            Self::target(live.phase, Self::lookahead(live))
         } else {
-            gap
+            Self::target(self.seek_time(micros(now_ms)) as i128 * G::HZ as i128, 0)
         };
-        let (target, _) = self.target(now_ms, clock, elapsed);
-        u32::try_from(target.saturating_sub(self.world.tick() as u128)).unwrap_or(u32::MAX)
+        u32::try_from(target.saturating_sub(self.world.tick())).unwrap_or(u32::MAX)
     }
     /// Advance integer world time; the first call establishes the host epoch only.
     pub fn advance(&mut self, now_ms: f64, clock: Clock) -> u32 {
@@ -522,9 +678,9 @@ impl<G: Game> Sim<G> {
     ) -> u32 {
         assert!(now_ms.is_finite(), "host clock must be finite");
         if self.setup_pending {
-            self.last_us = Some(micros(now_ms));
-            self.live_time = None;
-            self.lookahead_us_hz = 0;
+            return 0;
+        }
+        if self.backwards(now_ms) {
             return 0;
         }
         self.check_epoch();
@@ -533,9 +689,6 @@ impl<G: Game> Sim<G> {
         }
         let now = micros(now_ms);
         let last = self.last_us.unwrap_or(now);
-        if now < last {
-            return 0;
-        }
         // Restored pending host stamps are offsets until the first host sample.
         if self.last_us.is_none() && self.rebase_queue {
             for e in &mut self.queue {
@@ -545,38 +698,52 @@ impl<G: Game> Sim<G> {
             }
         }
         self.rebase_queue = false;
-        self.last_us = Some(now);
         if G::paused(&self.args) {
             self.flush_paused(now);
+            self.world_us = self.exact_world_us();
             self.live_time = None;
             self.lookahead_us_hz = 0;
+            self.paused_clock = true;
+            self.last_us = Some(now);
+            self.last_ms = Some(now_ms);
             return 0;
         }
         let gap = now.saturating_sub(last);
-        let elapsed = if clock == Clock::Live {
-            gap.min(250_000)
+        let live = (clock == Clock::Live).then(|| self.live_time(now_ms));
+        let before = if clock == Clock::Seekable && self.live_time.is_some() {
+            self.exact_world_us()
         } else {
-            gap
+            self.world_us
         };
-        let (target, lookahead) = self.target(now_ms, clock, elapsed);
-        let target = target as u64;
+        let world_us = live.map_or_else(
+            || self.seek_time(now),
+            |live| i64::try_from(live.phase / G::HZ as i128).expect("simulation clock exhausted"),
+        );
+        let lookahead = live.map_or(0, Self::lookahead);
+        let phase = live.map_or(world_us as i128 * G::HZ as i128, |live| live.phase);
+        let target = Self::target(phase, lookahead);
         self.lookahead_us_hz = lookahead;
-        self.live_time =
-            (clock == Clock::Live).then(|| (now_ms, self.live_time(now_ms, elapsed).0));
+        self.live_time = live;
         for e in &mut self.queue {
             if e.world_us.is_none() && e.host_us <= now {
-                let offset = if gap > elapsed {
+                let offset = if clock == Clock::Live && (gap > 250_000 || self.paused_clock) {
                     0
+                } else if clock == Clock::Live && gap > 0 {
+                    // Stamp on the same dilated clock as the frame. Integer
+                    // interpolation retains order and puts frame-time input at T.
+                    (e.host_us.saturating_sub(last).clamp(0, gap) as i128
+                        * (world_us - before) as i128
+                        / gap as i128) as i64
                 } else {
-                    e.host_us.saturating_sub(last).clamp(0, elapsed)
+                    e.host_us.saturating_sub(last).clamp(0, gap)
                 };
-                e.world_us = Some(self.world_us.saturating_add(offset));
+                e.world_us = Some(before.saturating_add(offset));
             }
         }
-        self.world_us = self
-            .world_us
-            .checked_add(elapsed)
-            .expect("simulation clock exhausted");
+        self.world_us = world_us;
+        self.last_us = Some(now);
+        self.last_ms = Some(now_ms);
+        self.paused_clock = false;
         let start = self.world.tick();
         // Exactly two samples per seek with work: before the last tick and after it.
         // A single-tick seek samples its starting state. Live never enters this path.
@@ -588,8 +755,10 @@ impl<G: Game> Sim<G> {
             self.input.clear_edges();
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
             while self.queue.front().is_some_and(|e| {
-                e.world_us
-                    .is_some_and(|us| us as u128 * (G::HZ as u128) < end)
+                e.world_us.is_some_and(|us| {
+                    let stamp = us as u128 * G::HZ as u128;
+                    stamp < end || (clock == Clock::Live && stamp == end)
+                })
             }) {
                 self.input.apply(self.queue.pop_front().unwrap().event);
             }
@@ -622,9 +791,7 @@ impl<G: Game> Sim<G> {
     fn alpha_numerator(&self) -> i128 {
         let world = self
             .live_time
-            .map_or(self.world_us as i128 * G::HZ as i128, |(_, ms)| {
-                Self::phase_us(ms)
-            });
+            .map_or(self.world_us as i128 * G::HZ as i128, |live| live.phase);
         // R = T + L - step; alpha = (R - (tick - 1) * step) / step.
         world + self.lookahead_us_hz - self.world.tick() as i128 * 1_000_000
     }
@@ -633,8 +800,8 @@ impl<G: Game> Sim<G> {
         if self.world.tick() == 0 {
             return 0.0;
         }
-        // Startup, restore, a clock-mode change or a shrinking horizon after a
-        // stall can lack the required history. Steady frames never hit this guard.
+        // Startup, restore or a display-rate change can lack the required history.
+        // A stall with an unchanged period never changes L or hits this guard.
         self.alpha_numerator().clamp(0, 1_000_000) as f32 / 1_000_000.0
     }
     /// Replacement generation for presentation caches; not saved or hashed.
@@ -690,7 +857,10 @@ impl<G: Game> Sim<G> {
         if self.last_us.is_none() {
             self.advance(0.0, Clock::Seekable);
         }
-        self.advance(self.last_us.unwrap() as f64 / 1000.0 + ms, Clock::Seekable)
+        self.advance(
+            self.last_us.unwrap_or(0) as f64 / 1000.0 + ms,
+            Clock::Seekable,
+        )
     }
     /// Press a physical key at the current clock.
     pub fn key_down(&mut self, code: &str) {
@@ -760,6 +930,9 @@ impl<G: Game> Sim<G> {
         settled
     }
     pub(crate) fn changing(&self, quiescent: bool) -> Vec<String> {
+        if self.setup_pending {
+            return vec!["loading".into()];
+        }
         if G::paused(&self.args) {
             return if self.queue.is_empty() {
                 vec!["paused".into()]
@@ -823,10 +996,16 @@ impl<G: Game> Sim<G> {
     }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Vec<u8> {
+        assert!(
+            !self.is_loading(),
+            "save refused: declared assets are not ready: {}",
+            self.world.assets.state_json()
+        );
+        let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
         for e in &mut queue {
             if let Some(us) = &mut e.world_us {
-                *us -= self.world_us;
+                *us -= world_us;
                 e.host_us = 0;
             } else {
                 e.host_us = e.host_us.saturating_sub(self.last_us.unwrap_or(0));
@@ -840,7 +1019,7 @@ impl<G: Game> Sim<G> {
             args: self.args_json.clone(),
             input: self.input.clone(),
             queue,
-            world_us: self.world_us,
+            world_us,
             published: self.world.publications(),
             journal: self.world.journal(),
             journal_next: self.world.journal_next(),
@@ -896,15 +1075,14 @@ impl<G: Game> Sim<G> {
         let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
         let mut next = Self::new(bound).map_err(DataError::new)?;
         next.world = Self::build(&next.args, self.world.assets.clone());
-        next.setup_pending = G::ASSETS
-            .iter()
-            .any(|name| !next.world.assets.models.contains_key(*name));
+        next.setup_pending = !next.world.assets.ready();
+        next.defer_assets = self.defer_assets;
         if next.setup_pending {
             return Err(DataError::new("restore awaits declared assets"));
         }
         next.world.load(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
-        if next.world.hz() != G::HZ || !(due..=due + 1).contains(&(next.world.tick() as u128)) {
+        if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
             return Err(DataError::new("saved world and clock disagree"));
         }
         if s.version < G::SAVE_VERSION {
@@ -952,17 +1130,20 @@ mod render_time_tests {
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
     fn steady<const HZ: u32>() {
-        for frame_hz in [60.0, 59.94, 120.0] {
+        for frame_hz in [60.0, 59.94, 120.0, 144.0, 240.0] {
             for epoch in [0.0, 1234.567, 1_000_000.123] {
                 for phase in [0.0, 0.1, 0.25, 0.4] {
                     let mut s = Sim::<Ticker<HZ>>::new(()).unwrap();
+                    s.frame_period(1000.0 / frame_hz);
                     s.advance(epoch, Clock::Live);
-                    assert_eq!(s.lookahead_us_hz, 0);
                     for frame in 1..=600 {
                         let now =
                             epoch + frame as f64 * 1000.0 / frame_hz + phase * 1000.0 / HZ as f64;
                         let due = s.ticks_due(now, Clock::Live);
                         assert_eq!(s.advance(now, Clock::Live), due);
+                        if HZ == 120 && frame_hz == 120.0 && phase == 0.0 {
+                            assert_eq!(due, 1, "120/120 frame {frame}");
+                        }
                         // Inspect the signed numerator BEFORE alpha's guard.
                         let raw = s.alpha_numerator();
                         assert!((0..=1_000_000).contains(&raw),
@@ -983,5 +1164,44 @@ mod render_time_tests {
     fn alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates() {
         steady::<60>();
         steady::<120>();
+    }
+    #[test]
+    fn integer_phase_survives_the_old_eighteen_hour_precision_limit() {
+        let mut s = Sim::<Ticker<120>>::new(()).unwrap();
+        // Just beyond 2^26 milliseconds, without running eight million ticks.
+        let tick = 8_100_000;
+        for _ in 0..tick {
+            s.world.step_clock();
+        }
+        assert_eq!(s.world.tick(), tick);
+        s.world_us = tick as i64 * 1_000_000 / 120;
+        s.frame_period(1000.0 / 120.0);
+        s.advance(0.0, Clock::Live);
+        for frame in 1..=3600 {
+            let now = frame as f64 * 1000.0 / 120.0;
+            assert_eq!(s.ticks_due(now, Clock::Live), 1);
+            assert_eq!(s.advance(now, Clock::Live), 1);
+            let live = s.live_time.unwrap();
+            assert!(live.remainder.abs() <= 0.5);
+            assert_eq!(live.phase, (tick as i128 + frame as i128) * 1_000_000);
+            assert_eq!(s.alpha(), 1.0);
+        }
+    }
+    #[test]
+    fn restore_refuses_a_one_tick_ahead_clock() {
+        let mut s = Sim::<Ticker<60>>::new(()).unwrap();
+        s.advance(0.0, Clock::Seekable);
+        s.advance(17.0, Clock::Seekable);
+        let good = s.save();
+        let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
+        saved.world_us = 10_000;
+        let mut bad = b"EXSIM\0\x05".to_vec();
+        bad.extend(bin::to_vec(&saved));
+        assert!(s
+            .restore(&bad)
+            .unwrap_err()
+            .to_string()
+            .contains("world and clock disagree"));
+        assert_eq!(s.save(), good);
     }
 }
