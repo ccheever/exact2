@@ -2,7 +2,8 @@ import {test} from 'bun:test';
 import assert from 'node:assert/strict';
 import {fixture} from './surface-record.test.mjs';
 import {reloadInputs, verifyReloadInputs, gpuArtifact, sha256} from '../reload-build.mjs';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, renameSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, renameSync, readSync, writeSync} from 'node:fs';
+import {retainDevGeneration} from '../serve.mjs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 
@@ -293,12 +294,12 @@ test('scene content publishes a fresh plan with the cached compiler and retains 
   const dir=mkdtempSync(join(tmpdir(),'scene-plan-reload-'));
   const app={dir,target:dir,workspace:dir,manifest:{game:{}}},source=join(dir,'app.contract'),plan=join(dir,'app.plan'),planCompiler=join(dir,'exact-dev');
   mkdirSync(join(dir,'.scene'));writeFileSync(source,'use sceneContent');writeFileSync(plan,'accepted');writeFileSync(planCompiler,'cached executable');writeFileSync(join(dir,'.scene/scene.contract'),'scene bytes');
-  const published=[],pushed=[],calls=[],pending=new Map();let failure=false,stale=false,publicationFailure=false,renameFailure=false;
+  const published=[],pushed=[],calls=[],pending=new Map(),epoch='a'.repeat(32),cache=join(dir,'generations');let failure=false,stale=false,publicationFailure=false,renameFailure=false,compiled='new scene plan';
   const inputs=()=>reloadInputs([source]);
-  const run=new Function('env',`const {app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,spawnSync,source,buildEnv,verifyReloadInputs,readFileSync,renameSync,plan,pending,push,announcement,console,rmSync}=env;let seq=3,current={generation:'accepted'};function captureGeneration(reuse,bytes){current={generation:'candidate'};env.captureGeneration(reuse,bytes);}${functions};return {publishScenePlan,sceneContractInput,state:()=>({current,seq})};`)({
+  const run=new Function('env',`const {app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,spawnSync,source,buildEnv,verifyReloadInputs,readFileSync,renameSync,plan,pending,push,announcement,console,rmSync}=env;let seq=3,current={generation:'accepted'};function captureGeneration(reuse,bytes){env.captureGeneration(reuse,bytes,seq);current={generation:bytes.toString(),seq};}${functions};return {publishScenePlan,sceneContractInput,state:()=>({current,seq})};`)({
     app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,source,buildEnv:{},verifyReloadInputs,readFileSync,renameSync:(...args)=>{if(renameFailure)throw new Error('rename failed');return renameSync(...args);},plan,pending,rmSync,
-    spawnSync(command,args){calls.push([command,args]);assert.equal(command,planCompiler);assert.deepEqual([args[0],args[2]],[source,'--once']);writeFileSync(args[1],'new scene plan');if(stale)writeFileSync(source,'edited during compiler');return {status:failure?1:0,stderr:'compile failed'};},
-    captureGeneration(reuse,bytes){assert.equal(reuse,true);if(publicationFailure)throw new Error('publication failed');published.push(bytes.toString());},push:message=>pushed.push(message),announcement:()=>({generation:'new'}),console:{log(){}},
+    spawnSync(command,args){calls.push([command,args]);assert.equal(command,planCompiler);assert.deepEqual([args[0],args[2]],[source,'--once']);writeFileSync(args[1],compiled);if(stale)writeFileSync(source,'edited during compiler');return {status:failure?1:0,stderr:'compile failed'};},
+    captureGeneration(reuse,bytes,seq){assert.equal(reuse,true);retainDevGeneration(cache,epoch,seq,new Map([['app.plan',bytes],['exact.json',Buffer.from(JSON.stringify({exact:1,dev:{epoch,seq},plan:{bytes:bytes.length,sha256:sha256(bytes)},assets:[]}))]]));if(publicationFailure)throw new Error('publication failed');published.push(bytes.toString());},push:message=>pushed.push(message),announcement:()=>({generation:'new'}),console:{log(){}},
   });
   try{
     assert.equal(run.sceneContractInput(join(dir,'.scene/scene.contract')),true);
@@ -308,9 +309,82 @@ test('scene content publishes a fresh plan with the cached compiler and retains 
     const accepted=run.state();
     failure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/scene plan refused/);
     failure=false;stale=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/inputs changed/);
-    stale=false;publicationFailure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/publication failed/);assert.deepEqual(run.state(),accepted);
-    publicationFailure=false;renameFailure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/rename failed/);assert.deepEqual(run.state(),accepted);
+    stale=false;publicationFailure=true;compiled='partially retained';assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/publication failed/);assert.deepEqual(run.state().current,accepted.current);assert.equal(run.state().seq,accepted.seq+1);
+    publicationFailure=false;renameFailure=true;compiled='rename refused';assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/rename failed/);assert.deepEqual(run.state().current,accepted.current);assert.equal(run.state().seq,accepted.seq+2);
     assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');assert.equal(calls.length,5);
+    assert.equal(readFileSync(join(cache,epoch,String(accepted.seq),'app.plan'),'utf8'),'new scene plan');
+    renameFailure=false;compiled='different next edit';run.publishScenePlan(Date.now(),inputs(),inputs);
+    assert.equal(run.state().seq,accepted.seq+3);assert.equal(pushed.length,2);assert.equal(readFileSync(plan,'utf8'),compiled);
+    assert.equal(readFileSync(join(cache,epoch,String(accepted.seq+2),'app.plan'),'utf8'),'rename refused');
+    assert.equal(readFileSync(join(cache,epoch,String(accepted.seq+3),'app.plan'),'utf8'),compiled);
     assert.match(driver,/if \(sceneContractInput\(path\)\) return/);
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+// The Rust integration test supplies a live Bridge over inherited stdio. This
+// avoids substituting a JSON-object check for Contract's actual type checker.
+test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host refuses shapes/bindings atomically and commits the complete HUD', async()=>{
+  function bridge(op,payload='') {
+    writeSync(1,`@exact ${op} ${payload}\n`);
+    const byte=Buffer.alloc(1),bytes=[];
+    while(readSync(0,byte,0,1,null) && byte[0]!==10) bytes.push(byte[0]);
+    return JSON.parse(Buffer.from(bytes).toString());
+  }
+  const glue=readFileSync(new URL('../glue.js',import.meta.url),'utf8');
+  const bootSource=glue.slice(glue.indexOf('async function bootNow('),glue.indexOf('\nlet ready;',glue.indexOf('async function bootNow(')));
+  for(const failure of ['shape','binding',null]) {
+    const initial=bridge('initial');bridge('advance','1234');
+    let next=0;const worlds=new Map(),publications=new Map(),bound=[],destroyed=[];
+    const f=await fixture({input:true,now:()=>1234,gpu:{
+      gpu_create(name){const id=++next;worlds.set(id,{name,values:[],tick:42,input:['KeyW']});return id;},
+      gpu_bind_at(id,json){const world=worlds.get(id),values=JSON.parse(json);bound.push([id,values]);if(failure==='binding'&&world.name==='other'&&values[0]===5)return false;world.values=values;publications.set(id,JSON.stringify({count:world.name==='world'?2:3}));return true;},
+      gpu_published(id){const text=publications.get(id);publications.delete(id);return text;},
+      gpu_carry:id=>new TextEncoder().encode(JSON.stringify(worlds.get(id))),
+      gpu_restore(id,bytes){const saved=JSON.parse(new TextDecoder().decode(bytes));Object.assign(worlds.get(id),{tick:saved.tick,input:saved.input});publications.set(id,JSON.stringify({count:saved.name==='world'?2:3}));return true;},
+      gpu_agent(id,text){const q=JSON.parse(text),world=worlds.get(id);if(q.reload){if(q.releaseInput)world.input=[];return JSON.stringify({reload:{values:world.values,setupIndices:[],rebased:true,releasedInput:q.releaseInput}});}return JSON.stringify({world});},
+      gpu_destroy(id){destroyed.push(id);worlds.delete(id);},
+    }});
+    for(const row of initial.ops.filter(op=>op.op==='surface'))f.create(row.id,row.name,row.values);
+    bridge('record','world\0{"count":2}');bridge('record','other\0{"count":3}');
+    const old=structuredClone([...worlds]),before=bridge('agent','{"op":"state"}');
+    const elements=[...f.exact.views.values()].map(el=>el.canvas);
+    const staged=[];f.exact.stageSurfaceRecord=(name,json)=>{staged.push(name);return bridge('stage',`${name}\0${json}`);};
+    assert.match(bridge('stage','world\0{"count":2}').error,/requires a candidate/);
+    let presented=null,commits=0,rollbacks=0;
+    const memory={buffer:new ArrayBuffer(1024)},wasm={
+      exact_in:()=>0,exact_plan_fonts:()=>JSON.stringify([]),exact_stage_surface_record(){},
+      exact_begin_boot:()=>Number(bridge('begin')),
+      exact_boot_plan:len=>JSON.stringify(bridge('boot',new TextDecoder().decode(new Uint8Array(memory.buffer,0,len)))),
+      exact_finish_boot(commit){commit?commits++:rollbacks++;bridge('finish',String(commit));},
+    };
+    const run=new Function('env',`
+      const {globalThis,wasm,memory,views,root,applyBatch,ask}=env;
+      let bootAttempt=0,activeModule=null,devAssets=null,incarnation=0,ticker=null,agentClock=1234,storageRequests=null,grants=[];
+      const encoder=new TextEncoder(),readOut=x=>x,prepareFonts=async()=>[],location={pathname:'/',search:''},innerWidth=390,innerHeight=844;
+      const navigation={reset(){}},animations=new Map(),followedScrolls=new Map(),pendingScrolls=new Map(),messageFrames=new Map(),messageViews=new Map(),controllers=new Set(),inflight=new Map();
+      const commitFonts=()=>{},activateData=()=>{},requestAnimationFrame=()=>{},loadGpuIfNeeded=()=>{},releaseAssets=()=>{};
+      ${bootSource};return bootNow;
+    `)({globalThis:{exact:f.exact},wasm,memory,views:f.exact.views,root:{replaceChildren(){f.order.push('DOM reset');}},ask:q=>bridge('agent',JSON.stringify(q)),
+      applyBatch(batch){presented=batch;for(const row of batch.ops.filter(op=>op.op==='surface'))f.create(row.id,row.name,row.values);return {timers:batch.timers};},
+    });
+    if(failure) {
+      await assert.rejects(run(new TextEncoder().encode(failure==='shape'?'2':'1')),failure==='shape'?/publication.*count.*String/:/publication bind/);
+      assert.equal(commits,0);assert.equal(rollbacks,1);assert.equal(presented,null);
+      assert.deepEqual([...worlds],old,'old world state/input mutated');
+      assert.deepEqual(bridge('agent','{"op":"state"}'),before,'old Contract state/clock mutated');
+      assert.ok(elements.every(el=>el.isConnected));assert.ok(!f.order.includes('DOM reset'));
+      assert.ok(destroyed.every(id=>id>2));assert.deepEqual(staged,['world','other']);
+    } else {
+      await run(new TextEncoder().encode('1'));
+      assert.equal(commits,1);assert.equal(rollbacks,0);assert.deepEqual(destroyed,[1,2]);
+      assert.deepEqual([...worlds.values()].map(w=>w.values),[[3],[5]],'cross-world resulting bindings not committed');
+      assert.ok([...worlds.values()].every(w=>w.tick===42&&w.input.length===0));
+      assert.ok(presented.ops.some(op=>op.op==='props'&&op.set?.text==='new 2/3'),JSON.stringify(presented));
+      assert.equal(presented.ops.filter(op=>op.op==='surface').length,2,'intermediate bindings escaped');
+      assert.ok(presented.ops.filter(op=>op.op==='at').every(op=>op.ms===1234),'publication used the wrong carried clock');
+      assert.deepEqual(bound.filter(([id])=>id>2).map(([id,values])=>[worlds.get(id).name,values]),[['world',[0]],['other',[0]],['other',[5]],['world',[3]]]);
+      const state=bridge('agent','{"op":"state"}');assert.equal(state.clock,1234);assert.equal(state.resources.a.count,2);assert.equal(state.resources.b.count,3);
+      assert.equal(f.stagedRecords.length,0);assert.equal(f.records.length,2,'accepted publications were replayed after commit');
+    }
+  }
 });

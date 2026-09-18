@@ -1321,7 +1321,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   let len, stagedGpu = null;
   const transaction = Boolean(bytes && globalThis.exact.gpu?.participates());
   const beforeSlots = transaction ? ask({op:"state"}).slots : null;
-  if (transaction && (!wasm.exact_begin_boot || !wasm.exact_begin_boot())) throw new Error("canvas reload requires a transactional host and settled resources; rebuild or retry after settlement");
+  if (transaction && (!wasm.exact_stage_surface_record || !wasm.exact_begin_boot || !wasm.exact_begin_boot())) throw new Error("canvas reload requires a transactional host and settled resources; rebuild or retry after settlement");
   let batch;
   try {
   if (module) {
@@ -1420,6 +1420,7 @@ globalThis.exact = { mutate, clockNow:now,
   },
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
+  stageSurfaceRecord: (name, json) => JSON.parse(readOut(wasm.exact_stage_surface_record(writeIn(`${name}\0${json}`)))),
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
