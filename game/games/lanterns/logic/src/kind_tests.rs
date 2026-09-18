@@ -147,7 +147,7 @@ fn saved_child_replacement_fails_identically_live_and_restored() {
         "lantern-1/bulb",
         (Parent(parent), Material::default(), PointLight::default()),
     );
-    let bytes = live.save();
+    let bytes = live.save().unwrap();
     let mut restored = game();
     restored.restore(&bytes).unwrap();
     assert_eq!(live.world().save(), restored.world().save());
@@ -178,11 +178,11 @@ fn save_load_every_tick_matches_uninterrupted_with_controller_and_embedded_asset
         live.agent(r#"{"op":"clock","ticks":1}"#);
         restored.agent(r#"{"op":"clock","ticks":1}"#);
         assert!(
-            live.save() == restored.save(),
+            live.save().unwrap() == restored.save().unwrap(),
             "continuation save mismatch at tick {tick}; world bytes equal: {}; live hash: {:016x}; restored hash: {:016x}",
             live.world().save() == restored.world().save(), live.world().hash(), restored.world().hash()
         );
-        let bytes = restored.save();
+        let bytes = restored.save().unwrap();
         restored.restore(&bytes).unwrap();
         assert!(
             live.world().save() == restored.world().save(),

@@ -33,7 +33,7 @@ impl Presentation for () {}
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
 pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = false> {
     audit: crate::audit::Audit,
-    recording: Option<(crate::recording::Recording, Feed)>,
+    recording: Option<(crate::recording::Recording<ASSETS>, Feed)>,
     presented: bool,
     drawn: bool,
     sim: Option<Sim<G>>,
@@ -94,7 +94,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
                 let definitions = (ASSETS && mode == Restore::Carry)
                     .then(|| exact_game::animation::Definitions::capture(sim.world()));
                 self.presentation.before_restore(sim.world(), mode);
-                if let Err(error) = sim.restore_bound(&bytes) {
+                if let Err(error) = match mode {
+                    Restore::Carry => sim.restore_bound(&bytes),
+                    Restore::Open => sim.open_bound(&bytes),
+                } {
                     self.refusal = Some(SurfaceError(format!("restore refused: {error}")));
                 } else {
                     if let Some(definitions) = definitions {
@@ -120,7 +123,7 @@ mod ready;
 #[allow(clippy::too_many_arguments)]
 fn observer<'a, const ASSETS: bool>(
     render: &'a mut Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
-    recording: &'a mut Option<(crate::recording::Recording, Feed)>,
+    recording: &'a mut Option<(crate::recording::Recording<ASSETS>, Feed)>,
     perf: &'a mut Perf,
     trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
@@ -330,7 +333,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             return;
         }
         if self.format != Some(format) {
-            let feed = match Feed::with_assets(G::assets()) {
+            let feed = match if ASSETS {
+                Feed::with_assets(G::assets())
+            } else {
+                Ok(Feed::default())
+            } {
                 Ok(feed) => feed,
                 Err(error) => {
                     self.error = Some(SurfaceError(error.to_string()));
@@ -392,7 +399,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         let definitions = (ASSETS && mode == Restore::Carry)
             .then(|| exact_game::animation::Definitions::capture(sim.world()));
         self.presentation.before_restore(sim.world(), mode);
-        sim.restore_bound(bytes).map_err(|e| e.to_string())?;
+        match mode {
+            Restore::Carry => sim.restore_bound(bytes),
+            Restore::Open => sim.open_bound(bytes),
+        }
+        .map_err(|e| e.to_string())?;
         if let Some(definitions) = definitions {
             definitions.apply(sim.world());
         }
@@ -404,7 +415,6 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         Ok(())
     }
     fn device_ready(&mut self) {
-        self.device = true;
         self.device_lost = false;
         self.recording = None;
         self.presented = false;
@@ -516,7 +526,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {
-            let feed = match Feed::with_assets(G::assets()) {
+            let feed = match if ASSETS {
+                Feed::with_assets(G::assets())
+            } else {
+                Ok(Feed::default())
+            } {
                 Ok(feed) => feed,
                 Err(error) => {
                     self.error = Some(SurfaceError(error.to_string()));

@@ -83,7 +83,7 @@ fn route() -> (Sim<Lanterns>, Vec<u8>, Value) {
                 if op["name"] == "launch" {
                     launch = snapshot(&mut s);
                 } else {
-                    moving = s.save();
+                    moving = s.save().unwrap();
                 }
             }
             "key_down" | "key_up" => {
@@ -148,7 +148,7 @@ struct ControlState {
     world_us: i64,
 }
 fn control_bytes<G: Game>(sim: &Sim<G>) -> Vec<u8> {
-    let save = sim.save();
+    let save = sim.save().unwrap();
     let controls: ControlState = exact_game::bin::from_slice(&save[7..]).unwrap();
     exact_game::bin::to_vec(&controls)
 }
@@ -158,7 +158,7 @@ fn probe<G: Game>(bytes: &[u8], options: Options, unedited: bool) -> Value {
     read(&mut s, json!({"op":"clock","owner":"agent","now":9000}));
     s.restore_bound(bytes).unwrap();
     // The unchanged row still checks every EXSIM byte, including executor and queue.
-    let identical = s.save() == bytes;
+    let identical = s.save().unwrap() == bytes;
     if unedited {
         assert!(identical, "unedited carry must preserve every EXSIM byte");
     }
@@ -231,9 +231,9 @@ fn artifact(name: &str, bytes: &[u8]) {
 fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
     let (mut a, moving, launch) = route();
     let (b, moving_again, _) = route();
-    assert_eq!(a.save(), b.save());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
     assert_eq!(moving, moving_again);
-    let bytes = a.save();
+    let bytes = a.save().unwrap();
     artifact("difficult-moment.sim", &bytes);
     artifact("moving-crate.sim", &moving);
     let before = snapshot(&mut a);

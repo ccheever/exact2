@@ -59,7 +59,7 @@ fn saved_bindings_and_physics_v2_pins_match_continuous_and_every_tick_restore() 
                 "LANTERNS_PIN {mode:?} tick={} hash=0x{hash:016x}",
                 sim.world().tick()
             );
-            let observation = (hash, sim.world().tick(), sim.save());
+            let observation = (hash, sim.world().tick(), sim.save().unwrap());
             if let Some(continuous) = &continuous {
                 assert!(
                     continuous == &observation,
@@ -115,7 +115,7 @@ fn respawned_cached_child_matches_continuous_and_every_tick_restore() {
         assert_ne!(old, new, "the cached entity generation must become stale");
         let result = catch_unwind(AssertUnwindSafe(|| {
             sim.run(100.0);
-            (sim.world().hash(), sim.world().tick(), sim.save())
+            (sim.world().hash(), sim.world().tick(), sim.save().unwrap())
         }))
         .map_err(|payload| {
             payload

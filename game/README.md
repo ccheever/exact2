@@ -2146,10 +2146,15 @@ queue, and delivery status is saved and captured.
 
 Baked skeletons use compact joint arrays, sim-side sockets and saved playback;
 Lanterns retains its distinct `scene::Animation` embedded-Fox controller and existing
-world pins. Its manifest opts into assets. Beacons keeps the authored scene and
+world pins. `Types::standard()` registers primitive scene types; games explicitly
+register their animation component, so primitive modules do not arm model playback. Its manifest opts into assets. Beacons keeps the authored scene and
 saved typed kinds; both lines' movement/continuation assertions remain.
 
 Checkpoint validation: game workspace compilation and **379 engine tests pass,
 0 fail, 8 ignored diagnostics**. Full workspace, host proofs, capture-clock regression
 and fixture regeneration follow in separate commits. No GPU/Apple/browser execution
 is claimed on this machine.
+
+`Sim::open_bound(bytes)` restores saved declarations with current live bindings;
+`restore_bound(bytes)` also performs the authored three-way merge. The GPU
+`Restore::Open`/`Carry` modes select these paths, including deferred asset delivery.

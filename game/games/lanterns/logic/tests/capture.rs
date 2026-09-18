@@ -147,7 +147,7 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
         assert_eq!(replay.world().hash(), hash);
         assert_eq!(replay.world().resource::<Session>().phase, 2);
     }
-    let terminal = sim.save();
+    let terminal = sim.save().unwrap();
     let restored = Sim::<Lanterns>::from_save(&terminal).unwrap();
     assert_eq!(restored.world().hash(), hash);
     sim.start_capture("test-executable:lanterns-route", CaptureLimits::default())

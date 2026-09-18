@@ -230,9 +230,15 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
         if let Some(v) = values.get_mut(i) {
             v.read(r).map_err(|e| e.at(i))?;
         } else {
+            if r.strict() {
+                return Err(DataError::new("wrong array length"));
+            }
             r.skip()?;
         }
         i += 1;
+    }
+    if r.strict() && i != values.len() {
+        return Err(DataError::new("wrong array length"));
     }
     Ok(())
 }

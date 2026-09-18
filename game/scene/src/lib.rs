@@ -65,13 +65,13 @@ impl Types {
     pub fn new() -> Self {
         Self::default()
     }
+    /// Primitive scene vocabulary; register the game's animation type explicitly.
     pub fn standard() -> Self {
         let mut types = Self::new();
         types
             .component::<exact_game::Transform>()
             .component::<exact_game::Material>()
             .component::<exact_game::PointLight>()
-            .component::<exact_game::Animation>()
             .component::<exact_game::Visible>()
             .checked::<Mesh>(|mesh| mesh.validate().map_err(DataError::new));
         types

@@ -934,6 +934,7 @@ impl World {
         let mut empty = Self::new(1, 0);
         empty.registry = std::mem::take(&mut self.registry);
         empty.assets = std::mem::take(&mut self.assets);
+        empty.animation_tick = self.animation_tick;
         empty.id = self.id();
         empty.presentation_generation = self.presentation_generation;
         empty.epoch.set(self.epoch.get().wrapping_add(1));

@@ -1165,25 +1165,31 @@ impl<G: Game> Sim<G> {
             budget,
         )?;
         let mut sim = Self::new(args).map_err(DataError::new)?;
-        sim.restore_into(bytes, None, budget)?;
+        sim.restore_into(bytes, None, budget, true)?;
         Ok(sim)
     }
     /// Atomically restore dynamic state onto this binary's actions.
     /// An agent-owned clock retains its established host boundary; a live clock
     /// rebases on its next sample, excluding time spent paused from simulation.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.restore_into(bytes, None, None)
+        self.restore_into(bytes, None, None, true)
     }
     /// Continue retains saved construction arguments and takes current live bindings.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        self.restore_into(bytes, Some(&args), None)
+        self.restore_into(bytes, Some(&args), None, true)
+    }
+    /// Open saved declarations exactly while taking current live bindings.
+    pub fn open_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
+        let args = crate::json::to_string(&self.args)?;
+        self.restore_into(bytes, Some(&args), None, false)
     }
     fn restore_into(
         &mut self,
         bytes: &[u8],
         args: Option<&str>,
         budget: Option<&LoadBudget>,
+        carry: bool,
     ) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x06").ok_or_else(|| {
             DataError::new(format!(
@@ -1261,7 +1267,9 @@ impl<G: Game> Sim<G> {
         if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
             return Err(DataError::new("saved world and clock disagree"));
         }
-        next.reload = next.world.merge_initializer(&s.base, &next.base, budget)?;
+        if carry {
+            next.reload = next.world.merge_initializer(&s.base, &next.base, budget)?;
+        }
         crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);

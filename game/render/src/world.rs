@@ -12,6 +12,7 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
+    const ASSETS: bool = true;
     fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
         None
     }
@@ -40,6 +41,7 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
+    const ASSETS: bool = ASSETS;
     fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
         if ASSETS {
             self.models.loaded.get(name).map(|m| m.nodes.as_slice())
@@ -90,10 +92,16 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         indices: &[u32],
         image: &crate::assets::Image,
     ) -> MeshId {
-        self.add_textured_mesh(vertices, indices, image)
+        if ASSETS {
+            self.add_textured_mesh(vertices, indices, image)
+        } else {
+            self.add_mesh(vertices, indices)
+        }
     }
     fn update_mesh(&mut self, mesh: MeshId, vertices: &[Vertex]) {
-        self.update_mesh(mesh, vertices);
+        if ASSETS {
+            self.update_mesh(mesh, vertices);
+        }
     }
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError> {
         self.set_batches(batches, slots)
@@ -309,7 +317,7 @@ impl Feed {
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
         self.scene.frame(world, alpha, aspect)
     }
-    pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
+    pub(crate) fn feed_to<R: Writes>(&mut self, w: &World, r: &mut R) -> Result<(), RenderError> {
         for &entity in &self.assets.entities {
             if w.global(entity)
                 .is_some_and(|p| p.matrix3.determinant() < 0.)
@@ -475,6 +483,11 @@ impl Feed {
                 }
                 let group = match mesh {
                     Mesh::Asset(name) => {
+                        if !R::ASSETS {
+                            return Err(RenderError::Scene(format!(
+                                "Mesh.Asset({name}) requires game.assets: true"
+                            )));
+                        }
                         if !self.asset_instances.contains_key(&e) {
                             let model = self.embedded_assets.get(name).ok_or_else(|| {
                                 RenderError::Scene(format!(
@@ -549,7 +562,7 @@ impl Feed {
                     .push(Batch::new(group.mesh, start..self.slots.len() as u32));
             }
         }
-        if initial || next.animation != old.animation || self.tick != w.tick() {
+        if R::ASSETS && (initial || next.animation != old.animation || self.tick != w.tick()) {
             for (e, (mesh, animation)) in w.query::<(&Mesh, Option<&Animation>)>().iter() {
                 let Mesh::Asset(name) = mesh else { continue };
                 let Some(instance) = self.asset_instances.get(&e) else {

@@ -261,9 +261,11 @@ export async function proof(meta, script) {
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
-      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
+      const disk = spawnSync('df', ['-Pk', root], {encoding:'utf8'});
       say(disk.stdout.trim());
       if (disk.status !== 0) throw new Error('disk check failed before build');
+      const availableKiB = Number(disk.stdout.trim().split('\n').at(-1).trim().split(/\s+/)[3]);
+      if (!Number.isFinite(availableKiB) || availableKiB < 25 * 1024 * 1024) throw new Error('build refused: less than 25 GiB available');
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
         buildBake(appInfo, 'linux', linuxTarget);

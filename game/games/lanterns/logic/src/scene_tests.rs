@@ -153,7 +153,7 @@ fn changed_scene_authored_fields_apply_while_carried_simulation_state_survives()
         .position
         .x = 6.8;
     let before = running.world().hash();
-    let save = running.save();
+    let save = running.save().unwrap();
 
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scene.json");
     let temp = path.with_file_name(format!("scene-test-{}.json", std::process::id()));
@@ -210,11 +210,11 @@ fn changed_scene_authored_fields_apply_while_carried_simulation_state_survives()
         .contains("authored initializer changed"));
     // A second save/restore in this build must not reconstruct the old scene
     // as its initializer and silently undo the applied edit.
-    let carried = fresh.save();
+    let carried = fresh.save().unwrap();
     let mut twice = Sim::<Lanterns>::from_save(&carried).unwrap();
-    assert_eq!(twice.save(), carried);
+    assert_eq!(twice.save().unwrap(), carried);
     twice.restore(&carried).unwrap();
-    assert_eq!(twice.save(), carried);
+    assert_eq!(twice.save().unwrap(), carried);
     assert_eq!(
         twice
             .world()

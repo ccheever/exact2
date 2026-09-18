@@ -50,7 +50,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         let _scope = self.audit.enter();
         self.audit.tick(sim.world().tick());
         if self.recording.is_none() {
-            let feed = match Feed::with_assets(G::assets()) {
+            let feed = match if ASSETS {
+                Feed::with_assets(G::assets())
+            } else {
+                Ok(Feed::default())
+            } {
                 Ok(f) => f,
                 Err(e) => {
                     self.error = Some(SurfaceError(e.to_string()));
@@ -60,9 +64,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
             self.recording = Some((crate::recording::Recording::new(self.audit.clone()), feed));
         }
         let (recording, feed) = self.recording.as_mut().unwrap();
-        for (name, model) in sim.presentation_models() {
-            let _name = self.audit.name(name, !G::ASSETS.contains(&name));
-            recording.prepare(name, model);
+        if ASSETS {
+            for (name, model) in sim.presentation_models() {
+                let _name = self.audit.name(name, !G::ASSETS.contains(&name));
+                recording.prepare(name, model);
+            }
         }
         if sim.world().loading().next().is_some() {
             return;
@@ -82,7 +88,7 @@ mod tests {
     use super::*;
     use exact_game::{Input, Material, Mesh, Transform};
     use serde_json::{json, Value as Json};
-    fn state<G: Game>(s: &mut WorldSurface<G>) -> Json {
+    fn state<G: Game, const ASSETS: bool>(s: &mut WorldSurface<G, (), ASSETS>) -> Json {
         serde_json::from_str::<Json>(&s.agent(r#"{"op":"state"}"#).unwrap()).unwrap()["world"]
             .clone()
     }
@@ -103,7 +109,7 @@ mod tests {
     fn never_seen_mesh_mid_play_trips_the_standard_zero_assertion() {
         let mut s = WorldSurface::<Variant>::default();
         assert!(!s.ready_reasons().is_empty());
-        s.bind(&[]).unwrap();
+        s.bind(&[], None).unwrap();
         let first = state(&mut s);
         assert_eq!(first["ready"], true);
         assert_eq!(first["gpu"]["afterReady"]["violations"], 0);
@@ -147,7 +153,7 @@ mod tests {
     #[test]
     fn tenfold_mid_play_growth_reports_real_buffer_and_slot_hitches() {
         let mut s = WorldSurface::<Growth>::default();
-        s.bind(&[]).unwrap();
+        s.bind(&[], None).unwrap();
         assert_eq!(state(&mut s)["ready"], true);
         s.agent(r#"{"op":"clock","now":0}"#);
         s.agent(r#"{"op":"clock","now":17}"#);
@@ -162,7 +168,10 @@ mod tests {
         use crate::world::Writes;
         let (recording, _) = s.recording.as_mut().unwrap();
         let error = recording.transforms(200_000, &[0.; 10], false).unwrap_err();
-        assert_eq!(error.limit, 200_000);
+        assert!(matches!(
+            error,
+            crate::RenderError::Capacity { limit: 200_000, .. }
+        ));
     }
     struct Declared;
     impl Game for Declared {
@@ -176,8 +185,8 @@ mod tests {
     }
     #[test]
     fn pending_and_failed_readiness_uses_existing_asset_states() {
-        let mut s = WorldSurface::<Declared>::default();
-        s.bind(&[]).unwrap();
+        let mut s = WorldSurface::<Declared, (), true>::default();
+        s.bind(&[], None).unwrap();
         let pending = state(&mut s);
         assert_eq!(pending["ready"], false);
         assert!(pending["readyReasons"]
@@ -185,7 +194,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|v| v.as_str().unwrap().contains("crate.model")));
-        s.asset_failed("crate.model", "negative control: missing");
+        s.asset(
+            "crate.model",
+            Err(AssetError::Failed("negative control: missing".into())),
+        );
         let failed = state(&mut s);
         assert_eq!(failed["ready"], true, "{failed}");
         assert_eq!(failed["assets"][0]["state"], "Failed");
@@ -208,15 +220,15 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../games/asset-fixture/art/crate.gltf");
         let (model, textures) = exact_game_bake::assets(&path).unwrap();
-        let mut s = WorldSurface::<Cosmetic>::default();
-        s.bind(&[]).unwrap();
+        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        s.bind(&[], None).unwrap();
         assert_eq!(s.assets(), ["cosmetic.model"]);
-        s.asset("cosmetic.model", Some(&exact_game::bin::to_vec(&model)));
+        s.asset("cosmetic.model", Ok(&exact_game::bin::to_vec(&model)));
         for (name, data) in textures {
             let bytes = exact_game::bin::to_vec(&data);
-            s.asset(&name, Some(&bytes));
+            s.asset(&name, Ok(&bytes));
             let counted = s.audit.json(false);
-            s.asset(&name, Some(&bytes));
+            s.asset(&name, Ok(&bytes));
             assert_eq!(
                 s.audit.json(false),
                 counted,
@@ -246,15 +258,15 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../games/asset-fixture/art/crate.gltf");
         let (model, textures) = exact_game_bake::assets(&path).unwrap();
-        let mut s = WorldSurface::<Declared>::default();
-        s.bind(&[]).unwrap();
-        s.asset("crate.model", Some(&exact_game::bin::to_vec(&model)));
+        let mut s = WorldSurface::<Declared, (), true>::default();
+        s.bind(&[], None).unwrap();
+        s.asset("crate.model", Ok(&exact_game::bin::to_vec(&model)));
         assert_eq!(state(&mut s)["ready"], false);
         for (name, data) in textures {
             let bytes = exact_game::bin::to_vec(&data);
-            s.asset(&name, Some(&bytes));
+            s.asset(&name, Ok(&bytes));
             let counted = s.audit.json(false);
-            s.asset(&name, Some(&bytes));
+            s.asset(&name, Ok(&bytes));
             assert_eq!(
                 s.audit.json(false),
                 counted,
@@ -292,7 +304,7 @@ mod tests {
     #[test]
     fn restore_upload_subset_is_reported_without_hiding_total_violations() {
         for mode in [exact_game::Paranoid::Save, exact_game::Paranoid::FreshGame] {
-            let mut s = WorldSurface::<Fox> {
+            let mut s = WorldSurface::<Fox, (), true> {
                 sim: Some(Sim::new(()).unwrap().paranoid(mode)),
                 ..Default::default()
             };
@@ -327,11 +339,11 @@ mod tests {
     #[ignore = "known embedded Fox restore re-upload defect; see QUEUE.md T6 ready-work"]
     fn restoring_fox_uploads_zero_asset_bytes_after_ready() {
         // QUEUE.md: T6 ready-work; the engine asset-path owner will retain allocations.
-        let mut s = WorldSurface::<Fox>::default();
-        s.bind(&[]).unwrap();
+        let mut s = WorldSurface::<Fox, (), true>::default();
+        s.bind(&[], None).unwrap();
         assert_eq!(state(&mut s)["ready"], true);
         let sim = s.sim.as_mut().unwrap();
-        let bytes = sim.save();
+        let bytes = sim.save().unwrap();
         sim.restore(&bytes).unwrap();
         let gpu = state(&mut s)["gpu"].clone();
         let uploaded = gpu["afterReady"]["meshBytesUploaded"].as_u64().unwrap()

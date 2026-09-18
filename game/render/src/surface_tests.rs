@@ -256,7 +256,7 @@ fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
 fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     let mut original = surface();
     original
-        .bind(&[Value::Bool(true), Value::Number(3.)])
+        .bind(&[Value::Bool(true), Value::Number(3.)], None)
         .unwrap();
     original.sim.as_mut().unwrap().advance(0., Clock::Seekable);
     original
@@ -477,14 +477,16 @@ fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_late
         }
     }
     static REGISTRY: Registry = Registry {
-        surfaces: &[("world", 0, || Box::<WorldSurface<Loading>>::default())],
+        surfaces: &[("world", 0, || {
+            Box::<WorldSurface<Loading, (), true>>::default()
+        })],
         shaders: &[],
     };
     let asset = exact_game::bin::to_vec(&exact_game::asset::Model::default());
     let mut original = Sim::<Loading>::new(()).unwrap();
     original.asset("crate.model", Some(&asset)).unwrap();
     original.run(500.);
-    let saved = original.save();
+    let saved = original.save().unwrap();
     original.run(500.);
     for deferred in [false, true] {
         let mut module = Module::new(&REGISTRY);
@@ -493,11 +495,11 @@ fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_late
         module.agent(id, r#"{"op":"clock","owner":"agent","now":9000}"#);
         assert_eq!(module.take_assets(id), ["crate.model"]);
         if !deferred {
-            assert!(module.asset(id, "crate.model", Some(&asset)));
+            assert!(module.asset(id, "crate.model", Ok(&asset)));
         }
-        assert!(module.restore(id, &saved));
+        assert!(module.restore(id, &saved, Restore::Open));
         if deferred {
-            assert!(module.asset(id, "crate.model", Some(&asset)));
+            assert!(module.asset(id, "crate.model", Ok(&asset)));
         }
         let state = module.agent(id, r#"{"op":"state","now":999999}"#).unwrap();
         assert!(state.contains(r#""tick":30"#), "{state}");
@@ -505,7 +507,7 @@ fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_late
         assert_eq!(module.carry(id).unwrap(), saved);
         let clock = module.agent(id, r#"{"op":"clock","now":9500}"#).unwrap();
         assert!(clock.contains(r#""tick":60"#), "{clock}");
-        assert_eq!(module.carry(id).unwrap(), original.save());
+        assert_eq!(module.carry(id).unwrap(), original.save().unwrap());
     }
 }
 
@@ -792,7 +794,7 @@ fn viewport_occlusion_crosses_world_surface_without_a_device() {
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
     let mut s = WorldSurface::<Eyes>::default();
-    s.bind(&[]).unwrap();
+    s.bind(&[], None).unwrap();
     let request = r#"{"op":"layout","entity":"subject","to":"camera","width":800,"height":600}"#;
     let expected = r#"{"tick":0,"entity":{"id":0,"name":"subject","world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-1,-1,-1],"max":[1,1,1]},"screen":{"x":342.265,"y":242.265,"w":115.47,"h":115.47},"depth":10,"visible":{"inFrustum":true,"behindCamera":false,"distance":10,"occluded":1,"occluders":["first","second"]},"facing":{"forward":[0,0,-1],"towardCamera":-1,"bearingTo":180,"distanceTo":10,"lineOfSight":false}}}"#;
     for device in [false, true] {
@@ -805,18 +807,18 @@ fn viewport_occlusion_crosses_world_surface_without_a_device() {
 #[test]
 fn presented_lifecycle_and_late_material_pipeline_are_accounted() {
     let Some(gpu) = gpu() else { return };
-    let mut s = WorldSurface::<Art>::default();
+    let mut s = WorldSurface::<Art, (), true>::default();
     s.device_ready();
-    s.bind(&[]).unwrap();
+    s.bind(&[], None).unwrap();
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../games/asset-fixture/art/crate.gltf");
     let (mut model, textures) = exact_game_bake::assets(&path).unwrap();
     for material in &mut model.materials {
         material.double_sided = false;
     }
-    s.asset("crate.model", Some(&exact_game::bin::to_vec(&model)));
+    s.asset("crate.model", Ok(&exact_game::bin::to_vec(&model)));
     for (name, texture) in textures {
-        s.asset(&name, Some(&exact_game::bin::to_vec(&texture)));
+        s.asset(&name, Ok(&exact_game::bin::to_vec(&texture)));
     }
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     assert!(

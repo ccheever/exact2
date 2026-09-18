@@ -7,7 +7,7 @@ use crate::{
 use exact_game::{asset::Model, World};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) struct Recording {
+pub(crate) struct Recording<const ASSETS: bool> {
     pub audit: Audit,
     capacities: [u64; 7],
     mesh_bytes: [u64; 2],
@@ -16,7 +16,7 @@ pub(crate) struct Recording {
     revision: u64,
     textures: BTreeSet<String>,
 }
-impl Recording {
+impl<const ASSETS: bool> Recording<ASSETS> {
     pub fn new(audit: Audit) -> Self {
         let _scope = audit.enter();
         audit::record(audit::VERTEX, "game vertices", 1);
@@ -131,7 +131,8 @@ impl Recording {
         feed.feed_to(w, self)
     }
 }
-impl Writes for Recording {
+impl<const ASSETS: bool> Writes for Recording<ASSETS> {
+    const ASSETS: bool = ASSETS;
     fn max_slots(&self) -> u32 {
         200_000
     }

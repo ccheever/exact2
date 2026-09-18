@@ -49,7 +49,11 @@ pub(crate) fn model_source(shadow: bool) -> String {
         "@group(1) @binding(0) var base_texture: texture_2d<f32>;\n",
         "",
     )
-    .replace("@group(1) @binding(1) var base_sampler: sampler;\n", "");
+    .replace("@group(1) @binding(1) var base_sampler: sampler;\n", "")
+    .replace(
+        " * textureSample(base_texture, base_sampler, input.uv).rgb",
+        "",
+    );
     if shadow {
         // group 1 is the cascade camera in this pass, so unused shadow sampling
         // declarations must not collide with it.
@@ -61,8 +65,9 @@ pub(crate) fn model_source(shadow: bool) -> String {
         source + include_str!(concat!(env!("OUT_DIR"), "/model_shadow.wgsl"))
     } else {
         source.replace(
-            include_str!("shaders/shadow_sample.wgsl"),
-            &include_str!("shaders/shadow_sample.wgsl").replace("@group(2)", "@group(1)"),
+            include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl")),
+            &include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl"))
+                .replace("@group(2)", "@group(1)"),
         )
     }
 }

@@ -587,7 +587,7 @@ mod tests {
     fn save_restores_dynamic_body_timer_animation_and_lights() {
         let mut sim = game();
         sim.run(100.0);
-        let bytes = sim.save();
+        let bytes = sim.save().unwrap();
         let hash = sim.world().hash();
         let mut restored = game();
         restored.restore(&bytes).unwrap();
@@ -612,6 +612,7 @@ mod tests {
 pub fn scene_types() -> exact_game_scene::Types {
     let mut types = exact_game_scene::Types::standard();
     types
+        .component::<Animation>()
         .component::<Lantern>()
         .component::<Collider>()
         .component::<Body>();
