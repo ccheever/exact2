@@ -213,7 +213,15 @@ mod tests {
         assert_eq!(s.assets(), ["cosmetic.model"]);
         s.asset("cosmetic.model", Some(&exact_game::bin::to_vec(&model)));
         for (name, data) in textures {
-            s.asset(&name, Some(&exact_game::bin::to_vec(&data)));
+            let bytes = exact_game::bin::to_vec(&data);
+            s.asset(&name, Some(&bytes));
+            let counted = s.audit.json(false);
+            s.asset(&name, Some(&bytes));
+            assert_eq!(
+                s.audit.json(false),
+                counted,
+                "immutable texture delivery is deduplicated"
+            );
         }
         let world = state(&mut s);
         let after = &world["gpu"]["afterReady"];
@@ -243,7 +251,15 @@ mod tests {
         s.asset("crate.model", Some(&exact_game::bin::to_vec(&model)));
         assert_eq!(state(&mut s)["ready"], false);
         for (name, data) in textures {
-            s.asset(&name, Some(&exact_game::bin::to_vec(&data)));
+            let bytes = exact_game::bin::to_vec(&data);
+            s.asset(&name, Some(&bytes));
+            let counted = s.audit.json(false);
+            s.asset(&name, Some(&bytes));
+            assert_eq!(
+                s.audit.json(false),
+                counted,
+                "immutable texture delivery is deduplicated"
+            );
         }
         let world = state(&mut s);
         assert_eq!(world["ready"], true);

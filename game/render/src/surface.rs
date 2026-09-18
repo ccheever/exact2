@@ -230,12 +230,9 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 if let Some(data) = bytes.and_then(|b| {
                     exact_game::bin::from_slice::<exact_game::asset::TextureData>(b).ok()
                 }) {
-                    crate::audit::record(crate::audit::TEXTURE, name, 1);
-                    crate::audit::record(
-                        crate::audit::TEX_BYTES,
-                        name,
-                        data.mips.iter().map(|m| m.len() as u64).sum(),
-                    );
+                    if let Some((recording, _)) = &mut self.recording {
+                        recording.texture(name, &data);
+                    }
                 }
             }
         }

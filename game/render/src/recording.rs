@@ -5,7 +5,7 @@ use crate::{
     Batch, DrawInstance, MaterialId, MeshId, RenderError, Vertex,
 };
 use exact_game::{asset::Model, World};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct Recording {
     pub audit: Audit,
@@ -14,6 +14,7 @@ pub(crate) struct Recording {
     meshes: usize,
     models: BTreeMap<String, Vec<(MeshId, MaterialId, glam::Mat4)>>,
     revision: u64,
+    textures: BTreeSet<String>,
 }
 impl Recording {
     pub fn new(audit: Audit) -> Self {
@@ -27,6 +28,7 @@ impl Recording {
             meshes: 0,
             models: BTreeMap::new(),
             revision: 0,
+            textures: BTreeSet::new(),
         }
     }
     fn grow(&mut self, index: usize, needed: u64) {
@@ -71,6 +73,16 @@ impl Recording {
         self.grow(1, end * 40);
         self.grow(2, end * 48);
         Ok(())
+    }
+    pub fn texture(&mut self, name: &str, data: &exact_game::asset::TextureData) {
+        if self.textures.insert(name.into()) {
+            audit::record(audit::TEXTURE, name, 1);
+            audit::record(
+                audit::TEX_BYTES,
+                name,
+                data.mips.iter().map(|m| m.len() as u64).sum(),
+            );
+        }
     }
     pub fn prepare(&mut self, name: &str, model: &Model) {
         if self.models.contains_key(name) {
