@@ -74,6 +74,48 @@ fn collection_boot_measures_wrappers_in_nested_port_and_scroll_rewindows() {
 }
 
 #[test]
+fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
+    let mut p = boot_source(
+        r#"component App
+  state requested = 1000000
+  resource rows = rows() as shape list<number>
+  action latest writes requested
+    requested = requested + 1000
+  view
+    column
+      button press=latest testId="latest"
+        text "Latest"
+      list virtualized=true scrollFollowEnd=true scrollTop=requested height=180 width=400
+        each x in rows key=x
+          text `${x}` height=24
+"#,
+    );
+    settle(&mut p);
+    let c = p.host.collections().remove(0);
+    assert_eq!(
+        c.rows.last().unwrap().index,
+        24_999,
+        "initial authored offset"
+    );
+    p.wheel(c.view, 0., -10_000_000.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        p.scroll_of(c.view).1,
+        0.,
+        "unchanged prop must not override reader"
+    );
+    let button = p.host.kernel().find_by_test_id("latest")[0];
+    let button = p.host.kernel().node_by_key(button).unwrap().id;
+    p.tap(button).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        p.host.collections()[0].rows.last().unwrap().index,
+        24_999,
+        "Latest offset request"
+    );
+}
+
+#[test]
 fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_changes() {
     let mut p = boot_source(
         r#"component App
