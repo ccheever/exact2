@@ -1292,3 +1292,27 @@ The combined tick 0/60/180 hashes are `a778d065d6cea372`,
 I3's own `EXACT_I3_RECORD=1` test regenerated both EXSIM snapshots, moment JSON
 and 605 continuation rows. Both paranoid modes then compared those exact files
 without recording. The 612-entry binding-hash inventory reflects both changes.
+
+Merge decisions:
+
+| Lane | Conflict resolution |
+| --- | --- |
+| T2 | Clean merge; retain EXSIM v6 authored baseline, base arguments and bounded reports. |
+| T4 | Combine `Sim` paranoid reconstruction with F2d live clocks and T2 saves; move its helper to `sim/paranoid.rs` to meet the source cap. |
+| T1b2 | Only `physics/README.md` conflicts; retain all unfavorable-case evidence and use the EXPHYS v2 pile hash. |
+| T3b2 | Combine Beacons tests and the three-mode Lanterns pin test; regenerate conflicted I3 binaries/JSONL by execution. Keep saved-ID refusal semantics and every parity assertion. |
+| I1 | Clean additive merge; no trial model sessions launched. |
+
+The existing `tick_10k_median` measured **34.906 µs/tick before T3b2**
+(commit `03e76d5`) and **153.571 µs after**, a **4.40× regression** in the
+same optimized dev/test profile with zero debug info and incremental disabled.
+Each is the median of five independent 10,000-tick runs, W held, sound enabled.
+An isolated, reverted diagnostic replaced `prepare_kind`'s all-entity
+`K::check` scan with the existing shared query's matching rows, retaining every
+matching row's binding validation. It measured **56.237 µs/tick**. Thus roughly
+**97.3 µs/tick (82% of the increase)** comes from scanning nonmembers and
+constructing their missing-component diagnostics. Lanterns validates Lamp rows
+in updating and publishing each tick. This probe changed neither observation
+nor the game's shared/mutable row choices. It is attribution, not a shipped
+optimization; the remaining 21.3 µs above the pre-merge sample is not separately
+attributed. The performance follow-up is recorded in `QUEUE.md`.
