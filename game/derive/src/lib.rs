@@ -337,7 +337,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
         .zip(access)
         .filter(|(f, _)| f.skip || !named)
     {
-        s += &format!("{a} = ::core::default::Default::default();");
+        s += &format!("if !r.patching() {{ {a} = ::core::default::Default::default(); }}");
     }
     s += if named {
         "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"

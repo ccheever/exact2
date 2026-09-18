@@ -191,3 +191,43 @@ fn plane_is_a_dynamic_box_and_side_pick_matches_the_physics_slab() {
     s.run(100.0);
     assert!(s.world().get::<Transform>("plane").unwrap().position.x > 0.09);
 }
+
+#[test]
+fn moving_a_static_support_wakes_its_contact_island_only() {
+    let mut world = World::new(60, 0);
+    physics::register(&mut world);
+    let mut pairs = Vec::new();
+    for x in [0.0, 100.0] {
+        let floor = world.spawn((
+            Transform::at(x, -0.5, 0.0),
+            Collider {
+                shape: Shape::Box {
+                    half: Vec3::new(2.0, 0.5, 2.0),
+                },
+                ..Default::default()
+            },
+        ));
+        let body = world.spawn((
+            Transform::at(x, 1.0, 0.0),
+            Collider::default(),
+            Body::default(),
+        ));
+        pairs.push((floor, body));
+    }
+    for _ in 0..360 {
+        physics::step(&mut world);
+    }
+    assert!(world.get::<Body>(pairs[0].1).unwrap().asleep);
+    assert!(world.get::<Body>(pairs[1].1).unwrap().asleep);
+    let unrelated = exact_game::bin::to_vec(&*world.get::<Body>(pairs[1].1).unwrap());
+    world.get_mut::<Transform>(pairs[0].0).unwrap().position.x = 10.0;
+    for _ in 0..10 {
+        physics::step(&mut world);
+    }
+    assert!(!world.get::<Body>(pairs[0].1).unwrap().asleep);
+    assert!(world.get::<Body>(pairs[0].1).unwrap().velocity.y < -1.0);
+    assert_eq!(
+        unrelated,
+        exact_game::bin::to_vec(&*world.get::<Body>(pairs[1].1).unwrap())
+    );
+}

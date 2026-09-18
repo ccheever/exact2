@@ -584,8 +584,49 @@ live canvas with its entire simulation carried. Shared/app inputs still rebuild
 the app. Failed builds and incompatible carries retain the old world and report the refusal.
 Agent pages never auto-swap.
 
-A carry keeps the old setup's entities. New component fields default by name;
-changing `setup` does not respawn a carried world. Use the development Restart control (or reload the page) to instantiate new content. Contract edits carry uniquely
+A carry compares the old build's tick-zero values, the new build's tick-zero
+values, and the carried world, field by field through `Data`. A changed initializer
+applies when the carried value still equals its old initializer. If the simulation
+changed that field, its current value stays; the report says “kept: initializer
+changed, applies on restart”. Unedited fields stay silent. This is value comparison,
+not write-history tracking: a field that returned to its initializer is eligible.
+
+`Sim::restore(&mut self, &[u8]) -> Result<(), DataError>` and
+`Sim::restore_bound(&mut self, &[u8]) -> Result<(), DataError>` remain atomic.
+The latter compares against the destination's freshly constructed scene while
+retaining saved construction arguments and current live bindings. Patches use the
+ordinary mutation leases, so physics and renderer change detection see placement
+and appearance edits. Named entities and entity-handle fields match by unique name;
+unnamed entities require the same tick-zero index and component set, and a surviving
+carried incarnation. Ambiguous identities are reported as `unmatched`.
+
+The canvas journal and `state.world.reload` contain `applied`, `kept`, `added`,
+`removed`, and `unmatched` arrays, with entity/component/field, old/new initializer
+previews, and reason. The report stays until the next restore (or restart), outside
+the world hash; at most 64 items are retained, then `omitted` counts the remainder.
+Each text preview is at most 256 characters. The report's `old` and `new` are JSON
+preview strings. App-level `state.reload` continues to describe the host reload.
+New/removed entities, components and resources are reported for restart; carry never
+spawns or despawns them. New schema fields retain the existing load-by-name defaults.
+Use the development Restart control to instantiate new content.
+
+EXSIM v6 adds the old tick-zero Data projection as compact bulk bytes. Older saves
+are refused with an explicit restart-required error; no inferred base or migration
+is possible. Unedited restores preserve all v6 save bytes, world hashes, queued and
+held input, executor state and clock continuation. Records merge recursively by
+field name; sequence fields are values. `#[data(skip)]` is excluded, including during
+in-place patch reads. `Writer::entity(index, generation)` defaults to the unchanged
+Entity wire/hash record; reload overrides it to resolve names. `Reader::patching()`
+defaults to false; derived and container readers preserve existing skipped members
+when applying a reload patch.
+
+Initializer projection is bounded to 250,000 slots (including dead slots), 256
+storage types, 16 million visits, depth 64 and 256 MiB of accounted projection
+storage; encoded bases are at most 128 MiB. Changed-build decoding shares a 1 GiB
+allowance, or an importer's tighter `LoadBudget`. Overflow refuses with `DataError`
+before replacing the live simulation. Work is linear in visited Data plus ordered
+map lookup/insertion, at most O(V log V) with bounded depth; no merge runs in a tick.
+Registered custom `Data` code remains trusted, as it is for save/load. Contract edits carry uniquely
 named surfaces across the plan restart; ambiguous duplicate surface instances refuse transactional continuation. A GPU swap stages
 all replacement canvases before cutover; a create/bind/render failure leaves the
 old worlds running. Dev bindgen glue has function scope so old Wasm instances can
@@ -696,11 +737,12 @@ are unchanged and the follow-up is recorded in `QUEUE.md`.
 
 [Diary 003](diaries/003-difficult-moment.md) records the four edited Lanterns
 builds restored through `Sim::restore_bound(&mut self, &[u8]) -> Result<(), DataError>`.
-No public API or production engine behavior changes. The test binary compiles
+T2 extends this instrument with the production three-way merge and reload report.
+The test binary compiles
 independent copies of the game with explicit source substitutions; shipped Lanterns
 is unchanged. `games/lanterns/fixtures/difficult-moment.script.json` uses the
 existing Sim key and clock verbs from tick zero, including scheduled key edges.
-`difficult-moment.sim` is its EXSIM v5 save; the adjacent JSON describes the
+`difficult-moment.sim` is its EXSIM v6 save, including the tick-zero base; the adjacent JSON describes the
 observed moment and the JSONL records all 120 ticks of each continuation.
 The exact requested combined moment was **not reached**: no animation blending
 exists, and the crate sleeps before the apex. `moving-crate.sim` separately tests
@@ -797,9 +839,10 @@ requested/loaded artifacts, phase, successful replacement and timing. Rendering
 opportunity is reported separately from physical display presentation.
 
 Typed scene usage, fragment semantics and source maps are documented in
-[scene/README.md](scene/README.md). A scene edit rebakes content; Continue deliberately
-retains the instantiated scene, while Restart uses the new one. Source links refuse
-a stale digest or changed source file.
+[scene/README.md](scene/README.md). A scene edit rebakes content; Continue merges
+changed authored fields into existing entities and reports deferred structural edits.
+Restart constructs the entire new scene. Source links refuse a stale digest or
+changed source file.
 
 
 ## Peer follow-up integration (M1, 2026-09-18)

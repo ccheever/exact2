@@ -75,6 +75,7 @@ struct Saved {
     game: String,
     version: u32,
     world: Vec<u8>,
+    base: Vec<u8>,
     args: String,
     input: Input,
     queue: Vec<Queued>,
@@ -87,6 +88,8 @@ struct Saved {
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
+    base: Vec<u8>,
+    pub(crate) reload: crate::world::reload::Report,
     setup_pending: bool,
     asset_mesh_revision: u64,
     pub(crate) args: G::Args,
@@ -210,7 +213,10 @@ impl<G: Game> Sim<G> {
                 .iter()
                 .all(|name| self.world.assets.models.contains_key(*name))
         {
-            self.world = Self::build(&self.args, self.world.assets.clone());
+            let world = Self::build(&self.args, self.world.assets.clone());
+            let base = world.initializer().map_err(|e| e.to_string())?;
+            self.world = world;
+            self.base = base;
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }
@@ -227,8 +233,12 @@ impl<G: Game> Sim<G> {
         }
         args.check_scalars()?;
         G::validate(&args)?;
+        let world = Self::build(&args, Default::default());
+        let base = world.initializer().map_err(|e| e.to_string())?;
         Ok(Self {
-            world: Self::build(&args, Default::default()),
+            world,
+            base,
+            reload: Default::default(),
             setup_pending: !G::ASSETS.is_empty(),
             asset_mesh_revision: u64::MAX,
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
@@ -298,12 +308,16 @@ impl<G: Game> Sim<G> {
         let restart = if !self.args.setup_changed(&args) {
             None
         } else {
-            Some(Self::build(&args, self.world.assets.clone()))
+            let world = Self::build(&args, self.world.assets.clone());
+            let base = world.initializer().map_err(|e| e.to_string())?;
+            Some((world, base))
         };
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
         }
-        if let Some(mut world) = restart {
+        if let Some((mut world, base)) = restart {
+            self.base = base;
+            self.reload = Default::default();
             self.capture_fail("construction binding restarted the world; start a new capture");
             world.presentation_generation = self
                 .world
@@ -961,6 +975,7 @@ impl<G: Game> Sim<G> {
             game: G::ID.into(),
             version: G::SAVE_VERSION,
             world: self.world.save(),
+            base: self.base.clone(),
             args: self.args_json.clone(),
             input: self.input.clone(),
             queue: self.relative_queue(),
@@ -970,7 +985,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut bytes = b"EXSIM\0\x05".to_vec();
+        let mut bytes = b"EXSIM\0\x06".to_vec();
         bytes.extend(bin::to_vec(&saved));
         bytes
     }
@@ -984,8 +999,8 @@ impl<G: Game> Sim<G> {
         budget: Option<&LoadBudget>,
     ) -> Result<Self, DataError> {
         let payload = bytes
-            .strip_prefix(b"EXSIM\0\x05")
-            .ok_or_else(|| DataError::new("unsupported simulation save format"))?;
+            .strip_prefix(b"EXSIM\0\x06")
+            .ok_or_else(|| DataError::new("unsupported simulation save format (expected EXSIM v6; older saves lack the tick-zero base, restart required)"))?;
         let saved: Saved = bin::from_slice_in(payload, budget)?;
         if saved.game != G::ID {
             return Err(DataError::new("save game ID differs"));
@@ -1020,9 +1035,9 @@ impl<G: Game> Sim<G> {
         args: Option<&str>,
         budget: Option<&LoadBudget>,
     ) -> Result<(), DataError> {
-        let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
+        let payload = bytes.strip_prefix(b"EXSIM\0\x06").ok_or_else(|| {
             DataError::new(format!(
-                "unsupported simulation save format (expected EXSIM v5; saw {:02x?})",
+                "unsupported simulation save format (expected EXSIM v6; older saves lack the tick-zero base, restart required; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
@@ -1073,6 +1088,17 @@ impl<G: Game> Sim<G> {
         if next.setup_pending {
             return Err(DataError::new("restore awaits declared assets"));
         }
+        // A bound continuation compares against this destination's construction,
+        // including its freshly baked scene, before retaining saved setup args.
+        let theirs = if args.is_some() {
+            self.base.clone()
+        } else {
+            next.world.initializer()?
+        };
+        if args.is_some() && self.setup_pending {
+            return Err(DataError::new("restore awaits declared assets"));
+        }
+        next.base = theirs;
         next.world.load_in(&s.world, budget)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if next.world.hz() != G::HZ || !(due..=due + 1).contains(&(next.world.tick() as u128)) {
@@ -1081,9 +1107,11 @@ impl<G: Game> Sim<G> {
         if s.version < G::SAVE_VERSION {
             G::migrate(&mut next.world, s.version);
         }
+        next.reload = next.world.merge_initializer(&s.base, &next.base, budget)?;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
+        next.reload.log(&next.world);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
         next.input.restore_dynamic(s.input);

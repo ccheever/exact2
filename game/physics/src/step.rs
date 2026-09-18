@@ -200,8 +200,9 @@ pub(crate) fn sync(world: &World, live: &mut Live, changed: &Changed) -> bool {
                 wake = true;
             }
             if b.is_none() && pose_changed {
+                // Rapier propagates this collider's modification to its contact
+                // islands. Waking every body perturbs unrelated carried state.
                 r.colliders[entry.ch().unwrap()].set_position(math::pose(t));
-                wake = true;
             }
         } else if let Some(h) = entry.ch() {
             r.remove_collider(h);

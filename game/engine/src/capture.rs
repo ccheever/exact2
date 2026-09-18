@@ -892,7 +892,7 @@ mod tests {
             world: Vec<u8>,
             args: String,
         }
-        let mut bytes = b"EXSIM\0\x05".to_vec();
+        let mut bytes = b"EXSIM\0\x06".to_vec();
         bytes.extend(bin::to_vec(&Saved {
             game: game.into(),
             version: 1,
@@ -915,7 +915,7 @@ mod tests {
         w.begin_struct();
         w.field("queue");
         w.begin_seq(524_288);
-        let mut checkpoint = b"EXSIM\0\x05".to_vec();
+        let mut checkpoint = b"EXSIM\0\x06".to_vec();
         checkpoint.extend(w.finish());
         // The count fits the wire, but its Queued storage cannot fit the budget.
         // Budget refusal rather than an invalid-tag error proves no item is read.
