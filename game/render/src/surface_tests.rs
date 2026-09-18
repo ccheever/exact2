@@ -115,7 +115,15 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
     let mut error = None;
     for measure in [false, true] {
         CLOCK_READS.with(|n| n.set(0));
-        let mut after = observer(&mut render, &mut perf, &mut error, measure, 3600);
+        let mut trace = None;
+        let mut after = observer(
+            &mut render,
+            &mut perf,
+            &mut trace,
+            &mut error,
+            measure,
+            3600,
+        );
         for left in (0..3600).rev() {
             after(&world, left);
         }
@@ -275,5 +283,56 @@ fn asset_refusal_reaches_the_surface_error_with_its_name() {
     assert!(
         error.contains("castle") && error.contains("asset meshes are not implemented"),
         "{error}"
+    );
+}
+
+#[test]
+fn presentation_trace_is_opt_in_read_once_and_never_advances_the_clock() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut s = surface();
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    assert!(s.trace.is_none());
+    let tick = s.sim().unwrap().world().tick();
+    assert_eq!(
+        s.agent(r##"{"op":"state","trace":{"entity":"#0","frames":4}}"##)
+            .unwrap(),
+        r#"{"trace":"armed"}"#
+    );
+    assert_eq!(s.sim().unwrap().world().tick(), tick);
+    for time in [17., 25., 34.] {
+        fixture::render(&gpu, &mut s, &frame(time)).unwrap();
+    }
+    let tick = s.sim().unwrap().world().tick();
+    #[derive(Default, exact_game::Data)]
+    struct Capture {
+        frames: Vec<f64>,
+        stride: u32,
+        overflow: bool,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        trace: Capture,
+    }
+    let reply: Reply =
+        exact_game::json::from_str(&s.agent(r#"{"op":"state","trace":"read"}"#).unwrap()).unwrap();
+    assert_eq!(reply.trace.stride, 14);
+    assert!(!reply.trace.overflow);
+    assert_eq!(reply.trace.frames.len(), 42);
+    let rows: Vec<_> = reply.trace.frames.chunks_exact(14).collect();
+    for (row, x) in rows.iter().zip([0.02, 0.5, 1.04]) {
+        assert!((row[2] - x).abs() < 1e-6);
+        assert_eq!(&row[5..8], &[0., 0., 8.]);
+    }
+    assert_eq!(s.sim().unwrap().world().tick(), tick);
+    assert!(s.trace.is_none());
+    assert!(s
+        .agent(r#"{"op":"state","trace":"read"}"#)
+        .unwrap()
+        .contains("not armed"));
+    assert_eq!(
+        s.agent(r#"{"op":"state","trace":"stop"}"#).unwrap(),
+        r#"{"trace":"stopped"}"#
     );
 }

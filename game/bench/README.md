@@ -71,6 +71,9 @@ operating systems, the same bits.
 ## Feel — Beacons, live clock
 
 ```sh
+# Build the home game's ordinary web host first (repository root):
+EXACT_APP_DIR="$PWD/game/games/beacons" EXACT_WEB_DIST="$PWD/game/games/beacons/dist" bun host/web/build.mjs
+bun game/bench/feel.mjs exact
 bun game/bench/feel.mjs three
 bun game/bench/feel.mjs godot --seconds 12
 ```
@@ -250,7 +253,63 @@ cleanup; the CLI now exits explicitly only after child exit and process audit.
 All 14 traces were re-analyzed successfully, all nine accepted traces include the
 W/D/jump/S path, and the numerical tests and repository caps check pass.
 
-### Adding the home engine
+### Exact's observer
+
+`exact` serves the built Beacons host and injects the adjacent
+[`feel.mjs`](../games/beacons/feel.mjs) only into this benchmark page. It first opens
+Play to warm the actual GPU module/pipelines, fresh-boots the authored title with
+`exact.reload()`, then focuses Play for the unchanged Enter/W/D/jump/S script.
+There is no `?agent` parameter, host clock override, alternate simulation or renderer.
+The existing `exact.gpu.agent(view, request)` is available in live mode; no new host
+handle was needed. `exact.agent` and `exact.now` are absent there. Input delivery's
+capturing listener reads the same page's `performance.now()` as the wasm trace's
+`window.performance.now()`. The host forwards `event.timeStamp` and rAF timestamps
+without subtracting its UI clock origin. Raw `event_stamps_ms` retain the forwarded
+stamps separately from listener delivery times.
+
+The surface accepts `state` with `trace: {entity: "player", frames: 4096}` to arm a
+bounded, preallocated ring, `trace: "read"` to consume it and disarm, or
+`trace: "stop"` to discard it. Trace storage is absent by default. It retains just
+one entity's previous/current global translations, following the same last-two-tick
+feeds, generation resets and teleport/parent snaps as the GPU. If armed during
+motion it waits for an observed tick to establish a valid history pair;
+`initial_frames_skipped` makes this explicit. The active camera uses the feed's
+existing two poses. Both translations are mixed in f64 using the submitted alpha;
+they are not rounded agent-state coordinates or GPU readback. This observes submitted
+state, with the same presentation-fence limitation as the twins.
+
+The trace's flat 14-number rows are `[frame_ms, sample_ms, player_xyz, camera_xyz,
+alpha, ticks_this_frame, completed_tick, tick_ms, feed_ms, encode_ms]` (xyz expands
+to three numbers). `frame_ms` is `Frame::now_ms`; browser `sample_ms` is
+`performance.now()` just after draw encoding, while native uses elapsed `Instant`
+since arming. The last three numbers sum existing wall timings for that frame;
+feed time includes page upload encoding, not GPU completion. Ring overwrite sets
+`overflow`, and disappearance of the entity sets `missing`; either invalidates the
+probe. The adapter copies the first eight numbers only at the final bulk read,
+retaining the full trace and perf summary alongside them. Scheduling, judder,
+latency, quantiles and the provisional threshold use the twins' unchanged functions.
+
+`FEEL_EXACT_DIST` selects another built directory. `FEEL_EXACT_HZ=120` labels an
+explicitly built 120 Hz experiment; the runner checks the actual world Hz and refuses
+a mislabeled result. To prepare that build, temporarily add `const HZ: u32 = 120;`
+to Beacons' `impl Game`, build into a separate `EXACT_WEB_DIST`, then restore the
+source before measuring. This changes the game's tick constant only, with no
+interpolation setting. Both commands still take three valid runs.
+
+Implementation validation includes a 144 Hz presentation/60 Hz tick fixture, tick
+bursts, ring wrapping/full precision, read-once state semantics, unchanged simulation
+time, and an allocation counter covering the armed trace. Adapter tests preserve
+both timestamps and produce byte-for-byte identical input to the common analyzer.
+
+**Measurement pending:** the first local attempts reached the live page but AppKit
+reported `loginwindow` (PID 415) as frontmost: the display was locked even though
+Chrome reported `document.hasFocus() === true` and visibility `visible`. The strict
+foreground gate refused measurement and every launched Chrome was killed and awaited.
+No exact timing, judder or latency row has yet been accepted; the twins' numbers
+above are not evidence about this engine. Unlocking the display is required for the
+three valid 60 Hz runs and the labeled 120 Hz experiment.
+
+### Trace protocol
 
 Use the same trace protocol, without changing scheduling or metric logic. Register
 a web adapter in `feel.mjs` with a local `root`/`page` or an already-served `url`, plus

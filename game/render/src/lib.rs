@@ -18,6 +18,7 @@ mod shadows;
 pub mod shapes;
 mod surface;
 mod timing;
+mod trace;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.

@@ -12,6 +12,7 @@ pub struct WorldSurface<G: Game> {
     render: Option<(Renderer, Feed)>,
     format: Option<wgpu::TextureFormat>,
     perf: Perf,
+    trace: Option<crate::trace::Trace>,
     error: Option<SurfaceError>,
     dirty: bool,
     reported: bool,
@@ -24,6 +25,7 @@ impl<G: Game> Default for WorldSurface<G> {
             render: None,
             format: None,
             perf: Perf::default(),
+            trace: None,
             error: None,
             dirty: true,
             reported: false,
@@ -44,6 +46,7 @@ impl<G: Game> WorldSurface<G> {
 fn observer<'a>(
     render: &'a mut Option<(Renderer, Feed)>,
     perf: &'a mut Perf,
+    trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
     measure: bool,
     ticks: u32,
@@ -52,17 +55,28 @@ fn observer<'a>(
     move |world, left| {
         if let Some(start) = &start {
             if left < 240 {
-                perf.tick.push(start.elapsed());
+                let ms = start.elapsed();
+                perf.tick.push(ms);
+                if let Some(trace) = trace {
+                    trace.times[0] += ms;
+                }
             }
         }
         if left < 2 && error.is_none() {
             if let Some((renderer, feed)) = render {
+                if let Some(trace) = trace {
+                    trace.feed(world);
+                }
                 let upload = measure.then(Stamp::now);
                 if let Err(e) = feed.feed(world, renderer) {
                     *error = Some(SurfaceError(e.to_string()));
                 }
                 if let Some(upload) = upload {
-                    perf.feed.push(upload.elapsed());
+                    let ms = upload.elapsed();
+                    perf.feed.push(ms);
+                    if let Some(trace) = trace {
+                        trace.times[1] += ms;
+                    }
                 }
             }
         }
@@ -82,7 +96,14 @@ impl<G: Game> Surface for WorldSurface<G> {
             sim.bind_with(
                 values,
                 at_ms,
-                observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
+                observer(
+                    &mut self.render,
+                    &mut self.perf,
+                    &mut self.trace,
+                    &mut self.error,
+                    false,
+                    0,
+                ),
             )
             .map_err(SurfaceError)?;
             if generation != sim.generation() {
@@ -152,7 +173,14 @@ impl<G: Game> Surface for WorldSurface<G> {
                 sim.advance_with(
                     frame.now_ms,
                     Clock::Seekable,
-                    observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
+                    observer(
+                        &mut self.render,
+                        &mut self.perf,
+                        &mut self.trace,
+                        &mut self.error,
+                        false,
+                        0,
+                    ),
                 );
             }
             self.dirty = true;
@@ -166,6 +194,9 @@ impl<G: Game> Surface for WorldSurface<G> {
         }
         // Seed setup/current state before running ticks; no origin streak on frame one.
         if self.dirty {
+            if let Some(trace) = &mut self.trace {
+                trace.feed(sim.world());
+            }
             let (renderer, feed) = self.render.as_mut().unwrap();
             if let Err(e) = feed.feed(sim.world(), renderer) {
                 self.error = Some(SurfaceError(e.to_string()));
@@ -184,6 +215,7 @@ impl<G: Game> Surface for WorldSurface<G> {
             observer(
                 &mut self.render,
                 &mut self.perf,
+                &mut self.trace,
                 &mut self.error,
                 !frame.seekable,
                 due,
@@ -198,7 +230,21 @@ impl<G: Game> Surface for WorldSurface<G> {
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
         self.perf.stats = renderer.draw(device, queue, target, format, frame.pixels(), &input);
         if let Some(start) = start {
-            self.perf.encode.push(start.elapsed());
+            let ms = start.elapsed();
+            self.perf.encode.push(ms);
+            if let Some(trace) = &mut self.trace {
+                trace.times[2] = ms;
+            }
+        }
+        if let Some(trace) = &mut self.trace {
+            trace.frame(
+                frame.now_ms,
+                sim.alpha(),
+                ticks,
+                feed.trace_camera(sim.alpha()),
+                trace.times,
+            );
+            trace.times = [0.; 3];
         }
         let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;
@@ -259,9 +305,49 @@ impl<G: Game> Surface for WorldSurface<G> {
     fn agent(&mut self, request: &str) -> Option<String> {
         self.reported = false;
         let sim = self.sim.as_mut()?;
+        match crate::trace::request(request) {
+            Ok(Some(crate::trace::Request::Arm { entity, frames })) => {
+                return Some(
+                    match crate::trace::Trace::new(sim.world(), &entity, frames) {
+                        Ok(trace) => {
+                            self.trace = Some(trace);
+                            "{\"trace\":\"armed\"}".into()
+                        }
+                        Err(e) => {
+                            format!("{{\"error\":{}}}", exact_game::json::to_string(&e).unwrap())
+                        }
+                    },
+                );
+            }
+            Ok(Some(crate::trace::Request::Read)) => {
+                return Some(
+                    self.trace
+                        .take()
+                        .map_or_else(|| "{\"error\":\"trace is not armed\"}".into(), |t| t.read()),
+                );
+            }
+            Ok(Some(crate::trace::Request::Stop)) => {
+                self.trace = None;
+                return Some("{\"trace\":\"stopped\"}".into());
+            }
+            Err(e) => {
+                return Some(format!(
+                    "{{\"error\":{}}}",
+                    exact_game::json::to_string(&e.to_string()).unwrap()
+                ))
+            }
+            Ok(None) => {}
+        }
         let mut reply = sim.agent_with(
             request,
-            observer(&mut self.render, &mut self.perf, &mut self.error, false, 0),
+            observer(
+                &mut self.render,
+                &mut self.perf,
+                &mut self.trace,
+                &mut self.error,
+                false,
+                0,
+            ),
         );
         // Engine world-state replies have this fixed suffix. Parse the reply using
         // its own Data decoder to distinguish state from tree/error/entity replies.

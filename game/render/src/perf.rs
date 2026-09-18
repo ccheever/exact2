@@ -20,6 +20,16 @@ impl Stamp {
             time: performance_now(),
         }
     }
+    pub fn wall_ms(&self) -> f64 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            performance_now()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.time.elapsed().as_secs_f64() * 1000.0
+        }
+    }
     pub fn elapsed(&self) -> f64 {
         #[cfg(test)]
         CLOCK_READS.with(|n| n.set(n.get() + 1));

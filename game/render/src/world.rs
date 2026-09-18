@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 mod scene;
 mod upload;
+pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
@@ -195,6 +196,9 @@ impl Feed {
     /// Initial feeding initializes both histories, including a world's setup tick.
     pub fn feed(&mut self, world: &World, renderer: &mut Renderer) -> Result<(), RenderError> {
         self.feed_to(world, renderer)
+    }
+    pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
+        self.scene.trace_camera(alpha)
     }
     /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
     /// No world queries, allocation, or entity scans occur here.

@@ -15,7 +15,7 @@ pub(super) fn pose(w: &World, e: Entity) -> Option<Transform> {
     })
 }
 // Bounded even if tools edit a cycle before propagation.
-pub(super) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {
+pub(crate) fn snap(w: &World, mut e: Entity, parent_changed: bool) -> bool {
     if parent_changed {
         return true;
     }
@@ -85,6 +85,15 @@ impl Scene {
             .iter()
             .map(|&i| self.lights[i].history.entity)
             .collect()
+    }
+    pub fn trace_camera(&self, alpha: f32) -> [f64; 3] {
+        self.camera.map_or([0.; 3], |(h, _)| {
+            crate::trace::mix(
+                h.prev.position.to_array(),
+                h.curr.position.to_array(),
+                alpha,
+            )
+        })
     }
     pub fn reset(&mut self) {
         self.versions = None;

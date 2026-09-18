@@ -9,9 +9,13 @@ import { gzipSync } from 'node:zlib';
 const here = import.meta.dir, resultsDir = join(here, 'results');
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-// A future home probe needs only a registry entry (local root/page or an already
-// served URL) and the window.feel protocol; scheduling/analysis stay unchanged.
-const adapters = {
+// Adapters provide a page and the window.feel protocol; scheduling/analysis are shared.
+export const adapters = {
+  exact: { transport: 'web', variants: [process.env.FEEL_EXACT_HZ === '120' ? '120hz' : 'shipped'],
+    hz: process.env.FEEL_EXACT_HZ === '120' ? 120 : 60,
+    root: resolve(process.env.FEEL_EXACT_DIST ?? resolve(here, '../games/beacons/dist')),
+    page: '/index.html?feel=1', probe: resolve(here, '../games/beacons/feel.mjs'),
+    started: '!!document.querySelector("[data-gpu-input]")' },
   three: { transport: 'web', variants: ['shipped'], root: resolve(here, '../twins/three'),
     page: '/beacons/index.html?feel=1', ready: '!!window.beacons && !!window.feel',
     started: 'beacons.state().mode === "playing"' },
@@ -171,11 +175,16 @@ export async function web(plan, temp, adapter) {
   const root = adapter.root, profile = join(temp, 'exact2-feel-chrome');
   mkdirSync(profile);
   const server = adapter.url ? null : Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
-    const path = resolve(root, '.' + decodeURIComponent(new URL(req.url).pathname));
+    const url = new URL(req.url);
+    if (adapter.probe && url.pathname === '/__feel.mjs') return new Response(Bun.file(adapter.probe), { headers: { 'content-type': 'text/javascript' } });
+    const path = resolve(root, '.' + decodeURIComponent(url.pathname));
+    if (adapter.probe && url.pathname === '/index.html') return new Response(
+      await Bun.file(path).text() + '<script type="module" src="/__feel.mjs"></script>',
+      { headers: { 'content-type': 'text/html' } });
     if (!path.startsWith(root + '/')) return new Response('Forbidden', { status: 403 });
     const file = Bun.file(path);
     return await file.exists() ? new Response(file, { headers: { 'content-type': {
-      '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+      '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css', '.json': 'application/json',
     }[extname(path)] ?? 'application/octet-stream' } }) : new Response('Missing', { status: 404 });
   } });
   let owned, cdp;
@@ -190,9 +199,16 @@ export async function web(plan, temp, adapter) {
     cdp = await connect(port);
     await cdp.send('Runtime.enable'); await cdp.send('Page.enable');
     await cdp.send('Page.navigate', { url: adapter.url ?? `http://127.0.0.1:${server.port}${adapter.page}` });
-    await until(() => cdp.evaluate(adapter.ready ?? '!!window.feel'), 20000, 'web probe load');
+    await until(async () => {
+      if (cdp.errors.length) throw new Error(JSON.stringify(cdp.errors));
+      return cdp.evaluate(adapter.ready ?? '!!window.feel');
+    }, 20000, 'web probe load');
     await cdp.send('Page.bringToFront'); desktop(owned.pid, true);
-    await until(async () => desktop(owned.pid).frontmost && await cdp.evaluate('document.hasFocus() && document.visibilityState === "visible"'), 5000, 'Chrome foreground');
+    try {
+      await until(async () => desktop(owned.pid).frontmost && await cdp.evaluate('document.hasFocus() && document.visibilityState === "visible"'), 5000, 'Chrome foreground');
+    } catch (error) {
+      throw new Error(`${error.message}: ${JSON.stringify(desktop(owned.pid))}; page=${JSON.stringify(await cdp.evaluate('({focus:document.hasFocus(),visibility:document.visibilityState})'))}`);
+    }
     // Match the shipped Godot content size, without device or virtual-time emulation.
     const bounds = await cdp.send('Browser.getWindowForTarget');
     const size = await cdp.evaluate('({w:outerWidth-innerWidth+1100,h:outerHeight-innerHeight+760})');
@@ -287,6 +303,7 @@ export async function measure(engine, variant, run, seconds = 12, options = {}) 
     const capture = adapters[engine].transport === 'web' ? await web(plan, temp, adapters[engine]) : await godot(plan, variant, temp);
     loads.push(loadavg()[0]); clearInterval(timer);
     const raw = capture.raw;
+    if (engine === 'exact' && raw.tick_hz !== adapters.exact.hz) throw new Error(`Exact build is ${raw.tick_hz} Hz, expected ${adapters.exact.hz} Hz; refusing a mislabeled row`);
     const trace = `feel-${batch}-${engine}-${variant}-${run}-attempt${attempt}.json.gz`;
     writeFileSync(join(resultsDir, trace), gzipSync(JSON.stringify({ ...raw, schedule: plan.schedule })));
     const metrics = analyze(raw, plan);
@@ -311,7 +328,7 @@ async function main() {
   const [engine, ...args] = process.argv.slice(2);
   const seconds = args.length ? Number(args[1]) : 12;
   if (!Object.hasOwn(adapters, engine) || (args.length && (args.length !== 2 || args[0] !== '--seconds')) || !Number.isFinite(seconds) || seconds < 7.02 || seconds > 300) {
-    throw new Error('usage: bun game/bench/feel.mjs <three|godot> [--seconds 12] (7.02–300; minimum main-script window, plus 20 latency trials)');
+    throw new Error('usage: bun game/bench/feel.mjs <exact|three|godot> [--seconds 12] (7.02–300; minimum main-script window, plus 20 latency trials)');
   }
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   const batch = new Date().toISOString().replace(/[:.]/g, '-'), rows = [];

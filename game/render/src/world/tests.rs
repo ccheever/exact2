@@ -452,15 +452,18 @@ fn steady_sim_feed_and_frame_inputs_allocate_nothing() {
     f.feed_to(sim.world(), &mut r).unwrap();
     sim.advance(0., Clock::Live);
     sim.advance_with(17., Clock::Live, |w, _| f.feed_to(w, &mut r).unwrap());
+    let mut trace = crate::trace::Trace::new(sim.world(), "#0", 256).unwrap();
     let count = allocations::count(|| {
         for i in 2..240 {
             sim.advance_with(i as f64 * 1000. / 60. + 0.001, Clock::Live, |w, left| {
                 if left < 2 {
                     f.feed_to(w, &mut r).unwrap();
+                    trace.feed(w);
                 }
             });
             let frame = f.frame(sim.world(), 0.5, 16. / 9.);
             std::hint::black_box(frame.camera_position);
+            trace.frame(i as f64, 0.5, 1, f.trace_camera(0.5), [0.; 3]);
         }
     });
     assert_eq!(count, 0);
