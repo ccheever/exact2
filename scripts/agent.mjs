@@ -7,7 +7,7 @@
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
-//   clock <ms|+ms|settle>
+//   clock <ms|+ms|settle> | clock ticks <world> <count> | clock owner <human|agent>
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it — instead of a bare
@@ -731,6 +731,17 @@ export function worldView(session, name) {
       return session.clock(`+${ms}`);
     },
     settle: async () => (await session.clock('settle')).settled === true,
+    ticks: count => exactTicks(session, name, count),
+    capture: (command, options = {}) => session.state(name, { ...options, capture: command }),
+    async source(entity) {
+      const state = await session.state(name), digest = state.world?.resources?.SceneIdentity?.digest;
+      if (!digest) return {unavailable:'world has no authored scene identity'};
+      const detail = await session.state(`${name}:${entity}`), generated = detail.entity?.components?.GeneratedBy;
+      if (generated) return {generated};
+      if (!session.app) return {unavailable:'session has no local source checkout'};
+      const {sceneSource} = await import('../game/app/scenes.mjs');
+      return sceneSource(session.app, digest, entity);
+    },
     tap: code => session.type(name, {key:code}),
     key_down: code => session.type(name, {key:code, phase:'down'}),
     key_up: code => session.type(name, {key:code, phase:'up'}),
@@ -745,6 +756,25 @@ export function worldView(session, name) {
     },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
+}
+
+/** Advance an exact fixed-step count through the existing host clock, including restored epochs. */
+export async function exactTicks(session, name, count) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 216000) throw new Error('ticks: expected an integer from 0 to 216000');
+  if (session.controlled === false) throw new Error('ticks: controlled clock required; explicitly hand off before stepping');
+  const before = await session.state(name), world = before.world;
+  if (!world || !Number.isSafeInteger(world.tick) || !Number.isSafeInteger(world.hz) || world.hz < 1 || world.hz > 1000)
+    throw new Error(`ticks ${name}: fixed-step world clock is unavailable or unsupported`);
+  if (world.paused && count) throw new Error(`ticks ${name}: world paused at tick ${world.tick}; resume its live binding first`);
+  const us = world.clockState?.worldMicros, hostUs = world.clockState?.hostMicros;
+  if (!Number.isSafeInteger(us) || !Number.isSafeInteger(hostUs)) throw new Error(`ticks ${name}: clock epoch unavailable; establish it with clock first`);
+  const start = world.tick, target = start + count;
+  const to = Math.ceil((hostUs + Math.max(0, Math.ceil(target * 1000000 / world.hz) - us)) / 1000);
+  const reply = count ? await session.clock(to) : null;
+  const after = await session.state(name), actual = after.world?.tick;
+  const result = {world:name, requested:count, startTick:start, requestedTick:target, actualTick:actual, clock:reply?.clock ?? before.clock, hash:after.world?.hash};
+  if (actual !== target) throw Object.assign(new Error(`ticks ${name}: requested ${start} → ${target}, observed ${actual}; no retry or extra frame performed`), {result});
+  return result;
 }
 
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
@@ -774,6 +804,8 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
   const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, world, size, url, app, webDist });
   const s = {
     host: carrier.host,
+    app: resolveApp(app),
+    controlled: true,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
     sessions: carrier.sessions ?? null,
     get session() { return carrier.state?.session ?? null; },
@@ -794,7 +826,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     /** Simulation conveniences use this receiver so proof proxies record every operation. */
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}), ...(under && typeof under === 'object' ? under : under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -908,6 +940,13 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
+      if (spec && typeof spec === 'object') {
+        if (spec.owner && host !== 'web') throw new Error(`${host}: live handoff unavailable on this carrier; close the isolated agent session and relaunch normally`);
+        const reply = await s.op({op:'clock', ...spec});
+        if (spec.owner) s.controlled = spec.owner === 'agent';
+        if (Number.isFinite(reply.clock)) s.now = reply.clock;
+        return reply;
+      }
       const req = { op: 'clock' };
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
@@ -1252,7 +1291,7 @@ async function main(argv) {
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
-        case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
+        case 'clock': r = args[0] === 'ticks' ? await s.world(args[1]).ticks(Number(args[2])) : args[0] === 'owner' ? await s.clock({owner:args[1]}) : await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }
       console.log(flags.json ? JSON.stringify(r) : render(op, r));

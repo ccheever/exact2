@@ -271,3 +271,47 @@ test('author examples and documentation describe current motion, placement and p
 test('queue no longer lists the repaired Beacons designed-defaults fixture', () => {
   expect(readFileSync(resolve(import.meta.dir, '../QUEUE.md'), 'utf8')).not.toContain('`render/tests/world.rs::beacons_designed_defaults` still expects');
 });
+
+test('exact tick helper uses restored epochs and never silently retries a mismatch', async () => {
+  const {exactTicks} = await import('../scripts/agent.mjs');
+  let tick=301, host=81234, us=5016670, calls=0;
+  const session={controlled:true, state:async()=>({clock:host,world:{tick,hz:60,paused:false,clockState:{hostMicros:host*1000,worldMicros:us}}}),
+    clock:async to=>{calls++;us+=(to-host)*1000;host=to;tick=Math.floor(us*60/1000000);return {clock:to};}};
+  for(let i=0;i<120;i++) expect((await exactTicks(session,'world',1)).actualTick).toBe(302+i);
+  expect(calls).toBe(120);
+  session.clock=async()=>{calls++;return {clock:host};};
+  await expect(exactTicks(session,'world',1)).rejects.toThrow('no retry');
+  expect(calls).toBe(121);
+  session.state=async()=>({world:{tick,hz:60,paused:true}});
+  await expect(exactTicks(session,'world',1)).rejects.toThrow('paused');
+  expect(calls).toBe(121);
+});
+
+test('capture replay validates actual artifacts and never executes imported script text', async () => {
+  const {captureTools}=await import('./proof.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'capture-proof-')), file=resolve(dir,'capture.json');
+  const identity={digest:'sha256:actual',files:[['game.wasm','code'],['app.plan','plan']]};
+  let opened=0,closed=0;
+  const fake={loadedArtifact:identity.digest,controlled:true,input:{delivery:()=> 'platform'},
+    world:()=>({capture:async(command,options)=> command==='replay' ? {isolated:true,replay:{world:{hash:'hash',tick:4}}} : {capture:{complete:true,records:2,lastReliableTick:4,hash:'hash'},data:'aabb'}}),
+    state:async()=>({world:{hash:'hash',tick:4}}),logs:async()=>({lines:[]}),close:async()=>closed++};
+  const kit=captureTools({identity:()=>identity,host:'web',open:async()=>{opened++;return fake;}});
+  try {
+    const capture=await kit.capture(fake,'world',{script:'throw new Error("must never execute")',failure:'crate stuck'});
+    await capture.finish(file);
+    expect((await kit.replay(file)).isolated).toBe(true);
+    expect(opened).toBe(1);expect(closed).toBe(1);
+    const bundle=JSON.parse(readFileSync(file,'utf8'));bundle.artifacts.digest='other';writeFileSync(file,JSON.stringify(bundle));
+    await expect(kit.replay(file)).rejects.toThrow('actual local artifact');
+    expect(opened).toBe(1);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test('world source navigation reports procedural metadata without inventing a line', async () => {
+  const calls=[];
+  const session={state:async target=>{calls.push(target);return target==='world' ? {world:{resources:{SceneIdentity:{digest:'sha'}}}} : {entity:{components:{GeneratedBy:{generator:'trees',parameters:{seed:'7'}}}}};}};
+  expect(await worldView(session,'world').source('tree-4')).toEqual({generated:{generator:'trees',parameters:{seed:'7'}}});
+  expect(calls).toEqual(['world','world:tree-4']);
+  expect(await worldView({state:async()=>({world:{resources:{}}})},'world').source('crate')).toEqual({unavailable:'world has no authored scene identity'});
+});
