@@ -1,7 +1,7 @@
 //! Browser-owned data module, without a JavaScript engine in wasm.
 //! @ref LLP 1027 D6 / LLP 1027.000 D3. Browser microtask checkpoints and
 //! HTTP requests both travel through the runner's stale-safe ticket path.
-use exact_js_value::{from_json, to_json, Shape};
+use exact_js_value::{reply_from_json_slice, to_json, Shape};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
@@ -13,7 +13,7 @@ fn unavailable(message: impl Into<String>) -> DataError {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn call(input: Json) -> Result<Json, DataError> {
+fn call(input: Json) -> Result<Vec<u8>, DataError> {
     #[link(wasm_import_module = "exact_js")]
     extern "C" {
         fn call(op: u32, ptr: *mut u8, len: usize) -> usize;
@@ -29,10 +29,10 @@ fn call(input: Json) -> Result<Json, DataError> {
     unsafe {
         call(1, output.as_mut_ptr(), count);
     }
-    serde_json::from_slice(&output).map_err(|e| unavailable(e.to_string()))
+    Ok(output)
 }
 #[cfg(not(target_arch = "wasm32"))]
-fn call(_: Json) -> Result<Json, DataError> {
+fn call(_: Json) -> Result<Vec<u8>, DataError> {
     Err(unavailable("the browser module executor requires wasm32"))
 }
 
@@ -110,8 +110,7 @@ impl Module {
                                 "storage result supplied to JavaScript checkpoint",
                             ))
                         }
-                        Outcome::Response(response) => serde_json::from_slice(&response.body)
-                            .map_err(|e| unavailable(e.to_string()))?,
+                        Outcome::Response(response) => response.body,
                         Outcome::Failed { message, .. } => return Err(unavailable(message)),
                     }
                 } else {
@@ -131,7 +130,7 @@ impl Module {
                 }
             }
         };
-        self.step(store, source, key, response)
+        self.step(store, source, key, &response)
     }
 
     fn step(
@@ -139,8 +138,11 @@ impl Module {
         store: &mut Store,
         source: &str,
         key: String,
-        response: Json,
+        bytes: &[u8],
     ) -> Result<Answer, DataError> {
+        let (_, result) = &self.signatures[source];
+        let reply = reply_from_json_slice(bytes, result).map_err(|e| unavailable(e.to_string()))?;
+        let response = reply.fields;
         if let Some(token) = response["continuation"].as_u64() {
             self.waiting.insert(key, true);
             return Ok(Answer::Later(Request::continuation(token)));
@@ -200,8 +202,7 @@ impl Module {
                 self.waiting.insert(key, false);
                 Answer::Later(request)
             } else if response["tag"] == 0 {
-                let (_, result) = &self.signatures[source];
-                Answer::Now(from_json(&response["value"], result).map_err(|e| {
+                Answer::Now(reply.value.map_err(|e| {
                     unavailable(format!("`{source}` answered outside its shape: {e}"))
                 })?)
             } else {
@@ -228,6 +229,8 @@ impl DataSource for Module {
         let response = call(
             json!({"op":"activate", "id":self.id, "appId":self.app, "grants":self.grants, "revision":self.revision}),
         )?;
+        let response: Json =
+            serde_json::from_slice(&response).map_err(|e| unavailable(e.to_string()))?;
         if response["ok"] != true {
             return Err(unavailable(
                 response["error"]
@@ -310,9 +313,12 @@ mod tests {
     #[test]
     fn external_storage_observations_survive_refusal_without_a_secret_read() {
         let mut module = Module::new("test", "", "revision");
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::Unit));
         let mut store = Store::new("", []);
         assert!(module.step(&mut store, "source", "key".into(),
-            json!({"tag":2,"kind":"Unavailable","message":"denied","externalRead":true,"reads":[]})).is_err());
+            br#"{"tag":2,"kind":"Unavailable","message":"denied","externalRead":true,"reads":[]}"#).is_err());
         assert_eq!(store.reads(), 1);
         assert!(store.snapshot().is_empty());
         assert!(store.take_writes().is_empty());
@@ -321,6 +327,9 @@ mod tests {
     #[test]
     fn failed_answers_preserve_store_effects_for_the_runner_to_decide() {
         let mut module = Module::new("test", "secret.keep token", "revision");
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::Unit));
         for error in [
             json!({"tag":2,"kind":"Unavailable","message":"failed"}),
             json!({"error":"serialization failed"}),
@@ -329,9 +338,45 @@ mod tests {
             let mut response = error;
             response["writes"] = json!([["token", "changed"]]);
             assert!(module
-                .step(&mut store, "source", "key".into(), response)
+                .step(
+                    &mut store,
+                    "source",
+                    "key".into(),
+                    &serde_json::to_vec(&response).unwrap()
+                )
                 .is_err());
             assert_eq!(store.get("token"), Some("changed"));
         }
+    }
+
+    #[test]
+    fn shaped_answers_decode_directly_and_shape_errors_keep_store_effects() {
+        let mut module = Module::new("test", "secret.keep token", "revision");
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::Number));
+        let mut store = Store::new("secret.keep token", []);
+        let answer = module
+            .step(
+                &mut store,
+                "source",
+                "key".into(),
+                br#"{"tag":0,"value":false,"value":-0,"writes":[["token","ok"]]}"#,
+            )
+            .unwrap();
+        let Answer::Now(Value::Number(number)) = answer else {
+            panic!("expected a numeric answer");
+        };
+        assert_eq!(number.to_bits(), (-0.0_f64).to_bits());
+        assert_eq!(store.get("token"), Some("ok"));
+        assert!(module
+            .step(
+                &mut store,
+                "source",
+                "key".into(),
+                br#"{"tag":0,"value":false,"writes":[["token","before-error"]]}"#,
+            )
+            .is_err());
+        assert_eq!(store.get("token"), Some("before-error"));
     }
 }

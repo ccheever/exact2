@@ -8,6 +8,9 @@ use exact_plan::{Plan, TypeKind, TypesId, Value};
 use serde_json::{Map, Value as Json};
 use std::rc::Rc;
 
+mod decode;
+pub use decode::{from_json_text, reply_from_json_slice, reply_from_json_text, Reply};
+
 /// A declared shape, owned: what one `TypesId` in a plan denotes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shape {

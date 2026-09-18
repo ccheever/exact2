@@ -484,7 +484,21 @@ impl Module {
 
     /// The prelude's reply for one step, decoded by the source's result shape.
     fn step(sig: &Sig, engine: &mut Engine, source: &str, text: &str) -> Step {
-        let mut reply: Json = match serde_json::from_str(text) {
+        // Captured large strings still use path restoration into JSON. Ordinary
+        // answers decode directly to Value, without a second full value tree.
+        let captured = engine.has_reply_strings();
+        let decoded = if captured {
+            serde_json::from_str(text).map(|fields| exact_js_value::Reply {
+                fields,
+                value: Ok(Value::Unit),
+            })
+        } else {
+            exact_js_value::reply_from_json_text(text, &sig.result)
+        };
+        let exact_js_value::Reply {
+            fields: mut reply,
+            mut value,
+        } = match decoded {
             Ok(j) => j,
             Err(e) => {
                 engine.clear_reply();
@@ -493,18 +507,19 @@ impl Module {
                 ))));
             }
         };
-        if let Err(error) = engine.restore_reply(&mut reply) {
-            return Step::Done(Err(DataError::Unavailable(format!(
-                "`{source}` answered outside its shape: {error}"
-            ))));
+        if captured {
+            if let Err(error) = engine.restore_reply(&mut reply) {
+                return Step::Done(Err(DataError::Unavailable(format!(
+                    "`{source}` answered outside its shape: {error}"
+                ))));
+            }
+            value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
         }
         let num = |k: &str| reply.get(k).and_then(Json::as_u64);
         match num("tag") {
-            Some(0) => Step::Done(
-                from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result).map_err(|e| {
-                    DataError::Unavailable(format!("`{source}` answered outside its shape: {e}"))
-                }),
-            ),
+            Some(0) => Step::Done(value.map_err(|e| {
+                DataError::Unavailable(format!("`{source}` answered outside its shape: {e}"))
+            })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(ticket)) => Step::Pending { call, ticket },
                 _ => Step::Done(Err(DataError::Unavailable(format!(
