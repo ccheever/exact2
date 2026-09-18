@@ -33,19 +33,22 @@ type ThreadIndex = {
 const emptyIndex=():ThreadIndex=>({byId:new Map(),replyCounts:new Map(),replies:new Map(),lastOutgoing:undefined,replyOutgoing:new Map()});
 const indexes = new Map<string,ThreadIndex>();
 const windowSize = 200;
-function lowerBound(rows:StoredMessage[],order:number) {
+type Position = Pick<StoredMessage,'order'|'id'>;
+const compareMessages=(a:Position,b:Position)=>a.order-b.order || (a.id<b.id?-1:a.id>b.id?1:0);
+const positionCursor=(row:StoredMessage|undefined)=>row?`${row.order}:${row.id}`:'';
+function cursorPosition(cursor:string):Position {
+  const separator=cursor.indexOf(':'),order=cursor.slice(0,separator),id=cursor.slice(separator+1);
+  if(separator<1 || !id || !/^[0-9]+$/.test(order) || !Number.isSafeInteger(Number(order)))throw new Error('Invalid conversation cursor');
+  return {order:Number(order),id};
+}
+function lowerBound(rows:StoredMessage[],position:Position) {
   let low=0,high=rows.length;
-  while(low<high){const mid=Math.floor((low+high)/2);if(rows[mid].order<order)low=mid+1;else high=mid;}
+  while(low<high){const mid=Math.floor((low+high)/2);if(compareMessages(rows[mid],position)<0)low=mid+1;else high=mid;}
   return low;
 }
-const compareMessages=(a:StoredMessage,b:StoredMessage)=>a.order-b.order || (a.id<b.id?-1:a.id>b.id?1:0);
 function insertSorted(rows:StoredMessage[],row:StoredMessage) {
   if(!rows.length || compareMessages(rows[rows.length-1],row)<0)rows.push(row);
-  else {
-    let low=0,high=rows.length;
-    while(low<high){const mid=Math.floor((low+high)/2);if(compareMessages(rows[mid],row)<0)low=mid+1;else high=mid;}
-    rows.splice(low,0,row);
-  }
+  else rows.splice(lowerBound(rows,row),0,row);
 }
 // All membership changes pass through these helpers. The durable rows retain
 // exactly their old shape; these indexes are rebuilt, never persisted.
@@ -206,8 +209,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const person=people.find(p=>p.id===id) || people[0];
   const rows=threads.get(person.id) || [];
   const index=indexes.get(person.id)||emptyIndex();
-  if(cursor!=='' && (!/^[0-9]+$/.test(cursor) || !Number.isSafeInteger(Number(cursor))))throw new Error('Invalid conversation cursor');
-  const anchor=cursor===''?rows.length-1:Math.min(lowerBound(rows,Number(cursor)),rows.length-1);
+  const anchor=cursor===''?rows.length-1:Math.min(lowerBound(rows,cursorPosition(cursor)),rows.length-1);
   const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,anchor-windowSize/2);
   const end=Math.min(rows.length,start+windowSize);
   const selectedRows=[...new Set(selection.split('|'))].flatMap(id=>{const row=index.byId.get(id);return row?[row]:[];});
@@ -241,7 +243,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
     muted:muted.has(person.id),blocked:blocked.has(person.id),knownContact:!person.id.startsWith('address:') || localContacts.has(person.id),
     contactKind:person.address?.includes('@')?'email':'phone',
     contactAddress:person.address && /^\+1\d{10}$/.test(person.address)?`+1 (${person.address.slice(2,5)}) ${person.address.slice(5,8)}-${person.address.slice(8)}`:person.address || '',
-    messages,earlier:rows[start]?String(rows[start].order):'',later:rows[end-1]?String(rows[end-1].order):'',hasEarlier:start>0,hasLater:end<rows.length,
+    messages,earlier:positionCursor(rows[start]),later:positionCursor(rows[end-1]),hasEarlier:start>0,hasLater:end<rows.length,
     replies:decorate(index.replies.get(replying)||[],undefined,undefined,index.replyOutgoing.get(replying)),revision,scrollRevision:scrollRevisions.get(person.id)||0};
 }
 const sources: Sources = {

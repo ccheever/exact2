@@ -7,7 +7,7 @@ through Snapback4. Apple and Linux use the reusable native device; the browser
 runs the upstream TypeScript replica over the existing SQLite capability.
 The baked conversation fixtures still provide the first frame without app code.
 
-Conversation answers contain at most 200 messages, centered on an order cursor
+Conversation answers contain at most 200 messages, centered on an opaque `order:id` cursor
 (empty means latest). Long histories show explicit **Show earlier messages** /
 **Show later messages** rows and **Show latest messages**. Each shift starts at
 the top of its new window; latest and sending return to the end. History does

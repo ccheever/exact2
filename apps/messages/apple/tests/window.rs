@@ -10,6 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
+#[path = "../../native.rs"]
+mod native;
+
 const K: usize = 200;
 
 struct Model {
@@ -20,14 +26,10 @@ struct Model {
 }
 impl Model {
     fn new() -> Self {
-        Self::with_module(Module::new(
-            super::BYTECODE.to_vec(),
-            super::APP,
-            super::GRANTS,
-        ))
+        Self::with_module(Module::new(BYTECODE.to_vec(), APP, GRANTS))
     }
     fn with_module(mut module: Module) -> Self {
-        let plan = Plan::decode(super::PLAN).unwrap();
+        let plan = Plan::decode(PLAN).unwrap();
         // Compare warm answer minima separately from the production per-call
         // deadline, which is not a stable gate on a shared test machine.
         module.set_budget_ms(f64::INFINITY);
@@ -46,7 +48,7 @@ impl Model {
         Self {
             module,
             plan,
-            store: Store::new(super::GRANTS, Vec::<(String, String)>::new()),
+            store: Store::new(GRANTS, Vec::<(String, String)>::new()),
             shapes,
         }
     }
@@ -132,16 +134,19 @@ fn rows(chat: &Json) -> &[Json] {
 fn text<'a>(value: &'a Json, field: &str) -> &'a str {
     value[field].as_str().unwrap()
 }
-fn remember(chat: &Json, seen: &mut HashMap<String, Json>) {
+fn remember(chat: &Json, seen: &mut HashMap<String, Json>) -> usize {
+    let mut compared = 0;
     for row in rows(chat) {
         let id = text(row, "id").to_owned();
         if let Some(previous) = seen.insert(id.clone(), row.clone()) {
+            compared += 1;
             assert_eq!(
                 row, &previous,
                 "decoration changed for {id} at a window edge"
             );
         }
     }
+    compared
 }
 fn traverse(model: &mut Model, id: &str, n: usize) -> HashMap<String, Json> {
     let tail = model.chat(id, "", "", "");
@@ -182,6 +187,32 @@ fn traverse(model: &mut Model, id: &str, n: usize) -> HashMap<String, Json> {
     seen
 }
 
+// Six windows per thread cover head/middle/tail overlap without a 25k walk.
+fn sample_overlaps(model: &mut Model, id: &str) -> usize {
+    let mut total = 0;
+    for (region, cursor, direction) in [
+        ("head", "0:before-first", "later"),
+        ("middle", "12500:before-first", "later"),
+        ("tail", "", "earlier"),
+    ] {
+        let first = model.chat(id, cursor, "", "");
+        let adjacent = model.chat(id, text(&first, direction), "", "");
+        assert_ne!(first["earlier"], adjacent["earlier"]);
+        let mut seen = HashMap::new();
+        remember(&first, &mut seen);
+        let compared = remember(&adjacent, &mut seen);
+        assert!(
+            compared >= K / 2,
+            "{id} {region}: only {compared} overlapping rows"
+        );
+        eprintln!(
+            "N=25000 {id} {region}: compared all decorated fields of {compared} overlapping rows"
+        );
+        total += compared;
+    }
+    total
+}
+
 #[test]
 fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
     let mut model = Model::new();
@@ -198,6 +229,7 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
             "seed two threads to N={n} through sources: {:?}",
             seeded.elapsed()
         );
+        let compared_rows;
         if n <= 1_000 {
             let group = traverse(&mut model, "weekend", n);
             assert_eq!(group["weekend-3"]["senderName"], "Alex Rivera");
@@ -211,13 +243,21 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
             // Fixture calendar labels intentionally never advance. Dad is the
             // source-authored Yesterday -> Today boundary; Weekend has senders.
             let days = traverse(&mut day_model, "dad", n);
+            compared_rows = group.len() + days.len();
             assert_eq!(days["dad-1"]["timeLabel"], "Yesterday 9:20 AM");
             assert_eq!(days.values().filter(|r| r["timeLabel"] != "").count(), 2);
             if n == 1_000 {
-                let head = day_model.chat("dad", "0", "", "");
+                let head = day_model.chat("dad", "0:before-first", "", "");
                 // Sends have consecutive order keys after the three Yesterday
                 // fixtures. Center on row 103 to put Today's first row at 0.
-                let cursor = (text(&head, "later").parse::<u64>().unwrap() - 96).to_string();
+                let order = text(&head, "later")
+                    .split_once(':')
+                    .unwrap()
+                    .0
+                    .parse::<u64>()
+                    .unwrap()
+                    - 96;
+                let cursor = format!("{order}:{}", text(&rows(&head)[103], "id"));
                 let boundary = day_model.chat("dad", &cursor, "", "");
                 assert_eq!(rows(&boundary)[0]["body"], "row-00003");
                 assert!(text(&rows(&boundary)[0], "timeLabel").starts_with("Today "));
@@ -225,8 +265,15 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
                     assert_eq!(row, &days[text(row, "id")]);
                 }
             }
+        } else {
+            compared_rows =
+                sample_overlaps(&mut model, "weekend") + sample_overlaps(&mut day_model, "dad");
         }
-        let reply = model.chat("weekend", "0", "weekend-1", "");
+        assert!(
+            compared_rows > 0,
+            "N={n}: no overlapping-window decoration checks ran"
+        );
+        let reply = model.chat("weekend", "0:before-first", "weekend-1", "");
         assert_eq!(reply["replies"][0]["id"], "weekend-1");
         assert_eq!(
             rows(&reply)[0]["replyCount"].as_f64().unwrap() as usize,
@@ -307,7 +354,7 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
     assert_eq!(rows(&resolved)[K / 2]["id"], neighbor);
     assert!(!rows(&resolved).iter().any(|m| m["id"] == deleted));
     assert_eq!(
-        rows(&model.chat("weekend", "9007199254740991", "", "")),
+        rows(&model.chat("weekend", "9007199254740991:past-end", "", "")),
         &rows(&tail)[K - (K / 2 + 1)..]
     );
     for invalid in [
@@ -321,6 +368,17 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
         "NaN",
         "Infinity",
         "9007199254740992",
+        "200:",
+        ":id",
+        "-1:id",
+        " 22:id",
+        "22 :id",
+        "2.5:id",
+        "1e3:id",
+        "+1:id",
+        "NaN:id",
+        "Infinity:id",
+        "9007199254740992:id",
     ] {
         let error = model
             .try_call("conversation", chat_args("weekend", invalid, "", ""))
@@ -334,7 +392,7 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
         deleted,
         text(last, "id")
     );
-    let selected = model.chat("weekend", "500", "", &selection);
+    let selected = model.chat("weekend", "500:before-first", "", &selection);
     assert_eq!(selected["selectionCount"], 3.);
     assert_eq!(
         selected["selectedText"],
@@ -348,13 +406,13 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
         assert!(text(row, "selection").contains("weekend-1"));
         assert!(!text(row, "selection").contains(deleted));
     }
-    let first = model.chat("weekend", "0", "", &selection);
+    let first = model.chat("weekend", "0:before-first", "", &selection);
     assert_eq!(rows(&first)[0]["chosen"], true);
     assert!(!text(&rows(&first)[0], "selection").contains("weekend-1"));
     model.recover("weekend");
     let restored = model.chat("weekend", anchor, "", "");
     assert_eq!(rows(&restored)[K / 2]["id"], deleted);
-    let before = model.chat("weekend", "0", "weekend-1", "");
+    let before = model.chat("weekend", "0:before-first", "weekend-1", "");
     model.delete("weekend", "weekend-1");
     let orphan = model.send("weekend", "Reply after root deletion", "weekend-1", 40_000.);
     let replies = model.chat("weekend", "", "weekend-1", "");
@@ -367,14 +425,14 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
         "Anyone up for a hike on Saturday?"
     );
     model.recover("weekend");
-    let recovered = model.chat("weekend", "0", "weekend-1", "");
+    let recovered = model.chat("weekend", "0:before-first", "weekend-1", "");
     assert_eq!(
         rows(&recovered)[0]["replyCount"].as_f64().unwrap(),
         rows(&before)[0]["replyCount"].as_f64().unwrap() + 1.
     );
     model.delete("weekend", &orphan);
     assert_eq!(
-        model.chat("weekend", "0", "weekend-1", "")["replies"],
+        model.chat("weekend", "0:before-first", "weekend-1", "")["replies"],
         before["replies"]
     );
     model.call(
@@ -390,7 +448,7 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
     assert_eq!(empty["hasEarlier"], false);
     assert_eq!(empty["hasLater"], false);
     model.recover("weekend");
-    let final_chat = model.chat("weekend", "0", "weekend-1", "");
+    let final_chat = model.chat("weekend", "0:before-first", "weekend-1", "");
     assert_eq!(rows(&final_chat).len(), K);
     assert_eq!(
         final_chat["replies"].as_array().unwrap().len(),
@@ -493,25 +551,102 @@ fn contract_shifts_keep_history_and_send_open_and_links_reset_to_latest() {
     assert_eq!(runner_chat(&runner)["id"], "maya");
 }
 
+struct Directory(PathBuf);
+impl Drop for Directory {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+fn open(root: &Directory) -> Model {
+    let mut module = native::module(BYTECODE, APP, GRANTS);
+    module
+        .configure_storage(
+            root.0.join("data"),
+            root.0.join("cache"),
+            root.0.join("tmp"),
+        )
+        .unwrap();
+    Model::with_module(module)
+}
+
+fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory {
+    let root = Directory(
+        std::env::temp_dir().join(format!("messages-window-{label}-{}", std::process::id())),
+    );
+    std::fs::create_dir(&root.0).unwrap();
+    let mut model = open(&root);
+    model.chat("maya", "", "", "");
+    drop(model);
+    // Write offline-device-shaped records through the real native replica,
+    // then reopen the shipped bytecode so its normal restore builds indexes.
+    let mut core = exact_snapback4::Module::new(APP, GRANTS).unwrap();
+    core.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("tmp"),
+    )
+    .unwrap();
+    let path = GRANTS
+        .lines()
+        .find_map(|line| line.strip_prefix("sqlite.open "))
+        .unwrap();
+    core.call(&serde_json::json!({"op":"open", "path":path,
+        "origin":"http://127.0.0.1:4400", "viewer":"dev:alice"}))
+        .unwrap();
+    let stored = core
+        .call(&serde_json::json!({"op":"query", "name":"records",
+        "viewer":"dev:alice", "args":{"c":null}, "now":0}))
+        .unwrap();
+    let template = stored["ok"]["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["payload"]["kind"] == "message" && row["payload"]["conversation"] == "maya")
+        .unwrap()["payload"]
+        .clone();
+    let payloads: Vec<_> = entries
+        .iter()
+        .map(|(id, order, outgoing)| {
+            let mut row = template.clone();
+            row["message"]["id"] = id.as_str().into();
+            row["message"]["body"] = format!("Body {id}").into();
+            row["message"]["order"] = (*order).into();
+            row["message"]["outgoing"] = (*outgoing).into();
+            row["message"]["sender"] = if *outgoing { "me" } else { "maya" }.into();
+            row["message"]["delivery"] = if *outgoing { "Delivered" } else { "" }.into();
+            row["message"]["replyRoot"] = if *outgoing { "m9" } else { id.as_str() }.into();
+            row["expires"] = Json::Null;
+            row
+        })
+        .collect();
+    // snapshot encodes the message ID in the key; the replica then encodes
+    // the whole key in its record ID. These fixture IDs contain only ASCII
+    // letters, digits, hyphens and colons.
+    let keys: Vec<_> = entries
+        .iter()
+        .map(|(id, _, _)| format!("message:maya:{}", id.replace(':', "%3A")))
+        .collect();
+    let record_ids: Vec<_> = keys
+        .iter()
+        .map(|key| format!("dev:alice:{}", key.replace('%', "%25").replace(':', "%3A")))
+        .collect();
+    let result = core
+        .call(&serde_json::json!({"op":"predict", "name":"putRecords",
+        "viewer":"dev:alice", "now":0, "newIds":[], "entropy":1,
+        "args":{
+            "recordIds":record_ids,
+            "keys":keys,
+            "payloads":payloads
+        }}))
+        .unwrap();
+    assert!(result.get("denied").is_none(), "{result}");
+    assert!(result["ok"].get("denied").is_none(), "{result}");
+    drop(core);
+    root
+}
+
 #[test]
 fn equal_orders_survive_restore_delete_recover_with_consistent_reply_receipts() {
-    struct Directory(PathBuf);
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-    fn open(root: &Directory) -> Model {
-        let mut module = super::native::module(super::BYTECODE, super::APP, super::GRANTS);
-        module
-            .configure_storage(
-                root.0.join("data"),
-                root.0.join("cache"),
-                root.0.join("tmp"),
-            )
-            .unwrap();
-        Model::with_module(module)
-    }
     fn inspect(model: &mut Model, expected: &[&str]) {
         let chat = model.chat("maya", "", "m9", "tie-z|tie-a");
         let tied = |rows: &[Json]| {
@@ -539,69 +674,14 @@ fn equal_orders_survive_restore_delete_recover_with_consistent_reply_receipts() 
         );
         assert_eq!(rows(&chat).last().unwrap()["id"], "later-incoming");
     }
-    let root = Directory(
-        std::env::temp_dir().join(format!("messages-window-order-{}", std::process::id())),
+    let root = replica_fixture(
+        "order",
+        vec![
+            ("tie-z".into(), 200, true),
+            ("later-incoming".into(), 201, false),
+            ("tie-a".into(), 200, true),
+        ],
     );
-    std::fs::create_dir(&root.0).unwrap();
-    let mut model = open(&root);
-    model.chat("maya", "", "", "");
-    drop(model);
-    // Write offline-device-shaped records through the real native replica,
-    // then reopen the shipped bytecode so its normal restore builds indexes.
-    let mut core = exact_snapback4::Module::new(super::APP, super::GRANTS).unwrap();
-    core.configure_storage(
-        root.0.join("data"),
-        root.0.join("cache"),
-        root.0.join("tmp"),
-    )
-    .unwrap();
-    let path = super::GRANTS
-        .lines()
-        .find_map(|line| line.strip_prefix("sqlite.open "))
-        .unwrap();
-    core.call(&serde_json::json!({"op":"open", "path":path,
-        "origin":"http://127.0.0.1:4400", "viewer":"dev:alice"}))
-        .unwrap();
-    let stored = core
-        .call(&serde_json::json!({"op":"query", "name":"records",
-        "viewer":"dev:alice", "args":{"c":null}, "now":0}))
-        .unwrap();
-    let template = stored["ok"]["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["payload"]["kind"] == "message" && row["payload"]["conversation"] == "maya")
-        .unwrap()["payload"]
-        .clone();
-    let ids = ["tie-z", "later-incoming", "tie-a"];
-    let payloads: Vec<_> = ids
-        .iter()
-        .map(|id| {
-            let mut row = template.clone();
-            let outgoing = *id != "later-incoming";
-            row["message"]["id"] = (*id).into();
-            row["message"]["body"] = format!("Body {id}").into();
-            row["message"]["order"] = if outgoing { 200 } else { 201 }.into();
-            row["message"]["outgoing"] = outgoing.into();
-            row["message"]["sender"] = if outgoing { "me" } else { "maya" }.into();
-            row["message"]["delivery"] = if outgoing { "Delivered" } else { "" }.into();
-            row["message"]["replyRoot"] = if outgoing { "m9" } else { id }.into();
-            row["expires"] = Json::Null;
-            row
-        })
-        .collect();
-    let result = core
-        .call(&serde_json::json!({"op":"predict", "name":"putRecords",
-        "viewer":"dev:alice", "now":0, "newIds":[], "entropy":1,
-        "args":{
-            "recordIds":ids.map(|id| format!("dev:alice:message%3Amaya%3A{id}")),
-            "keys":ids.map(|id| format!("message:maya:{id}")),
-            "payloads":payloads
-        }}))
-        .unwrap();
-    assert!(result.get("denied").is_none(), "{result}");
-    assert!(result["ok"].get("denied").is_none(), "{result}");
-    drop(core);
     let mut model = open(&root);
     inspect(&mut model, &["tie-a", "tie-z"]);
     // Recover the earlier tie after its sibling: the main thread inserts it
@@ -616,4 +696,59 @@ fn equal_orders_survive_restore_delete_recover_with_consistent_reply_receipts() 
     inspect(&mut model, &["tie-a", "tie-z"]);
     drop(model);
     inspect(&mut open(&root), &["tie-a", "tie-z"]);
+}
+
+#[test]
+fn cursors_traverse_and_resolve_deleted_anchors_inside_large_order_ties() {
+    let root = replica_fixture(
+        "cursor-ties",
+        (0..450)
+            .map(|i| (format!("tie:{i:03}:device"), 200, true))
+            .collect(),
+    );
+    let mut model = open(&root);
+    let tail = model.chat("maya", "", "", "");
+    let mut current = tail.clone();
+    let mut seen = HashMap::new();
+    for direction in ["earlier", "later"] {
+        let flag = if direction == "earlier" {
+            "hasEarlier"
+        } else {
+            "hasLater"
+        };
+        let mut cursors = std::collections::HashSet::new();
+        loop {
+            remember(&current, &mut seen);
+            if current[flag] == false {
+                break;
+            }
+            let cursor = text(&current, direction).to_owned();
+            assert!(
+                cursors.insert(cursor.clone()),
+                "{direction} repeated cursor {cursor:?} while {flag}=true"
+            );
+            current = model.chat("maya", &cursor, "", "");
+        }
+        if direction == "earlier" {
+            assert_eq!(rows(&current)[0]["id"], "m1");
+        }
+    }
+    assert_eq!(seen.len(), 460);
+    assert_eq!(rows(&current).last(), rows(&tail).last());
+    let cursor = text(&tail, "earlier");
+    let anchor = text(&rows(&tail)[0], "id");
+    let neighbour = text(&rows(&tail)[1], "id");
+    assert_eq!(
+        rows(&model.chat("maya", cursor, "", ""))[K / 2]["id"],
+        anchor
+    );
+    model.delete("maya", anchor);
+    let resolved = model.chat("maya", cursor, "", "");
+    assert_eq!(rows(&resolved)[K / 2]["id"], neighbour);
+    assert!(!rows(&resolved).iter().any(|row| row["id"] == anchor));
+    model.recover("maya");
+    assert_eq!(
+        rows(&model.chat("maya", cursor, "", ""))[K / 2]["id"],
+        anchor
+    );
 }
