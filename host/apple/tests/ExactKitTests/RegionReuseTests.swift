@@ -4,6 +4,98 @@ import XCTest
 @testable import ExactKit
 
 @MainActor final class RegionReuseTests: XCTestCase {
+    #if REGION_DIGEST_SENTINEL
+    func testActualDigestConstructorNeverRunsOnUIAndRunsOncePerLivePreparation() {
+        let before = RegionDigestSentinel.snapshot
+        let h = RegionReuseHarness(), s = source()
+        defer { h.service.close() }
+        let captured = RegionDigestSentinel.snapshot
+        XCTAssertEqual(captured.ui - before.ui, 0, "actual source constructor must not hash on UI")
+        XCTAssertEqual(captured.worker - before.worker, 0, "capture must not hide worker preparation")
+        let a = h.shape(1,source: s,width: 320)
+        let b = h.shape(2,source: s,width: 270)
+        let c = h.shape(3,source: s,width: 270,height: 900)
+        let shaped = RegionDigestSentinel.snapshot
+        XCTAssertEqual(shaped.ui - before.ui, 0, "no lazy UI hash fallback")
+        XCTAssertEqual(shaped.worker - before.worker, 1, "one actual hash for the shared preparation, not per width/height")
+        XCTAssertEqual(shaped.bytes - before.bytes, s.sourceUTF8Bytes, "one full exact source hash")
+        XCTAssertEqual(h.constructions.count, 2)
+        XCTAssertFalse(a.metadata === b.metadata)
+        XCTAssertTrue(b.metadata === c.metadata)
+        withExtendedLifetime([a,b,c]) {}
+    }
+    #endif
+
+    func testWorkerDigestPreservesExactUnicodeAcrossRunBoundariesAndNoNormalization() {
+        func capture(_ texts: [String]) -> RegionTextSource {
+            let runs = texts.map { Run(text: $0,size: 16,weight: 400,family: 0,italic: false,
+                lineHeight: 26,letterSpacing: 0) }
+            return RegionTextSource.capture(Spec(runs: runs,align: 0,lineClamp: 0,
+                color: [20,40,60,255],strut: runs.first),engine: TextEngine(resolve: { _ in nil }))
+        }
+        let fragments = ["A", "\u{301}", "👩🏽‍🚀", "\0", "אבג", "\n"]
+        let split = capture(fragments), whole = capture([fragments.joined()])
+        let normalized = capture(["Á👩🏽‍🚀\0אבג\n"])
+        let h = RegionReuseHarness()
+        defer { h.service.close() }
+        let a = h.shape(1,source: split), b = h.shape(2,source: whole), c = h.shape(3,source: normalized)
+        XCTAssertEqual(a.metadata.sourceSHA256, "096520ebe6b9e454dc420e16a9f3625c488c7535d56119890a776d43d011ff5c")
+        XCTAssertEqual(b.metadata.sourceSHA256, a.metadata.sourceSHA256)
+        XCTAssertFalse(c.metadata.sourceSHA256 == a.metadata.sourceSHA256, "hash exact UTF8, not normalized text")
+        XCTAssertFalse(a.metadata === b.metadata, "equal digest is not a source identity/cache key")
+        XCTAssertEqual(a.metadata.copy(NSRange(location: 0,length: split.utf16Count)), fragments.joined())
+        let empty = h.shape(4,source: capture([""]))
+        XCTAssertEqual(empty.metadata.sourceSHA256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        withExtendedLifetime([a,b,c,empty]) {}
+    }
+    func testIntrinsicAndResetDigestsKeepNoPreparationHistory() {
+        #if REGION_DIGEST_SENTINEL
+        let before = RegionDigestSentinel.snapshot
+        #endif
+        let h = RegionReuseHarness(), s = source()
+        defer { h.service.close() }
+        var intrinsic: [RegionArtifact] = []
+        for (i,w) in [CGFloat(-2),-2,-1,-1].enumerated() {
+            intrinsic.append(h.shape(UInt64(i+1),source: s,width: w))
+        }
+        let old = h.shape(5,source: s,width: 320)
+        XCTAssertTrue(intrinsic.allSatisfy { $0.metadata.lines.isEmpty && $0.metadata.sourceSHA256 == old.metadata.sourceSHA256 })
+        h.service.reset()
+        let fresh = h.shape(6,source: s,width: 270,generation: 2)
+        XCTAssertEqual(fresh.metadata.sourceSHA256, old.metadata.sourceSHA256)
+        XCTAssertFalse(fresh.metadata === old.metadata)
+        XCTAssertEqual(h.constructions.count, 6)
+        #if REGION_DIGEST_SENTINEL
+        let after = RegionDigestSentinel.snapshot
+        XCTAssertEqual(after.ui - before.ui, 0)
+        XCTAssertEqual(after.worker - before.worker, 6, "four non-retained intrinsics + old + reset preparation")
+        XCTAssertEqual(after.bytes - before.bytes, 6 * s.sourceUTF8Bytes)
+        #endif
+        withExtendedLifetime((intrinsic,old,fresh)) {}
+    }
+    #if REGION_DIGEST_SENTINEL
+    func testAcceptedDiagnosticDigestKeepsOldPublicationUntilExplicitReplacement() {
+        let h = RegionReuseHarness(), s = source(), changed = source("equal new publication text ")
+        defer { h.service.close() }
+        let old = h.shape(1,source: s)
+        let before = RegionDigestSentinel.snapshot
+        let next = h.shape(2,source: changed,generation: 2)
+        // This probe executes the byte-extracted production acceptedSources closure.
+        // It is not a simulated Controller.receive or a claim about native publication.
+        let a = RegionDigestDiagnostics.sources(old), pending = RegionDigestDiagnostics.sources(old)
+        let b = RegionDigestDiagnostics.sources(next)
+        XCTAssertEqual(a.first?["sha256"] as? String, old.metadata.sourceSHA256)
+        XCTAssertEqual(pending.first?["sha256"] as? String, old.metadata.sourceSHA256)
+        XCTAssertEqual(b.first?["sha256"] as? String, next.metadata.sourceSHA256)
+        XCTAssertFalse((a.first?["sha256"] as? String) == (b.first?["sha256"] as? String))
+        XCTAssertEqual(a.first?["artifact"] as? String, "1")
+        XCTAssertEqual(b.first?["artifact"] as? String, "2")
+        XCTAssertEqual(RegionDigestSentinel.snapshot.ui - before.ui, 0, "diagnostics never lazily hashes on UI")
+        XCTAssertEqual(RegionDigestSentinel.snapshot.worker - before.worker, 1)
+        withExtendedLifetime([old,next]) {}
+    }
+    #endif
+
     func testDifferentWidthsPrepareOnceWhileLayoutsAndHeightRequestIDsStayFresh() {
         let h = RegionReuseHarness(), s = source()
         defer { h.service.close() }
@@ -39,7 +131,7 @@ import XCTest
         let otherGeneration = h.shape(5, source: s, width: 270, generation: 2)
         let otherPalette = h.shape(6, source: source(color: [80,20,110,255]), width: 270)
         let otherFont = h.shape(7, source: source(size: 23), width: 270)
-        XCTAssertEqual(s.sourceSHA256, equal.sourceSHA256)
+        XCTAssertEqual(a.metadata.sourceSHA256, otherObject.metadata.sourceSHA256)
         XCTAssertEqual(h.constructions.count, 7)
         XCTAssertFalse(a.metadata === b.metadata)
         for value in [otherObject,otherID,otherGeneration,otherPalette,otherFont] {
@@ -62,6 +154,7 @@ import XCTest
                 var b: RegionWorkerLayout? = RegionWorkerLayout.shape(s,width: 270,preparation: a!.preparation)
                 result.shared = a!.preparation === b!.preparation
                 result.sourceMatched = b!.preparation.source === s
+                result.metadata = b!.metadata
                 a = nil
                 result.survivesFirstDrop = owner != nil
                 b = nil
@@ -76,6 +169,8 @@ import XCTest
         XCTAssertTrue(result.survivesFirstDrop)
         XCTAssertTrue(result.dropsLast)
         XCTAssertTrue(result.worker)
+        XCTAssertEqual(result.metadata?.sourceSHA256.count, 64, "immutable digest survives last preparation drop")
+        XCTAssertEqual(result.metadata?.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
     }
     func testSharedPreparationMatchesFreshWidthFontClampAndSelectionPixels() {
         for (size, clamp) in [(CGFloat(16),0),(CGFloat(23),2)] {
@@ -179,7 +274,7 @@ import XCTest
         let differentID = h.shape(3, source: s, sourceID: 8)
         let differentGeneration = h.shape(4, source: s, generation: 2)
         let differentWidth = h.shape(5, source: s, width: 320.0001)
-        XCTAssertEqual(s.sourceSHA256, equalBytes.sourceSHA256)
+        XCTAssertEqual(a.metadata.sourceSHA256, differentObject.metadata.sourceSHA256)
         XCTAssertEqual(h.constructions.count, 5)
         for other in [differentObject,differentID,differentGeneration,differentWidth] {
             XCTAssertFalse(other.metadata === a.metadata)
@@ -241,7 +336,7 @@ import XCTest
         let reference = ReuseSelectionReference(), completed = DispatchSemaphore(value: 0)
         DispatchQueue(label: "reuse-selection-reference").async {
             let layout = RegionWorkerLayout.shape(s,width: 320), p = layout.metadata
-            let dense = RegionParagraph(source: s,lines: layout.lines,baselines: p.baselines,
+            let dense = RegionParagraph(source: s,sourceSHA256: p.sourceSHA256,lines: layout.lines,baselines: p.baselines,
                 width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
             reference.rectangles = dense.selectionRects(NSRange(location: 0,length: 12),in: box,dirty: box)
             completed.signal()
@@ -433,5 +528,6 @@ private final class RegionReuseGate: @unchecked Sendable {
 
 private final class ReuseSelectionReference: @unchecked Sendable { var rectangles: [CGRect] = [] }
 private final class PreparedLifetimeEvidence: @unchecked Sendable {
+    var metadata: RegionParagraph?
     var shared = false, sourceMatched = false, survivesFirstDrop = false, dropsLast = false, worker = false
 }

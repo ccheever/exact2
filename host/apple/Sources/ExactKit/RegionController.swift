@@ -288,7 +288,7 @@ final class RegionController {
             let source = artifact.metadata.source
             return ["key": String(frame.key), "id": frame.id, "artifact": String(artifact.id),
                 "sourceID": String(artifact.sourceID), "utf16": source.utf16Count,
-                "utf8": source.sourceUTF8Bytes, "sha256": source.sourceSHA256,
+                "utf8": source.sourceUTF8Bytes, "sha256": artifact.metadata.sourceSHA256,
                 "lines": artifact.metadata.lines.count]
         } ?? []
         return ["registered": snapshot != nil, "acceptedSources": acceptedSources, "generation": generation,

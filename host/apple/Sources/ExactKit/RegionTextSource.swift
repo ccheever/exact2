@@ -1,7 +1,6 @@
 // UI-resolved immutable font/source capture. CoreText layout stays on the worker.
 import Foundation
 import CoreText
-import CryptoKit
 #if canImport(UIKit)
 import UIKit
 #else
@@ -48,7 +47,6 @@ final class RegionTextSource: Sendable {
     let text: String
     let utf16Count: Int
     let sourceUTF8Bytes: Int
-    let sourceSHA256: String
     /// Full joined source is additional storage, even if individual run Strings
     /// share COW storage with input. CF attributed storage is worker-local extra.
     let joinedSourceUTF8Bytes: Int
@@ -83,9 +81,6 @@ final class RegionTextSource: Sendable {
         utf16Count = offset
         sourceUTF8Bytes = spec.runs.reduce(0) { $0 + $1.text.utf8.count }
         joinedSourceUTF8Bytes = text.utf8.count
-        // One source-capture identity, not one hash per width/state poll. This
-        // linear UI work and temporary UTF8 Data are included in capture cost.
-        sourceSHA256 = SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
         capturedOnMainThread = Thread.isMainThread
         captureSeconds = ProcessInfo.processInfo.systemUptime - start
     }

@@ -1,15 +1,20 @@
 import Foundation
 import CoreText
+import CryptoKit
 // Only live layouts own this preparation. It never crosses the worker queue or
 // attaches to Sendable source/metadata. Attributed and opaque typesetter storage
 // now live as long as their last layout; pixel/index budgets do not cover them.
 final class RegionPreparedSource {
     let source: RegionTextSource
+    let sourceSHA256: String
     let attributed: NSAttributedString
     let typesetter: CTTypesetter
     init(_ source: RegionTextSource) {
         precondition(!Thread.isMainThread, "region preparation must be worker-owned")
         self.source = source
+        // Diagnostic identity belongs to this live preparation, not UI capture
+        // or a width/history cache. Metadata retains only the immutable string.
+        sourceSHA256 = SHA256.hash(data: Data(source.text.utf8)).map { String(format: "%02x", $0) }.joined()
         attributed = source.attributed()
         typesetter = CTTypesetterCreateWithAttributedString(attributed)
     }
@@ -139,7 +144,8 @@ final class RegionWorkerLayout {
         // An authored CSS line height fixes the line box, including fractions.
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
-        let metadata = RegionParagraph(source: source, lines: lines, baselines: baselines,
+        let metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
+                                       lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),
                                        lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false)
         return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],

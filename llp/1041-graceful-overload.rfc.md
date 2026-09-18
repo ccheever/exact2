@@ -5036,3 +5036,37 @@ The next source investigation targets exact ink-bound work while preserving
 conservative paint coverage and the pixel oracle. Replacing ink with ordinary
 typographic bounds is not established as correct. This fixture does not measure
 full-app continuity, UI responsiveness or physical120Hz.
+
+### 8.83 Compute accepted-source digests on the existing worker, 2026-09-18
+
+Giant-source capture previously hashed the full joined UTF8 and allocated its
+temporary Data on the UI thread. That diagnostic SHA now belongs to the existing
+worker-only preparation. New widths sharing that preparation reuse its digest;
+accepted metadata carries only the immutable string. The controller's existing
+`acceptedSources[].sha256` field reads that metadata with the same value and
+publication ownership. Its receive, retained-image and delivery code is unchanged.
+
+No queue, lock, lazy UI fallback, layout history or additional CoreText owner is
+introduced. Same-width reuse still takes precedence; reset, source replacement
+and non-retained intrinsic preparations compute fresh worker digests. Metadata
+keeps its digest and source usable after the last preparation drops. Hashes are
+diagnostic values, not cache identity keys. Exact source/object/generation and
+request guards remain unchanged.
+
+A validation-only wrapper around the real SHA call records one UI hash and zero
+worker hashes on the old source: the API-compatible eight-assertion method fails
+three intended assertions. The candidate passes43 methods/34,009 assertions,
+including zero UI hashes, one hash across two live widths and a height hit,
+exact decomposed Unicode/run boundaries, empty input, reset/intrinsic behavior,
+old accepted diagnostic values and last-owner release. Strict Swift6 compilation
+and the complete70-source module typecheck pass. The extracted diagnostic closure
+test is not a full controller/publication integration test; the full controller
+is separately typechecked and its sole source change is the field read.
+
+This relocates work; it does not remove hashing or all linear capture work.
+UI capture still resolves fonts/appearance, traverses runs and ranges, joins text
+and counts bytes. The earlier14.3ms capture measurement includes those costs and
+cannot be credited entirely to this change. Worker preparation now includes the
+hash; previous frozen diagnostic recipes retain their original scope and must
+be explicitly rebound before new measurements. No native speedup or120Hz result
+is claimed from the scoped tests.

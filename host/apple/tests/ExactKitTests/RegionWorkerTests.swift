@@ -166,10 +166,20 @@ import CoreText
             let run = Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)
             return RegionTextSource.capture(Spec(runs: [run], align: 0, lineClamp: 0, color: [0,0,0,255], strut: run), engine: engine)
         }
+        func digest(_ source: RegionTextSource) -> String {
+            let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+            DispatchQueue(label: "source-digest-test").async {
+                box.value = RegionWorkerLayout.shape(source,width: 100).metadata
+                done.signal()
+            }
+            done.wait()
+            return box.value!.sourceSHA256
+        }
         let first = capture("abc"), changed = capture("cba")
-        XCTAssertEqual(first.sourceSHA256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        let firstDigest = digest(first), changedDigest = digest(changed)
+        XCTAssertEqual(firstDigest, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         XCTAssertEqual(first.utf16Count, changed.utf16Count)
-        XCTAssertFalse(first.sourceSHA256 == changed.sourceSHA256)
+        XCTAssertFalse(firstDigest == changedDigest)
     }
     func testIntrinsicOffersUseWorkerFontsAndScalarOnly() {
         let engine = TextEngine(resolve: { _ in nil })
@@ -462,7 +472,7 @@ private final class RegionTestGate: @unchecked Sendable {
 // production shape now intentionally publishes only scalar line geometry.
 private func denseRegionReference(_ layout: RegionWorkerLayout) -> RegionParagraph {
     let p = layout.metadata
-    return RegionParagraph(source: p.source,lines: layout.lines,baselines: p.baselines,
+    return RegionParagraph(source: p.source,sourceSHA256: p.sourceSHA256,lines: layout.lines,baselines: p.baselines,
         width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
 }
 

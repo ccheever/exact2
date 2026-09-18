@@ -90,6 +90,7 @@ struct RegionLine: Sendable {
 
 final class RegionParagraph: Sendable {
     let source: RegionTextSource
+    let sourceSHA256: String
     let lines: [RegionLine]
     let baselines: [CGFloat]
     let lineBottoms: [CGFloat]
@@ -105,10 +106,11 @@ final class RegionParagraph: Sendable {
             + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
     }
 
-    init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
+    init(source: RegionTextSource, sourceSHA256: String, lines: [CTLine], baselines: [CGFloat], width: CGFloat,
          height: CGFloat, lineBottoms: [CGFloat], offeredWidth: CGFloat, retainHits: Bool = true, captureHits: Bool = true) {
         precondition(!Thread.isMainThread)
         self.source = source; self.baselines = baselines; self.lineBottoms = lineBottoms
+        self.sourceSHA256 = sourceSHA256
         self.width = width; self.height = height; self.offeredWidth = offeredWidth
         shapedOnMainThread = Thread.isMainThread
         let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
