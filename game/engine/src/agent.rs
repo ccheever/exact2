@@ -1,7 +1,7 @@
 use crate::values::quote;
 use crate::{
-    json, spatial, Clock, Data, DataError, Entity, Game, Mesh, Parent, Reader, Sim, Vec2, Vec3,
-    Visible, World,
+    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, Visible,
+    World,
 };
 use std::collections::BTreeMap;
 
@@ -11,6 +11,7 @@ struct Request {
     entity: Option<String>,
     under: Option<String>,
     summary: bool,
+    pose: bool,
     settle: bool,
     now: Option<f64>,
     width: Option<f32>,
@@ -31,6 +32,7 @@ impl Request {
                 "under" => q.under = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
+                "pose" => q.pose.read(&mut r)?,
                 "now" => {
                     let mut n = 0.0f64;
                     n.read(&mut r)?;
@@ -172,7 +174,8 @@ impl<G: Game> Sim<G> {
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
-                Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
+                if q.pose { return Ok(format!("{{\"tick\":{tick},\"entity\":{{{}}},\"pose\":{}}}",identity(w,e),crate::animation::pose_json(w,e)?)); }
+                Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?, crate::animation::status_json(w,e)?))
             }
             "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
                 quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
@@ -205,11 +208,9 @@ impl<G: Game> Sim<G> {
     }
     fn layout_json(&self, e: Entity) -> Result<String, String> {
         let w = &self.world;
-        let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
-        let (scale, rotation, position) = pose.to_scale_rotation_translation();
-        let mesh = w.get::<Mesh>(e);
-        let (half, center) = spatial::bounds(w, e, mesh.as_deref());
-        let corners = spatial::corners(pose, half, center);
+        let layout = spatial::layout(w, self.input.viewport, e);
+        let (scale, rotation, position) = layout.pose.to_scale_rotation_translation();
+        let corners = layout.corners;
         let lo = corners
             .iter()
             .copied()
@@ -219,9 +220,9 @@ impl<G: Game> Sim<G> {
             .copied()
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
         let (screen, depth, visible) =
-            if let Some(view) = spatial::View::new(w, self.input.viewport) {
-                let screen = view
-                    .screen(&corners)
+            if let Some((inside, behind, distance, depth)) = layout.visibility {
+                let screen = layout
+                    .screen
                     .map(|[x, y, width, height]| {
                         Ok::<_, String>(format!(
                             "{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
@@ -233,7 +234,6 @@ impl<G: Game> Sim<G> {
                     })
                     .transpose()?
                     .unwrap_or_else(|| "{\"unavailable\":true}".into());
-                let (inside, behind, distance, depth) = view.visibility(&corners, position);
                 (
                     screen,
                     encode(&depth)?,
@@ -250,8 +250,7 @@ impl<G: Game> Sim<G> {
                     "{\"unavailable\":true}".into(),
                 )
             };
-        let unbounded = matches!(mesh.as_deref(), Some(Mesh::Asset(name)) if w.model(name).is_none() && w.get::<crate::asset::ModelBounds>(e).is_none());
-        let bounds = if unbounded {
+        let bounds = if layout.unbounded {
             "null".into()
         } else {
             format!("{{\"min\":{},\"max\":{}}}", encode(&lo)?, encode(&hi)?)

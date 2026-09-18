@@ -131,6 +131,8 @@ pub struct Skin {
 pub struct Clip {
     pub name: String,
     pub tracks: Vec<Track>,
+    /// Seconds and event name; absent extras leave this empty.
+    pub markers: Vec<(f32, String)>,
 }
 #[derive(Data, Default, Clone, Debug)]
 pub struct Track {
@@ -163,7 +165,13 @@ impl Model {
             return fail("at most 64 textures are allowed");
         }
         let mut used = BTreeSet::new();
-        for material in &self.materials {
+        for material in self
+            .nodes
+            .iter()
+            .filter_map(|node| node.mesh)
+            .filter_map(|mesh| self.meshes.get(mesh as usize))
+            .filter_map(|mesh| self.materials.get(mesh.material as usize))
+        {
             used.extend(
                 [
                     material.base_color_texture,
@@ -210,6 +218,15 @@ impl Model {
                 return fail("non-finite vertex");
             }
         }
+        for mesh in &self.meshes {
+            if mesh
+                .weights
+                .chunks_exact(4)
+                .any(|w| w.iter().any(|v| *v < 0.) || (w.iter().sum::<f32>() - 1.).abs() > 1e-4)
+            {
+                return fail("skin weights must be nonnegative and normalized");
+            }
+        }
         for (index, m) in self.materials.iter().enumerate() {
             if m.base_color
                 .iter()
@@ -248,8 +265,13 @@ impl Model {
             }
         }
         self.offsets()?;
+        if !self.skins.is_empty() && self.nodes.len() > 256 {
+            return fail("skinned models support at most 256 imported nodes");
+        }
         for s in &self.skins {
-            if s.inverse_binds.len() != s.joints.len() * 16
+            if s.joints.is_empty()
+                || s.joints.len() > 256
+                || s.inverse_binds.len() != s.joints.len() * 16
                 || s.joints.iter().any(|&i| i as usize >= self.nodes.len())
                 || s.inverse_binds.iter().any(|v| !v.is_finite())
             {
@@ -271,6 +293,11 @@ impl Model {
             }
         }
         for clip in &self.clips {
+            if clip.markers.iter().any(|(t, name)| {
+                !t.is_finite() || *t < 0. || *t > clip.duration() || name.is_empty()
+            }) {
+                return Err(format!("model clip `{}`: invalid marker", clip.name));
+            }
             let mut targets = BTreeSet::new();
             for track in &clip.tracks {
                 let arity = if matches!(track.path, TrackPath::Rotation) {

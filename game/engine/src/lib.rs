@@ -6,6 +6,7 @@
 extern crate self as exact_game;
 
 mod agent;
+pub mod animation;
 #[doc(hidden)]
 pub mod args;
 mod assets_load;
@@ -26,6 +27,9 @@ mod tween;
 mod values;
 mod world;
 
+pub use animation::{
+    Animation, Animator, Blend, Cmp, Condition, Ik, Play, Pose, Socket, SocketFollow, State,
+};
 pub use args::{Args, ArgumentKind};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use environment::{Bloom, Environment, Fog};

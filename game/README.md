@@ -259,17 +259,22 @@ overlays fresh definitions in GameAudio while retaining runtime names and frozen
 finite voices. That policy belongs to the audio adapter, not Sim.
 
 Apple tests drive the real callback with fixture buffers. The macOS Swift package
-builds and its tests cover main-thread lifecycle delivery, window attach/detach,
-process-wide no-resume inheritance, gesture/Visible recovery, and 300-live-frame
+builds. Its synthetic macOS tests call the interruption method on the main thread
+(they do not post `AVAudioSession.interruptionNotification` from a background queue)
+and cover lifecycle delivery, window attach/detach,
+process-wide no-resume inheritance and recovery across live sessions, a trusted
+gesture latched before the first audio request, and 300-live-frame
 activation retries. Automatic `exact:audio` requests cannot override no-resume.
 The same shared cadence helper tests initial persistence, boundaries, 120 ↔ 80
 hysteresis, dropped intervals and alternating 60/120 Hz sessions. These fixtures
 open no audio device; iOS was not driven here. See `audio/README.md` for the bounds.
 
-Owed after F2f/AU3e: real-device Apple interruption/output and multi-display cadence sweeps; WebAudio resume failure propagation and retry; an authoring regression that keeps an unrelated component borrow live across `start()`. The callback/Swift fixtures and web proofs do not establish those claims. The shared-tree asset proof still needs its pending-carry expectation and renamed texture path reconciled.
+Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The Swift fixtures and web proofs do not establish those claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). Spatial `play().at(entity)` is tested while `Transform` is mutably borrowed; it resolves positions later, preserving a final position at despawn.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
-include a module path. Resolving the app for dev, proof, build or deploy generates
+include a module path. Resolve checks manifest syntax and the package name, but
+does not check Rust exports: compilation of the generated GPU shell diagnoses
+missing/private types and supports module paths and macro/cfg exports. Resolving the app for dev, proof, build or deploy generates
 `game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored
 crates contain the GPU module and web/Apple/Linux bakes. Complete replacements are staged
 outside the member glob and installed by rename; unchanged inputs keep their timestamps.
@@ -320,7 +325,8 @@ Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
 `app.json` selects model support with `game.assets: true` (or `new.mjs --assets`).
 The synthesized shell uses `module!(Game, assets)`; primitive shells link no model
-decoder, upload code or shader family. A primitive module refuses asset meshes by
+decoder or model shader markers in the measured wasm. Asset-map and `Models`
+storage isolation is still owed; this is not a claim that all model machinery is absent. A primitive module refuses asset meshes by
 name at bind. `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
 colour and adds emission. Only declared models supply simulation data and baked
@@ -333,15 +339,28 @@ Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs
 Declaring a model also declares every texture it references. Setup, tick zero,
 clocks and saves wait for those dependencies. `Loaded` means validated content is
 ready. Device preparation is separate: loss preserves content readiness, re-requests
-texture bytes and prepares pipelines before drawing resumes. No decoded mip copy
-survives upload. A loading carry refuses with named asset states, including when a
-restore is deferred. An invalid deferred save reports one refusal and leaves the
-fresh world usable. `Surface::restore(bytes, Restore::Carry)` overlays fresh audio
+texture bytes and prepares pipelines again. Module-level recovery is verified:
+retained content is re-uploaded, pipelines re-prepare, and native fixture pixels are
+identical on a replacement device. **Host recovery is owed.** Native hosts lack a
+recovery ABI: Apple result 3 makes a canvas non-presentable and `gpu_load` would
+destroy the module surface table. The web keeps the old instance’s presentation
+surface/context, producing a black canvas. The required native ABI requests a
+replacement device while preserving the surface table; web recovery must recreate
+each canvas’s surface/context on the new device, as module swap does. Both analyses:
+`review-S3ac-sol.md` (`gpu/src/native.rs:224`, `CanvasSeams.swift:353`,
+`gpu/src/lib.rs:358`, `gpu-glue.js:148,583`) and `review-S3ac-grok.md`
+(`gpu/src/web.rs:33–60`, `gpu/src/native.rs:90–99`). No renderer-owned decoded
+mip copy survives upload; Apple’s generation store still retains delivered bytes. A loading carry refuses with named asset states, including when a
+restore is deferred. Hosts retain a deferred carrier until `state.restored` confirms commit; a late
+refusal populates the surface restore error and journal once and leaves the fresh
+world usable. `Surface::restore(bytes, Restore::Carry)` overlays fresh audio
 registrations on saved registrations; `Restore::Open` (the default) restores saved
 Sounds. Runtime-registered saved names survive either mode.
 `sim.load_assets(|name| std::fs::read(asset_dir.join(name)))?` drains headless
 requests and dependencies without ticking. `let saved = sim.save()?` returns a
-named pending/failed-asset error until requested assets are ready; saving does not panic. Every web agent operation waits at
+named error while declared assets or current mesh dependencies are pending; it
+checks current roots even before the request drain. Failed cosmetics do not gate
+save/carry; failed declarations still refuse. Saving does not panic. Every web agent operation waits at
 the same bounded delivery barrier, including world-save screenshots. Loading does
 not establish or advance the simulation's host clock epoch.
 
@@ -361,8 +380,11 @@ renderer requests textures as model materials arrive, shares them by name across
 materials/models, uploads each once and releases the CPU mip payload. Models use
 shared 1×1 placeholders until textures arrive. The `.baked-assets.json` manifest
 records the SHA-256 digest of each generated output. Overwrite and pruning require
-bytes matching that recorded digest (or bytes already equal to the desired output),
-even after a source rename or removal of `art/`; authored collisions refuse by name. Ignore this manifest and the
+bytes matching that recorded digest, even when bytes equal the desired output.
+Authored collisions refuse before mutation, including source renames and removal
+of `art/`. Legacy array manifests migrate only listed, byte-equal desired outputs;
+other old bytes are preserved. A differing legacy output refuses for manual review;
+do not delete the manifest to bypass ownership. Ignore this manifest and the
 generated `.model`/`.tex` files. Stems must be unique across art subdirectories.
 The standalone baker is `cargo run -p exact-game-bake -- art/fox.glb assets/fox.model`
 (from `game/`); its texture files accompany the model under the output directory.
@@ -375,16 +397,31 @@ web and Swift resolver use the same cases. Names are answered once per surface
 while referenced by an asset mesh (or while declarations gate setup). Dropping the
 last reference retires delivery states and answered names; respawning re-requests.
 Declared simulation model data remains immutable and available to `world.model`.
-A model may list at most 64 textures, all used by materials; a surface tracks at
+A model may list at most 64 textures, all used by node-reachable meshes’ materials; a surface tracks at
 most 256 asset names and refuses excess requests by name. Hosts drain at most
-sixteen rounds. At most eight web fetches run concurrently, each with at most three
+sixteen rounds. The web caps queued plus active flights at 256 and active fetches
+at eight. Retirement cancels old flights before same-drain redelivery. Each has at most three
 attempts with five-second attempt deadlines, 250/500 ms retry delays and a
-20-second total deadline. A 404 is missing; 5xx/offline failures retry and then
+20-second total deadline from queueing. Response streams abort above 64 MiB
+before joining/copying the body; development assets have the same pre-copy limit. A 404 is missing; 5xx/offline failures retry and then
 become named failures. A failed declaration draws its final status and stops asking
 for frames; failed cosmetics never receive a first-frame stamp. Destruction/recreation
-cancels flights. Apple delivery consumes `.tex` bytes; its resolver caches reusable
+cancels flights. Apple’s resolver avoids a second `.tex` cache, but the generation
+store retains the delivered `Data`; moving those bytes to private reloadable files
+is owed (`review-S3ac-sol.md`, `Session.swift:214`, `PlanURL.swift:583,604`).
+Its resolver caches reusable
 fonts, images, models and shaders. `settled()` returns
 remaining flight names when its sixteen rounds or deadline expire.
+
+
+Owed after R1: host-level device recovery as described above; Apple delivered-`.tex`
+bytes retained by the generation store (move to private files); primitive-module
+size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
+against the ~490 KB target — the size question needs a link map, its own slice);
+real-device Apple interruption and multi-display sweeps; WebAudio resume-failure
+propagation. The file:line references name the six blind reviews of 4869f48c, cached under
+`~/Library/Caches/exact2-game/briefs/`. Size analyses: `review-S3ac-sol.md` (`asset.rs:374`, `sim.rs:82`,
+`renderer.rs:22,245`) and `review-S3ac-grok.md` §Primitive module vs 759 KB.
 
 The runtime decodes only `bin` Data. No glTF or image decoder enters the module.
 EXGAME v3 and EXSIM v5 remain unchanged for existing games. The baker refuses
@@ -419,14 +456,16 @@ exports its 16-sample median, refined by full rolling fits when the period diffe
 by more than 1%; sustained skipped slots reacquire even a harmonic rate change.
 Apple quantizes `targetTimestamp - timestamp` to display rate classes with 1%
 hysteresis and three consecutive candidate intervals, including initial acquisition.
-A doubled interval cannot change the class. Both Apple hosts use the same quantizer;
+One doubled interval cannot change the class; three can. Classes never exceed
+the display maximum, and stable callbacks reuse cached boundaries without allocating. Both Apple hosts use the same quantizer;
 every callback publishes its session's current class before rendering because the
 module is process-wide. ProMotion's cadence can differ from nominal `duration`.
-L is unknown (zero) headless and until the first display-link tick after the module
-exists; Apple keeps publishing zero until three stable intervals establish a class.
+L is unknown (zero) headless; Apple publishes zero until three stable intervals
+after module creation establish a class.
 On web it is unknown for the first sixteen intervals (133 ms at 120 Hz, 267 ms at 60 Hz).
-A materially short web interval starts reacquisition at raw monotonic time, avoiding
-a double-step/hold on 60 → 120 Hz; an isolated sub-slot callback keeps the fit.
+A short web interval uses a provisional half-period lattice; a second short interval
+confirms it. A sustained double-slot cadence promotes the existing lattice. Jittered
+60 ↔ 120 transitions are tested delta by delta; isolated sub-slot callbacks retain the fit.
 With world time `T` and fixed step `step = 1000/hz`, `L` approaches
 `min(period, step)`; ticks run strictly before the scheduling horizon `T + L`.
 Seekable uses `L = 0`. A live gap
@@ -518,5 +557,96 @@ Changing the non-live `Options::restart_generation` reconstructs setup through t
 same argument-binding path as any other setup change; there is no second reset path.
 World performance state keeps small counts, totals, maxima and draw counters by
 default. Request `state` with `perf: true` or `perf_reset: true` to arm the five
-16,384-sample rings; reset clears the recording and `perf.armed` reports its state.
+16,384-sample rings. Arming preserves aggregates and cadence; only explicit reset
+clears them. `perf.armed` reports recording state; the feel probe arms it too.
 Percentiles are zero before recording; counters still report total work.
+
+## Skeletons
+
+A declared `Mesh::asset("fox.model")` plays with
+`Animation::play("Walk").speed(1.5).marker(0.3, "step")`; `.once()` clamps at the end.
+Animation advances once per fixed tick, after the game's tick. Call
+`animation::step(w)` earlier when the game needs this tick's `crossed("step")` or
+`root_motion()`; the automatic second call does nothing. Marker flags are saved
+state, cleared on the next step; `animation fox Walk step` is the matching journal
+line. glTF animation `extras.markers` accepts `[[0.3, "step"]]`. Negative speed
+plays backwards, with the same open-start/closed-end marker intervals. Loop jumps
+emit each crossed marker name once, even when several loops fit in a tick.
+
+`Animation`, `Blend`, and `Animator` are alternatives; insertion refuses a second
+controller and logs why. `Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])`
+uses its saved `axis`, the two bracketing clips, and one saved normalized phase.
+The phase advances by `dt / lerp(duration_a, duration_b, weight)`; differing clip
+lengths keep corresponding phases together. This does not correct incompatible
+foot contacts in source art. Sampling supports glTF step, linear and cubic tracks;
+quaternions are normalized, with shortest-path slerp for linear rotations.
+`time += (1.0f32 / hz as f32) * speed` uses separate f32 multiply and add, without
+FMA. Scalar glam/libm provides the transcendentals. Sixty 60-Hz additions from zero
+are pinned to bits `0x3f7ffffb`, and the full Fox pose has a cross-host pin.
+
+`Animator::new([State::new("walk", Play::Clip("Walk".into())).to("run",
+Condition::Arg("speed".into(), Cmp::Gt, 2.0.into())),
+State::new("run", Play::Clip("Run".into())).fade(0.2)])` is all `Data`.
+`w.get_mut::<Animator>("fox").unwrap().set("speed", speed)` writes a typed number;
+bools also work. The first matching transition wins, at most one per tick. A fade
+lerps/slerps from the outgoing local pose to the advancing destination pose.
+Deliberate cuts: the outgoing pose is frozen during the fade, parameters are only
+f32/bool, and there are no layered graphs, closures, scripts or additive animation.
+The phase, current state, time in state, parameters, outgoing pose and fade progress
+are saved and hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays
+fresh named controllers' definitions while preserving their pose and phase. Edited
+Animator definitions fade from the carried pose. A removed current state retains
+the old definition until the author supplies a matching state.
+
+`Ik { chain: [root, mid, tip], target, pole, weight }` solves a direct two-bone chain
+in model coordinates after sampling. Weight zero leaves every pose bit untouched;
+an unreachable target stretches the chain. Zero-length chains and targets at the
+root refuse by name. Bones and imported nodes are compact arrays, never entities.
+Declare `Socket("b_Head_05".into())` on the fox and put `SocketFollow::new("fox")`
+on an attachment. The declared socket's ancestor chain is composed sim-side every
+tick, including offscreen and headless; other composed joints are diagnostic reads
+or GPU work. This slice supports one declared socket per model owner.
+
+Animation owns pose. `Transform` has one writer per tick: the fixture's circle
+script, or the game's Character/physics step. `Animation::root_motion()` exposes
+model-local translation of the first skin joint, including a loop's displacement,
+and never writes Transform. The game can feed that contribution into movement or
+ignore it. A socket follower owns its attachment's Transform.
+
+The `Pose` component saves previous/current local TRS as bulk f32 arrays, normalized
+phase, event flags and conservative bounds. The bounds inflate the bind AABB by
+maximum chain reach plus influenced inverse-bind vertex radius, including authored
+translation/scale track extrema (cubic tangent overshoot is conservatively bounded).
+Layout and CPU pick use those same bounds. A model without a controller draws its
+bind pose. Skinned models are bounded to 256 imported nodes and 256 joints per skin;
+four influences are normalized at bake and additional influence sets refuse.
+`state world:fox` includes controller state; the `state` wire form with `pose: true`
+returns up to 256 named joint world matrices at the last tick. Snapshots include the
+saved local arrays, bounds and transition state.
+
+`games/skinned-fixture` is the Fox proof: a circle, Survey → Walk/Run blend, a head
+socket, tick-60 joint JSON, save at 45, and fresh-process continuation to 120.
+Its native paranoid test saves and loads into a new Sim on every tick for 120 ticks;
+IK checks use the Fox's left leg. Run `bun game/games/skinned-fixture/proof.mjs web`
+(or `macos` / `linux`) from the root. The source glb is the cached Khronos Fox sample;
+the game generator created the fixture with `--assets`.
+
+S3b proof (2026-09-18): web, macOS and the headless Linux host running on this
+arm64 Mac match all 24 joint matrices in
+[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json). Tick 60 hashes to
+`0xa9033d749a82ebd4`; tick 120 hashes to `0xb05ce95a6c799acf`. Saving at 45 and
+restoring in a fresh host reaches the same tick-120 snapshot. All three final saves
+are byte-identical (13,849 bytes; SHA-256
+`cae346719d1a1e3fc6b8eb3d22eb9ddfb5295811dd09f50297bd09451c69c526`). The native
+120-tick paranoid round-trip, edited-blend Carry/Open, Fox-leg IK and socket tests
+pass. This is not a new x86-64 Linux measurement.
+
+The macOS proof launches with SDK 26 and the temporary Xcode Swift wrapper adding
+`--build-system native`. Its [screenshot](games/skinned-fixture/artifacts/fox-mid-stride-macos.png)
+shows the stride and shadow but a white, untextured Fox; the
+[web screenshot](games/skinned-fixture/artifacts/fox-mid-stride-web.png) is textured.
+That native asset/host gap remains outside the skeleton slice. The pose request
+currently uses `session.op({op: 'state', ...await session.target('world:fox'),
+pose: true})`; the CLI's literal `state world:fox pose` still needs the two-line
+driver forwarding change outside this slice. Performance and size qualifications
+are in [the renderer README](render/README.md#skinned-model-path).

@@ -280,6 +280,8 @@ Mesh centers support transparent sorting; there is no unused sphere-radius API.
 World surfaces retain small work counters by default. A world-state request with
 `perf: true` or `perf_reset: true` arms the five 16,384-sample diagnostic rings;
 `perf.armed` distinguishes recorded percentiles from the unarmed zero values.
+Arming preserves accumulated counts, means, maxima and cadence; only `perf_reset`
+clears them. The feel probe requests `perf: true`.
 
 S3a-c measurement (2026-09-18): the retained Beacons GPU wasm is 811,977 bytes
 before this pass and 758,561 after (gzip 322,782 → 301,524). Model shader and
@@ -289,6 +291,78 @@ contribute to this comparison. Three interleaved 200k-cube runs against the reta
 S3a-b binary have overlapping ranges: all-moving median tick/feed/encode is
 0.4342/1.0230/0.0723 ms before and 0.4443/1.0524/0.0723 ms after. This is an
 offscreen diagnostic, not an FPS claim or an isolated HEAD comparison. Native
-replacement-device pixels match. The web destroy-device proof re-fetches textures
-and preserves content/hash, but its post-loss screenshot remains black; the pixel
-assertion stays failing after the three-round stop. See `QUEUE.md` before shipping.
+replacement-device pixels match: retained bytes are re-uploaded and pipelines
+re-prepare. This verifies module-level recovery. **Host recovery is owed.** Apple
+result 3 makes canvases non-presentable; native `gpu_load` destroys the module’s
+surface table. A recovery ABI must request a replacement device while preserving
+that table. Web recovery retains the old instance’s presentation surface/context
+and presents black; it must recreate each canvas surface/context on the new device
+as the module-swap path does. Both reviews trace this: `review-S3ac-sol.md`
+(`gpu/src/native.rs:224`, `CanvasSeams.swift:353`, `gpu/src/lib.rs:358`,
+`gpu-glue.js:148,583`) and `review-S3ac-grok.md` (`gpu/src/web.rs:33–60`,
+`gpu/src/native.rs:90–99`). The asset proof asserts state, re-fetch and hash and
+prints “host recovery owed”; native pixels remain a required module test.
+
+Also owed: Apple delivered-`.tex` bytes retained by the generation store (move to
+private files; Sol, `Session.swift:214`, `PlanURL.swift:583,604`); primitive-module
+size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
+against the ~490 KB target — the size question needs a link map, its own slice;
+Sol, `asset.rs:374`, `sim.rs:82`, `renderer.rs:22,245`; Grok §Primitive module vs 759 KB).
+
+## Skinned model path
+
+Model-capable modules upload four joint indices/weights per vertex and a skin
+handle per draw record. Primitive modules create no skin buffers or pipeline.
+The feed copies the saved previous/current **local** TRS into retained buffers on
+completed ticks, even when the entity Transform did not move. Rendering allocates
+no new collections for these histories. Skin templates retain parent-first node
+order without changing glTF's joint indices.
+
+One compute workgroup per skinned draw interpolates local translation/scale and
+shortest-path quaternion rotation at frame alpha. Lanes compute locals in parallel;
+one lane composes the parent-first hierarchy, then lanes multiply joint world
+matrices by inverse binds. The shared array specializes to the largest loaded rig's
+next power of two (32 nodes for Fox), bounded at 256. Forward and shadow vertices
+read the same palette. Normals use each joint matrix's normalized rotation columns.
+No composed-matrix interpolation, CPU per-frame palette construction, bone entities,
+or transform writes are involved. The optional seventeenth GPU timestamp pair is
+`skin palettes`; as with other Metal timings, intervals are not additive.
+
+The compute regression distinguishes a quarter-turn interpolation from a lerp of
+composed matrices and checks inverse binds. The warm local-pose packing path has
+an allocator-counting regression. Pose histories survive restore; the existing
+entity/camera history reset can still change a few pixels in a restored moving
+scene. The fixture keeps the same skeletal stride and tests the image within a band.
+
+S3b measurements, Apple M5 Max / Metal, 2026-09-18:
+
+| Measurement | Result | Budget |
+| --- | ---: | ---: |
+| 100 Foxes, 24 joints, three-knot blend, live tick mean over 600 ticks | 0.182969 ms | <0.3 ms |
+| 100 palettes, GPU p50 / p95 | 0.046875 / 0.052750 ms | p50 <0.1 ms |
+| Warm pose packing, 300 feeds, counted Rust allocations | 0 | 0 new allocations |
+| Active Fox fixture GPU wasm, raw / gzip-9 | 945,320 / 368,310 bytes | see below |
+
+The CPU number reruns the retained release fixture binary (the earlier run was
+0.177966 ms); its skeleton code is unchanged. The GPU diagnostic was rebuilt during
+the resume; the earlier p50/p95 was 0.025208/0.049875 ms. The allocation assertion
+covers retained local-pose packing, not wgpu's command submission internals. The
+existing timing rings count time/work, not allocations.
+
+Three interleaved before/after pairs, 200k cubes, 240 measured frames after 60 warmup
+frames, 2560×1440 and 4×MSAA (median of each run's p50, milliseconds):
+
+| Moving cubes | Tick before → after | Feed before → after | Encode before → after |
+| --- | ---: | ---: | ---: |
+| All | 0.4509 → 0.4640 | 1.1572 → 1.2014 | 0.1060 → 0.1208 |
+| 1% | 0.0047 → 0.0052 | 0.0520 → 0.0531 | 0.0419 → 0.0455 |
+| None | 0.0009 → 0.0005 | 0.0357 → 0.0300 | 0.0527 → 0.0442 |
+
+The ranges overlap in every column/mode; this shared-machine diagnostic finds no
+resolved regression and is not an FPS claim. The retained pre-skeleton model
+fixture is 812,698 bytes raw / 323,319 gzip. The active Fox fixture adds 44,991 gzip
+bytes to that reference, including different game logic; it is not an isolated
+same-app engine-growth measurement. Rebuilding the reference was blocked by the
+concurrent `gpu/src/web.rs` wasm-bindgen attribute error after the allowed retry,
+so the ≤60 KB same-app growth budget remains unverified. Logs: `/tmp/s3b-resume-*`;
+paired baseline artifacts: `/tmp/s3b-before-*`.

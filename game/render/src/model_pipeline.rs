@@ -37,8 +37,8 @@ pub(crate) fn material_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 pub(crate) fn instance_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("game draw instances"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
+        entries: &[0, 1, 2].map(|binding| wgpu::BindGroupLayoutEntry {
+            binding,
             visibility: wgpu::ShaderStages::VERTEX,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -46,7 +46,7 @@ pub(crate) fn instance_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 min_binding_size: None,
             },
             count: None,
-        }],
+        }),
     })
 }
 pub(crate) fn pipeline(

@@ -357,3 +357,98 @@ fn proximity_uses_both_parent_chains_and_returns_mutable_global_rows() {
     w.get_mut::<Transform>(parent).unwrap().position.x = 50.;
     assert_eq!(w.near_xz::<Beacon>(player, 1.).count(), 0);
 }
+
+#[test]
+fn record_units_and_safe_integer_boundaries() {
+    #[derive(Default, Data)]
+    struct Hud {
+        unit: (),
+        unsigned: u64,
+        signed: i64,
+    }
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    let limit = 9_007_199_254_740_991;
+    sim.world().publish_record(&Hud {
+        unit: (),
+        unsigned: limit,
+        signed: -(limit as i64),
+    });
+    assert_eq!(
+        sim.take_published().unwrap(),
+        r#"{"signed":-9007199254740991,"unit":null,"unsigned":9007199254740991}"#
+    );
+    for (unsigned, signed) in [
+        (limit + 1, 0),
+        (u64::MAX, 0),
+        (0, limit as i64 + 1),
+        (0, -(limit as i64) - 1),
+        (0, i64::MIN),
+    ] {
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim
+            .world()
+            .publish_record(&Hud {
+                unit: (),
+                unsigned,
+                signed
+            })))
+        .is_err());
+        assert!(
+            sim.take_published().is_none(),
+            "refusal must not partially publish"
+        );
+    }
+}
+#[test]
+fn record_optional_unit_is_explicitly_refused_when_present() {
+    #[derive(Default, Data)]
+    struct Hud {
+        unit: Option<()>,
+    }
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    sim.world().publish_record(&Hud { unit: None });
+    assert_eq!(sim.take_published().unwrap(), r#"{"unit":null}"#);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim
+        .world()
+        .publish_record(&Hud { unit: Some(()) })))
+    .is_err());
+}
+#[test]
+fn typed_and_wire_layout_agree_without_transform() {
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    sim.world_mut()
+        .spawn((Transform::at(0., 0., 10.), Camera::default()));
+    sim.world_mut().spawn_named("marker", Mesh::cube(1.));
+    sim.world_mut().propagate();
+    sim.viewport(800., 600.);
+    let typed = sim
+        .layout("marker")
+        .expect("wire's identity pose is shared");
+    let wire = sim.agent(r#"{"op":"layout","entity":"marker"}"#);
+    #[derive(Default, Data)]
+    struct Rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    }
+    #[derive(Default, Data)]
+    struct Row {
+        screen: Rect,
+    }
+    #[derive(Default, Data)]
+    struct Reply {
+        entity: Row,
+    }
+    let rect = json::from_str::<Reply>(&wire).unwrap().entity.screen;
+    for (typed, wire) in [
+        (typed.screen.x, rect.x),
+        (typed.screen.y, rect.y),
+        (typed.screen.w, rect.w),
+        (typed.screen.h, rect.h),
+    ] {
+        assert!(
+            (typed - wire).abs() <= 0.0001,
+            "agent rounds to four decimal places: {typed} vs {wire}"
+        );
+    }
+}

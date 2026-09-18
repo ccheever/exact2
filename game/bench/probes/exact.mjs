@@ -40,6 +40,7 @@ async function installOnce({ entity = 'player', play: selector = '[data-testid="
       const el = surface();
       if (el) {
         view = Number(el.dataset.view);
+        exact.gpu.agent(view, { op: 'state', perf: true });
         const reply = exact.gpu.agent(view, { op: 'state', trace: { entity, frames: capacity } });
         if (reply?.trace !== 'armed') throw new Error(JSON.stringify(reply));
         tracing = true;

@@ -18,6 +18,7 @@ mod pipeline;
 mod renderer;
 mod shadows;
 pub mod shapes;
+mod skinning;
 mod surface;
 mod timing;
 mod trace;
@@ -90,6 +91,8 @@ pub struct DrawInstance {
     pub material: MaterialId,
     /// Composed model node offset.
     pub local: Mat4,
+    /// Renderer-owned skin template; absent for unskinned nodes.
+    pub skin: Option<u32>,
 }
 
 /// One tightly packed, 32-byte mesh vertex.

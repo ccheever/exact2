@@ -170,6 +170,12 @@ impl BulkKind {
 
 /// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
+    /// Unit has the existing empty-sequence save/hash representation. Value sinks
+    /// may override it to preserve the distinction from an empty list.
+    fn unit(&mut self) {
+        self.begin_seq(0);
+        self.end_seq();
+    }
     /// Write a boolean.
     fn boolean(&mut self, value: bool);
     /// Write a number, canonicalizing NaNs in binary representations.

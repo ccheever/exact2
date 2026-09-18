@@ -27,6 +27,8 @@ export function gameShells(dir, game, workspace) {
     }
     if (app.game.audio !== undefined && typeof app.game.audio !== "boolean") throw new Error("game.audio must be a boolean");
     if (app.game.assets !== undefined && typeof app.game.assets !== "boolean") throw new Error("game.assets must be a boolean");
+    // Resolve validates manifest syntax; Rust checks this path's exported type
+    // when compiling the generated GPU shell, including macro/cfg exports.
     const name = crate.slice(0, -'-logic'.length);
     const key = createHash('sha256').update(app.app.id).digest('hex').slice(0, 24);
     for (const kind of ['gpu', 'web', 'apple', 'linux']) {

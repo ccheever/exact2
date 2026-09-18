@@ -302,6 +302,7 @@ struct Instance {
     presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
+    retired: BTreeSet<String>,
     bound: bool,
     dirty: bool,
     children: Option<Children>,
@@ -506,6 +507,7 @@ impl Module {
                 presentation,
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
+                retired: BTreeSet::new(),
                 bound: false,
                 dirty: false,
                 children: None,
@@ -897,10 +899,19 @@ impl Module {
             return Vec::new();
         };
         let mut wanted = Vec::new();
-        let requested = inst.surface.assets();
-        for name in inst.surface.retired_assets() {
+        let mut requested = inst.surface.assets();
+        let retired = inst.surface.retired_assets();
+        inst.retired.clear();
+        if !retired.is_empty() {
+            // Retirement may invalidate still-live device dependencies. Fetch
+            // them in this drain, before a still surface can go back to sleep.
+            inst.dirty = true;
+            requested.extend(inst.surface.assets());
+        }
+        for name in retired {
             inst.answered.remove(&name);
             inst.outstanding.remove(&name);
+            inst.retired.insert(name);
         }
         for name in requested {
             if !asset_name(&name) {
@@ -922,6 +933,14 @@ impl Module {
             }
         }
         wanted
+    }
+
+    /// Names whose previous host flight must be cancelled, including redelivery.
+    /// Hosts drain this immediately after take_assets, before starting new flights.
+    pub fn take_retired_assets(&mut self, id: u32) -> Vec<String> {
+        self.instances.get_mut(&id).map_or_else(Vec::new, |inst| {
+            std::mem::take(&mut inst.retired).into_iter().collect()
+        })
     }
 
     /// Deliver one requested asset, with None for a missing file; works without a device.
@@ -1005,6 +1024,8 @@ impl Module {
             return Some(false);
         }
         let (target, config) = inst.presentation.as_mut()?;
+        inst.surface
+            .prepare_assets(&gpu.device, &gpu.queue, config.format);
         if config.width != w || config.height != h {
             config.width = w;
             config.height = h;
@@ -1236,6 +1257,8 @@ impl Module {
         if !inst.bound {
             return None;
         }
+        inst.surface
+            .prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         let frame = Frame {
             seekable: self.seekable,
             period_ms: self.period_ms,

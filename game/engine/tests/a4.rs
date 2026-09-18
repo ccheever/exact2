@@ -467,3 +467,34 @@ fn setup_rebuild_clears_restored_status() {
     s.bind(&values, None).unwrap();
     assert!(s.agent(r#"{"op":"state"}"#).contains("\"restored\":false"));
 }
+
+#[test]
+fn same_id_restore_keeps_new_action_bindings_and_held_physical_keys() {
+    struct Revision<const NEW: bool>;
+    impl<const NEW: bool> Game for Revision<NEW> {
+        const ID: &'static str = "binding-revision";
+        type Args = ();
+        fn actions() -> Actions {
+            Actions::new()
+                .button("old", &[if NEW { "KeyQ" } else { "KeyE" }])
+                .button("new", &[if NEW { "KeyE" } else { "KeyQ" }])
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.insert_resource(Observed::default());
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            w.resource_mut::<Observed>().held = u32::from(i.held("new"));
+            w.resource_mut::<Observed>().pressed = u32::from(i.held("old"));
+        }
+    }
+    let mut old = Sim::<Revision<false>>::new(()).unwrap();
+    old.advance(0., Clock::Seekable);
+    key(&mut old, true, 1.);
+    old.advance(100., Clock::Seekable);
+    let mut new = Sim::<Revision<true>>::new(()).unwrap();
+    new.restore(&old.save().unwrap()).unwrap();
+    new.advance(0., Clock::Seekable);
+    new.advance(100., Clock::Seekable);
+    assert_eq!(new.world().resource::<Observed>().held, 1);
+    assert_eq!(new.world().resource::<Observed>().pressed, 0);
+}

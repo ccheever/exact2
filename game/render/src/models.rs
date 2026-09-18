@@ -15,8 +15,9 @@ pub(crate) struct Material {
     data: MaterialData,
     names: [Option<String>; 5],
 }
+pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 pub(crate) struct Uploaded {
-    pub nodes: Vec<(MeshId, MaterialId, Mat4)>,
+    pub nodes: Vec<ModelNode>,
 }
 struct Texture {
     view: wgpu::TextureView,
@@ -32,6 +33,7 @@ pub(crate) struct Models {
     pub records: Vec<DrawInstance>,
     pub materials: Vec<Material>,
     pub instances: Option<Buffer>,
+    pub skinning: Option<crate::skinning::Skinning>,
     pub bind: Option<wgpu::BindGroup>,
     pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
@@ -50,7 +52,14 @@ impl Models {
             wgpu::BufferUsages::STORAGE,
             "game model instances",
         );
-        self.bind = Some(instance_bind(device, &family.instance, &instances));
+        let skinning = crate::skinning::Skinning::new(device);
+        self.bind = Some(instance_bind(
+            device,
+            &family.instance,
+            &instances,
+            &skinning,
+        ));
+        self.skinning = Some(skinning);
         self.instances = Some(instances);
         self.no_shadow = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game no shadows"),
@@ -63,13 +72,18 @@ impl Models {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
+        uniform: &wgpu::Buffer,
         records: &[DrawInstance],
     ) -> Result<(), RenderError> {
         // Four u32 header words + affine matrix + inverse-transpose normal matrix.
+        let skinning = self.skinning.as_mut().unwrap();
+        skinning.set(device, queue, uniform, records)?;
         let words = &mut self.words;
         words.clear();
         self.normals.resize(records.len(), ([0; 16], [0; 16]));
-        for (record, cached) in records.iter().zip(&mut self.normals) {
+        for ((record, cached), &palette) in
+            records.iter().zip(&mut self.normals).zip(&skinning.offsets)
+        {
             let key = record.local.to_cols_array().map(f32::to_bits);
             if cached.0 != key {
                 let normal = record.local.inverse().transpose();
@@ -85,7 +99,7 @@ impl Models {
                 record.transform,
                 record.material.0 as u32,
                 record.geometry.0 as u32,
-                0,
+                palette,
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
             words.extend(normal);
@@ -96,9 +110,8 @@ impl Models {
             ));
         }
         let instances = self.instances.as_mut().expect("prepared model instances");
-        if instances.grow(device, queue, (words.len() * 4) as u64) {
-            self.bind = Some(instance_bind(device, layout, instances));
-        }
+        instances.grow(device, queue, (words.len() * 4) as u64);
+        self.bind = Some(instance_bind(device, layout, instances, skinning));
         instances.write(queue, 0, bytes(words));
         self.records.clear();
         self.records.extend_from_slice(records);
@@ -110,14 +123,25 @@ fn instance_bind(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     buffer: &Buffer,
+    skinning: &crate::skinning::Skinning,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("game model instances"),
         layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: buffer.raw.as_entire_binding(),
-        }],
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.raw.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: skinning.palette.raw.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: skinning.weights.raw.as_entire_binding(),
+            },
+        ],
     })
 }
 impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
@@ -160,7 +184,23 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                         uv: mesh.uvs[i * 2..i * 2 + 2].try_into().unwrap(),
                     })
                     .collect();
-                self.add_mesh(&vertices, &mesh.indices)
+                let id = self.add_mesh(&vertices, &mesh.indices);
+                if !mesh.joints.is_empty() {
+                    let start = self.meshes[id.0].base_vertex as u64 * 32;
+                    let mut words = Vec::with_capacity(mesh.joints.len() * 2);
+                    for (j, w) in mesh
+                        .joints
+                        .chunks_exact(4)
+                        .zip(mesh.weights.chunks_exact(4))
+                    {
+                        words.extend(j.iter().map(|j| u32::from(*j)));
+                        words.extend(w.iter().map(|w| w.to_bits()));
+                    }
+                    let weights = &mut self.models.skinning.as_mut().unwrap().weights;
+                    weights.grow(&self.device, &self.queue, start + (words.len() * 4) as u64);
+                    weights.write(&self.queue, start, bytes(&words));
+                }
+                id
             })
             .collect();
         let mut materials = Vec::new();
@@ -184,6 +224,12 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             return Ok(());
         }
         let (meshes, materials) = self.add_model(model)?;
+        let skins = self
+            .models
+            .skinning
+            .as_mut()
+            .unwrap()
+            .add(&self.device, &self.queue, model);
         let nodes = model
             .nodes
             .iter()
@@ -193,7 +239,12 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     (
                         meshes[m as usize],
                         materials[model.meshes[m as usize].material as usize],
-                        local,
+                        if n.skin.is_some() {
+                            Mat4::IDENTITY
+                        } else {
+                            local
+                        },
+                        n.skin.map(|s| skins[s as usize]),
                     )
                 })
             })
@@ -248,8 +299,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
         };
-        self.models
-            .set(&self.device, &self.queue, &family.instance, records)
+        self.models.set(
+            &self.device,
+            &self.queue,
+            &family.instance,
+            &self.uniform,
+            records,
+        )
     }
     /// Feed transparent poses on completed ticks. O(model instances), never primitive entities.
     pub(crate) fn model_poses(
@@ -258,6 +314,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         entities: &[exact_game::Entity],
         initial: bool,
     ) {
+        if let Some(skinning) = &mut self.models.skinning {
+            skinning.feed(&self.queue, world, entities);
+        }
         for ((record, history), &entity) in self
             .models
             .records
@@ -475,16 +534,17 @@ mod arrival_tests {
                 geometry: MeshId(0),
                 material: MaterialId(0),
                 local: Mat4::from_translation(glam::Vec3::new(x as f32, 0., 0.)),
+                skin: None,
             }];
             renderer
                 .models
-                .set(&gpu.device, &gpu.queue, layout, &records)
+                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
                 .unwrap();
             assert_eq!(renderer.models.normals.len(), 1);
             let ptr = renderer.models.words.as_ptr();
             renderer
                 .models
-                .set(&gpu.device, &gpu.queue, layout, &records)
+                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
                 .unwrap();
             assert_eq!(ptr, renderer.models.words.as_ptr());
         }
@@ -497,6 +557,18 @@ mod arrival_tests {
         let mut renderer =
             crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         let model = Model {
+            meshes: vec![exact_game::asset::MeshData {
+                positions: vec![0.; 9],
+                normals: vec![0.; 9],
+                uvs: vec![0.; 6],
+                tangents: vec![0.; 12],
+                indices: vec![0, 1, 2],
+                ..Default::default()
+            }],
+            nodes: vec![exact_game::asset::Node {
+                mesh: Some(0),
+                ..Default::default()
+            }],
             materials: vec![MaterialData {
                 base_color_texture: Some(0),
                 normal_texture: Some(1),

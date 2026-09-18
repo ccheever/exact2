@@ -5,6 +5,13 @@ import XCTest
 
 private var periods: [Double] = []
 private var events: [UInt32] = []
+private let replyBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 512)
+private var replyLength: UInt32 = 0
+private func restoreState(_ restored: Bool) {
+    let bytes = Array("{\"world\":{\"restored\":\(restored)}}".utf8)
+    bytes.withUnsafeBufferPointer { replyBuffer.update(from: $0.baseAddress!, count: $0.count) }
+    replyLength = UInt32(bytes.count)
+}
 
 private final class VisibleWindow: NSWindow {
     override var occlusionState: NSWindow.OcclusionState { .visible }
@@ -20,7 +27,7 @@ final class CanvasClockAudioTests: XCTestCase {
             childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 },
             errorPtr: { nil }, wantsInput: nil, input: nil, messages: nil,
-            published: nil, agent: nil, outPtr: nil)
+            published: nil, agent: { _, _, _ in replyLength }, outPtr: { UnsafePointer(replyBuffer) })
         m.period = { periods.append($0) }
         m.lifecycle = { _, code in events.append(code) }
         return m
@@ -142,5 +149,66 @@ final class CanvasClockAudioTests: XCTestCase {
         XCTAssertTrue(s.canvases.lifecycle.hidden)
         XCTAssertEqual(events.last, 0)
     }
+    func testQuantizerNeverExceedsDisplayMaximumAndRepublishesStableClass() {
+        var p = DisplayPeriod(), sent: [Double] = []
+        for _ in 0..<3 { p.publish(1000 / 60, maximum: 60) { sent.append($0) } }
+        for _ in 0..<6 { p.publish(10, maximum: 60) { sent.append($0) } }
+        XCTAssertEqual(sent.count, 9)
+        XCTAssertEqual(p.value, 1000 / 60)
+        for _ in 0..<10 { p.publish(1000 / 60, maximum: 60) { sent.append($0) } }
+        XCTAssertEqual(sent.count, 19)
+        XCTAssertEqual(sent.last!, 1000 / 60)
+    }
+    func testRecoveryBroadcastsToTwoLiveSessionsAndLatchesFirstSilentGesture() {
+        let a = session(module()), b = session(module()), wa = window(a), wb = window(b)
+        defer { wa.orderOut(nil); wb.orderOut(nil); a.destroy(); b.destroy() }
+        var ac = 0, bc = 0
+        let first = CanvasLifecycle(a.canvases, activate: { ac += 1; return true })
+        let second = CanvasLifecycle(b.canvases, activate: { bc += 1; return true })
+        first.interruption(began: true, shouldResume: false)
+        second.interruption(began: true, shouldResume: false)
+        first.interruption(began: false, shouldResume: false)
+        second.interruption(began: false, shouldResume: false)
+        defer { first.interruption(began: false, shouldResume: true) }
+        second.requestAudio(userInitiated: false)
+        first.gesture()
+        XCTAssertEqual(ac, 0, "permission alone never activates a silent surface")
+        XCTAssertEqual(bc, 1, "recovery reaches the other live owner")
+        first.requestAudio(userInitiated: false)
+        XCTAssertEqual(ac, 1, "the first gesture was retained before wantsAudio")
+    }
+    func testBindUsesTheSessionCommitClock() {
+        let m = module(), s = session(m)
+        defer { s.destroy() }
+        m.bindAt = { _, _, _, at in periods.append(at); return 0 }
+        s.clock = 1234.5; periods = []
+        XCTAssertEqual(s.canvases.bindSurface(m, s.canvases.entries[100]!), 0)
+        XCTAssertEqual(periods, [1234.5])
+    }
+    func testDeferredRestoreRetainsCarrierUntilCommitAndReportsLateRefusalOnce() {
+        for refused in [true, false] {
+            let m = module(), s = session(m)
+            defer { s.destroy() }
+            let c = s.canvases, e = c.entries[100]!
+            m.restore = { _, _, _, _ in true }
+            m.carry = { _ in 0 }
+            c.worldInput.bytes = Data([1, 2, 3])
+            restoreState(false)
+            c.restoreWorld(m, e)
+            XCTAssertEqual(c.worldInput.bytes, Data([1, 2, 3]))
+            if refused {
+                c.finishRestore(m, e, refusal: "invalid save")
+                c.finishRestore(m, e, refusal: "invalid save")
+                XCTAssertEqual(c.restoreJournal.count, 1)
+                XCTAssertTrue(e.restoreError!.contains("invalid save"))
+                XCTAssertNotNil(c.worldInput.bytes)
+            } else {
+                restoreState(true); c.finishRestore(m, e)
+                XCTAssertNil(c.worldInput.bytes)
+                XCTAssertNil(e.restoreError)
+            }
+        }
+    }
+
 }
 #endif

@@ -56,6 +56,8 @@ final class GpuModule {
     typealias LoadFn = @convention(c) () -> UInt32
     typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UInt32, UInt32) -> UInt32
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias BindAtFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, Double) -> UInt32
+    var bindAt: BindAtFn?
     typealias RenderFn = @convention(c) (UInt32, Float, Float, Float, Double) -> UInt32
     typealias DirtyFn = @convention(c) (UInt32) -> UInt32
     typealias DestroyFn = @convention(c) (UInt32) -> Void
@@ -147,6 +149,7 @@ final class GpuModule {
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
+        module.bindAt = sym("gpu_bind_at", BindAtFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         if ExactEnv.agentMode { sym("gpu_seekable", SeekableFn.self)?(true) }
@@ -206,17 +209,25 @@ final class GpuModule {
 
 /// Display-link cadence policy shared by AppKit and UIKit.
 struct DisplayPeriod {
+    private static let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
     private(set) var value = 0.0
     private var candidate = 0.0
     private var samples = 0
+    private var maximumHeld = 0.0
+    private var lower = 0.0, upper = Double.infinity
     mutating func publish(_ ms: Double, maximum: Double, send: (Double) -> Void) {
         // gpu_period belongs to the shared module, not this session. Even zero
         // must replace another session's known cadence before this one's render.
         defer { send(value) }
         guard ms.isFinite, ms > 0, maximum.isFinite, maximum > 0 else { return }
-        let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
-        let candidates = rates.map { 1000 / $0 } + (1...12).map { 1000 * Double($0) / maximum }
-        let next = candidates.min { abs($0 - ms) < abs($1 - ms) }!
+        if value > 0, maximum == maximumHeld, ms >= lower, ms <= upper {
+            candidate = 0; samples = 0
+            return
+        }
+        var next = 1000 / maximum
+        func consider(_ period: Double) { if abs(period - ms) < abs(next - ms) { next = period } }
+        for rate in Self.rates where rate <= maximum { consider(1000 / rate) }
+        for divisor in 1...12 { consider(1000 * Double(divisor) / maximum) }
         // Cross the midpoint by 1% of the held class before considering a change.
         guard next != value,
               value == 0 || abs(ms - next) + value * 0.01 < abs(ms - value) else {
@@ -225,6 +236,15 @@ struct DisplayPeriod {
         }
         if next == candidate { samples += 1 } else { candidate = next; samples = 1 }
         // The first class needs the same persistence as subsequent classes.
-        if samples >= 3 { value = next; candidate = 0; samples = 0 }
+        if samples >= 3 {
+            value = next; candidate = 0; samples = 0
+            maximumHeld = maximum; lower = 0; upper = .infinity
+            func boundary(_ period: Double) {
+                if period < value { lower = max(lower, (period + value) / 2 - value * 0.005) }
+                if period > value { upper = min(upper, (period + value) / 2 + value * 0.005) }
+            }
+            for rate in Self.rates where rate <= maximum { boundary(1000 / rate) }
+            for divisor in 1...12 { boundary(1000 * Double(divisor) / maximum) }
+        }
     }
 }

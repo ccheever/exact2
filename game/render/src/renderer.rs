@@ -11,9 +11,9 @@ use exact_gpu::wgpu;
 use glam::Vec3;
 use std::ops::Range;
 
-struct Mesh {
+pub(crate) struct Mesh {
     indices: Range<u32>,
-    base_vertex: i32,
+    pub(crate) base_vertex: i32,
     center: Vec3,
 }
 
@@ -26,7 +26,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) models: crate::models::Models,
     model_batches: Vec<Option<crate::MaterialId>>,
     slot_list: Vec<u32>,
-    uniform: wgpu::Buffer,
+    pub(crate) uniform: wgpu::Buffer,
     transforms: [Buffer; 2],
     current: usize,
     materials: Buffer,
@@ -34,7 +34,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     scene_binds: [wgpu::BindGroup; 2],
     vertices: Buffer,
     indices: Buffer,
-    meshes: Vec<Mesh>,
+    pub(crate) meshes: Vec<Mesh>,
     batches: Vec<Batch>,
     targets: Targets,
     counts: Stats,
@@ -396,6 +396,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
         }
         let mut encoder = device.create_command_encoder(&Default::default());
+        if ASSETS {
+            if let Some(skin) = &self.models.skinning {
+                skin.encode(&mut encoder, frame.timestamps);
+            }
+        }
         let mut extra_draws = 0;
         if let Some(shadows) = &self.shadows {
             for i in 0..shadows.count as usize {

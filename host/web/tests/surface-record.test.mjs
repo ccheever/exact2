@@ -176,6 +176,7 @@ test('bootstrap restores pending bytes before staging its first render', async (
   let restored = false;
   const f = await fixture({loadFail:true, nextGpu:{
     gpu_restore(){restored=true;return true;},
+    gpu_agent:()=>JSON.stringify({world:{restored}}),
     gpu_render(){assert.ok(restored, 'render preceded pending restore');return 0;},
   }});
   f.exact.worldCarry = new Uint8Array([7]); f.create(1);

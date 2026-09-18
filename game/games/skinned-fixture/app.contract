@@ -1,0 +1,22 @@
+shape Hud
+  motion: string
+  tick: number
+
+component SmallGame
+  state playing = false
+  resource hud = exactSurface("world") as shape Hud
+  action play writes playing
+    playing = true
+  view
+    main width="100%" height="100%" background-color="#202731" color="#ffffff"
+      when playing
+        canvas surface=world(0) testId="world" width="100%" height="100%" position="relative"
+          column position="absolute" top=24 left=24 gap=6 padding=16 background-color="#202731"
+            text "FOX / LOCAL POSES" font-size=20
+            text `${hud.motion} · tick ${hud.tick}` testId="hud-state" aria-live="polite"
+      else
+        column height="100%" align-items="center" justify-content="center" gap=24
+          text "A fox in motion" font-size=48
+          text "Survey → walk / run · a saved transition, a named socket" font-size=18
+          button press=play autofocus testId="play" padding=16 background-color="#e8ad61"
+            text "Play" font-size=20 color="#202731"

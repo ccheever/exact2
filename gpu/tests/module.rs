@@ -759,3 +759,114 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
     module.lose_device();
     assert_eq!(module.take_assets(id).len(), 256);
 }
+
+#[test]
+fn retirement_reissues_live_dependencies_in_the_same_drain() {
+    use exact_gpu::{Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Retiring {
+        phase: u8,
+        retire: bool,
+    }
+    impl Surface for Retiring {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn assets(&mut self) -> Vec<String> {
+            self.phase += 1;
+            if self.phase == 1 || self.phase == 4 {
+                vec!["live.tex".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn retired_assets(&mut self) -> Vec<String> {
+            if self.phase == 3 && !self.retire {
+                self.retire = true;
+                vec!["gone.model".into(), "live.tex".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("retiring", 0, || Box::<Retiring>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let id = module.create_headless("retiring").unwrap();
+    module.bind(id, &[], None);
+    assert_eq!(module.take_assets(id), ["live.tex"]);
+    assert!(module.asset(id, "live.tex", Ok(&[])));
+    assert!(module.take_assets(id).is_empty());
+    assert_eq!(module.take_assets(id), ["live.tex"]);
+    assert_eq!(module.take_retired_assets(id), ["gone.model", "live.tex"]);
+    assert!(module.take_retired_assets(id).is_empty());
+}
+
+#[test]
+fn every_render_prepares_retained_assets_before_surface_readiness() {
+    use exact_gpu::{fixture, Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Retained {
+        prepared: bool,
+    }
+    impl Surface for Retained {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn device_lost(&mut self) {
+            self.prepared = false;
+        }
+        fn prepare_assets(&mut self, _: &wgpu::Device, _: &wgpu::Queue, _: wgpu::TextureFormat) {
+            self.prepared = true;
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            assert!(
+                self.prepared,
+                "retained textureless content was not prepared before render"
+            );
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("retained", 0, || Box::<Retained>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let Ok(gpu) = fixture::device() else { return };
+    module.set_gpu(gpu);
+    let id = module.create_headless("retained").unwrap();
+    assert!(module.bind(id, &[], None));
+    let frame = Frame {
+        width: 8.,
+        height: 8.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    assert!(module.readback(id, &frame).is_some());
+    module.lose_device();
+    module.set_gpu(fixture::device().unwrap());
+    assert!(module.readback(id, &frame).is_some());
+}

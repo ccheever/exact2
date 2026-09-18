@@ -113,6 +113,17 @@ impl Perf {
     pub fn armed(&self) -> bool {
         !self.frame.values.is_empty()
     }
+    pub fn arm(&mut self) {
+        for r in [
+            &mut self.frame,
+            &mut self.tick,
+            &mut self.feed,
+            &mut self.encode,
+            &mut self.ticks,
+        ] {
+            r.values.resize(16384, 0.0);
+        }
+    }
     pub fn reset(&mut self) {
         for r in [
             &mut self.frame,

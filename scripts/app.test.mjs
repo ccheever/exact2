@@ -87,7 +87,7 @@ function fixture(body) {
   };
   try {
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
-    const deps = ['exact-game','exact-game-render','exact-game-app','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
+    const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","games/*/logic",".shells/*","ordinary/*"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
@@ -150,16 +150,16 @@ test('missing game entry refuses by key at resolve time', () => fixture(({app, d
   assert.throws(app, /app.json.*game|game.*required/);
 }));
 
-test('misspelled game.type refuses by key at resolve time', () => fixture(({app, dir, write}) => {
+test('game.type exports are checked by Rust compilation, not app resolution', () => fixture(({app, dir, write}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
   write('game/games/foo/app.json',JSON.stringify({...manifest,game:{...manifest.game,type:'SmallGmae'}}));
-  assert.throws(app, /game.type.*SmallGmae/);
+  assert.ok(app().hasGpu);
 }));
 
-test('game.type validates module paths and accepts public exports from module files', () => fixture(({app, dir, write}) => {
+test('game.type module paths resolve before Rust checks the referenced export', () => fixture(({app, dir, write}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
   write('game/games/foo/app.json',JSON.stringify({...manifest,game:{...manifest.game,type:'play::SmallGame'}}));
-  assert.throws(app, /game.type.*play::SmallGame/);
+  assert.ok(app().hasGpu);
   write('game/games/foo/logic/src/lib.rs', 'pub mod play;');
   write('game/games/foo/logic/src/play.rs', 'pub struct SmallGame;');
   assert.ok(app().hasGpu);

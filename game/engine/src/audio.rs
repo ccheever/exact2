@@ -483,7 +483,6 @@ impl Play<'_> {
     pub fn at(mut self, entity: Entity) -> Self {
         let voice = &mut self.voice;
         voice.at = At::Entity(entity);
-        voice.position = self.world.global(entity).map(|t| t.translation.into());
         self
     }
     /// Play at a fixed position.
@@ -536,6 +535,18 @@ impl Play<'_> {
         id
     }
 }
+// Snapshot voices when removing their entity, after all author borrows end.
+pub(crate) fn detach(world: &World, entity: Entity) {
+    if world.has_audio() {
+        let mut voices = world.resource_mut::<Voices>();
+        for voice in &mut voices.voices {
+            if matches!(voice.at, At::Entity(e) if e == entity) {
+                voice.position = world.current_global(entity).map(|t| t.translation.into());
+            }
+        }
+    }
+}
+
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
@@ -827,6 +838,7 @@ mod authoring_regression {
             AudioSource::new("chime").gain(0.3),
         ));
         let shared: &World = &world;
+        let _pose = shared.get_mut::<crate::Transform>(entity).unwrap();
         let source = shared.get_mut::<AudioSource>(entity).unwrap();
         assert!(source.playing);
         assert_eq!(source.gain, 0.3);

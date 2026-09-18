@@ -134,3 +134,39 @@ fn cli_and_shell_encoding_share_the_carrier_limit() {
     let error = exact_game_bake::check_size("huge.model", 64 * 1024 * 1024 + 1).unwrap_err();
     assert!(error.contains("huge.model") && error.contains("64 MiB"));
 }
+
+#[test]
+fn content_equal_without_ownership_never_adopts_authored_output() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    fs::remove_file(app.join(".baked-assets.json")).unwrap();
+    let error = exact_game_bake::bake_art(&app).unwrap_err();
+    assert!(error.contains("authored"), "{error}");
+    fs::write(app.join(".baked-assets.json"), r#"{"crate.model":"stale"}"#).unwrap();
+    assert!(exact_game_bake::bake_art(&app)
+        .unwrap_err()
+        .contains("authored"));
+    fs::remove_dir_all(app).unwrap();
+}
+#[test]
+fn legacy_manifest_adopts_only_equal_listed_outputs_and_keeps_unknown_old_bytes() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    fs::write(app.join("assets/old.tex"), b"cannot prove ownership").unwrap();
+    fs::write(
+        app.join(".baked-assets.json"),
+        r#"["crate.model","crate/0-srgb-straight.tex","old.tex"]"#,
+    )
+    .unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(fs::read_to_string(app.join(".baked-assets.json"))
+        .unwrap()
+        .starts_with('{'));
+    assert_eq!(
+        fs::read(app.join("assets/old.tex")).unwrap(),
+        b"cannot prove ownership"
+    );
+    fs::remove_dir_all(app).unwrap();
+}

@@ -95,6 +95,8 @@ fn primitive_module_refuses_model_by_name_at_bind() {
     let mut surface = WorldSurface::<Art>::default();
     let error = surface.bind(&[], None).unwrap_err();
     assert!(error.0.contains("crate.model") && error.0.contains("game.assets"));
+    assert!(surface.bind(&[], None).is_err());
+    assert!(surface.sim().is_none());
 }
 
 #[test]
@@ -228,4 +230,88 @@ fn replacement_device_draws_identical_pixels() {
     }
     let (after, _) = fixture::render(&replacement, &mut surface, &frame).unwrap();
     assert_eq!(before.data, after.data);
+}
+
+#[test]
+fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss() {
+    use exact_game::{Actions, Camera};
+    use exact_gpu::{Module, Registry};
+    struct Pair;
+    impl Game for Pair {
+        const ID: &'static str = "retirement-pair";
+        const ASSETS: &'static [&'static str] = &["a.model", "b.model"];
+        type Args = ();
+        fn actions() -> Actions {
+            Actions::new().button("retire", &["KeyR"])
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("a", (Transform::at(100., 0., 0.), Mesh::asset("a.model")));
+            w.spawn((Transform::default(), Mesh::asset("b.model")));
+            w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            if i.held("retire") {
+                if let Some(e) = w.named("a") {
+                    w.despawn(e);
+                }
+            }
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("world", 0, || {
+            Box::<WorldSurface<Pair, (), true>>::default()
+        })],
+        shaders: &[],
+    };
+    let Ok(gpu) = fixture::device() else { return };
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../games/asset-fixture/art/crate.gltf");
+    let (mut model, _) = exact_game_bake::assets(&path).unwrap();
+    model.textures.clear();
+    for material in &mut model.materials {
+        *material = Default::default();
+    }
+    let bytes = bin::to_vec(&model);
+    let mut module = Module::new(&REGISTRY);
+    module.set_gpu(gpu);
+    module.set_seekable(true);
+    let id = module.create_headless("world").unwrap();
+    assert!(module.bind(id, &[], None));
+    assert_eq!(module.take_assets(id), ["a.model", "b.model"]);
+    for name in ["a.model", "b.model"] {
+        assert!(module.asset(id, name, Ok(&bytes)));
+    }
+    let mut frame = Frame {
+        width: 64.,
+        height: 64.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let (before, _) = module.readback(id, &frame).unwrap();
+    assert!(
+        before.data.chunks_exact(4).any(|p| p != &before.data[..4]),
+        "model must have visible pixels"
+    );
+    assert!(module.input_json(
+        id,
+        r#"{"t":"key","code":"KeyR","key":"r","down":true,"repeat":false,"at":1}"#
+    ));
+    module.agent(id, r#"{"op":"clock","now":17}"#);
+    assert!(
+        module.take_assets(id).is_empty(),
+        "textureless model needs no delivery to prepare"
+    );
+    assert_eq!(module.take_retired_assets(id), ["a.model"]);
+    frame.now_ms = 17.;
+    let (retired, _) = module.readback(id, &frame).unwrap();
+    assert_eq!(before.data, retired.data, "retire A while B remains");
+    module.lose_device();
+    module.set_gpu(fixture::device().unwrap());
+    assert!(module.take_assets(id).is_empty());
+    let (recovered, _) = module.readback(id, &frame).unwrap();
+    assert_eq!(before.data, recovered.data, "textureless module recovery");
 }

@@ -164,3 +164,23 @@ describe('the paced frame clock', () => {
     steps.forEach(now => expect(pace(now)).toBeCloseTo(now, 6));
   });
 });
+test('jittered harmonic transitions retain a provisional lattice delta by delta', () => {
+  for (const [from, to] of [[60,120], [120,60]]) for (const seed of [7,11,19]) {
+    const pace = pacer(), random = lcg(seed);
+    let at = 0, previous;
+    for (let i=0;i<800;i++) previous = pace((at += 1000/from) + random()*2);
+    for (let i=0;i<100;i++) {
+      const next = pace((at += 1000/to) + random()*2);
+      expect(Math.abs(next - previous - 1000/to)).toBeLessThan(0.08);
+      previous = next;
+    }
+    expect(Math.abs(pace.period_ms - 1000/to)).toBeLessThan(0.03);
+  }
+});
+test('one 3 ms callback retains the old 120 Hz lattice', () => {
+  const pace=pacer();
+  for(let i=0;i<=400;i++) pace(i*P120);
+  pace(400*P120+3);
+  for(let i=401;i<430;i++) expect(Math.abs(pace(i*P120+1)-i*P120)).toBeLessThan(0.7);
+  expect(pace.period_ms).toBeCloseTo(P120, 6);
+});

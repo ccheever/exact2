@@ -32,7 +32,7 @@ impl Assets {
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;
             }
-            for &(geometry, material, local) in nodes {
+            for &(geometry, material, local, skin) in nodes {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
                 self.entities.push(entity);
                 self.records.push(DrawInstance {
@@ -40,6 +40,7 @@ impl Assets {
                     geometry,
                     material,
                     local,
+                    skin,
                 });
                 self.groups
                     .entry((geometry, material, local.determinant() < 0.))

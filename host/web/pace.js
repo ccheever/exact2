@@ -17,7 +17,7 @@
 // goes through here.
 export function pacer({ window = 256, gain = 0.02 } = {}) {
   let origin = null, period = null, last = null, misfit = 0, paced = -Infinity;
-  let displayPeriod = 0, skipped = 0;
+  let displayPeriod = 0, skipped = 0, half = null;
   let deltas = [];
   // The paced clock never runs backwards: a callback that lands before the last
   // slot (a callback delivered early, a bootstrap sample) redraws at that slot.
@@ -30,14 +30,32 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
   return pace;
   function step(now) {
     if (last === null) { last = origin = now; return now; }
+    if (half !== null) {
+      const interval = now - half;
+      if (interval > period * 0.25 && interval < period * 0.75) {
+        // Two short intervals confirm the provisional half-period lattice.
+        // Retain its fitted phase and history instead of exposing raw jitter.
+        last = half;
+        origin += period / 2;
+        period /= 2;
+        deltas = deltas.map(d => d / 2);
+        misfit = skipped = 0;
+        publish();
+      }
+      half = null;
+    }
     const delta = now - last;
     if (delta <= 0) return paced;
     // Ignore duplicate/very early callbacks without contaminating the next delta.
     if (period !== null && delta < period * 0.25) return paced;
+    // The first short callback is ambiguous: keep the old lattice intact and
+    // show its half slot provisionally. A lone compositor callback cannot reset
+    // acquisition. Phase, rather than delta alone, tolerates 0–2 ms of jitter.
+    if (period !== null && delta < period * 0.75 && now - origin < period * 0.75) {
+      half = now;
+      return origin + period / 2;
+    }
     last = now;
-    // A half-period callback belongs to a faster display, not the next old slot.
-    // Keep the published period while reacquiring from raw monotonic timestamps.
-    if (period !== null && delta < period * 0.6) { acquire(now); return now; }
     if (period === null) {
       deltas.push(delta);
       if (deltas.length < 16) return now;
@@ -47,7 +65,7 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
       origin = now;
       return now;
     }
-    const k = Math.round((now - origin) / period);
+    let k = Math.round((now - origin) / period);
     if (k < 1) return now;
     const slot = origin + k * period, residual = now - slot;
     // A lattice that fits leaves residuals well inside a slot; one that does not
@@ -58,7 +76,12 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
     // must not keep resetting the window before it can publish. Reacquire only
     // when recent intervals also disagree with the fitted rate.
     const changed = deltas.length >= 16 && Math.abs(median(deltas.slice(-16)) - period) > period * 0.05;
-    if ((misfit > 1 / 6 && changed) || skipped >= 32) { acquire(now); return now; }
+    if (skipped >= 32 && k === 2) {
+      // A sustained double-slot cadence is already paced correctly. Promote
+      // that lattice without throwing away the phase during reacquisition.
+      period *= 2; deltas = deltas.map(d => d * 2); k = 1;
+      skipped = misfit = 0; publish();
+    } else if ((misfit > 1 / 6 && changed) || skipped >= 32) { acquire(now); return now; }
     if (Math.abs(residual) <= period / 2) {
       // Include harmonic samples; a sustained k>1 run reacquires the raw cadence.
       // A lone missed slot remains a stall, not a slower display.
@@ -76,7 +99,7 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
     if (!displayPeriod || Math.abs(period - displayPeriod) > displayPeriod * 0.01) displayPeriod = period;
   }
   function acquire(now) {
-    period = null; deltas = []; misfit = skipped = 0; origin = now;
+    period = null; deltas = []; misfit = skipped = 0; half = null; origin = now;
   }
 }
 

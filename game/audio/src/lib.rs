@@ -206,6 +206,7 @@ pub struct Player<O: Output> {
     revisions: Vec<u64>,
     pcm: Vec<Arc<[f32]>>,
     active: BTreeMap<Key, Active>,
+    refused_sources: std::collections::BTreeSet<(exact_game::Entity, String)>,
     next_id: u64,
     transport: Option<Transport>,
 }
@@ -220,6 +221,7 @@ impl<O: Output> Player<O> {
             revisions: Vec::new(),
             pcm: Vec::new(),
             active: BTreeMap::new(),
+            refused_sources: Default::default(),
             next_id: 0,
             transport: None,
         }
@@ -266,6 +268,11 @@ impl<O: Output> Player<O> {
                 .unwrap_or((0.0, 0.0));
             (audio::gain(l), audio::gain(r))
         };
+        self.refused_sources.retain(|(e, name)| {
+            world
+                .get::<AudioSource>(*e)
+                .is_some_and(|s| s.sound == *name)
+        });
         let wanted = &mut self.wanted;
         wanted.clear();
         if world.has_audio() && effective.playing {
@@ -290,7 +297,12 @@ impl<O: Output> Player<O> {
             for (e, source) in world.query::<&AudioSource>().iter() {
                 if source.playing {
                     if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
-                        assert!(synth.looping, "AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound);
+                        if !synth.looping {
+                            if self.refused_sources.insert((e, source.sound.clone())) {
+                                world.log(format!("refusal: AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound));
+                            }
+                            continue;
+                        }
                         wanted.push(Wanted {
                             preferred: false,
                             key: Key::Source(e),

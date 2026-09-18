@@ -155,6 +155,18 @@ fn unused_and_excessive_texture_lists_refuse() {
         ..Default::default()
     };
     assert!(model.validate().unwrap_err().contains("64"));
+    let model = asset::Model {
+        textures: vec!["orphan.tex".into()],
+        materials: vec![asset::MaterialData {
+            base_color_texture: Some(0),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(model
+        .validate()
+        .unwrap_err()
+        .contains("unused texture `orphan.tex`"));
 }
 
 struct TextureDeclaration;
@@ -277,12 +289,38 @@ fn declared_delivery_state_retires_but_simulation_data_is_stable() {
 }
 
 #[test]
-fn saving_a_cosmetic_pending_or_failed_asset_is_a_named_refusal() {
+fn saving_a_pending_cosmetic_refuses_but_failed_cosmetics_do_not_gate() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    sim.asset_failed("late.model", "missing cosmetic");
     sim.world_mut()
         .spawn((Transform::default(), Mesh::asset("save.model")));
     assert!(sim.take_assets().contains(&"save.model".to_owned()));
     assert!(sim.save().unwrap_err().to_string().contains("save.model"));
     sim.asset_failed("save.model", "missing file");
-    assert!(sim.save().unwrap_err().to_string().contains("save.model"));
+    assert!(sim.save().is_ok(), "failed cosmetics do not block saving");
+}
+
+#[test]
+fn save_readiness_tracks_current_meshes_without_request_drain() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    let e = sim.world().named("late").unwrap();
+    assert!(sim.save().unwrap_err().to_string().contains("late.model"));
+    sim.take_assets();
+    sim.world_mut().despawn(e);
+    assert!(sim.save().is_ok());
+}
+
+#[test]
+fn failed_cosmetic_dependencies_do_not_gate_a_save() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    let mut model: asset::Model =
+        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
+    model.textures.push("still-pending.tex".into());
+    model.materials[0].normal_texture = Some(1);
+    sim.asset("late.model", Some(&bin::to_vec(&model))).unwrap();
+    sim.asset_failed(&model.textures[0], "cosmetic missing");
+    assert!(
+        sim.save().is_ok(),
+        "a failed cosmetic cannot block on its other textures"
+    );
 }

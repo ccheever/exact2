@@ -52,6 +52,14 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
+        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
+        let now = session?.now() ?? 0
+        return data.withUnsafeBytes { bytes in
+            if let bindAt = m.bindAt { return bindAt(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, now) }
+            return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
+        }
+    }
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
               session?.presenter.views[id] === e.view else { return nil }
@@ -68,11 +76,25 @@ extension Canvases {
             guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
         }
         let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) ?? false }
-        if ok { worldInput.bytes = nil }
-        else {
-            e.restoreError = "surface \(e.name): restore refused: \(m.error())"
+        e.restorePending = true
+        finishRestore(m, e, refusal: ok ? nil : m.error())
+    }
+
+    func finishRestore(_ m: GpuModule, _ e: Entry, refusal: String? = nil) {
+        guard e.restorePending else { return }
+        if let refusal {
+            e.restorePending = false
+            e.restoreError = "surface \(e.name): restore refused: \(refusal)"
             restoreJournal.append(["canvas": e.view.id, "lines": [e.restoreError!]])
+            return
         }
+        let request = Array("{\"op\":\"state\"}".utf8)
+        let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
+        guard let data = m.output(length),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let world = reply["world"] as? [String: Any], world["restored"] as? Bool == true else { return }
+        e.restorePending = false
+        worldInput.bytes = nil
     }
 
     func restoreReply(_ reply: [String: Any]) -> [String: Any] {
@@ -150,10 +172,13 @@ extension Canvases {
                         }
                         return deliver(e.id, chars.baseAddress, chars.count, nil, 0)
                     }
-                    if !ok { fputs("exact gpu: \(m.error())\n", stderr) }
+                    let error = ok ? nil : m.error()
+                    if let error { fputs("exact gpu: \(error)\n", stderr) }
+                    finishRestore(m, e, refusal: error)
                 }
             }
         }
+        if let m = module { finishRestore(m, e) }
         if live(e.view.id) === e, publishers[e.name] === e, let m = module, let take = m.published {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
@@ -387,6 +412,7 @@ private enum CanvasAudio {
 
 /// Every canvas gets notifications even when its session uses the agent clock.
 final class CanvasLifecycle: NSObject {
+    nonisolated(unsafe) private static let live = NSHashTable<CanvasLifecycle>.weakObjects()
     weak var owner: Canvases?
     private(set) var hidden: Bool
     private var interrupted: Bool
@@ -402,6 +428,7 @@ final class CanvasLifecycle: NSObject {
         interrupted = CanvasAudio.interrupted || CanvasAudio.resumeBlocked
         resumeAllowed = !interrupted
         super.init()
+        Self.live.add(self)
         let center = NotificationCenter.default
         #if os(macOS)
         for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification,
@@ -456,15 +483,27 @@ final class CanvasLifecycle: NSObject {
         }
     }
     func gesture() {
-        if wantsAudio { requestAudio() }
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            if !CanvasAudio.interrupted { Self.allowRecovery(excluding: self) }
+            if self.wantsAudio { self.retryActivation() }
+        }
+    }
+    private static func allowRecovery(excluding trigger: CanvasLifecycle) {
+        precondition(Thread.isMainThread)
+        let blocked = CanvasAudio.resumeBlocked
+        CanvasAudio.resumeBlocked = false
+        for lifecycle in live.allObjects {
+            lifecycle.resumeAllowed = true
+            if blocked && lifecycle !== trigger { lifecycle.retryActivation() }
+        }
     }
     func requestAudio(userInitiated: Bool = true) {
         onMain { [weak self] in
             guard let self, !ExactEnv.agentMode else { return }
             self.wantsAudio = true
             if userInitiated && !CanvasAudio.interrupted {
-                CanvasAudio.resumeBlocked = false
-                self.resumeAllowed = true
+                Self.allowRecovery(excluding: self)
             }
             // Automatic surface requests neither bypass no-resume nor the cooldown.
             if userInitiated || self.retryFrames == 0 { self.retryActivation() }
@@ -481,8 +520,7 @@ final class CanvasLifecycle: NSObject {
         if next { CanvasAudio.active = false }
         if next != hidden { hidden = next; send(hidden ? 0 : 1, excluding: id) }
         if becameVisible && !CanvasAudio.interrupted {
-            CanvasAudio.resumeBlocked = false
-            resumeAllowed = true
+            Self.allowRecovery(excluding: self)
         }
         if becameVisible || retryFrames == 0 { retryActivation(excluding: id) }
     }

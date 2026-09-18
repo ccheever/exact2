@@ -27,6 +27,7 @@ const ready = new Promise((resolve) => { finishReady = resolve; });
 
 // Three attempts, at most 5s each, 250/500ms backoff and a 20s total deadline.
 const ASSET_DEADLINE_MS = 20_000;
+const ASSET_LIMIT = 64 * 1024 * 1024;
 const assetFlights = new Set();
 let activeAssetFlights = 0;
 function pumpAssets() {
@@ -44,24 +45,35 @@ function assetName(name) {
     && /^[\x20-\x7e]+$/.test(name) && !name.includes("\\")
     && name.split("/").every(p => p && p !== "." && p !== "..");
 }
-function cancelAssets(entry) {
-  for (const flight of assetFlights) if (flight.entry === entry) {
+function cancelAssets(entry, names) {
+  for (const flight of assetFlights) if (flight.entry === entry && (!names || names.has(flight.name))) {
     flight.cancelled = true; flight.controller.abort();
-    if (!flight.started) { assetFlights.delete(flight); flight.resolve(); }
+    assetFlights.delete(flight);
+    if (!flight.started) flight.resolve();
   }
 }
 function assets(entry) {
   if (!entry.id || !gpu) return;
   const module = gpu, id = entry.id;
-  for (const name of JSON.parse(module.gpu_assets(id))) {
-    const flight = {entry, name, controller:new AbortController(), cancelled:false};
+  const names = JSON.parse(module.gpu_assets(id));
+  cancelAssets(entry, new Set(JSON.parse(module.gpu_retired?.(id) ?? "[]")));
+  for (const name of names) {
+    if ([...assetFlights].some(f => f.entry === entry && f.name === name && !f.cancelled)) continue;
+    if (assetFlights.size >= 256) {
+      module.gpu_asset_failed(id, name, "host limit is 256 queued and active asset flights");
+      continue;
+    }
+    const flight = {entry, name, deadline:performance.now() + ASSET_DEADLINE_MS, controller:new AbortController(), cancelled:false};
     assetFlights.add(flight);
     flight.promise = new Promise(resolve => { flight.resolve = resolve; });
     flight.run = async () => {
       let bytes = null, failure;
-      const deadline = performance.now() + ASSET_DEADLINE_MS;
+      const deadline = flight.deadline;
       if (!assetName(name)) failure = "invalid asset name";
-      else if (exact.devAssets instanceof Map) bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
+      else if (exact.devAssets instanceof Map) {
+        bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
+        if (bytes && bytes.length > ASSET_LIMIT) { bytes = null; failure = "exceeds 64 MiB"; }
+      }
       else for (let attempt = 0; attempt < 3 && !flight.cancelled; attempt++) {
         const left = deadline - performance.now();
         if (left <= 0) { failure = "fetch deadline exceeded"; break; }
@@ -76,11 +88,30 @@ function assets(entry) {
             retry = response.status >= 500;
             throw new Error(`HTTP ${response.status}`);
           }
-          if (Number(response.headers?.get("content-length")) > 64 * 1024 * 1024) { retry = false; throw new Error("exceeds 64 MiB"); }
-          bytes = new Uint8Array(await response.arrayBuffer());
-          if (bytes.length > 64 * 1024 * 1024) { bytes = null; retry = false; throw new Error("exceeds 64 MiB"); }
+          const oversized = async reader => {
+            retry = false;
+            await reader?.cancel();
+            controller.abort();
+            throw new Error("exceeds 64 MiB");
+          };
+          if (Number(response.headers?.get("content-length")) > ASSET_LIMIT) await oversized(response.body?.getReader());
+          const reader = response.body?.getReader(), chunks = [];
+          let length = 0;
+          if (reader) {
+            try {
+              for (;;) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                if (value.byteLength > ASSET_LIMIT - length) await oversized(reader);
+                length += value.byteLength; chunks.push(value);
+              }
+            } finally { reader.releaseLock(); }
+          }
+          bytes = new Uint8Array(length);
+          let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
           failure = undefined; break;
-        } catch (error) { failure = controller.signal.aborted ? "fetch deadline exceeded" : String(error.message ?? error); }
+        } catch (error) { failure = !retry ? String(error.message ?? error) : controller.signal.aborted ? "fetch deadline exceeded" : String(error.message ?? error); }
         finally { clearTimeout(timer); }
         if (!retry || attempt === 2 || flight.cancelled) break;
         const backoff = flight.controller = new AbortController();
@@ -92,11 +123,38 @@ function assets(entry) {
       }
       if (flight.cancelled || gpu !== module || live(entry.view) !== entry || entry.id !== id) return;
       const ok = failure ? module.gpu_asset_failed(id, name, failure) : module.gpu_asset(id, name, bytes);
-      if (!ok) console.error("exact gpu:", module.gpu_error());
+      const error = ok ? undefined : module.gpu_error();
+      if (error) console.error("exact gpu:", error);
+      finishRestore(entry, module, error);
       messages(entry, false); entry.resampleHeld?.(); schedule();
     };
   }
   pumpAssets();
+}
+function reportRestore(entry) {
+  if (!entry.restoreError || entry.restoreReported === entry.restoreError) return;
+  entry.restoreReported = entry.restoreError;
+  restoreJournal.push({canvas:entry.view, error:entry.restoreError});
+  exact.devError?.(entry.restoreError); console.error(entry.restoreError);
+}
+function finishRestore(entry, module, error) {
+  const pending = entry.pendingRestore;
+  if (!pending) return;
+  if (error) {
+    entry.restoreError = `surface ${entry.name}: restore refused: ${error}`;
+    delete entry.pendingRestore;
+    reportRestore(entry);
+    return;
+  }
+  const world = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
+  if (world && !world.restored) return;
+  if (pending.carrier?.worldCarry === pending.bytes) {
+    delete pending.carrier.worldCarry;
+    if (pending.carrier === exact) delete globalThis.exactWorldCarry;
+  }
+  delete entry.pendingRestore; delete entry.attemptedCarry; delete entry.carry;
+  delete entry.restoreError; delete entry.restoreReported;
+  entry.restoredCarry = true;
 }
 async function settled() {
   await ready;
@@ -207,7 +265,11 @@ function create(entry, module, carry) {
   module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
   if (carry !== undefined) {
-    if (module.gpu_restore(entry.id, worldSize(carry), 1)) entry.restoredCarry = true;
+    entry.carry = carry;
+    if (module.gpu_restore(entry.id, worldSize(carry), 1)) {
+      entry.pendingRestore = {bytes:carry};
+      finishRestore(entry, module);
+    }
     else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
   }
 }
@@ -216,10 +278,7 @@ function attach(entry) {
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
-  if (entry.restoreError) {
-    restoreJournal.push({ canvas: entry.view, error: entry.restoreError });
-    exact.devError?.(entry.restoreError); console.error(entry.restoreError);
-  }
+  reportRestore(entry);
   messages(entry); schedule();
 }
 function restorePending(entry, module = gpu, carrier = exact) {
@@ -230,9 +289,8 @@ function restorePending(entry, module = gpu, carrier = exact) {
   }
   entry.attemptedCarry = carrier.worldCarry;
   if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry), 0)) {
-    delete carrier.worldCarry; delete entry.attemptedCarry;
-    if (carrier === exact) delete globalThis.exactWorldCarry;
-    delete entry.restoreError; entry.restoredCarry = true;
+    entry.pendingRestore = {bytes:carrier.worldCarry, carrier};
+    finishRestore(entry, module);
   } else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
 }
 
@@ -240,7 +298,7 @@ function ensure(entry) {
   if (entry.id || !loaded) return;
   try {
     create(entry, gpu, entry.carry);
-    if (!entry.restoreError) delete entry.carry;
+    if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
     restorePending(entry);
   } catch (error) {
     if (entry.id) gpu.gpu_destroy(entry.id);
@@ -281,6 +339,8 @@ function drainRecords() {
 }
 function messages(entry, drainAssets = true) {
   if (drainAssets) assets(entry);
+  finishRestore(entry, gpu);
+  reportRestore(entry);
   const record = gpu.gpu_published(entry.id);
   if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
   const texts = gpu.gpu_messages(entry.id);
@@ -586,6 +646,7 @@ async function swap(version) {
     for (const old of surfaces.values()) {
       const entry = { ...old, el: old.el.cloneNode(false), id: 0, observer: null, unlisten: null };
       delete entry.restoreError; delete entry.attemptedCarry;
+      delete entry.pendingRestore; delete entry.restoreReported;
       staged.push([old, entry]);
       const carry = old.id ? gpu.gpu_carry(old.id) : old.carry;
       if (old.id && carry === undefined) {
@@ -611,6 +672,7 @@ async function swap(version) {
     if (old.id) oldModule.gpu_destroy(old.id);
   }
   oldModule?.gpu_unload(); gpu = next; loaded = true;
+  for (const [, entry] of staged) if (entry.pendingRestore?.carrier === carrier) entry.pendingRestore.carrier = exact;
   exact.gpu.version = version;
   if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
   const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;

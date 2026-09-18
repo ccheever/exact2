@@ -18,6 +18,11 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
 pub fn assets(id: u32) -> String {
     with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
 }
+
+/// Drain cancelled asset names before starting the next delivery batch.
+pub fn retired(id: u32) -> String {
+    with(|m| json::strings(&m.take_retired_assets(id))).unwrap_or_else(|| "[]".into())
+}
 /// Deliver named bytes, including a missing file, without requiring a device.
 pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
     with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
@@ -339,6 +344,10 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_assets(id: u32) -> String {
             $crate::web::assets(id)
+        }
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_retired(id: u32) -> String {
+            $crate::web::retired(id)
         }
         /// Deliver one requested asset, or null/undefined for a missing file.
         #[::wasm_bindgen::prelude::wasm_bindgen]

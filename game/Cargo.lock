@@ -2578,6 +2578,54 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "skinned-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-game-app",
+ "exact-runner",
+]
+
+[[package]]
+name = "skinned-fixture-gpu"
+version = "0.1.0"
+dependencies = [
+ "exact-game-bake",
+ "exact-game-render",
+ "skinned-fixture-logic",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "skinned-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-linux",
+ "exact-runner",
+]
+
+[[package]]
+name = "skinned-fixture-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "exact-game-bake",
+ "exact-game-render",
+]
+
+[[package]]
+name = "skinned-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-runner",
+ "exact-web",
+]
+
+[[package]]
 name = "skrifa"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

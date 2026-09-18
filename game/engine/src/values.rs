@@ -183,14 +183,29 @@ impl RecordWriter {
     }
 }
 impl Writer for RecordWriter {
+    fn unit(&mut self) {
+        self.push(Stored::Unit);
+    }
     fn boolean(&mut self, v: bool) {
         self.push(Stored::Bool(v));
     }
     fn number(&mut self, v: crate::Number) {
         use crate::Number::*;
         self.push(Stored::Number(match v {
-            Unsigned(n) => n as f64,
-            Signed(n) => n as f64,
+            Unsigned(n) => {
+                assert!(
+                    n <= 9_007_199_254_740_991,
+                    "publish_record: integer outside Contract safe range"
+                );
+                n as f64
+            }
+            Signed(n) => {
+                assert!(
+                    (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n),
+                    "publish_record: integer outside Contract safe range"
+                );
+                n as f64
+            }
             F32(n) => n as f64,
             F64(n) => n,
         }));
@@ -243,6 +258,10 @@ impl Writer for RecordWriter {
         self.stack.push(Stored::Option(None));
     }
     fn end_option(&mut self) {
+        assert!(
+            !matches!(self.stack.last(), Some(Stored::Option(Some(v))) if matches!(v.as_ref(), Stored::Unit)),
+            "publish_record: Some(()) is ambiguous with None in Contract JSON"
+        );
         self.end();
     }
 }

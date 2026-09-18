@@ -192,6 +192,19 @@ pub fn assets(
         let mut clip = Clip {
             name: animation.name().unwrap_or("").into(),
             tracks: Vec::new(),
+            markers: animation
+                .extras()
+                .as_ref()
+                .map(|v| {
+                    let value: serde_json::Value =
+                        serde_json::from_str(v.get()).map_err(|e| e.to_string())?;
+                    value
+                        .get("markers")
+                        .map(|v| serde_json::from_value(v.clone()).map_err(|e| e.to_string()))
+                        .unwrap_or(Ok(Vec::new()))
+                })
+                .transpose()?
+                .unwrap_or_default(),
         };
         for channel in animation.channels() {
             let Some(&node) = remap.get(&channel.target().node().index()) else {
@@ -292,14 +305,22 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     if !art.exists() && !manifest.exists() {
         return Ok(());
     }
+    let mut legacy = std::collections::BTreeSet::<String>::new();
     let previous: std::collections::BTreeMap<String, String> = match std::fs::read(&manifest) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).map_err(|e| format!("generated-output manifest: {e}"))?
-        }
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(map) => map,
+            Err(_) => {
+                legacy = serde_json::from_slice::<Vec<String>>(&bytes)
+                    .map_err(|e| format!("generated-output manifest: {e}"))?
+                    .into_iter()
+                    .collect();
+                Default::default()
+            }
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
         Err(e) => return Err(e.to_string()),
     };
-    if previous.keys().any(|n| !asset_name(n)) {
+    if previous.keys().chain(legacy.iter()).any(|n| !asset_name(n)) {
         return Err("invalid generated-output manifest".into());
     }
     let mut outputs = std::collections::BTreeMap::new();
@@ -326,7 +347,8 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         }
         match std::fs::read(root.join(name)) {
             Ok(current)
-                if desired == Some(&current) || previous.get(name) == Some(&digest(&current)) => {}
+                if previous.get(name) == Some(&digest(&current))
+                    || (legacy.contains(name) && desired == Some(&current)) => {}
             Ok(_) => {
                 return Err(format!(
                     "generated asset `{name}` collides with an authored asset"

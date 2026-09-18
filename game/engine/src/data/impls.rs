@@ -283,8 +283,7 @@ macro_rules! tuple {
 }
 impl Data for () {
     fn write(&self, w: &mut dyn Writer) {
-        w.begin_seq(0);
-        w.end_seq();
+        w.unit();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;

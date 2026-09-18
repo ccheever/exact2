@@ -633,9 +633,6 @@ fn refused_start_is_retried_without_a_transport_bump() {
 }
 
 #[test]
-#[should_panic(
-    expected = "AudioSource `finite` requires a looping definition; use World::play for finite sounds"
-)]
 fn finite_attached_sources_refuse_by_name_even_when_created_late() {
     let mut sim = Sim::<SoundGame>::new(()).unwrap();
     sim.advance(0., Clock::Seekable);
@@ -644,5 +641,14 @@ fn finite_attached_sources_refuse_by_name_even_when_created_late() {
     w.resource_mut::<Sounds>()
         .add("finite", Synth::square(440.).seconds(0.1));
     w.spawn((Transform::default(), AudioSource::new("finite")));
-    recording().sync(w, Some(Listener::default()), Default::default());
+    let mut player = recording();
+    player.sync(w, Some(Listener::default()), Default::default());
+    player.sync(w, Some(Listener::default()), Default::default());
+    assert_eq!(
+        w.journal()
+            .iter()
+            .filter(|e| e.line.contains("refusal: AudioSource `finite`"))
+            .count(),
+        1
+    );
 }

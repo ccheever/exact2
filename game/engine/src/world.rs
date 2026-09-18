@@ -173,6 +173,8 @@ pub struct World {
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
+    pub(crate) animation: crate::animation::Runtime,
+    pub(crate) animation_tick: Option<fn(&mut World)>,
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
@@ -217,6 +219,8 @@ impl World {
             published: RefCell::new(BTreeMap::new()),
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
+            animation: Default::default(),
+            animation_tick: None,
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
@@ -233,6 +237,7 @@ impl World {
     }
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
+        crate::animation::register::<C>(self);
         self.register_data::<C>(C::NAME, false)
     }
     /// Register singleton data before loading a save.
@@ -302,6 +307,7 @@ impl World {
         if !self.contains(e) {
             return false;
         }
+        crate::audio::detach(self, e);
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
@@ -412,6 +418,13 @@ impl World {
         if !self.contains(e) {
             return false;
         }
+        if crate::animation::conflicts::<C>(self, e) {
+            self.log(format_args!(
+                "animation #{}: Animation, Blend and Animator are alternatives",
+                e.index()
+            ));
+            return false;
+        }
         // Acquiring a first pose is also a presentation birth, even when an
         // entity was spawned in an earlier tick without a Transform.
         if TypeId::of::<C>() == TypeId::of::<crate::Transform>()
@@ -435,11 +448,23 @@ impl World {
         if !self.contains(e) {
             return None;
         }
-        self.components
+        let removed = self
+            .components
             .get_mut(C::NAME)?
             .any_mut()
             .downcast_mut::<Storage<C>>()?
-            .remove(e.index as usize)
+            .remove(e.index as usize);
+        if removed.is_some()
+            && [
+                TypeId::of::<crate::Animation>(),
+                TypeId::of::<crate::Blend>(),
+                TypeId::of::<crate::Animator>(),
+            ]
+            .contains(&TypeId::of::<C>())
+        {
+            self.remove::<crate::Pose>(e);
+        }
+        removed
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
@@ -671,6 +696,9 @@ impl World {
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
+        if let Some(step) = self.animation_tick {
+            step(self);
+        }
         self.mutated();
         self.in_tick = false;
         self.state.tick = self
@@ -764,6 +792,7 @@ impl World {
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
         next.assets = self.assets.clone();
+        next.animation_tick = self.animation_tick;
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;

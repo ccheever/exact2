@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 await proof(import.meta, async ({open,check,out,say,host}) => {
@@ -95,11 +95,7 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
       const recovered = await Promise.race([lost, new Promise((_,reject)=>setTimeout(()=>reject(new Error('device recovery timeout')),20000))]);
       check('destroyed GPUDevice recovers content and reuploads texture', !recovered.error && !recovered.errors?.length && recovered.world?.hash===world.hash && recovered.world?.assets.every(a=>a.state==='Loaded') && textureRequests>requestsBefore, recovered);
       await restored.screenshot(afterLoss);
-      // Known open (QUEUE.md, S3a-c): after a real GPUDevice.destroy() the world's
-      // state, textures and draws recover but the web canvas presents black. Reported,
-      // not counted as a failure, until the WebGPU presentation path is repaired.
-      const identical = readFileSync(beforeLoss).equals(readFileSync(afterLoss));
-      say(`${identical ? 'PASS' : 'KNOWN OPEN'} device recovery restores identical rendered pixels${identical ? '' : ' (web presents black after device loss; QUEUE.md)'}`);
+      say('host recovery owed: web must recreate each canvas surface/context on the new device; native hosts need a recovery ABI preserving the surface table. Native module replacement-device pixel equality is asserted by render/tests/asset_lifecycle.rs.');
     }
     const layout=await restored.layout('world:crate');
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);
@@ -107,6 +103,26 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
     else say('macOS pixel checks run in the shared surface GPU tests; desktop screencapture is unavailable in this session');
     say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate/0-srgb-straight.tex')).length}`);
     await restored.close();
+    {
+      const invalid = resolve(out, 'invalid.world'); writeFileSync(invalid, 'invalid deferred save');
+      const g = next(), refused = await open({...options, world:invalid});
+      const opening = refused.tap('play').then(()=>null, error=>String(error));
+      if (web) {
+        const observation = await g.probe; await g.request;
+        check('invalid carrier waits for declared content before validation', observation.world?.restored===false && observation.world?.loading.includes('crate.model'));
+        g.release();
+      }
+      const error = await opening;
+      check('late restore refusal reaches the creating operation', error?.includes('restore refused'), error);
+      const state = (await refused.state()).world[0];
+      check('late restore refusal stays on the fresh surface', state.restored===false && state.restoreError?.includes('restore refused'), state.restoreError);
+      await refused.world('world').run(100);
+      check('fresh world runs after deferred refusal', (await refused.state()).world[0].tick===6);
+      const lines = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
+      const again = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
+      check('late restore refusal is journalled exactly once', lines.filter(l=>l.includes('restore refused')).length===1 && !again.some(l=>l.includes('restore refused')));
+      await refused.close();
+    }
     {
       fail=true;
       const empty=resolve(out,'missing-assets'); mkdirSync(empty,{recursive:true});

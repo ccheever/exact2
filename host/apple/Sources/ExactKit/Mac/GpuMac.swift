@@ -51,6 +51,7 @@ final class Canvases {
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
+        var restorePending = false
         var restoreError: String?
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.
@@ -290,10 +291,9 @@ final class Canvases {
     }
 
     private func bindNow(_ m: GpuModule, _ e: Entry) {
-        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return }
-        let bytes = [UInt8](data)
-        if bytes.withUnsafeBufferPointer({ m.bind(e.id, $0.baseAddress, bytes.count) }) != 0 {
+        if bindSurface(m, e) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
+            return
         }
         restoreWorld(m, e)
         messages(e)

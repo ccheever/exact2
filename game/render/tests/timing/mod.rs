@@ -127,7 +127,7 @@ impl Queries {
         let buffer = |usage| {
             gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("game timing read"),
-                size: 256,
+                size: 272,
                 usage,
                 mapped_at_creation: false,
             })
@@ -139,7 +139,7 @@ impl Queries {
         })
     }
 
-    fn read(&self, gpu: &Gpu) -> [f64; 17] {
+    fn read(&self, gpu: &Gpu) -> [f64; 18] {
         // This diagnostic resolves in a separate submission. On Metal, counter
         // samples are not texture/buffer hazards: wait for fragment completion
         // before resolving, or the trailing samples can still be zero.
@@ -147,8 +147,8 @@ impl Queries {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        encoder.resolve_query_set(&self.set, 0..32, &self.resolve, 0);
-        encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.read, 0, 256);
+        encoder.resolve_query_set(&self.set, 0..34, &self.resolve, 0);
+        encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.read, 0, 272);
         gpu.queue.submit([encoder.finish()]);
         let (tx, rx) = std::sync::mpsc::channel();
         self.read
@@ -163,11 +163,11 @@ impl Queries {
             let stamp = |index: usize| {
                 u64::from_ne_bytes(range[index * 8..index * 8 + 8].try_into().unwrap())
             };
-            let (a, b) = if i == 16 {
+            let (a, b) = if i == 17 {
                 // Total GPU envelope, not the sum: Metal can overlap vertex work
                 // from later passes with fragment work from earlier passes.
-                let first = (0..32).map(stamp).filter(|&x| x != 0).min().unwrap_or(0);
-                let last = (0..32).map(stamp).max().unwrap_or(0);
+                let first = (0..34).map(stamp).filter(|&x| x != 0).min().unwrap_or(0);
+                let last = (0..34).map(stamp).max().unwrap_or(0);
                 (first, last)
             } else {
                 (stamp(i * 2), stamp(i * 2 + 1))
@@ -277,7 +277,7 @@ fn timing_effects_300() {
     }];
     f.points = &points;
     let mut cpu = [0.0; 3];
-    let mut pass_ms = [[0.0; 17]; 3];
+    let mut pass_ms = [[0.0; 18]; 3];
     for mode in 0..3 {
         f.environment = Environment {
             background: None,
@@ -313,7 +313,7 @@ fn timing_effects_300() {
                 gpu.device
                     .poll(wgpu::PollType::wait_indefinitely())
                     .unwrap();
-                [0.0; 17]
+                [0.0; 18]
             };
             if index >= 10 {
                 cpu[mode] += encode_ms / 90.0;
@@ -329,7 +329,7 @@ fn timing_effects_300() {
         );
         eprintln!(
             "  GPU frame envelope: {:.4} ms (pass intervals overlap)",
-            pass_ms[mode][16]
+            pass_ms[mode][17]
         );
         for (name, ms) in GPU_PASS_NAMES.iter().zip(pass_ms[mode]) {
             if ms != 0.0 {
@@ -380,7 +380,7 @@ fn timing_beacons_shadows() {
         let encode = std::time::Instant::now();
         r.draw(&view, (1280, 720), &f);
         let encode_ms = encode.elapsed().as_secs_f64() * 1000.0;
-        let ms = queries.read(&gpu)[16];
+        let ms = queries.read(&gpu)[17];
         if i >= 60 {
             spans.push(ms);
             encodes.push(encode_ms);

@@ -1,8 +1,21 @@
 struct ModelInstance {
-    transform: u32, material: u32, geometry: u32, unused: u32,
+    transform: u32, material: u32, geometry: u32, palette: u32,
     local: mat4x4<f32>, normal: mat4x4<f32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
+@group(3) @binding(1) var<storage, read> skin_palette: array<mat4x4<f32>>;
+struct SkinVertex { joints:vec4<u32>, weights:vec4<f32> }
+@group(3) @binding(2) var<storage, read> skin_vertices: array<SkinVertex>;
+fn skinned(draw:ModelInstance,vertex:u32,position:vec3<f32>,normal:vec3<f32>)->mat2x3<f32> {
+    if draw.palette==4294967295u {return mat2x3(position,normal);}
+    let v=skin_vertices[vertex]; var p=vec3(0.0); var n=vec3(0.0);
+    for(var i=0u;i<4u;i++) {
+        let m=skin_palette[draw.palette+v.joints[i]];
+        p+=(m*vec4(position,1.0)).xyz*v.weights[i];
+        n+=mat3x3(normalize(m[0].xyz),normalize(m[1].xyz),normalize(m[2].xyz))*normal*v.weights[i];
+    }
+    return mat2x3(p,n);
+}
 struct BakedMaterial {
     base: vec4<f32>, surface: vec4<f32>, emission_cutoff: vec4<f32>, flags: vec4<f32>,
     uv: array<vec4<f32>, 10>,
@@ -23,7 +36,7 @@ struct ModelVarying {
     @location(0) world: vec3<f32>, @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>, @location(3) @interpolate(flat) slot: u32,
 }
-fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32) -> ModelVarying {
+fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32, vertex:u32) -> ModelVarying {
     let draw = instances[slots[instance] - 2147483648u];
     let slot = draw.transform;
     let i = slot * 10u;
@@ -34,14 +47,15 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let qm=mix(qp,select(qc,-qc,dot(qp,qc)<0.0),a);
     let q=qm*inverseSqrt(max(dot(qm,qm),1e-12));
     let s=mix(vec3(prev[i+7u],prev[i+8u],prev[i+9u]),vec3(curr[i+7u],curr[i+8u],curr[i+9u]),a);
-    let local=(draw.local*vec4(position,1.0)).xyz;
+    let skin=skinned(draw,vertex,position,normal);
+    let local=(draw.local*vec4(skin[0],1.0)).xyz;
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
-    let n=rotate(q,(draw.normal*vec4(normal,0.0)).xyz/safe);
+    let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
     return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,uv,slot);
 }
-@vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @builtin(instance_index) instance:u32) -> ModelVarying {
-    return model_transform(position,normal,uv,instance);
+@vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
+    return model_transform(position,normal,uv,instance,vertex);
 }
 fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
     let t=baked.uv[index*2u]; let o=baked.uv[index*2u+1u];

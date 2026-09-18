@@ -178,7 +178,32 @@ struct Canvas {
     held: BTreeSet<String>,
     restore_error: Option<String>,
     restore_input: bool,
+    restore_bytes: Option<Vec<u8>>,
     restore_logged: bool,
+}
+impl Canvas {
+    fn finish_restore(&mut self, error: Option<String>, state: Option<&Value>) -> Option<String> {
+        if !self.restore_input {
+            return None;
+        }
+        if let Some(error) = error {
+            let error = format!("restore refused: {error}");
+            self.restore_error = Some(error.clone());
+            self.restore_input = false;
+            return Some(error);
+        }
+        if let Some(state) = state.filter(|s| s["world"]["restored"] == true) {
+            self.held = state["world"]["input"]["forwarded"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect();
+            self.restore_input = false;
+            self.restore_bytes = None;
+        }
+        None
+    }
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
@@ -262,6 +287,7 @@ impl Surfaces {
                         held: BTreeSet::new(),
                         restore_error: None,
                         restore_input: false,
+                        restore_bytes: None,
                         restore_logged: false,
                     },
                 );
@@ -300,6 +326,7 @@ impl Surfaces {
                             b"gpu_restore",
                         )(c.id, bytes.as_ptr(), bytes.len(), 0)
                     };
+                    c.restore_bytes = Some(bytes);
                     if ok {
                         c.restore_input = true;
                         Ok(())
@@ -329,7 +356,7 @@ impl Surfaces {
                     let bytes = match assets.read_asset(&format!("assets/{name}")) {
                         Ok(bytes) => bytes,
                         Err(reason) => {
-                            unsafe {
+                            let ok = unsafe {
                                 abi.symbol::<unsafe extern "C" fn(
                                     u32,
                                     *const u8,
@@ -342,7 +369,12 @@ impl Surfaces {
                                     name.len(),
                                     reason.as_ptr(),
                                     reason.len(),
-                                );
+                                )
+                            };
+                            if !ok {
+                                let error = abi.error().unwrap_or("asset delivery refused".into());
+                                self.error =
+                                    c.finish_restore(Some(error.clone()), None).or(Some(error));
                             }
                             continue;
                         }
@@ -354,7 +386,8 @@ impl Surfaces {
                         abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, *const u8, usize) -> bool>(b"gpu_asset")(c.id, name.as_ptr(), name.len(), ptr, len)
                     };
                     if !ok {
-                        self.error = abi.error();
+                        let error = abi.error().unwrap_or("asset delivery refused".into());
+                        self.error = c.finish_restore(Some(error.clone()), None).or(Some(error));
                     }
                 }
             }
@@ -365,15 +398,7 @@ impl Surfaces {
             }
             if c.restore_input {
                 let state = abi.agent(c.id, &json!({"op":"state"}));
-                if state["world"]["restored"] == true {
-                    c.held = state["world"]["input"]["forwarded"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect();
-                    c.restore_input = false;
-                }
+                c.finish_restore(None, Some(&state));
             }
             if let Some(bytes) = abi.read(b"gpu_published", c.id) {
                 if c.owner {
@@ -630,6 +655,43 @@ fn value_json(v: &exact_runner::Value) -> Value {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    #[test]
+    fn deferred_restore_keeps_bytes_until_commit_and_late_refusal_is_once() {
+        for refused in [true, false] {
+            let mut c = Canvas {
+                id: 1,
+                name: "world".into(),
+                owner: true,
+                since: 0,
+                held: Default::default(),
+                restore_error: None,
+                restore_input: true,
+                restore_bytes: Some(vec![1]),
+                restore_logged: false,
+            };
+            c.finish_restore(None, Some(&json!({"world":{"restored":false}})));
+            assert_eq!(c.restore_bytes, Some(vec![1]));
+            if refused {
+                assert!(c
+                    .finish_restore(Some("invalid save".into()), None)
+                    .unwrap()
+                    .contains("invalid save"));
+                assert!(c
+                    .finish_restore(Some("invalid save".into()), None)
+                    .is_none());
+                assert!(c.restore_error.is_some());
+                assert_eq!(c.restore_bytes, Some(vec![1]));
+            } else {
+                c.finish_restore(
+                    None,
+                    Some(&json!({"world":{"restored":true,"input":{"forwarded":["KeyW"]}}})),
+                );
+                assert!(c.restore_bytes.is_none());
+                assert!(c.held.contains("KeyW"));
+            }
+            assert!(!c.restore_input);
+        }
+    }
     fn fixture() -> (PathBuf, Value) {
         let dir = std::env::temp_dir().join(format!(
             "exact-gpu-loader-{}-{:?}",
@@ -738,6 +800,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 held: BTreeSet::new(),
                 restore_error: None,
                 restore_input: false,
+                restore_bytes: None,
                 restore_logged: false,
             },
         );

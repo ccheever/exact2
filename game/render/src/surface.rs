@@ -79,10 +79,15 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     fn finish_restore(&mut self) {
         if let Some(sim) = self.sim.as_mut().filter(|s| !s.is_loading()) {
             if let Some((bytes, mode)) = self.pending_restore.take() {
+                let definitions = (ASSETS && mode == Restore::Carry)
+                    .then(|| exact_game::animation::Definitions::capture(sim.world()));
                 self.presentation.before_restore(sim.world(), mode);
                 if let Err(error) = sim.restore_bound(&bytes) {
                     self.refusal = Some(SurfaceError(format!("restore refused: {error}")));
                 } else {
+                    if let Some(definitions) = definitions {
+                        definitions.apply(sim.world());
+                    }
                     self.presentation.after_restore(sim.world(), mode);
                 }
             }
@@ -189,8 +194,21 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.sim = Some(sim);
         }
         if !ASSETS {
-            let sim = self.sim.as_mut().unwrap();
-            if let Some(name) = sim.take_assets().first() {
+            let sim = self.sim.as_ref().unwrap();
+            let name = G::ASSETS.first().map(|n| (*n).to_owned()).or_else(|| {
+                sim.world()
+                    .query::<&exact_game::Mesh>()
+                    .iter()
+                    .find_map(|(_, mesh)| {
+                        if let exact_game::Mesh::Asset(name) = mesh {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+            });
+            if let Some(name) = name {
+                self.sim = None;
                 return Err(SurfaceError(format!(
                     "asset `{name}`: this module has no model support; declare game.assets"
                 )));
@@ -223,6 +241,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.render = None;
             self.format = None;
             self.assets_dirty = true;
+            self.dirty = true;
             if let Some(sim) = &mut self.sim {
                 retired.extend(sim.invalidate_device_assets());
             }
@@ -304,8 +323,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             return Ok(());
         }
         let sim = self.sim.as_mut().ok_or("world has not been bound")?;
+        let definitions = (ASSETS && mode == Restore::Carry)
+            .then(|| exact_game::animation::Definitions::capture(sim.world()));
         self.presentation.before_restore(sim.world(), mode);
         sim.restore_bound(bytes).map_err(|e| e.to_string())?;
+        if let Some(definitions) = definitions {
+            definitions.apply(sim.world());
+        }
         self.presentation.after_restore(sim.world(), mode);
         self.dirty = true;
         self.error = None;
@@ -605,10 +629,12 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 perf_reset: bool,
                 perf: bool,
             }
-            if exact_game::json::from_str::<PerfRequest>(request)
-                .is_ok_and(|r| r.perf_reset || (r.perf && !self.perf.armed()))
-            {
-                self.perf.reset();
+            if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
+                if r.perf_reset {
+                    self.perf.reset();
+                } else if r.perf {
+                    self.perf.arm();
+                }
             }
             reply.truncate(reply.len() - 2);
             reply.push_str(if self.device {

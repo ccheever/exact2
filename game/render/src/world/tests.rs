@@ -404,7 +404,7 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
 }
 
 #[allow(unsafe_code)]
-mod allocations {
+pub(crate) mod allocations {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
     thread_local! { static COUNT: Cell<Option<usize>> = const { Cell::new(None) }; }

@@ -647,12 +647,18 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
 fn performance_recording_arms_only_through_diagnostic_state() {
     let mut s = surface();
     s.perf.tick.push(2.0);
+    s.perf.frame(0., false);
+    s.perf.frame(10., false);
     assert!(!s.perf.armed());
     let state = s.agent(r#"{"op":"state"}"#).unwrap();
     assert!(state.contains("\"armed\":false"));
     assert!(state.contains("\"count\":1,\"mean\":2"));
     let state = s.agent(r#"{"op":"state","perf":true}"#).unwrap();
     assert!(s.perf.armed() && state.contains("\"armed\":true"));
+    assert!(state.contains("\"count\":1,\"mean\":2"));
+    s.perf.frame(20., false);
+    let cadence = s.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(cadence.contains("\"count\":2,\"mean\":10"));
     s.perf.tick.push(4.0);
     let state = s.agent(r#"{"op":"state","perf":true}"#).unwrap();
     assert!(state.contains("\"p50\":4"));

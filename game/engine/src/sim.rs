@@ -1094,18 +1094,38 @@ impl<G: Game> Sim<G> {
     }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
-        if self.is_loading()
-            || self.world.assets.refusal.is_some()
-            || self
-                .world
-                .assets
-                .states
-                .values()
-                .any(|state| *state != crate::asset::AssetState::Loaded)
-        {
+        let assets = &self.world.assets;
+        let mut needed = std::collections::BTreeSet::new();
+        for (_, mesh) in self.world.query::<&crate::Mesh>().iter() {
+            if let crate::Mesh::Asset(name) = mesh {
+                needed.insert(name.clone());
+            }
+        }
+        for name in needed.clone() {
+            if matches!(
+                assets.states.get(&name),
+                Some(crate::asset::AssetState::Failed(_))
+            ) {
+                continue;
+            }
+            if let Some(deps) = assets.dependencies.get(&name) {
+                needed.extend(deps.iter().cloned());
+            }
+        }
+        let pending: Vec<_> = needed
+            .iter()
+            .filter(|name| {
+                !matches!(
+                    assets.states.get(*name),
+                    Some(crate::asset::AssetState::Loaded | crate::asset::AssetState::Failed(_))
+                )
+            })
+            .collect();
+        if self.is_loading() || !pending.is_empty() {
             return Err(DataError::new(format!(
-                "save refused: assets are not ready: {}",
-                self.world.assets.state_json()
+                "save refused: assets are not ready: {:?}; {}",
+                pending,
+                assets.state_json()
             )));
         }
         let world_us = self.exact_world_us();

@@ -11,7 +11,7 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
-    fn model(&self, _: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
+    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
         None
     }
     fn assets_revision(&self) -> u64 {
@@ -30,7 +30,7 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
-    fn model(&self, name: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
+    fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
         if ASSETS {
             self.models.loaded.get(name).map(|m| m.nodes.as_slice())
         } else {
@@ -510,7 +510,7 @@ impl Feed {
             }
             r.batches(&self.batches, &self.slots)?;
         }
-        if !self.assets.records.is_empty() && (moved || batches) {
+        if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
             r.model_poses(w, &self.assets.entities, initial || batches);
         }
         self.scene.feed(
@@ -585,4 +585,4 @@ fn material_floats(m: Material) -> [f32; 12] {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

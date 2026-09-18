@@ -255,12 +255,14 @@ GameAudio overlays fresh setup definitions only on Carry, preserving runtime nam
 finite voices retain frozen definitions. Opening a file keeps its saved registry.
 
 Apple callback tests use the real mixer with fixture buffers and open no device.
-Compiled Swift fixtures post notifications from a background queue, check ordered
-main-thread ABI delivery, aggregate visibility, activation retry and `shouldResume`.
+Compiled macOS Swift fixtures call `interruption(began:shouldResume:)` directly
+on the main thread; they do not post `AVAudioSession.interruptionNotification`
+from a background queue. They check aggregate visibility, activation retry,
+`shouldResume`, recovery broadcast to live lifecycles and the first silent gesture.
 AU3d built and linked the macOS `ExactMac` Swift product with a temporary native-build
 wrapper. The one greybox macOS proof attempt then failed before launch: the WebKit
 helper selected SDK 27 with Swift 6.3.3. There is no macOS device-output claim.
 Audio/render Rust libraries and the Swift `ExactKit` target build for iOS; iOS was
 not driven and interruption handling remains unproven on a device.
 
-Owed after F2f/AU3e: real-device Apple interruption/output and multi-display cadence sweeps; WebAudio resume failure propagation and retry; an authoring regression that keeps an unrelated component borrow live across `start()`. The callback/Swift fixtures and web proofs do not establish those claims. The shared-tree asset proof still needs its pending-carry expectation and renamed texture path reconciled.
+Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The fixtures do not establish these claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). The authoring regression now holds a mutable `Transform` borrow across `play().at(entity).start()`. Finite attached sources are skipped and journal a named refusal once in debug and release, without a panic.

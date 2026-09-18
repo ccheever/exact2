@@ -129,8 +129,11 @@ pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
 pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
     if let Some(Mesh::Asset(name)) = mesh {
         if let Some(model) = w.model(name) {
-            let lo = Vec3::from_slice(&model.bounds[..3]);
-            let hi = Vec3::from_slice(&model.bounds[3..]);
+            let bounds = w
+                .get::<crate::Pose>(entity)
+                .map_or_else(|| crate::animation::animated_bounds(model), |p| p.bounds);
+            let lo = Vec3::from_slice(&bounds[..3]);
+            let hi = Vec3::from_slice(&bounds[3..]);
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);
         }
     }
@@ -328,16 +331,35 @@ pub struct PickHit {
     /// World-space intersection.
     pub point: Vec3,
 }
+pub(crate) struct Layout {
+    pub pose: Affine3A,
+    pub corners: [Vec3; 8],
+    pub screen: Option<[f32; 4]>,
+    pub visibility: Option<(bool, bool, f32, f32)>,
+    pub unbounded: bool,
+}
+pub(crate) fn layout(world: &World, viewport: Vec2, entity: Entity) -> Layout {
+    let pose = world.global(entity).unwrap_or(Affine3A::IDENTITY);
+    let mesh = world.get::<Mesh>(entity);
+    let (half, center) = bounds(world, entity, mesh.as_deref());
+    let corners = corners(pose, half, center);
+    let view = View::new(world, viewport);
+    Layout {
+        pose,
+        corners,
+        screen: view.as_ref().and_then(|v| v.screen(&corners)),
+        visibility: view
+            .as_ref()
+            .map(|v| v.visibility(&corners, pose.translation.into())),
+        unbounded: matches!(mesh.as_deref(), Some(Mesh::Asset(name)) if world.model(name).is_none() && world.get::<crate::asset::ModelBounds>(entity).is_none()),
+    }
+}
 impl<G: crate::Game> crate::Sim<G> {
     /// Project an entity using the same geometry and viewport as agent layout.
     /// Missing entities, cameras and entirely near-clipped bounds return None.
     pub fn layout(&self, target: impl crate::Target) -> Option<EntityLayout> {
         let entity = target.entity(&self.world)?;
-        let view = View::new(&self.world, self.input.viewport)?;
-        let pose = self.world.global(entity)?;
-        let mesh = self.world.get::<Mesh>(entity);
-        let (half, center) = bounds(&self.world, entity, mesh.as_deref());
-        let [x, y, w, h] = view.screen(&corners(pose, half, center))?;
+        let [x, y, w, h] = layout(&self.world, self.input.viewport, entity).screen?;
         Some(EntityLayout {
             entity,
             screen: ScreenRect { x, y, w, h },
