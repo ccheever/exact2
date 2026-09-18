@@ -714,6 +714,8 @@ dependencies = [
  "exact-gpu",
  "glam 0.33.7",
  "greybox-logic",
+ "png",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1459,6 +1461,52 @@ dependencies = [
  "euclid",
  "polycool",
  "smallvec",
+]
+
+[[package]]
+name = "lanterns-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-game-app",
+ "exact-runner",
+]
+
+[[package]]
+name = "lanterns-gpu"
+version = "0.1.0"
+dependencies = [
+ "exact-game-render",
+ "lanterns-logic",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "lanterns-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-linux",
+ "exact-runner",
+]
+
+[[package]]
+name = "lanterns-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "exact-game-physics",
+]
+
+[[package]]
+name = "lanterns-web"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-runner",
+ "exact-web",
 ]
 
 [[package]]

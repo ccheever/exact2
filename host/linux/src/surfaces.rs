@@ -18,23 +18,28 @@ type Text = unsafe extern "C" fn(u32, *const u8, usize) -> u32;
 struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
+    output_error: std::cell::RefCell<Option<String>>,
 }
 impl Abi {
-    fn open() -> Result<Self, String> {
+    fn open(compat: &Value) -> Result<Self, String> {
         let binary = std::env::current_exe().map_err(|e| e.to_string())?;
-        let stem = binary.file_stem().unwrap().to_string_lossy();
-        let name = stem
-            .strip_suffix("-linux")
-            .unwrap_or(&stem)
-            .replace('-', "_");
-        let path = std::env::var_os("EXACT_GPU_MODULE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                binary.with_file_name(format!("lib{name}_gpu.{}", std::env::consts::DLL_EXTENSION))
-            });
+        let card = &compat["embedded"]["gpu"];
+        let name = card["name"]
+            .as_str()
+            .ok_or("GPU module has no baked identity")?;
+        let path = module_path(
+            &binary.with_file_name(name),
+            compat,
+            std::env::var_os("EXACT_GPU_MODULE").map(PathBuf::from),
+        );
+        Self::open_path(&path, compat)
+    }
+    fn open_path(path: &std::path::Path, compat: &Value) -> Result<Self, String> {
+        verify_module(path, compat)?;
         // SAFETY: the app's own module, with the ABI checked before any call.
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
+            output_error: Default::default(),
         };
         unsafe {
             for name in [
@@ -69,10 +74,20 @@ impl Abi {
         if len == u32::MAX {
             return None;
         }
-        assert!(len as usize <= LIMIT, "surface output exceeds 256 MiB");
+        if len as usize > LIMIT {
+            *self.output_error.borrow_mut() = Some("surface output exceeds 256 MiB limit".into());
+            return None;
+        }
+        if len == 0 {
+            return Some(Vec::new());
+        }
         // SAFETY: the ABI buffer is readable until the next call, copied now.
         Some(unsafe {
             let ptr = self.symbol::<unsafe extern "C" fn() -> *const u8>(b"gpu_out_ptr")();
+            if ptr.is_null() {
+                *self.output_error.borrow_mut() = Some("surface output has a null pointer".into());
+                return None;
+            }
             std::slice::from_raw_parts(ptr, len as usize).to_vec()
         })
     }
@@ -83,16 +98,33 @@ impl Abi {
         unsafe { self.symbol::<Text>(name)(id, text.as_ptr(), text.len()) }
     }
     fn error(&self) -> Option<String> {
+        if let Some(error) = self.output_error.borrow_mut().take() {
+            return Some(error);
+        }
         let n = unsafe { self.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_error")() };
-        (n > 0).then(|| String::from_utf8_lossy(&self.bytes(n).unwrap()).into_owned())
+        if n == 0 {
+            return None;
+        }
+        match self.bytes(n) {
+            Some(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+            None => Some(
+                self.output_error
+                    .borrow_mut()
+                    .take()
+                    .unwrap_or("invalid surface error output".into()),
+            ),
+        }
     }
     fn agent(&self, id: u32, q: &Value) -> Value {
         let n = self.text(b"gpu_agent", id, &q.to_string());
-        let bytes = self.bytes(n).unwrap();
+        let bytes = self.bytes(n);
+
         if let Some(error) = self.error() {
             return json!({"error":error});
         }
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+        bytes
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or(Value::Null)
     }
     fn destroy(&self, id: u32) {
         unsafe { self.symbol::<unsafe extern "C" fn(u32)>(b"gpu_destroy")(id) }
@@ -105,6 +137,36 @@ impl Drop for Abi {
             unsafe { unload() };
         }
     }
+}
+fn module_path(
+    default: &std::path::Path,
+    compat: &Value,
+    override_path: Option<PathBuf>,
+) -> PathBuf {
+    if compat["embedded"]["gpu"]["trust"] == "development" {
+        if let Some(path) = override_path {
+            return path;
+        }
+    }
+    default.to_path_buf()
+}
+fn verify_module(path: &std::path::Path, compat: &Value) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let card = &compat["embedded"]["gpu"];
+    let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
+    if !card.is_object() {
+        return Err(refuse("missing baked identity"));
+    }
+    for (key, expected) in [("app", &compat["inputs"]["app"]), ("cohort", &compat["id"])] {
+        if !expected.is_string() || &card[key] != expected {
+            return Err(refuse(&format!("{key} identity mismatch")));
+        }
+    }
+    let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
+    if card["sha256"].as_str() != Some(format!("{:x}", Sha256::digest(bytes)).as_str()) {
+        return Err(refuse("digest mismatch"));
+    }
+    Ok(())
 }
 struct Canvas {
     id: u32,
@@ -125,7 +187,7 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
 }
 impl Surfaces {
-    fn sync<D: DataSource>(&mut self, host: &mut Host<D>) -> bool {
+    fn sync<D: DataSource>(&mut self, host: &mut Host<D>, compat: &str) -> bool {
         let mut changed = false;
         let dead: Vec<_> = self
             .canvases
@@ -144,7 +206,7 @@ impl Surfaces {
         let updates = host.take_surface_updates();
         if !updates.is_empty() && !self.attempted {
             self.attempted = true;
-            match Abi::open() {
+            match Abi::open(&serde_json::from_str(compat).unwrap_or(Value::Null)) {
                 Ok(abi) => self.abi = Some(abi),
                 Err(e) => host.log(format!("surface module unavailable: {e}")),
             }
@@ -271,6 +333,9 @@ impl Surfaces {
                 }
             }
         }
+        if let Some(error) = abi.error() {
+            self.error = Some(error);
+        }
         changed
     }
     fn wants_input(&self, view: u32) -> bool {
@@ -304,7 +369,7 @@ impl<D: DataSource> Presenter<D> {
         // A publication/message may change the canvas arguments. Drain to a fixed
         // point; an app feedback loop is refused rather than hanging the carrier.
         for _ in 0..16 {
-            if !self.surfaces.sync(&mut self.host) {
+            if !self.surfaces.sync(&mut self.host, &self.compat) {
                 return;
             }
             if let Some(e) = self.after_commit() {
@@ -364,11 +429,8 @@ impl<D: DataSource> Presenter<D> {
                 Some(bytes) => {
                     json!({"bytes":bytes.len(),"data":base64::engine::general_purpose::STANDARD.encode(&bytes),"tick":state["world"]["tick"],"hash":state["world"]["hash"]})
                 }
-                None => json!({"error":"surface carries no state"}),
+                None => json!({"error":abi.error().unwrap_or("surface carries no state".into())}),
             };
-        }
-        if q["op"] == "layout" && !q["entity"].is_string() {
-            return json!({"unavailable":true,"device":false,"reason":"canvas picks require a device"});
         }
         if q["op"] == "logs" {
             q["since"] = c.since.into();
@@ -487,5 +549,152 @@ fn value_json(v: &exact_runner::Value) -> Value {
         V::List(items) | V::Record(items) => items.iter().map(value_json).collect(),
         V::Option(Some(v)) => value_json(v),
         _ => Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    fn fixture() -> (PathBuf, Value) {
+        let dir = std::env::temp_dir().join(format!(
+            "exact-gpu-loader-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("libprobe.{}", std::env::consts::DLL_EXTENSION));
+        let source = dir.join("probe.c");
+        std::fs::write(
+            &source,
+            r#"
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+void gpu_load_headless(void) {}
+void gpu_unload(void) {}
+uint32_t gpu_create_headless(void) { return 1; }
+uint32_t gpu_bind_at(void) { return 0; }
+static const char reply[] = "{\"hit\":{\"name\":\"cpu\"}}";
+uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
+  for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
+  return 268435457;
+}
+uint32_t gpu_input(void) { return 0; }
+uint32_t gpu_wants_input(void) { return 0; }
+uint32_t gpu_published(void) { return 268435457; }
+uint32_t gpu_messages(void) { return 268435457; }
+uint32_t gpu_carry(void) { return 268435457; }
+uint32_t gpu_restore(void) { return 1; }
+void gpu_destroy(void) {}
+uint32_t gpu_error(void) { return 0; }
+const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
+"#,
+        )
+        .unwrap();
+        assert!(std::process::Command::new("cc")
+            .args(["-shared", "-fPIC"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+        let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
+            "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
+            "app":"test.app","cohort":"cohort","trust":"production"}}});
+        (path, compat)
+    }
+    #[test]
+    fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
+        let (path, compat) = fixture();
+        for (key, value, reason) in [
+            ("sha256", "old-product", "digest"),
+            ("app", "other.app", "app"),
+            ("cohort", "old-cohort", "cohort"),
+        ] {
+            let mut wrong = compat.clone();
+            wrong["embedded"]["gpu"][key] = value.into();
+            let error = Abi::open_path(&path, &wrong)
+                .err()
+                .expect("mismatch must refuse");
+            assert!(
+                error.contains(reason) && error.contains("libprobe"),
+                "{error}"
+            );
+        }
+        assert!(Abi::open_path(&path, &Value::Null).is_err());
+        drop(Abi::open_path(&path, &compat).unwrap());
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn cpu_canvas_pick_is_forwarded_without_a_device() {
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(
+                &mut self,
+                name: &str,
+                _: &[exact_runner::Value],
+            ) -> Result<exact_runner::Value, exact_runner::DataError> {
+                Err(exact_runner::DataError::UnknownSource(name.into()))
+            }
+        }
+        let (path, compat) = fixture();
+        let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            NoData,
+            (100., 100.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces.canvases.insert(
+            1,
+            Canvas {
+                id: 1,
+                name: "world".into(),
+                owner: true,
+                since: 0,
+                held: BTreeSet::new(),
+                restore_error: None,
+                restore_logged: false,
+            },
+        );
+        let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
+        assert_eq!(reply["hit"]["name"], "cpu");
+        drop(p);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn production_ignores_module_path_override() {
+        let default = std::path::Path::new("baked");
+        let mut compat = json!({"embedded":{"gpu":{"trust":"production"}}});
+        assert_eq!(
+            module_path(default, &compat, Some("override".into())),
+            default
+        );
+        compat["embedded"]["gpu"]["trust"] = "development".into();
+        assert_eq!(
+            module_path(default, &compat, Some("override".into())),
+            PathBuf::from("override")
+        );
+    }
+    #[test]
+    fn oversized_module_output_is_a_structured_refusal() {
+        let (path, compat) = fixture();
+        let abi = Abi::open_path(&path, &compat).unwrap();
+        let reply = abi.agent(1, &json!({"op":"state"}));
+        assert!(reply["error"].as_str().unwrap().contains("256 MiB"));
+        for symbol in [b"gpu_carry".as_slice(), b"gpu_published", b"gpu_messages"] {
+            assert!(abi.read(symbol, 1).is_none());
+            assert!(abi.error().unwrap().contains("256 MiB"));
+        }
+        assert!(abi.bytes(u32::MAX).is_none());
+        assert_eq!(abi.bytes(0), Some(vec![]));
+        drop(abi);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

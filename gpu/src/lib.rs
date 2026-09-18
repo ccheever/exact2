@@ -102,6 +102,8 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
+    /// A presentation target acquired a device, before its first draw.
+    fn device_ready(&mut self) {}
     /// Presentation was lost; release device resources without discarding owned state.
     fn device_lost(&mut self) {}
     /// Drain an error discovered while rendering or advancing committed state.
@@ -298,7 +300,9 @@ impl Module {
 
     /// The device, when loaded.
     pub fn gpu(&self) -> Option<&Gpu> {
-        self.gpu.as_ref()
+        self.gpu
+            .as_ref()
+            .filter(|_| !self.device_lost.load(Ordering::Acquire))
     }
 
     /// Consume the last failure's text, for the presenter to report once.
@@ -360,6 +364,7 @@ impl Module {
         width: u32,
         height: u32,
     ) -> Option<u32> {
+        self.check_device();
         let Some(gpu) = self.gpu.as_ref() else {
             return self.fail("no device");
         };
@@ -406,10 +411,14 @@ impl Module {
     ) -> Option<u32> {
         self.next += 1;
         let id = self.next;
+        let mut surface = factory();
+        if presentation.is_some() {
+            surface.device_ready();
+        }
         self.instances.insert(
             id,
             Instance {
-                surface: factory(),
+                surface,
                 messages: Vec::new(),
                 published: None,
                 presentation,
@@ -541,6 +550,7 @@ impl Module {
         height: u32,
         bytes: &[u8],
     ) -> bool {
+        self.check_device();
         let expected = (width as usize)
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4));
@@ -623,6 +633,7 @@ impl Module {
     /// How many direct children a canvas has now (LLP 1014 D5): the textures
     /// past it are dropped and the surface told.
     pub fn children_count(&mut self, id: u32, count: usize) -> bool {
+        self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
             return false;
@@ -650,6 +661,7 @@ impl Module {
     /// replaces the texture at a new size, writes the pixels, and marks the
     /// canvas dirty.
     pub fn texture(&mut self, id: u32, width: u32, height: u32, bytes: &[u8]) -> bool {
+        self.check_device();
         let expected = (width as usize)
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4));
@@ -795,7 +807,7 @@ impl Module {
 
     /// Whether a canvas has something to render: inputs it has not shown.
     pub fn dirty(&self, id: u32) -> bool {
-        self.instances.get(&id).is_some_and(|i| i.dirty)
+        self.has_device(id) && self.instances.get(&id).is_some_and(|i| i.dirty)
     }
 
     /// Render one frame for a canvas at the given size; returns whether the
@@ -860,7 +872,7 @@ impl Module {
     /// before drawing into one the module may still be reading — sampling
     /// it, or copying it into the previous children.
     pub fn sync(&self) -> bool {
-        match self.gpu.as_ref() {
+        match self.gpu() {
             Some(gpu) => gpu
                 .device
                 .poll(wgpu::PollType::Wait {
@@ -898,6 +910,7 @@ impl Module {
         height: u32,
         raw: *mut std::ffi::c_void,
     ) -> bool {
+        self.check_device();
         use objc2::rc::Retained;
         use objc2::runtime::ProtocolObject;
         use objc2_metal::MTLTexture;
@@ -1032,10 +1045,8 @@ impl Module {
     /// surface wants another frame. Nothing before the first bind.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
-        let Some(gpu) = self.gpu.as_ref() else {
-            self.error = "no device".into();
-            return None;
-        };
+        self.check_device();
+        let gpu = self.gpu.as_ref()?;
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
             return None;
@@ -1138,3 +1149,71 @@ pub mod fixture;
 pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
+
+#[cfg(test)]
+mod device_loss_tests {
+    use super::*;
+    struct Probe;
+    impl Surface for Probe {
+        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            panic!("lost device rendered")
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some("alive".into())
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("probe", 0, || Box::new(Probe))],
+        shaders: &[],
+    };
+    #[test]
+    fn device_loss_guards_each_gpu_entry_before_any_other_call() {
+        for operation in 0..7 {
+            let Ok(gpu) = fixture::device() else { return };
+            let mut m = Module::new(&REGISTRY);
+            m.set_gpu(gpu);
+            let id = m.create_headless("probe").unwrap();
+            m.bind(id, &[], None);
+            // Model the asynchronous callback, without calling lose_device first.
+            m.device_lost.store(true, Ordering::Release);
+            match operation {
+                0 => assert!(!m.child(id, 0, [0., 0., 1., 1.], 1, 1, &[0; 4])),
+                1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
+                2 => assert!(m
+                    .readback(
+                        id,
+                        &Frame {
+                            width: 1.,
+                            height: 1.,
+                            scale: 1.,
+                            now_ms: 0.,
+                            seekable: true,
+                            children_generation: 0,
+                            shader_generation: 0
+                        }
+                    )
+                    .is_none()),
+                3 => assert!(!m.dirty(id)),
+                4 => assert!(!m.sync()),
+                5 => assert!(m.gpu().is_none()),
+                _ => {
+                    #[cfg(any(target_os = "macos", target_os = "ios"))]
+                    // A sentinel must never be retained/imported after loss.
+                    assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
+                }
+            }
+            assert_eq!(m.agent(id, "state").as_deref(), Some("alive"));
+            assert!(!m.dirty(id));
+        }
+    }
+}

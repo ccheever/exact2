@@ -20,6 +20,11 @@ pub trait Game: 'static {
     const SAVE_VERSION: u32 = 1;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
+    /// Immutable model and texture bytes embedded in the lazily loaded game module.
+    /// Names are the values used by [`crate::Mesh::asset`].
+    fn assets() -> &'static [crate::Asset] {
+        &[]
+    }
     /// Discoverable controls.
     fn actions() -> Actions {
         Actions::default()
@@ -84,7 +89,7 @@ pub struct Sim<G: Game> {
     rebase_queue: bool,
     pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
-    world_us: i64,
+    pub(crate) world_us: i64,
     observations: [crate::world::Observation; 2],
     game: PhantomData<G>,
 }

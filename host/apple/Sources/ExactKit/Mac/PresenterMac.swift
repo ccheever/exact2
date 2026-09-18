@@ -363,6 +363,9 @@ final class Presenter {
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        if let canvases = session?.canvases {
+            for entry in canvases.entries.values { canvases.checkpoints(entry.view) }
+        }
         session?.canvases.captureIfNeeded()
         for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
         segments.sync()

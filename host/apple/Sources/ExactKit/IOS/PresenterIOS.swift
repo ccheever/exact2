@@ -495,6 +495,9 @@ final class Presenter {
         interactiveWidget = first?.props["interactiveWidget"]
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        if let canvases = session?.canvases {
+            for entry in canvases.entries.values { canvases.checkpoints(entry.view) }
+        }
         session?.canvases.captureIfNeeded()
         for node in views.values {
             // A modal's live source retains its old geometry until release.

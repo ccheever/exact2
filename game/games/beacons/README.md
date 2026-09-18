@@ -25,6 +25,6 @@ in `artifacts/process-cleanup.json`.
 
 `Character` uses 12 m/s² acceleration, 20 m/s² braking, a 4 m/s top speed,
 and XZ bounds of ±19.6 metres. `near_xz` selects beacons around the player by name. The
-90-tick W hash is `0xdf4c4b907c6e216a` on arm64 macOS, x86-64 Linux and Chrome wasm; the position is `[0, 0.9, -5.3666644]`. Gravity is 9.81 m/s²;
+90-tick W hash is `0x7379ac5210e92317` on arm64 macOS, x86-64 Linux and Chrome wasm; the position is `[0, 0.9, -5.3666644]`. Gravity is 9.81 m/s²;
 beacon glow uses a finite 0.5-second smoothstep tween. Scenery has no collisions.
 The glow is material emission, without bloom. No textures or audio are used.

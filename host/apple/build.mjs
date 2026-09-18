@@ -80,9 +80,6 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${product}.app`),
     embed: resolve(namespace, 'embed') };
 }
-/** Explicit Swift scratch directory; no shared publication path. */
-const productPath = (product, triple, buildRoot) => resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
-
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
 export const appleBuildLock = (app, path = appleArtifacts(app).lock) => claimBuildOutput(app, path);
@@ -422,6 +419,12 @@ function main(args) {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
+  let ph, prof;
+  const sha1 = device ? (() => {
+    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
+    prof = profile(ph.udid, app.id);
+    return identity(prof.team);
+  })() : ios ? '-' : macIdentity();
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise
@@ -452,7 +455,9 @@ function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development';
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, capture(buildReceipt) {
+  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, prepareGpu(product) {
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', product], {stdio:'ignore'});
+  }, capture(buildReceipt) {
     const composition = buildReceipt.compat.inputs?.store?.L === '0' ? 'embedded' : 'updating';
     paths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST });
     mkdirSync(paths.namespace, { recursive: true });
@@ -512,14 +517,10 @@ function main(args) {
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
-  const triple = ios ? (device ? 'arm64-apple-ios17.0' : iosTriple) : macTriple;
   const product = products[0];
-  // swift build does not see the Rust archive change; drop the executables so
-  // they relink against the archive cargo just built (a relink is ~0.4 s).
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
-  for (const p of products) rmSync(productPath(p, triple, swiftBuildRoot), { force: true });
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
@@ -539,10 +540,19 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
+  const swiftBinResult = runApple('swift', [...swiftArgs, '--product', product, '--show-bin-path'], { cwd: pkg, env });
+  const swiftBinPaths = (swiftBinResult.stdout ?? '').trim().split(/\r?\n/).filter(Boolean);
+  const swiftBinDir = swiftBinPaths.length === 1 ? resolve(swiftBinPaths[0]) : null;
+  if (!swiftBinDir || swiftBinPaths[0] !== swiftBinDir || !swiftBinDir.startsWith(`${resolve(swiftBuildRoot)}/`)) {
+    throw new Error('swift build --show-bin-path did not return one absolute path below its scratch directory');
+  }
+  // swift build does not see the Rust archive change; drop the executables so
+  // they relink against the archive cargo just built (a relink is ~0.4 s).
+  for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
-    copyFileSync(productPath(p, triple, swiftBuildRoot), executable);
+    copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
@@ -592,7 +602,7 @@ function main(args) {
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
     // the keychain asks again — before the first frame.
-    const sha1 = macIdentity();
+
     // The bundle's plist — what a `.app` would carry when one is assembled —
     // is written beside the bare executable under its product's name, never
     // as `Info.plist`: codesign treats an `Info.plist` adjacent to a bare
@@ -631,7 +641,7 @@ function main(args) {
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
-      for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -665,12 +675,7 @@ function main(args) {
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
-  let ph, prof;
-  const sha1 = device ? (() => {
-    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
-    prof = profile(ph.udid, app.id);
-    return identity(prof.team);
-  })() : '-';
+
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');
@@ -696,7 +701,7 @@ function main(args) {
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
       entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null }));
-    for (const f of readdirSync(resolve(assembled, 'Frameworks'))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
+    for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName)) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
   publishProducts();

@@ -757,6 +757,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::BackgroundMaterial => "backgroundMaterial",
             PropId::RetainFocus => "retainFocus",
             PropId::SwipeIndicator => "swipeIndicator",
+            PropId::SurfaceSave => "surface-save",
+            PropId::SurfaceLoad => "surface-load",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
             PropId::Disabled => "disabled",

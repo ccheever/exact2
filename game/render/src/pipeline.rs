@@ -31,6 +31,7 @@ pub(crate) struct Pipelines {
     pub shadow_layout: wgpu::BindGroupLayout,
     pub camera_layout: wgpu::BindGroupLayout,
     pub bloom_layout: wgpu::BindGroupLayout,
+    pub texture_layout: wgpu::BindGroupLayout,
 }
 
 impl Pipelines {
@@ -134,6 +135,17 @@ impl Pipelines {
                 sampler(2, wgpu::SamplerBindingType::Filtering),
             ],
         );
+        let texture_layout = layout(
+            "game material texture",
+            &[
+                texture(
+                    0,
+                    wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::TextureViewDimension::D2,
+                ),
+                sampler(1, wgpu::SamplerBindingType::Filtering),
+            ],
+        );
         let sources = shader_sources();
         let shaders: [_; 5] = std::array::from_fn(|i| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -149,8 +161,9 @@ impl Pipelines {
                 source: wgpu::ShaderSource::Wgsl(sources[i].as_str().into()),
             })
         });
-        let vertex_attributes =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+        let vertex_attributes = wgpu::vertex_attr_array![
+            0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x2
+        ];
         let vertex_layout = [Some(wgpu::VertexBufferLayout {
             array_stride: size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -167,14 +180,18 @@ impl Pipelines {
         };
         let forward = std::array::from_fn(|i| {
             let shadow = i & 1 != 0;
-            let layouts = [Some(&scene_layout), Some(&shadow_layout)];
+            let layouts = [
+                Some(&scene_layout),
+                Some(&texture_layout),
+                Some(&shadow_layout),
+            ];
             make_pipeline(
                 device,
                 &shaders[0],
                 "game forward",
                 "vs",
                 Some(if shadow { "fs_shadow" } else { "fs" }),
-                &layouts[..if shadow { 2 } else { 1 }],
+                &layouts[..if shadow { 3 } else { 2 }],
                 &vertex_layout,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 4,
@@ -263,6 +280,7 @@ impl Pipelines {
             shadow_layout,
             camera_layout,
             bloom_layout,
+            texture_layout,
         }
     }
 }

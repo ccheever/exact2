@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
-import { resolveApp } from '../scripts/app.mjs';
+import { buildBake, resolveApp } from '../scripts/app.mjs';
 
 export function artifactDigest(host, dist, artifacts) {
   try {
@@ -143,17 +143,22 @@ export async function proof(meta, script) {
     }
     const digest = hash.digest('hex'), receipt = resolve(out, `build-${host}.sha256`);
     const appInfo = resolveApp(name);
-    const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
+    const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
+    const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
+    if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     let artifact = artifactDigest(host, dist, artifacts);
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
-      const child = host === 'linux'
-        ? spawn('cargo', ['build','--release','-p',appInfo.crate('gpu'),'-p',appInfo.crate('linux')], {cwd:appInfo.workspace, env:{...process.env, CARGO_TARGET_DIR:appInfo.target}, stdio:'inherit'})
-        : spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
-      sample();
-      const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
-      if (code !== 0) throw new Error(`app build exited ${code}`);
+      if (host === 'linux') {
+        if (!linuxTarget) throw new Error('rustc did not report its target');
+        buildBake(appInfo, 'linux', linuxTarget);
+      } else {
+        const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+        sample();
+        const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
+        if (code !== 0) throw new Error(`app build exited ${code}`);
+      }
       artifact = artifactDigest(host, dist, artifacts);
       if (!artifact) throw new Error('build produced no complete proof artifact');
       writeFileSync(receipt,stamp());

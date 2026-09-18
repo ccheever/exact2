@@ -192,6 +192,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigate" => AttrTarget::Handler("navigate"),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
+        // Changed tokens ask the host to persist or restore this canvas's
+        // opaque surface state. Completion arrives through `message=`.
+        "surface-save" => AttrTarget::Prop(p("surfaceSave")),
+        "surface-load" => AttrTarget::Prop(p("surfaceLoad")),
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),

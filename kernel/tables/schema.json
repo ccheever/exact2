@@ -430,6 +430,16 @@
       "id": 75,
       "name": "autofocus",
       "kind": "bool"
+    },
+    {
+      "id": 76,
+      "name": "surfaceSave",
+      "kind": "int"
+    },
+    {
+      "id": 77,
+      "name": "surfaceLoad",
+      "kind": "int"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

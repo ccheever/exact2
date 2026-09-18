@@ -9,6 +9,7 @@
 #![deny(unsafe_code)]
 
 mod bloom;
+mod assets;
 mod buffers;
 mod frame;
 mod perf;
@@ -75,7 +76,7 @@ impl std::error::Error for RenderError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeshId(pub(crate) usize);
 
-/// One tightly packed, 32-byte mesh vertex.
+/// One tightly packed, 40-byte mesh vertex.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
@@ -85,6 +86,8 @@ pub struct Vertex {
     pub normal: [f32; 3],
     /// Primitive deformation: capsule cap sign and capsule flag; zero for other meshes.
     pub uv: [f32; 2],
+    /// Base-colour texture coordinates. Primitives sample the default white texture.
+    pub texcoord: [f32; 2],
 }
 
 /// One indexed draw; the range addresses the supplied slot list, not the slots.

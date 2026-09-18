@@ -50,6 +50,45 @@ struct WorldCarrier {
     }
 }
 
+/// App- and surface-scoped durable storage for opaque canvas state. The host
+/// never decodes a save; the surface validates it atomically on restore.
+struct SurfaceCheckpointStore {
+    static func component(_ value: String) -> String {
+        value.utf8.map { String(format: "%02x", $0) }.joined()
+    }
+    static func appID() -> String? {
+        if let value = ExactEnv.appMetadata["CFBundleIdentifier"] as? String, !value.isEmpty { return value }
+        return (GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["app"] as? String
+    }
+    static func root() throws -> URL {
+        if let override = ExactEnv.environment["EXACT_SURFACE_STORE"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw NSError(domain: "ExactSurface", code: 1, userInfo: [NSLocalizedDescriptionKey: "Application Support is unavailable"])
+        }
+        return base.appendingPathComponent("exact/surfaces", isDirectory: true)
+    }
+    static func url(app: String, surface: String, under root: URL? = nil) throws -> URL {
+        let directory = (try root ?? self.root()).appendingPathComponent(component(app), isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent(component(surface) + ".world", isDirectory: false)
+    }
+    static func write(_ bytes: Data, app: String, surface: String, under root: URL? = nil) throws {
+        try WorldCarrier.check(bytes.count)
+        try bytes.write(to: url(app: app, surface: surface, under: root), options: .atomic)
+    }
+    static func read(app: String, surface: String, under root: URL? = nil) throws -> Data {
+        let location = try url(app: app, surface: surface, under: root)
+        let result = WorldCarrier.read(location.path)
+        if let error = result.error { throw NSError(domain: "ExactSurface", code: 2, userInfo: [NSLocalizedDescriptionKey: error]) }
+        guard let bytes = result.bytes else {
+            throw NSError(domain: "ExactSurface", code: 3, userInfo: [NSLocalizedDescriptionKey: "no saved game"])
+        }
+        return bytes
+    }
+}
+
 extension Canvases {
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
@@ -88,6 +127,59 @@ extension Canvases {
         guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
         let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
         return ["data": bytes.base64EncodedString(), "bytes": bytes.count, "hash": state["hash"] ?? NSNull(), "tick": state["tick"] ?? NSNull()]
+    }
+
+    /// React to changed `surface-save` / `surface-load` request tokens after
+    /// the presenter's batch is complete. Results use the canvas's existing
+    /// message event so a plan cannot claim success before durable I/O ends.
+    func checkpoints(_ view: NodeView) {
+        guard let e = entries[view.id], e.view === view else { return }
+        checkpoint(e, kind: "save", token: Int(view.props["surfaceSave"] ?? "0") ?? 0)
+        checkpoint(e, kind: "load", token: Int(view.props["surfaceLoad"] ?? "0") ?? 0)
+    }
+
+    private func checkpoint(_ e: Entry, kind: String, token: Int) {
+        let previous = kind == "save" ? e.saveToken : e.loadToken
+        guard token != previous else { return }
+        if kind == "save" { e.saveToken = token } else { e.loadToken = token }
+        guard token > 0 else { return }
+        do {
+            guard let app = SurfaceCheckpointStore.appID(), !app.isEmpty else {
+                throw NSError(domain: "ExactSurface", code: 5, userInfo: [NSLocalizedDescriptionKey: "missing app identity"])
+            }
+            guard let m = module, e.id != 0 else {
+                throw NSError(domain: "ExactSurface", code: 6, userInfo: [NSLocalizedDescriptionKey: "surface is not ready"])
+            }
+            if kind == "save" {
+                guard let carry = m.carry else { throw NSError(domain: "ExactSurface", code: 7, userInfo: [NSLocalizedDescriptionKey: "surface carries no state"]) }
+                let length = carry(e.id)
+                guard length != UInt32.max, Int(length) <= WorldCarrier.limit,
+                      let bytes = length == 0 ? Data() : m.output(length) else {
+                    throw NSError(domain: "ExactSurface", code: 8, userInfo: [NSLocalizedDescriptionKey: Int(length) > WorldCarrier.limit ? WorldCarrier.refusal : "surface returned no save bytes"])
+                }
+                try SurfaceCheckpointStore.write(bytes, app: app, surface: e.name)
+                checkpointReply(e, "surface-save:saved")
+            } else {
+                let bytes = try SurfaceCheckpointStore.read(app: app, surface: e.name)
+                let restored = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
+                guard restored else { throw NSError(domain: "ExactSurface", code: 9, userInfo: [NSLocalizedDescriptionKey: m.error().isEmpty ? "surface refused saved state" : m.error()]) }
+                messages(e)
+                session?.frames.requestCanvas()
+                checkpointReply(e, "surface-load:loaded")
+            }
+        } catch {
+            checkpointReply(e, "surface-\(kind):error", error: error)
+        }
+    }
+
+    private func checkpointReply(_ e: Entry, _ text: String, error: Error? = nil) {
+        if let error { fputs("exact: \(text): \(error.localizedDescription)\n", stderr) }
+        let id = e.view.id
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let current = self.live(id), current === e,
+                  current.view.handlers.contains("message") else { return }
+            self.session?.presenter.message(id, text)
+        }
     }
 
     func wantsInput(_ id: UInt32) -> Bool { live(id)?.wantsInput == true }
@@ -309,5 +401,15 @@ extension Agent {
         var reply: [String: Any] = ["typed": view.id, "key": key, "delivery": "recognized"]
         if let phase { reply["phase"] = phase }
         return reply
+    }
+}
+
+extension Canvases.Entry {
+    func rendered(_ result: UInt32) {
+        if result == 3 { presentable = false }
+        wants = presentable && result == 1
+    }
+    func needsFrame(dirty: Bool, editing: Bool = false) -> Bool {
+        id != 0 && presentable && (wants || dirty || editing)
     }
 }

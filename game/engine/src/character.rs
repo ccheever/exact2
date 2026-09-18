@@ -15,6 +15,7 @@ pub struct Character {
     gravity: f32,
     ground: f32,
     bounds: Option<[f32; 2]>,
+    airborne: bool,
 }
 /// Events from one step. Grounded describes the end of the step.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -23,7 +24,7 @@ pub struct Contact {
     pub grounded: bool,
     /// Accepted a jump from the ground this step.
     pub jumped: bool,
-    /// Reached the ground from the air this step.
+    /// Entered ground contact this step, including external pose or ground edits.
     pub landed: bool,
 }
 impl Default for Character {
@@ -37,6 +38,7 @@ impl Default for Character {
             gravity: 9.81,
             ground: 0.0,
             bounds: None,
+            airborne: false,
         }
     }
 }
@@ -91,13 +93,14 @@ impl Character {
     }
     /// Move the pose by dt seconds. Jump is a press edge; air presses are ignored.
     /// Uses Move, Jump and Gravity, with ballistic vertical integration and exact
-    /// ground/bounds arrival. A zero-duration step has no effect or events.
+    /// ground/bounds arrival. A zero-duration step only queries actual contact;
+    /// it neither corrects penetration nor changes state or emits events.
     pub fn step(&mut self, pose: &mut Transform, wish: Vec3, jump: bool, dt: f32) -> Contact {
         assert!(dt.is_finite() && dt >= 0.0);
         let grounded = pose.position.y <= self.ground && self.velocity.y <= 0.0;
         if dt == 0.0 {
             return Contact {
-                grounded,
+                grounded: pose.position.y == self.ground && self.velocity.y == 0.0,
                 ..Contact::default()
             };
         }
@@ -107,8 +110,11 @@ impl Character {
             brake: self.brake,
         }
         .step(&mut self.velocity, wish, dt);
+        let mut landed =
+            grounded && (self.airborne || pose.position.y < self.ground || self.velocity.y < 0.0);
+        // Correct penetration without cancelling an upward velocity.
+        pose.position.y = pose.position.y.max(self.ground);
         if grounded {
-            pose.position.y = self.ground;
             self.velocity.y = 0.0;
         }
         let jumped = grounded && jump && self.jump > 0.0;
@@ -122,7 +128,7 @@ impl Character {
         pose.position.x += self.velocity.x * dt;
         pose.position.z += self.velocity.z * dt;
         let airborne = !grounded || jumped;
-        let mut landed = false;
+
         if airborne {
             pose.position.y += self.velocity.y * dt - 0.5 * self.gravity * dt * dt;
             Gravity(self.gravity).step(&mut self.velocity, dt);
@@ -142,8 +148,9 @@ impl Character {
                 }
             }
         }
+        self.airborne = pose.position.y != self.ground || self.velocity.y != 0.0;
         Contact {
-            grounded: pose.position.y == self.ground && self.velocity.y == 0.0,
+            grounded: !self.airborne,
             jumped,
             landed,
         }

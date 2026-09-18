@@ -9,6 +9,20 @@ final class CanvasInput {
     private var nextTouch = 1
     private let multiple: Bool
 
+    /// Raw-contact bookkeeping is independent of UITouch so responder
+    /// regressions can seed the retained movement state UIKit cannot create.
+    var contactCount: Int { touches.count }
+
+    @discardableResult
+    func beginContact(_ token: ObjectIdentifier) -> Int {
+        let id = nextTouch
+        touches[token] = id
+        nextTouch += 1
+        return id
+    }
+    func contact(_ token: ObjectIdentifier) -> Int? { touches[token] }
+    func endContact(_ token: ObjectIdentifier) { touches.removeValue(forKey: token) }
+
     init(view: NodeView) {
         self.view = view
         multiple = view.isMultipleTouchEnabled
@@ -37,13 +51,12 @@ final class CanvasInput {
             let token = ObjectIdentifier(touch)
             if phase == "down" {
                 _ = view.focusCanvas()
-                touches[token] = nextTouch
-                nextTouch += 1
+                beginContact(token)
             }
-            guard let id = touches[token] else { continue }
+            guard let id = contact(token) else { continue }
             let p = view.local(touch.location(in: nil))
             view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": id, "x": p.x, "y": p.y, "kind": "touch", "buttons": phase == "up" || phase == "cancel" ? 0 : 1], timestamp: touch.timestamp)
-            if phase == "up" || phase == "cancel" { touches.removeValue(forKey: token) }
+            if phase == "up" || phase == "cancel" { endContact(token) }
             sent = true
         }
         return sent

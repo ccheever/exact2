@@ -129,3 +129,74 @@ fn sim_reads_match_world_reads_and_missing_entities() {
     assert!(s.position("missing").is_none());
     assert!(s.get::<Beacon>("player").is_none());
 }
+
+#[test]
+fn proximity_excludes_resolved_origin() {
+    let mut w = World::new(60, 0);
+    let origin = w.spawn_named("origin", (Beacon::default(), Transform::default()));
+    let other = w.spawn((Beacon::default(), Transform::default()));
+    assert_eq!(
+        w.near::<Beacon>(origin, 0.)
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
+        [other]
+    );
+    assert_eq!(
+        w.near_xz::<Beacon>("origin", 0.)
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
+        [other]
+    );
+}
+#[test]
+fn proximity_returns_unborrowed_poses() {
+    let mut w = World::new(60, 0);
+    w.spawn_named("origin", Transform::default());
+    w.spawn((Beacon::default(), Transform::at(1., 0., 0.)));
+    for (e, pose) in w.near::<Beacon>("origin", 2.) {
+        w.get_mut::<Transform>(e).unwrap().position.y = pose.position.x;
+    }
+    for (e, pose) in w.near_xz::<Transform>("origin", 2.) {
+        w.get_mut::<Transform>(e).unwrap().position.z = pose.position.x;
+    }
+}
+#[test]
+fn character_external_contact_is_an_event_once() {
+    for vy in [0., -1.] {
+        let mut c = character();
+        let mut pose = Transform::at(0., 5., 0.);
+        c.step(&mut pose, Vec3::ZERO, false, 0.01);
+        pose.position.y = 0.9;
+        c.velocity.y = vy;
+        assert!(c.step(&mut pose, Vec3::ZERO, false, 0.01).landed);
+        assert!(!c.step(&mut pose, Vec3::ZERO, false, 0.01).landed);
+    }
+    let mut c = character();
+    let mut pose = Transform::at(0., 0.9, 0.);
+    c.step(&mut pose, Vec3::ZERO, false, 0.01);
+    c = c.ground(2.);
+    assert!(c.step(&mut pose, Vec3::ZERO, false, 0.01).landed);
+    assert_eq!(pose.position.y, 2.);
+}
+#[test]
+fn character_upward_penetration_preserves_jump() {
+    let mut c = character();
+    let mut pose = Transform::at(0., 0.8, 0.);
+    c.velocity.y = 1.;
+    let contact = c.step(&mut pose, Vec3::ZERO, false, 0.01);
+    assert!(!contact.landed && !contact.grounded);
+    assert!(pose.position.y > 0.9 && c.velocity.y > 0.);
+}
+#[test]
+fn character_zero_dt_queries_actual_contact_without_mutation() {
+    for (y, vy, grounded) in [(0.8, 0., false), (0.9, -1., false), (0.9, 0., true)] {
+        let mut c = character();
+        c.velocity.y = vy;
+        let mut pose = Transform::at(0., y, 0.);
+        let before = (bin::to_vec(&c), pose);
+        let contact = c.step(&mut pose, Vec3::X, true, 0.);
+        assert_eq!(contact.grounded, grounded);
+        assert!(!contact.landed && !contact.jumped);
+        assert_eq!((bin::to_vec(&c), pose), before);
+    }
+}

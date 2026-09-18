@@ -13,6 +13,7 @@ struct Request {
     summary: bool,
     settle: bool,
     now: Option<f64>,
+    ticks: Option<u32>,
     width: Option<f32>,
     height: Option<f32>,
     x: Option<f32>,
@@ -35,6 +36,11 @@ impl Request {
                     let mut n = 0.0f64;
                     n.read(&mut r)?;
                     q.now = Some(n);
+                }
+                "ticks" => {
+                    let mut n = 0u32;
+                    n.read(&mut r)?;
+                    q.ticks = Some(n);
                 }
                 "width" | "height" | "x" | "y" | "scale" => {
                     let mut n = 0.0f32;
@@ -136,14 +142,29 @@ impl<G: Game> Sim<G> {
         }
     }
     fn reply(&mut self, q: Request, after: impl FnMut(&World, u32)) -> Result<String, String> {
-        if let Some(now) = q.now {
-            self.advance_with(now, Clock::Seekable, after);
-        }
         if q.width.is_some() != q.height.is_some() {
             return Err("width and height must be supplied together".into());
         }
         if let (Some(w), Some(h)) = (q.width, q.height) {
             self.viewport(w, h);
+        }
+        if q.now.is_some() && q.ticks.is_some() {
+            return Err("clock request cannot contain both now and ticks".into());
+        }
+        if q.ticks.is_some() && q.op != "clock" {
+            return Err("ticks belong to the clock operation".into());
+        }
+        if let Some(now) = q.now {
+            self.advance_with(now, Clock::Seekable, after);
+        } else if let Some(ticks) = q.ticks {
+            let target = self.world.tick().saturating_add(u64::from(ticks));
+            let target_us = (u128::from(target) * 1_000_000).div_ceil(u128::from(G::HZ));
+            let target_us = i64::try_from(target_us).map_err(|_| "clock tick target is too large")?;
+            let host_us = self
+                .last_us
+                .unwrap_or(0)
+                .saturating_add(target_us.saturating_sub(self.world_us).max(0));
+            self.advance_with(host_us as f64 / 1000.0, Clock::Seekable, after);
         }
         let w = &self.world;
         let tick = w.tick();

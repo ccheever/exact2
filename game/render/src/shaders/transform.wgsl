@@ -8,11 +8,12 @@ struct Varying {
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) slot: u32,
+    @location(3) uv: vec2<f32>,
 }
 fn rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
-fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>,
+fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>, uv: vec2<f32>,
              instance: u32) -> Varying {
     let slot = slots[instance];
     let i = slot * 10u;
@@ -30,6 +31,5 @@ fn transform(position: vec3<f32>, normal: vec3<f32>, cap: vec2<f32>,
     let world = p + rotate(q, s * local);
     // A collapsed axis has a finite limiting normal instead of a NaN.
     let safe_scale = max(s * shape_scale, vec3(0.000001));
-    return Varying(frame.view_proj * vec4(world, 1.0), world, rotate(q, normal / safe_scale), slot);
+    return Varying(frame.view_proj * vec4(world, 1.0), world, rotate(q, normal / safe_scale), slot, uv);
 }
-
