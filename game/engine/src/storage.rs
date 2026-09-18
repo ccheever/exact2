@@ -604,3 +604,6 @@ impl<C: Data> Erased for Storage<C> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod kind_tests;

@@ -427,3 +427,55 @@ fn a_declared_child_cannot_hide_in_a_skipped_field() {
     );
     assert_eq!(before, (w.save(), w.mutation_epoch()));
 }
+
+#[test]
+fn decoded_and_cross_world_ids_recheck_membership_without_changing_wire_state() {
+    let mut a = World::new(60, 1);
+    let id = a.spawn_kind("lamp", lamp(0.0));
+    let decoded: Id<Lamp> = bin::from_slice(&bin::to_vec(&id)).unwrap();
+    let mut b = World::new(60, 1);
+    let entity = b.spawn_named("incomplete", Transform::default());
+    assert_eq!(entity, id.entity());
+    assert!(b.row(id).err().unwrap().to_string().contains("Material"));
+    assert!(b.row(decoded).is_err());
+    b.insert(entity, Material::default());
+    let before = b.save();
+    assert!(b.row(decoded).is_ok());
+    assert_eq!(before, b.save());
+    b.load(&before).unwrap();
+    assert!(b.row(decoded).is_ok());
+    b.remove::<Material>(entity);
+    let incomplete = b.save();
+    b.load(&incomplete).unwrap();
+    assert!(b.row(decoded).is_err());
+    assert!(a.row(id).is_ok());
+}
+
+#[derive(Kind)]
+struct SharedPose {
+    #[read]
+    transform: Transform,
+}
+#[test]
+fn edit_context_has_a_bound_and_unwinds_without_poisoning_the_world() {
+    fn nested(w: &World, id: Id<SharedPose>, depth: usize) {
+        if depth > 0 {
+            w.edit(id, |r| {
+                assert_eq!(r.transform.position, Vec3::ZERO);
+                nested(w, id, depth - 1);
+            });
+        }
+    }
+    let mut w = World::new(60, 1);
+    let id = w.spawn_kind(
+        "pose",
+        SharedPose {
+            transform: Transform::default(),
+        },
+    );
+    nested(&w, id, 32);
+    let before = (w.save(), w.mutation_epoch());
+    assert!(panic_text(|| nested(&w, id, 33)).contains("nesting exceeds 32"));
+    nested(&w, id, 32);
+    assert_eq!(before, (w.save(), w.mutation_epoch()));
+}

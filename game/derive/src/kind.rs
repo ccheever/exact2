@@ -55,6 +55,7 @@ pub(super) fn expand(input: TokenStream) -> Result<String, String> {
     let mut saved_checks = String::new();
     let mut leases = String::new();
     let mut bindings = String::new();
+    let mut joined_bindings = String::new();
     let mut prepare_spawn = String::new();
     let mut attach = String::new();
     let mut declarations = [String::new(), String::new()];
@@ -113,6 +114,7 @@ pub(super) fn expand(input: TokenStream) -> Result<String, String> {
             );
             prepare_spawn += &format!("self.{field}.{member} = world.kind_spawn_child::<Self, _>(name, {child}, self.{field}.{member})?;");
             attach += &format!("let child = world.get::<{ty}>(entity).expect(\"inserted component\").{member}; world.insert(child.entity(), ::exact_game::Parent(entity));");
+            joined_bindings += &format!("world.kind_child::<Self, _>(entity, {child}, concat!(stringify!({field}), \".\", stringify!({member})), values.{i}.{member}, false, operation)?;");
             bindings += &format!(
                 r#"
                 let old = world.get::<{ty}>(entity).ok_or_else(|| ::exact_game::KindError::missing::<Self, {ty}>(world, entity, operation))?.{member};
@@ -165,6 +167,7 @@ pub(super) fn expand(input: TokenStream) -> Result<String, String> {
              fn attach(world: &mut ::exact_game::World, entity: ::exact_game::Entity) {{ let _ = (&world, entity); {attach} }}
              fn preflight() -> Result<(), ::exact_game::KindError> {{ ::exact_game::KindError::unique::<Self>(&[{preflight}])?; {saved_checks} Ok(()) }}
              fn leases(world: &::exact_game::World, entity: Option<::exact_game::Entity>, operation: &str, mutable: bool) -> Result<(), ::exact_game::KindError> {{ {leases} Ok(()) }}
+             fn joined_bindings(world: &::exact_game::World, entity: ::exact_game::Entity, values: <Self::Read as ::exact_game::Query>::Item<'_>, operation: &str) -> Result<(), ::exact_game::KindError> {{ let _ = (world, entity, &values, operation); {joined_bindings} Ok(()) }}
              fn insert(self, world: &mut ::exact_game::World, entity: ::exact_game::Entity) {{ {insert} }}
              fn check(world: &::exact_game::World, entity: ::exact_game::Entity, operation: &str) -> Result<(), ::exact_game::KindError> {{ {check} Ok(()) }}
              fn bindings(world: &::exact_game::World, entity: ::exact_game::Entity, initialize: bool, operation: &str) -> Result<(), ::exact_game::KindError> {{ let _ = (world, entity, initialize, operation); {bindings} Ok(()) }}

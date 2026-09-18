@@ -178,6 +178,14 @@ pub trait Kind: Sized + 'static {
         initialize: bool,
         operation: &str,
     ) -> Result<(), KindError>;
+    /// Validate bindings using the references already selected by the query join.
+    #[doc(hidden)]
+    fn joined_bindings(
+        world: &World,
+        entity: Entity,
+        values: <Self::Read as Query>::Item<'_>,
+        operation: &str,
+    ) -> Result<(), KindError>;
     /// Insert fields into the ordinary component columns.
     #[doc(hidden)]
     fn insert(self, world: &mut World, entity: Entity);
@@ -314,6 +322,7 @@ impl World {
     }
     // Derived proof cache, excluded from saves and hashes. Successful bound-ID
     // validation is a generation comparison, never a column-set recheck.
+    #[inline]
     fn validated<K: Kind>(&self, id: Id<K>, operation: &str) -> Result<Id<K>, KindError> {
         let e = id.entity;
         if !self.contains(e) {
@@ -330,6 +339,11 @@ impl World {
         {
             return Ok(id);
         }
+        self.validate_slow(id, operation)
+    }
+    #[cold]
+    #[inline(never)]
+    fn validate_slow<K: Kind>(&self, id: Id<K>, operation: &str) -> Result<Id<K>, KindError> {
         self.kind_work_bound(operation);
         let id = self.checked::<K>(id, operation)?;
         self.remember(id);
@@ -483,8 +497,8 @@ impl World {
         if !K::HAS_BINDINGS {
             return;
         }
-        for (entity, _) in self.query::<K::Read>().iter() {
-            K::bindings(self, entity, false, operation).expect("kind binding validation");
+        for (entity, values) in self.query::<K::Read>().iter() {
+            K::joined_bindings(self, entity, values, operation).expect("kind binding validation");
         }
     }
     /// Shared entity-ordered rows. Saved child bindings are validated before leases.

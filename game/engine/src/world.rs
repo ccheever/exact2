@@ -415,6 +415,7 @@ impl World {
         &self.fresh
     }
     /// Whether this exact incarnation is alive.
+    #[inline]
     pub fn contains(&self, e: Entity) -> bool {
         self.state
             .slots
@@ -592,6 +593,7 @@ impl World {
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
     }
+    #[inline]
     pub(crate) fn kind_work_bound(&self, operation: &str) {
         assert!(
             self.state.slots.len() <= 200_000,
