@@ -607,6 +607,40 @@ hashes. The new Lanterns regression remains red instead of ignoring the divergen
 An engine snapshot/determinism decision is required before claiming all state is
 saved correctly. Existing game fields and pins are unchanged.
 
+T4 verification (2026-09-18): the game workspace reports **415 passed, 1 failed,
+11 ignored**. The failure is the newly added Lanterns normal/paranoid comparison;
+all pre-existing pins still pass normally. Consumer suites report **28/1** with
+normal defaults and **27/2** with each paranoid environment setting (one ignored
+in each): the second failure is Lanterns' existing pinned-hash test. Clippy with
+`-D warnings` and formatting pass. `cd game && bun test` reports **38/2**, the same
+missing Chrome and missing 60/120 Hz feel-bake prerequisites documented below.
+
+| Linux proof assertions | Normal | Save | FreshGame |
+| --- | --- | --- | --- |
+| Greybox | 62/0 | 63/0 | 63/0 |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Lanterns | 8/0 | 8/1 | 8/1 |
+| Asset fixture | 6/0 | 7/0 | 7/0 |
+| Cubes | 3/0 | 4/0 | 4/0 |
+
+Counts are pass/fail; paranoid adds the final comparison. Cubes' new Linux branch
+executes one tick with the existing 100,000-cube manifest; its simulation test
+uses 100 cubes and 120 ticks. No GPU, browser or Apple runtime was verified.
+
+Median wall time over three scripted simulation runs, optimized dev/test profile,
+excluding construction and compilation (shared CPU; these are diagnostic numbers):
+
+| Script | Normal ms | Save ms / slowdown | FreshGame ms / slowdown |
+| --- | ---: | ---: | ---: |
+| Greybox, 120 ticks | 0.298 | 28.578 / 95.9× | 27.766 / 93.2× |
+| Beacons, 120 ticks | 0.254 | 73.124 / 287.9× | 78.754 / 310.1× |
+| Lanterns, 120 ticks (diverges) | 5.935 | 503.717 / 84.9× | 506.211 / 85.3× |
+| Asset fixture, 60 ticks | 0.060 | 5.417 / 90.3× | 7.868 / 131.1× |
+| Cubes, 120 ticks | 1.980 | 110.037 / 55.6× | 109.738 / 55.4× |
+| Dynamic physics stack, 120 ticks | 1.428 | 52.801 / 37.0× | 51.952 / 36.4× |
+
+This intentionally expensive mode is a test instrument, never the default.
+
 ## Linux proof baseline (T0c, 2026-09-18)
 
 The original converged trunk (`8189f90`) was compared by running both merge parents:
