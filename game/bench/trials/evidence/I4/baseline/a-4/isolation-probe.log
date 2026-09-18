@@ -1,0 +1,3 @@
+parent evaluator read denied
+resolver readable
+directory capability root readable; file reads still restricted

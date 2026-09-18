@@ -1,0 +1,367 @@
+diff --git a/game/games/lanterns/README.md b/game/games/lanterns/README.md
+index 98f1be5..eba2e2e 100644
+--- a/game/games/lanterns/README.md
++++ b/game/games/lanterns/README.md
+@@ -3,7 +3,8 @@
+ A three-minute third-person game built on Exact's game add-on. Move the animated
+ Fox with WASD, arrows, or the left side of a touch screen. Jump with Space or the
+ purple button and press E or LIGHT within 1.5 metres of a lantern. Push the crate
+-to reach the twelfth lantern on the ledge.
++to reach the twelfth lantern on the high ledge, and jump from the ground onto the
++smaller raised platform to reach the thirteenth.
+ 
+ From the repository root:
+ 
+@@ -25,7 +26,7 @@ used by the independent comparison harness. It is inert unless the URL contains
+ `?agent=1`; the adapter sends platform input into the real Exact surface, advances
+ Exact's owned clock, and persists the surface's public save carrier in localStorage.
+ 
+-Initial terrain and the twelve-lantern roster live in `scene.json`; repeated lantern
++Initial terrain and the thirteen-lantern roster live in `scene.json`; repeated lantern
+ parts live in `lantern.fragment.json`. Run `bun game/dev.mjs lanterns --scene-only`
+ after content edits, or add `--reuse-baker` to skip Cargo completely once the typed
+ baker exists. Rust behavior remains unchanged. Restart uses the new content;
+diff --git a/game/games/lanterns/app.contract b/game/games/lanterns/app.contract
+index 8f0bde0..978acf8 100644
+--- a/game/games/lanterns/app.contract
++++ b/game/games/lanterns/app.contract
+@@ -83,19 +83,19 @@ component Lanterns
+           when hud.phase == "won"
+             column testId="victory" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "The island is glowing" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text "All twelve lanterns are lit." font-size=18 color="#fff4d6"
++              text "All thirteen lanterns are lit." font-size=18 color="#fff4d6"
+               button press=restart testId="again" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Play again" font-size=19 color="#241531"
+           when hud.phase == "lost"
+             column testId="lost" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "Night fell" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text `You lit ${hud.count} of 12 lanterns.` font-size=18 color="#fff4d6"
++              text `You lit ${hud.count} of ${hud.total} lanterns.` font-size=18 color="#fff4d6"
+               button press=restart testId="retry" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Try again" font-size=19 color="#241531"
+         else
+           column testId="title" position="absolute" top=0 left=0 width="100%" height="100%" align-items="center" justify-content="center" gap=24 background-color="#130f24"
+             text "LANTERNS" font-size=64 font-weight=700 color="#ffd27a"
+-            text "Light twelve lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
++            text "Light thirteen lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
+             text "Push the crate to reach the lantern on the stone ledge." font-size=17 color="#d6cdec"
+             text "WASD or arrows · Space to jump · E to light" font-size=15 color="#a99fc1"
+             row gap=12
+diff --git a/game/games/lanterns/logic/src/lib.rs b/game/games/lanterns/logic/src/lib.rs
+index 4d7e920..4df2a4a 100644
+--- a/game/games/lanterns/logic/src/lib.rs
++++ b/game/games/lanterns/logic/src/lib.rs
+@@ -75,7 +75,7 @@ pub struct Lanterns;
+ impl Game for Lanterns {
+     const CAPTURE_SUPPORTED: bool = true;
+     const ID: &'static str = "lanterns";
+-    const SAVE_VERSION: u32 = 2;
++    const SAVE_VERSION: u32 = 3;
+     type Args = Options;
+ 
+     fn assets() -> &'static [Asset] {
+@@ -543,10 +543,10 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn level_has_matching_player_crate_obstacles_and_twelve_targets() {
++    fn level_has_matching_player_crate_obstacles_and_thirteen_targets() {
+         let sim = game();
+         let world = sim.world();
+-        assert_eq!(world.query::<&Lantern>().iter().count(), 12);
++        assert_eq!(world.query::<&Lantern>().iter().count(), 13);
+         assert_eq!(
+             world.get::<Transform>("crate").unwrap().position,
+             Vec3::new(6.0, 0.6, 8.0)
+@@ -555,6 +555,18 @@ mod tests {
+             world.get::<Transform>("lantern-12").unwrap().position,
+             Vec3::new(10.0, 2.4, 8.0)
+         );
++        assert_eq!(
++            world
++                .get::<Transform>("lantern-13-platform")
++                .unwrap()
++                .position,
++            Vec3::new(-8.0, 0.6, 7.0)
++        );
++        assert_eq!(
++            world.get::<Transform>("lantern-13").unwrap().position,
++            Vec3::new(-8.0, 1.2, 7.0)
++        );
++        assert!(world.has::<Collider>(world.named("lantern-13-platform").unwrap()));
+         assert!(world.has::<Animation>(world.named("fox").unwrap()));
+     }
+ 
+diff --git a/game/games/lanterns/logic/src/scene_tests.rs b/game/games/lanterns/logic/src/scene_tests.rs
+index 8b0f121..1893247 100644
+--- a/game/games/lanterns/logic/src/scene_tests.rs
++++ b/game/games/lanterns/logic/src/scene_tests.rs
+@@ -1,7 +1,7 @@
+ use super::*;
+ use exact_game::{bin, Sim};
+ use exact_game_physics::BodyKind;
+-const LANTERNS: [(&str, Vec3); 12] = [
++const LANTERNS: [(&str, Vec3); 13] = [
+     ("lantern-1", Vec3::new(-12.0, 0.0, 10.0)),
+     ("lantern-2", Vec3::new(-10.0, 0.0, 2.0)),
+     ("lantern-3", Vec3::new(-12.0, 0.0, -8.0)),
+@@ -14,6 +14,7 @@ const LANTERNS: [(&str, Vec3); 12] = [
+     ("lantern-10", Vec3::new(0.0, 0.0, 0.0)),
+     ("lantern-11", Vec3::new(0.0, 0.0, 7.0)),
+     ("lantern-12", Vec3::new(10.0, 2.4, 8.0)),
++    ("lantern-13", Vec3::new(-8.0, 1.2, 7.0)),
+ ];
+ 
+ fn spawn_lantern(world: &mut World, name: &str, at: Vec3) {
+@@ -67,6 +68,13 @@ fn legacy_scene(world: &mut World) {
+         Vec3::new(4.0, 2.4, 4.0),
+         Material::rgb(0.28, 0.27, 0.32).rough(0.85),
+     );
++    spawn_static_box(
++        world,
++        "lantern-13-platform",
++        Vec3::new(-8.0, 0.6, 7.0),
++        Vec3::new(3.0, 1.2, 3.0),
++        Material::rgb(0.28, 0.27, 0.32).rough(0.85),
++    );
+     spawn_static_box(
+         world,
+         "wall",
+@@ -121,7 +129,7 @@ fn authored_initial_world_matches_previous_rust_construction() {
+         old.hash(),
+         "same names, handles, parents and all typed component values"
+     );
+-    assert_eq!(authored.len(), 52);
++    assert_eq!(authored.len(), 57);
+     for entity in authored.entities() {
+         assert_eq!(authored.name(entity), old.name(entity));
+         assert_eq!(authored.global(entity), old.global(entity));
+diff --git a/game/games/lanterns/logic/tests/capture.rs b/game/games/lanterns/logic/tests/capture.rs
+index 7f55422..48fc024 100644
+--- a/game/games/lanterns/logic/tests/capture.rs
++++ b/game/games/lanterns/logic/tests/capture.rs
+@@ -1,5 +1,5 @@
+ //! Simulation reproduction of the public native route; normalized inputs, not a UI claim.
+-use exact_game::{Args, Capture, CaptureLimits, Sim, Transform, Value};
++use exact_game::{Capture, CaptureLimits, Sim, Transform};
+ use exact_game_physics::Character;
+ use lanterns_logic::{Lantern, Lanterns, Options, Session};
+ 
+@@ -14,18 +14,6 @@ fn hold(sim: &mut Sim<Lanterns>, code: &str, count: u32) {
+     ticks(sim, count);
+     sim.key_up(code);
+ }
+-fn press(sim: &mut Sim<Lanterns>, name: &str) {
+-    let index = <Options as Args>::FIELDS
+-        .iter()
+-        .position(|(field, _)| *field == name)
+-        .unwrap();
+-    let mut values = sim.args().values();
+-    let Value::Number(value) = &mut values[index] else {
+-        panic!("counter")
+-    };
+-    *value += 1.0;
+-    sim.bind(&values, None).unwrap();
+-}
+ fn steer(sim: &mut Sim<Lanterns>, x: f32, z: f32, tolerance: f32) {
+     for _ in 0..160 {
+         let at = sim.position("player").unwrap();
+@@ -69,7 +57,7 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
+     panic!("landing failed at {:?}", sim.position("player"));
+ }
+ #[test]
+-fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
++fn ordinary_input_reaches_both_raised_lanterns_and_restores_terminal_state() {
+     let mut sim = Sim::<Lanterns>::new(Options {
+         seed: 1_041_003,
+         started: true,
+@@ -94,7 +82,7 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             .unwrap()
+             .position;
+         steer(&mut sim, at.x, at.z, 0.18);
+-        press(&mut sim, "light_press");
++        sim.tap("KeyE");
+         ticks(&mut sim, 2);
+         assert!(sim.world().get::<Lantern>(name.as_str()).unwrap().lit);
+     }
+@@ -116,20 +104,21 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+     )
+     .unwrap();
+     steer(&mut sim, at.x - 1.5, at.z, 0.11);
+-    press(&mut sim, "jump_press");
++    sim.tap("Space");
+     hold(&mut sim, "KeyD", 20);
+     land(&mut sim, 0.9);
+     assert!(
+         (sim.position("player").unwrap().y - 0.65 - (sim.position("crate").unwrap().y + 0.6)).abs()
+             < 0.18
+     );
+-    press(&mut sim, "jump_press");
++    sim.tap("Space");
+     hold(&mut sim, "KeyD", 35);
+     land(&mut sim, 2.2);
+     steer(&mut sim, 10.0, 8.0, 0.18);
+-    press(&mut sim, "light_press");
++    sim.tap("KeyE");
+     ticks(&mut sim, 2);
+-    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    assert!(sim.world().get::<Lantern>("lantern-12").unwrap().lit);
++    assert_eq!(sim.world().resource::<Session>().phase, 1);
+     assert_eq!(
+         sim.world()
+             .query::<&Lantern>()
+@@ -138,6 +127,33 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             .count(),
+         12
+     );
++    steer(&mut sim, 10.0, 10.2, 0.12);
++    steer(&mut sim, -8.0, 10.2, 0.12);
++    steer(&mut sim, -8.0, 9.25, 0.12);
++    sim.tap("KeyE");
++    ticks(&mut sim, 2);
++    assert!(
++        !sim.world().get::<Lantern>("lantern-13").unwrap().lit,
++        "the raised lantern cannot be lit from outside its 1.5 metre interaction radius"
++    );
++    sim.tap("Space");
++    hold(&mut sim, "KeyW", 24);
++    land(&mut sim, 1.0);
++    let feet = sim.position("player").unwrap().y - 0.65;
++    assert!((feet - 1.2).abs() < 0.18, "platform landing feet={feet}");
++    steer(&mut sim, -8.0, 7.0, 0.18);
++    sim.tap("KeyE");
++    ticks(&mut sim, 2);
++    assert!(sim.world().get::<Lantern>("lantern-13").unwrap().lit);
++    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    assert_eq!(
++        sim.world()
++            .query::<&Lantern>()
++            .iter()
++            .filter(|(_, l)| l.lit)
++            .count(),
++        13
++    );
+     let hash = sim.world().hash();
+     let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+     for _ in 0..2 {
+diff --git a/game/games/lanterns/proof.mjs b/game/games/lanterns/proof.mjs
+index 6da0fd9..9462a6d 100755
+--- a/game/games/lanterns/proof.mjs
++++ b/game/games/lanterns/proof.mjs
+@@ -14,6 +14,8 @@ await proof(import.meta, async ({open, check, equal, out, host}) => {
+   const playing = await s.tree();
+   check('the world and distinct Light and Jump controls are mounted',
+     !!node(playing, 'world') && !!node(playing, 'light') && !!node(playing, 'jump'));
++  check('the live HUD requires thirteen lanterns',
++    node(playing, 'hud-lanterns')?.props?.text?.includes('0 / 13'), node(playing, 'hud-lanterns'));
+   const foxMesh = await s.world('world').get('fox', 'Mesh');
+   const foxAnimation = await s.world('world').get('fox', 'Animation');
+   check('the consumer uses the real Fox asset', equal(foxMesh, {Asset:['Fox.glb']}), foxMesh);
+@@ -29,4 +31,33 @@ await proof(import.meta, async ({open, check, equal, out, host}) => {
+   check('the browser and GPU report no errors',
+     !logs.host?.some(line => /^(exception:|console\.error:|error:)/.test(line)), logs.host);
+   await s.close();
++
++  const route = await open();
++  await route.tap('play');
++  const world = route.world('world');
++  const platform = await world.get('lantern-13-platform', 'Transform');
++  const platformCollider = await world.get('lantern-13-platform', 'Collider');
++  const target = await world.get('lantern-13', 'Transform');
++  check('lantern-13 and its solid platform use the authored positions',
++    equal(platform?.position, [-8, 0.6, 7]) && equal(target?.position, [-8, 1.2, 7]) && !!platformCollider,
++    {platform, target, platformCollider});
++  await world.hold('KeyA', 1778);
++  await world.hold('KeyW', 611);
++  await world.tap('KeyE');
++  await world.run(34);
++  const remote = await world.get('lantern-13', 'Lantern');
++  check('lantern-13 cannot be lit from the ground outside the interaction radius',
++    remote?.lit === false, {position:await world.position('player'), lantern:remote});
++  await world.tap('Space');
++  await world.hold('KeyW', 400);
++  await world.run(700);
++  const landed = await world.position('player');
++  const character = await world.get('player', 'Character');
++  check('ordinary movement and jump input lands on the new platform',
++    Math.abs(landed[1] - 1.85) < 0.18 && character?.grounded === true, {landed, character});
++  await world.tap('KeyE');
++  await world.run(34);
++  const reached = await world.get('lantern-13', 'Lantern');
++  check('lantern-13 follows the normal nearby act rule after landing', reached?.lit === true, reached);
++  await route.close();
+ });
+diff --git a/game/games/lanterns/scene.json b/game/games/lanterns/scene.json
+index 41a8ed0..46d438a 100644
+--- a/game/games/lanterns/scene.json
++++ b/game/games/lanterns/scene.json
+@@ -99,6 +99,50 @@
+         }
+       }
+     },
++    {
++      "id": "lantern-13-platform",
++      "fragment": "solid",
++      "parameters": {
++        "position": [
++          -8,
++          0.6,
++          7
++        ],
++        "mesh": {
++          "Box": {
++            "size": [
++              3,
++              1.2,
++              3
++            ]
++          }
++        },
++        "material": {
++          "color": [
++            0.28,
++            0.27,
++            0.32,
++            1
++          ],
++          "roughness": 0.85
++        }
++      },
++      "overrides": {
++        "": {
++          "Collider": {
++            "shape": {
++              "Box": {
++                "half": [
++                  1.5,
++                  0.6,
++                  1.5
++                ]
++              }
++            }
++          }
++        }
++      }
++    },
+     {
+       "id": "wall",
+       "fragment": "solid",
+@@ -326,6 +370,17 @@
+           8
+         ]
+       }
++    },
++    {
++      "id": "lantern-13",
++      "fragment": "lantern",
++      "parameters": {
++        "position": [
++          -8,
++          1.2,
++          7
++        ]
++      }
+     }
+   ]
+ }
