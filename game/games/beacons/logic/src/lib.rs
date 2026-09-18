@@ -1,7 +1,6 @@
 //! Beacons: a deterministic, one-screen search for three lights.
 use exact_game::character::Character;
 use exact_game::*;
-
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
@@ -18,6 +17,18 @@ pub struct Player {
 pub struct Beacon {
     pub lit: bool,
     pub glow: Tween,
+}
+#[derive(Kind)]
+struct Hero {
+    player: Player,
+    transform: Transform,
+}
+#[derive(Kind)]
+struct Light {
+    #[read]
+    transform: Transform,
+    beacon: Beacon,
+    material: Material,
 }
 pub struct Beacons;
 impl Game for Beacons {
@@ -45,13 +56,11 @@ impl Game for Beacons {
             .expect("validated scene")
             .instantiate(w)
             .expect("fresh scene identities");
-        let player = w.spawn_named(
+        let player = w.spawn_kind(
             "player",
-            (
-                Transform::at(0.0, 0.9, 0.0),
-                Mesh::capsule(0.4, 1.8),
-                Material::rgb(0.96, 0.65, 0.22),
-                Player {
+            Hero {
+                transform: Transform::at(0.0, 0.9, 0.0),
+                player: Player {
                     character: Character::new()
                         .speed(4.0)
                         .accel(12.0)
@@ -61,23 +70,15 @@ impl Game for Beacons {
                         .ground(0.9)
                         .bounds_xz(-19.6..=19.6),
                 },
-            ),
+            },
         );
-        w.spawn_named(
-            "camera",
-            (
-                Transform::default(),
-                Camera::default(),
-                Follow::new(player).offset(0.0, 12.0, 17.0).lag(0.15),
-            ),
-        );
-        w.spawn_named(
-            "sun",
-            (
-                Transform::at(8.0, 16.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight::default(),
-            ),
-        );
+        w.insert(player.entity(), Mesh::capsule(0.4, 1.8));
+        w.insert(player.entity(), Material::rgb(0.96, 0.65, 0.22));
+        let player = player.entity();
+        let follow = Follow::new(player).offset(0.0, 12.0, 17.0).lag(0.15);
+        w.spawn_named("camera", (Transform::default(), Camera::default(), follow));
+        let pose = Transform::at(8.0, 16.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y);
+        w.spawn_named("sun", (pose, DirectionalLight::default()));
         spawn_crates(w, args.seed, 6);
         w.publish("beacons", 0);
     }
@@ -85,34 +86,36 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        let dt = w.dt();
+        let direction = input.stick_xz("move");
+        let jump = input.pressed("jump");
         let now = w.now();
-        if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
-            player
+        let position = w.rows_mut::<Hero>().one().map(|mut row| {
+            row.player
                 .character
-                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
-        }
-        if input.pressed("light") {
-            for (entity, _) in w.near_xz::<Beacon>("player", 1.5) {
-                let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
-                if !beacon.lit {
-                    beacon.lit = true;
-                    beacon.glow.to(now, 1.0, 0.5);
-                    w.log("beacon lit");
-                }
-            }
-        }
+                .step(&mut row.transform, direction, jump, w.dt());
+            row.transform.position
+        });
         let mut count = 0;
-        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            let glow = beacon.glow.value(now);
-            material.emissive = [glow * 0.7, glow * 2.5, glow * 3.0];
-            count += u32::from(beacon.lit);
+        for mut row in w.rows_mut::<Light>() {
+            if input.pressed("light")
+                && position.is_some_and(|p| {
+                    let d = p - row.transform.position;
+                    Vec2::new(d.x, d.z).length_squared() <= 2.25
+                })
+                && !row.beacon.lit
+            {
+                row.beacon.lit = true;
+                row.beacon.glow.to(now, 1.0, 0.5);
+                w.log("beacon lit");
+            }
+            let glow = row.beacon.glow.value(now);
+            row.material.emissive = [glow * 0.7, glow * 2.5, glow * 3.0];
+            count += u32::from(row.beacon.lit);
         }
         w.publish("beacons", count);
         scene::follow(w);
     }
 }
-
 pub fn scene_types() -> exact_game_scene::Types {
     let mut types = exact_game_scene::Types::standard();
     types.component::<Beacon>();
@@ -122,24 +125,21 @@ pub fn scene_types() -> exact_game_scene::Types {
 fn spawn_crates(w: &mut World, seed: u64, count: u32) {
     w.reseed(seed);
     for i in 1..=count {
-        let entity = w.spawn_named(
+        w.spawn_named(
             format!("crate-{i}"),
             (
                 Transform::at(w.rand(-16.0..16.0), 0.5, w.rand(-16.0..16.0)),
                 Mesh::cube(1.0),
                 Material::rgb(0.44, 0.34, 0.25),
+                exact_game_scene::GeneratedBy {
+                    generator: "beacons::spawn_crates".into(),
+                    parameters: [
+                        ("seed".into(), seed.to_string()),
+                        ("count".into(), count.to_string()),
+                    ]
+                    .into(),
+                },
             ),
-        );
-        w.insert(
-            entity,
-            exact_game_scene::GeneratedBy {
-                generator: "beacons::spawn_crates".into(),
-                parameters: [
-                    ("seed".into(), seed.to_string()),
-                    ("count".into(), count.to_string()),
-                ]
-                .into(),
-            },
         );
     }
 }
