@@ -2465,8 +2465,37 @@ The four-file patch is
 `36f5a79c035a56e3b032fc8783d2add4624cdc697f5f837f4c71ec6560de7519`;
 84 copied evidence files are under `target/apple-region-width-reuse-validation/`.
 The earlier carrier did not record enough source identity to attribute its
-suspected duplicate spans. This source repair therefore carries no measured
-giant-paragraph speedup, memory bound or physical 120 Hz claim.
+suspected duplicate spans. Those tests alone establish reuse, not a measured
+giant-paragraph speedup, memory bound or physical 120 Hz result.
+
+A separate one-pair backend experiment now exercises the complete saved
+1,048,499-byte paragraph (999,569 UTF16 units) through actual `RegionService`.
+Both arms retain the same source object and three fresh artifact IDs, at offered
+width 940 and height offers MinContent, MaxContent and 400. Three off-main
+admissions produce three constructions before the change and one afterward.
+All six full-text copies and streamed geometry digests match: 8,155 lines,
+212,030 height, natural measured width 945. The offered box remains 940; no
+fixture or geometry expectation is retuned.
+
+The final artifact's 940×160 bitmap at scale 1 and internal scroll 0.375 matches
+in every one of its 601,600 RGBA bytes, with identical ICC profile, fixed
+selection and sampled hit metadata. This uses a source-derived fixed style and
+palette; it excludes heading, parsing, controller and WindowServer presentation.
+Source/font capture takes 12.088/15.752 ms before/after. Submit-to-UI delivery
+takes 2737.366/2674.675 ms for the first offer, 2642.066/8.749 ms for the second,
+and 2654.142/1.985 ms for the third. These are one pair's wall intervals, not
+isolated CoreText CPU or a latency distribution. Full geometry checking occurs
+between offers, outside those intervals. First construction remains expensive.
+
+Both native helpers and the exact comparator exit successfully, with recorded
+processes/groups retired. The initial launch attempt remains a setup failure
+with zero helpers started: copied binaries lacked execute permission. Separate
+exact-byte executable copies correct only that permission; no rebuild or source
+change is involved. The earlier three full-host carrier failures remain
+separate. This backend pair does not establish native interaction, novel-width
+reflow or physical 120 Hz. Its 23 artifacts/1,230,199 bytes are under
+`target/apple-region-width-reuse-1m-runtime/pair-2/`, manifest
+`d1dcc3cf3df9bc1b71b6d0e2428d25d74de7faa092d4adc1c4322778cef58ff4`.
 
 ### 8.32 Retain the height index when ordered keys are identical, 2026-09-17
 
