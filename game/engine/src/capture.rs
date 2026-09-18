@@ -731,10 +731,28 @@ mod tests {
         }));
         refused_before_collection(&corrupt, "checksum differs", original.records.len());
 
-        let mut small = original.clone();
-        small.limits.bytes = small.to_bytes().len() as u32 - 1;
-        // Changing the varint width can change the encoded length too.
-        small.limits.bytes = small.to_bytes().len() as u32 - 1;
+        // The checksum is a varint too: changing the budget can shorten it,
+        // so iterating length - 1 need not converge. Find adjacent refusing /
+        // accepted budgets with identical wire length, keeping the exact edge.
+        let mut boundary = None;
+        'fixture: for padding in 0..64 {
+            let mut candidate = original.clone();
+            candidate.build.extend(std::iter::repeat_n('.', padding));
+            let length = candidate.to_bytes().len() as u32;
+            for budget in length.saturating_sub(16)..=length + 16 {
+                candidate.limits.bytes = budget;
+                if candidate.to_bytes().len() != budget as usize + 1 {
+                    continue;
+                }
+                candidate.limits.bytes += 1;
+                if candidate.to_bytes().len() == budget as usize + 1 {
+                    candidate.limits.bytes -= 1;
+                    boundary = Some(candidate);
+                    break 'fixture;
+                }
+            }
+        }
+        let mut small = boundary.expect("adjacent byte-budget fixture within 64 padding bytes");
         refused_before_collection(&small.to_bytes(), "declared byte budget", 0);
         small.limits.bytes += 1;
         assert_eq!(small.to_bytes().len(), small.limits.bytes as usize);

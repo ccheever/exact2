@@ -25,13 +25,13 @@ The fixtures are in [`../games/lanterns/fixtures/`](../games/lanterns/fixtures/)
   Sim helpers; `clock` dispatches the existing agent operation. `after_ticks`
   schedules the same `InputEvent::Key` at an explicit host timestamp.
   `checkpoint` is a recorder marker and executes no simulation mutation.
-- `difficult-moment.sim`: 131,793-byte EXSIM v6 save at **tick 225 (3.75 s)**.
+- `difficult-moment.sim`: 131,807-byte EXSIM v6 save at **tick 225 (3.75 s)**.
   Two independent scripted runs produce **`0xec3b43cc9f709c4c`**, and their complete
   save bytes match. The normal test compares against the committed save.
 - `difficult-moment.json`: hash pair, launch/support evidence, components,
   timer, held input, spring sample, pending input and journals, including the
   two unmet requirements. No animation weights exist to record.
-- `moving-crate.sim`: 130,813-byte supplementary save at tick 133, hash
+- `moving-crate.sim`: 130,827-byte supplementary save at tick 133, hash
   `0x676338add4cd9154`. Both velocities are nonzero and `Body.asleep == false`.
 - `difficult-moment.continuations.jsonl`: restored boundary plus **every one of
   120 continued ticks for each of five builds** (605 records). This records
@@ -88,7 +88,8 @@ both real clips and confirms different skinned vertices; no GPU is needed.
 
 Every row preserves player/crate velocities, animation cursor, spring state,
 held/queued input, and timer at restore. The moving-crate fixture proves the
-nonzero velocities too. During continuation, inputs and timer remain identical
+nonzero velocities too. Binary input/queued-event/world-clock records match at
+restore and every continued tick. During continuation, inputs and timer remain identical
 in every row; crate state remains identical except when gravity intentionally
 changes integration. Clip and appearance preserve character and spring trajectories.
 
@@ -116,10 +117,12 @@ simulation-owned fields exercise `kept`; the shipped game/scene is unchanged.
 ## Merge bounds, choices, and unfavourable cases
 
 EXSIM v6 stores a compact bulk tick-zero projection: the apex save grows by
-49,958 bytes (81,835 → 131,793); the moving save grows by the same amount.
+49,972 bytes (81,835 → 131,807); the moving save grows by the same amount.
 EXSIM v5 is explicitly refused because it lacks the old authored base. This
 follows the repository's pre-1.0 no-migration rule. The base advances to the new
-initializer after a successful restore. Save/hash representation of `Entity`
+initializer after a successful restore. Its construction arguments travel with it
+when they differ from gameplay arguments; a second plain restore/from-save keeps
+applied scene edits and complete save equality. Save/hash representation of `Entity`
 and `Id<K>` is unchanged; merge comparisons resolve unique names across reordered
 spawns. Unnamed rows require agreeing indices/component sets and a surviving
 carried incarnation. Added/removed entities/components are deferred to restart.
@@ -133,7 +136,7 @@ and changed values; returning an empty report or removing the merge fails them.
 
 An isolated **200,000-entity** run reverses spawn order, interleaves component sets,
 recycles every third slot and edits all 400,000 Probe fields. It checks every result,
-including after the 64-item report cap: **3.248 s merge**, **1.246 s construction and
+including after the 64-item report cap: **3.291 s merge**, **1.256 s construction and
 projection**, **1,008,688 KiB process peak RSS**, final hash `1897ba3ddadebdf1`.
 The base is **11,672,475 bytes**, the edited initializer **23,872,519 bytes**.
 These are optimized dev/test CPU observations on this shared machine. The first
@@ -252,3 +255,46 @@ none of the passing checks upgrades them into a demonstrated capability.
 The renderer evidence is its actual CPU feed/upload seam, not GPU pixels. GPU,
 Chrome, Apple SDK/runtime, physical sound, and the original simultaneous
 blend-plus-moving-crate apex remain unverified/unavailable here.
+
+## T2 trunk integration
+
+Merged `9bd587bffaa3a74a6293153593fc1df78f5d351f` from `../exact2-next`
+(`next/trunk`) in merge commit `60acef4`. `restore_bound` retains the destination
+registry overlay, then loads and merges authored fields. Clock validation requires
+exact saved tick/time agreement; the F2d scheduler tests are retained and the
+one-tick-ahead refusal uses EXSIM v6. World state exposes both `assets` and `reload`.
+The deferred-asset readiness path captures the initializer after successful setup;
+projection overflow reports an error before installing that world.
+
+The first post-merge asset proof found the prior baker's ignored `assets/crate.model`
+left by this lane's earlier proof. The new baker correctly refused it because it
+predated `.baked-assets.json`. That one generated file was removed for regeneration;
+no authored assets or validation rules changed.
+
+The isolated final T2 CPU timing run after integration measured **253.885 µs simulation**,
+**37.521 µs animation/skinning**, **42.473 µs remaining feed** per tick (medians),
+**19,176 KiB process peak RSS**, final unedited hash `14e9fd0a88907090`.
+
+Final combined verification:
+
+- **485 game Rust tests passed, 0 failed, 14 ignored**. Both ignored T2/I3 cost
+  diagnostics were explicitly run and passed. The final I3 run includes full binary
+  input/queued-event/relative-clock equality at restore and every continued tick.
+- **131 Linux proof assertions passed**: asset-fixture 7 (33.205 s), Beacons 54
+  (29.079 s), Greybox 62 (21.674 s), Lanterns 8 (35.951 s), including builds.
+- Game clippy `--workspace --all-targets -- -D warnings`, game/root formatting,
+  caps and boot pass. The affected core packages pass **212 tests, 0 failed,
+  1 ignored**, and clippy. Standalone web fixtures pass **68**, with 2 skipped
+  Bridge-dependent cases also exercised by the Rust web-host suite.
+- Game Bun: **55 passed, 2 failures** requiring absent Chrome and feel bakes.
+  Full root build/test/clippy again stop at the missing lean Hermes producer.
+  These environmental failures were retained and reported, not hidden.
+- The larger v6 checkpoint exposed a checksum-varint width assumption in the
+  capture byte-budget test. Its fixture now selects adjacent exact fail/pass
+  boundaries with a bounded search; all original checksum, budget, and
+  before-allocation assertions remain. No capture production behavior changed.
+- Final disk check stayed above 98 GiB free; debug/incremental environment settings
+  were retained. No extra worktree or target directory was created.
+
+Complete logs and optional full I3 observations are under
+`~/lanes/gamenext/scratch/T2/`, with the final sweep under `final/`.
