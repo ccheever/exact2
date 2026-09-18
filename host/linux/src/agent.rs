@@ -42,12 +42,14 @@ pub fn serve<D: DataSource + Default>(
             continue;
         }
         if field_str(&line, "op").as_deref() == Some("quit") {
+            p.release_surface_input("human");
             return 0;
         }
         let reply = handle(p, &line);
         let _ = writeln!(out, "{reply}");
         let _ = out.flush();
     }
+    p.release_surface_input("human");
     0
 }
 
@@ -118,6 +120,9 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+    if q["op"] == "clock" && q.get("owner").is_some() {
+        return clock(p, line);
+    }
     if let Some(view) = id() {
         if q["entity"].is_string()
             || field_bool(line, "world")
@@ -145,6 +150,13 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 ));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
+                );
+            }
+            if let Some(body) = s.strip_suffix('}').filter(|_| !s.starts_with("{\"error\"")) {
+                s = format!(
+                    "{body},\"ownership\":{},\"capabilities\":{}}}",
+                    ownership(),
+                    capabilities(p)
                 );
             }
             s
@@ -189,6 +201,23 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+fn ownership() -> serde_json::Value {
+    serde_json::json!({"owner":"agent","clock":"controlled","scope":"launch","launchMode":"agent"})
+}
+
+fn capabilities<D: DataSource>(p: &Presenter<D>) -> serde_json::Value {
+    let compat: serde_json::Value = serde_json::from_str(&p.compat).unwrap_or_default();
+    serde_json::json!({"host":"linux", "clockOwnership":false, "handoff":false, "detach":false,
+        "carrier":{"active":"stdio-headless","available":["stdio-headless"],"scope":"launch","eof":"exit",
+            "delivery":{"tap":"recognized","canvasKey":"recognized","heldContact":false,"device":false}},
+        "inputProvenance":{"unavailable":true,"reason":"GPU input ABI does not carry source attestation"},
+        "reload":{"ui":"restart-with-compatible-slot-carry","worldOnUIReload":{"unavailable":true,"reason":"surface instances are rebound by view id; transactional game carry is not implemented"},
+            "game":"rebuild-relaunch","liveGameReplacement":false,"worldCarry":"explicit-save-restore"},
+        "build":{"host":compat["id"],"requestedGame":compat["embedded"]["gpu"],
+            "loadedGame":p.surfaces.loaded_identity(),"planDigest":{"unavailable":true},
+            "lastSuccessfulSwap":null,"phase":"launch"}})
 }
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
@@ -250,6 +279,20 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    if let Some(owner) = field_str(line, "owner") {
+        if owner != "agent" {
+            return error(if owner == "human" {
+                "unsupported: Linux stdio is launch-scoped and headless; close this driver and relaunch without EXACT_AGENT for live display play"
+            } else {
+                "clock owner must be human or agent"
+            });
+        }
+        if field_bool(line, "detach") {
+            return error("detach requires live human play; Linux headless stdio exits on EOF");
+        }
+        let worlds = p.release_surface_input("agent");
+        return serde_json::json!({"ownership":ownership(),"clock":p.host().now(),"releasedInput":true,"world":worlds}).to_string();
+    }
     let from = p.host().now();
     let settle_to_end = field_bool(line, "settle");
     let mut to = field_num(line, "to");

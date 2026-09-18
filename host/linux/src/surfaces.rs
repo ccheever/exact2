@@ -19,6 +19,7 @@ struct Abi {
     // Symbols never outlive this library; unload TLS before dlclose.
     library: Library,
     output_error: std::cell::RefCell<Option<String>>,
+    identity: Value,
 }
 impl Abi {
     fn open(compat: &Value) -> Result<Self, String> {
@@ -40,6 +41,7 @@ impl Abi {
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
             output_error: Default::default(),
+            identity: compat["embedded"]["gpu"].clone(),
         };
         unsafe {
             for name in [
@@ -174,6 +176,7 @@ struct Canvas {
     owner: bool,
     since: u64,
     held: BTreeSet<String>,
+    ownership_initialized: bool,
     restore_error: Option<String>,
     restore_logged: bool,
 }
@@ -187,6 +190,12 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
 }
 impl Surfaces {
+    pub(crate) fn loaded_identity(&self) -> Value {
+        self.abi
+            .as_ref()
+            .map_or(Value::Null, |a| a.identity.clone())
+    }
+
     fn sync<D: DataSource>(&mut self, host: &mut Host<D>, compat: &str) -> bool {
         let mut changed = false;
         let dead: Vec<_> = self
@@ -252,6 +261,7 @@ impl Surfaces {
                         owner,
                         since: 0,
                         held: BTreeSet::new(),
+                        ownership_initialized: false,
                         restore_error: None,
                         restore_logged: false,
                     },
@@ -267,6 +277,17 @@ impl Surfaces {
             if code != 0 {
                 self.error = abi.error();
                 continue;
+            }
+            // An explicitly controlled launch declares ownership before restoring
+            // a checkpoint, whose intentional recorded held input is retained.
+            if !c.ownership_initialized {
+                c.ownership_initialized = true;
+                if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
+                    let _ = abi.agent(
+                        c.id,
+                        &json!({"op":"clock","owner":"agent","now":host.now()}),
+                    );
+                }
             }
             if !self.restore_read {
                 self.restore_read = true;
@@ -365,6 +386,13 @@ impl Surfaces {
     }
 }
 impl<D: DataSource> Presenter<D> {
+    pub(crate) fn release_surface_input(&mut self, owner: &str) -> Vec<Value> {
+        for c in self.surfaces.canvases.values_mut() {
+            c.held.clear();
+        }
+        self.worlds(json!({"op":"clock", "owner":owner}))
+    }
+
     pub(crate) fn sync_surfaces(&mut self) {
         // A publication/message may change the canvas arguments. Drain to a fixed
         // point; an app feedback loop is refused rather than hanging the carrier.
@@ -576,19 +604,40 @@ void gpu_unload(void) {}
 uint32_t gpu_create_headless(void) { return 1; }
 uint32_t gpu_bind_at(void) { return 0; }
 static const char reply[] = "{\"hit\":{\"name\":\"cpu\"}}";
+static char output[512];
+static const unsigned char *out = (const unsigned char *)reply;
+static int owned[16], held[16];
+static int has(const unsigned char *s, size_t len, const char *word) {
+  size_t n = strlen(word);
+  for (size_t i=0; i+n<=len; ++i) if (!memcmp(s+i, word, n)) return 1;
+  return 0;
+}
 uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
-  for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
+  if (has(text, len, "layout")) { out = (const unsigned char *)reply; return sizeof(reply)-1; }
+  if (id < 16 && has(text, len, "clock")) {
+    owned[id] = has(text, len, "human") ? 2 : 1;
+    held[id] = 0;
+    snprintf(output, sizeof(output), "{\"ownership\":{\"owner\":\"%s\"}}", owned[id] == 1 ? "agent" : "human");
+    out = (const unsigned char *)output; return strlen(output);
+  }
+  if (id < 16 && owned[id] && has(text, len, "state")) {
+    snprintf(output, sizeof(output), "{\"world\":{\"held\":%d,\"tick\":17,\"hash\":\"preserved\"}}", held[id]);
+    out = (const unsigned char *)output; return strlen(output);
+  }
   return 268435457;
 }
-uint32_t gpu_input(void) { return 0; }
-uint32_t gpu_wants_input(void) { return 0; }
+uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
+  if (id < 16) held[id] = has(text, len, "true");
+  return 0;
+}
+uint32_t gpu_wants_input(void) { return 1; }
 uint32_t gpu_published(void) { return 268435457; }
 uint32_t gpu_messages(void) { return 268435457; }
 uint32_t gpu_carry(void) { return 268435457; }
 uint32_t gpu_restore(void) { return 1; }
 void gpu_destroy(void) {}
 uint32_t gpu_error(void) { return 0; }
-const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
+const unsigned char* gpu_out_ptr(void) { return out; }
 "#,
         )
         .unwrap();
@@ -659,12 +708,63 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 owner: true,
                 since: 0,
                 held: BTreeSet::new(),
+                ownership_initialized: false,
                 restore_error: None,
                 restore_logged: false,
             },
         );
         let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
         assert_eq!(reply["hit"]["name"], "cpu");
+        drop(p);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn handoff_reaches_every_canvas_and_releases_host_and_module_held_keys() {
+        let (path, compat) = fixture();
+        let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            caltrain_data::Caltrain,
+            (100., 100.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        for view in [1, 2] {
+            p.surfaces.canvases.insert(
+                view,
+                Canvas {
+                    id: view,
+                    name: format!("world-{view}"),
+                    owner: true,
+                    since: 0,
+                    held: BTreeSet::new(),
+                    ownership_initialized: true,
+                    restore_error: None,
+                    restore_logged: false,
+                },
+            );
+        }
+        p.release_surface_input("agent");
+        for view in [1, 2] {
+            assert!(p.surface_input(view, json!({"t":"key","code":"KeyW","down":true,"at":0})));
+            assert!(p.surfaces.canvases[&view].held.contains("KeyW"));
+            assert_eq!(
+                p.surface_request(view, json!({"op":"state"}))["world"]["held"],
+                1
+            );
+        }
+        let result = p.release_surface_input("human");
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|r| r["ownership"]["owner"] == "human"));
+        for view in [1, 2] {
+            assert!(p.surfaces.canvases[&view].held.is_empty());
+            let state = p.surface_request(view, json!({"op":"state"}));
+            assert_eq!(state["world"]["held"], 0);
+            assert_eq!(state["world"]["tick"], 17);
+            assert_eq!(state["world"]["hash"], "preserved");
+        }
         drop(p);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

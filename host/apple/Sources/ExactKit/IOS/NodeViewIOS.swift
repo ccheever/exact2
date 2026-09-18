@@ -1267,7 +1267,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
         // newly focused field into view.
-        if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentFreezes { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
+        if let p = presenter, p.keyboardInset > 0 { if (p.session?.freezesAnimations == true) { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
         if handlers.contains("focus") { presenter?.focus(id) }
     }
     func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }

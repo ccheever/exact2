@@ -172,7 +172,7 @@ final class MenuHost {
     private func finish(_ owner: Confirmation, confirmed: Bool) {
         guard confirmation === owner, !owner.finishing else { return }
         owner.finishing = true
-        owner.alert.dismiss(animated: !ExactEnv.agentFreezes) { [weak self, owner] in
+        owner.alert.dismiss(animated: !(presenter?.session?.freezesAnimations == true)) { [weak self, owner] in
             // A native action arrives after the alert leaves its window;
             // dismiss can therefore complete synchronously inside UIKit's
             // selection callback, before its dismissal delegate is called.
@@ -278,7 +278,7 @@ final class MenuHost {
         presentation.canOverlapSourceViewRect = true
         presentation.delegate = owner
         confirmation = owner
-        controller.present(owner.alert, animated: !ExactEnv.agentFreezes)
+        controller.present(owner.alert, animated: !(presenter?.session?.freezesAnimations == true))
         return true
     }
 
