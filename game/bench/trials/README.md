@@ -104,3 +104,10 @@ so the model's Linux proof bake failed with EACCES even though parent setup buil
 Future policy grants READ_DIR (directory listing only) at `/`; READ_FILE remains
 restricted and the evaluator-content denial probe remains mandatory. A2 keeps
 this instrument-induced time loss and is not a clean cross-engine measurement.
+
+Final launcher repair round: A2's log also showed Git failing to read the global
+`.gitconfig` and the installed `rg` shim denied execution. Future sessions use
+`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, and read/execute permission
+for the installed rg directory. This adds no project/history access. These
+instrument failures are quoted separately from game/API difficulties. No fourth
+launcher repair is authorized in this run.
