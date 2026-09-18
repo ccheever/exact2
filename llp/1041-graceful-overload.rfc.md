@@ -3129,3 +3129,56 @@ geometry/content cohorts and cleanup evidence are under
 manifest `6ffbe73c511a12d0d7205e79ed1be3f81af489f2b1544ab6282421a2aae17930`.
 Remaining work is the UI/resize cost split and actual presentation evidence;
 neither repeated lower core medians nor these functional endpoints prove 120 Hz.
+
+### 8.43 Native Messages resize boundary measurements, 2026-09-17
+
+One further private 630 After capture/run separates the remaining synchronous
+costs. Its Reusable factory, baked plan and compatibility bytes match §8.40's
+After product. Only diagnostic Bridge/Session markers are added to the existing
+normal-clock observer: after native return, after the owned output copy, and
+around collection feedback through returned-batch application. Workload remains
+10,000 rows/batch32, ordinary 250ms timers, three genuine resize edges with fixed
+12 typing/wheel offers each, and a separate command-free interval. This more
+instrumented cell is a cost discriminator, not another speed A/B.
+
+Each edge contains 35 complete resize chains and seven timer chains. Resize
+measurements in milliseconds are:
+
+| Phase | Native/entry median | Copy median | Decode/Batch median | Apply median | Whole median / maximum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Idle | 4.638 | 0.003 | 0.170 | 1.340 | 6.269 / 13.690 |
+| Loaded | 4.790 | 0.003 | 0.164 | 1.345 | 6.563 / 13.790 |
+| Recovery | 4.636 | 0.003 | 0.165 | 1.744 | 6.340 / 15.863 |
+
+These are per-column medians, not additive components of a median call. Native
+and entry includes synchronous platform callbacks, wrapper/probe overhead,
+locks and descheduling; it is not isolated Rust CPU or pure layout time. Its
+loaded maximum is 9.580ms, recovery maximum 10.799ms. Output copying and JSON
+decoding are small in this cell; the next useful boundary is within native
+resize/layout and its text-measurement callbacks, not a transport rewrite.
+
+Apply includes reentrant collection feedback. The 77/79/75 complete feedback
+chains inside the three edges remain individually available; parent overlap
+is an interval union, never a sum of nested calls. Loaded resize apply
+has median feedback overlap 0.403ms and unclassified residual 1.304ms. These
+separate medians do not sum to the apply median. Feedback's final interval
+combines decode and apply because no internal boundary was measured.
+
+Whole resize calls exceed 1000/120ms in 12/9/11 cases. Seven loaded timer chains
+have whole median 3.677ms and maximum 7.724ms, but that subset does not establish
+the deadline: five of eight chains in the separate zero-command producer interval
+exceed it, including whole spans of 13.889ms and 13.825ms. That interval's whole
+median is 8.955ms. Its revision advances 0→8; loaded boundaries are 9→19.
+Current-source full History values match the retained equal-argument cohorts.
+Mode coverage remains unestablished because the passive quota overflows;
+primary trace records do not overflow.
+
+The one build and one runtime finish successfully, with all seven runtime PIDs,
+five groups and four owned poster button-ups accounted for. Added probes keep
+the 4096/512 quotas and add two record attempts per observed advance/resize,
+four per feedback, plus serialization and synchronous parent bookkeeping.
+No overhead subtraction, default activation, physical frame deadline or 120Hz
+claim follows. Raw states, complete nested split rows, source/binary receipts
+and terminal proofs are retained under `target/native-630-bridge-split-native-v1/`,
+464 files/123,721,283 bytes, manifest
+`99409ba5835eca0910f4f0da23993ac0fea35503b53f022416aef7dbaf352627`.
