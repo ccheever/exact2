@@ -1,0 +1,17 @@
+[package]
+name = "beacons-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "../../../app/web.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-runner.workspace = true
+exact-web.workspace = true
+
+[build-dependencies]
+exact-game-app.workspace = true
