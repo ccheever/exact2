@@ -514,3 +514,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Game Bun suite: the generated-game test receives empty stdout from its shell-location subprocess (exit 0); it then leaves stale generated shell members because it never captures their paths. Reproduced from `game/` in D7b.
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
+
+- Game scene reload latency (LLP 1041.006, 2026-09-18; Codex): real content edit/restoration reached paint acknowledgement in 126/238 ms (candidate plan 74/181 ms), above the 100 ms target. Isolate load, measure a warm distribution and reduce plan/replacement cost; no p50 or scanout claim from these two samples.

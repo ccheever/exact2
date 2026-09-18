@@ -368,6 +368,16 @@ and checks actual tick boundaries; paused/unsupported worlds refuse, without ret
 `world('world').source('crate')` resolves a digest/file-hash-checked development
 scene map. Procedural entities report `GeneratedBy`, not fabricated source lines.
 
+## Returning control to a person
+
+`await s.clock({owner:'human'})` releases held input and resumes live pacing;
+`await s.clock({owner:'agent'})` explicitly reacquires the clock. Read-only
+inspection does not acquire it. On supported Apple carriers, `await s.detach()`
+waits for host acknowledgement, closes the transport and leaves the app playing.
+Calling `s.close()` afterwards is safe; ordinary close without acknowledged detach
+still terminates the isolated test app. Detached carriers cannot reconnect.
+Linux headless and physical-phone driver handoff are explicitly unsupported.
+
 ## Choosing reload behavior
 
 The web development controls expose Continue, Restart and Restore. Continue retains
