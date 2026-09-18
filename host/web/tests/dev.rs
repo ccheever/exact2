@@ -297,3 +297,63 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     assert!(!after.contains("not booted"), "{after}");
     assert!(after.contains("\"text\":\"3\""), "{after}");
 }
+
+#[test]
+fn presenter_rejection_rolls_back_a_successfully_compiled_candidate_and_its_clock() {
+    let plan = contract::compile(COUNTER).unwrap().encode();
+    let candidate = contract::compile(&COUNTER.replace("state n = 1", "state n = 100"))
+        .unwrap()
+        .encode();
+    let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    let n = bridge.input_write(&plan);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
+    let inc: u32 = {
+        let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+        let at = batch.find("\"data-testid\":\"inc\"").unwrap();
+        let marker = "\"op\":\"create\",\"id\":";
+        let id_at = batch[..at].rfind(marker).unwrap() + marker.len();
+        batch[id_at..].split(',').next().unwrap().parse().unwrap()
+    };
+    bridge.dispatch(inc, 0, 0, 1234.0);
+    assert!(bridge.begin_boot());
+    assert!(!bridge.begin_boot(), "no overlapping presenter transaction");
+    let n = bridge.input_write(&candidate);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"error\":null"));
+    bridge.dispatch(inc, 0, 0, 1234.0);
+    bridge.dispatch(inc, 0, 0, 1234.0);
+    // A valid plan whose GPU restore/render was refused must preserve the old
+    // runner, not simply boot the old plan with the candidate's reset state.
+    bridge.finish_boot(false);
+    let len = bridge.dispatch(inc, 0, 0, 1234.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(after.contains("\"text\":\"3\""), "{after}");
+    assert!(bridge.begin_boot());
+    let n = bridge.input_write(&candidate);
+    bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
+    bridge.finish_boot(true);
+    let len = bridge.dispatch(inc, 0, 0, 1234.0);
+    let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(after.contains("\"text\":\"4\""), "{after}");
+}
+
+#[test]
+fn staging_refuses_external_resource_before_querying_it() {
+    let initial = contract::compile(GOOD).unwrap().encode();
+    let external = contract::compile(
+        "shape External\n  value: string\ncomponent App\n  resource data = external() as shape External\n  view\n    text data.value\n",
+    )
+    .unwrap()
+    .encode();
+    let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    bridge.boot(&initial, NoData, 390.0, 844.0, "/");
+    assert!(bridge.begin_boot());
+    let n = bridge.input_write(&external);
+    let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
+    let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(
+        refusal.contains("cannot execute external resources"),
+        "{refusal}"
+    );
+    bridge.finish_boot(false);
+}
