@@ -265,7 +265,7 @@ fn live_capture_keeps_fractional_phase_period_changes_and_pending_device_input()
             .unwrap()
             .paranoid(mode);
         sim.viewport(800., 600.);
-        let mut at = 1234.567895;
+        let mut at = 1_234_567_895.123_456; // Host uptime beyond one day.
         sim.frame_period(1000. / 144.);
         sim.advance(at, Clock::Live);
         for _ in 0..7 {

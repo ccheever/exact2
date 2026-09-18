@@ -20,6 +20,11 @@ struct CapturedLive {
     slew_left: Option<f64>,
     lookahead: f64,
 }
+impl CaptureClock {
+    pub(crate) fn origin_ms(&self) -> f64 {
+        self.last_ms.unwrap_or(0.0)
+    }
+}
 impl<G: Game> Sim<G> {
     pub(crate) fn last_ms_for_capture(&self) -> f64 {
         self.last_ms.unwrap_or(0.0)
@@ -45,9 +50,9 @@ impl<G: Game> Sim<G> {
         let invalid = || DataError::new("invalid captured scheduling clock");
         let at = clock.last_ms.ok_or_else(invalid)?;
         if !at.is_finite()
-            || !(0.0..=86_400_000.0).contains(&at)
+            || at.abs() > (i64::MAX / 2) as f64 / 1000.0
             || clock.last_us != Some(micros(at))
-            || clock.world_us < 0
+            || !(0..=i64::MAX / 2).contains(&clock.world_us)
             || !clock.period_ms.is_finite()
             || !(0.0..=1000.0).contains(&clock.period_ms)
             || clock.lookahead < 0
@@ -64,7 +69,7 @@ impl<G: Game> Sim<G> {
         });
         if live.is_some_and(|v| {
             v.phase < 0
-                || v.phase / G::HZ as i128 > i64::MAX as i128
+                || v.phase / G::HZ as i128 != clock.world_us as i128
                 || !v.remainder.is_finite()
                 || v.remainder.abs() > 1.0
                 || !v.period_ms.is_finite()
@@ -74,6 +79,10 @@ impl<G: Game> Sim<G> {
                 || v.slew_left
                     .is_some_and(|n| !n.is_finite() || n.abs() > 1_000_000.0 * G::HZ as f64)
         }) {
+            return Err(invalid());
+        }
+        let phase = live.map_or(clock.world_us as i128 * G::HZ as i128, |v| v.phase);
+        if Self::target(phase, clock.lookahead as i128) != self.world.tick() {
             return Err(invalid());
         }
         self.rebase(at, false).map_err(DataError::new)?;

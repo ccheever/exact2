@@ -547,11 +547,11 @@ impl<G: Game> Sim<G> {
             match &record.operation {
                 Operation::Boundary => {}
                 Operation::Input(event) => {
-                    validate_input(event)?;
+                    validate_input(event, capture.clock.origin_ms())?;
                     sim.input(event.clone());
                 }
                 Operation::DeviceInput(event) => {
-                    validate_input(event)?;
+                    validate_input(event, capture.clock.origin_ms())?;
                     sim.device_input(event.clone());
                 }
                 Operation::Bind(values) => sim.bind(values, None).map_err(DataError::new)?,
@@ -569,7 +569,7 @@ impl<G: Game> Sim<G> {
                 } => {
                     if !at_ms.is_finite()
                         || *at_ms < sim.last_ms_for_capture()
-                        || *at_ms > 86_400_000.0
+                        || *at_ms - capture.clock.origin_ms() > 86_400_000.0
                         || !period_ms.is_finite()
                         || !(0.0..=1000.0).contains(period_ms)
                     {
@@ -628,9 +628,9 @@ pub(crate) fn unhex(text: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
-fn validate_input(event: &InputEvent) -> Result<(), DataError> {
+fn validate_input(event: &InputEvent, origin_ms: f64) -> Result<(), DataError> {
     let valid = event.at_ms().is_finite()
-        && event.at_ms().abs() <= 86_400_000.0
+        && (event.at_ms() - origin_ms).abs() <= 86_400_000.0
         && match event {
             InputEvent::Key { code, .. } => code.len() <= 128,
             InputEvent::Pointer { x, y, .. } => x.is_finite() && y.is_finite(),
@@ -1088,6 +1088,28 @@ mod tests {
         assert!(Sim::<Fixture>::replay_capture(&wrong, "actual", None).is_err());
         let bytes = original.to_bytes();
         assert!(Capture::from_bytes(&bytes[..bytes.len() - 1]).is_err());
+    }
+    #[test]
+    fn checksum_valid_forged_scheduler_refuses_before_any_tick() {
+        for clock in [
+            r#"{"world_us":9223372036854775807,"last_us":[0],"last_ms":[0]}"#,
+            r#"{"world_us":100000000,"last_us":[0],"last_ms":[0]}"#,
+            r#"{"world_us":0,"last_us":[0],"last_ms":[0],"live":[{"phase":[6000000,0]}]}"#,
+        ] {
+            let mut forged = capture();
+            forged.clock = json::from_str(clock).unwrap();
+            let imported = Capture::from_bytes(&forged.to_bytes()).unwrap();
+            EXECUTED_TICKS.with(|ticks| ticks.set(0));
+            let error = Sim::<Fixture>::replay_capture(&imported, "actual", None)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(
+                error.contains("invalid captured scheduling clock"),
+                "{error}"
+            );
+            assert_eq!(EXECUTED_TICKS.with(Cell::get), 0);
+        }
     }
     #[test]
     fn checksum_valid_oversized_advance_refuses_before_any_tick() {
