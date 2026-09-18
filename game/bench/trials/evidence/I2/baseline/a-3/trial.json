@@ -1,0 +1,121 @@
+{
+  "engine": "exact2-linux",
+  "ref": "next/baseline",
+  "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+  "task": "a",
+  "attempt": "3",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T18:32:45.488Z",
+  "humanInterventions": 0,
+  "agentSeconds": 313.872494376,
+  "buildSeconds": 17.463958679999983,
+  "proofSeconds": 20.639302643000033,
+  "usage": {
+    "input_tokens": 1298189,
+    "cached_input_tokens": 1230336,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 11414,
+    "reasoning_output_tokens": 4325
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+    "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+    "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 147882640,
+  "setupSeconds": 99.369472509,
+  "inputCommit": "1aeac076de354dc63bd006ef9f0b34bf4ac5e389",
+  "promptHash": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+  "dispatchedAt": "2026-09-18T18:34:49.257Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T18:40:03.130Z",
+  "invocations": {
+    "build": 1,
+    "proof": 1,
+    "tests": 5,
+    "commands": 21,
+    "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 3,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 3,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 14,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/logic/src/scene_tests.rs",
+      "added": 10,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 37,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/proof.mjs",
+      "added": 38,
+      "deleted": 0
+    },
+    {
+      "path": "game/games/lanterns/scene.json",
+      "added": 55,
+      "deleted": 0
+    }
+  ],
+  "filesChanged": 7,
+  "linesAdded": 160,
+  "linesDeleted": 12,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "3423cd71ef77622d7f8098249cb06797523f6b2b83fbdf0db4c14dcf44518a87",
+    "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+    "game/games/lanterns/logic/src/lib.rs": "fe1c3f3a9b637c8af9adef140047352eb8100d84baf2a7e3bb5f9a8a410b3105",
+    "game/games/lanterns/logic/src/scene_tests.rs": "4867884e8f09ec7b9e355a497b45543c992fafae0d2487f0de0be5381b16e693",
+    "game/games/lanterns/logic/tests/capture.rs": "671db233d5bcfb8443bd6a9212aacc7f6ed8375b50a2994065338bf7e1e5e977",
+    "game/games/lanterns/proof.mjs": "8ca57a0a6ea9000de892f646a67089ffa5b97d02aa3120892dc8f5d0c60224ce",
+    "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+  },
+  "freeKiBBeforeBuild": 145196468,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T18:40:20.622Z",
+  "evaluatorStartedAt": "2026-09-18T18:40:20.622Z",
+  "taskFunctionalPassed": true,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": null,
+  "screenshotInspections": null,
+  "protocolCompliant": null,
+  "finishedAt": "2026-09-18T18:40:41.262Z",
+  "buildOutputDeleted": true,
+  "removedRenderFiles": [
+    "controls/task-a/final.png",
+    "controls/acceptance/won.png",
+    "controls/acceptance/title.png",
+    "controls/acceptance/moving.png",
+    "controls/acceptance/lost.png",
+    "controls/task-b/final.png",
+    "evaluation/won.png",
+    "evaluation/title.png",
+    "evaluation/moving.png",
+    "evaluation/final.png",
+    "evaluation/lost.png"
+  ]
+}

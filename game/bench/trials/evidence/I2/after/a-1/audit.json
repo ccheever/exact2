@@ -1,0 +1,73 @@
+{
+  "selfRepairRounds": 8,
+  "repairLoops": [
+    {
+      "name": "old byte fixture test",
+      "repairs": 2,
+      "items": [
+        "item_16",
+        "item_18",
+        "item_20"
+      ]
+    },
+    {
+      "name": "capture route",
+      "repairs": 3,
+      "items": [
+        "item_20",
+        "item_23",
+        "item_25",
+        "item_27"
+      ]
+    },
+    {
+      "name": "difficult-moment fixtures",
+      "repairs": 1,
+      "items": [
+        "item_28",
+        "item_30"
+      ]
+    },
+    {
+      "name": "timing hash pins",
+      "repairs": 1,
+      "items": [
+        "item_31",
+        "item_33"
+      ]
+    },
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_41",
+        "item_43"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 3,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": false,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "otherTimeSinks": [
+    "old-world fixture mismatch and stale saved child binding",
+    "three capture-route repairs, with two obstacle stalls away from the baseline sign",
+    "difficult-moment fixture regeneration and three hash-pin updates",
+    "workspace fmt attempts fail on intentionally trimmed Beacons/Greybox modules",
+    "repeated final checks"
+  ],
+  "facilities": {
+    "kinds": "new rows::<Lamp>() test calls; inherited typed gameplay",
+    "layout": "inherited geometric regression executed; no new route-planning request",
+    "place": "not used",
+    "paranoid": "inherited Save/FreshGame tests run; --paranoid not invoked",
+    "reloadReport": "inherited regression run and fixture regenerated; report not used to guide this change"
+  },
+  "coverageCaveat": "Replaced before_change_save_bytes full equality with old/new entity count and existence assertions; external task evaluator does not replace this lost byte-equality coverage.",
+  "timingAttribution": "Qualitative log audit only; CLI events have no per-item wall timestamps."
+}
