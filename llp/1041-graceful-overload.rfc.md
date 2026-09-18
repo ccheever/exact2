@@ -4463,3 +4463,69 @@ wait behind shaping. Existing resize visibility restrictions still apply. Native
 speedup, in-edge layer publication and120Hz remain unmeasured for this change;
 the next comparison admits both fresh cells only after actual starting geometry
 and source identity match.
+
+### 8.71 First geometry-matched viewport-hit native comparison, 2026-09-18
+
+Two fresh optimized products and one control→treatment pair keep the complete
+canonical1MiB paragraph and existing18-step external resize, six typing offers
+and six directional40px wheel offers. Both cells admit actual980×852 windows,
+980×820 content and backing scale1 before starting the edge. Paragraph geometry
+matches at width940/8155 lines initially and856/8988 lines finally; the full
+1048499-byte/999569-UTF16 body hash agrees before and afterward. All18 actual
+resize dimensions match between cells. Both input handlers and ACKs remain
+inside their respective edges. Runtime IDs, coalesced work counts and timing
+progress are not forced to match.
+
+The expensive full-width shape calls are much shorter in this first comparison:
+
+| Paragraph width | Control shape wall, ms | Viewport-hit shape wall, ms |
+| --- | ---: | ---: |
+| 940, initial | 2734.693 | 122.948 |
+| 927, first resized width | 2659.889 | 126.735 |
+| 856, final | 2512.432 | 121.833 |
+
+These are inclusive worker shape calls, not CPU or end-to-end frame times. The
+treatment executes many more intermediate-width jobs, taking115–128ms each.
+Worker wall clipped to the live edge remains busy:1626.618→1668.295ms. Nested
+shape/index/raster spans are not added to their worker parents. Final index
+construction remains76.719→77.316ms. The source/geometry behavior and comparison
+are preserved without shrinking or splitting the paragraph. Raster-scope total
+wall increases5.729→27.973ms, with different call counts19→7; the treatment
+raster includes viewport-hit construction. It is not a uniform reduction in work.
+
+Neither arm establishes an accepted new-width raster **and** model-layer
+assignment inside live resize. Both first post-edge snapshots have
+displayable=false and visible publication0. The final raster is accepted
+3642.321→281.279ms after the edge; final model-layer assignment follows at
+3961.678→1078.265ms. The treatment's acceptance-to-layer gap is consequently
+longer,319.357→796.986ms. Faster shaping has not established continuous visible
+reflow, and layer assignment does not prove physical presentation.
+
+All18 measured resize calls per arm are under8.333ms, but their whole-call
+maximum rises3.507→4.091ms and their totals17.122→17.439ms. Typing ACK maxima
+are4.426→4.013ms; wheel ACK maxima rise0.277→0.352ms. These bounded offers are
+not a latency-tail guarantee. Primary/UI/worker probes have no omissions;
+passive mode still overflows and remains NOTESTABLISHED. The actual display is
+60Hz. One run order proves neither repeated benefit nor physical120Hz.
+
+The two immutable captures contain92 and93 files,98,134,318B total. Actual
+compiled Swift inputs differ only in the seven production paths from§8.70;
+header/module/Bridge dependency rules fall within each owned build. Generated
+NativeMarkdownStress entry, plan, compatibility, toolchain and configuration
+match. Control was captured before the treatment build. Both builds and both
+cells exit0 without retries; all eight recorded PIDs/four groups are absent,
+with both external mouse-ups retained. Evidence is
+`target/apple-giant-viewport-hit-pair-execution-v1/`; control binary
+`1e10d131bc78b037c52bdd7352b23ddada7a5eb28583f8ccbf15989dc9564660`,
+treatment `579581d86cca1216add89c9265fcc36fcb068bba009002746f65b6f631989253`.
+Independent selected-raw reconstruction agrees on shape/index spans, complete
+source, geometry, input counts and final layer delays. No screenshot/crop or
+general memory-bound claim is added by this experiment. The next work separates
+remaining index construction from retaining valid visible content and prompt
+publication; a reversed pair must use these same products and fresh cells.
+
+The owner runtime freeze records310 files/125,064,209B, manifest
+`9268499f87f8ab02c2336aa84cba4aa327ad07f49e306ae4c868916bd07b92ce`,
+report `6cf2b15e3140510a4666aeda50b8943a1cb29d66d78fc9eb406d6b5fdea5d13f`.
+A retained offline summary-script parse failure was corrected without changing
+the diagnostic reader, oracle, source or native runs.
