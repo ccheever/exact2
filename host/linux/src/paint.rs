@@ -30,6 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod region;
+pub(crate) use region::ScrollBounds;
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -232,6 +233,16 @@ pub struct Painter {
     region_frame: Option<region::Published>,
 }
 
+// O(painted owners) references and numeric publication metadata, not copied
+// glyphs/commands or a new render graph. The display retains acknowledged A
+// here while one submitted B owns its corresponding leases.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) struct Presentation {
+    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    picture: Option<Rc<region::Picture>>,
+    frame: Option<region::Published>,
+}
+
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
@@ -246,6 +257,24 @@ struct Walk<'a, 'b> {
 }
 
 impl Painter {
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn presentation(&self) -> Presentation {
+        Presentation {
+            text: self.accepted_text.clone(),
+            picture: self.region_picture.clone(),
+            frame: self.region_frame.as_ref().map(|f| region::Published {
+                incarnation: f.incarnation.clone(),
+                selection: f.selection.clone(),
+            }),
+        }
+    }
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
+        std::mem::swap(&mut self.accepted_text, &mut state.text);
+        std::mem::swap(&mut self.region_picture, &mut state.picture);
+        std::mem::swap(&mut self.region_frame, &mut state.frame);
+        state
+    }
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {

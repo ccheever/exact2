@@ -44,6 +44,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Paint a frame and publish its pixels, hits and native source together.
     pub fn frame(&mut self) -> Pixmap {
+        // The display carrier stages the paint's owners/boxes and publishes
+        // them only on the matching flip. Headless/agent frames stay immediate.
+        let deferred = self.display.submitting();
         if let Some(error) = self.poll_content_region() {
             self.host.log(error);
         }
@@ -87,7 +90,7 @@ impl<D: DataSource> Presenter<D> {
         self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => {
-                if region.is_some() {
+                if region.is_some() && !deferred {
                     // One bounded-to-viewport retained surface, separate from
                     // glyph/font/image ledgers. No copy on ordinary opt-out.
                     self.last_region_frame = Some(pixmap.clone());
@@ -122,7 +125,7 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         self.boxes = boxes;
-        if self.last_frame_succeeded {
+        if self.last_frame_succeeded && !deferred {
             if let Some(region) = self.host.content_region() {
                 // Replay clamps against the selected picture BEFORE drawing.
                 // Publish precisely those offsets only after backend success;
@@ -139,7 +142,8 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         }
-        if !feedback_before
+        if !deferred
+            && !feedback_before
             && self.last_frame_succeeded
             && self
                 .host

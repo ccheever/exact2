@@ -8,8 +8,8 @@
 //!
 //! The card's first connected connector at its preferred mode; two
 //! XRGB8888 dumb buffers; the first frame by `set_crtc`, every later one by
-//! a page flip whose event is waited for, which paces the loop to the
-//! display's refresh. Frames are painted only when something changed:
+//! one pending page flip whose FD is polled alongside input and worker wakes.
+//! Its completion releases the back buffer, pacing paint to the display refresh. Frames are painted only when something changed:
 //! input, a timer, a motion frame, an image, a reload. Needs DRM master —
 //! a VT, or a card nobody else holds — and the `video` group.
 
@@ -17,6 +17,7 @@
 
 use crate::app::Config;
 use crate::input::Input;
+use crate::presenter::{Presenter, SubmittedFrame};
 use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
@@ -26,13 +27,15 @@ use drm::control::{
 use drm::Device;
 use exact_runner::DataSource;
 use std::fs::{File, OpenOptions};
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tiny_skia::Pixmap;
 
 mod pointer;
+#[cfg(test)]
+mod tests;
 
 struct Card(File);
 
@@ -51,8 +54,7 @@ pub struct Display {
     connector: connector::Handle,
     mode: Mode,
     buffers: Vec<(DumbBuffer, framebuffer::Handle)>,
-    front: usize,
-    first: bool,
+    flips: FlipState,
     width: u32,
     height: u32,
 }
@@ -64,6 +66,7 @@ impl Display {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            .custom_flags(libc::O_NONBLOCK)
             .open(path)
             .map_err(|e| format!("{path}: {e}"))?;
         let card = Card(file);
@@ -109,8 +112,7 @@ impl Display {
             connector: con.handle(),
             mode,
             buffers,
-            front: 0,
-            first: true,
+            flips: FlipState::default(),
             width,
             height,
         })
@@ -126,41 +128,145 @@ impl Display {
         self.mode.vrefresh()
     }
 
-    /// Show a frame: copied into the back buffer as XRGB, then flipped to;
-    /// returns when the flip has happened (the next vblank).
-    pub fn present(&mut self, frame: &Pixmap) -> Result<(), String> {
-        let back = (self.front + 1) % self.buffers.len();
-        let Display { card, buffers, .. } = self;
-        {
-            let (db, _) = &mut buffers[back];
-            let pitch = db.pitch() as usize;
-            let mut map = card.map_dumb_buffer(db).map_err(|e| format!("map: {e}"))?;
-            copy_xrgb(frame, map.as_mut(), pitch, self.width, self.height);
-        }
-        let fb = buffers[back].1;
-        if self.first {
-            card.set_crtc(
-                self.crtc,
-                Some(fb),
-                (0, 0),
-                &[self.connector],
-                Some(self.mode),
-            )
-            .map_err(|e| format!("set_crtc: {e}"))?;
-            self.first = false;
-        } else {
-            card.page_flip(self.crtc, fb, PageFlipFlags::EVENT, None)
-                .map_err(|e| format!("page flip: {e}"))?;
-            loop {
-                let events = card.receive_events().map_err(|e| format!("events: {e}"))?;
-                if events.into_iter().any(|e| matches!(e, Event::PageFlip(_))) {
-                    break;
-                }
-            }
-        }
-        self.front = back;
-        Ok(())
+    fn pending(&self) -> bool {
+        self.flips.pending()
     }
+    fn fd(&self) -> i32 {
+        self.card.0.as_raw_fd()
+    }
+
+    // Copy/submit only when neither scanout nor an outstanding flip owns back.
+    // The first set_crtc is synchronous; later calls never wait for a vblank.
+    fn submit(&mut self, frame: SubmittedFrame) -> Result<Option<SubmittedFrame>, String> {
+        let Self {
+            card,
+            buffers,
+            flips,
+            ..
+        } = self;
+        flips.submit(frame, |back, first, pixels| {
+            let (db, fb) = &mut buffers[back];
+            let pitch = db.pitch() as usize;
+            {
+                let mut map = card.map_dumb_buffer(db).map_err(|e| format!("map: {e}"))?;
+                copy_xrgb(pixels, map.as_mut(), pitch, self.width, self.height);
+            }
+            if first {
+                card.set_crtc(
+                    self.crtc,
+                    Some(*fb),
+                    (0, 0),
+                    &[self.connector],
+                    Some(self.mode),
+                )
+                .map_err(|e| format!("set_crtc: {e}"))
+            } else {
+                card.page_flip(self.crtc, *fb, PageFlipFlags::EVENT, None)
+                    .map_err(|e| format!("page flip: {e}"))
+            }
+        })
+    }
+
+    fn ready(&mut self) -> Result<Option<SubmittedFrame>, String> {
+        self.flips
+            .ready(self.crtc, || {
+                self.card.receive_events().map(|events| events.collect())
+            })
+            .map_err(|e| format!("events: {e}"))
+    }
+}
+
+// The two buffers and the one submitted owner transition together, only after
+// successful syscalls. A failed copy/ioctl cannot change front or claim a flip.
+struct FlipState {
+    front: usize,
+    first: bool,
+    pending: Option<(usize, SubmittedFrame)>,
+    sequence: Option<u32>,
+}
+impl Default for FlipState {
+    fn default() -> Self {
+        Self {
+            front: 0,
+            first: true,
+            pending: None,
+            sequence: None,
+        }
+    }
+}
+impl FlipState {
+    fn pending(&self) -> bool {
+        self.pending.is_some()
+    }
+    fn submit(
+        &mut self,
+        frame: SubmittedFrame,
+        send: impl FnOnce(usize, bool, &Pixmap) -> Result<(), String>,
+    ) -> Result<Option<SubmittedFrame>, String> {
+        if self.pending() {
+            return Err("display already has a pending flip".into());
+        }
+        let back = 1 - self.front;
+        send(back, self.first, &frame.pixels)?;
+        if self.first {
+            self.first = false;
+            self.front = back;
+            Ok(Some(frame))
+        } else {
+            self.pending = Some((back, frame));
+            Ok(None)
+        }
+    }
+    fn ready(
+        &mut self,
+        crtc: crtc::Handle,
+        read: impl FnOnce() -> std::io::Result<Vec<Event>>,
+    ) -> std::io::Result<Option<SubmittedFrame>> {
+        let Some(sequence) = receive_flip(crtc, self.sequence, read)? else {
+            return Ok(None);
+        };
+        let Some((back, frame)) = self.pending.take() else {
+            return Ok(None);
+        };
+        self.front = back;
+        self.sequence = Some(sequence);
+        Ok(Some(frame))
+    }
+}
+
+// drm::receive_events reads at most 1024 bytes. One bounded read per ready turn
+// lets other FDs/timers run. The locked DRM API exposes CRTC and sequence, not a
+// per-request cookie: this FD has one pending request, with duplicate/old event
+// sequences refused (including the ambiguous half of the wrapping u32 range).
+fn receive_flip(
+    crtc: crtc::Handle,
+    last_sequence: Option<u32>,
+    read: impl FnOnce() -> std::io::Result<Vec<Event>>,
+) -> std::io::Result<Option<u32>> {
+    let events = match read() {
+        Ok(events) => events,
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+            ) =>
+        {
+            return Ok(None)
+        }
+        Err(e) => return Err(e),
+    };
+    Ok(events.into_iter().find_map(|event| match event {
+        Event::PageFlip(e)
+            if e.crtc == crtc
+                && last_sequence.is_none_or(|last| {
+                    let distance = e.frame.wrapping_sub(last);
+                    distance != 0 && distance < 1 << 31
+                }) =>
+        {
+            Some(e.frame)
+        }
+        _ => None,
+    }))
 }
 
 impl Drop for Display {
@@ -270,31 +376,37 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         wall()
     );
     loop {
-        if p.dirty() {
-            let frame = p.frame();
-            if let Err(e) = display.present(&frame) {
-                eprintln!("exact: {e}");
+        if p.dirty() && !display.pending() {
+            let Some(frame) = p.display_frame() else {
+                eprintln!("exact: display/presenter submission ownership mismatch");
                 return 1;
-            }
-            if let Some(v) = &vnc {
-                v.publish(Arc::new(frame));
-            }
-            p.first_pixel();
-            if first_pixel.is_none() {
-                first_pixel = Some(Instant::now());
-                check_due = Some(Instant::now() + Duration::from_secs(2));
+            };
+            match display.submit(frame) {
+                Ok(Some(frame)) => presented(
+                    &mut p,
+                    frame,
+                    vnc.as_ref(),
+                    &mut first_pixel,
+                    &mut check_due,
+                ),
+                Ok(None) => {}
+                Err(e) => {
+                    eprintln!("exact: {e}");
+                    return 1;
+                }
             }
         }
         if p.module_pending() {
             p.first_pixel();
         }
         let now = wall();
-        let mut timeout: i32 = -1;
-        if p.needs_animation_frame() {
-            timeout = 0;
-        } else if p.host().has_timers() {
-            timeout = (last_tick + 250.0 - now).max(0.0) as i32;
-        }
+        let mut timeout = work_timeout(
+            display.pending(),
+            p.needs_animation_frame(),
+            p.host().has_timers(),
+            last_tick,
+            now,
+        );
         if config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
@@ -322,7 +434,28 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         if let Some(fd) = p.update_fd() {
             fds.push(fd);
         }
-        poll(&fds, timeout);
+        fds.push(display.fd());
+        match poll(&fds, display.fd(), timeout) {
+            Ok(true) => match display.ready() {
+                Ok(Some(frame)) => presented(
+                    &mut p,
+                    frame,
+                    vnc.as_ref(),
+                    &mut first_pixel,
+                    &mut check_due,
+                ),
+                Ok(None) => {}
+                Err(e) => {
+                    eprintln!("exact: {e}");
+                    return 1;
+                }
+            },
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("exact: {e}");
+                return 1;
+            }
+        }
         if let Some(e) = p.pump(wall()) {
             eprintln!("exact: {e}");
         }
@@ -351,7 +484,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 eprintln!("exact: {e}");
             }
         }
-        if p.needs_animation_frame() {
+        if !display.pending() && p.needs_animation_frame() {
             p.tick(now);
         }
         p.poll_images();
@@ -386,7 +519,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
 
 /// Wait for any of the descriptors to be readable, or `timeout` ms (-1
 /// forever).
-fn poll(fds: &[i32], timeout: i32) {
+fn poll(fds: &[i32], display_fd: i32, timeout: i32) -> Result<bool, String> {
     let mut pfds: Vec<libc::pollfd> = fds
         .iter()
         .map(|fd| libc::pollfd {
@@ -397,7 +530,49 @@ fn poll(fds: &[i32], timeout: i32) {
         .collect();
     // SAFETY: the array is ours and sized by its length; poll reads and
     // writes only inside it.
-    unsafe {
-        libc::poll(pfds.as_mut_ptr(), pfds.len() as libc::nfds_t, timeout);
+    let result = unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as libc::nfds_t, timeout) };
+    if result < 0 {
+        let e = std::io::Error::last_os_error();
+        return if e.kind() == std::io::ErrorKind::Interrupted {
+            Ok(false)
+        } else {
+            Err(format!("poll: {e}"))
+        };
+    }
+    if let Some(fd) = pfds.iter().find(|fd| {
+        fd.fd == display_fd && fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0
+    }) {
+        return Err(format!("poll fd {} flags {}", fd.fd, fd.revents));
+    }
+    Ok(pfds
+        .iter()
+        .any(|fd| fd.fd == display_fd && fd.revents & libc::POLLIN != 0))
+}
+
+fn work_timeout(pending: bool, animation: bool, timers: bool, last_tick: f64, now: f64) -> i32 {
+    if animation && !pending {
+        0
+    } else if timers {
+        (last_tick + 250. - now).max(0.) as i32
+    } else {
+        -1
+    }
+}
+
+fn presented<D: DataSource>(
+    p: &mut Presenter<D>,
+    frame: SubmittedFrame,
+    vnc: Option<&Vnc>,
+    first: &mut Option<Instant>,
+    check_due: &mut Option<Instant>,
+) {
+    // Pixels belong to this receipt, even if input/reload changed the live Host.
+    if let Some(v) = vnc {
+        v.publish(frame.pixels.clone());
+    }
+    p.display_complete(&frame);
+    if first.is_none() {
+        *first = Some(Instant::now());
+        *check_due = Some(Instant::now() + Duration::from_secs(2));
     }
 }

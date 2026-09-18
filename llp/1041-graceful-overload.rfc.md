@@ -3455,3 +3455,50 @@ tails in §8.48 remain the latest measured result.
 
 Evidence: `target/apple-text-borrowed-validation/freeze-v1/`, manifest
 `251ea3da4b96a9bb6692f40c0fc20db8171c188b816529ff882a0b2c1e509d3c`.
+
+### 8.50 Linux display completion without a blocking wait, 2026-09-18
+
+The DRM host now submits at most one pending flip and waits for its descriptor
+in the existing input/executor/region/timer poll. The first set_crtc remains
+synchronous; subsequent page flips return to that loop instead of blocking in
+receive_events. Each readiness turn performs one bounded nonblocking read.
+WouldBlock, interruption, empty batches and unrelated events leave the pending
+frame intact. Only a matching CRTC and forward sequence retire it. Two display
+buffers remain in use, and an occupied slot refuses a second copy/submission.
+Pending animation alone does not spin the loop; real timer deadlines remain.
+
+Input geometry follows the acknowledged picture. If A is displayed, B is
+submitted and C becomes live, B's paint cannot prematurely replace A's hit
+boxes, text source or scroll extent. A receipt carries B's publication and
+ownership witness until acknowledgement, with current eligibility checks able
+to refuse deleted or replaced targets. The attached display guard also prevents
+implicit painting through boxes() between an acknowledgement and the next
+submission. A successful old-origin completion can release its receipt without
+publishing it into a replacement presenter. Headless eager-frame behavior stays
+unchanged.
+
+The natural-text regression starts with tall A at scroll60, holds short B's
+flip and accepts same-key C. Wheel input queues scroll90 while A's painted
+scroll/source remain60. B's acknowledgement installs B's zero extent/source;
+box, hit and wheel queries still use B before C is submitted. The original
+failure clamped A to zero before acknowledgement. Receipt ownership, reload,
+failed painting, executor/timer progress and unchanged headless controls pass
+alongside this case. Pixel aliases do not retain receipt metadata histories.
+The witness costs O(painted nodes); two display buffers are not a bound on all
+live kernel, worker, cache or image memory.
+
+The exact eight-file change passes 22 integrated tests and strict all-target
+Clippy on macOS. Actual aarch64 Linux additionally compiles and runs the 13
+display tests: 35 distinct scoped tests pass, plus strict release all-target
+Clippy. Readiness tests use real libc poll over UnixStream descriptors, while
+event/ioctl transitions use deterministic callbacks. This is not a DRM device
+run, a full-package pass or measured responsiveness improvement. All owned
+validation processes retired; the unchanged disk reserve remained satisfied.
+
+A future native comparison must distinguish CPU paint, submission and actual
+acknowledgement across turns. The old observer's same-turn paint/presentation
+assumption cannot be reused as a timing baseline for this change. Source and
+Mac evidence: `target/linux-pending-flip-validation/freeze-v1/`, manifest
+`0968f5f30ce76b25d1f7d46b89aa3e8c91a73d1a4f37192091897540e5f6214b`.
+Actual Linux evidence: `target/pending-flip-linux-execution-v1/`, manifest
+`de35e367855adc14c8e1ebd42f4bd0b38d21ee6de05650d86006c24c0604ae1b`.

@@ -651,6 +651,118 @@ fn natural_scroll_clamp_keeps_painted_a_until_short_b_paints() {
 }
 
 #[test]
+fn pending_flip_keeps_acknowledged_a_scroll_and_source_until_b_ack_with_c_live() {
+    let _service = crate::content_region::test_service();
+    let mut p = natural_scroll_fixture(false);
+    let port = id(&p, "natural-scroll");
+    let port_key = p.host.kernel().node(port).unwrap().key;
+    let text_key = p.host.kernel().node(id(&p, "natural-text")).unwrap().key;
+    let point = natural_point(&mut p, port);
+    p.wheel_at(point.0, point.1, 0., 60.);
+    let a = p.display_frame().unwrap();
+    assert!(p.display_complete(&a));
+    assert_eq!(p.scroll_of(port).1, 60.);
+    let a_request = p
+        .host
+        .content_region()
+        .unwrap()
+        .text_snapshot(text_key)
+        .unwrap()
+        .request
+        .clone();
+    let a_box = p.box_of(port).unwrap();
+
+    natural_replace(&mut p, "shorten");
+    assert_eq!(p.host.kernel().node(port).unwrap().key, port_key);
+    let b = p.display_frame().unwrap();
+    let b_bytes = b.pixels.data().to_vec();
+    assert!(p.last_frame_succeeded);
+    assert_ne!(a.pixels.data(), b.pixels.data());
+    assert_eq!(
+        p.scroll_of(port).1,
+        60.,
+        "successful but unacknowledged B cannot clamp visible A"
+    );
+    assert_eq!(p.box_of(port).unwrap().scroll, a_box.scroll);
+    assert_eq!(
+        p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(text_key)
+            .unwrap()
+            .request
+            .stamp(),
+        a_request.stamp()
+    );
+
+    natural_replace(&mut p, "lengthen"); // C is live/ready, never submitted.
+    assert_eq!(p.host.kernel().node(port).unwrap().key, port_key);
+    let c_stamp = p
+        .host
+        .kernel()
+        .node_by_key(text_key)
+        .unwrap()
+        .paragraph_stamp()
+        .unwrap();
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(
+        p.scroll_of(port).1,
+        90.,
+        "accept valid input against acknowledged A's extent"
+    );
+    assert_eq!(
+        p.box_of(port).unwrap().scroll,
+        Some((0., 60.)),
+        "queued offset differs from displayed pixels"
+    );
+    assert_eq!(
+        p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(text_key)
+            .unwrap()
+            .request
+            .stamp(),
+        a_request.stamp()
+    );
+    assert!(p.display_frame().is_none());
+    assert_eq!(
+        b.pixels.data(),
+        b_bytes,
+        "later input cannot mutate submitted B"
+    );
+    assert!(p.dirty());
+
+    assert!(p.display_complete(&b));
+    assert_eq!(
+        p.scroll_of(port).1,
+        0.,
+        "matching B ACK installs B's captured zero extent"
+    );
+    // Same poll cycle as the ACK: actual input paths must still use B even
+    // though C is already dirty and no flip is pending at this instant.
+    assert_eq!(p.box_of(port).unwrap().scroll, Some((0., 0.)));
+    assert_eq!(p.hit(point.0, point.1), Some(port));
+    p.wheel_at(point.0, point.1, 0., 30.);
+    assert_eq!(
+        p.scroll_of(port).1,
+        0.,
+        "B's zero extent stays authoritative between ACK and next submit"
+    );
+    let snapshot = p
+        .host
+        .content_region()
+        .unwrap()
+        .text_snapshot(text_key)
+        .unwrap();
+    assert_ne!(snapshot.request.stamp(), a_request.stamp());
+    assert_ne!(snapshot.request.stamp(), &c_stamp);
+    assert!(!snapshot.current);
+    assert!(p.dirty(), "ACK must not overwrite C's dirty state");
+    assert_eq!(b.pixels.data(), b_bytes);
+}
+
+#[test]
 fn natural_scroll_wheel_cannot_use_unpainted_tall_b_extent() {
     let _service = crate::content_region::test_service();
     let mut p = natural_scroll_fixture(true);
