@@ -1,0 +1,281 @@
+{
+  "checks": [
+    {
+      "name": "all seven harness modules parse",
+      "passed": true
+    },
+    {
+      "name": "adapter version remains 3",
+      "passed": true
+    },
+    {
+      "name": "restart/load retains exact tick and horizontal position",
+      "passed": true,
+      "detail": {
+        "before": {
+          "phase": "playing",
+          "ticks": 10,
+          "elapsed": 0.16666666666666666,
+          "remaining": 180,
+          "player": {
+            "x": -0.000009853243,
+            "vx": 0.0000074036457,
+            "y": 0.0006473399999999963,
+            "vy": 0,
+            "z": 11.250002,
+            "vz": -4.499996,
+            "grounded": true,
+            "animation": "Run"
+          },
+          "crate": {
+            "x": 6.0000033,
+            "vx": -0.000010101087,
+            "y": 0.5999198,
+            "vy": -0.0000019563154,
+            "z": 8.000013,
+            "vz": -0.000008235187
+          },
+          "lanterns": [
+            {
+              "id": "lantern-1",
+              "x": -12,
+              "y": 0,
+              "z": 10,
+              "lit": false
+            },
+            {
+              "id": "lantern-2",
+              "x": -10,
+              "y": 0,
+              "z": 2,
+              "lit": false
+            },
+            {
+              "id": "lantern-3",
+              "x": -12,
+              "y": 0,
+              "z": -8,
+              "lit": false
+            },
+            {
+              "id": "lantern-4",
+              "x": -6,
+              "y": 0,
+              "z": -12,
+              "lit": false
+            },
+            {
+              "id": "lantern-5",
+              "x": 0,
+              "y": 0,
+              "z": -10,
+              "lit": false
+            },
+            {
+              "id": "lantern-6",
+              "x": 6,
+              "y": 0,
+              "z": -12,
+              "lit": false
+            },
+            {
+              "id": "lantern-7",
+              "x": 12,
+              "y": 0,
+              "z": -8,
+              "lit": false
+            },
+            {
+              "id": "lantern-8",
+              "x": 12,
+              "y": 0,
+              "z": 0,
+              "lit": false
+            },
+            {
+              "id": "lantern-9",
+              "x": 5,
+              "y": 0,
+              "z": 2,
+              "lit": false
+            },
+            {
+              "id": "lantern-10",
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "lit": false
+            },
+            {
+              "id": "lantern-11",
+              "x": 0,
+              "y": 0,
+              "z": 7,
+              "lit": false
+            },
+            {
+              "id": "lantern-12",
+              "x": 10,
+              "y": 2.4,
+              "z": 8,
+              "lit": false
+            }
+          ],
+          "count": 0,
+          "total": 12,
+          "events": [],
+          "assetReady": true
+        },
+        "restored": {
+          "phase": "playing",
+          "ticks": 10,
+          "elapsed": 0.16666666666666666,
+          "remaining": 180,
+          "player": {
+            "x": -0.000009853243,
+            "vx": 0.0000074036457,
+            "y": 0.0006473399999999963,
+            "vy": 0,
+            "z": 11.250002,
+            "vz": -4.499996,
+            "grounded": true,
+            "animation": "Run"
+          },
+          "crate": {
+            "x": 6.0000033,
+            "vx": -0.000010101087,
+            "y": 0.5999198,
+            "vy": -0.0000019563154,
+            "z": 8.000013,
+            "vz": -0.000008235187
+          },
+          "lanterns": [
+            {
+              "id": "lantern-1",
+              "x": -12,
+              "y": 0,
+              "z": 10,
+              "lit": false
+            },
+            {
+              "id": "lantern-2",
+              "x": -10,
+              "y": 0,
+              "z": 2,
+              "lit": false
+            },
+            {
+              "id": "lantern-3",
+              "x": -12,
+              "y": 0,
+              "z": -8,
+              "lit": false
+            },
+            {
+              "id": "lantern-4",
+              "x": -6,
+              "y": 0,
+              "z": -12,
+              "lit": false
+            },
+            {
+              "id": "lantern-5",
+              "x": 0,
+              "y": 0,
+              "z": -10,
+              "lit": false
+            },
+            {
+              "id": "lantern-6",
+              "x": 6,
+              "y": 0,
+              "z": -12,
+              "lit": false
+            },
+            {
+              "id": "lantern-7",
+              "x": 12,
+              "y": 0,
+              "z": -8,
+              "lit": false
+            },
+            {
+              "id": "lantern-8",
+              "x": 12,
+              "y": 0,
+              "z": 0,
+              "lit": false
+            },
+            {
+              "id": "lantern-9",
+              "x": 5,
+              "y": 0,
+              "z": 2,
+              "lit": false
+            },
+            {
+              "id": "lantern-10",
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "lit": false
+            },
+            {
+              "id": "lantern-11",
+              "x": 0,
+              "y": 0,
+              "z": 7,
+              "lit": false
+            },
+            {
+              "id": "lantern-12",
+              "x": 10,
+              "y": 2.4,
+              "z": 8,
+              "lit": false
+            }
+          ],
+          "count": 0,
+          "total": 12,
+          "events": [],
+          "assetReady": true
+        }
+      }
+    },
+    {
+      "name": "load releases held input",
+      "passed": true
+    },
+    {
+      "name": "step refuses -1",
+      "passed": true,
+      "detail": "Error: ticks must be an integer from 0 to 216000"
+    },
+    {
+      "name": "step refuses 0.5",
+      "passed": true,
+      "detail": "Error: ticks must be an integer from 0 to 216000"
+    },
+    {
+      "name": "step refuses 216001",
+      "passed": true,
+      "detail": "Error: ticks must be an integer from 0 to 216000"
+    },
+    {
+      "name": "refused requests do not advance ticks",
+      "passed": true
+    },
+    {
+      "name": "unknown operation explicitly refuses",
+      "passed": true,
+      "detail": "Error: Unknown command unknown"
+    },
+    {
+      "name": "world pixels remain explicitly unsupported",
+      "passed": true,
+      "detail": "Linux renders Contract UI with flat world canvas; no world pixels"
+    }
+  ],
+  "passed": true,
+  "storeDeleted": true
+}

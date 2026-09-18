@@ -1,0 +1,66 @@
+['cargo', 'clippy', '--manifest-path', 'game/Cargo.toml', '--workspace', '--all-targets', '--', '-D', 'warnings']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1576357132 142094780      92% /
+
+    Checking gpu-allocator v0.28.0
+    Checking gltf v1.4.1
+    Checking exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu/reflect)
+    Checking wgpu-naga-bridge v30.0.1
+    Checking skrifa v0.44.0
+    Checking wgpu-naga-bridge v29.0.4
+    Checking nalgebra v0.35.0
+    Checking exact-game-scene v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/scene)
+    Checking greybox-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/greybox/logic)
+    Checking exact-game-audio v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/audio)
+    Checking asset-fixture-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/asset-fixture/logic)
+    Checking bench-cubes-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/bench/cubes/logic)
+   Compiling lanterns-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-gpu)
+   Compiling beacons-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-gpu)
+   Compiling asset-fixture-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-gpu)
+   Compiling bench-cubes-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-gpu)
+   Compiling greybox-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-gpu)
+    Checking ibex2 v0.1.0 (/home/ccheever/lanes/gamenext/ibex/crates/ibex2)
+   Compiling asset-fixture-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-web)
+   Compiling asset-fixture-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-apple)
+   Compiling asset-fixture-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-linux)
+    Checking contract v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/cli)
+    Checking wgpu-hal v30.0.1
+    Checking wgpu-hal v29.0.4
+    Checking beacons-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/beacons/logic)
+    Checking exact-game v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/engine)
+    Checking exact-game-bake v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/bake)
+    Checking exact-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/host/web)
+    Checking exact-game-app v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/app)
+    Checking bench-cubes-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-web)
+    Checking beacons-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-web)
+    Checking greybox-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-web)
+    Checking lanterns-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-web)
+    Checking exact-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/host/apple)
+    Checking greybox-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-apple)
+    Checking bench-cubes-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-apple)
+    Checking lanterns-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-apple)
+    Checking beacons-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-apple)
+    Checking vello_encoding v0.10.0
+    Checking swash v0.2.10
+    Checking wgpu-core-deps-windows-linux-android v30.0.1
+    Checking wgpu-core v30.0.1
+    Checking vello_shaders v0.10.0
+    Checking wgpu-core-deps-windows-linux-android v29.0.4
+    Checking wgpu-core v29.0.4
+    Checking cosmic-text v0.19.0
+    Checking glamx v0.3.0
+    Checking wgpu v30.0.1
+    Checking parry3d v0.30.2
+    Checking wgpu v29.0.4
+    Checking exact-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu)
+    Checking vello v0.10.0
+    Checking exact-game-render v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/render)
+    Checking exact-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/host/linux)
+    Checking beacons-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-linux)
+    Checking bench-cubes-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-linux)
+    Checking greybox-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-linux)
+    Checking lanterns-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-linux)
+    Checking rapier3d v0.35.3 (/home/ccheever/lanes/gamenext/exact2-i1/vendor/rapier3d)
+    Checking exact-game-physics v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/physics)
+    Checking lanterns-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/lanterns/logic)
+    Finished `dev` profile [optimized] target(s) in 11.56s
