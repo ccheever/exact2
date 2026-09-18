@@ -2957,5 +2957,57 @@ and listeners terminate.
 Exact raw cells and per-export/window records are linked from
 `target/collection-key-reuse-stage-706/clock-three-pairs-v1/`, manifest
 `0bcee4f96da032960b8dfce0c96a43ab485cf870a7278865128eb58bd63d73e9`.
-Native Messages measurements still use older d6 sources; fresh matched native
-builds are next. Shipped Messages factory defaults remain unchanged.
+The first matched native Messages pair follows in §8.40. Shipped Messages
+factory defaults remain unchanged.
+
+### 8.40 First matched native Messages row-reuse pair, 2026-09-17
+
+One fresh Before/After pair completes on macOS with the full 10,000-row,
+32-change workload, an ordinary 250 ms timer and external Quartz window-edge
+input (synthetic OS events). Both builds use 630bc22 with the same Runner key
+memo and three-file Swift observer. Only the generated native runtime factory changes
+from MessagesStress to ReusableMessagesStress; bake, plan, compatibility and
+host sources match. Executables are
+`b83032e6aa74e58b0754e4e03346784712938c001f33c02ebe4892433b37c9a3`
+and `7170cca3098e28dce2145162f42d7220e9728fab9f226290b0195e1135913c90`.
+Older d6 measurements are motivation, not the control for this pair.
+
+Both cells retain idle/load/recovery, 36 scored offers, no skips, and a separate
+two-second command-free interval with eight complete timer chains. All six
+resize/input endpoints are established: 72 ACKs, 36 typing actions and 36
+directionally observed wheels. Actual initial window, port, backing scale and
+Quartz geometry match. Loaded state boundaries are revision 8→18 in both arms;
+seven complete timer chains lie wholly inside each genuine resize edge.
+Full History values match at shared argument tuples for revisions 0, 8 and 18,
+including ordered keys and every row field. Final revisions 19 versus 18 remain
+different: clocks and content were not forced to match after pausing.
+
+| Loaded observation | Before | After |
+| --- | ---: | ---: |
+| Advance/decode median, 7 complete chains | 10.337 ms | 3.882 ms |
+| Advance/decode maximum | 23.307 ms | 10.358 ms |
+| Whole timer median / maximum, including apply | 11.144 / 25.586 ms | 4.982 / 14.386 ms |
+| Whole resize median / maximum, 35 complete spans | 5.945 / 13.895 ms | 6.200 / 12.025 ms |
+| Typing ACK median / maximum, 6 samples | 6.619 / 13.927 ms | 7.074 / 28.748 ms |
+
+Advance/decode includes Runtime.advance, FFI and batch JSON decoding; it is not
+isolated query or Rust CPU time. After still has one advance/decode span and two
+whole timer spans above 1000/120 ms. Its resize and typing observations do not
+show a general latency improvement. Thirty-six resize envelopes surround each
+edge, but one occurs entirely afterward; only 35 enter the table. The measured UI interval
+unions are 342.354/316.509 ms inside edges of 1772.710/1820.125 ms. Nested work is
+not added as independent CPU cost.
+
+Mode coverage remains unestablished in all phases despite positive tracking
+samples, because the passive quota overflows; primary records do not overflow.
+This is one instrumented pair, not repeatability, robust tail latency or physical
+120 Hz evidence. Two alternating repeat pairs are prepared separately with the
+same products and recipe. No shipped entry is activated by this experiment.
+
+The frozen raw pair, exact geometry/content cohorts, build receipts and cleanup
+proofs are at `target/messages-row-reuse-native-630-v1/`, runtime manifest
+`c5bfe81ed0be6f76a4f261eb1d89c0b743cd2ad57d073eafaaac76b75472a2a4`,
+922 files/236,583,306 bytes. Both cells end successfully once, all 12 recorded
+PIDs and ten groups retire, and eight posters issue their owned button-up.
+Original bootstrap and offline comparison errors remain separate from these
+successful runtime cells; no source fix, rebuild or runtime retry occurred.
