@@ -2,12 +2,13 @@
 #![forbid(unsafe_code)]
 
 mod crew;
+mod jobs;
 mod runbook;
 
-use completion_storm_data::Storm;
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
 use interaction_gallery_data::Gallery;
+use jobs::Jobs;
 use messages_stress_data::ReusableMessagesStress;
 
 /// Independent device-local workspace. No network work occurs in construction.
@@ -15,7 +16,7 @@ pub struct Live {
     gallery: Gallery,
     crew: crew::Crew,
     history: ReusableMessagesStress,
-    jobs: Storm,
+    jobs: Jobs,
     runbook: runbook::Runbook,
 }
 
@@ -54,7 +55,7 @@ impl Default for Live {
             gallery: curated_gallery(),
             crew: crew::Crew::default(),
             history: ReusableMessagesStress::default(),
-            jobs: Storm::default(),
+            jobs: Jobs::default(),
             runbook: runbook::Runbook::default(),
         }
     }
