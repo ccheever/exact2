@@ -1,0 +1,55 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "route around signboard",
+      "repairs": 1,
+      "items": [
+        "item_16",
+        "item_19"
+      ]
+    },
+    {
+      "name": "difficult-moment fixtures",
+      "repairs": 1,
+      "items": [
+        "item_21",
+        "item_23"
+      ]
+    },
+    {
+      "name": "timing hash pins",
+      "repairs": 1,
+      "items": [
+        "item_24",
+        "item_27"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": true,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "facilities": {
+    "kinds": "new restored.world().rows::<Lamp>().count() in replacement fixture test",
+    "layout": "existing geometric regression runs; no added route-planning layout request",
+    "place": "not used",
+    "paranoid": "existing Off/Save/FreshGame pin comparisons run and cited when updating pins; --paranoid not invoked",
+    "reloadReport": "existing regression runs and fixture regenerated; report not consulted to solve change"
+  },
+  "contextExposure": {
+    "item": "item_7",
+    "source": "game/bench/cubes",
+    "lines": [
+      "game/bench/cubes/proof.mjs:21:console.log('PASS live world, 1,000 entities, 2560\u00d71440, phase samples, clean Chrome exit');",
+      "game/bench/cubes/logic/src/lib.rs:1://! The cubes bench: one ordinary entity per moving cube, at 60 ticks/second."
+    ],
+    "violation": "An unrelated game consumer remained readable and these lines reached the model. No running session was changed; packaging corrected only before after B2."
+  },
+  "coverageCaveat": "Replaces before_change_save_bytes historic fixture comparison with current-world full-save roundtrip; removed historical comparison is not covered by the immutable task evaluator."
+}
