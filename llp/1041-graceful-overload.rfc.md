@@ -4331,3 +4331,41 @@ metadata, before choosing another optimization or scheduling change.
 Manifest `bfab2998a2cc124bbfaf7a0fa54fdad6375945837e38979bfad0ccb398ec6a7c`
 records190 files/85,284,262B; report
 `f95ce87b41a3d318d1eafc3d4cac58ab9c5c80a75785bfe6bd7b660ff4629412`.
+
+### 8.68 Giant worker time is concentrated in interaction metadata, 2026-09-18
+
+One standalone optimized worker diagnostic separates four consecutive phases on
+the complete canonical1MiB paragraph. It uses production d9f928d sources plus
+ignored scalar probes: four child rows/eight clock reads per full construction,
+with no per-line or per-caret clock. The inclusive service shape takes2712.364ms:
+attributed source/typesetter45.071ms, Unicode boundaries9.586ms, line breaking and
+metrics16.697ms, numeric caret/hit metadata2639.431ms, and remainder1.581ms.
+The children are disjoint and contained in the same request/generation/offer;
+the inclusive parent is not added to them. Metadata occupies97.311% of this
+fixture's parent wall, including any deferred framework work inside its constructor.
+It does not isolate individual CoreText calls, sorting, allocation or CPU cost.
+
+The body remains1048499 UTF8 bytes/999569 UTF16 units at width940, with8155 lines
+and212030 height. Three distinct height offers admit one full construction and
+two shared-backing hits with fresh request/artifact wrappers. Full source copy,
+streamed geometry/caret digest, font/Spec, sampled hits and selection oracle agree
+exactly with the retained reference;601600 bitmap bytes and3144 ICC bytes match.
+Source capture separately takes12.347ms, outside the shape parent. The fixed plain
+Spec is source-derived, not recovered native wire; there is no controller, window,
+live resize, adaptive palette or physical-presentation measurement in this helper.
+
+Twenty-two synthetic attribution checks pass. One strict Swift6 optimized compile
+and one guarded process exit0, with unchanged inputs and both owned groups gone.
+The original missing dependency-file result stays recorded as false. A separate
+proof verifies this build's retained CExact compiled module, its explicit header
+and module-map inputs, and creation time within the owned build; no recompilation
+or oracle change occurred. Independent raw reconstruction verifies all seven spans,
+source/output equality and that provenance correction.
+
+This result directs the next change toward bounded viewport interaction metadata
+while keeping full source, exact layout, worker-confined CoreText and qualified
+pixel/hit publication. It is neither an implemented optimization nor a native
+speedup/120Hz result. Source and evidence are archived at
+`target/apple-region-shape-stages-validation/run-1/`:93 artifacts/5,283,884B,
+manifest `d559ff375d551200fb6449f69b58b795e8141b9f299b256f1cbb0c3fb0ae2d8e`,
+report `dd6137da3127cfd6e43f2b2f154bec24e66d60f36431fc6b91f4a9ac67b6d36e`.
