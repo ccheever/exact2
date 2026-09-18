@@ -24,9 +24,14 @@ struct Hero {
     transform: Transform,
 }
 #[derive(Kind)]
-struct Light {
+struct Lightable {
     #[read]
     transform: Transform,
+    beacon: Beacon,
+}
+#[derive(Kind)]
+struct Glow {
+    #[read]
     beacon: Beacon,
     material: Material,
 }
@@ -95,19 +100,28 @@ impl Game for Beacons {
                 .step(&mut row.transform, direction, jump, w.dt());
             row.transform.position
         });
-        let mut count = 0;
-        for mut row in w.rows_mut::<Light>() {
-            if input.pressed("light")
-                && position.is_some_and(|p| {
-                    let d = p - row.transform.position;
-                    Vec2::new(d.x, d.z).length_squared() <= 2.25
+        if input.pressed("light") {
+            let selected: Vec<_> = w
+                .rows::<Lightable>()
+                .filter(|row| {
+                    !row.beacon.lit
+                        && position.is_some_and(|p| {
+                            let d = p - row.transform.position;
+                            Vec2::new(d.x, d.z).length_squared() <= 2.25
+                        })
                 })
-                && !row.beacon.lit
-            {
-                row.beacon.lit = true;
-                row.beacon.glow.to(now, 1.0, 0.5);
+                .map(|row| row.id)
+                .collect();
+            for id in selected {
+                w.edit(id, |row| {
+                    row.beacon.lit = true;
+                    row.beacon.glow.to(now, 1.0, 0.5);
+                });
                 w.log("beacon lit");
             }
+        }
+        let mut count = 0;
+        for mut row in w.rows_mut::<Glow>() {
             let glow = row.beacon.glow.value(now);
             row.material.emissive = [glow * 0.7, glow * 2.5, glow * 3.0];
             count += u32::from(row.beacon.lit);

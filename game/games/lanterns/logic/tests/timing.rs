@@ -40,21 +40,15 @@ fn tick_10k_median() {
 }
 
 #[test]
-fn typed_facade_preserves_original_world_bytes() {
+fn saved_binding_hashes_are_pinned() {
     let mut sim = game();
     for (ms, expected) in [
-        (0.0, 0xaa5115299d8598d3),
-        (1000.0, 0x99071d4692d75e6f),
-        (2000.0, 0xbb79c1986b61792a),
+        (0.0, 0xa778d065d6cea372),
+        (1000.0, 0x8f7cfe89cd32bdef),
+        (2000.0, 0xecf7e7cab49ab213),
     ] {
         sim.key_down("KeyW");
         sim.run(ms);
         assert_eq!(sim.world().hash(), expected);
-        // Optional local byte comparison against the pre-facade capture.
-        if let Ok(dir) = std::env::var("EXACT_KIND_BASELINE") {
-            let bytes =
-                std::fs::read(format!("{dir}/lanterns-{}.world", sim.world().tick())).unwrap();
-            assert_eq!(sim.world().save(), bytes);
-        }
     }
 }

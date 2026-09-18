@@ -251,7 +251,8 @@ test('author examples and documentation describe current motion, placement and p
     expect(setup).not.toContain('scene::follow');
     expect(source).toContain('Character');
   }
-  expect(template).toContain('near_xz::<Beacon>');
+  expect(template).toContain('rows::<Lightable>');
+  expect(template).toContain('rows_mut::<Glow>');
   expect(main.indexOf('derive(Kind)')).toBeLessThan(main.indexOf('world.get::<Transform>'));
   expect(main).not.toContain('Call it at the\nend of `setup`');
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');

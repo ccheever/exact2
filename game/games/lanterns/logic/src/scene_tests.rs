@@ -145,7 +145,7 @@ fn later_content_is_for_restart_and_never_reapplied_to_a_saved_world() {
         .get_mut::<Transform>("player")
         .unwrap()
         .position = Vec3::new(-12.0, 0.65, 10.0);
-    light_nearest(running.world_mut(), false);
+    light_nearest(running.world_mut(), false).unwrap();
     running
         .world_mut()
         .get_mut::<Transform>("crate")
