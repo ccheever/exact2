@@ -73,7 +73,8 @@ export async function createCommand({root = resolve(import.meta.dirname, '../../
       let type, id;
       if (/\bjump$/.test(line)) type = 'jump';
       if (/\blantern-\d+ lit$/.test(line)) { type = 'lantern-lit'; id = /lantern-\d+/.exec(line)[0]; }
-      if (/\ball lanterns lit$/.test(line)) type = 'win';
+      if (/\ball lanterns lit$/.test(line)) type = 'all-lanterns-lit';
+      if (/\bpublish phase: .*"won"/.test(line)) type = 'win';
       if (/\bnight fell$/.test(line)) type = 'lose';
       if (/surface-save:saved/.test(line)) type = 'save';
       if (/surface-load:loaded/.test(line)) type = 'load';
@@ -117,6 +118,9 @@ export async function createCommand({root = resolve(import.meta.dirname, '../../
         await reopen(resolve(store,'saved.world'));
         if (phase !== 'title') await s.tap('play');
         if (phase === 'paused') await s.tap('pause');
+        // Restored input belongs to the saved world, not this adapter's empty
+        // bookkeeping set. Release all supported keys through ordinary input.
+        for (const key of ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyE']) await s.world('world').key_up(key);
         await input();
         return state();
       }
@@ -124,7 +128,7 @@ export async function createCommand({root = resolve(import.meta.dirname, '../../
     }
   }
   await reopen();
-  return {command,reload:reopen,tree:()=>s.tree(),raw:()=>s,unavailable,limitations:['analog input quantized to nearest eight keyboard directions; Linux held pointer unsupported','world pixels unavailable'],
+  return {version:3,command,reload:reopen,tree:()=>s.tree(),raw:()=>s,unavailable,limitations:['analog input quantized to nearest eight keyboard directions; Linux held pointer unsupported','world pixels unavailable'],
     async screenshot(path) { const reply = await s.screenshot(path); return {reply,unsupported:'Linux renders Contract UI with flat world canvas; no world pixels'}; },
     async close() { await s?.close(); if (ownedStore) rmSync(store,{recursive:true,force:true}); }};
 }

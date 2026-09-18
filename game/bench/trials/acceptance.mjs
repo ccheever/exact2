@@ -215,7 +215,7 @@ try {
   });
 } finally {
   await adapter.close();
-  const report = { engine, task, unavailable:[...adapter.unavailable],limitations:adapter.limitations, recordedAt: new Date().toISOString(), renderer:'Linux CPU UI only; world pixels unsupported',
+  const report = { instrumentVersion:adapter.version, engine, task, unavailable:[...adapter.unavailable],limitations:adapter.limitations, recordedAt: new Date().toISOString(), renderer:'Linux CPU UI only; world pixels unsupported',
     milliseconds: performance.now() - started, cases, errors, trace,
     passed: cases.length === 10 && cases.every(c => c.passed) && errors.length === 0 };
   await writeFile(`${out}/acceptance.json`, JSON.stringify(report, null, 2));

@@ -1,6 +1,6 @@
 # Lanterns headless change trials
 
-Parent-owned instrument, version 1. `createCommand({root, store?})` returns
+Parent-owned instrument, version 3. `createCommand({root, store?})` returns
 `{command(request), reload(), tree(), screenshot(path), close(), unavailable,
 limitations}`. Requests are BRIEF's ready/start/reset/input/step/state/pause/save/load.
 `step` uses the selected ref's `s.world('world').ticks(N)`, verifies the exact
@@ -121,3 +121,16 @@ package-scoped tests. Lanterns and the engine dependency sources remain at the
 selected ref. The failed pre-dispatch setup is retained separately. This is a
 new packaging failure introduced by context trimming, not a fourth repair of the
 previously resolved target relocation or CLI-access failure loops.
+
+Version 2 corrects event classification globally: “all lanterns lit” is an
+observation, not necessarily victory after Task B. Win events come from the
+world journal's `publish phase: ... "won"` entry and retain its actual tick.
+The four unchanged submissions and baseline are re-evaluated with version 2;
+original timing and version-1 evaluation files remain available. No model is
+restarted and no requirement is relaxed.
+
+Version 3 also releases every supported key through existing key-up operations
+after load. A focused probe saved while W was held and observed another 0.75m of
+movement after load; the corrected probe observes no movement and no held keys.
+All unchanged candidates receive the final version-3 evaluation, with no model
+restarts. The version-2 A1 intermediate evaluation is retained separately.

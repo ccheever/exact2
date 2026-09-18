@@ -88,7 +88,7 @@ export async function evaluate(task) {
     const render=await a.screenshot(resolve(out,'final.png'));
     cases.push({name:'actual rendered game output',status:'unsupported',passed:false,reason:render.unsupported});
   } finally {await a.close();}
-  const report={task,engine:'exact2-linux',recordedAt:new Date().toISOString(),cases,trace,
+  const report={instrumentVersion:a.version,task,engine:'exact2-linux',recordedAt:new Date().toISOString(),cases,trace,
     unavailable:[...a.unavailable],limitations:a.limitations,
     functionalPassed:cases.filter(c=>c.status!=='unsupported').every(c=>c.passed),passed:cases.every(c=>c.passed)};
   writeFileSync(resolve(out,`task-${task}.json`),JSON.stringify(report,null,2)+'\n');
