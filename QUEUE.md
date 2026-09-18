@@ -1,5 +1,7 @@
 # Queue
 
+- **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md)): prioritize producer-bounded Messages pages, then scrollport-driven requests and precise page invalidation. Measure source work, bytes, settlement and UI separately. Shared views/buffers/heap and generic whole-value reconciliation remain deferred; the four-way findings are in LLP 1027.003 §9.
+
 What would make sense to do next, in rough order. This is not a spec and decides
 nothing: `rules/RULES.md` §Scope says a spec without an implementer and a date isn't
 written, so a line here is one to three lines — the thing, why, what it needs. When

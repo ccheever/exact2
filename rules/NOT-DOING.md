@@ -133,7 +133,17 @@ change can break.
   their arguments still match, the clock — and is otherwise a restart: no patch
   format, no generations, no identity matching. LLP 1007 §6; Charlie, 2026-08-28.)
 - Islands and inline islands.
-- Cross-runtime shared data.
+- Cross-runtime shared data in production. **Measured exception (Charlie,
+  2026-09-18, LLP 1027.003 §9):** all four isolated transfer/storage directions
+  were tried. The small conversion and app fixes are selected for delivery;
+  immutable views, typed buffers and a mutable shared heap remain research.
+  **Priority (Charlie, 2026-09-18, LLP 1027.004):** bounded Messages answers come
+  next. Unblocks keeping producer, transfer and settlement work proportional to
+  the requested window. Take: further shared-representation tuning and generic
+  arrival-time structural reconciliation move behind this consumer. No new
+  benchmark app, scheduler, core feature matrix or second application-state graph.
+  Production ABI changes, arbitrary object unification and a default shared heap
+  remain unselected.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
