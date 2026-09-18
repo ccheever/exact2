@@ -6,9 +6,9 @@
 extern crate self as exact_game;
 
 mod agent;
-mod capture;
 #[doc(hidden)]
 pub mod args;
+mod capture;
 pub mod character;
 pub mod data;
 mod environment;

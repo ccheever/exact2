@@ -198,8 +198,7 @@ Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
-reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
-arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
+reports `restored: true` until the next tick or setup-argument rebuild. Saved construction arguments are retained; current compatible live bindings win; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
 then `truncated: true`); `state world:* under world:player` narrows to a subtree.
@@ -300,15 +299,12 @@ to delete it and try again, not to configure it.
 core dev server as every app. Rust source edits exclusive to the GPU cdylib's
 Cargo dep-info rebuild only that module under `gpu-dev`, then swap it under the
 live canvas with its entire simulation carried. Shared/app inputs still rebuild
-the app. Failed builds leave the old module running; incompatible carries leave a
-fresh world and a dismissible error naming the refused field/type. Agent pages
-never auto-swap.
+the app. Failed builds and incompatible carries retain the old world and report the refusal.
+Agent pages never auto-swap.
 
 A carry keeps the old setup's entities. New component fields default by name;
-changing `setup` does not respawn a carried world. Reload the page or press
-`f` then Enter in the dev server to start fresh. Contract edits carry uniquely
-named surfaces across the plan restart; duplicate surface instances restart fresh
-because their reassigned view ids cannot identify them honestly. A GPU swap stages
+changing `setup` does not respawn a carried world. Use the development Restart control (or reload the page) to instantiate new content. Contract edits carry uniquely
+named surfaces across the plan restart; ambiguous duplicate surface instances refuse transactional continuation. A GPU swap stages
 all replacement canvases before cutover; a create/bind/render failure leaves the
 old worlds running. Dev bindgen glue has function scope so old Wasm instances can
 be collected; production keeps its static ES module loader.
@@ -320,3 +316,70 @@ JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` ke
 simulation fields only. These helpers dispatch the existing eight agent operations.
 The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
+
+## Capturing and reproducing a game problem
+
+`Game::CAPTURE_SUPPORTED` opts a pure-input game into bounded world captures.
+Nothing records until requested. Hidden network/storage/random results remain
+unsupported. A checkpoint preserves intentional held input; ownership handoff
+clears physical keys/contacts and reestablishes the clock epoch.
+
+In an existing `proof` callback receiving `open`, `capture`, `replay` and `out`:
+
+```js
+const s = await open();
+await s.tap('play');
+const recording = await capture(s, 'world', {
+  script: 'hold D for 60 ticks, then release; inspect crate',
+  failure: 'describe the observed failure here',
+});
+await s.world('world').key_down('KeyD');
+await s.world('world').ticks(60);
+await s.world('world').key_up('KeyD');
+const file = `${out}/crate.capture.json`;
+await recording.finish(file);
+await s.close();
+const repeated = await replay(file);
+const earlier = await replay(file, {through: 2}); // ordered record boundary
+```
+
+The helper inventories actual local artifacts before launch/capture, refuses changed
+or unavailable receipts, and replays in a fresh isolated session with scratch world
+storage. Imported captures are bounded data: script descriptions and driver
+transcripts are evidence, never executable input. Sharing is a separate action.
+
+The checkpoint and ordered normalized input, live bindings, viewport changes and
+clock advances reproduce the simulation. Defaults are 2 MiB, 4,096 records and
+36,000 ticks; maxima are 8 MiB, 16,384 records and 216,000 ticks. Overflow, dropped
+input, direct mutation, lifecycle discontinuity and attested external input during
+agent control mark a capture incomplete. Replay refuses incomplete, corrupt or
+incompatible captures. Hashes are sampled at recorded boundaries; a mismatch names
+that boundary and includes bounded typed state, with truncation explicit.
+
+These bundles are **world-only**: Contract title/HUD slots and external results are
+omitted. Recording resulting bindings does not establish whole-app or physical
+UIKit/Safari gesture reproduction. A carrier reporting input provenance unavailable
+cannot distinguish a person from automation. Changed-build regression replay is
+not implemented: exact replay refuses different artifacts. Phone capture and
+native reconnect remain unavailable.
+
+`world('world').ticks(count)` (CLI `clock ticks world count`) advances the host clock
+and checks actual tick boundaries; paused/unsupported worlds refuse, without retry.
+`world('world').source('crate')` resolves a digest/file-hash-checked development
+scene map. Procedural entities report `GeneratedBy`, not fabricated source lines.
+
+## Choosing reload behavior
+
+The web development controls expose Continue, Restart and Restore. Continue retains
+the running world, its tick and construction arguments; Restart constructs from the
+new scene; Restore accepts a selected compatible checkpoint. The public development
+API is `await exact.reloadGame({intent:"continue"})` (or `"restart"` / `"restore"`,
+with a per-canvas `checkpoints` Map). Failed candidate construction, restore, binding
+or rendering leaves the old participating worlds intact. Inspect `state.reload` for
+requested/loaded artifacts, phase, successful replacement and timing. Rendering
+opportunity is reported separately from physical display presentation.
+
+Typed scene usage, fragment semantics and source maps are documented in
+[scene/README.md](scene/README.md). A scene edit rebakes content; Continue deliberately
+retains the instantiated scene, while Restart uses the new one. Source links refuse
+a stale digest or changed source file.

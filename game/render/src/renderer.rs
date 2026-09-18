@@ -475,11 +475,7 @@ impl Renderer {
                     continue;
                 }
                 let mesh = &self.meshes[batch.mesh.0];
-                pass.set_bind_group(
-                    1,
-                    mesh.texture.as_ref().unwrap_or(&self.white_texture),
-                    &[],
-                );
+                pass.set_bind_group(1, mesh.texture.as_ref().unwrap_or(&self.white_texture), &[]);
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
             if frame::has_sky(frame) {
@@ -628,7 +624,9 @@ fn material_texture(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+                resource: wgpu::BindingResource::TextureView(
+                    &texture.create_view(&Default::default()),
+                ),
             },
             wgpu::BindGroupEntry {
                 binding: 1,

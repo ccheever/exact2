@@ -1,6 +1,8 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
-use exact_game::{Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{
+    Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE,
+};
 use std::collections::BTreeMap;
 
 mod scene;
@@ -218,9 +220,8 @@ impl Feed {
     pub fn with_assets(assets: &[Asset]) -> Result<Self, RenderError> {
         let mut feed = Self::default();
         for asset in assets {
-            let model = crate::assets::Model::parse(asset.bytes).map_err(|e| {
-                RenderError::scene(format!("asset `{}`: {e}", asset.name))
-            })?;
+            let model = crate::assets::Model::parse(asset.bytes)
+                .map_err(|e| RenderError::scene(format!("asset `{}`: {e}", asset.name)))?;
             if feed.assets.insert(asset.name.to_owned(), model).is_some() {
                 return Err(RenderError::scene(format!(
                     "asset `{}` is declared twice",
@@ -426,12 +427,10 @@ impl Feed {
                                 .sample(clip, seconds, looped)
                                 .map_err(RenderError::scene)?;
                             self.asset_vertices.clear();
-                            self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
-                            let mesh_id = r.textured_mesh(
-                                &self.asset_vertices,
-                                &model.indices,
-                                &model.image,
-                            );
+                            self.asset_vertices
+                                .extend(sampled.into_iter().map(asset_vertex));
+                            let mesh_id =
+                                r.textured_mesh(&self.asset_vertices, &model.indices, &model.image);
                             let group = self.groups.len();
                             self.groups.push(Group {
                                 mesh: mesh_id,
@@ -478,14 +477,20 @@ impl Feed {
         if initial || next.animation != old.animation || self.tick != w.tick() {
             for (e, (mesh, animation)) in w.query::<(&Mesh, Option<&Animation>)>().iter() {
                 let Mesh::Asset(name) = mesh else { continue };
-                let Some(instance) = self.asset_instances.get(&e) else { continue };
-                if instance.name != *name { continue; }
+                let Some(instance) = self.asset_instances.get(&e) else {
+                    continue;
+                };
+                if instance.name != *name {
+                    continue;
+                }
                 let model = &self.assets[name];
                 let clip = animation
                     .as_ref()
                     .map(|a| a.clip.as_str())
                     .or_else(|| model.clip_names().next())
-                    .ok_or_else(|| RenderError::scene(format!("Mesh.Asset({name}): asset has no animation")))?;
+                    .ok_or_else(|| {
+                        RenderError::scene(format!("Mesh.Asset({name}): asset has no animation"))
+                    })?;
                 let sampled = model
                     .sample(
                         clip,
@@ -494,7 +499,8 @@ impl Feed {
                     )
                     .map_err(RenderError::scene)?;
                 self.asset_vertices.clear();
-                self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
+                self.asset_vertices
+                    .extend(sampled.into_iter().map(asset_vertex));
                 r.update_mesh(instance.mesh, &self.asset_vertices);
             }
         }

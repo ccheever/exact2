@@ -8,8 +8,8 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
-mod bloom;
 mod assets;
+mod bloom;
 mod buffers;
 mod frame;
 mod perf;
