@@ -251,13 +251,18 @@ fn code_block(
 }
 
 fn is_rule(line: &str) -> bool {
-    for marker in ['-', '*', '_'] {
-        let stripped: String = line.chars().filter(|&c| c != ' ').collect();
-        if stripped.len() >= 3 && stripped.chars().all(|c| c == marker) {
-            return true;
+    let mut marks = line.bytes().filter(|&b| b != b' ');
+    let Some(marker @ (b'-' | b'*' | b'_')) = marks.next() else {
+        return false;
+    };
+    let mut count = 1;
+    for mark in marks {
+        if mark != marker {
+            return false;
         }
+        count += 1;
     }
-    false
+    count >= 3
 }
 
 fn heading_of(line: &str) -> Option<(u32, &str)> {

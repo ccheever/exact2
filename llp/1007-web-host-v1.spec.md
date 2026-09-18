@@ -170,7 +170,7 @@ point, so `exact.agent` returns a promise for `clock` and the driver awaits
 it. Forbidden request headers (`Cookie`, `Host`, `Origin`, …) are dropped by
 `fetch` silently where ibex2 sends them: a source must not rely on them.
 
-Six exports, no `unsafe`: `exact_in(len)` resizes a host-owned input buffer
+Core exports, no `unsafe`: `exact_in(len)` resizes a host-owned input buffer
 and returns its address; `exact_out()` returns the output buffer's;
 `exact_boot()`, `exact_boot_plan(len)` (boot from plan bytes in the input
 buffer — the dev loop's restart, §6), `exact_dispatch(view, kind, len,
@@ -180,6 +180,13 @@ the output. `exact_web::host!(DataType, PLAN)` instantiates the exports for
 one app; `apps/caltrain/web` is that one line plus a `build.rs` that compiles
 and bakes `app.contract` into `OUT_DIR` (never committed) for
 `include_bytes!`.
+
+The fixed-height list path also exports `exact_list(view, top, height,
+origin, focus, interaction)`. Glue supplies measured scrollport geometry
+and bounded descendant pins; the runner updates row lifetimes without
+resource settlement or application actions (LLP 1010 §6.2). Resize and
+scroll remain browser-owned. This ABI addition requires a rebuilt wasm
+and matching glue, covered by the normal build artifact receipt.
 
 `glue.js` is host code: it fetches and instantiates the wasm, applies batches
 (elements by view id; `children` reorders in place so keyed rows keep their

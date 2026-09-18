@@ -1,0 +1,28 @@
+{
+  "name": "Lanterns — Last Light",
+  "seed": 1041003,
+  "duration": 180,
+  "spawn": [0, 0, 12],
+  "ground": {"size": [36, 1, 36], "position": [0, -0.5, 0]},
+  "player": {"speed": 4.5, "jump": 6.4, "gravity": 12, "radius": 0.35, "height": 1.3},
+  "crate": {"position": [6, 0.6, 8], "size": [1.2, 1.2, 1.2], "mass": 3},
+  "obstacles": [
+    {"id": "ledge", "position": [10, 1.2, 8], "size": [4, 2.4, 4]},
+    {"id": "wall", "position": [-4, 1, 5], "size": [1, 2, 5]}
+  ],
+  "sign": {"position": [3, 0, 10], "text": "Push the crate beside the high ledge. Jump onto it, then jump again to reach the last lantern. Light all twelve before night!"},
+  "lanterns": [
+    {"id": "lantern-1", "position": [-12, 0, 10]},
+    {"id": "lantern-2", "position": [-10, 0, 2]},
+    {"id": "lantern-3", "position": [-12, 0, -8]},
+    {"id": "lantern-4", "position": [-6, 0, -12]},
+    {"id": "lantern-5", "position": [0, 0, -10]},
+    {"id": "lantern-6", "position": [6, 0, -12]},
+    {"id": "lantern-7", "position": [12, 0, -8]},
+    {"id": "lantern-8", "position": [12, 0, 0]},
+    {"id": "lantern-9", "position": [5, 0, 2]},
+    {"id": "lantern-10", "position": [0, 0, 0]},
+    {"id": "lantern-11", "position": [0, 0, 7]},
+    {"id": "lantern-12", "position": [10, 2.4, 8]}
+  ]
+}

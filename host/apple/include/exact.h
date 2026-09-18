@@ -144,6 +144,17 @@ uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t le
 uint32_t exact_drag_x(ExactRuntime rt, uint32_t view, double delta, double velocity, uint32_t release, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* Actual list scrollport and focused/interacting descendants (zero if absent).
+   Row heights use the kernel frames already delivered to the presenter. */
+uint32_t exact_list(ExactRuntime rt, uint32_t view, double top, double height,
+                    double width, double origin, uint32_t focus, uint32_t interaction);
+/* Opaque row key in the input buffer; UINT32_MAX means absent. */
+uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
+/* Two concatenated UTF-8 keys in input; empty first key selects all text.
+   Returns raw UTF-8 bytes, not a batch. Positions use UTF-16 offsets. */
+uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
+                        uint32_t len, uint32_t first_paragraph, uint32_t first_offset,
+                        uint32_t last_paragraph, uint32_t last_offset);
 /* The safe-area insets (points) under viewport-fit=cover — what
  * env(safe-area-inset-*) resolves to; zero when the layout viewport is the
  * safe area itself. A change re-sends the style of every node that reads

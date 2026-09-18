@@ -534,3 +534,11 @@ The directional names describe scrolling: a leftward finger movement scrolls
 right, so Messages uses `pan-right pan-y` on a replyable bubble. This mapping
 was driven against Chrome touch input. Changing the row after recognition does
 not change that gesture. Native pinch zoom is not added by this row.
+
+## Video (LLP 1042, 2026-09-18)
+
+`Video` is a replaced measured leaf alongside `Image`; native metadata uses the
+same intrinsic-size seam. Without metadata its fallback is 300×150. The Contract
+tag carries the browser video UA rule `object-fit: contain`; an explicit CSS row
+wins. Playback, controls and the media clock belong to the browser or the optional
+AVKit artifact. Keyboard layout uses the existing viewport policy, not media state.

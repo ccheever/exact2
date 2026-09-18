@@ -1,0 +1,14 @@
+{
+  "godot": "4.7.2.stable.official.ed1daf0bf",
+  "love": "11.5",
+  "pygame": "2.6.1",
+  "defold": "1.13.1",
+  "python": "3.12.3",
+  "host": "expose-builder-nothing",
+  "binary_sha256": {
+    "Godot_v4.7.2-stable_linux.x86_64": "8d106cbe6144c2dc7e881d61d2429c1a8a76e6b22ef48bd5e48dcf934953f71e",
+    "love.AppImage": "65a673406431eff7167a15a032bf7a2e4ba50108e091eb7b176465831f9b5e00",
+    "bob.jar": "8f2b1381fd4d0fb92816403cd0056cb7db5ad4083615be8dcc2d868fb4939938",
+    "jre.tar.gz": "1731a34baadec5479258ea0202e4d5d865d2efeee60cb0c7d7eb056fe96ca219"
+  }
+}

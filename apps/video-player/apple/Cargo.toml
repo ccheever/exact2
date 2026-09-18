@@ -1,0 +1,21 @@
+[package]
+name = "video-player-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Video Player on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "video_player_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+video-player-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+video-player-data = { path = "../data" }

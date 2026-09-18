@@ -1,0 +1,60 @@
+{
+  "engine": "babylon",
+  "task": "a",
+  "replicate": 1,
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "dispatch": 1789708660.4584498,
+  "agent": {
+    "pid": 1890272,
+    "started": 1789708660.4585567,
+    "finished": 1789709067.6972482,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "build": {
+    "pid": 1907529,
+    "started": 1789709067.697462,
+    "finished": 1789709069.7153993,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "server": {
+    "pid": 1907847,
+    "port": 42939,
+    "root": "/tmp/exact-full-games-20260917/trials/babylon/a1/game/dist"
+  },
+  "evaluation": {
+    "pid": 1907887,
+    "started": 1789709070.105258,
+    "finished": 1789709090.9657204,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "sourceHashes": {
+    "BRIEF.md": "9ad25b1f01ed99cfa9ff678621fa9a10104f8a03bea6a47f6efec036a489b564",
+    "README.md": "38a09cd3b5132a1802d50c179f4f77406768bb6215da2ad79bc334bfa8afe808",
+    "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+    "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+    "build-assets.mjs": "39803d3ceabfad906d777c23519a17e66915cc4e4c9454e0c36907690f4fd684",
+    "bun.lock": "30410d6bc9d7fe4c58ca3f563bca433d9bb4bd4cc635db9caed58c51c096c1d3",
+    "evidence/gameplay.png": "99b2898253af674fe7441aee609c1f0a23d772e972b32d7e7f944d960ca9a971",
+    "evidence/lantern-13-proof.json": "55b73e4d4ffb180f797f0d7aee481b18c26f3b2883035434df4ebe3ba0ff17ad",
+    "evidence/lantern-13-won.png": "673cb1e9d7f0e7dc10506c0b8b0706381287727f608d20cbaae7e7d57174aabc",
+    "evidence/paused.png": "1da5079b9cc2a11cf97a29ac73beb79946796d337e345c6237913f293aea7ec1",
+    "evidence/self-test.json": "0717505b4b5df227bef126ffe11df1cb0f3c33578f225d2128f3d7b6131f2cd0",
+    "evidence/title.png": "c69e91d594a01b23d281b3b56fb9f4a6ca48c508bc76558faea0237578226fc4",
+    "full-route.mjs": "22bc6b6d3b5de96e98124fa8d928226a6a7cedb7042037b4c0b43d9deade6eda",
+    "index.html": "ca16217ceca62bbe9fe4786bda5f093d4beb1a477fae357d69e8b0949eb1fd8b",
+    "lantern-13-proof.mjs": "16ec8476f67126df0c97165f3467d13d75aa240da041d909398b2dd07c0515e1",
+    "level.json": "b9a93095268e242990560134fa73f64d35c37df64f63ed6bc12a8ddab3104f07",
+    "package.json": "5ca1a4d3b8d326e72cbdedcc3a5e047ec8a9cb839be241592a943e2c8051385e",
+    "rolldown.config.mjs": "58aa1487b679ae3165f746f4b956f10aebf797dff592b573b73904328218bf72",
+    "server.mjs": "3aaea783b21a0d97e2ec80ce91ed55b6eddf19c61fdc5348ee1069e2acc9ec51",
+    "src/main.js": "8a322e8fd58dddc96ef29fe8c5658042330f1dae392d2d9a69cc8155579d32e0",
+    "src/world.js": "8a30d6b739dcc689f67cd942e2b934357fdc27400a939ebef8a30d57c58b08c1",
+    "style.css": "c9dc51f076229dddc80b103b375f4cb14afb2072ab44f53173594afdda05fb70",
+    "test.mjs": "8071cb15e8e99931de998a9f42b41fa7f292f80281604f5ab3f6597b76bc1315"
+  },
+  "finished": 1789709091.062388
+}

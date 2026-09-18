@@ -1,0 +1,58 @@
+{
+  "date": "2026-09-18",
+  "device": {
+    "model": "iPhone17ProMax",
+    "product": "iPhone18,2",
+    "os": "iOS26.6.1",
+    "osBuild": "23G83",
+    "source": "devicectl physical-device details"
+  },
+  "godotWeb": {
+    "build": "4.7.2",
+    "initialHTTP": "Rejected: Secure Context required",
+    "HTTPS": "User confirmed title screen"
+  },
+  "godotNative": {
+    "build": "4.7.2.stable.official.ed1daf0bf",
+    "bundle": "com.ccheever.lanternsgodot",
+    "renderer": "GL Compatibility; startup logged OpenGL ES3.0",
+    "signedInstalledLaunched": true,
+    "userConfirmation": "Game starts and controls work",
+    "sourceChanges": "No game logic changes; iOS export, mobile texture import, and icon",
+    "deliveryNotes": "Signing succeeded from visible Terminal after background keychain denial. USB resolved CoreDevice timeouts."
+  },
+  "babylonWeb": {
+    "build": "9.27.0 / Havok1.3.10",
+    "initialHTTP": "User reported Lighting the island loading screen indefinitely",
+    "HTTPS": "User confirmed game starts",
+    "cause": "Unresolved; same HTTP build passed desktopWebKit. Do not infer engine defect or secure-context root cause from successful delivery change alone."
+  },
+  "desktopControl": {
+    "browser": "WebKit26.6",
+    "engine": "Babylon",
+    "casesPassed": 10,
+    "casesTotal": 10,
+    "pageErrors": 0,
+    "evidence": "babylon-desktop-webkit.json"
+  },
+  "limits": [
+    "No complete physical-phone victory/loss/save route yet",
+    "No phone FPS, energy, thermal, memory or startup measurements",
+    "No native-vs-web performance ranking",
+    "Exact full matchingLanterns not yet available; user authorized implementation forweb/macOS/iPhone"
+  ],
+  "exactNativeIOS": {
+    "installed": true,
+    "launched": true,
+    "userConfirmation": "The controls work now, game feels pretty good.",
+    "mode": "Normal native app, EXACT_AGENT=0, after terminating automated test process.",
+    "automation": "Connected over Tailscale and passed title/world preflight; full route interrupted to return phone to user.",
+    "limits": [
+      "Physical-iPhone full automated route not completed.",
+      "Physical-iPhone cold-restart Save/Load not tested.",
+      "No measured phone FPS/memory/thermal result."
+    ],
+    "comparativeUserAssessment": "Everything seems decent \u2014 same ballpark as the other engines.",
+    "assessmentType": "Qualitative hands-on playability, not measured performance parity."
+  }
+}

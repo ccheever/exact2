@@ -1,0 +1,45 @@
+[
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--workspace"
+    ],
+    "pid": 35988,
+    "started": 1789709581.323576,
+    "exitCode": 124,
+    "timedOut": true,
+    "finished": 1789709641.3520389
+  },
+  {
+    "name": "test",
+    "command": [
+      "cargo",
+      "test",
+      "--workspace"
+    ],
+    "pid": 43679,
+    "started": 1789709641.352764,
+    "exitCode": 124,
+    "timedOut": true,
+    "finished": 1789709701.376389
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "pid": 50710,
+    "started": 1789709701.377548,
+    "exitCode": 124,
+    "timedOut": true,
+    "finished": 1789709761.4023921
+  }
+]

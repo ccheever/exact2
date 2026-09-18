@@ -1,0 +1,61 @@
+{
+  "engine": "babylon",
+  "task": "b",
+  "replicate": 2,
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "dispatch": 1789709334.9463108,
+  "agent": {
+    "pid": 1919798,
+    "started": 1789709334.9464102,
+    "finished": 1789709682.26841,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "build": {
+    "pid": 1938502,
+    "started": 1789709682.268714,
+    "finished": 1789709684.337733,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "server": {
+    "pid": 1938811,
+    "port": 45411,
+    "root": "/tmp/exact-full-games-20260917/trials/babylon/b2/game/dist"
+  },
+  "evaluation": {
+    "pid": 1938821,
+    "started": 1789709684.728465,
+    "finished": 1789709705.6412477,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "sourceHashes": {
+    "BRIEF.md": "9ad25b1f01ed99cfa9ff678621fa9a10104f8a03bea6a47f6efec036a489b564",
+    "README.md": "ab6f95a0f534c276897363a301ea3af74971e1efe78295e38f0f05d4f21898e9",
+    "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+    "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+    "build-assets.mjs": "39803d3ceabfad906d777c23519a17e66915cc4e4c9454e0c36907690f4fd684",
+    "bun.lock": "30410d6bc9d7fe4c58ca3f563bca433d9bb4bd4cc635db9caed58c51c096c1d3",
+    "evidence/gameplay.png": "fdee23a4a1cd00f2ea107ed729c93933d7ef5d5446d490d6a7037b6f39503d2a",
+    "evidence/home-win.png": "1ed48b19c367ca76167015b30a1b41538485f6ab32a0fcc0a008c5eec51d8ab0",
+    "evidence/paused.png": "4959dca76c64932dd38051f7268973169acb59e88c016a4435682cb0790a2550",
+    "evidence/return-home-proof.json": "78ae987dd15d92035052a9407f435e4ae0f823ddb5be1a3ebb452992f8b5bc34",
+    "evidence/return-home.png": "21b19088c68980a9b53cde4e6acc2040d0f12a664d46e530979e528391fc52c5",
+    "evidence/self-test.json": "b7fffe80b34db48e59ed71d2d8b9f966516fd8d1beab9fefe4c77254775e9c8d",
+    "evidence/title.png": "80996031c937a89954bf132f7c797b9aeda43dcaa47486455c78eb8231f58d1c",
+    "full-route.mjs": "22bc6b6d3b5de96e98124fa8d928226a6a7cedb7042037b4c0b43d9deade6eda",
+    "index.html": "d2f56d55443f57ad93e4cb468e2b798f9b42bb102d4b1918940cbe1acac9cc18",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23",
+    "package.json": "4da215db35d3244e279b23ba3bf33011ab7d1794ffca4ea031ca7861cacf9099",
+    "return-home-proof.mjs": "300377a5ed990c64e20234d6ea9b53acd73d45911171fb33eb572ca923d8f264",
+    "rolldown.config.mjs": "58aa1487b679ae3165f746f4b956f10aebf797dff592b573b73904328218bf72",
+    "server.mjs": "3aaea783b21a0d97e2ec80ce91ed55b6eddf19c61fdc5348ee1069e2acc9ec51",
+    "src/main.js": "e493c9643e0096792c7f552aa2ec6257aa745b4faa5e372810bd097611882e67",
+    "src/world.js": "8a30d6b739dcc689f67cd942e2b934357fdc27400a939ebef8a30d57c58b08c1",
+    "style.css": "7456cdd817426cae0ef666bcc02d3fc2e80607092d108e7b047f00b8ef03f9a7",
+    "test.mjs": "8071cb15e8e99931de998a9f42b41fa7f292f80281604f5ab3f6597b76bc1315"
+  },
+  "finished": 1789709705.7345042
+}

@@ -1,0 +1,12 @@
+{
+  "authorization": "User allowed one additional repair round for sleeping-body/reset integration.",
+  "repairRounds": 1,
+  "changes": [
+    "Keep velocity-driven player awake",
+    "Refresh Cannon cached bounds and interpolation transforms on reset, load, and respawn"
+  ],
+  "testedSourceSha256": "c4c52bc9fb46f8b6cde8f3a54ae60e765fdcd0334bb40eb0b16b3960a8044389",
+  "restoredSourceSha256": "9a8070bea8829d181dfadcaaa83ea87b0c8d9c4d5ae03c99fc6cd7497bec3708",
+  "result": "7/10; unchanged wall, crate, and winning-route failures",
+  "disposition": "Unproven patch reverted; exact patch and test evidence retained. No further repairs or change trials."
+}

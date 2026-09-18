@@ -1,0 +1,1 @@
+{"name": "clippy", "command": ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"], "pid": 50710, "started": 1789709701.377548}

@@ -46,8 +46,8 @@ pub use request::{
     Answer, Dispatch, FailureKind, Outcome, Placement, Reply, Request, RequestOut, Response, Work,
 };
 pub use runner::{
-    Advanced, Carried, Command, DataError, DataSource, Event, Runner, RunnerError, Timed,
-    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    Advanced, Carried, Command, DataError, DataSource, Event, ListTextPosition, ListViewport,
+    Runner, RunnerError, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use vm::Trap;

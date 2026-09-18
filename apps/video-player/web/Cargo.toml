@@ -1,0 +1,21 @@
+[package]
+name = "video-player-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Video Player on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "video_player_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+video-player-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+video-player-data = { path = "../data" }

@@ -1,0 +1,460 @@
+{
+  "host": "macos",
+  "recordedAt": "2026-09-18T08:48:19.195Z",
+  "route": {
+    "passed": true,
+    "cases": [
+      {
+        "name": "title and inspectable world preflight",
+        "passed": true,
+        "milliseconds": 2093.090375,
+        "assertions": 7,
+        "failedAssertions": 0
+      },
+      {
+        "name": "physical full twelve-lantern win route",
+        "passed": true,
+        "milliseconds": 46350.624416,
+        "assertions": 118,
+        "failedAssertions": 0
+      }
+    ],
+    "errors": [],
+    "requestedTicks": 1800,
+    "finalState": {
+      "sequence": 1083,
+      "case": "physical full twelve-lantern win route",
+      "clock": 30000,
+      "type": "stage-state",
+      "stage": "won",
+      "world": {
+        "tick": 1800,
+        "hash": "0x8149b52f270af645",
+        "paused": false,
+        "held": [],
+        "session": {
+          "elapsed": 1800,
+          "phase": 2,
+          "jump_press": 2,
+          "light_press": 12
+        },
+        "published": {
+          "phase": "won",
+          "count": 12,
+          "remaining": 150,
+          "total": 12,
+          "assetReady": true
+        }
+      },
+      "player": {
+        "tick": 1800,
+        "position": [
+          9.856045,
+          3.0599732,
+          7.9422445
+        ],
+        "feet": [
+          9.856045,
+          2.4099732,
+          7.9422445
+        ],
+        "grounded": true,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "support": [
+          {
+            "index": 1,
+            "generation": 0
+          }
+        ]
+      },
+      "crate": {
+        "tick": 1800,
+        "position": [
+          7.399324,
+          0.5999162,
+          8.024288
+        ],
+        "body": {
+          "asleep": true,
+          "gravity": 1,
+          "spin": [
+            0,
+            0,
+            0
+          ],
+          "damping": 0.45,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "kind": {
+            "Dynamic": {}
+          },
+          "spin_damping": 8,
+          "mass": 3
+        }
+      }
+    }
+  },
+  "saveLoad": {
+    "passed": true,
+    "checks": [
+      {
+        "label": "movement reaches lantern 11",
+        "ok": true,
+        "actual": [
+          -9.777818e-06,
+          0.6518451,
+          7.5000114
+        ],
+        "expected": [
+          0,
+          0.65,
+          7.5
+        ]
+      },
+      {
+        "label": "only actual lantern 11 is lit",
+        "ok": true,
+        "actual": [
+          {
+            "name": "lantern-1",
+            "lit": false
+          },
+          {
+            "name": "lantern-2",
+            "lit": false
+          },
+          {
+            "name": "lantern-3",
+            "lit": false
+          },
+          {
+            "name": "lantern-4",
+            "lit": false
+          },
+          {
+            "name": "lantern-5",
+            "lit": false
+          },
+          {
+            "name": "lantern-6",
+            "lit": false
+          },
+          {
+            "name": "lantern-7",
+            "lit": false
+          },
+          {
+            "name": "lantern-8",
+            "lit": false
+          },
+          {
+            "name": "lantern-9",
+            "lit": false
+          },
+          {
+            "name": "lantern-10",
+            "lit": false
+          },
+          {
+            "name": "lantern-11",
+            "lit": true
+          },
+          {
+            "name": "lantern-12",
+            "lit": false
+          }
+        ],
+        "expected": "lantern-11 only"
+      },
+      {
+        "label": "saved world is playing",
+        "ok": true,
+        "actual": {
+          "elapsed": 61,
+          "phase": 1
+        },
+        "expected": {
+          "phase": 1
+        }
+      },
+      {
+        "label": "input is released before save",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "label": "first has no fatal app errors",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "label": "cold restart shows title",
+        "ok": true,
+        "actual": [
+          "world",
+          "title",
+          "play",
+          "title-load"
+        ],
+        "expected": [
+          "title",
+          "title-load"
+        ]
+      },
+      {
+        "label": "new runner clock starts at zero",
+        "ok": true,
+        "actual": 0,
+        "expected": 0
+      },
+      {
+        "label": "cold world starts at title before visible load",
+        "ok": true,
+        "actual": {
+          "tick": 0,
+          "session": {
+            "phase": 0,
+            "jump_press": 0,
+            "elapsed": 0,
+            "light_press": 0
+          }
+        },
+        "expected": {
+          "phase": 0
+        }
+      },
+      {
+        "label": "world simulation tick survives cold restart",
+        "ok": true,
+        "actual": 61,
+        "expected": 61
+      },
+      {
+        "label": "restored tick is not the restarted runner clock",
+        "ok": true,
+        "actual": {
+          "tick": 61,
+          "runnerNow": 0
+        },
+        "expected": {
+          "runnerNow": 0,
+          "tick": 61
+        }
+      },
+      {
+        "label": "Session elapsed and phase restore",
+        "ok": true,
+        "actual": {
+          "elapsed": 61,
+          "phase": 1
+        },
+        "expected": {
+          "elapsed": 61,
+          "phase": 1
+        }
+      },
+      {
+        "label": "player position restores",
+        "ok": true,
+        "actual": [
+          -9.777818e-06,
+          0.6518451,
+          7.5000114
+        ],
+        "expected": [
+          -9.777818e-06,
+          0.6518451,
+          7.5000114
+        ]
+      },
+      {
+        "label": "player velocity restores",
+        "ok": true,
+        "actual": [
+          0,
+          0,
+          0
+        ],
+        "expected": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "label": "crate position restores",
+        "ok": true,
+        "actual": [
+          6.0000033,
+          0.5999159,
+          8.000013
+        ],
+        "expected": [
+          6.0000033,
+          0.5999159,
+          8.000013
+        ]
+      },
+      {
+        "label": "crate velocity restores",
+        "ok": true,
+        "actual": [
+          0,
+          0,
+          0
+        ],
+        "expected": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "label": "actual lantern states and count restore",
+        "ok": true,
+        "actual": {
+          "count": 1,
+          "lanterns": [
+            {
+              "name": "lantern-1",
+              "lit": false
+            },
+            {
+              "name": "lantern-2",
+              "lit": false
+            },
+            {
+              "name": "lantern-3",
+              "lit": false
+            },
+            {
+              "name": "lantern-4",
+              "lit": false
+            },
+            {
+              "name": "lantern-5",
+              "lit": false
+            },
+            {
+              "name": "lantern-6",
+              "lit": false
+            },
+            {
+              "name": "lantern-7",
+              "lit": false
+            },
+            {
+              "name": "lantern-8",
+              "lit": false
+            },
+            {
+              "name": "lantern-9",
+              "lit": false
+            },
+            {
+              "name": "lantern-10",
+              "lit": false
+            },
+            {
+              "name": "lantern-11",
+              "lit": true
+            },
+            {
+              "name": "lantern-12",
+              "lit": false
+            }
+          ]
+        },
+        "expected": {
+          "count": 1,
+          "lanterns": [
+            {
+              "name": "lantern-1",
+              "lit": false
+            },
+            {
+              "name": "lantern-2",
+              "lit": false
+            },
+            {
+              "name": "lantern-3",
+              "lit": false
+            },
+            {
+              "name": "lantern-4",
+              "lit": false
+            },
+            {
+              "name": "lantern-5",
+              "lit": false
+            },
+            {
+              "name": "lantern-6",
+              "lit": false
+            },
+            {
+              "name": "lantern-7",
+              "lit": false
+            },
+            {
+              "name": "lantern-8",
+              "lit": false
+            },
+            {
+              "name": "lantern-9",
+              "lit": false
+            },
+            {
+              "name": "lantern-10",
+              "lit": false
+            },
+            {
+              "name": "lantern-11",
+              "lit": true
+            },
+            {
+              "name": "lantern-12",
+              "lit": false
+            }
+          ]
+        }
+      },
+      {
+        "label": "published lamp count restores",
+        "ok": true,
+        "actual": 1,
+        "expected": 1
+      },
+      {
+        "label": "held keys remain released after restore",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "label": "second has no fatal app errors",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      }
+    ],
+    "errors": []
+  },
+  "limits": [
+    "Native route uses existing agent key delivery and visible UI actions; it does not test physical multitouch.",
+    "No timed GPU/frame-rate comparison."
+  ],
+  "rawEvidence": {
+    "exact-native-route-macos.json": "205e6fecb653e22e697688904c340e93f44b1862c77b6e6e2bc77c9398d7f1c4",
+    "exact-native-save-macos.json": "bbce3a40a08f54c4807be603b90a54d2f1dc4ecf38762907e5b157a6b8de7b17"
+  }
+}

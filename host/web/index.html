@@ -35,10 +35,11 @@
   [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
   [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   [data-scroll="true"] { overflow: auto; }
+  [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */
   #exact-root * { position: relative; }
-  img { display: block; }
+  img, video { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

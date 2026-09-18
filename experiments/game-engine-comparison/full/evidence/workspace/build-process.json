@@ -1,0 +1,1 @@
+{"name": "build", "command": ["cargo", "build", "--workspace"], "pid": 35988, "started": 1789709581.323576}

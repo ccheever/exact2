@@ -73,10 +73,12 @@ struct TextCache<Key: Hashable, Value> {
     private var clock: UInt64 = 0
     var count: Int { entries.count }
     mutating func get(_ key: Key) -> Value? {
-        guard let entry = entries[key] else { return nil }
+        guard let index = entries.index(forKey: key) else { return nil }
         clock &+= 1
-        entries[key] = (entry.value, clock)
-        return entry.value
+        // Update recency through the index: hashing a Unicode paragraph and
+        // all of its runs a second time can cost more than the cache hit.
+        entries.values[index].used = clock
+        return entries.values[index].value
     }
     mutating func put(_ key: Key, _ value: Value) {
         if entries.count >= 4096, entries[key] == nil {

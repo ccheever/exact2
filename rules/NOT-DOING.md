@@ -115,7 +115,10 @@ change can break.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 
-- No `video`, `lottie`, `rive`, `fileinput`, `pager`. (`webview` came off
+- No `lottie`, `rive`, `fileinput`, `pager`. Video admitted 2026-09-18
+  (Charlie: design video and build a keyboard-resizing player; LLP 1042). Unblocks
+  the native/web video consumer; router/viewport-fact integration (1038/1039)
+  follows this player. (`webview` came off
   2026-08-30 as LLP 1020's `iframe` — it unblocks Weird Castle's entire content
   model, the client that exists to surface Castle web decks; the take: LLP 1013
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from

@@ -1,0 +1,2 @@
+$ bun clock-smoke.mjs
+{"pass":true,"lossMilliseconds":3018.3509329999997,"lost":{"phase":"lost","ticks":10800,"remaining":0},"equivalence":{"batchZ":7.5000114440918,"singlesZ":7.5000114440918}}

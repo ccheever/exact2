@@ -94,6 +94,8 @@ func windowDimension(_ name: String, fallback: Double) -> CGFloat {
 }
 let size = NSSize(width: windowDimension("width", fallback: 420), height: windowDimension("height", fallback: 860))
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+// Present the reading surface at its final size as soon as it is ready.
+window.animationBehavior = .none
 ExactEnv.stamp("NSWindow")
 window.title = ExactEnv.appName
 if !agentMode && !smoke && !windowConfig.isEmpty {
@@ -216,16 +218,19 @@ DevMenu.install(session: session, planPath: devPlanPath ?? ExactEnv.environment[
 
 // EXACT_PLAN=<file> boots that plan instead of the one baked into the
 // library — any compiled contract, no rebuild (smokes, fixtures).
-let boot: Batch = {
+let bootError: String? = {
     let size = session.viewportSize
     let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
     if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
         DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
     }
     if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
-        return session.boot(plan: bytes, size: size)
+        return session.boot(plan: bytes, size: size).error
     }
-    return session.boot(size: size)
+    // Attaching ExactView already boots the embedded/selected plan at its
+    // real size. Keep that session instead of destroying and rebuilding it.
+    if session.booted { return session.bootError }
+    return session.boot(size: size).error
 }()
 let rustMs = session.rustMs
 let applyMs = session.applyMs
@@ -233,15 +238,9 @@ let bootMs = session.bootMs
 // Becoming key can synchronously announce readiness. Initialize the guard
 // before ordering the window, not afterward (two stdin readers otherwise).
 nonisolated(unsafe) var readySent = false
-window.makeKeyAndOrderFront(nil)
-ExactEnv.stamp("makeKeyAndOrderFront")
-// Under a script: in front regardless, so the window is seen (a covered
-// window's canvases render nothing, LLP 1009 D4) — but never activated.
-if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
-ExactEnv.stamp("activate")
-
-// The documents named on the command line, now that the first frame has
-// mounted the app's own nodes. Launch Services' route into a *running* app is
+// The documents named on the command line, now that boot has mounted the
+// app's own nodes. Start the worker before AppKit orders/activates the window.
+// Launch Services' route into a *running* app is
 // `application(_:open urls:)` above; a terminal's is this, and the two are
 // the same from here down. Not under a script or the smoke: those drive the
 // app themselves and a stray argument is not a document. @ref LLP 1033 D3
@@ -252,6 +251,12 @@ if !agentMode && !smoke {
     // (LLP 1033 D7). The path the OS handed over is the one to name it by.
     if let first = opened.first { window.title = ExactDocuments.windowTitle(for: first) }
 }
+window.makeKeyAndOrderFront(nil)
+ExactEnv.stamp("makeKeyAndOrderFront")
+// Under a script: in front regardless, so the window is seen (a covered
+// window's canvases render nothing, LLP 1009 D4) — but never activated.
+if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+ExactEnv.stamp("activate")
 // What the system is set to, now and whenever it changes (LLP 1033 D6). An
 // app that draws its own palette needs this to follow the system at all: the
 // window's appearance is the host's, and the page's colours are the app's.
@@ -267,14 +272,14 @@ let appearanceWatch = ExactDocuments.watchAppearance(session)
 func agentReady() {
     guard agentMode, !readySent else { return }
     readySent = true
-    Agent.reply(["ready": true, "boot": bootMs, "views": session.viewCount, "error": boot.error ?? NSNull()])
+    Agent.reply(["ready": true, "boot": bootMs, "views": session.viewCount, "error": bootError ?? NSNull()])
     Agent.startStdio(sessions: [("main", session)])
 }
 if agentMode {
     DispatchQueue.main.async { agentReady() }
 }
 if smoke {
-    print("boot \(String(format: "%.1f", bootMs)) ms; \(session.viewCount) views; root \(Int(session.rootSize.width))x\(Int(session.rootSize.height)); error \(boot.error ?? "none")")
+    print("boot \(String(format: "%.1f", bootMs)) ms; \(session.viewCount) views; root \(Int(session.rootSize.width))x\(Int(session.rootSize.height)); error \(bootError ?? "none")")
     print("startup: exec→main \(execToMainMs.map { String(format: "%.1f", $0) } ?? "?") ms; main→NSApplication \(String(format: "%.1f", appReadyMs)) ms; →window \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000 - appReadyMs)) ms")
     print("phases: process→boot \(String(format: "%.1f", (tBoot - ExactEnv.t0) * 1000)) ms; runner+layout \(String(format: "%.1f", rustMs)) ms of which \(session.measureCount) text measurements (\(session.measureHits) cached) \(String(format: "%.1f", session.measureSeconds * 1000)) ms in CoreText; apply \(String(format: "%.1f", applyMs)) ms")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {

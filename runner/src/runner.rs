@@ -11,6 +11,8 @@ mod source;
 pub use source::{DataError, DataSource};
 mod delivery;
 mod kept;
+mod lists;
+pub use lists::{ListTextPosition, ListViewport};
 mod settlement;
 pub use carry::Carried;
 
@@ -86,9 +88,26 @@ pub enum Event {
     Swiperight,
     /// A changed scroll position, in CSS pixels (left, top).
     Scroll(f64, f64),
+    /// A standard media event; numeric time payloads are seconds.
+    Media(EventKind, String),
 }
 
 impl Event {
+    /// Decode a media event carried as `name\npayload` through host kind 14.
+    pub fn media_payload(payload: &str) -> Option<Self> {
+        let (name, value) = payload.split_once('\n')?;
+        let kind = EventKind::from_name(name)?;
+        if (kind as u8) < EventKind::Loadedmetadata as u8 {
+            return None;
+        }
+        if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)
+            && !value.parse::<f64>().ok()?.is_finite()
+        {
+            return None;
+        }
+        Some(Self::Media(kind, value.into()))
+    }
+
     /// Decode the scroll event's two finite CSS-pixel coordinates.
     pub fn scroll_payload(payload: &str) -> Option<Self> {
         let (left, top) = payload.split_once(',')?;
@@ -768,6 +787,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Dblclick => "dblclick",
                 Event::Swiperight => "swiperight",
                 Event::Scroll(_, _) => "scroll",
+                Event::Media(kind, _) => kind.name(),
             }
         );
         let was_poisoned = self.poisoned;
@@ -801,6 +821,17 @@ impl<D: DataSource> Runner<D> {
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
+            Event::Media(kind, value) => (
+                *kind,
+                match kind {
+                    EventKind::Timeupdate | EventKind::Durationchange => {
+                        value.parse().ok().map(Value::Number)
+                    }
+                    EventKind::Error => Some(Value::str(value)),
+                    _ => None,
+                },
+                kind.name(),
+            ),
         };
         let row = self.plan.node(node);
         let handler = row
@@ -1168,42 +1199,6 @@ impl<D: DataSource> Runner<D> {
             }
         }
         result
-    }
-
-    /// Re-evaluate every site and apply one batch. A failure here means the
-    /// instance tree and the kernel may disagree; the runner is poisoned and
-    /// the host restarts it — never a half-applied frame.
-    fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        let mut tree = self.tree.take().expect("booted");
-        let mut ids = std::mem::take(&mut self.ids);
-        let result = {
-            let mut u = Update {
-                env: self.env(&[], &[]),
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-            };
-            tree.update(&mut u).map(|_| (u.ops, u.surfaces))
-        };
-        self.ids = ids;
-        self.tree = Some(tree);
-        let (ops, surfaces) = match result {
-            Ok(x) => x,
-            Err(e) => {
-                self.poison();
-                return Err(e.into());
-            }
-        };
-        match self.apply(ops) {
-            Ok(receipt) => {
-                self.surfaces.extend(surfaces);
-                Ok(receipt)
-            }
-            Err(e) => {
-                self.poison();
-                Err(e)
-            }
-        }
     }
 
     fn poison(&mut self) {

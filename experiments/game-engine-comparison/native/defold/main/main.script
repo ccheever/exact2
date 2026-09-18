@@ -1,0 +1,15 @@
+function init(self)
+ local collected={}
+ local count=0
+ for tick=1,60 do
+  local p=go.get_position("/player");p.x=p.x+2;go.set_position(p,"/player")
+  for _,id in ipairs({"/lantern30","/lantern60","/lantern90"}) do
+   if not collected[id] and math.abs(p.x-go.get_position(id).x)<10 then collected[id]=true;count=count+1 end
+  end
+ end
+ local x=go.get_position("/player").x
+ go.set_position(vmath.vector3(0,0,0),"/player");collected={}
+ print("RESULT "..json.encode({engine="Defold",ticks=60,x=x,collected=count,reset_x=go.get_position("/player").x,reset_visible=3}))
+ assert(x==120 and count==3)
+ sys.exit(0)
+end

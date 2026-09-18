@@ -49,10 +49,24 @@
     {
       "id": 11,
       "name": "WebView"
+    },
+    {
+      "id": 12,
+      "name": "Video"
     }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
   "props": [
+    {
+      "id": 103,
+      "name": "listItemKey",
+      "kind": "str"
+    },
+    {
+      "id": 102,
+      "name": "estimatedItemHeight",
+      "kind": "float"
+    },
     {
       "id": 0,
       "name": "text",
@@ -243,8 +257,8 @@
     },
     {
       "id": 37,
-      "name": "virtualized",
-      "kind": "bool"
+      "name": "itemHeight",
+      "kind": "float"
     },
     {
       "id": 39,
@@ -415,6 +429,151 @@
       "id": 72,
       "name": "navigationDetent",
       "kind": "str"
+    },
+    {
+      "id": 73,
+      "name": "accessibilityPosInSet",
+      "kind": "int"
+    },
+    {
+      "id": 74,
+      "name": "accessibilitySetSize",
+      "kind": "int"
+    },
+    {
+      "id": 75,
+      "name": "poster",
+      "kind": "str"
+    },
+    {
+      "id": 76,
+      "name": "autoplay",
+      "kind": "bool"
+    },
+    {
+      "id": 77,
+      "name": "controls",
+      "kind": "bool"
+    },
+    {
+      "id": 78,
+      "name": "loop",
+      "kind": "bool"
+    },
+    {
+      "id": 79,
+      "name": "muted",
+      "kind": "bool"
+    },
+    {
+      "id": 80,
+      "name": "preload",
+      "kind": "str"
+    },
+    {
+      "id": 81,
+      "name": "playsinline",
+      "kind": "bool"
+    },
+    {
+      "id": 82,
+      "name": "crossorigin",
+      "kind": "str"
+    },
+    {
+      "id": 83,
+      "name": "controlslist",
+      "kind": "str"
+    },
+    {
+      "id": 84,
+      "name": "disablepictureinpicture",
+      "kind": "bool"
+    },
+    {
+      "id": 85,
+      "name": "disableremoteplayback",
+      "kind": "bool"
+    },
+    {
+      "id": 86,
+      "name": "volume",
+      "kind": "float"
+    },
+    {
+      "id": 87,
+      "name": "playbackRate",
+      "kind": "float"
+    },
+    {
+      "id": 88,
+      "name": "currentTime",
+      "kind": "float"
+    },
+    {
+      "id": 89,
+      "name": "paused",
+      "kind": "bool"
+    },
+    {
+      "id": 90,
+      "name": "preservesPitch",
+      "kind": "bool"
+    },
+    {
+      "id": 91,
+      "name": "allowsPictureInPicturePlayback",
+      "kind": "bool"
+    },
+    {
+      "id": 92,
+      "name": "canStartPictureInPictureAutomaticallyFromInline",
+      "kind": "bool"
+    },
+    {
+      "id": 93,
+      "name": "entersFullScreenWhenPlaybackBegins",
+      "kind": "bool"
+    },
+    {
+      "id": 94,
+      "name": "exitsFullScreenWhenPlaybackEnds",
+      "kind": "bool"
+    },
+    {
+      "id": 95,
+      "name": "showsTimecodes",
+      "kind": "bool"
+    },
+    {
+      "id": 96,
+      "name": "allowsVideoFrameAnalysis",
+      "kind": "bool"
+    },
+    {
+      "id": 97,
+      "name": "requiresLinearPlayback",
+      "kind": "bool"
+    },
+    {
+      "id": 98,
+      "name": "preferredPeakBitRate",
+      "kind": "float"
+    },
+    {
+      "id": 99,
+      "name": "preferredForwardBufferDuration",
+      "kind": "float"
+    },
+    {
+      "id": 100,
+      "name": "automaticallyWaitsToMinimizeStalling",
+      "kind": "bool"
+    },
+    {
+      "id": 101,
+      "name": "preventsDisplaySleepDuringVideoPlayback",
+      "kind": "bool"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

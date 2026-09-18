@@ -20,7 +20,7 @@ use exact_kernel::{
     TextMeasurer, ViewId,
 };
 use exact_motion::{Change, Engine, Property};
-use exact_plan::{EventKind, Plan};
+use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use ibex2::host::Secrets;
 use std::collections::BTreeMap;
@@ -503,6 +503,49 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// Native list geometry; row heights come from the same kernel layout
+    /// that supplied the presenter's frames, never a second text measurer.
+    pub fn list_viewport(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+    ) -> String {
+        let kernel = self.runner.kernel();
+        let rows: Vec<_> = kernel
+            .node(view)
+            .and_then(|list| list.children().first().copied())
+            .and_then(|content| kernel.node(content))
+            .map(|content| {
+                content
+                    .children()
+                    .into_iter()
+                    .filter_map(|id| kernel.node(id).map(|row| (id, row.frame.height as f64)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let geometry = exact_runner::ListViewport {
+            rows: &rows,
+            ..geometry
+        };
+        match self.runner.list_viewport(view, geometry) {
+            Ok(receipt)
+                if receipt.created.is_empty()
+                    && receipt.destroyed.is_empty()
+                    && receipt.touched.is_empty() =>
+            {
+                self.finish(Batch::new(), None)
+            }
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        }
+    }
+
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
     /// rotation): the kernel's environment is set, every node whose style
     /// holds an `env()` length gets its dictionary re-sent with the new
@@ -798,21 +841,7 @@ impl<D: DataSource> Host<D> {
             .runner
             .handlers_of(id)
             .into_iter()
-            .map(|e| match e {
-                EventKind::Press => "press",
-                EventKind::Change => "change",
-                EventKind::Hover => "hover",
-                EventKind::Focus => "focus",
-                EventKind::Blur => "blur",
-                EventKind::Key => "key",
-                EventKind::Submit => "submit",
-                EventKind::Load => "load",
-                EventKind::Message => "message",
-                EventKind::Contextmenu => "contextmenu",
-                EventKind::Dblclick => "dblclick",
-                EventKind::Swiperight => "swiperight",
-                EventKind::Scroll => "scroll",
-            })
+            .map(|e| e.name())
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
@@ -919,6 +948,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Toggle => "toggle",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        NodeType::Video => "video",
     }
 }
 

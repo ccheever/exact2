@@ -1,0 +1,39 @@
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; --gold:#ffc85b; --ink:#171525; }
+* { box-sizing: border-box; }
+html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#1d2140; }
+#game { width:100%; height:100%; display:block; }
+.hidden { display:none !important; }
+.screen { position:fixed; inset:0; display:grid; place-items:center; z-index:20; padding:24px; background:linear-gradient(100deg,rgba(13,12,29,.88),rgba(24,19,38,.34)); opacity:0; pointer-events:none; transition:opacity .25s; }
+.screen.show { opacity:1; pointer-events:auto; }
+.panel { width:min(430px,92vw); padding:38px; text-align:center; background:rgba(22,20,37,.9); border:1px solid rgba(255,218,136,.32); border-radius:4px; box-shadow:0 30px 80px #09091580; backdrop-filter:blur(12px); }
+.hero { margin-right:min(40vw,520px); text-align:left; }
+.eyebrow { color:var(--gold); font-size:11px; letter-spacing:.28em; font-weight:800; text-transform:uppercase; }
+h1 { margin:12px 0 18px; font-family:Georgia,serif; font-size:clamp(42px,7vw,74px); line-height:.85; font-weight:400; text-shadow:0 4px 30px #090915; }
+h1 i { color:var(--gold); font-weight:400; }
+h2 { font-family:Georgia,serif; font-size:48px; font-weight:400; margin:12px 0 22px; }
+p { color:#dad7e5; line-height:1.55; }
+button { color:white; border:0; font:700 13px/1 system-ui; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; touch-action:none; }
+.primary,.secondary,.ghost { width:100%; min-height:50px; margin-top:10px; border-radius:3px; }
+.primary { color:#241b12; background:linear-gradient(#ffd878,#f4aa37); box-shadow:0 7px 24px #e7952738; }
+.secondary { background:#353044; border:1px solid #71667e; }
+.ghost { background:transparent; color:#aaa2b5; }
+.controls { margin-top:26px; color:#aaa5b5; font-size:11px; letter-spacing:.06em; }
+.controls b { color:#f6d996; margin:0 4px; }
+#hud { position:fixed; top:0; left:0; right:0; z-index:10; height:76px; padding:13px 22px; display:flex; align-items:center; gap:16px; background:linear-gradient(#151527b8,transparent); pointer-events:none; }
+#hud button { pointer-events:auto; }
+.brand { margin-right:auto; font-family:Georgia,serif; letter-spacing:.13em; font-size:15px; }
+.flame { color:var(--gold); text-shadow:0 0 16px var(--gold); margin-right:8px; }
+.readout { min-width:86px; text-align:center; border-left:1px solid #ffffff2d; }
+.readout span { display:block; color:#fff2d2; font:600 20px Georgia,serif; }
+.readout small { color:#aaa8b5; font-size:8px; letter-spacing:.17em; }
+.icon { width:42px; height:42px; border:1px solid #ffffff32; border-radius:50%; background:#1a192990; }
+.prompt { position:fixed; z-index:12; left:50%; bottom:120px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; padding:9px 14px; border-radius:3px; background:#171525e8; border:1px solid #ffc85b75; font-size:12px; }
+.prompt b { display:grid; place-items:center; width:28px; height:28px; color:#332214; background:var(--gold); border-radius:2px; }
+.sign-copy { position:fixed; z-index:9; top:100px; left:50%; transform:translateX(-50%); padding:10px 16px; text-align:center; color:#f7dda4; background:#211b20d9; border:1px solid #d3a35666; font:14px/1.45 Georgia,serif; }
+.touch { position:fixed; inset:auto 16px 18px; z-index:11; justify-content:space-between; pointer-events:none; }
+.touch button { pointer-events:auto; width:58px; height:58px; border-radius:50%; background:#242238a8; border:1px solid #ffffff48; font-size:11px; }
+.dpad { width:176px; display:grid; grid-template-columns:repeat(3,58px); grid-template-rows:repeat(2,58px); gap:2px; }
+.dpad [data-key=up] { grid-column:2; }.dpad [data-key=left]{grid-column:1}.dpad [data-key=down]{grid-column:2}.dpad [data-key=right]{grid-column:3}
+.actions { align-self:end; display:flex; gap:10px; }.actions button:last-child{background:#9c612fb5;border-color:#ffc85b99}
+.note { min-height:1.2em; color:#f5ca71; font-size:12px; }
+@media (pointer:coarse), (max-width:760px) { .touch.active { display:flex !important; } .hero{margin:0}.readout{min-width:62px}#hud{padding:10px}.brand{display:none}.panel{padding:28px}.prompt{bottom:152px} }

@@ -243,6 +243,95 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Report a list scrollport without dispatching an application event.
+    #[allow(clippy::too_many_arguments)]
+    pub fn list_viewport(
+        &mut self,
+        view: u32,
+        top: f64,
+        height: f64,
+        width: f64,
+        origin: f64,
+        focus: u32,
+        interaction: u32,
+        len: usize,
+    ) -> u32 {
+        let payload = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let rows: Result<Vec<(u32, f64)>, ()> = payload
+            .lines()
+            .map(|line| {
+                let (id, height) = line.split_once(',').ok_or(())?;
+                Ok((id.parse().map_err(|_| ())?, height.parse().map_err(|_| ())?))
+            })
+            .collect();
+        let Ok(rows) = rows else {
+            return self.emit(r#"{"ops":[],"error":"invalid list measurements"}"#.into());
+        };
+        let out = match self.host.as_mut() {
+            Some(host) => host.list_viewport(
+                view,
+                exact_runner::ListViewport {
+                    top,
+                    height,
+                    width,
+                    origin,
+                    pins: [focus, interaction],
+                    rows: &rows,
+                },
+            ),
+            None => r#"{"ops":[],"error":"not booted"}"#.to_string(),
+        };
+        self.emit(out)
+    }
+
+    /// Resolve an opaque list key, or return the absent-index sentinel.
+    pub fn list_index(&self, view: u32, len: usize) -> u32 {
+        let key = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.host
+            .as_ref()
+            .and_then(|h| h.runner().list_index(view, &key))
+            .and_then(|i| u32::try_from(i).ok())
+            .unwrap_or(u32::MAX)
+    }
+
+    /// Logical text for all rows (empty keys), or two UTF-16 endpoints.
+    #[allow(clippy::too_many_arguments)]
+    pub fn list_text(
+        &mut self,
+        view: u32,
+        first_len: usize,
+        len: usize,
+        first_paragraph: usize,
+        first_offset: usize,
+        last_paragraph: usize,
+        last_offset: usize,
+    ) -> u32 {
+        let bytes = &self.input[..len.min(self.input.len())];
+        if first_len > bytes.len() {
+            return self.emit(String::new());
+        }
+        let first = String::from_utf8_lossy(&bytes[..first_len]);
+        let last = String::from_utf8_lossy(&bytes[first_len..]);
+        let range = (first_len != 0).then_some((
+            exact_runner::ListTextPosition {
+                key: &first,
+                paragraph: first_paragraph,
+                offset: first_offset,
+            },
+            exact_runner::ListTextPosition {
+                key: &last,
+                paragraph: last_paragraph,
+                offset: last_offset,
+            },
+        ));
+        let text = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().list_text(view, range).ok())
+            .unwrap_or_default();
+        self.emit(text)
+    }
+
     /// Dispatch an event at `now_ms` (the page's clock); `kind` is 0 = press,
     /// 1 = change, 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key,
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
@@ -268,6 +357,12 @@ impl<D: DataSource> Bridge<D> {
                 let Some(event) = Event::scroll_payload(&payload) else {
                     return self
                         .emit(r#"{"ops":[],"error":"invalid scroll coordinates"}"#.to_string());
+                };
+                event
+            }
+            14 => {
+                let Some(event) = Event::media_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.to_string());
                 };
                 event
             }
@@ -459,6 +554,23 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
+        }
+
+        /// Report a list scrollport and up to two pinned descendants.
+        #[no_mangle]
+        pub extern "C" fn exact_list(view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().list_viewport(view, top, height, width, origin, focus, interaction, len as usize))
+        }
+
+        /// Resolve an opaque list key without mounting its row.
+        #[no_mangle]
+        pub extern "C" fn exact_list_index(view: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().list_index(view, len as usize))
+        }
+        /// Copy logical text, including rows outside the mounted window.
+        #[no_mangle]
+        pub extern "C" fn exact_list_text(view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize))
         }
 
         /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /

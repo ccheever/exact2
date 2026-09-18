@@ -1,0 +1,26 @@
+[
+  {
+    "engine": "godot",
+    "seconds": 0.15779738686978817,
+    "code": 1,
+    "rejected": true,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n",
+    "stderr": "FAIL held action collected fourth lantern\n"
+  },
+  {
+    "engine": "pygame",
+    "seconds": 0.16287226974964142,
+    "code": 1,
+    "rejected": true,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\n",
+    "stderr": "Traceback (most recent call last):\n  File \"/tmp/exact-engine-comparison-20260917/native/pygame/main.py\", line 25, in <module>\n    assert negative\n           ^^^^^^^^\nAssertionError\n"
+  },
+  {
+    "engine": "love",
+    "seconds": 0.02210301160812378,
+    "code": 1,
+    "rejected": true,
+    "stdout": "Error: main.lua:30: assertion failed!\nstack traceback:\n\t[love \"boot.lua\"]:352: in function <[love \"boot.lua\"]:348>\n\t[C]: in function 'assert'\n\tmain.lua:30: in function <main.lua:1>\n\t[C]: in function 'xpcall'\n\t[love \"boot.lua\"]:368: in function <[love \"boot.lua\"]:355>\n\t[C]: in function 'xpcall'\n",
+    "stderr": ""
+  }
+]

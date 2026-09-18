@@ -136,6 +136,38 @@ fn a_bare_url_becomes_a_link_without_its_sentence_stop() {
 }
 
 #[test]
+fn unicode_survives_inline_tokens_and_bare_url_detection() {
+    let source = "hé 中🙂 \\* **hé🙂** [中](../中.md) `é` https://example.com/中, h🙂";
+    let doc = here(source);
+    assert_eq!(
+        plain(&doc.blocks[0].runs),
+        "hé 中🙂 * hé🙂 中 é https://example.com/中, h🙂"
+    );
+    assert!(doc.blocks[0]
+        .runs
+        .iter()
+        .any(|r| r.bold && r.text == "hé🙂"));
+    assert!(doc.blocks[0].runs.iter().any(|r| r.href == "../中.md"));
+    assert!(doc.blocks[0]
+        .runs
+        .iter()
+        .any(|r| r.href == "https://example.com/中"));
+}
+
+#[test]
+fn rules_require_three_matching_markers_and_only_spaces_between_them() {
+    for source in ["---", "* * *", "_ _ _ _", "  - - -  "] {
+        assert_eq!(here(source).blocks[0].kind, Kind::Rule, "{source:?}");
+    }
+    for source in ["--", "-*-", "___é", "---\t", "prose ---"] {
+        assert!(
+            here(source).blocks.iter().all(|b| b.kind != Kind::Rule),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
 fn the_outline_is_every_heading_in_order() {
     let doc = here("# One\n\ntext\n\n## Two\n\n### Three\n");
     let outline = doc.outline();

@@ -20,6 +20,7 @@
 #![deny(missing_docs)]
 
 pub mod expr;
+mod media;
 pub mod tags;
 
 use contract_analyze::Analysis;
@@ -743,6 +744,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                tags::validate_list(tag, &expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -1221,6 +1223,7 @@ impl<'a> Lowerer<'a> {
         prop: PropId,
         scope: &Scope,
     ) -> Result<(), LowerError> {
+        media::check(name, value, span)?;
         let want = tags::prop_ty(prop);
         if prop == PropId::ImageSource {
             if let Expr::Str(source, _) = value {
@@ -1311,7 +1314,9 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
-        if tag != "iframe" && matches!(a.name.as_str(), "src" | "sandbox" | "load" | "message") {
+        if (tag != "iframe" && matches!(a.name.as_str(), "sandbox" | "load" | "message"))
+            || (tag != "iframe" && tag != "video" && a.name == "src")
+        {
             return err(
                 "lower-attr-tag",
                 format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
@@ -1446,7 +1451,16 @@ impl<'a> Lowerer<'a> {
                 let payload = if event == "scroll" {
                     2
                 } else {
-                    usize::from(matches!(event, "change" | "key" | "hover" | "message"))
+                    usize::from(matches!(
+                        event,
+                        "change"
+                            | "key"
+                            | "hover"
+                            | "message"
+                            | "timeupdate"
+                            | "durationchange"
+                            | "error"
+                    ))
                 };
                 if args.len() + payload != params {
                     return err(
@@ -1470,22 +1484,8 @@ impl<'a> Lowerer<'a> {
                 for arg in args {
                     codes.push(self.expr_code(arg, scope, locals)?);
                 }
-                let kind = match event {
-                    "press" => EventKind::Press,
-                    "change" => EventKind::Change,
-                    "hover" => EventKind::Hover,
-                    "focus" => EventKind::Focus,
-                    "blur" => EventKind::Blur,
-                    "submit" => EventKind::Submit,
-                    "key" => EventKind::Key,
-                    "load" => EventKind::Load,
-                    "message" => EventKind::Message,
-                    "contextmenu" => EventKind::Contextmenu,
-                    "dblclick" => EventKind::Dblclick,
-                    "swiperight" => EventKind::Swiperight,
-                    "scroll" => EventKind::Scroll,
-                    _ => unreachable!("tag table admitted an unknown handler"),
-                };
+                let kind =
+                    EventKind::from_name(event).expect("tag table admitted an unknown handler");
                 handlers.push((kind, self.actions[ai], codes));
             }
         }

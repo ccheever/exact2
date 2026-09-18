@@ -1,7 +1,7 @@
 # LLP 1041: An agent-native game engine on exact2 — the analysis, in outline
 
 **Type:** Research
-**Status:** Draft (a record of a conversation with Charlie, 2026-09-17; it decides nothing, names no implementer, and is deliberately **not** linked into `llp/current/`, which is at its cap of 15)
+**Status:** Draft (a record of a conversation with Charlie, 2026-09-17; names no implementer, and is deliberately **not** linked into `llp/current/`, which is at its cap of 15. **Charlie ruled §7's questions the same day:** probably a lane, the take still unnamed (§8 recommends one); a separate directory in this repository; 3D first, 2D later; the Godot twin is worthwhile; not Castle's, for now)
 **Systems:** GPU module (`gpu/`, the `Surface` trait), Runner (the clock, the data seam), Agent API (the eight operations), Delivery, the hosts' input paths; a proposed add-on workspace outside the core
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-17
@@ -157,8 +157,11 @@ the precedent. Read concretely:
   (its §3 — raw input to a canvas, a surface posting a message, an agent
   export on the module), and three the corpus has already decided and not
   built (its F13–F15), for which a game would be the consumer.
-- Whether the workspace is a separate repository or a directory excluded
-  from the root workspace is open (§7 Q2).
+- **Where it lives (ruled 2026-09-17, §7 Q2): a separate directory in this
+  repository**, with its own `[workspace]` and absent from the root
+  `members` list — the library crates, Lanterns, and the Godot twin
+  together. The root workspace lists its members explicitly, so nothing
+  else has to change for the five checks to stay blind to it.
 
 ## 6. Where the rules stand
 
@@ -170,16 +173,61 @@ Charlie naming what comes off. "A spec needs an implementer and a date":
 these four documents are a research record and two unassigned RFCs, written
 because he asked for them.
 
-## 7. Open questions (Charlie's)
+## 7. The questions, as Charlie ruled them (2026-09-17)
 
-1. Is this a lane at all, and what is the take? Candidates are his to name.
-2. Separate repository, or an excluded directory here?
-3. 3D first (LLP 1041.000 as written), or a 2D game first as a cheaper proof
-   of the same seams? The seams are identical; only F10/F21 differ.
-4. Is a Godot twin of the test game worth building, so "as well as Godot"
-   becomes numbers (size, cold start, frame time, agent iteration time)? It
-   is apparatus.
-5. Does a game built this way matter to Castle? Not assumed here.
+1. **Is this a lane, and what is the take?** Probably a lane. The take is
+   unnamed — he asked what should come off; §8 is the recommendation, and
+   until he names one nothing moves in `NOT-DOING.md` and nothing is built.
+2. **Where it lives: "separate directory here."** A directory in this
+   repository with its own `[workspace]`, outside the root `members` list,
+   so `cargo build --workspace` and `cargo test --workspace` never see it.
+   `caps` still scans it: the 1,500-line rule holds there too.
+3. **"3D first, 2D later."** LLP 1041.000 stands as written.
+4. **The Godot twin is worthwhile.** Apparatus, approved by name: the same
+   game in Godot 4, so "as well as Godot" is numbers. LLP 1041.000 §6a.
+5. **Not Castle's, at least for now** — a separate idea. Nothing here is
+   shaped for it.
+
+## 8. The take — a recommendation, his to accept or replace
+
+The lane is months of work, so the take should be the one thing on the
+doing-list of comparable size.
+
+**Recommended: Messages' decorative parity comes off outright, not
+deferred.** Tapback and Reply artwork, glass and material matching,
+animation-timing and motion matching against native iMessage, Translate,
+the emoji and sticker picker, contact-details fidelity, date-heading and
+balloon raster matching — most of `QUEUE.md` from "Messages iPhone parity"
+down. Why this one:
+
+- It is the largest open-ended sink on the list and has no finish line; its
+  own record shows the three-round stop firing repeatedly (timestamps, the
+  inbox title, thread deletion, adaptive images, the glass button).
+- Its oracle is native iMessage's pixels, which is not the oracle the rules
+  name. What it taught the platform is already harvested as LLP 1035 and
+  its sub-documents, the windowed list, and the Snapback4 consumer.
+- It has already been the deferred half of a trade (2026-09-14, behind list
+  memory). Deferred work is still owed; this makes the trade real.
+- What **stays**: Messages as the Snapback4 and list-memory consumer, its
+  functional navigation, editing and ownership fixes, and everything in
+  LLP 1035 that is a rule rather than a pixel.
+
+**A matched second trade, smaller:** the Linux host's *presentation* lane
+(the KMS surface, evdev and libinput, VNC polish) comes off, and what that
+host owes becomes loading the module with `canvas` (LLP 1015 §7) — which
+LLP 1041.001 D7 needs. Linux stays the headless fleet host; it stops trying
+to be a display.
+
+**Considered and not recommended as the take:** LLP 1024 (native modules)
+and LLP 1013 (view transitions) — each has already been spent as a take and
+neither is being worked; removing them frees nothing. List memory, the
+Router (assigned, in flight), the LLP 1035 rules, delivery's owed
+correctness items and the continuous release loop are what the product is;
+none should pay for this.
+
+**The working set** is 15 of 15. When the lane starts, one link goes in —
+LLP 1041.000, the consumer — and one comes out; LLP 1027.002 landed
+2026-09-14 and is the natural one.
 
 ## Confidence
 
@@ -187,3 +235,7 @@ High on F1–F8 and F12–F15: read from the tree and the specs on 2026-09-17.
 Medium on F20–F23: standard technique, sized by analogy, nothing built.
 Low on F24 (Godot's web renderer, from memory) and on every pace estimate.
 No number in this document was measured.
+
+## Development experience follow-up (2026-09-18)
+
+[LLP 1041.006](1041.006-game-development-experience.rfc.md) proposes bounded bug captures, dependable state-preserving reload, diagnostics and declarative scene authoring after the Lanterns comparison. It is a requested Draft RFC, not an implementation or scope-policy amendment.
