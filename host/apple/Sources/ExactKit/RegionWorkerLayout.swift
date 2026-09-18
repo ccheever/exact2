@@ -72,14 +72,12 @@ final class RegionWorkerLayout {
             }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
-                var offset = 0
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
                 for authored in spec.runs {
-                    let end = offset + (authored.text as NSString).length
-                    defer { offset = end }
-                    guard offset < range.location + range.length && end > range.location else { continue }
+                    guard authored.range.location < range.location + range.length &&
+                          NSMaxRange(authored.range) > range.location else { continue }
                     matched = true
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink

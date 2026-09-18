@@ -4261,3 +4261,38 @@ under `target/linux-presented-viewport-validation/freeze-v2/`. Actual Linux
 evidence is `target/presented-viewport-linux-execution-v2/`,68 files/18,990,611B,
 manifest `a70930b8961f30fe2b207ef2c6da41981d9f5c3d8f5ecaa27601430b5cf8b286` and
 report `aee7213b0ee337fcca2b1c36488893636a9cc5853087f148ff0e037ac3c1838f`.
+
+### 8.66 Reuse captured authored ranges during Apple worker shaping, 2026-09-18
+
+The worker's glyph-run/authored-run intersection used to rebuild each authored
+run's cumulative UTF16 interval with `NSString.length` on every visit. The source
+already owns those exact immutable ranges. The worker now compares their stored
+endpoints, preserving strict intersection, complete loop order, coalesced runs,
+explicit line heights and normal/fallback metrics. No cache, worker, cancellation
+or publication policy changes; source capture still performs its original work.
+
+Both baseline and candidate pass19 standalone methods/28,104 assertions against
+actual production Swift sources. Three new methods cover empty and touching
+intervals, combining/astral/RTL/replacement text, coalesced authored line heights,
+wrap/clamp and fractional widths. Exact glyphs, geometry, carets, hits, source copy
+and bitmap comparisons agree with the unchanged ordinary text engine. The initial
+fixture did not actually coalesce its runs; its failed guard is preserved, and the
+corrected fixture requires coalescing rather than weakening the oracle.
+
+An ignored test wrapper at the actual old conversion site counts3,417 evaluations
+in the baseline and0 in the candidate. Both are semantic passes; this is removed
+work, not a manufactured correctness failure, allocation count or CPU measurement.
+Strict Swift6 optimized compilation passes. The standalone assertion shim is not
+full XCTest, and these checks establish no full-document native speedup. A fresh
+native comparison uses the same complete1MiB paragraph and resize/input recipe;
+the previous cell's timing is not its paired control.
+
+Exact two-file patch `da171d0726fa570ddb3102d40aa25ea84b109806094d8603df007231acad5d20`,
+production-only patch `60a488c447e6b354e00f812e2159e361bf0b5371ea78e4c0d956bbfe72ce8ef7`,
+and90 artifacts/2,790,302B are preserved under
+`target/apple-region-range-validation/freeze-v1/`, manifest
+`4f3acfa47a9e3d30310a46bb68700627e5e4f2126b88492e9bfaad2fe886ad16`.
+MAIN matches the tested production and test bytes; unrelated compiled dependency
+identities, caps and boot checks are retained. The multi-second publication delay
+and absent in-edge paragraph layer in§8.64 remain uncorrected measurements until
+the new native experiment establishes otherwise.
