@@ -2,7 +2,7 @@
 // Ref-addressed, sequential, parent-owned measurement. No candidate can read this file.
 import {spawn,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync,realpathSync,readdirSync,symlinkSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,writeFileSync,appendFileSync,rmSync,cpSync,realpathSync,readdirSync,symlinkSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 const here=import.meta.dirname, root=resolve(here,'../../..'), home=process.env.HOME;
 const argv=process.argv.slice(2), refIndex=argv.indexOf('--ref');
@@ -20,11 +20,14 @@ const sha=sync('git',['rev-parse',`${ref}^{commit}`]);
 const disk=()=>{const lines=sync('df',['-Pk',home]).split('\n');const kb=Number(lines.at(-1).trim().split(/\s+/)[3]);if(kb<25*1024*1024)throw new Error(`Less than 25 GiB free: ${kb} KiB`);return kb;};
 const now=()=>new Date().toISOString();
 const report={engine:'exact2-linux',ref,sha,task,attempt,model:'gpt-5.6-sol',effort:'high',wallCeilingSeconds:900,startedAt:now(),humanInterventions:0,agentSeconds:null,buildSeconds:null,proofSeconds:null,usage:null,passed:false};
+report.evaluatorHashes=Object.fromEntries(['command.mjs','acceptance.mjs','task-evaluator.mjs','task-a.mjs','task-b.mjs','level.json'].map(name=>[name,createHash('sha256').update(readFileSync(resolve(here,name))).digest('hex')]));
+report.externalQueueDelaySeconds=null;
 writeFileSync(resolve(out,'trial.json'),JSON.stringify(report,null,2)+'\n');
 const save=()=>writeFileSync(resolve(out,'trial.json'),JSON.stringify(report,null,2)+'\n');
 async function run(cmd,args,{cwd=work,childEnv=env,log,ceiling}={}) {
   const start=performance.now(), child=spawn(cmd,args,{cwd,env:childEnv,stdio:['ignore','pipe','pipe']});
   const streams=[]; const recorded=new Map();
+  writeFileSync(resolve(out,`${log}.log`),'');writeFileSync(resolve(out,`${log}.stderr`),'');
   function inventory() {
     const ps=spawnSync('ps',['-axo','pid=,ppid=,lstart='],{encoding:'utf8'});
     return (ps.stdout??'').split('\n').flatMap(l=>{const m=l.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);return m?[{pid:+m[1],ppid:+m[2],stamp:m[3]}]:[];});
@@ -33,8 +36,8 @@ async function run(cmd,args,{cwd=work,childEnv=env,log,ceiling}={}) {
   let timedOut=false;
   const killOwned=()=>{sample();for(const r of inventory())if(recorded.get(r.pid)===r.stamp){try{process.kill(r.pid,'SIGKILL');}catch{}}};
   const monitor=setInterval(sample,500);sample();
-  child.stdout.on('data',d=>streams.push(String(d)));
-  const stderr=[];child.stderr.on('data',d=>stderr.push(String(d)));
+  child.stdout.on('data',d=>{streams.push(String(d));appendFileSync(resolve(out,`${log}.log`),d);});
+  const stderr=[];child.stderr.on('data',d=>{stderr.push(String(d));appendFileSync(resolve(out,`${log}.stderr`),d);});
   const timer=ceiling?setTimeout(()=>{timedOut=true;killOwned();},ceiling*1000):null;
   let code;
   try{code=await new Promise((ok,no)=>{child.on('exit',ok);child.on('error',no);});}
