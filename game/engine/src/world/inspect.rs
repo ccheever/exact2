@@ -2,6 +2,17 @@ use super::*;
 use crate::values::{quote, value_json};
 
 impl World {
+    /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
+    pub fn mutation_epoch(&self) -> u64 {
+        self.epoch.get()
+    }
+    pub(crate) fn mutated(&self) {
+        self.epoch.set(self.epoch.get().wrapping_add(1));
+    }
+    pub(crate) fn observed(&self) -> bool {
+        self.observed_epoch == self.mutation_epoch()
+    }
+
     /// Current simulation instant, suitable for sampling or retargeting springs.
     pub fn now(&self) -> Now {
         Now {
@@ -20,11 +31,13 @@ impl World {
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
     pub fn busy(&self, reason: &'static str) {
+        self.mutated();
         self.state.busy.borrow_mut().push(reason.into());
     }
     /// Whether the observed tick changed no countable component, springs rest and no work was reported.
     pub fn quiescent(&self) -> bool {
-        self.observation == ObservationState::Still
+        self.observed()
+            && self.observation == ObservationState::Still
             && self.state.busy.borrow().is_empty()
             && !self
                 .components
@@ -42,33 +55,51 @@ impl World {
         self.changing.clear();
     }
     pub(crate) fn changing(&self) -> Vec<String> {
-        let mut reasons = self.changing.clone();
-        let mut add = |reason: String| {
-            if reasons.len() < 8 && !reasons.contains(&reason) {
-                reasons.push(reason);
-            }
+        let mut reasons = if self.observed() {
+            self.changing.clone()
+        } else {
+            Vec::new()
         };
         for (&name, storage) in &self.components {
-            for index in storage.moving_indices(self.now()) {
+            if reasons.len() == 8 {
+                break;
+            }
+            storage.visit_moving(self.now(), &mut |index| {
                 let e = self.entity_at(index);
-                add(format!(
+                let reason = format!(
                     "{}.{}",
                     self.name(e)
                         .map(str::to_owned)
                         .unwrap_or_else(|| format!("#{}", e.index())),
                     name
-                ));
-            }
+                );
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+                reasons.len() < 8
+            });
         }
         for (&name, storage) in &self.resources {
+            if reasons.len() == 8 {
+                break;
+            }
             if !self.registry[name].ambient && storage.moving(self.now()) {
-                add(format!("resource.{name}"));
+                let reason = format!("resource.{name}");
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
             }
         }
         for reason in self.state.busy.borrow().iter() {
-            add(reason.to_string());
+            if reasons.len() == 8 {
+                break;
+            }
+            if !reasons.iter().any(|s| s == reason) {
+                reasons.push(reason.to_string());
+            }
         }
-        if reasons.is_empty() && self.observation == ObservationState::Unknown {
+        if reasons.is_empty() && (!self.observed() || self.observation == ObservationState::Unknown)
+        {
             reasons.push("not observed".into());
         }
         reasons
@@ -90,6 +121,7 @@ impl World {
             })
     }
     pub(crate) fn begin_tick(&mut self) {
+        self.mutated();
         self.in_tick = true;
         self.state.busy.get_mut().clear();
         self.fresh.clear();
@@ -162,6 +194,21 @@ pub(crate) struct Observation {
 }
 impl World {
     pub(crate) fn observe(&self, out: &mut Observation) {
+        self.observe_with_hash(out, false);
+    }
+    pub(crate) fn observe_with_hash(&self, out: &mut Observation, full: bool) {
+        let mut full = full.then(crate::hash::Hasher::default);
+        if let Some(w) = &mut full {
+            w.begin_struct();
+            w.field("state");
+            self.state.write(w);
+            w.field("rng");
+        }
+        let rng = self.rng.get(0).unwrap();
+        let rng_hash = match &mut full {
+            Some(w) => w.with_observation(&*rng),
+            None => crate::hash::of(&*rng),
+        };
         out.entries.clear();
         let ambient = self.storage::<crate::Ambient>();
         for e in self.entities() {
@@ -179,9 +226,18 @@ impl World {
                     .push((1, "global", e, crate::hash::of(&pose.to_cols_array())));
             }
         }
+        if let Some(w) = &mut full {
+            w.field("components");
+            w.begin_struct();
+        }
         for (&name, storage) in &self.components {
             out.scratch.clear();
-            storage.snapshot(ambient, &mut out.scratch);
+            if let Some(w) = &mut full {
+                w.key(name);
+            }
+            storage.snapshot(ambient, &mut out.scratch, full.as_mut(), &|i| {
+                self.entity_at(i)
+            });
             out.entries.extend(out.scratch.iter().map(|&(i, hash)| {
                 (
                     2,
@@ -194,20 +250,28 @@ impl World {
                 )
             }));
         }
+        if let Some(mut w) = full.take() {
+            w.end_struct();
+            // Leave resources lazy: observing rest must never snapshot ambient executors.
+            *self.hash_prefix.borrow_mut() = Some((self.mutation_epoch(), w));
+        }
+        // Keep the dedicated RNG in a separate observation category so names remain sorted.
+        out.entries.push((3, "Rng", SINGLETON, rng_hash));
         for (&name, storage) in &self.resources {
             if self.registry[name].ambient {
                 continue;
             }
             out.scratch.clear();
-            storage.snapshot(None, &mut out.scratch);
+            storage.snapshot(None, &mut out.scratch, None, &|_| SINGLETON);
             out.entries.extend(
                 out.scratch
                     .iter()
-                    .map(|&(_, hash)| (3, name, SINGLETON, hash)),
+                    .map(|&(_, hash)| (4, name, SINGLETON, hash)),
             );
         }
     }
     pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
+        self.observed_epoch = self.mutation_epoch();
         self.changing.clear();
         self.observation = if before.entries == after.entries {
             ObservationState::Still
@@ -256,7 +320,7 @@ impl World {
                 .unwrap_or_else(|| format!("#{}", entry.2.index()));
             self.changing.push(format!(
                 "{}.{}",
-                if entry.0 == 3 { "resource" } else { &name },
+                if entry.0 >= 3 { "resource" } else { &name },
                 entry.1
             ));
         }

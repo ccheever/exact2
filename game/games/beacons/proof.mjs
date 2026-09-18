@@ -35,7 +35,7 @@ async function run(number) {
     check(`run ${number}: title + Play`, !!node(tree,'play') && tree.nodes.some(n=>n.props?.text==='Beacons'));
     await s.tap('play');
     tree = await s.tree();
-    check(`run ${number}: setup hash parity`, (await s.state()).world[0].hash==='0xc9b9da5a6a813a7b');
+    check(`run ${number}: setup hash parity`, (await s.state()).world[0].hash==='0x32b48c41f24f8fcf');
     check(`run ${number}: initial HUD`, node(tree,'hud-beacons')?.props.text==='Beacons 0 / 3');
     const delivery = await key('KeyW','down');
     check(`run ${number}: real browser key path`, delivery.delivery===(host==='web'?'platform':'recognized'));
@@ -44,7 +44,7 @@ async function run(number) {
     check(`run ${number}: exactly 1500 ms → (0, 0.9, -5.733332), tolerance 1 mm`, Math.hypot(p[0],p[1]-0.9,p[2]+5.733332)<0.001, p);
     const forward = await snapshot('W1500');
     check(`run ${number}: 90 fixed ticks`, forward.tick===90, forward.hash);
-    check(`run ${number}: native/web simulation hash parity`, forward.hash==='0xc483599688164cb8', forward.hash);
+    check(`run ${number}: native/web simulation hash parity`, forward.hash==='0xd17e623e56fb8dc9', forward.hash);
     check(`run ${number}: capsule dimensions`, equal(forward.entities.player.Mesh.Capsule,{radius:0.4,height:1.8}));
     check(`run ${number}: 40 m ground`, equal(forward.entities.ground.Mesh.Plane,{width:40,depth:40}));
     for (const [i,expected] of [[1,[8,1,0]],[2,[-6,1,7]],[3,[3,1,-9]]]) {

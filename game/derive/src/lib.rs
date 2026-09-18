@@ -57,6 +57,9 @@ fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], bool), Stri
     while i + 1 < tokens.len() && punct(&tokens[i], '#') {
         if let TokenTree::Group(g) = &tokens[i + 1] {
             let a: Vec<_> = g.stream().into_iter().collect();
+            if !field && a.first().is_some_and(|t| t.to_string() == "live") {
+                return Err("live attribute is only meaningful on a field".into());
+            }
             if a.first().is_some_and(|t| t.to_string() == "data") {
                 if !field {
                     return Err("data attribute is only meaningful on a field".into());
@@ -398,6 +401,7 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
     let mut fields = Vec::new();
     let mut decode = Vec::new();
     let mut values = Vec::new();
+    let mut checks = Vec::new();
     let mut changed = vec!["false".to_owned()];
     for (i, tokens) in split(g.stream())?.iter().enumerate() {
         let live = tokens.windows(2).any(|w| {
@@ -435,6 +439,17 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         ) {
             return Err(format!("{name}.{field}: unsupported Args type {ty}"));
         }
+        let invalid = match ty.as_str() {
+            "f32" | "f64" => Some(format!("!self.{field}.is_finite()")),
+            "u64" => Some(format!("self.{field} > 9_007_199_254_740_991")),
+            "i64" => Some(format!(
+                "!(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&self.{field})"
+            )),
+            _ => None,
+        };
+        if let Some(invalid) = invalid {
+            checks.push(format!("if {invalid} {{ return Err(format!(\"{{}}: expected {{}}\", {:?}, <{ty} as ::exact_game::args::Argument>::EXPECTED)); }}", clean(&field)));
+        }
         let kind = if live { "Live" } else { "Setup" };
         fields.push(format!(
             "({:?}, ::exact_game::ArgumentKind::{kind})",
@@ -458,11 +473,13 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         fn decode(values: &[::exact_game::Value]) -> Result<Self, String> {{
             ::exact_game::args::arity(values, Self::FIELDS)?; Ok(Self {{ {} }})
         }}
+        fn check_scalars(&self) -> Result<(), String> {{ {} Ok(()) }}
         fn values(&self) -> Vec<::exact_game::Value> {{ vec![{}] }}
         fn setup_changed(&self, next: &Self) -> bool {{ let _ = next; {} }}
     }}",
         fields.join(","),
         decode.join(","),
+        checks.join(""),
         values.join(","),
         changed.join(" || ")
     ))

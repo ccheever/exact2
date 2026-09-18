@@ -113,7 +113,7 @@ struct State {
 #[derive(Clone, Copy)]
 struct Registration {
     id: TypeId,
-    make: fn(&'static str) -> Box<dyn Erased>,
+    make: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
     ambient: bool,
 }
 
@@ -134,6 +134,10 @@ pub struct Event {
 pub struct World {
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
+    epoch: std::rc::Rc<std::cell::Cell<u64>>,
+    observed_epoch: u64,
+    hash_cache: std::cell::Cell<Option<(u64, u64)>>,
+    hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     state: State,
@@ -165,7 +169,12 @@ impl World {
         assert!(hz > 0, "world hz must be positive");
         let mut rng = Storage::default();
         rng.insert(0, Rng::new(seed), 0);
+        let epoch = rng.epoch.clone();
         Self {
+            epoch,
+            observed_epoch: 0,
+            hash_cache: std::cell::Cell::new(None),
+            hash_prefix: RefCell::new(None),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
@@ -231,6 +240,7 @@ impl World {
         self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
     fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
+        self.mutated();
         let index = if self.state.free.0.is_empty() {
             let i = u32::try_from(self.state.slots.len()).expect("entity slots exhausted");
             assert_ne!(i, u32::MAX, "entity slots exhausted");
@@ -263,6 +273,7 @@ impl World {
         if !self.contains(e) {
             return false;
         }
+        self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
             .checked_add(1)
@@ -383,7 +394,7 @@ impl World {
         self.register::<C>();
         self.components
             .entry(C::NAME)
-            .or_insert_with(|| storage::make::<C>(C::NAME))
+            .or_insert_with(|| storage::make::<C>(C::NAME, self.epoch.clone()))
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
@@ -466,7 +477,7 @@ impl World {
         self.register_resource::<R>();
         self.resources
             .entry(R::NAME)
-            .or_insert_with(|| storage::make::<R>(R::NAME))
+            .or_insert_with(|| storage::make::<R>(R::NAME, self.epoch.clone()))
             .any_mut()
             .downcast_mut::<Storage<R>>()
             .unwrap()
@@ -561,9 +572,11 @@ impl World {
         self.log(format_args!("publish {key}: {value:?}"));
         p.insert(key.into(), value);
         self.published_pending.set(true);
+        self.mutated();
     }
     /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
+        self.mutated();
         self.messages.borrow_mut().push(text.into());
     }
     /// Last value published under a key.
@@ -572,6 +585,7 @@ impl World {
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
+        self.mutated();
         self.in_tick = false;
         self.state.tick = self
             .state
@@ -612,9 +626,38 @@ impl World {
     }
     /// Hash all simulation state, with component and resource types sorted by name.
     pub fn hash(&self) -> u64 {
-        let mut w = hash::Hasher::default();
-        self.write(&mut w);
-        w.finish()
+        if let Some((epoch, hash)) = self.hash_cache.get() {
+            if epoch == self.mutation_epoch() {
+                return hash;
+            }
+        }
+        let prefix = self.hash_prefix.borrow();
+        let mut w = if let Some((epoch, prefix)) = &*prefix {
+            (*epoch == self.mutation_epoch()).then(|| prefix.clone())
+        } else {
+            None
+        };
+        let hash = if let Some(w) = &mut w {
+            w.field("resources");
+            w.begin_struct();
+            for (name, s) in &self.resources {
+                w.key(name);
+                s.write(w, &|_| SINGLETON);
+            }
+            w.end_struct();
+            if !self.messages.borrow().is_empty() {
+                w.field("messages");
+                self.messages.borrow().write(w);
+            }
+            w.end_struct();
+            w.finish()
+        } else {
+            let mut w = hash::Hasher::default();
+            self.write(&mut w);
+            w.finish()
+        };
+        self.hash_cache.set(Some((self.mutation_epoch(), hash)));
+        hash
     }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     pub fn save(&self) -> Vec<u8> {
@@ -643,6 +686,7 @@ impl World {
             .presentation_generation
             .checked_add(1)
             .expect("presentation generation exhausted");
+        next.epoch.set(self.epoch.get().wrapping_add(1));
         *self = next;
         Ok(())
     }
@@ -718,7 +762,7 @@ impl World {
                                     }
                                 ))
                             })?;
-                        let mut s = (reg.make)(key);
+                        let mut s = (reg.make)(key, self.epoch.clone());
                         let resource = field == "resources";
                         s.read(
                             r,

@@ -1,6 +1,6 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -13,9 +13,22 @@ export function artifactDigest(host, dist, artifacts) {
     if (host === 'web') return createHash('sha256').update(readFileSync(resolve(dist, 'exact.json'))).digest('hex');
     if (!existsSync(artifacts.bundle)) return null;
     const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
-    const hash = createHash('sha256').update(readFileSync(executable));
-    if (artifacts.binary) hash.update(createHash('sha256').update(readFileSync(artifacts.binary)).digest());
-    return hash.digest('hex');
+    if (!existsSync(executable)) return null;
+    const manifest = [];
+    const walk = (dir, prefix) => {
+      for (const name of readdirSync(dir).sort()) {
+        const path = resolve(dir, name), key = `${prefix}/${name}`;
+        if (statSync(path).isDirectory()) walk(path, key);
+        else manifest.push([key, createHash('sha256').update(readFileSync(path)).digest('hex')]);
+      }
+    };
+    walk(artifacts.bundle, 'bundle');
+    // The driver launches the standalone product on macOS, loading its adjacent dylibs/assets.
+    if (artifacts.binary) {
+      readFileSync(artifacts.binary); // A missing actual carrier always invalidates the receipt.
+      walk(artifacts.products ?? resolve(artifacts.binary, '..'), 'product');
+    }
+    return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
   } catch { return null; }
 }
 export async function closeSessions(monitor, record, sessions, check) {

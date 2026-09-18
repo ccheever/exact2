@@ -219,6 +219,8 @@ pub struct PointLightInput {
 /// Shared sky gradient and hemisphere illumination, all in linear RGB.
 #[derive(Debug, Clone, Copy)]
 pub struct Environment {
+    /// Optional flat background, independent of ambient illumination.
+    pub background: Option<[f32; 3]>,
     /// Radiance directly overhead.
     pub zenith: [f32; 3],
     /// Radiance at the horizon; also the default fog colour.
@@ -235,6 +237,7 @@ pub struct Environment {
 impl Default for Environment {
     fn default() -> Self {
         Self {
+            background: None,
             zenith: [0.12, 0.22, 0.4],
             horizon: [0.45, 0.6, 0.65],
             ground: [0.04, 0.035, 0.025],

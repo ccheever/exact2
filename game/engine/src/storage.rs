@@ -89,6 +89,7 @@ pub(crate) struct Storage<C> {
     changed: Cell<u64>,
     revision: Cell<u64>,
     membership: u64,
+    pub(super) epoch: std::rc::Rc<Cell<u64>>,
 }
 impl<C> Default for Storage<C> {
     fn default() -> Self {
@@ -102,6 +103,7 @@ impl<C> Default for Storage<C> {
             changed: Cell::new(0),
             revision: Cell::new(0),
             membership: 0,
+            epoch: Default::default(),
         }
     }
 }
@@ -134,6 +136,7 @@ impl<C> Storage<C> {
         self.membership
     }
     fn edited(&self) {
+        self.epoch.set(self.epoch.get().wrapping_add(1));
         self.revision.set(self.revision.get().wrapping_add(1));
     }
     pub(crate) fn changed(&self) -> u64 {
@@ -253,9 +256,15 @@ impl<C> Drop for Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
-    fn snapshot(&self, skip: Option<&Storage<crate::Ambient>>, out: &mut Vec<(usize, u64)>);
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(usize, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+    );
     fn moving(&self, now: crate::Now) -> bool;
-    fn moving_indices(&self, now: crate::Now) -> Vec<usize>;
+    fn visit_moving(&self, now: crate::Now, visit: &mut dyn FnMut(usize) -> bool);
     fn settle_tick(&self, now: crate::Now) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn any(&self) -> &dyn Any;
@@ -270,22 +279,54 @@ pub(crate) trait Erased {
         tick: u64,
     ) -> Result<(), DataError>;
 }
-pub(crate) fn make<C: Data>(name: &'static str) -> Box<dyn Erased> {
+pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
     let mut storage = Box::new(Storage::<C>::default());
     storage.name = name;
+    storage.epoch = epoch;
     storage
 }
 impl<C: Data> Erased for Storage<C> {
-    fn snapshot(&self, skip: Option<&Storage<crate::Ambient>>, out: &mut Vec<(usize, u64)>) {
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(usize, u64)>,
+        mut full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+    ) {
         let _lease = self.lease(false, 0);
+        if let Some(w) = &mut full {
+            w.begin_seq(self.len);
+        }
         for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
+            let mut bits = bits;
             while bits != 0 {
                 let i = word * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
+                let observe = !skip.is_some_and(|s| s.has(i));
+                if !observe && full.is_none() {
+                    continue;
+                }
                 // SAFETY: presence proves initialization; the shared lease excludes writers.
-                out.push((i, crate::hash::of(unsafe { &*self.ptr(i) })));
+                let value = unsafe { &*self.ptr(i) };
+                if let Some(w) = &mut full {
+                    w.item();
+                    w.begin_seq(2);
+                    w.item();
+                    entity(i).write(*w);
+                    w.item();
+                    if observe {
+                        out.push((i, w.with_observation(value)));
+                    } else {
+                        value.write(*w);
+                    }
+                    w.end_seq();
+                } else {
+                    out.push((i, crate::hash::of(value)));
+                }
             }
+        }
+        if let Some(w) = &mut full {
+            w.end_seq();
         }
     }
 
@@ -307,21 +348,19 @@ impl<C: Data> Erased for Storage<C> {
             false
         })
     }
-    fn moving_indices(&self, now: crate::Now) -> Vec<usize> {
+    fn visit_moving(&self, now: crate::Now, visit: &mut dyn FnMut(usize) -> bool) {
         let _lease = self.lease(false, 0);
-        let mut out = Vec::new();
         for (word, &bits) in self.mask.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
                 let i = word * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
                 // SAFETY: presence and shared lease protect this slot.
-                if unsafe { &*self.ptr(i) }.moving(now) {
-                    out.push(i);
+                if unsafe { &*self.ptr(i) }.moving(now) && !visit(i) {
+                    return;
                 }
             }
         }
-        out
     }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         let _lease = self.lease(false, 0);

@@ -203,6 +203,7 @@ impl<G: Game> Surface for WorldSurface<G> {
                 return false;
             }
         }
+        self.perf.pixels = frame.pixels();
         self.perf.frame(frame.now_ms, frame.seekable);
         let due = sim.ticks_due(frame.now_ms, Clock::Live);
         let ticks = sim.advance_with(
@@ -353,6 +354,13 @@ impl<G: Game> Surface for WorldSurface<G> {
         // its own Data decoder to distinguish state from tree/error/entity replies.
         let state = world_state(&reply);
         if state {
+            #[derive(Default, exact_game::Data)]
+            struct PerfRequest {
+                perf_reset: bool,
+            }
+            if exact_game::json::from_str::<PerfRequest>(request).is_ok_and(|r| r.perf_reset) {
+                self.perf.reset();
+            }
             reply.truncate(reply.len() - 2);
             self.perf.append(&mut reply);
             reply.push_str("}}");

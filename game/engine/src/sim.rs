@@ -76,6 +76,8 @@ pub struct Sim<G: Game> {
     pub(crate) args: G::Args,
     pub(crate) restored_from: Option<String>,
     settle_delay: std::cell::Cell<u32>,
+    last_epoch: std::cell::Cell<u64>,
+    args_json: String,
     pub(crate) input: Input,
     queue: VecDeque<Queued>,
     overflow_logged: bool,
@@ -108,10 +110,13 @@ impl<G: Game> Sim<G> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
+        args.check_scalars()?;
         G::validate(&args)?;
         Ok(Self {
             world: Self::build(&args),
+            args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             args,
+            last_epoch: std::cell::Cell::new(0),
             restored_from: None,
             settle_delay: std::cell::Cell::new(100),
             input: Input::new(G::actions()),
@@ -141,6 +146,7 @@ impl<G: Game> Sim<G> {
             return Err("bind clock must be finite".into());
         }
         let args = G::Args::decode(values)?;
+        args.check_scalars()?;
         G::validate(&args)?;
         let old_values = self.args.values();
         let new_values = args.values();
@@ -191,6 +197,7 @@ impl<G: Game> Sim<G> {
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
         }
+        self.args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
         self.args = args;
         if changed {
             self.invalidate();
@@ -374,6 +381,7 @@ impl<G: Game> Sim<G> {
         mut after: impl FnMut(&World, u32),
     ) -> u32 {
         assert!(now_ms.is_finite(), "host clock must be finite");
+        self.check_epoch();
         if clock == Clock::Live {
             self.world.unobserve();
         }
@@ -445,9 +453,11 @@ impl<G: Game> Sim<G> {
                     self.world.observe(&mut self.observations[0]);
                 }
                 if left == 0 {
-                    self.world.observe(&mut self.observations[1]);
+                    self.world
+                        .observe_with_hash(&mut self.observations[1], true);
                     self.world
                         .compare(&self.observations[0], &self.observations[1]);
+                    self.last_epoch.set(self.world.mutation_epoch());
                 }
             }
             after(
@@ -487,6 +497,9 @@ impl<G: Game> Sim<G> {
     }
     /// Drain only explicit string events, in emission order.
     pub fn take_messages(&mut self) -> Vec<String> {
+        if !self.world.messages.borrow().is_empty() {
+            self.world.mutated();
+        }
         std::mem::take(&mut *self.world.messages.borrow_mut())
     }
     fn invalidate(&mut self) {
@@ -534,30 +547,46 @@ impl<G: Game> Sim<G> {
         self.run(ms);
         self.key_up(code);
     }
-    /// Observe at most sixteen settle jumps, using the host loop's 100ms–2s back-off.
+    /// Observe sixteen host rounds (initial read plus fifteen advances), with 100ms–2s back-off.
     pub fn settle(&mut self) -> bool {
         if self.last_us.is_none() {
             self.advance(0.0, Clock::Seekable);
         }
-        for _ in 0..16 {
+        // Hosts first advance to their current clock, read, then make at most
+        // fifteen follow-up advances (sixteen rounds total).
+        for round in 0..16 {
             if self.quiescent() {
                 return true;
             }
             let at = self.settle_at(true);
+            if round == 15 {
+                break;
+            }
             self.advance(at, Clock::Seekable);
         }
         self.quiescent()
     }
-    /// Pending input prevents rest, including input stamped in the future.
+    // External leases restart back-off; ticks record their last observation epoch.
+    fn check_epoch(&self) {
+        let epoch = self.world.mutation_epoch();
+        if self.last_epoch.replace(epoch) != epoch {
+            self.settle_delay.set(100);
+        }
+    }
+    /// Pending input and unobserved mutations prevent rest unless time is paused.
     pub fn quiescent(&self) -> bool {
+        self.check_epoch();
         let settled = self.queue.is_empty() && (G::paused(&self.args) || self.world.quiescent());
         if settled {
             self.settle_delay.set(100);
         }
         settled
     }
-    pub(crate) fn changing(&self) -> Vec<String> {
-        if self.quiescent() {
+    pub(crate) fn changing(&self, quiescent: bool) -> Vec<String> {
+        if G::paused(&self.args) {
+            return vec!["paused".into()];
+        }
+        if quiescent {
             return vec![];
         }
         let mut reasons = self.world.changing();
@@ -567,8 +596,11 @@ impl<G: Game> Sim<G> {
         reasons
     }
     pub(crate) fn settle_at(&self, settle: bool) -> f64 {
+        self.check_epoch();
         let now = self.last_us.unwrap_or(0);
-        let tick_us = |tick: u64| (tick as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
+        let tick_us = |tick: u64| {
+            i64::try_from((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)).unwrap_or(i64::MAX)
+        };
         let deadline = self
             .world
             .settle_tick()
@@ -624,7 +656,7 @@ impl<G: Game> Sim<G> {
             game: G::ID.into(),
             version: G::SAVE_VERSION,
             world: self.world.save(),
-            args: crate::json::to_string(&self.args).expect("valid game arguments"),
+            args: self.args_json.clone(),
             input: self.input.clone(),
             queue,
             world_us: self.world_us,
@@ -669,12 +701,7 @@ impl<G: Game> Sim<G> {
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
-        let saved_args: G::Args = crate::json::from_str(&s.args)?;
-        G::validate(&saved_args).map_err(DataError::new)?;
-        let bound = match args {
-            Some(args) => crate::json::from_str(args)?,
-            None => saved_args,
-        };
+        let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
         let mut next = Self::new(bound).map_err(DataError::new)?;
         next.world.load(&s.world)?;
         if next.world.hz() != G::HZ

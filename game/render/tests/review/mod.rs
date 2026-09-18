@@ -317,6 +317,7 @@ fn vertical_sun_sweep_keeps_shadow_edge_within_one_texel() {
     f.view = view::look_at_mat4(f.camera_position, Vec3::ZERO, Vec3::Y);
     f.proj = directx::orthographic(-2.0, 2.0, -1.0, 1.0, 0.1, 60.0);
     f.environment = Environment {
+        background: None,
         zenith: [0.2; 3],
         horizon: [0.2; 3],
         ground: [0.2; 3],

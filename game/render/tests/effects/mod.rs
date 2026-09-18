@@ -32,6 +32,7 @@ fn shadow_scene(gpu: &Gpu, depth: f32) -> (Renderer, FrameInput<'static>, Vec<Ba
     f.view = view::look_at_mat4(f.camera_position, f.camera_position - Vec3::Z, Vec3::Y);
     f.proj = directx::perspective(80f32.to_radians(), 1.0, 2.0, 150.0);
     f.environment = Environment {
+        background: None,
         zenith: [0.2; 3],
         horizon: [0.2; 3],
         ground: [0.2; 3],

@@ -48,6 +48,7 @@ fn timing_200k() {
         illuminance: 3.0,
     });
     frame.environment = Environment {
+        background: None,
         zenith: [0.12, 0.18, 0.28],
         ground: [0.12, 0.18, 0.28],
         ambient: 0.5,
@@ -280,6 +281,7 @@ fn timing_effects_300() {
     let mut pass_ms = [[0.0; 17]; 3];
     for mode in 0..3 {
         f.environment = Environment {
+            background: None,
             zenith: [0.2; 3],
             horizon: [0.2; 3],
             ground: [0.2; 3],

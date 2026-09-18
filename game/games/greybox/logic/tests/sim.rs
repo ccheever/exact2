@@ -36,7 +36,7 @@ fn forward_parity_and_seek_invariance() {
             .length()
             < 1e-4
     );
-    assert_eq!(one.world().hash(), 0xa6449de82e10c54c);
+    assert_eq!(one.world().hash(), 0x2464f19d35fb4996);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {

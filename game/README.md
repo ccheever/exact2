@@ -174,10 +174,11 @@ the untouched game, then removes it. `bun scripts/caps.mjs` from the repository
 root still holds every source file to 1,500 lines.
 
 A world's observation starts `Unknown`, also after rebuilding, restoring, live
-advancement, queued input, or live argument changes. Unknown is not quiescent.
+advancement, queued input, or live argument changes; every mutable storage lease invalidates the sample. Unknown is not quiescent.
+A paused world with no queued input is quiescent because time is stopped, reports `changing: ["paused"]`, and becomes Unknown on unpause.
 Seekable advances sample the last two ticks of each jump (the start and end for
 one tick). Unmarked entities count by existence, components, and parented global
-pose. Resources count unless their `Resource` implementation declares
+pose. The RNG counts as `resource.Rng`; parent-only markers use an identity local pose. Resources count unless their `Resource` implementation declares
 `const AMBIENT: bool = true`; physics and audio executor bookkeeping opt out.
 Observations are derived caches, excluded from saves. Pending future input keeps
 the clock awake and bounds its next jump. Replies report up to eight changed
@@ -185,7 +186,7 @@ components, moving springs/tweens, and explicit `world.busy(reason)` reasons.
 
 `sim.run(ms)`, `key_down`, `key_up`, `tap`, `hold(code, ms)`, and `settle()` read
 like proof operations. `settle()` returns whether it reached rest within sixteen
-jumps, the host loop's bound. Spring/tween deadlines and queued input bound the
+rounds: an initial read and at most fifteen follow-up advances, exactly the host loop. Spring/tween deadlines and queued input bound the
 jumps; other work backs off from 100 ms to 2 s. Only a settle request increases
 back-off; ordinary clock reads do not. A settle jump observes its last two ticks:
 a one-shot change entirely inside a 2 s jump can be skipped. It is an observation
@@ -193,9 +194,9 @@ of rest, not a record of every intermediate transition.
 
 `scene::follow(world)` steps saved `Follow` components where called. Call it at the
 end of `setup` for exact first-frame placement, and in `tick` for following.
-It accepts a handle (no name search) or a cached name, reads the target's current
+It accepts a handle (no name search) or a name resolved by the same lowest-index rule as `world.get`, reads the target's current
 parent chain, and reinitializes after teleport or a name's new incarnation.
-Top-down views choose a safe up-axis; coincident aim preserves rotation.
+The up-axis is transported from the previous view through vertical; coincident aim preserves rotation.
 `math::ease` arrives within 1e-4; `Tween::to(now, target, seconds)` supplies a finite
 smoothstep beside `Spring`, with a known settle deadline.
 

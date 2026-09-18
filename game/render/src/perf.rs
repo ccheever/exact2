@@ -52,14 +52,14 @@ fn performance_now() -> f64 {
     PERFORMANCE.with(web_sys::Performance::now)
 }
 pub(crate) struct Ring {
-    values: [f64; 240],
+    values: Vec<f64>,
     len: usize,
     next: usize,
 }
 impl Default for Ring {
     fn default() -> Self {
         Self {
-            values: [0.0; 240],
+            values: vec![0.0; 16384],
             len: 0,
             next: 0,
         }
@@ -71,11 +71,11 @@ impl Ring {
             return;
         }
         self.values[self.next] = value;
-        self.next = (self.next + 1) % 240;
-        self.len = (self.len + 1).min(240);
+        self.next = (self.next + 1) % self.values.len();
+        self.len = (self.len + 1).min(self.values.len());
     }
     fn json(&self, out: &mut String) {
-        let mut values = self.values;
+        let mut values = self.values[..self.len].to_vec();
         values[..self.len].sort_unstable_by(f64::total_cmp);
         let p = |percent: usize| {
             if self.len == 0 {
@@ -86,11 +86,13 @@ impl Ring {
         };
         write!(
             out,
-            "{{\"p50\":{},\"p95\":{},\"p99\":{},\"max\":{}}}",
+            "{{\"p50\":{},\"p95\":{},\"p99\":{},\"max\":{},\"count\":{},\"mean\":{}}}",
             p(50),
             p(95),
             p(99),
-            p(100)
+            p(100),
+            self.len,
+            values.iter().sum::<f64>() / self.len.max(1) as f64
         )
         .unwrap();
     }
@@ -104,8 +106,22 @@ pub(crate) struct Perf {
     pub ticks: Ring,
     last_live: Option<f64>,
     pub stats: Stats,
+    pub pixels: (u32, u32),
 }
 impl Perf {
+    pub fn reset(&mut self) {
+        for r in [
+            &mut self.frame,
+            &mut self.tick,
+            &mut self.feed,
+            &mut self.encode,
+            &mut self.ticks,
+        ] {
+            r.len = 0;
+            r.next = 0;
+        }
+        self.last_live = None;
+    }
     pub fn frame(&mut self, now: f64, seekable: bool) {
         if seekable {
             self.last_live = None;
@@ -118,6 +134,7 @@ impl Perf {
     }
     pub fn append(&self, out: &mut String) {
         out.push_str(",\"perf\":{\"wallClock\":true");
+        write!(out, ",\"pixels\":[{},{}]", self.pixels.0, self.pixels.1).unwrap();
         for (name, ring) in [
             ("frameMs", &self.frame),
             ("tickMs", &self.tick),
@@ -158,6 +175,9 @@ mod tests {
         }
         let mut json = String::new();
         p.tick.json(&mut json);
-        assert_eq!(json, r#"{"p50":179,"p95":287,"p99":297,"max":299}"#);
+        assert_eq!(
+            json,
+            r#"{"p50":149,"p95":284,"p99":296,"max":299,"count":300,"mean":149.5}"#
+        );
     }
 }

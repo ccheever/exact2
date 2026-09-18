@@ -36,7 +36,7 @@ fn movement_seed_and_seek_invariance() {
     );
     assert!(a.world().get::<Player>("player").unwrap().velocity.length() <= 4.0);
     println!("W1500 hash=0x{:016x}", a.world().hash());
-    assert_eq!(a.world().hash(), 0xc483599688164cb8);
+    assert_eq!(a.world().hash(), 0xd17e623e56fb8dc9);
 }
 #[test]
 fn jump_no_double_jump_and_camera_lags() {

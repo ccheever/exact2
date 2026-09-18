@@ -401,7 +401,10 @@ impl Renderer {
             }
         }
         {
-            let sky = frame.environment.horizon;
+            let sky = frame
+                .environment
+                .background
+                .unwrap_or(frame.environment.horizon);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game forward"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

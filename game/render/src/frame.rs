@@ -5,6 +5,9 @@ pub(crate) const FLOATS: usize = 260;
 
 pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
     let e = frame.environment;
+    if e.background.is_some() {
+        return false;
+    }
     e.zenith != e.horizon
         || e.ground != e.horizon
         || (e.sun_disc > 0.0 && frame.sun.is_some())

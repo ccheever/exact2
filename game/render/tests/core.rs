@@ -71,6 +71,7 @@ fn lit_scene_and_output_transfer() {
         illuminance: 3.0,
     });
     frame.environment = Environment {
+        background: None,
         zenith: [0.12, 0.18, 0.28],
         ground: [0.04, 0.025, 0.02],
         ambient: 0.35,
@@ -348,6 +349,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         .unwrap();
     let mut frame = frame();
     frame.environment = Environment {
+        background: None,
         zenith: [0.3, 0.4, 0.5],
         ground: [0.02; 3],
         ambient: 1.0,

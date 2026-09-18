@@ -20,11 +20,31 @@ pub enum ArgumentKind {
 /// #[derive(Default, Args)]
 /// struct Options { #[live = true] volume: f32 }
 /// ```
+/// ```compile_fail
+/// use exact_game::Args;
+/// #[derive(Default, Args)]
+/// #[live]
+/// struct Options { volume: f32 }
+/// ```
+/// ```compile_fail
+/// use exact_game::Args;
+/// #[derive(Default, Args)]
+/// #[live(typo)]
+/// struct Options { volume: f32 }
+/// ```
+/// ```compile_fail
+/// use exact_game::Args;
+/// #[derive(Default, Args)]
+/// #[live = true]
+/// struct Options { volume: f32 }
+/// ```
 pub trait Args: crate::Data {
     /// Ordered field names and their binding behavior.
     const FIELDS: &'static [(&'static str, ArgumentKind)];
     /// Decode all values before any world or clock mutation.
     fn decode(values: &[Value]) -> Result<Self, String>;
+    /// Refuse nonfinite floats and integers outside the portable wire range.
+    fn check_scalars(&self) -> Result<(), String>;
     /// Canonical wire values encoded from the decoded fields.
     fn values(&self) -> Vec<Value>;
     /// Whether any setup field differs.
@@ -34,6 +54,9 @@ impl Args for () {
     const FIELDS: &'static [(&'static str, ArgumentKind)] = &[];
     fn decode(values: &[Value]) -> Result<Self, String> {
         arity(values, &[])?;
+        Ok(())
+    }
+    fn check_scalars(&self) -> Result<(), String> {
         Ok(())
     }
     fn values(&self) -> Vec<Value> {

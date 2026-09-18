@@ -70,6 +70,7 @@ pub(super) fn frame() -> FrameInput<'static> {
         sun: None,
         points: &[],
         environment: Environment {
+            background: None,
             zenith: [0.0; 3],
             ground: [0.0; 3],
             ambient: 0.0,

@@ -4,6 +4,8 @@ use crate::{Data, Resource};
 /// Absence of this resource has the same presentation as its default.
 #[derive(Clone, Copy, Debug, PartialEq, Resource)]
 pub struct Environment {
+    /// Optional flat background, independent of ambient illumination.
+    pub background: Option<[f32; 3]>,
     /// Overhead sky radiance.
     pub zenith: [f32; 3],
     /// Horizon sky radiance and default fog colour.
@@ -24,6 +26,7 @@ pub struct Environment {
 impl Default for Environment {
     fn default() -> Self {
         Self {
+            background: None,
             zenith: [0.12, 0.22, 0.4],
             horizon: [0.45, 0.6, 0.65],
             ground: [0.04, 0.035, 0.025],

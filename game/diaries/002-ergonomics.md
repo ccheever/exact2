@@ -390,3 +390,132 @@ use `mut beacon`/`mut material`; `.iter()` retains plain references and Entity.
 The escaped-row regression proves column access stays locked until rows drop.
 Gameplay tests and the README no longer construct wire Values; low-level tests
 of malformed host arguments necessarily still exercise Values and from_values.
+
+# G1c — final quiescence round, stopped with a counterexample
+
+2026-09-17. Read the current `b0af526` tree (repairing `a0f4ca0`), the binding
+rules, this diary and the game README. One agent; no clone, stash or commit.
+LLP 1041.001 is the interface rationale, still a Draft outside the working set;
+this brief and the binding rules determine the changes. No LLP hand-off is needed.
+
+**Quiescence is not closed.** After the requested repairs, the final audit ran:
+
+```rust
+let mut s = Sim::<Still>::new(Options::default()).unwrap();
+assert!(s.settle());
+s.world().publish("score", 1);
+assert!(!s.quiescent()); // FAILS: true, with an unchanged mutation epoch
+```
+
+`World::publish` changes the public record through its own `RefCell`, outside the
+storage epoch. The public record is also outside the observation. Per the explicit
+third-round stop rule, no further quiescence patch was made. The ignored regression
+`remaining_publication_mutation_requires_an_observation` in `engine/tests/g1c.rs`
+is the executable counterexample, not a passing claim. Run it with
+`cargo test -p exact-game --test g1c remaining_publication_mutation -- --ignored --nocapture`.
+`target/g1c/final-audit.txt` records its failure. This is the remaining decision for
+the author, rather than a fourth repair loop.
+
+## Requested repairs and tests
+
+All named Rust regressions below are in `engine/tests/g1c.rs` unless specified.
+The initial unmodified implementation failed all eleven original runtime cases,
+three new Args compile-fail doctests, and the two new Bun regressions. Logs are
+`target/g1c/before-{tests,doc,bun}.txt`. A twelfth passing runtime test separately
+checks structural epochs, message invalidation and cached/canonical hash agreement.
+
+| Brief | Change | Regression |
+|---|---|---|
+| A1 | One shared `Cell<u64>` at the storage boundary: mutable component/query/resource/RNG leases, structural edits, load and teleport advance it. Busy also invalidates. Sim detects external epoch changes and resets back-off. See the remaining publication escape above. | `leases_invalidate_observation_and_restart_backoff`; `storage_epoch_and_fused_hash_cover_structural_edits_and_messages` |
+| A2 | RNG participates in observation as `resource.Rng`, retaining its original save/hash position. | `rng_draws_are_observed_without_changing_hash_format` |
+| A3 | Paused plus empty queue remains quiescent and reports `["paused"]`; unpause requires observation. README states the rule. | `pause_explains_unobserved_rest_and_unpause_requires_a_sample` |
+| A4 | Parented markers read the propagated global pose even without their own Transform. | `parent_only_marker_observes_ambient_conveyor` |
+| A5 | Moving reasons stream and stop at eight; changing receives the existing quiescence result. The final component observation feeds the canonical world-hash prefix in the same serialization pass. Hash replies reuse that prefix at the same mutation epoch. Resources remain lazy so settling alone never snapshots an ambient physics/audio executor; observed resource values still have their own observation serialization. | `clock_streams_eight_reasons_and_serializes_each_row_only_twice`: 200 component rows, at most nine moving probes including the quiescence probe, 400 writes including the reply instead of 600. Existing `ambient_resources_are_never_serialized_by_observation` and two-sample/zero-live tests pass. Timing is below; no speedup claim. |
+| A6 | Helper follows the host sequence exactly: initial read plus at most fifteen follow-up advances, sixteen rounds total. | `helper_matches_hosts_initial_read_and_fifteen_followups`: the tick-1386 final-round deadline succeeds; work needing round seventeen refuses identically. |
+| B7 | Derived `Args::check_scalars` runs before domain validation on new/bind/restore paths. Validated canonical argument text is retained for save, removing the argument `expect`. | `typed_scalars_refuse_before_domain_validation` (NaN, both float widths, infinities, unsafe signed/unsigned 64-bit integers) |
+| B8 | Bound restore decodes/validates only current bindings; original argument text remains the restoredFrom record. Plain restore still validates the saved args. | `bound_restore_validates_only_the_arguments_it_uses` |
+| B9 | `live` outside a field refuses, including bare, list and name-value forms. | Three Args compile-fail doctests in `engine/src/args.rs`; existing malformed field attribute cases remain. |
+| B10 | Tick-to-host-microsecond conversion is checked and saturates to `i64::MAX`. | `extreme_tween_deadline_saturates_host_microseconds` |
+| B11 | Named Follow targets use `named()`'s current lowest-index result; changed identity reinitializes following. | `follow_names_track_lowest_live_index` |
+| C12 | Project the previous frame's up onto the new view plane; choose a fixed axis only when it degenerates. | `follow_roll_transports_continuously_through_vertical`: consecutive rotations stay below 0.05 radians; baseline jumped by π. |
+| C13 | Browser key-down returns a carrier-owned release closure capturing device identity; finally invokes it without resolving/refocusing a canvas. The same closure is retained if delivery/frame completion throws. | `proof.test.mjs`: `held key release survives removal of its canvas` runs the actual browser-key carrier function against a removed-canvas fixture; existing partial-failure transcripts also pass. |
+| C14 | Receipt hashes a sorted path/content manifest for the entire bundle and actual standalone product directory, covering dylibs, plan and assets. | `proof.test.mjs`: `native receipt changes with game dylibs and embedded plan/assets`; existing executable/carrier/deletion test remains. |
+
+## Clock cost
+
+Release arm64 M5 Max, 200,000 Transform-only entities. One operation includes a
+17 ms seek, its two observations, and the complete clock reply with world hash.
+Five warmups then 100 samples per run. The baseline test executable was preserved
+before editing; paired runs alternate that executable and the replacement.
+
+| series | median ms before → after | p95 ms before → after |
+|---|---:|---:|
+| first runs | 83.912583 → 86.142125 | 91.631708 → 95.698708 |
+| alternating pair 1 | 96.580583 → 111.107500 | 129.609667 → 132.196083 |
+| alternating pair 2 | 142.524542 → 119.748500 | 197.928833 → 150.332834 |
+| alternating pair 3 | 89.109750 → 158.901417 | 103.093500 → 185.074166 |
+
+Median of the three alternating run medians: **96.580583 → 119.748500 ms
+(+24.0%)**. The shared machine was also building/running the benchmark lane and
+proofs, and the spread is large. These results establish the observed cost and
+regression, not an isolated cause or a speedup. Reduced serialization/reason
+visits do not establish reduced wall time. Raw logs: `before-cost.txt`,
+`after-cost.txt`, `paired-cost.txt` in `target/g1c/`.
+
+## Hashes and proof
+
+All four hashes agree bit-for-bit across native arm64 macOS, native x86-64 Linux
+builder, and Chrome wasm; both game proof pins and greybox's state snapshot were
+updated. Seed 7, run 0, unpaused, W held for 1,500 ms:
+
+| instant | G1b | G1c: macOS = Linux = Chrome |
+|---|---|---|
+| greybox setup | `0619b31ec44b9156` | `9d8e9359b9f3e65f` |
+| greybox W1500 | `a6449de82e10c54c` | `2464f19d35fb4996` |
+| Beacons setup | `c9b9da5a6a813a7b` | `32b48c41f24f8fcf` |
+| Beacons W1500 | `c483599688164cb8` | `d17e623e56fb8dc9` |
+
+Only Follow's camera calculation changes these games' saved state: initial up
+projection/normalization and subsequent transported up change floating-point
+rotation/scale bits. RNG is still serialized exactly once in its original location;
+its added observation, epochs and hash prefix cache add no saved/hash fields.
+Cached and uncached save/load hashes agree. Gameplay position remains
+`[0, 0.9, -5.7333384]`. `parity-{mac,linux}.txt` and the proof transcripts carry
+the complete cross-platform cards.
+
+Proofs passed: greybox web **16.400 s**, Beacons web **21.239 s**, greybox macOS
+**63.787 s**, zero failures and no recorded children left in each. Both browser
+proofs continue whole Sim saves byte-identically in fresh sessions. The native
+proof retains its pre-existing screenshot-permission and browser-metrics skips.
+It used `DEVELOPER_DIR=/Library/Developer/CommandLineTools` and a temporary Swift
+wrapper adding `--build-system native` only to `swift build`; the wrapper was
+removed. An initial wrapper that also changed `swift package describe` failed
+and is recorded separately. No exec-policy timeout occurred; Linux was used for
+architecture parity, and no task was left running there.
+
+Workspace build, clippy (`--workspace --all-targets -- -D warnings`) and fmt pass.
+The second full `cargo test --workspace --no-fail-fast` run reports **262 passed,
+0 failed, 7 ignored**: five existing diagnostics, the new cost diagnostic, and the
+explicitly unresolved publication reproducer. Bun's seven driver/proof tests pass
+(25 assertions). The first workspace run exposed stale hash pins, the float-text
+test assertion, and concurrent benchmark/renderer failures; it is retained rather
+than presented as passing. The initial workspace build briefly failed launching
+the shared filesystem helper; the second build passed without a source change.
+
+This worktree was clean at start, but an independently running benchmark task
+added/edited `game/bench`, the workspace manifests, Environment, renderer files
+and the native host during the run. Those edits were preserved. They are included
+in the shared workspace verification, and are not G1c changes or work delegated
+by this agent. After `git add -A`, caps passed (577 source files, none over 1,500
+lines) and the staged whitespace check passed. No commit was made; HEAD remains
+`b0af526`.
+
+## Review corrections
+
+The listed behavioral defects reproduced. The extreme deadline error was in
+Sim's narrowing conversion to host microseconds, not Tween's already-saturating
+`u64` deadline. The vertical test exposed a 180° discontinuity, larger than the
+review's approximate 90°. The host bound is sixteen rounds, but only fifteen
+world follow-ups after the initial read. The requested cases are repaired; the
+publication counterexample prevents claiming quiescence complete, and the clock
+measurements prevent claiming a performance improvement.

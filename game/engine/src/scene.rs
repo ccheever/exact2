@@ -361,9 +361,8 @@ impl World {
     /// World pose: a root reads its local Transform directly, without propagation.
     /// Parented poses reflect the last propagate call.
     pub fn global(&self, e: Entity) -> Option<Affine3A> {
-        let local = self.get::<Transform>(e)?;
         if !self.has::<Parent>(e) {
-            return Some(local.affine());
+            return self.get::<Transform>(e).map(|local| local.affine());
         }
         self.hierarchy
             .nodes
@@ -396,7 +395,7 @@ impl World {
         if self.insert(e, transform) {
             self.fresh.push(e);
             for (_, follow) in self.query::<&mut Follow>().iter() {
-                if follow.target.resolve(self, follow.resolved) == Some(e) {
+                if follow.target.resolve(self) == Some(e) {
                     follow.initialized = false;
                 }
             }
@@ -540,12 +539,12 @@ mod tests {
 #[derive(Clone, Copy, Debug, Default, Component)]
 pub struct Ambient;
 
-/// A direct follower target, or a name resolved once per incarnation.
+/// A direct follower target, or a name resolved by lowest living index.
 #[derive(Clone, Debug, crate::Data)]
 pub enum FollowTarget {
     /// Direct entity handle; no name scan.
     Entity(Entity),
-    /// A name which can resolve again after despawn.
+    /// A name which follows the same resolution rule as World::named.
     Name(String),
 }
 impl Default for FollowTarget {
@@ -569,10 +568,10 @@ impl From<String> for FollowTarget {
     }
 }
 impl FollowTarget {
-    fn resolve(&self, w: &World, cached: Option<Entity>) -> Option<Entity> {
+    fn resolve(&self, w: &World) -> Option<Entity> {
         match self {
             Self::Entity(e) => w.contains(*e).then_some(*e),
-            Self::Name(name) => cached.filter(|e| w.contains(*e)).or_else(|| w.named(name)),
+            Self::Name(name) => w.named(name),
         }
     }
 }
@@ -580,7 +579,7 @@ impl FollowTarget {
 /// A saved camera follower. Call `scene::follow` at the desired point in the tick.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Follow {
-    /// Target handle or name. Names retain a resolved handle until it dies.
+    /// Target handle or name. A changed name resolution reinitializes the follow.
     pub target: FollowTarget,
     resolved: Option<Entity>,
     /// Camera displacement from the target.
@@ -620,7 +619,7 @@ impl Follow {
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 pub fn follow(world: &World) {
     for (e, follow) in world.query::<&mut Follow>().iter() {
-        let target = follow.target.resolve(world, follow.resolved);
+        let target = follow.target.resolve(world);
         if target != follow.resolved {
             follow.initialized = false;
             follow.resolved = target;
@@ -657,10 +656,18 @@ pub fn follow(world: &World) {
         };
         if next != aim {
             let forward = (aim - next).normalize();
-            let up = if forward.cross(Vec3::Y).length_squared() < 1e-6 {
-                Vec3::Z
+            let previous_up = if follow.initialized {
+                rotation * Vec3::Y
             } else {
                 Vec3::Y
+            };
+            let transported = previous_up - forward * previous_up.dot(forward);
+            let up = if transported.length_squared() > 1e-12 {
+                transported.normalize()
+            } else if forward.cross(Vec3::Y).length_squared() > 1e-6 {
+                Vec3::Y
+            } else {
+                Vec3::Z
             };
             pose = pose.looking_at(aim, up);
         }

@@ -268,6 +268,7 @@ impl Scene {
             sun,
             points: &self.output[..self.count],
             environment: Environment {
+                background: e.background,
                 zenith: e.zenith,
                 horizon: e.horizon,
                 ground: e.ground,

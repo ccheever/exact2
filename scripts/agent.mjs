@@ -226,22 +226,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
           return reply;
         }
         if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) || exact.views.get(${id})?.matches('button, a[href], [role="button"], [role="link"]') || false`))) {
-          if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
-          const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
-          const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
-          if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
-          let code = opts.key, key, vk;
-          if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
-          else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
-          else {
-            const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16] }[code];
-            if (!special) throw new Error(`key: unsupported code ${code}`);
-            [key, vk] = special;
-            if (code === 'Shift') code = 'ShiftLeft';
-          }
-          for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
-          await frame();
-          return { typed: id, key: opts.key, ...(opts.phase != null ? { phase: opts.phase } : {}), delivery: 'platform' };
+          return browserKey({ id, opts, evaluate, ask, call, frame });
         }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
@@ -927,16 +912,47 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
 
 // ---------------------------------------------------------------- the CLI
 
+/** Browser-owned key release carries device identity, never a canvas lookup. */
+export async function browserKey({id, opts, evaluate, ask, call, frame}) {
+  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+  const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
+  const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
+  if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
+  let code = opts.key, key, vk;
+  if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
+  else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
+  else {
+    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16] }[code];
+    if (!special) throw new Error(`key: unsupported code ${code}`);
+    [key, vk] = special;
+    if (code === 'Shift') code = 'ShiftLeft';
+  }
+  const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+  const release = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', code, key, windowsVirtualKeyCode: vk });
+    await frame();
+    return reply('up');
+  };
+  try {
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
+    await frame();
+  } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
+  return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
+}
+
 /** Held-key form: one resolved carrier, including release after a failed clock. */
 export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
   const {for: duration, ...held} = options, key = String(held.key), steps = [];
+  let release;
   const send = async phase => {
     const args = [target, {...held, phase}];
     try {
-      const r = await carrier.input(node.id, 'key', {...held, key, phase});
+      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase});
+      const {release: ownedRelease, ...r} = result;
+      if (phase === 'down') release = ownedRelease;
       const reply = tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
       steps.push({op:'type', args, reply});
-    } catch (error) { steps.push({op:'type', args, error:error.message}); throw error; }
+    } catch (error) { release ??= error.release; steps.push({op:'type', args, error:error.message}); throw error; }
   };
   let failure;
   try {

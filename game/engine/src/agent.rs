@@ -189,7 +189,7 @@ impl<G: Game> Sim<G> {
             "clock" => {
                 let quiescent = self.quiescent();
                 let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at(q.settle)) };
-                let changing = encode(&self.changing())?;
+                let changing = encode(&self.changing(quiescent))?;
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
             "logs" => {
