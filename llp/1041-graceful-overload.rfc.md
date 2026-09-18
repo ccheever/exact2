@@ -3449,9 +3449,9 @@ engine. A test-only compile warning and its correction remain in the evidence.
 The complete current ExactKit module typechecks on macOS. Four Session/view
 methods are excluded from the standalone assertion runner; this is not full
 XCTest or an iOS build. Compiled copies reconstruct to the exact production
-sources after removing the test hooks. No native workload, latency comparison
-or physical presentation run has tested this optimization yet. The misses and
-tails in §8.48 remain the latest measured result.
+sources after removing the test hooks. The first native comparison in §8.51
+does not establish a consistent speedup. Neither validation establishes a
+physical presentation rate.
 
 Evidence: `target/apple-text-borrowed-validation/freeze-v1/`, manifest
 `251ea3da4b96a9bb6692f40c0fc20db8171c188b816529ff882a0b2c1e509d3c`.
@@ -3502,3 +3502,52 @@ Mac evidence: `target/linux-pending-flip-validation/freeze-v1/`, manifest
 `0968f5f30ce76b25d1f7d46b89aa3e8c91a73d1a4f37192091897540e5f6214b`.
 Actual Linux evidence: `target/pending-flip-linux-execution-v1/`, manifest
 `de35e367855adc14c8e1ebd42f4bd0b38d21ee6de05650d86006c24c0604ae1b`.
+
+### 8.51 Borrowed text lookup: first native comparison, 2026-09-18
+
+Two fresh optimized Messages products and one control→treatment pair test
+§8.49 with the same ReusableMessagesStress factory, prefit behavior, common
+known-identity cleanup and diagnostic hooks. Only Text and TextResidency differ
+among 258 captured source inputs per arm. Historical prefit products are not
+the timing control. All six phases accept the same 18 viewport changes, wholly
+inside their genuine resize edges; window, port and external point sequences
+agree. There are no additional post-edge resize parents in this pair.
+
+| Phase | Whole resize union ms, control→treatment | Full Swift callback sum ms | Callback entries per arm |
+| --- | ---: | ---: | ---: |
+| Idle | 171.622→189.784 | 106.301→114.754 | 2,998 |
+| Load | 169.928→155.909 | 105.796→95.283 | 2,496 |
+| Recovery | 163.994→171.623 | 102.281→103.473 | 2,496 |
+
+Across 54 resize calls per arm, whole work totals 505.544→517.315ms,
+native-and-entry 348.020→349.797ms and full Swift callback wall
+314.378→313.510ms. All 108 parents have the five C96 rows, the exact callback
+count identity and one kernel layout. The intervals do not overlap, so these
+whole unions equal sums. Nested feedback is not added again. These mixed phase
+directions and nearly equal pooled callback costs establish neither a consistent
+native speedup nor a reliable regression estimate from one fixed-order pair.
+The full callback includes lookup, decoding and cache/CoreText work; this is
+not decoder CPU. The changed measureSeconds interval is not used for comparison.
+
+Whole resize calls above 8.333ms total 35/54→37/54. Loaded complete timer
+chains number 7→6, with revision progress 9→18 versus 8→18; their populations
+are not matched. Their whole medians are 6.088→6.576ms and maxima
+11.853→9.305ms. Loaded typing ACK maxima are 13.472→24.115ms and wheel ACK
+maxima 2.481→16.680ms. Separate command-free intervals both advance revision
+0→8, but retain eight versus seven complete pre-read timer chains: five versus
+six miss 8.333ms, with maxima 15.092→15.170ms. Revision deltas are not callback
+counts, and clock overrides remain nil.
+
+All 72 offered inputs reply, including 36 directionally verified wheel moves.
+Selected full 10,000-row histories agree whenever all resource arguments agree.
+Interaction endpoints pass; passive quota omissions retain mode NOTESTABLISHED
+despite positive tracking samples. Primary omissions are zero. All owned
+processes retire after exactly two cells, without retry. The current hardware
+record identifies a 60Hz display; software spans do not establish physical
+120Hz. Unobserved AppKit work and presentation costs remain outside these hooks.
+
+The source tests establish that cached repeats can avoid decoding; this native
+pair does not show a workload speedup. Further work should target the remaining
+callback and display-loop costs rather than treating this result as a gain.
+Evidence: `target/native-630-borrowed-text-pair-v1/`, manifest
+`a5979826072793ce269cb9d51f238cb784920f03e70387e1d145d203a13ed571`.
