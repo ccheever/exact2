@@ -1,4 +1,4 @@
-# cosmic-text 0.19.0 — one font-admission patch
+# cosmic-text 0.19.0 — two local patches
 
 Complete crates.io archive, including upstream MIT/Apache licenses and
 .cargo_vcs_info.json. No source downloader, feature change or dependency upgrade.
@@ -9,7 +9,7 @@ Complete crates.io archive, including upstream MIT/Apache licenses and
 - Upstream VCS revision: c24886c2471e5606587c46090cd25dbbf209186b
 - Implemented: 2026-09-17, Leibniz, authorized giant-Markdown campaign.
 
-The only upstream source delta is three lines in `src/font/mod.rs`:
+The font-admission delta is three lines in `src/font/mod.rs`:
 `Font::new` returns `None` if parsed `metrics.units_per_em == 0`.
 Cosmic normalizes shaped glyph positions by that value. Some bitmap-only faces
 have `bhed` but no `head`; the pinned skrifa parser reports zero units and cosmic
@@ -23,7 +23,23 @@ widths, stock/treatment finite-font glyph/RGBA comparison, and worker parity.
 System fallback selection depends on installed fonts; the damaged-font admission
 fixtures are portable and derived from the existing bundled DejaVu fixture.
 
+The span-storage delta removes one line in `src/shape.rs`: `ShapeLine::build`
+no longer reserves one `ShapeSpan` per UTF-8 byte before finding actual bidi-level
+runs. Existing pushes grow the vector with actual span count. No prescan, shrink,
+shaping change or new cache policy is introduced. Fresh single-run paragraphs
+avoid byte-proportional spare header capacity; reused ShapeLine and FontSystem
+scratch still retain their high-water allocations. Many alternating bidi runs
+can incur additional vector growth; this is not a universal latency improvement.
+
+Implemented 2026-09-17 by Carson in the authorized giant-Markdown campaign.
+Regressions in host/linux/src/text/span_capacity_tests.rs cover public capacity,
+ordinary/empty/multibyte/mixed-RTL semantics and warm reuse. Optional immutable
+pre-change numeric/layout/pixel captures compare exact before/after output without
+making external evidence a dependency of the portable tests. Existing host text
+tests cover adopted-A ownership, sharing, glyph batches, pixels and font admission.
+This change does not establish an address-space/RSS bound or 4 MiB reflow fit.
+
 Root `[patch.crates-io]` selects this copy while host dependency versions stay
 unchanged. Remove the patch when a pinned upstream release supplies equivalent
-admission protection and these regressions pass. This is not general support for
-bitmap-only font metrics. All other archive files are byte-for-byte upstream.
+admission and span-storage behavior and these regressions pass. This is not general
+support for bitmap-only font metrics. All other archive files are byte-for-byte upstream.

@@ -886,3 +886,7 @@ mod identified_tests;
 #[cfg(test)]
 #[path = "text/sharing_tests.rs"]
 mod sharing_tests;
+
+#[cfg(test)]
+#[path = "text/span_capacity_tests.rs"]
+mod span_capacity_tests;

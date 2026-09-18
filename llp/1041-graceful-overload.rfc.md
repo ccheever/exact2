@@ -2874,3 +2874,36 @@ Messages entry defaults are unchanged. The exact three-file Runner freeze and
 raw evidence are at `target/collection-key-reuse-validation/freeze-v1/`, source
 manifest `b545aa098845048334e07170292930188b73add19b90282c37747f7f33e4bfa5`.
 Adjacent integration logs retain the additional consumer-test adjustment.
+
+### 8.38 Reserve span storage by actual bidi runs, 2026-09-17
+
+The pinned cosmic-text copy previously reserved a ShapeSpan header for every
+UTF-8 byte in a paragraph, even when the paragraph contained one bidi run.
+Removing that single reservation lets existing pushes grow storage by actual
+span count. Shaping, layout, caches, worker admission and the zero-unit-font
+guard remain unchanged. No prescan or shrink is added. Warm scratch still
+retains its high-water allocation; many alternating runs may require more
+vector growth, so this is not a universal latency improvement.
+
+Three capacity regressions first fail against the unchanged vendor, while two
+semantic controls pass. A fresh 65,552-byte ASCII source changes outer span
+capacity from 65,553 headers to four for its one actual span. A multibyte source
+and warm one-span source growth reproduce the same unnecessary reservation.
+The alternating-bidi control retains its allocation across empty/small/repeated
+inputs and preserves exact shape and width-layout output.
+
+Integrated validation passes all 101 scoped Linux text tests, including five
+new tests, plus strict all-targets Clippy and scoped formatting. The treatment
+also compares all 225 immutable pre-change records exactly: source and font
+identities, numeric shapes/layouts, sampled cursor/selection data, GPU batch
+payloads and 90 CPU RGBA crops. Large cursor probes sample representative
+boundaries; GPU payload equality does not claim a GPU-device run. These tests
+run on macOS and establish neither actual-Linux memory savings nor 120 Hz.
+
+Sources, original failures, both test binaries and before-data are archived at
+`target/span-reservation-validation/`; the four-path source manifest is
+`b0435fd62b7a0861e4c5e8daf2e0d60bd4f802e95fdaec1f3f107732b3a9e809`.
+The next native experiment combines this change with shared and compacted
+layouts under the unchanged 1 MiB/4 MiB workloads, retained painted A and
+2.5 GiB address-space cap. The earlier 4 MiB novel-width SIGABRT remains a
+failure; reduced span capacity alone does not prove that concurrent A+B fits.

@@ -1365,7 +1365,6 @@ impl ShapeLine {
             // Each span is a set of characters with equal levels.
             let mut start = line_range.start;
             let mut run_level = levels[start];
-            spans.reserve(line_range.end - start + 1);
 
             for (i, &new_level) in levels
                 .iter()
