@@ -174,14 +174,58 @@ impl Synth {
         }
     }
 }
+/// Immutable definition shared by the registry and voices that started with it.
+/// The content identity is computed once at registration/restore, never per frame.
+#[derive(Clone, Debug)]
+pub struct Definition {
+    synth: std::sync::Arc<Synth>,
+    revision: u64,
+}
+impl Definition {
+    /// Freeze an authored definition.
+    pub fn new(synth: Synth) -> Self {
+        synth.validate();
+        let revision = crate::hash::of(&synth);
+        Self {
+            synth: std::sync::Arc::new(synth),
+            revision,
+        }
+    }
+    /// Stable content revision, also valid across save/restore.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+}
+impl Default for Definition {
+    fn default() -> Self {
+        Self::new(Synth::default())
+    }
+}
+impl std::ops::Deref for Definition {
+    type Target = Synth;
+    fn deref(&self) -> &Synth {
+        &self.synth
+    }
+}
+impl Data for Definition {
+    fn write(&self, w: &mut dyn crate::Writer) {
+        self.synth.write(w);
+    }
+    fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
+        let mut synth = Synth::default();
+        synth.read(r)?;
+        *self = Self::new(synth);
+        Ok(())
+    }
+}
 /// Sound definitions, authored during setup and included in saves and hashes.
 #[derive(Resource, Default, Clone)]
-pub struct Sounds(pub BTreeMap<String, Synth>);
+pub struct Sounds(pub BTreeMap<String, Definition>);
 impl Sounds {
     /// Define or replace a named sound.
     pub fn add(&mut self, name: impl Into<String>, synth: Synth) -> &mut Self {
         synth.validate();
-        self.0.insert(name.into(), synth);
+        self.0.insert(name.into(), Definition::new(synth));
         self
     }
 }
@@ -225,7 +269,7 @@ pub struct Voice {
     /// Last observed world position, retained after despawn.
     pub position: Option<Vec3>,
     /// Definition at play time; edits affect subsequent plays.
-    pub synth: Synth,
+    pub synth: Definition,
     /// Inclusive starting tick.
     pub began: u64,
     /// Exclusive ending tick, rounded up to a whole tick.
@@ -465,9 +509,34 @@ pub fn step(world: &mut World) {
         world.register_audio();
         let mut audio = world.resource_mut::<Audio>();
         audio.master = gain(audio.master);
-        let mut reports = Vec::new();
+        let mut reports = Vec::with_capacity(audio.reports.len());
+        let mut previous = audio.reports.iter().peekable();
         for (entity, source) in world.query::<&mut AudioSource>().iter() {
-            let old = audio.reports.iter().find(|r| r.entity == entity);
+            while previous
+                .peek()
+                .is_some_and(|r| r.entity.index() < entity.index())
+            {
+                let old = previous.next().unwrap();
+                if old.playing {
+                    world.log(format_args!("loop {} off", old.sound));
+                }
+            }
+            let old = if previous
+                .peek()
+                .is_some_and(|r| r.entity.index() == entity.index())
+            {
+                let old = previous.next().unwrap();
+                if old.entity == entity {
+                    Some(old)
+                } else {
+                    if old.playing {
+                        world.log(format_args!("loop {} off", old.sound));
+                    }
+                    None
+                }
+            } else {
+                None
+            };
             let sanitized = gain(source.gain);
             let invalid = sanitized != source.gain;
             let refused = old.is_some_and(|r| r.refused) || invalid;
@@ -500,8 +569,8 @@ pub fn step(world: &mut World) {
                 refused,
             });
         }
-        for old in &audio.reports {
-            if old.playing && !reports.iter().any(|r| r.entity == old.entity) {
+        for old in previous {
+            if old.playing {
                 world.log(format_args!("loop {} off", old.sound));
             }
         }

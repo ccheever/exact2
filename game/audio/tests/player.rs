@@ -104,7 +104,7 @@ fn loops_follow_sources_and_cache_once() {
     p.sync(&w, None, Default::default());
     assert_eq!(p.output.calls.last(), Some(&Call::Stop { id: 0 }));
     w.get_mut::<AudioSource>(e).unwrap().playing = true;
-    p.sync(&w, None, Default::default());
+    p.sync(&w, Some(Listener::default()), Default::default());
     assert_eq!(p.cached_sounds(), 1);
     w.despawn(e);
     p.sync(&w, None, Default::default());
@@ -533,4 +533,68 @@ fn pitch_handle_and_saved_master_apply_without_definition_edits() {
     p.output.calls.clear();
     p.sync(sim.world(), None, Default::default());
     assert!(matches!(p.output.calls.first(), Some(Call::Stop { .. })));
+}
+
+#[test]
+#[ignore = "timing diagnostic: run explicitly with --ignored --nocapture"]
+fn sixty_four_voice_sync_timing() {
+    use exact_game_audio::{NullOutput, Output};
+    fn measure<O: Output>(label: &str, output: O, w: &World) {
+        let mut p = Player::new(output, 48000);
+        let start = std::time::Instant::now();
+        p.sync(w, None, Default::default());
+        let cold = start.elapsed();
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            p.sync(w, None, Default::default());
+        }
+        println!(
+            "AU3 {label}: cold={:.3}ms warm={:.3}us/sync cache={}",
+            cold.as_secs_f64() * 1000.0,
+            start.elapsed().as_secs_f64() * 1000.0,
+            p.cached_sounds()
+        );
+    }
+    let mut w = world();
+    for i in 0..64 {
+        let name = format!("voice-{i}");
+        w.resource_mut::<Sounds>()
+            .add(&name, Synth::sine(220.0 + i as f32).seconds(2.0));
+        w.play(&name).gain((i + 1) as f32 / 64.0).start();
+    }
+    measure("null", NullOutput, &w);
+    measure(
+        "capacity32",
+        RecordingOutput {
+            capacity: 32,
+            ..Default::default()
+        },
+        &w,
+    );
+}
+
+#[test]
+fn capacity_and_silence_are_selected_before_pcm_materialization() {
+    let mut w = world();
+    for i in 0..64 {
+        let name = format!("voice-{i}");
+        w.resource_mut::<Sounds>()
+            .add(&name, Synth::sine(220.0 + i as f32));
+        w.play(&name).gain(if i < 32 { 0.0 } else { 1.0 }).start();
+    }
+    let mut null = Player::new(exact_game_audio::NullOutput, 48000);
+    null.sync(&w, None, Default::default());
+    assert_eq!(null.cached_sounds(), 0);
+    let mut p = recording();
+    p.output.capacity = 8;
+    p.sync(&w, None, Default::default());
+    assert_eq!(p.cached_sounds(), 8);
+    assert_eq!(
+        p.output
+            .calls
+            .iter()
+            .filter(|c| matches!(c, Call::Start { .. }))
+            .count(),
+        8
+    );
 }

@@ -1,6 +1,7 @@
 //! The first game: a capsule, landmarks, and one beacon. No host and no GPU.
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
+use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
 use exact_game::character::Character;
 use exact_game::{
     scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
@@ -12,6 +13,8 @@ use exact_game::{
 pub struct Player {
     /// Current velocity, carried by saves along with the pose.
     pub character: Character,
+    /// Ground distance carried toward the next footstep.
+    pub stride: f32,
 }
 /// A one-shot beacon whose glow can be sampled at any tick.
 #[derive(Default, Component)]
@@ -44,6 +47,38 @@ impl Game for Greybox {
     }
     fn setup(world: &mut World, args: &Self::Args) {
         world.reseed(args.seed);
+        world.register_audio();
+        world
+            .resource_mut::<Sounds>()
+            .add(
+                "footstep",
+                Synth::noise()
+                    .seconds(0.09)
+                    .attack(0.002)
+                    .release(0.08)
+                    .lowpass_hz(650.0)
+                    .gain(0.4),
+            )
+            .add(
+                "chime",
+                Synth::sine(880.0)
+                    .seconds(0.8)
+                    .attack(0.005)
+                    .release(0.7)
+                    .gain(0.3)
+                    .layer(Synth::sine(1320.0).seconds(0.5).release(0.45).gain(0.12)),
+            )
+            .add(
+                "wind",
+                Synth::noise()
+                    .seconds(2.0)
+                    .attack(0.0)
+                    .release(0.0)
+                    .sustain(1.0)
+                    .lowpass_hz(380.0)
+                    .gain(0.12)
+                    .looped(),
+            );
         world.spawn_named(
             "ground",
             (
@@ -59,6 +94,7 @@ impl Game for Greybox {
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.45, 0.15),
                 Player {
+                    stride: 0.0,
                     character: Character::new()
                         .speed(4.0)
                         .accel(12.0)
@@ -75,6 +111,12 @@ impl Game for Greybox {
             (
                 Transform::default(),
                 Camera::default(),
+                AudioListener,
+                AudioSource {
+                    sound: "wind".into(),
+                    gain: 0.3,
+                    playing: true,
+                },
                 Follow::new(player).offset(0.0, 5.0, 8.0).lag(0.0),
             ),
         );
@@ -112,11 +154,28 @@ impl Game for Greybox {
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
         let now = world.now();
+        let mut footsteps = 0;
         if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
-            player
-                .character
-                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+            let before = pose.position;
+            let motion =
+                player
+                    .character
+                    .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+            if motion.grounded {
+                let delta = pose.position - before;
+                player.stride += exact_game::Vec2::new(delta.x, delta.z).length();
+                while player.stride >= 0.45 {
+                    player.stride -= 0.45;
+                    footsteps += 1;
+                }
+            }
         }
+        for _ in 0..footsteps {
+            let pitch = world.rand(0.94..1.06);
+            let player = world.named("player").unwrap();
+            world.play("footstep").at(player).pitch(pitch).start();
+        }
+        let mut chime = None;
         if input.pressed("act") {
             for (entity, _) in world.near_xz::<Beacon>("player", 1.5) {
                 let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
@@ -125,12 +184,17 @@ impl Game for Greybox {
                     beacon.glow.set_target(now, 1.0);
                     world.publish("beacons", 1);
                     world.log("beacon-1 lit");
+                    chime = Some(entity);
                 }
             }
+        }
+        if let Some(entity) = chime {
+            world.play("chime").at(entity).start();
         }
         for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(now) * 3.0; 3];
         }
         scene::follow(world);
+        audio::step(world);
     }
 }

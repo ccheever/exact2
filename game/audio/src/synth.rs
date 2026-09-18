@@ -24,6 +24,14 @@ fn envelope(s: &Synth, t: f32) -> f32 {
         held(s, t)
     }
 }
+pub(crate) fn sample_count(s: &Synth, rate: u32) -> usize {
+    let len = math::ceil(s.duration() * rate as f32) as usize;
+    if s.looping && len > 3 {
+        len - (rate as usize / 100).max(2).min(len / 2)
+    } else {
+        len
+    }
+}
 /// Pure mono PCM, using only libm math, fixed operation order and a local noise seed.
 /// No normalization: authored layers can exceed ±1; device outputs handle clipping.
 pub fn render(s: &Synth, sample_rate: u32) -> Vec<f32> {

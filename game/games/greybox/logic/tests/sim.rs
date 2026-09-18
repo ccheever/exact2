@@ -35,7 +35,7 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         Vec3::new(0.0, 0.9, -5.3666644)
     );
-    assert_eq!(one.world().hash(), 0x517bc794475cb853);
+    assert_eq!(one.world().hash(), 0x71f8eb47fa04a70c);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {
@@ -195,4 +195,55 @@ fn a21_shorter_setup_preserves_materials_names_and_random_draws() {
             Vec3::new(rng.range(3.0..12.0), 0.5, rng.range(-12.0..8.0))
         );
     }
+}
+
+#[test]
+fn soundscape_journals_ground_distance_beacon_and_camera_wind() {
+    use exact_game::audio::{AudioSource, Voices};
+    let mut s = sim();
+    s.hold("KeyW", 1500.0);
+    assert_eq!(
+        s.world()
+            .journal()
+            .iter()
+            .filter(|e| e.line.contains("sfx footstep at player "))
+            .count(),
+        11
+    );
+    assert!(s
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("loop wind on ")));
+    assert_eq!(s.get::<AudioSource>("camera").unwrap().sound, "wind");
+    s.tap("KeyE");
+    s.run(17.0);
+    assert!(s
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("sfx chime at beacon-1 ")));
+    assert!(s
+        .world()
+        .resource::<Voices>()
+        .voices
+        .iter()
+        .any(|v| v.sound == "chime"));
+    let before = s
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("sfx footstep "))
+        .count();
+    s.key_down("KeyW");
+    s.tap("Space");
+    s.run(300.0);
+    assert_eq!(
+        s.world()
+            .journal()
+            .iter()
+            .filter(|e| e.line.contains("sfx footstep "))
+            .count(),
+        before
+    );
 }

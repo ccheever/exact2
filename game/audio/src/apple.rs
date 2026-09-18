@@ -108,6 +108,7 @@ struct Pending {
     sets: BTreeMap<u64, (f32, f32)>,
     retained: BTreeMap<usize, (Arc<[f32]>, u64)>,
     live: BTreeMap<u64, usize>,
+    sent: BTreeMap<u64, usize>,
     sequence: u64,
     acknowledged: u64,
 }
@@ -123,6 +124,7 @@ impl Pending {
                 sets: BTreeMap::new(),
                 retained: BTreeMap::new(),
                 live: BTreeMap::new(),
+                sent: BTreeMap::new(),
                 sequence: 0,
                 acknowledged: 0,
             },
@@ -155,7 +157,10 @@ impl Pending {
         if self.live.contains_key(&id) {
             self.stop(id);
         }
-        let sequence = self.control(Command::Start {
+        if self.live.len() >= 32 {
+            return;
+        }
+        self.control(Command::Start {
             id,
             pcm: Samples {
                 ptr: pcm.as_ptr(),
@@ -167,14 +172,31 @@ impl Pending {
             pitch,
         });
         self.retained
-            .insert(pcm.as_ptr() as usize, (pcm.clone(), sequence));
+            .entry(pcm.as_ptr() as usize)
+            .or_insert_with(|| (pcm.clone(), 0));
         self.live.insert(id, pcm.as_ptr() as usize);
     }
     fn stop(&mut self, id: u64) {
         self.sets.remove(&id);
-        let sequence = self.control(Command::Stop(id));
-        if let Some(ptr) = self.live.remove(&id) {
-            self.retained.get_mut(&ptr).unwrap().1 = sequence;
+        let Some(ptr) = self.live.remove(&id) else {
+            return;
+        };
+        // An unpublished start has never reached the callback: cancel it outright.
+        self.controls
+            .retain(|p| !matches!(p.command, Command::Start { id: pending, .. } if pending == id));
+        if self.sent.contains_key(&id) {
+            if !self
+                .controls
+                .iter()
+                .any(|p| matches!(p.command, Command::Stop(pending) if pending == id))
+            {
+                self.control(Command::Stop(id));
+            }
+        } else if self.retained[&ptr].1 <= self.acknowledged
+            && !self.live.values().any(|p| *p == ptr)
+            && !self.sent.values().any(|p| *p == ptr)
+        {
+            self.retained.remove(&ptr);
         }
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
@@ -187,11 +209,25 @@ impl Pending {
             self.acknowledged = ack;
         }
         self.retained.retain(|ptr, (_, last)| {
-            *last > self.acknowledged || self.live.values().any(|p| p == ptr)
+            *last > self.acknowledged
+                || self.live.values().any(|p| p == ptr)
+                || self.sent.values().any(|p| p == ptr)
         });
         while let Some(packet) = self.controls.front() {
             if self.commands.push(*packet).is_err() {
                 return;
+            }
+            match packet.command {
+                Command::Start { id, pcm, .. } => {
+                    self.sent.insert(id, pcm.ptr as usize);
+                    self.retained.get_mut(&(pcm.ptr as usize)).unwrap().1 = packet.sequence;
+                }
+                Command::Stop(id) => {
+                    if let Some(ptr) = self.sent.remove(&id) {
+                        self.retained.get_mut(&ptr).unwrap().1 = packet.sequence;
+                    }
+                }
+                Command::Set { .. } => unreachable!(),
             }
             self.controls.pop_front();
         }
@@ -336,6 +372,81 @@ impl Mixer {
     }
 }
 
+use std::ffi::c_void;
+#[repr(C)]
+struct Buffer {
+    channels: u32,
+    bytes: u32,
+    data: *mut c_void,
+}
+#[repr(C)]
+struct Buffers {
+    count: u32,
+    first: Buffer,
+}
+// AudioBufferList has a flexible tail; the caller owns count valid buffer records.
+unsafe extern "C" fn render(
+    context: *mut c_void,
+    _flags: *mut u32,
+    _time: *const c_void,
+    _bus: u32,
+    frames: u32,
+    buffers: *mut Buffers,
+) -> i32 {
+    if context.is_null() {
+        return 0;
+    }
+    // SAFETY: the AudioUnit serializes access to its live boxed Mixer.
+    let mixer = unsafe { &mut *context.cast::<Mixer>() };
+    mixer.commands();
+    if buffers.is_null() {
+        return 0;
+    }
+    // SAFETY: non-null AudioBufferList supplied by the HAL (or the test fixture).
+    let buffers = unsafe {
+        std::slice::from_raw_parts_mut(
+            std::ptr::addr_of_mut!((*buffers).first),
+            (*buffers).count as usize,
+        )
+    };
+    let frames = frames as usize;
+    let valid = |b: &Buffer, channels: u32| {
+        b.channels == channels
+            && !b.data.is_null()
+            && b.bytes as usize >= frames * channels as usize * 4
+    };
+    if buffers.len() == 1 && valid(&buffers[0], 2) {
+        // SAFETY: byte capacity was checked; the HAL supplies aligned float PCM.
+        let output =
+            unsafe { std::slice::from_raw_parts_mut(buffers[0].data.cast::<f32>(), frames * 2) };
+        for frame in output.chunks_exact_mut(2) {
+            let (l, r) = mixer.frame();
+            frame[0] = l;
+            frame[1] = r;
+        }
+    } else if buffers.len() == 2 && buffers.iter().all(|b| valid(b, 1)) {
+        // Use raw writes so no aliasing references to caller-provided planes exist.
+        for i in 0..frames {
+            let (l, r) = mixer.frame();
+            // SAFETY: both plane capacities were checked above.
+            unsafe {
+                buffers[0].data.cast::<f32>().add(i).write(l);
+                buffers[1].data.cast::<f32>().add(i).write(r);
+            }
+        }
+    } else {
+        for buffer in buffers {
+            if !buffer.data.is_null() {
+                // SAFETY: silence only the advertised bytes, including short/mono layouts.
+                unsafe {
+                    std::ptr::write_bytes(buffer.data.cast::<u8>(), 0, buffer.bytes as usize);
+                }
+            }
+        }
+    }
+    0
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod device {
     use super::*;
@@ -362,17 +473,6 @@ mod device {
         channels: u32,
         bits: u32,
         reserved: u32,
-    }
-    #[repr(C)]
-    struct Buffer {
-        channels: u32,
-        bytes: u32,
-        data: *mut c_void,
-    }
-    #[repr(C)]
-    struct Buffers {
-        count: u32,
-        first: Buffer,
     }
     type Callback =
         unsafe extern "C" fn(*mut c_void, *mut u32, *const c_void, u32, u32, *mut Buffers) -> i32;
@@ -407,37 +507,6 @@ mod device {
         fn AudioUnitUninitialize(unit: Unit) -> i32;
         fn AudioOutputUnitStart(unit: Unit) -> i32;
         fn AudioOutputUnitStop(unit: Unit) -> i32;
-    }
-    unsafe extern "C" fn render(
-        context: *mut c_void,
-        _flags: *mut u32,
-        _time: *const c_void,
-        _bus: u32,
-        frames: u32,
-        buffers: *mut Buffers,
-    ) -> i32 {
-        // SAFETY: AudioUnit owns a serialized callback with the boxed Mixer context
-        // and valid AudioBufferList throughout each call. Disposal precedes box drop.
-        let (mixer, buffers) = unsafe { (&mut *context.cast::<Mixer>(), &mut *buffers) };
-        // We explicitly negotiated one interleaved stereo f32 buffer.
-        if buffers.count != 1
-            || buffers.first.channels != 2
-            || buffers.first.data.is_null()
-            || (buffers.first.bytes as usize) < (frames as usize) * 8
-        {
-            return -50;
-        }
-        // SAFETY: the negotiated format and byte count above cover 2*frames f32s.
-        let output = unsafe {
-            std::slice::from_raw_parts_mut(buffers.first.data.cast::<f32>(), frames as usize * 2)
-        };
-        mixer.commands();
-        for frame in output.chunks_exact_mut(2) {
-            let (l, r) = mixer.frame();
-            frame[0] = l;
-            frame[1] = r;
-        }
-        0
     }
     fn check(status: i32) -> Result<(), String> {
         if status == 0 {

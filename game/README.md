@@ -223,6 +223,9 @@ game/games/my-game/
 ```
 
 `app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
+Add `"audio": true` to `game` to include the sound executor; omit it for a silent
+GPU module with no audio dependency. Audio games define sounds in setup and call
+`audio::step(world)` in tick (see `audio/README.md`).
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
 `game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored

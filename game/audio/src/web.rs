@@ -1,5 +1,5 @@
 use crate::{Output, Transport};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{cell::Cell, collections::BTreeMap, rc::Rc, sync::Arc};
 use wasm_bindgen::JsValue;
 use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, GainNode, StereoPannerNode};
 type CachedBuffer = (Arc<[f32]>, AudioBuffer);
@@ -13,7 +13,8 @@ struct Voice {
 /// One suspended context. Construct only for a human-owned surface, never an agent.
 pub struct WebOutput {
     context: AudioContext,
-    unlocked: bool,
+    unlocked: Rc<Cell<bool>>,
+    unlocking: Rc<Cell<bool>>,
     // Retain PCM ownership: allocator address reuse cannot alias a cached buffer.
     buffers: BTreeMap<(usize, u32), CachedBuffer>,
     voices: BTreeMap<u64, Voice>,
@@ -24,7 +25,8 @@ impl WebOutput {
         let _ = context.suspend()?;
         Ok(Self {
             context,
-            unlocked: false,
+            unlocked: Rc::new(Cell::new(false)),
+            unlocking: Rc::new(Cell::new(false)),
             buffers: BTreeMap::new(),
             voices: BTreeMap::new(),
         })
@@ -32,7 +34,7 @@ impl WebOutput {
     /// Invoke directly from the first trusted input event.
     pub async fn unlock(&mut self, transport: &mut Transport) -> Result<(), JsValue> {
         wasm_bindgen_futures::JsFuture::from(self.context.resume()?).await?;
-        self.unlocked = true;
+        self.unlocked.set(true);
         transport.generation = transport.generation.wrapping_add(1);
         Ok(())
     }
@@ -81,8 +83,26 @@ impl WebOutput {
     }
 }
 impl Output for WebOutput {
+    fn capacity(&self) -> usize {
+        32
+    }
+    fn unlock(&mut self) {
+        if self.ready() || self.unlocking.replace(true) {
+            return;
+        }
+        let Ok(promise) = self.context.resume() else {
+            self.unlocking.set(false);
+            return;
+        };
+        let unlocked = self.unlocked.clone();
+        let unlocking = self.unlocking.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            unlocked.set(wasm_bindgen_futures::JsFuture::from(promise).await.is_ok());
+            unlocking.set(false);
+        });
+    }
     fn ready(&self) -> bool {
-        self.unlocked && self.context.state() == web_sys::AudioContextState::Running
+        self.unlocked.get() && self.context.state() == web_sys::AudioContextState::Running
     }
     fn retain_pcm(&mut self, pcm: &[Arc<[f32]>]) {
         self.buffers.retain(|key, _| {

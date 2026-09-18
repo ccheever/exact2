@@ -1,16 +1,15 @@
 //! Sound executors. Construction of Player<NullOutput> never opens an audio device.
 #![deny(unsafe_code)]
+mod surface;
 mod synth;
+pub use surface::SurfacePlayer;
 pub use synth::render;
 
 use exact_game::{
     audio::{self, At, AudioListener, AudioSource, Sounds, Voices},
-    hash, math, Quat, Vec3, World,
+    math, Quat, Vec3, World,
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 #[cfg(any(target_os = "macos", target_os = "ios", test))]
 #[allow(unsafe_code)]
 mod apple;
@@ -38,6 +37,8 @@ impl Default for Transport {
 }
 /// One device or a test recorder. PCM is mono; set applies stereo gains.
 pub trait Output {
+    /// Request device activation from an input gesture.
+    fn unlock(&mut self) {}
     fn capacity(&self) -> usize {
         usize::MAX
     }
@@ -84,6 +85,9 @@ pub enum Call {
 #[derive(Default)]
 pub struct NullOutput;
 impl Output for NullOutput {
+    fn capacity(&self) -> usize {
+        0
+    }
     fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {}
     fn set(&mut self, _: u64, _: f32, _: f32) {}
     fn stop(&mut self, _: u64) {}
@@ -176,24 +180,25 @@ enum Key {
 }
 struct Active {
     output_id: u64,
-    signature: u64,
+    signature: (u64, u64, u32),
 }
 struct Wanted {
     key: Key,
-    sound: String,
-    synth: audio::Synth,
+    synth: audio::Definition,
     gains: (f32, f32),
     began: u64,
     looping: bool,
     pitch: f32,
     offset: usize,
-    digest: u64,
 }
 /// PCM cache and identities belong to the executor, never to the world.
 pub struct Player<O: Output> {
     pub output: O,
     rate: u32,
-    cache: BTreeMap<(String, u64), Arc<[f32]>>,
+    cache: BTreeMap<u64, Arc<[f32]>>,
+    wanted: Vec<Wanted>,
+    keep: Vec<u64>,
+    pcm: Vec<Arc<[f32]>>,
     active: BTreeMap<Key, Active>,
     next_id: u64,
     transport: Option<Transport>,
@@ -205,6 +210,9 @@ impl<O: Output> Player<O> {
             output,
             rate,
             cache: BTreeMap::new(),
+            wanted: Vec::new(),
+            keep: Vec::new(),
+            pcm: Vec::new(),
             active: BTreeMap::new(),
             next_id: 0,
             transport: None,
@@ -231,6 +239,11 @@ impl<O: Output> Player<O> {
             self.stop_all();
         }
         self.transport = Some(effective);
+        if self.output.capacity() == 0 {
+            self.stop_all();
+            self.cache.clear();
+            return;
+        }
         let master = world
             .try_resource::<audio::Audio>()
             .map_or(1.0, |a| audio::gain(a.master));
@@ -247,18 +260,19 @@ impl<O: Output> Player<O> {
                 .unwrap_or((0.0, 0.0));
             (audio::gain(l), audio::gain(r))
         };
-        let mut wanted = Vec::new();
-        let mut keep = BTreeSet::new();
+        let wanted = &mut self.wanted;
+        wanted.clear();
+        let keep = &mut self.keep;
+        keep.clear();
         if world.has_audio() {
-            for (name, synth) in &world.resource::<Sounds>().0 {
-                keep.insert((name.clone(), hash::of(synth)));
+            for synth in world.resource::<Sounds>().0.values() {
+                keep.push(synth.revision());
             }
             if effective.playing {
                 for v in &world.resource::<Voices>().voices {
                     if v.began <= world.tick() && world.tick() < v.ends {
                         wanted.push(Wanted {
                             key: Key::Voice(v.id),
-                            sound: v.sound.clone(),
                             synth: v.synth.clone(),
                             gains: gains(&v.at, v.position, v.gain),
                             began: v.began,
@@ -269,7 +283,6 @@ impl<O: Output> Player<O> {
                                 1.0
                             },
                             offset: 0,
-                            digest: 0,
                         });
                     }
                 }
@@ -278,14 +291,12 @@ impl<O: Output> Player<O> {
                         if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
                             wanted.push(Wanted {
                                 key: Key::Source(e),
-                                sound: source.sound.clone(),
                                 synth: synth.clone(),
                                 gains: gains(&At::Entity(e), None, source.gain),
                                 began: 0,
                                 looping: true,
                                 pitch: 1.0,
                                 offset: 0,
-                                digest: 0,
                             });
                         }
                     }
@@ -293,25 +304,24 @@ impl<O: Output> Player<O> {
             }
         }
         wanted.retain_mut(|w| {
-            w.digest = hash::of(&w.synth);
-            let pcm = self
-                .cache
-                .entry((w.sound.clone(), w.digest))
-                .or_insert_with(|| render(&w.synth, self.rate).into());
-            if pcm.is_empty() {
+            if w.gains.0.max(w.gains.1) <= 0.0 {
+                return false;
+            }
+            let len = synth::sample_count(&w.synth, self.rate);
+            if len == 0 {
                 return false;
             }
             let elapsed = ((world.tick() - w.began) as f64 * self.rate as f64 * w.pitch as f64
                 / world.hz() as f64)
                 .floor();
             w.offset = if w.looping {
-                (elapsed % pcm.len() as f64) as usize
+                (elapsed % len as f64) as usize
             } else {
                 elapsed as usize
             };
-            w.offset < pcm.len()
+            w.offset < len
         });
-        wanted.sort_by(|a, b| {
+        wanted.sort_unstable_by(|a, b| {
             b.looping
                 .cmp(&a.looping)
                 .then_with(|| {
@@ -324,27 +334,26 @@ impl<O: Output> Player<O> {
                 .then_with(|| b.key.cmp(&a.key))
         });
         wanted.truncate(self.output.capacity());
-        let signatures: BTreeMap<_, _> = wanted
-            .iter()
-            .map(|w| {
-                (
-                    w.key.clone(),
-                    hash::of(&(w.sound.clone(), w.digest, w.began)),
-                )
-            })
-            .collect();
+        wanted.sort_unstable_by(|a, b| a.key.cmp(&b.key));
+        let signature = |w: &Wanted| (w.synth.revision(), w.began, w.pitch.to_bits());
         self.active.retain(|key, a| {
-            if signatures.get(key) == Some(&a.signature) {
+            if wanted
+                .binary_search_by(|w| w.key.cmp(key))
+                .is_ok_and(|i| signature(&wanted[i]) == a.signature)
+            {
                 true
             } else {
                 self.output.stop(a.output_id);
                 false
             }
         });
-        for w in wanted {
-            let cache_key = (w.sound, w.digest);
-            let pcm = &self.cache[&cache_key];
-            keep.insert(cache_key);
+        for w in wanted.iter() {
+            let revision = w.synth.revision();
+            let pcm = self
+                .cache
+                .entry(revision)
+                .or_insert_with(|| render(&w.synth, self.rate).into());
+            keep.push(revision);
             let active = self.active.entry(w.key.clone()).or_insert_with(|| {
                 let id = self.next_id;
                 self.next_id += 1;
@@ -352,14 +361,17 @@ impl<O: Output> Player<O> {
                     .start_at(id, pcm, self.rate, w.looping, w.offset, w.pitch);
                 Active {
                     output_id: id,
-                    signature: signatures[&w.key],
+                    signature: signature(w),
                 }
             });
             self.output.set(active.output_id, w.gains.0, w.gains.1);
         }
-        self.cache.retain(|key, _| keep.contains(key));
-        self.output
-            .retain_pcm(&self.cache.values().cloned().collect::<Vec<_>>());
+        keep.sort_unstable();
+        keep.dedup();
+        self.cache.retain(|key, _| keep.binary_search(key).is_ok());
+        self.pcm.clear();
+        self.pcm.extend(self.cache.values().cloned());
+        self.output.retain_pcm(&self.pcm);
         self.output.flush();
     }
 }

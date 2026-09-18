@@ -1108,6 +1108,7 @@ dependencies = [
 name = "greybox-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-game-audio",
  "exact-game-render",
  "greybox-logic",
  "wasm-bindgen",

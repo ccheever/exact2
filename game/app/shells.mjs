@@ -51,17 +51,18 @@ export function gameShells(dir, game, workspace) {
     if (!exportsType(resolve(logicDir, 'src/lib.rs'), type.split('::'))) {
       throw new Error(`game.type ${type} must be exported by ${logicDir}/src/lib.rs`);
     }
+    if (app.game.audio !== undefined && typeof app.game.audio !== "boolean") throw new Error("game.audio must be a boolean");
     const name = crate.slice(0, -'-logic'.length);
     const key = createHash('sha256').update(app.app.id).digest('hex').slice(0, 24);
     for (const kind of ['gpu', 'web', 'apple', 'linux']) {
       const shellName = `${key}-${kind}`, shell = resolve(root, shellName);
       const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false${kind === 'linux' ? '' : `\n\n[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]`}\n\n[dependencies]\n`;
       const dependencies = kind === 'gpu'
-        ? `exact-game-render.workspace = true\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n`
+        ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n`
         : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;
       desired.set(shellName, {
         'Cargo.toml': header + dependencies,
-        [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+        [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
         ...(kind === 'gpu' ? {} : {'build.rs': `fn main() {\n    exact_game_app::bake("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`}),
       });
     }

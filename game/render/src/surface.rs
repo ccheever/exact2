@@ -5,10 +5,21 @@ use crate::{
 use exact_game::{Clock, Game, Sim, World};
 use exact_gpu::{wgpu, Frame, InputEvent, Surface, SurfaceError, Value};
 
+/// Optional presentation executor. The default `()` links no executor code.
+/// Implementations must use a discarding output whenever `seekable` is true.
+pub trait Presentation: Default {
+    /// Called once after the simulation advances, including zero-size frames.
+    fn sync(&mut self, _world: &World, _generation: u64, _playing: bool, _seekable: bool) {}
+    /// Called synchronously on key/pointer down, within the browser's gesture.
+    fn unlock(&mut self) {}
+}
+impl Presentation for () {}
+
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Pipeline creation happens at the first render, never during bind or agent reads.
-pub struct WorldSurface<G: Game> {
+pub struct WorldSurface<G: Game, P: Presentation = ()> {
     sim: Option<Sim<G>>,
+    presentation: P,
     render: Option<(Renderer, Feed)>,
     format: Option<wgpu::TextureFormat>,
     perf: Perf,
@@ -18,10 +29,11 @@ pub struct WorldSurface<G: Game> {
     reported: bool,
     generation: u64,
 }
-impl<G: Game> Default for WorldSurface<G> {
+impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
     fn default() -> Self {
         Self {
             sim: None,
+            presentation: P::default(),
             render: None,
             format: None,
             perf: Perf::default(),
@@ -33,7 +45,7 @@ impl<G: Game> Default for WorldSurface<G> {
         }
     }
 }
-impl<G: Game> WorldSurface<G> {
+impl<G: Game, P: Presentation> WorldSurface<G, P> {
     /// Sticky capacity refusal; also drained through the GPU Surface error seam.
     pub fn error(&self) -> Option<&SurfaceError> {
         self.error.as_ref()
@@ -83,7 +95,7 @@ fn observer<'a>(
         start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
-impl<G: Game> Surface for WorldSurface<G> {
+impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
     fn bind(&mut self, values: &[Value]) -> Result<(), SurfaceError> {
         self.bind_at(values, None)
     }
@@ -188,6 +200,12 @@ impl<G: Game> Surface for WorldSurface<G> {
                     ),
                 );
             }
+            self.presentation.sync(
+                sim.world(),
+                sim.generation(),
+                !G::paused(sim.args()),
+                frame.seekable,
+            );
             self.dirty = true;
             return self.error.is_none();
         }
@@ -226,6 +244,12 @@ impl<G: Game> Surface for WorldSurface<G> {
                 !frame.seekable,
                 due,
             ),
+        );
+        self.presentation.sync(
+            sim.world(),
+            sim.generation(),
+            !G::paused(sim.args()),
+            frame.seekable,
         );
         self.perf.ticks.push(ticks as f64);
         if self.error.is_some() {
@@ -266,6 +290,12 @@ impl<G: Game> Surface for WorldSurface<G> {
         let Some(sim) = &mut self.sim else {
             return;
         };
+        if matches!(
+            event,
+            InputEvent::Key { down: true, .. } | InputEvent::Pointer { phase: Q::Down, .. }
+        ) {
+            self.presentation.unlock();
+        }
         let e = match event {
             InputEvent::Key {
                 code, down, at_ms, ..

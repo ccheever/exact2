@@ -4,7 +4,7 @@ The engine owns saved sound descriptions, play events, loop reports and master g
 This crate reads that state and executes it. Agents and headless Linux use the
 zero-sized, discarding `NullOutput` when explicitly testing the executor. Ordinary
 headless simulation needs no Player. `RecordingOutput` records device commands;
-neither test output opens a device. NullOutput still incurs Player synthesis/cache work.
+neither test output opens a device. NullOutput has zero capacity and skips selection, synthesis and caching.
 
 ```rust
 use exact_game::{audio::{self, Audio, Sounds, Synth}, World};
@@ -59,8 +59,10 @@ this shared boundary. Missing ears silence spatial sounds. Distance gain is
 `1/max(distance,1) * (1-smoothstep(1,40,distance))`; local +X is right and pan is
 equal-power. UI gains apply equally to both channels on both executors.
 
-The Player cache keeps the current revision per sound plus revisions currently
-used by device voices. Web buffers follow that cache and active source references.
+Definitions are immutable shared values with a content revision computed at registration
+or restore. Started voices retain that definition. Player reuses selection/PCM scratch,
+culls silence and ranks capacity winners before synthesis. Its cache keeps materialized
+current definitions plus revisions currently used by device voices. Web buffers follow that cache and active source references.
 Apple retains PCM while commands or voices can reference its raw pointer. A Stop
 command's sequence is acknowledged through the return SPSC ring; only the main
 thread then releases the Arc. A full return ring coalesces and retries its latest
@@ -68,18 +70,20 @@ watermark. Device disposal still joins callbacks before dropping any PCM.
 
 ## Outputs
 
-Web constructs an initially suspended `AudioContext`. Invoke and await
-`output.unlock(&mut transport)` from a trusted input handler; it awaits the
-`resume()` promise and bumps generation only on success. No sources are created
-before success, including when the browser suspends again. No forgotten closures.
+Web constructs an initially suspended `AudioContext`. The surface invokes
+`Output::unlock` synchronously from key/pointer down; its owned asynchronous resume
+completion enables playback, and the next sync bumps the transport generation.
+No sources are created before success, including when the browser suspends again.
+The explicit probe can also await `output.unlock(&mut transport)`.
 Each voice connects buffer source → gain → stereo panner → destination. Playback
 rate implements pitch; gain and pan use `setTargetAtTime` with a 10 ms time constant.
 The Web probe demonstrates this ownership and asynchronous API.
 
 Apple has 32 fixed voice slots. `start_at`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
-identity, latest wins; Start and Stop stay ordered and are never discarded on ring
-pressure. A stalled device cannot panic the producer. The host calls
+identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
+retain their order and PCM until acknowledged. With 32 selected voices, queued
+controls are bounded by the published voices plus current winners. A stalled device cannot panic the producer. The host calls
 `AppleOutput::suspend()`/`resume()` for interruption notifications, updates playing,
 and increments generation after resume. The host still owns AVAudioSession policy.
 The callback allocates nothing, locks nothing, and performs no reference counting.
@@ -87,9 +91,25 @@ It linearly resamples, ramps stereo gains over 10 ms, maps non-finite samples to
 zero, sums linearly and clamps only outside [-1,1]. Quiet/full-scale authored gains
 therefore agree with WebAudio instead of being compressed by `x/(1+abs(x))`.
 
-The controls retry queue can grow during an unbounded stream of starts/stops while
-a device is stalled; this is the deliberate cost of the requested never-drop rule.
+The callback drains commands even on null/unsupported output layouts. It writes
+interleaved or planar stereo, silences other layouts, and returns success.
 The coalesced Set table is bounded by the Player's selected voices.
+
+
+## Game surfaces
+
+Set `"audio": true` beside `game.crate` and `game.type` in the app manifest. The
+synthesized GPU shell adds the audio dependency and invokes
+`exact_game_render::module!(Game, audio)`. The silent form uses `WorldSurface<G, ()>`;
+the audio form supplies a small generic presentation hook, so render has no audio
+dependency and no feature switch. No adapter crate is needed.
+
+The surface syncs once after each render's simulation advance, with its presentation
+generation and `!paused`. `SurfacePlayer` opens WebAudio on wasm and AudioUnit on
+Apple lazily, only on a non-seekable frame. Seekable frames use `Player<NullOutput>`
+and close any previous device. A headless surface never renders/opens a device;
+other native targets use NullOutput. The existing synchronous `gpu_input` call in
+web glue preserves the user gesture, so no core hook change is needed.
 
 ## Synthesis and proof
 
@@ -133,3 +153,21 @@ through a temporary wasm card and chime through `null_probe`'s `chime_hash()`
 export; no audio device is opened. The chime pin is in
 `src/synth_tests.rs`; the unlooped wind pin is `c72651fc30eafc30` in `tests/player.rs`.
 Typed bulk f32 hash framing changed these hashes without changing the generated samples.
+
+AU3 diagnostic (64 distinct two-second voices, macOS arm64 dev profile):
+
+| Output | Cold sync before → after | Warm sync before → after | PCM cached before → after |
+|---|---|---|---|
+| Null | 75.020 ms → 0.010 ms | 66.648 µs → 0.028 µs | 64 → 0 |
+| Capacity 32 | 74.481 ms → 39.084 ms | 64.624 µs → 7.226 µs | 64 → 32 |
+
+Run `cargo test -p exact-game-audio --test player sixty_four_voice_sync_timing -- --ignored --nocapture`.
+The timing is diagnostic, not a threshold. Greybox's 1.5 s forward pin is
+`0x71f8eb47fa04a70c`, position `(0, 0.9, -5.3666644)`, confirmed on macOS arm64
+and the Linux x86-64 builder.
+
+AU3 web module size (`web` profile, wasm-bindgen, wasm-opt -Oz; gzip level 9):
+693,756 → 818,436 bytes raw; 277,890 → 319,108 bytes gzip. A headed Chrome run
+for ten seconds resumed the context and created a wind source with non-zero PCM,
+but the audio clock stalled at 5.33 ms and analyser RMS stayed zero. Device output
+was **not verified**; the temporary analyser was removed and Chrome closed.

@@ -25,7 +25,7 @@ pub mod world;
 pub use exact_game;
 /// GPU surface ABI, also used by module! without a direct dependency.
 pub use exact_gpu;
-pub use surface::WorldSurface;
+pub use surface::{Presentation, WorldSurface};
 pub use world::Feed;
 
 use exact_gpu::wgpu;
@@ -282,14 +282,26 @@ mod tests {
 /// Export one game's surface and the native or wasm GPU module ABI.
 #[macro_export]
 macro_rules! module {
-    ($game:ty) => {
+    ($game:ty) => { $crate::module!($game, hook ()); };
+    ($game:ty, audio) => {
+        #[derive(Default)]
+        struct GameAudio(exact_game_audio::SurfacePlayer);
+        impl $crate::Presentation for GameAudio {
+            fn sync(&mut self, world: &$crate::exact_game::World, generation: u64, playing: bool, seekable: bool) {
+                self.0.sync(world, generation, playing, seekable);
+            }
+            fn unlock(&mut self) { self.0.unlock(); }
+        }
+        $crate::module!($game, hook GameAudio);
+    };
+    ($game:ty, hook $hook:ty) => {
         /// The game's sole surface; shaders are embedded in the renderer.
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
             surfaces: &[(
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook>::default()),
             )],
             shaders: &[],
         };
