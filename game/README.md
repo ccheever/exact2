@@ -2242,3 +2242,34 @@ Rust tests and web bake) but cannot launch Chrome; the feel test has no prebuilt
 TypeScript apps without the lean Hermes producer. No tests were disabled for
 these environmental failures. Logs and negative controls are retained under
 `~/lanes/gamenext/scratch/M4/`.
+
+
+## C1 terminal recapture verification (2026-09-18)
+
+On trunk `2d1300d`, after-B2, baseline B1 and baseline B2 each pass their
+route test with capture taken from the original terminal simulation. The deleted
+assertions are restored; B2's restored-instance workaround is removed. Trial
+patches stay in scratch, outside this branch. Adaptations only unwrap the merged
+`Sim::save()` result, omit the removed `SAVE_VERSION`, and apply the baseline
+gameplay edits around the typed-kind refactor. No public API or pinned value changes.
+
+The failure was a capture/checkpoint semantic mismatch: the old capture hash
+included consumed input edges that restoration clears, and disabling only v2's
+edge normalization reproduces after-B2's exact terminal checkpoint refusal.
+EXCAP v2 removes that mismatch and also hashes the exact saved clock boundary
+while retaining the live scheduler, so all three restored trial assertions pass.
+
+The permanent Lanterns regression retains the original instance after a natural
+three-minute loss with a character controller, held movement, fresh action edges,
+long host uptime and fractional 144/60/120 Hz periods. It exercises Seekable and
+Live in Off/Save/FreshGame, checks nonempty records, the initial checkpoint, forward
+tick progress, frozen terminal gameplay, final hash and complete save equality.
+The three-minute setup runs Off; reconstruction is enabled at terminal boundaries.
+Disabling edge normalization makes this regression fail at checkpoint replay too.
+The existing full-route win regression remains intact.
+
+Work remains bounded by capture's existing 8 MiB / 16,384-record / 216,000-tick
+ceilings, with explicit refusal/incomplete errors past the bounds; the regression
+uses default limits and six fixed runs of 10,800 setup ticks plus four frames.
+No runtime work or new agent operation is added. Reproduction patches and logs
+are retained in `~/lanes/gamenext/scratch/C1/`.
