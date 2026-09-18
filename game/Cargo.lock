@@ -787,6 +787,7 @@ dependencies = [
  "exact-game",
  "exact-game-audio",
  "exact-game-bake",
+ "exact-game-physics",
  "exact-game-scene",
  "exact-gpu",
  "glam 0.33.7",
