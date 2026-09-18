@@ -231,21 +231,22 @@ Add `"audio": true` to `game` to include the sound executor; omit it for a silen
 GPU module with no audio dependency. Audio games define sounds in setup and call
 `audio::step(world)` in tick (see `audio/README.md`).
 
-Audio integration is verified on macOS and the web; iOS is built but not driven
-(this machine cannot run iOS today), and interruptions are not handled. AU3c owes
-an `exact_gpu::Surface` visible/hidden lifecycle hook, reached through a GPU module
-entry point after the assets slice lands, so hidden surfaces stop device work and
-Apple suspend/resume and `AVAudioSession` policy can be wired. AU3c also owes the
-`sim.rs` dev-carry fix: preserve the fresh `Sounds` registry and overlay it after
-carry, leaving each serialized voice definition untouched; the regression must
-carry old voice A alongside registry B and prove a new voice uses B. Journal/state
-proof alone does not verify sound: the web needs a trusted gesture, an
-`AudioContext` in `running` state with advancing `currentTime`, and nonzero analyser
-RMS while wind is active; Apple needs stereo frames captured from the real render
-callback, as in `apple_tests`. The opt-in greybox web probe (`EXACT_AUDIO_PROBE=1`)
-now observes trusted resume, a running clock advancing 2.784 s, and wind RMS up to
-0.00280; input before the first frame still needs the live/seekable input plumbing
-outside this slice's permitted edits.
+Audio verification is explicit: the web probe (`bun game/bench/probes/audio.mjs greybox`, or `EXACT_AUDIO_PROBE=1` on its web proof) asserts a trusted first gesture,
+a running context with an advancing clock, and nonzero analyser RMS while wind
+plays. It runs separately from deterministic world/hash checks. macOS tests drive
+the actual callback with fixture buffers; they do not verify device output. The
+AU3c macOS greybox proof could not launch because SwiftPM failed loading
+`BuildServerProtocol`, even with SDK 26 and a native-build wrapper. Audio/render
+Rust libraries build for iOS; iOS has not been driven on this machine.
+
+`Surface::lifecycle` carries visibility and audio interruptions without changing
+simulation; `Surface::clock` supplies ownership before input. Host delivery and
+SurfacePlayer regressions are present, and dev carry preserves fresh definitions
+for new voices while old voices retain theirs. The generated audio hook still
+needs three forwarders in `game/render/src/lib.rs`, outside the supplied AU3c scope;
+first-gesture/lifecycle integration awaits that permission. iOS interruption
+handling is unproven on a device. See `audio/README.md` for the precise bounds and
+remaining integration work.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates

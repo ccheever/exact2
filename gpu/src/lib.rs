@@ -74,8 +74,29 @@ impl Frame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SurfaceError(pub String);
 
+/// Host presentation lifecycle, independent of saved surface data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Lifecycle {
+    /// The surface is no longer shown.
+    Hidden,
+    /// The surface is shown again.
+    Visible,
+    /// The host audio session was interrupted.
+    AudioInterrupted,
+    /// The host audio session interruption ended.
+    AudioResumed,
+}
+
 /// What an app implements per canvas.
 pub trait Surface {
+    /// Device work follows visibility: a hidden chart stops its ticker, a video
+    /// stops decoding, and both resume when shown. This never advances saved
+    /// state; events still arrive when the agent owns the clock.
+    fn lifecycle(&mut self, _event: Lifecycle) {}
+    /// Clock ownership, before first input and whenever it changes. A seekable
+    /// chart/video uses explicit time and must not open a live device.
+    fn clock(&mut self, _seekable: bool) {}
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
     fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError>;
@@ -419,6 +440,7 @@ impl Module {
         self.next += 1;
         let id = self.next;
         let mut surface = factory();
+        surface.clock(self.seekable);
         if presentation.is_some() {
             surface.device_ready();
         }
@@ -463,7 +485,30 @@ impl Module {
 
     /// Set once by an agent host: every frame honours the seekable clock.
     pub fn set_seekable(&mut self, on: bool) {
+        if self.seekable == on {
+            return;
+        }
         self.seekable = on;
+        for inst in self.instances.values_mut() {
+            inst.surface.clock(on);
+            inst.drain();
+        }
+    }
+
+    /// Deliver host lifecycle codes: 0 hidden, 1 visible, 2 interrupted, 3 resumed.
+    /// Unknown codes are ignored, including from a newer host.
+    pub fn lifecycle(&mut self, id: u32, code: u32) {
+        let event = match code {
+            0 => Lifecycle::Hidden,
+            1 => Lifecycle::Visible,
+            2 => Lifecycle::AudioInterrupted,
+            3 => Lifecycle::AudioResumed,
+            _ => return,
+        };
+        if let Some(inst) = self.instances.get_mut(&id) {
+            inst.surface.lifecycle(event);
+            inst.drain();
+        }
     }
 
     /// Whether this canvas asks for raw device input.
@@ -1200,6 +1245,16 @@ pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
+/// A relative path under assets/, using the portable ASCII filename vocabulary.
+pub fn asset_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('/')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
+        && name.split('/').all(|part| part != "..")
+}
+
 #[cfg(test)]
 mod device_loss_tests {
     use super::*;
@@ -1266,14 +1321,4 @@ mod device_loss_tests {
             assert!(!m.dirty(id));
         }
     }
-}
-
-/// A relative path under assets/, using the portable ASCII filename vocabulary.
-pub fn asset_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with('/')
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
-        && name.split('/').all(|part| part != "..")
 }

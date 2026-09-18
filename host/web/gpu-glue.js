@@ -66,7 +66,19 @@ function size(el) {
 // time, and a picture is a function of it), else the frame's.
 const clockFor = (frameNow) => exact.now?.() ?? frameNow;
 
+let hidden = document.hidden;
+function lifecycle(code) {
+  if (code === 0 || code === 1) hidden = code === 0;
+  for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code);
+  if (hidden && !exact.now && raf !== null) { cancelAnimationFrame(raf); raf = null; }
+  if (!hidden) schedule();
+}
+document.addEventListener("visibilitychange", () => lifecycle(document.hidden ? 0 : 1));
+window.addEventListener("pagehide", () => lifecycle(0));
+window.addEventListener("pageshow", () => lifecycle(document.hidden ? 0 : 1));
+
 function render(entry, now) {
+  if (hidden && !exact.now) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
@@ -88,6 +100,7 @@ function render(entry, now) {
 const pace = pacer();
 function frame(now) {
   raf = null;
+  if (hidden && !exact.now) return;
   const at = pace(now);
   let more = false;
   for (const entry of surfaces.values()) {
@@ -100,7 +113,7 @@ function frame(now) {
   if (more && !exact.now) schedule();
 }
 
-function schedule() { if (raf === null) raf = requestAnimationFrame(frame); }
+function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -109,6 +122,7 @@ function create(entry, module, carry) {
   entry.el.height = Math.max(1, Math.round(h * s));
   entry.id = module.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
+  module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
   if (carry !== undefined) {
     if (module.gpu_restore(entry.id, worldSize(carry))) entry.restoredCarry = true;
@@ -187,7 +201,7 @@ function messages(entry) {
   if (texts === undefined) return;
   for (const text of JSON.parse(texts)) {
     if (live(entry.view) !== entry) break;
-    exact.message(entry.host, text);
+    if (text !== "exact:audio") exact.message(entry.host, text);
   }
 }
 function listen(entry) {

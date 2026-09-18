@@ -84,13 +84,15 @@ Apple has 32 fixed voice slots. `start_at`/`set`/`stop` enqueue producer-side wo
 identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
 retain their order and PCM until acknowledged. Published starts occupy at most 32
 slots, including stopped voices awaiting acknowledgement. Up to 32 newer selected
-starts stay in the coalescible producer queue: at the 60 s / 48 kHz / f32 maximum,
-these two windows retain at most 737,280,000 PCM bytes, independent of churn or ring
-length (the Player cache is separate). Stops can pass unpublished starts to release
-capacity; sequence watermarks are assigned at publication. A refused start remains
-inactive in the Player and is retried on the next sync; a full mixer leaves the
-start unconsumed and unacknowledged. `AppleOutput::suspend()`/`resume()` exist but
-have no lifecycle caller, and no `AVAudioSession` is configured: AU3c owes both.
+starts stay in the coalescible producer queue. Across both windows, retained PCM
+has a **32 MiB total byte budget**, counting each shared allocation once. `Pending::start`
+refuses before adding ownership or a command when the next unique allocation does
+not fit. A refusal leaves the Player voice inactive for retry, without changing
+transport. Stops release bytes only after acknowledgement (or immediately when
+cancelling an unpublished start). The Player cache is separate from this budget.
+Stops can pass unpublished starts to release capacity; sequence watermarks are
+assigned at publication. A full mixer leaves a start unconsumed and unacknowledged.
+Finite voices retire on the exact terminal sample step, including silent callbacks.
 The callback allocates nothing, locks nothing, and performs no reference counting.
 It linearly resamples, ramps stereo gains over 10 ms, maps non-finite samples to
 zero, sums linearly and clamps only outside [-1,1]. Quiet/full-scale authored gains
@@ -110,15 +112,30 @@ synthesized GPU shell adds the audio dependency and invokes
 the audio form supplies a small generic presentation hook, so render has no audio
 dependency and no feature switch. No adapter crate is needed.
 
-The surface syncs once after each render's simulation advance, with its presentation
-generation and `!paused`. `SurfacePlayer` opens WebAudio on wasm and AudioUnit on
-Apple lazily, only on a non-seekable frame. Seekable frames use `Player<NullOutput>`
-and close any previous device. A headless surface never renders/opens a device;
-other native targets use NullOutput. Failed device creation retries every 300 live
-sync frames (about five seconds at 60 Hz), with one warning per surface. The
-existing synchronous `gpu_input` call preserves the user gesture, but currently
-carries no live/seekable flag to surface input: unlock before the first render
-still needs that flag threaded through the presentation hook.
+The surface syncs after each render's simulation advance, with its presentation
+generation and `!paused`. `SurfacePlayer` owns a separate live/seekable clock flag:
+a live input can construct WebAudio and invoke resume on the trusted gesture's
+stack before any frame; a seekable input constructs nothing. Seekable frames close
+any previous device. Native headless modules start seekable; other native targets
+use NullOutput. Failed device creation retries every 300 live sync frames, with
+one warning per surface; seekable frames preserve that cooldown.
+
+The GPU seam is `Surface::lifecycle(Lifecycle)` (default no-op), with Hidden,
+Visible, AudioInterrupted and AudioResumed. `gpu_lifecycle(id, code)` maps codes
+0–3 and ignores unknown values. `Surface::clock(bool)` is defaulted and receives
+clock ownership on creation and each change. Neither callback advances simulation.
+Web delivers visibilitychange/pagehide/pageshow; ExactKit delivers app and iOS
+audio-session notifications to every canvas; headless Linux has none to deliver.
+The presentation hook combines hidden/interrupted state before suspending output;
+resume resets playback from the current tick offset with one readiness epoch bump.
+ExactKit recognizes the `exact:audio` surface message and configures/activates one
+process audio session only for a live requesting surface (and reactivates it after
+an interruption). Other hosts consume the request without app dispatch.
+
+The generated `GameAudio` hook in `game/render/src/lib.rs` still needs three
+forwarders (`wants_audio`, `clock`, `suspend`); that file is outside AU3c's supplied
+scope. Until that change is authorized, the SurfacePlayer unit regressions pass,
+but game surfaces do not yet forward these controls or request the Apple session.
 
 ## Synthesis and proof
 
@@ -172,8 +189,8 @@ AU3 diagnostic (64 distinct two-second voices, macOS arm64 dev profile):
 
 Run `cargo test -p exact-game-audio --test player sixty_four_voice_sync_timing -- --ignored --nocapture`.
 The timing is diagnostic, not a threshold. Greybox's 1.5 s forward pin is
-`0x71f8eb47fa04a70c`, position `(0, 0.9, -5.3666644)`, confirmed on macOS arm64
-and the Linux x86-64 builder.
+`0x0f14b8b231091d12`, position `(0, 0.9, -5.3666644)`, matching the current
+native golden and AU3c web deterministic proof.
 
 AU3 web module size (`web` profile, wasm-bindgen, wasm-opt -Oz; gzip level 9):
 693,756 → 818,436 bytes raw; 277,890 → 319,108 bytes gzip. A headed Chrome run
@@ -181,15 +198,29 @@ for ten seconds resumed the context and created a wind source with non-zero PCM,
 but the audio clock stalled at 5.33 ms and analyser RMS stayed zero. Device output
 was **not verified**; the temporary analyser was removed and Chrome closed.
 
-AU3b adds `EXACT_AUDIO_PROBE=1 bun game/games/greybox/proof.mjs web` (from the
-repository root). Its separate live browser injects a bench-only observer before
-boot, records trusted resume calls, context time and analyser RMS alongside wind
-state, and writes `artifacts/audio-web.json`. No GPU module entry point is added.
-Saved registry and voice definitions now refuse invalid synth parameters with a
-`DataError` before replacing the world; authored registration still asserts.
+Run `bun game/bench/probes/audio.mjs greybox` after the web proof, or use
+`EXACT_AUDIO_PROBE=1 bun game/games/greybox/proof.mjs web`. The shortcut closes the
+deterministic session before opening a separate live browser. The probe is under
+`game/bench`, excluded from the proof's build-input digest. It asserts context
+creation/resume on the first trusted input before the first frame, a running
+context with advancing time, nonzero analyser RMS while wind plays, and
+suspension/resumption on page lifecycle events. Evidence goes to
+`game/games/greybox/artifacts/audio-web.json`; the assertions run each time, with
+no dated clock/RMS numbers treated as a contract. Setup and teardown share a
+try/finally, kill the owned Chrome process group, await exit, close server
+connections with a deadline, and remove the profile.
 
-AU3b live web result (2026-09-18): one trusted keydown called resume on the event
-stack; the context reported `running`, `currentTime` advanced 0 → 2.784 s over
-30 samples, and wind's analyser RMS reached 0.0027969. The same samples report
-wind playing in the world's audio sources. This verifies output after a render;
-it does not cover the still-blocked input-before-first-frame ordering.
+All synth numbers must be finite. Duration is 0..=60 seconds and sustain 0..=1.
+Oscillator gain, frequency, vibrato frequency/depth, ADSR times and filter cutoffs
+are nonnegative; slide accepts either sign. Validation recurses through layers and
+applies to both saved registry and saved voice definitions; refused loads leave
+the world unchanged. A dev carry retains each old voice's definition and overlays
+the freshly bound sound registry for subsequent plays.
+
+macOS verification exercises the actual render callback with fixture buffers;
+it does **not** open or capture a device. The AU3c macOS greybox proof was attempted
+with SDK 26 and a native Swift build wrapper, but SwiftPM failed loading
+`BuildServerProtocol` before the host could run. The audio and render Rust libraries
+build for `aarch64-apple-ios`; the notification code also compiles with Xcode's
+matching iOS compiler. The full iOS host was not linked or driven. The lifecycle
+seam supplies interruption handling, which remains unproven on an iOS device.

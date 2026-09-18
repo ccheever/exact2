@@ -857,7 +857,15 @@ impl<G: Game> Sim<G> {
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        self.restore_into(bytes, Some(&args))
+        let sounds = self
+            .world
+            .has_audio()
+            .then(|| self.world.resource::<crate::audio::Sounds>().clone());
+        self.restore_into(bytes, Some(&args))?;
+        if let Some(sounds) = sounds {
+            *self.world.resource_mut::<crate::audio::Sounds>() = sounds;
+        }
+        Ok(())
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {

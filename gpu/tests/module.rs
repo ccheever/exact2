@@ -618,3 +618,65 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     assert!(m.take_messages(id).is_empty());
     assert!(!m.asset(id, "next.bin", None));
 }
+
+#[test]
+fn lifecycle_and_clock_reach_surfaces_without_a_device() {
+    use exact_gpu::{wgpu, Frame, Lifecycle, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Probe {
+        events: Vec<String>,
+    }
+    impl Surface for Probe {
+        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+        fn clock(&mut self, seekable: bool) {
+            self.events.push(format!("clock:{seekable}"));
+        }
+        fn lifecycle(&mut self, event: Lifecycle) {
+            self.events.push(format!("{event:?}"));
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some(self.events.join(","))
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("probe", 0, || Box::new(Probe::default()))],
+        shaders: &[],
+    };
+    let mut m = Module::new(&REGISTRY);
+    let live = m.create_headless("probe").unwrap();
+    assert_eq!(m.agent(live, "").unwrap(), "clock:false");
+    m.set_seekable(true);
+    m.set_seekable(true); // only changes are delivered
+    let agent = m.create_headless("probe").unwrap();
+    for id in [live, agent] {
+        for code in [0, 1, 2, 3, 999] {
+            m.lifecycle(id, code);
+        }
+    }
+    assert_eq!(
+        m.agent(live, "").unwrap(),
+        "clock:false,clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+    );
+    assert_eq!(
+        m.agent(agent, "").unwrap(),
+        "clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+    );
+    m.set_seekable(false);
+    assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
+    exact_gpu::native::load_headless(&REGISTRY);
+    let id = exact_gpu::native::create_headless("probe");
+    assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
+    exact_gpu::native::unload();
+}

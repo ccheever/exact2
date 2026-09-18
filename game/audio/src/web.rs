@@ -15,6 +15,7 @@ pub struct WebOutput {
     context: AudioContext,
     unlocked: Rc<Cell<bool>>,
     unlocking: Rc<Cell<bool>>,
+    activation: Rc<Cell<u64>>,
     // Retain PCM ownership: allocator address reuse cannot alias a cached buffer.
     buffers: BTreeMap<(usize, u32), CachedBuffer>,
     voices: BTreeMap<u64, Voice>,
@@ -27,6 +28,7 @@ impl WebOutput {
             context,
             unlocked: Rc::new(Cell::new(false)),
             unlocking: Rc::new(Cell::new(false)),
+            activation: Rc::new(Cell::new(0)),
             buffers: BTreeMap::new(),
             voices: BTreeMap::new(),
         })
@@ -36,6 +38,18 @@ impl WebOutput {
         wasm_bindgen_futures::JsFuture::from(self.context.resume()?).await?;
         self.unlocked.set(true);
         transport.generation = transport.generation.wrapping_add(1);
+        Ok(())
+    }
+    /// Stop device time while hidden or interrupted.
+    pub fn suspend(&mut self) -> Result<(), JsValue> {
+        self.activation.set(self.activation.get().wrapping_add(1));
+        self.unlocking.set(false);
+        self.unlocked.set(false);
+        self.context.suspend().map(|_| ())
+    }
+    /// Resume device time; SurfacePlayer observes readiness and bumps the epoch.
+    pub fn resume(&mut self) -> Result<(), JsValue> {
+        Output::unlock(self);
         Ok(())
     }
     fn begin(
@@ -96,9 +110,15 @@ impl Output for WebOutput {
         };
         let unlocked = self.unlocked.clone();
         let unlocking = self.unlocking.clone();
+        let activation = self.activation.clone();
+        let generation = activation.get().wrapping_add(1);
+        activation.set(generation);
         wasm_bindgen_futures::spawn_local(async move {
-            unlocked.set(wasm_bindgen_futures::JsFuture::from(promise).await.is_ok());
-            unlocking.set(false);
+            let ready = wasm_bindgen_futures::JsFuture::from(promise).await.is_ok();
+            if activation.get() == generation {
+                unlocked.set(ready);
+                unlocking.set(false);
+            }
         });
     }
     fn ready(&self) -> bool {

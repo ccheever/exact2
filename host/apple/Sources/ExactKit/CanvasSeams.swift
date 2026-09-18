@@ -5,6 +5,7 @@ import Foundation
 import AppKit
 #else
 import UIKit
+import AVFAudio
 #endif
 
 extension NodeView {
@@ -155,6 +156,7 @@ extension Canvases {
         }
         for text in texts {
             guard live(e.view.id) === e else { break }
+            if text == "exact:audio" { CanvasAudio.activate(); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }
@@ -339,4 +341,76 @@ extension Canvases.Entry {
     func needsFrame(dirty: Bool, editing: Bool = false) -> Bool {
         id != 0 && presentable && (wants || dirty || editing)
     }
+}
+
+// ExactKit owns session policy once per process, only after a live surface asks.
+private enum CanvasAudio {
+    nonisolated(unsafe) static var active = false
+    nonisolated(unsafe) static var wanted = false
+    nonisolated(unsafe) static var configured = false
+    static func activate() {
+        guard !ExactEnv.agentMode else { return }
+        wanted = true
+        guard !active else { return }
+        #if os(iOS)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            if !configured { try session.setCategory(.ambient); configured = true }
+            try session.setActive(true)
+        } catch { fputs("exact audio session: \(error)\n", stderr); return }
+        #endif
+        active = true
+    }
+}
+
+/// Every canvas gets notifications even when its session uses the agent clock.
+final class CanvasLifecycle: NSObject {
+    weak var owner: Canvases?
+    private(set) var hidden = false
+    private var interrupted = false
+    init(_ owner: Canvases) {
+        self.owner = owner
+        super.init()
+        let center = NotificationCenter.default
+        #if os(macOS)
+        hidden = NSApplication.shared.isHidden
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification] {
+            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
+        }
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
+            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        }
+        #else
+        hidden = UIApplication.shared.applicationState == .background
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
+        }
+        for name in [UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
+            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        }
+        center.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
+        #endif
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+    func deliver(_ id: UInt32) {
+        owner?.module?.lifecycle?(id, hidden ? 0 : 1)
+        if interrupted { owner?.module?.lifecycle?(id, 2) }
+    }
+    private func send(_ code: UInt32) {
+        guard let owner, let module = owner.module else { return }
+        for entry in Array(owner.entries.values) where entry.id != 0 { module.lifecycle?(entry.id, code) }
+        if code == 1 { owner.session?.frames.requestCanvas() }
+    }
+    @objc private func hide() { hidden = true; send(0) }
+    @objc private func show() { hidden = false; send(1) }
+    #if os(iOS)
+    @objc private func interruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        interrupted = type == .began
+        if interrupted { CanvasAudio.active = false }
+        else if CanvasAudio.wanted { CanvasAudio.activate() }
+        send(interrupted ? 2 : 3)
+    }
+    #endif
 }

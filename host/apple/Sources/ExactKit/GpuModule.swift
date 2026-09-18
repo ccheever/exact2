@@ -72,6 +72,9 @@ final class GpuModule {
     typealias ClearShadersFn = @convention(c) () -> Void
     typealias ShaderFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> UInt32
 
+    typealias LifecycleFn = @convention(c) (UInt32, UInt32) -> Void
+    var lifecycle: LifecycleFn?
+
     typealias SeekableFn = @convention(c) (Bool) -> Void
 
     let wantsInput: WantsFn?
@@ -138,6 +141,7 @@ final class GpuModule {
         }
         let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), published: sym("gpu_published", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
+        module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         if ExactEnv.agentMode { sym("gpu_seekable", SeekableFn.self)?(true) }
