@@ -127,14 +127,33 @@ an observation with timing uncertainty rather than a precise rendering tail.
 `origin/main` at `7e77aaf1` adds warm paragraph ink indexing, bounded cache
 maintenance, paragraph identities and Apple scalar-measurement reuse. Its
 cold AppKit background paragraph path is opt-in for Markdown Stress and is
-not automatically enabled in this reader. Integration with this checkout is
-integrated in `exact2-wt-markdown-origin`; the measurements above still
-identify the previous frozen binaries. The combined Mac Release build, 227 core
+not automatically enabled in this reader. The integration is committed as `0d32840c` in
+`exact2-wt-markdown-origin`; the measurements above still identify the previous
+frozen binaries. The combined Mac Release build, 227 core
 unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
 tests, strict host/compiler Clippy, formatting, caps and boot pass. Physical
 launch validation is still pending: the driver was sampled blocked inside
 macOS `posix_spawn`, before an app PID or ready reply. The original shared checkout remains
-recoverable as snapshot `2c765e80`.
+recoverable as snapshot `2c765e80`. The whole-workspace build subsequently
+found a browser worker dispatch call still expecting decoded JSON after the
+upstream byte-transport change. Commit `8137210c` decodes that response; the
+three browser-module tests, targeted strict Clippy, formatting, caps and boot
+pass. Whole-workspace build/test/lint completion remains pending.
+
+A minimal optimized Swift/AppKit Hello World app was also measured after
+Charlie asked for the native baseline: one `NSTextField`, no document loading
+or Exact code, and a 900×700 outer window. Thirty fresh processes with warm
+filesystem caches produced 233 ms median / 259 ms p95 until the window was
+observed, and 305 ms median / 330 ms p95 until a screenshot matched the label.
+The capture call itself took a median 68 ms. The reference was visually
+checked, and the observer requires dark text pixels as well as the body match
+so a blank window cannot pass. These are capture observations, not exact
+presentation timestamps. Both Exact and Legend stalled in fresh pilot launch
+calls during this run, so the Hello World numbers are **not a paired overhead
+comparison** with the earlier 224–275 / 249–282 ms reader medians. Machine
+activity and the different run time prevent subtracting them or claiming
+Exact is faster than Hello World. `probe/hello-world/{summary,runs}.json`,
+its Swift sources, build commands and verified reference retain the evidence.
 
 The comparison target is [Legend Markdown](https://github.com/LegendApp/legend-apps/tree/2b7b91d949cf873ddef7ea0dde892ddd51944501/apps/markdown),
 pinned to `2b7b91d949cf873ddef7ea0dde892ddd51944501`. Its ARM64 Release
