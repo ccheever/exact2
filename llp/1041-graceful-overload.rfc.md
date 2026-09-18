@@ -3641,3 +3641,78 @@ force layout, and the temporary map/string work has a cost. A fresh matched
 runtime comparison remains outstanding. Evidence:
 `target/web-collection-read-reuse-validation/freeze-v1/`, artifact manifest
 `d87d34a2a8488619299f1f16a6dd6d23c0ebe80ef246b49d415825e14632dbfb`.
+
+### 8.54 Linux pending-flip control recorder refusal, 2026-09-18
+
+The first paired 1MiB display experiment for §8.50 stopped in its BEFORE arm.
+Both fresh references passed, but the control reached the final passive timing
+fence with an incomplete observer batch. The AFTER arm was not launched. This
+is an overall failed control and no paired performance result.
+
+The raw journal has 1,000 contiguous events and 155 UI-turn batches containing
+exactly 4,096 spans. Earlier batches report no recorder failure. Turn154/input48
+reaches the cumulative bound with fourteen rows; its LoopTail span then attempts
+an Images child before flushing. That ordinary call meets the exhausted total
+limit. Maximum recorded per-turn use is 217/256 and nesting is 6/32. The observer
+refuses and panics; missing spans cannot be reconstructed as zero-cost work.
+
+Picture33 has already received an installed, live-clean ACK with zero queued
+work, but that does not make its incomplete timing batch valid. The saved final
+fence remains failed, even though image files and earlier proofs are available.
+Failure cleanup sends SIGTERM then SIGKILL; exit -9 is not evidence of OOM or a
+production pending-flip crash. All recorded guest/Mac processes and groups retire.
+The fixed VKMS display is 60Hz; no physical 120Hz or treatment gain follows.
+
+A separate source-only correction is being tested: 8,192 cumulative spans in
+both arms and analyzers, retaining the same 256-row native buffer, depth32,
+line/event/byte limits and complete final-picture fence. No timing filter or
+workload reduction is proposed. A latent AFTER binding mismatch also needs its
+exact 1MiB receiver port guard to agree with the already assigned port5940;
+BEFORE remains5939. Neither correction changes this failed record.
+Evidence: `target/pending-flip-observer-runtime-before-1m-v1/`, manifest
+`d6c54d21c4273cde3aa8637db3ebe23c390ee30b538f2bab9ed78388702c7b25`.
+
+### 8.55 First fresh Web collection-read A/B trace, 2026-09-18
+
+Two fresh cells compare §8.53 with the same immutable `834d4993` Wasm, plan,
+Reusable factory and §8.52 trace/driver. Only served `navigation.js` differs;
+the unserved build marker updates that file's hash/size. Both pass functional
+checks, lossless trace capture and offline attribution, with all 10,000 rows,
+actual batch32, silent revision0→8, loaded8→16 and recovery16. There is no retry
+or reuse of the historical trace as a timing arm.
+
+| Fixed window | Before tasks / wall union ms / max ms | After tasks / wall union ms / max ms |
+| --- | ---: | ---: |
+| Idle | 339 / 106.139 / 5.873 | 324 / 96.937 / 6.172 |
+| Load | 313 / 130.677 / 8.045 | 333 / 137.478 / 5.925 |
+| Recovery | 298 / 75.387 / 3.902 | 283 / 82.786 / 4.278 |
+
+Every cohort has zero fully contained tasks above8.333ms, including the fresh
+control. The five historical misses in §8.52 therefore cannot be used to claim
+that the change removed them. Total observed task time is mixed: lower at idle,
+higher during load and recovery. One pair does not establish a gain or regression.
+
+Each loaded arm records eight key-bearing updates, 109nodes/32keys each, but
+six advance/two resize parents become eight advance/zero resize parents. The
+Web host's resize entry drains due timers. The control's two heavy resize exports take
+3.5/3.7ms; every treatment resize export is at most0.2ms, with producer work in
+advance callbacks instead. Loaded resize-containing task union37.543→27.071ms
+and maximum8.045→3.979ms consequently do not isolate the geometry-read change.
+The full task cohorts above retain that work instead of selecting only resize.
+
+Both cells retain all72 offers/24 input echoes. Loaded boundary geometry agrees;
+idle ending scrollTop differs by24px, and idle/recovery resize-task counts are
+8→7. Existing snapshots are not full row/glyph/pin equality. Export/task joins
+remain partial:110/201 versus85/202 overall. Overlapping script/layout/paint
+families and clock uncertainty are not additive CPU or JSON/application costs.
+Both loaded traces contain32 layout spans; fewer DOM API reads do not imply fewer
+layouts. Crossing, quantized-zero and unscored/cold/primer/silent records remain.
+
+The captures contain13,932,071/13,438,490 bytes,55/53 bounded stream reads,
+explicit no loss/EOF/close, and60,910/58,759 events. All five recorded processes,
+both groups and both private ports retire. The source change is supported by
+its correctness/read-count tests; this pair supplies no demonstrated speedup,
+physical120Hz or latency-tail guarantee. Trace overhead remains uncalibrated,
+and the known display remains60Hz. Evidence:
+`target/web-collection-read-reuse-trace-cell-v1/`, manifest
+`6f45517f54c8e62a49e81497a9994c8fe10691488470f612c5dc14474d45ccac`.
