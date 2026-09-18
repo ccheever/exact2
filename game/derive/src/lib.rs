@@ -8,10 +8,14 @@ use proc_macro::{Delimiter, Spacing, TokenStream, TokenTree};
 mod kind;
 
 /// Generate a component bundle and shared/exclusive row views over existing storage.
-#[proc_macro_derive(Kind, attributes(read))]
+#[proc_macro_derive(Kind, attributes(read, child))]
 pub fn kind(input: TokenStream) -> TokenStream {
     match kind::expand(input) {
-        Ok(s) => s.parse().expect("Kind derive emitted Rust"),
+        Ok(s) => s.parse().unwrap_or_else(|_| {
+            r#"compile_error!("Kind could not generate valid Rust");"#
+                .parse()
+                .unwrap()
+        }),
         Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
     }
 }
@@ -39,6 +43,7 @@ struct Field {
     skip: bool,
     ty: TokenStream,
     shared: bool,
+    child: Option<(String, String)>,
 }
 struct Body {
     fields: Vec<Field>,
@@ -72,6 +77,12 @@ fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], bool), Stri
             let a: Vec<_> = g.stream().into_iter().collect();
             if !field && a.first().is_some_and(|t| t.to_string() == "live") {
                 return Err("live attribute is only meaningful on a field".into());
+            }
+            if a.first().is_some_and(|t| t.to_string() == "read") && (!field || a.len() != 1) {
+                return Err("expected #[read] on a Kind field, without arguments".into());
+            }
+            if !field && a.first().is_some_and(|t| t.to_string() == "child") {
+                return Err("child attribute belongs on a Kind component field".into());
             }
             if a.first().is_some_and(|t| t.to_string() == "data") {
                 if !field {
@@ -150,6 +161,31 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
             punct(&w[0], '#')
                 && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "read")
         });
+        let mut child = None;
+        for pair in f.windows(2) {
+            if punct(&pair[0], '#') {
+                if let TokenTree::Group(g) = &pair[1] {
+                    let a: Vec<_> = g.stream().into_iter().collect();
+                    if a.first().is_some_and(|t| t.to_string() == "child") {
+                        let expected = "expected #[child(\"name\", saved_id_field)] exactly once";
+                        let Some(TokenTree::Group(args)) = a.get(1) else {
+                            return Err(expected.into());
+                        };
+                        let args: Vec<_> = args.stream().into_iter().collect();
+                        if child.is_some()
+                            || a.len() != 2
+                            || args.len() != 3
+                            || !punct(&args[1], ',')
+                            || !matches!(&args[0], TokenTree::Literal(l) if l.to_string().starts_with('"'))
+                            || !matches!(&args[2], TokenTree::Ident(_))
+                        {
+                            return Err(expected.into());
+                        }
+                        child = Some((args[0].to_string(), args[2].to_string()));
+                    }
+                }
+            }
+        }
         let (f, skip) = strip(f, true)?;
         let name = if shape == Shape::Named {
             if !matches!(f.first(), Some(TokenTree::Ident(_)))
@@ -167,6 +203,7 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
             skip,
             ty: f[start..].iter().cloned().collect(),
             shared,
+            child,
         });
     }
     Ok(Body { fields, shape })
@@ -271,8 +308,19 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     };
     let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
+        let saved_fields = if marker == "Component" && kind == "struct" {
+            let fields = body(tokens.get(2))?.fields;
+            let names: Vec<_> = fields
+                .iter()
+                .filter(|f| !f.skip)
+                .map(|f| clean(&f.name))
+                .collect();
+            format!("const SAVED_FIELDS: &'static [&'static str] = &{names:?};")
+        } else {
+            String::new()
+        };
         out += &format!(
-            "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
+            "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; {saved_fields} }}",
             clean(&name)
         );
     }

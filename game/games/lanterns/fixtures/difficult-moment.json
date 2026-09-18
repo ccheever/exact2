@@ -145,6 +145,10 @@
       },
       "lantern-12": {
         "Lantern": {
+          "bulb": {
+            "generation": 0,
+            "index": 51
+          },
           "glow": {
             "config": {
               "damping": 10.0,
@@ -398,7 +402,7 @@
         }
       }
     },
-    "hash": "0x177327a8a3a73455",
+    "hash": "0xd0e9ddcb00cc03bf",
     "input": {
       "actions": {
         "jump": {
@@ -616,10 +620,32 @@
       "assets": {
         "Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7"
       },
-      "digest": "35fdc6ef06f327972b945e8c561a3e2566d9df03145b9430d86c5df6b09e7911"
+      "digest": "b65d963aaaa6e99b5287e5d5fb3ca634e216e381d7ba3e786a1fe7a78c6926e4"
     },
     "tick": 192,
     "timer": {
+      "actors": {
+        "fox": {
+          "generation": 0,
+          "index": 53
+        },
+        "fox_pose": {
+          "generation": 0,
+          "index": 53
+        },
+        "hero": {
+          "generation": 0,
+          "index": 52
+        },
+        "stride": {
+          "generation": 0,
+          "index": 52
+        },
+        "sun": {
+          "generation": 0,
+          "index": 55
+        }
+      },
       "elapsed": 192,
       "jump_press": 0,
       "light_press": 0,
@@ -769,6 +795,10 @@
       },
       "lantern-12": {
         "Lantern": {
+          "bulb": {
+            "generation": 0,
+            "index": 51
+          },
           "glow": {
             "config": {
               "damping": 10.0,
@@ -1017,7 +1047,7 @@
         }
       }
     },
-    "hash": "0xec3b43cc9f709c4c",
+    "hash": "0x5f86d9bd7ae89caf",
     "input": {
       "actions": {
         "jump": {
@@ -1245,10 +1275,32 @@
       "assets": {
         "Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7"
       },
-      "digest": "35fdc6ef06f327972b945e8c561a3e2566d9df03145b9430d86c5df6b09e7911"
+      "digest": "b65d963aaaa6e99b5287e5d5fb3ca634e216e381d7ba3e786a1fe7a78c6926e4"
     },
     "tick": 225,
     "timer": {
+      "actors": {
+        "fox": {
+          "generation": 0,
+          "index": 53
+        },
+        "fox_pose": {
+          "generation": 0,
+          "index": 53
+        },
+        "hero": {
+          "generation": 0,
+          "index": 52
+        },
+        "stride": {
+          "generation": 0,
+          "index": 52
+        },
+        "sun": {
+          "generation": 0,
+          "index": 55
+        }
+      },
       "elapsed": 225,
       "jump_press": 0,
       "light_press": 0,
@@ -1273,8 +1325,8 @@
     }
   ],
   "reproduction_hashes": [
-    "0xec3b43cc9f709c4c",
-    "0xec3b43cc9f709c4c"
+    "0x5f86d9bd7ae89caf",
+    "0x5f86d9bd7ae89caf"
   ],
   "spring_sample": {
     "value": 0.3402998447418213,

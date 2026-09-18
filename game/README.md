@@ -30,133 +30,89 @@ canvas children are the HUD, a placement is a sign in the world.
 
 ## The programming model
 
-Start with **kinds**: named bundles over the existing component columns. A kind
-adds no tag, storage, save bytes, or agent fields. The derive emits `HeroRef<'w>`
-and `HeroMut<'w>` with named guarded fields and a typed `id`; nongeneric input
-structs contain 1–8 distinct component types. `Option<Component>` makes a field
-optional. `#[read]` keeps that field shared even in an editing row.
+Gameplay code uses **kinds**: named joins over component columns. Engine-level
+component access is shown second below. A kind adds no tag or storage; saved
+binding IDs live in the component or resource that owns them. The derive accepts
+1–8 distinct component types, with at least one required field. `Option<Component>`
+is optional; spell it directly, since aliases of Option are unsupported. `#[read]`
+keeps a field shared in an editing row. Identical type spellings fail to compile;
+aliases of the same component fail a TypeId preflight before spawning or leasing.
 
-All Rust examples here run as doc-tests with `cargo test --doc -p exact-game`.
+All Rust examples run as doc-tests with `cargo test --doc -p exact-game`.
 
 ```rust
 use exact_game::character::Character;
 use exact_game::*;
-
 #[derive(Default, Component)]
 struct Player { character: Character }
-#[derive(Default, Component)]
-struct Beacon { lit: bool, glow: Spring }
 #[derive(Kind)]
 struct Hero { player: Player, transform: Transform }
-#[derive(Kind)]
-struct Light {
-    #[read]
-    transform: Transform,
-    beacon: Beacon,
-    material: Material,
-}
-#[derive(Default, Args)]
-struct Options { seed: u64, #[live] paused: bool, round: u32 }
-struct SmallGame;
-impl Game for SmallGame {
-    const ID: &'static str = "small-game";
-    type Args = Options;
-    fn actions() -> Actions {
-        Actions::new().stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"]).button("jump", &["Space"])
-    }
-    fn setup(w: &mut World, args: &Options) {
-        w.reseed(args.seed);
-        let hero = w.spawn_kind("player", Hero {
-            transform: Transform::at(0.0, 0.9, 0.0),
-            player: Player { character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6) },
-        });
-        // IDs erase explicitly when calling engine APIs that take Entity.
-        w.insert(hero.entity(), Mesh::capsule(0.4, 1.8));
-        w.insert(hero.entity(), Material::rgb(0.8, 0.4, 0.1));
-        for (i, x) in [2.0, 6.0].into_iter().enumerate() {
-            let light = w.spawn_kind(format!("beacon-{}", i + 1), Light {
-                transform: Transform::at(x, 0.7, 0.0),
-                beacon: Beacon::default(), material: Material::default(),
-            });
-            w.insert(light.entity(), Mesh::sphere(0.5));
-        }
-    }
-    fn paused(args: &Options) -> bool { args.paused }
-    fn tick(w: &mut World, input: &Input, _: &Options) {
-        let hero: Id<Hero> = w.the::<Hero>(); // Exactly one, or a panic naming Hero.
-        let position = w.edit(hero, |h: &mut HeroMut| {
-            h.player.character.step(&mut h.transform, input.stick_xz("move"), input.pressed("jump"), w.dt());
-            h.transform.position
-        }); // Leases end at the call boundary.
-        let mut count = 0;
-        for mut row in w.rows_mut::<Light>() { // One lease per column for the loop.
-            let d = row.transform.position - position;
-            if Vec2::new(d.x, d.z).length_squared() <= 2.25 && input.pressed("light") && !row.beacon.lit {
-                row.beacon.lit = true;
-                row.beacon.glow.set_target(w.now(), 1.0);
-            }
-            row.material.emissive = [row.beacon.glow.value(w.now()) * 3.0; 3];
-            count += u32::from(row.beacon.lit);
-        }
-        w.publish("lit", count);
-    }
-}
-let mut game = Sim::<SmallGame>::new(Options { seed: 7, ..Options::default() }).unwrap();
-game.hold("KeyD", 500.0);
-assert!(game.settle());
-game.tap("KeyE");
-game.run(100.0);
-let light: Id<Light> = game.world().bind("beacon-1")?;
-let a = game.world().row(light)?;
-let b = game.world().row(light)?; // Shared rows coexist; reads never dirty pages.
-assert!(a.beacon.lit && b.beacon.lit);
+let mut world = World::new(60, 7);
+let hero = world.spawn_kind("player", Hero {
+    player: Player::default(), transform: Transform::at(0.0, 0.9, 0.0),
+});
+world.edit(hero, |h| h.transform.position.x = 2.0);
+let a = world.row(hero)?;
+let b = world.row(hero)?;
+assert_eq!(a.transform.position, b.transform.position);
 # Ok::<(), KindError>(())
 ```
 
-`row(id) -> Result<K::Ref<'_>, KindError>` checks liveness and required components.
-`bind::<K>(name_or_entity) -> Result<Id<K>, KindError>` gives the same check to
-entities instantiated by `exact-game-scene`; errors name the kind and missing
-component. `Id<K>` is `Copy` without requiring K to be Copy, and its `Data` bytes
-and JSON are exactly `Entity`'s. A decoded ID is checked when used. `edit(id, f)`
-and `with_row(id, f)` are closure forms for established game invariants: they
-panic with the same diagnostic if an ID becomes stale or incomplete.
-`rows::<K>()` and `rows_mut::<K>()` visit entity order; `.one()` accepts zero or
-one row and refuses ambiguity. `the::<K>()` requires exactly one. Membership is
-structural: kinds with the same required components select the same entities.
+`spawn_kind<K>(&mut self, name, value: K) -> Id<K>` creates components.
+`bind<K>(&self, name_or_entity) -> Result<Id<K>, KindError>` is the setup boundary
+for scene entities and saved child bindings. `row(id) -> Result<K::Ref<'_>, KindError>`
+is shared access; `edit(id, f) -> R` releases editing leases when its closure returns.
+The redundant `with_row` entry point is removed. Generated views have the kind's
+visibility and live in an anonymous scope, so user types named `HeroRef`/`HeroMut`
+do not collide; use inferred closures or `<Hero as Kind>::Ref<'_>` in signatures.
 
-Resolve named children once and retain the typed result in an existing component
-or resource. `child::<K>(parent, "bulb")` checks both the kind and the direct Parent
-relation. Names stay unchanged for agent targets such as `world:lantern-7/bulb`.
+`rows::<K>()` / `rows_mut::<K>()` visit entity order, with one lease per column.
+`.one()` permits zero rows; `the::<K>()` requires exactly one. Match the join to
+what the operation needs: Beacons scans Transform + Beacon, edits selected IDs,
+then updates Material with a separate read-only Beacon + mutable Material join.
+A no-op mutable lease still dirties pages. Lease conflicts name the operation,
+kind, entity and component; overlapping nested edits also name the outer edit.
+Drop rows before another operation on an overlapping column.
+
+Declare a child on its owning component field. Here `#[child("bulb", bulb)]`
+means “the saved `lantern.bulb` field binds the direct child named bulb.” The field
+must be an ordinary saved `Id<Bulb>`, never `#[data(skip)]`.
 
 ```rust
 use exact_game::*;
 #[derive(Kind)] struct Bulb { light: PointLight }
-#[derive(Default, Component)] struct Lantern {
-    // Derived binding: rebuild once after loading, preserving existing wire data.
-    #[data(skip)] bulb: Id<Bulb>,
+#[derive(Default, Component)] struct Lantern { bulb: Id<Bulb> }
+#[derive(Kind)] struct Lamp {
+    #[child("bulb", bulb)]
+    lantern: Lantern,
 }
-#[derive(Kind)] struct Lamp { lantern: Lantern }
 let mut world = World::new(60, 0);
-let lamp = world.spawn_kind("lantern-7", Lamp { lantern: Lantern::default() });
+// Spawn children before their parent; spawn_kind installs the Parent edge.
 let bulb = world.spawn_kind("lantern-7/bulb", Bulb { light: PointLight::default() });
-world.insert(bulb.entity(), Parent(lamp.entity()));
-let bound = world.child::<Bulb>(lamp, "bulb")?;
-world.edit(lamp, |l| l.lantern.bulb = bound);
-let bulb = world.with_row(lamp, |l| l.lantern.bulb);
+let lamp = world.spawn_kind("lantern-7", Lamp { lantern: Lantern::default() });
+assert_eq!(world.row(lamp)?.lantern.bulb, bulb);
 world.edit(bulb, |b| b.light.intensity = 5.0);
 # Ok::<(), KindError>(())
 ```
 
-Ordinary ID fields are saved as entities. Use `#[data(skip)]` only for bindings
-that can be reconstructed from saved state; Lanterns caches its bindings in
-Session/Lantern and rebuilds them on first use after restore. No per-tick name
-formatting or lookup is needed. `edit_resource::<Session, _>(f)` similarly releases
-the resource lease at return. All editing leases still lock entire columns;
-read or edit another row of the same column after the call, or use a single row
-iterator for multiple entities. Holding a row past iteration keeps its leases alive.
+For an instantiated scene, `bind::<Lamp>("lantern-7")` fills a default child ID
+and validates its Parent edge. An existing saved ID is never retargeted by name.
+Every row access validates generation, required child components and Parent;
+a stale ID fails identically live and restored, naming the owning field. Tick
+paths never resolve or rebuild child bindings. Actor IDs are likewise saved in
+Session and resolved during setup. `Id<K>: Data` has exactly Entity's encoding.
+`edit_resource::<Session, _>(f)` releases the resource lease at return.
 
-The raw layer remains available for engine code and ad hoc component access:
+Work bounds: at most eight components and eight direct child checks per row;
+child checks do not recursively traverse bindings. A single bind uses indexed
+name lookup. Iteration and singleton search scan at most 200,000 entity slots,
+including dead slots, and explicitly refuse larger worlds before acquiring
+leases. Child-bearing iterators validate the matching rows before mutable leases;
+ordinary kinds need no extra entity scan. TypeId uniqueness takes at most 28
+comparisons. The 200k interleaved/churn regression checks every returned row and
+the over-limit error; it cannot pass with an empty iterator.
+
+Engine-level component access (`get`, `get_mut`, `query`) is for engine modules:
 
 ```rust
 use exact_game::*;
@@ -471,18 +427,53 @@ physics, follow, audio and observation, with W held and sound enabled:
 cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test timing tick_10k_median -- --ignored --nocapture
 ```
 
-The T3b Linux comparison in the same dev/test profile measured 38.409 µs before
-and 38.565 µs after (+0.4%; shared-machine timing, no demonstrated speedup).
-These paired samples preceded the builder's switch to zero debug information
-and disabled incremental compilation. Lanterns' `src/lib.rs` went from 621 to
-557 lines and 28 to 9 `unwrap()` calls; its new 63-line kind/binding module makes
-620 lines combined. Beacons stayed at 145 lines and went from 1 to 0 `unwrap()`
-calls. Both tick paths have zero `unwrap()`/`expect`, lease-scoping blocks, or
-repeated entity-name lookups; Lanterns rebuilds cached bindings once after load.
-The new 60-line timing/regression test is separate from those source counts.
-The regression test pins the original Lanterns hashes at ticks 0, 60 and 180;
-`EXACT_KIND_BASELINE=<directory>` additionally compares complete world saves
-against `lanterns-<tick>.world` captures from the original implementation.
+T3b2 saves gameplay IDs explicitly and removes the lazy Lanterns binding module.
+Both games have committed before-change world fixtures for ticks 0, 60 and 180;
+normal tests compare complete bytes. Lanterns' comparison adds only the approved
+saved IDs and updated scene identity to its pre-binding fixture before comparing.
+M3 reran that pre-binding game with EXPHYS v2 in all three paranoid modes to
+regenerate ticks 60/180; tick zero and the Beacons captures remain byte-identical. No
+fixture directory environment variable is needed. Both games also restore and
+advance after every tick; immediate comparisons cover world bytes, and following
+ticks compare complete Sim saves (restore clears consumed input edges).
+
+T3b2 verification on the merged `9bd587bffaa3a74a6293153593fc1df78f5d351f`
+trunk: **493 Rust tests pass, 1 fails, 15 ignored**. Do not ship this lane yet.
+The active Lanterns restore-every-tick test diverges on its first continuation
+(loop index 1): live world hash `f2e496b15441b4e5`, restored
+`b981f5010ceaad9d`; complete world bytes also differ. Three fix rounds stopped,
+the failing assertion remains, and `QUEUE.md` records the reproducer. Beacons'
+180-tick restore continuation and both games' partial-entity/idle-page tests pass.
+The child replacement regression separately proves identical live/restored errors
+and bytes. No cause is claimed for the remaining continuation failure.
+
+Game workspace Clippy (`-D warnings`) and formatting pass. Bun is **55/2**:
+the generated-game browser launch needs Chrome, and the feel probe needs its
+60/120 Hz web bakes. All Linux proofs pass: Beacons **54**, Greybox **62**,
+Lanterns **8**, asset-fixture **7** assertions (131 total). Their elapsed times,
+including builds, were 71.747 / 21.466 / 54.057 / 19.408 seconds respectively;
+see the run logs for the actual build breakdown. GPU pixels, browser and Apple
+runtime execution remain unverified. Full root build/test/Clippy are blocked by
+the absent lean Hermes executor; root formatting passes.
+
+Source counts (`logic/src/lib.rs`, including inline tests): Lanterns **634 lines,
+9 `unwrap()` and 8 `expect()`**; Beacons **159 lines, 0 `unwrap()` and 2
+`expect()`**. Lanterns' separate 63-line kind/binding module is deleted (previous
+combined count: 620). Both game tick call paths contain zero `unwrap()`,
+`expect()` or panic-substituting `unwrap_or_else`; setup binds the saved IDs.
+Five fresh 10,000-tick samples in the optimized dev/test profile, with held W:
+Lanterns **167.818 µs/tick** median (range 165.775–196.900), Beacons
+**1.896 µs/tick** (1.397–1.935). These are shared-machine diagnostics, not a
+paired performance claim against the earlier T3b measurements.
+
+Only Lanterns pins changed: saved `Lantern.bulb`, saved `Session.actors`, and
+the scene digest of the newly saved default ID. The three world hashes at
+0/60/180 are `a778d065d6cea372`, `8f7cfe89cd32bdef`, `ecf7e7cab49ab213`.
+[Every changed pin, with file:line and old → new](games/lanterns/fixtures/binding-hash-changes.txt)
+includes the 609 existing difficult-moment hash occurrences as well as these
+three pins. The two difficult-moment binary saves grew by 1,160 bytes each;
+all existing non-hash gameplay fields in the JSON/JSONL fixtures compare equal.
+The committed before-change fixtures themselves remain unchanged.
 
 A world's observation starts `Unknown`, also after rebuilding, restoring, live
 advancement, queued input, or live argument changes; every mutable storage lease invalidates the sample. Unknown is not quiescent.
@@ -1281,3 +1272,23 @@ No GPU adapter, Chrome or Apple SDK is available here. GPU preparation/upload
 counts, mirrored pixels, physical presentation/audio and Swift runtime execution
 are unverified; device-dependent Rust tests can return early. The mixed embedded
 GLB/declared-model preparation test is retained for a device-equipped host.
+
+
+## Five-lane integration (M3, 2026-09-18)
+
+T2, T4, T1b2 and T3b2 now coexist. The unchanged Lanterns 180-tick restore
+regression passes with EXPHYS v2, confirming the incomplete Rapier snapshot
+hypothesis without a typed-kind workaround. Paranoid reconstruction preserves
+the live phase, display period, batch horizon and T2 reload report; I3 asserts
+that report across the entire continuation in Off, Save and FreshGame.
+
+Saved child IDs intentionally refuse replacement rather than silently rebinding.
+The inherited cached-child regression now requires the same named generation
+refusal in all three modes, alongside T3b2's unchanged live/restored byte/error
+parity regression. No position or gameplay assertion was removed.
+
+The combined tick 0/60/180 hashes are `a778d065d6cea372`,
+`8d712ef8ea7aa587`, `264947d99e722167`; all three modes agree on complete saves.
+I3's own `EXACT_I3_RECORD=1` test regenerated both EXSIM snapshots, moment JSON
+and 605 continuation rows. Both paranoid modes then compared those exact files
+without recording. The 612-entry binding-hash inventory reflects both changes.

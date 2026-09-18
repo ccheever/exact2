@@ -21,6 +21,7 @@ impl<G: Game> Sim<G> {
         let bytes = self.save();
         let host = self.last_us;
         let recorder = self.recorder.take();
+        let reload = std::mem::take(&mut self.reload);
         let observations = std::mem::take(&mut self.observations);
         let delay = self.settle_delay.get();
         let pending = self.world.published_pending.get();
@@ -69,6 +70,7 @@ impl<G: Game> Sim<G> {
             self.lookahead_us_hz,
         ) = live_clock;
         self.recorder = recorder;
+        self.reload = reload;
         self.observations = observations;
         self.settle_delay.set(delay);
         self.last_epoch.set(self.world.mutation_epoch());

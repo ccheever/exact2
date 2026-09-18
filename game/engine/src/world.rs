@@ -50,15 +50,34 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
+    /// Name and identity used by typed-boundary diagnostics.
+    fn describe(&self, _world: &World) -> String {
+        std::any::type_name::<Self>().into()
+    }
     /// Resolve a live entity, without reviving a stale handle.
     fn entity(self, world: &World) -> Option<Entity>;
 }
 impl Target for Entity {
+    fn describe(&self, world: &World) -> String {
+        format!(
+            "entity {:?} {:?}",
+            world
+                .state
+                .slots
+                .get(self.index as usize)
+                .and_then(|s| s.name.as_deref())
+                .unwrap_or("<unnamed or absent>"),
+            self
+        )
+    }
     fn entity(self, world: &World) -> Option<Entity> {
         world.contains(self).then_some(self)
     }
 }
 impl Target for &str {
+    fn describe(&self, world: &World) -> String {
+        format!("entity {:?} {:?}", self, world.resolve(self))
+    }
     fn entity(self, world: &World) -> Option<Entity> {
         world.resolve(self)
     }
@@ -68,7 +87,13 @@ impl Target for &str {
 /// Semantic state has no interior mutability; derives introduce none. A manual
 /// implementation that mutates semantic state through a shared reference is outside
 /// the [`Data`] contract: quiescence and the hash cache are undefined for it.
+#[diagnostic::on_unimplemented(
+    message = "expected a Component; optional Kind aliases are unsupported: spell Option<Component> directly"
+)]
 pub trait Component: Data {
+    /// Saved named fields exposed by the derive for declarative binding validation.
+    #[doc(hidden)]
+    const SAVED_FIELDS: &'static [&'static str] = &[];
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
 }
@@ -195,6 +220,7 @@ pub struct World {
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
+    pub(crate) kind_operations: RefCell<Vec<String>>,
     entity_pages: Vec<u64>,
     pub(crate) presentation_generation: u64,
 }
@@ -242,6 +268,7 @@ impl World {
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
+            kind_operations: RefCell::new(Vec::new()),
             entity_pages: vec![],
             presentation_generation: 0,
         }
@@ -555,6 +582,12 @@ impl World {
     /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
+    }
+    pub(crate) fn kind_work_bound(&self, operation: &str) {
+        assert!(
+            self.state.slots.len() <= 200_000,
+            "{operation}: Kind iteration limit is 200000 entity slots, including despawned slots"
+        );
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {

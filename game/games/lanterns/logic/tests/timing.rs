@@ -40,15 +40,15 @@ fn tick_10k_median() {
 }
 
 #[test]
-fn physics_v2_pins_match_continuous_and_every_tick_restore() {
+fn saved_bindings_and_physics_v2_pins_match_continuous_and_every_tick_restore() {
     use exact_game::Paranoid;
     let mut sims = [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame]
         .map(|mode| (mode, game().paranoid(mode)));
     let mut mismatches = Vec::new();
     for (ms, expected) in [
-        (0.0, 0xaa5115299d8598d3),
-        (1000.0, 0x99dd217d6f058a61),
-        (2000.0, 0x432af075dec92c9b),
+        (0.0, 0xa778d065d6cea372),
+        (1000.0, 0x8d712ef8ea7aa587),
+        (2000.0, 0x264947d99e722167),
     ] {
         let mut continuous = None;
         for (mode, sim) in &mut sims {
@@ -100,7 +100,7 @@ fn respawned_cached_child_matches_continuous_and_every_tick_restore() {
     let mut outcomes = Vec::new();
     for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
         let mut sim = game().paranoid(mode);
-        sim.run(17.0); // Populate Session.actors and each Lantern.bulb cache.
+        sim.run(17.0); // Advance with the saved bindings initialized during setup.
         let world = sim.world_mut();
         let old = world.named("lantern-1/bulb").unwrap();
         let replacement = (
@@ -130,8 +130,18 @@ fn respawned_cached_child_matches_continuous_and_every_tick_restore() {
         );
         outcomes.push(result);
     }
+    // Saved IDs deliberately refuse a replaced child; reconstruction must not
+    // silently retarget the binding. Require the same precise refusal in all modes.
+    for outcome in &outcomes {
+        let error = outcome
+            .as_ref()
+            .expect_err("saved child replacement must refuse");
+        for part in ["Lamp", "lantern-1", "lantern.bulb", "generation"] {
+            assert!(error.contains(part), "{error}");
+        }
+    }
     assert!(
-        outcomes[1].is_ok() && outcomes[1] == outcomes[2],
+        outcomes[1] == outcomes[2],
         "both reconstructed runs must agree"
     );
     assert!(

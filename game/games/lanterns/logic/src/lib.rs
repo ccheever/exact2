@@ -10,8 +10,50 @@ use exact_game::{
 };
 use exact_game_physics::{self as physics, Body, Character, Collider, Physics};
 
-mod kinds;
-use kinds::*;
+#[derive(Kind)]
+struct Hero {
+    pub character: Character,
+    #[read]
+    pub transform: Transform,
+}
+#[derive(Kind)]
+struct Stride {
+    pub player: Player,
+}
+#[derive(Kind)]
+struct Fox {
+    pub animation: Animation,
+}
+#[derive(Kind)]
+struct Pose {
+    pub transform: Transform,
+}
+#[derive(Kind)]
+struct Lamp {
+    #[child("bulb", bulb)]
+    pub lantern: Lantern,
+}
+#[derive(Kind)]
+struct Lightable {
+    #[read]
+    pub transform: Transform,
+    pub lantern: Lantern,
+}
+#[derive(Kind)]
+struct Bulb {
+    pub material: Material,
+    pub light: PointLight,
+}
+
+#[derive(Default, Clone, Copy, exact_game::Data)]
+struct Actors {
+    pub hero: Id<Hero>,
+    pub stride: Id<Stride>,
+    pub fox: Id<Fox>,
+    pub fox_pose: Id<Pose>,
+    pub sun: Id<Pose>,
+}
+
 const FOX_BYTES: &[u8] = include_bytes!("../../assets/Fox.glb");
 const DURATION_TICKS: u32 = 180 * 60;
 const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 12.0);
@@ -56,7 +98,6 @@ pub struct Lantern {
     pub lit: bool,
     /// Deterministic light-on envelope.
     pub glow: Spring,
-    #[data(skip)]
     bulb: Id<Bulb>,
 }
 
@@ -71,8 +112,7 @@ pub struct Session {
     pub jump_press: u32,
     /// Last Contract Light counter consumed.
     pub light_press: u32,
-    #[data(skip)]
-    actors: Option<Actors>,
+    actors: Actors,
 }
 
 /// The complete Lanterns game behind `surface=world(...)`.
@@ -184,7 +224,7 @@ impl Game for Lanterns {
         world.spawn_named("sun", (sun, sunlight));
         spawn_sign(world);
         spawn_decor(world, args.seed);
-        actors(world);
+        bind_scene(world);
         publish(world);
     }
 
@@ -193,7 +233,7 @@ impl Game for Lanterns {
     }
 
     fn tick(world: &mut World, input: &Input, args: &Options) {
-        let ids = actors(world);
+        let ids = world.resource::<Session>().actors;
         let (terminal, jump_button, light_button) = world.edit_resource::<Session, _>(|session| {
             if session.phase == 0 && args.started {
                 session.phase = 1;
@@ -232,9 +272,15 @@ impl Game for Lanterns {
                 world.play("jump").at(ids.hero.entity()).start();
             }
         }
-        update_player(world, ids, direction, args.sound);
+        if let Err(error) = update_player(world, ids, direction, args.sound) {
+            world.log(error);
+            return;
+        }
         if light_button || input.pressed("light") {
-            light_nearest(world, args.sound);
+            if let Err(error) = light_nearest(world, args.sound) {
+                world.log(error);
+                return;
+            }
         }
         update_lanterns(world);
         let elapsed = world.resource::<Session>().elapsed;
@@ -250,6 +296,24 @@ impl Game for Lanterns {
         audio::step(world);
         publish(world);
     }
+}
+
+fn bind_scene(world: &World) {
+    let ids = Actors {
+        hero: world.bind("player").expect("player Hero"),
+        stride: world.bind("player").expect("player Stride"),
+        fox: world.bind("fox").expect("fox animation"),
+        fox_pose: world.bind("fox").expect("fox pose"),
+        sun: world.bind("sun").expect("sun pose"),
+    };
+    let lamps: Vec<_> = world
+        .entities()
+        .filter(|&e| world.has::<Lantern>(e))
+        .collect();
+    for lamp in lamps {
+        world.bind::<Lamp>(lamp).expect("lamp child binding");
+    }
+    world.resource_mut::<Session>().actors = ids;
 }
 
 fn define_sounds(world: &mut World) {
@@ -343,10 +407,15 @@ fn spawn_decor(world: &mut World, seed: u64) {
     }
 }
 
-fn update_player(world: &mut World, ids: Actors, direction: Vec3, sound: bool) {
-    let (grounded, velocity, mut pose) = world.with_row(ids.hero, |h| {
-        (h.character.grounded, h.character.velocity, *h.transform)
-    });
+fn update_player(
+    world: &mut World,
+    ids: Actors,
+    direction: Vec3,
+    sound: bool,
+) -> Result<(), exact_game::KindError> {
+    let h = world.row(ids.hero)?;
+    let (grounded, velocity, mut pose) = (h.character.grounded, h.character.velocity, *h.transform);
+    drop(h);
     let speed = Vec2::new(velocity.x, velocity.z).length();
     let clip = if !grounded || speed >= 2.8 {
         "Run"
@@ -390,13 +459,15 @@ fn update_player(world: &mut World, ids: Actors, direction: Vec3, sound: bool) {
         });
         world.log("fall reset");
     }
+    Ok(())
 }
 
-fn light_nearest(world: &mut World, sound: bool) {
-    let center = world.with_row(actors(world).hero, |h| h.transform.position) - Vec3::Y * 0.65;
+fn light_nearest(world: &mut World, sound: bool) -> Result<(), exact_game::KindError> {
+    let hero = world.resource::<Session>().actors.hero;
+    let center = world.row(hero)?.transform.position - Vec3::Y * 0.65;
     let mut nearest = None;
     let mut distance = 1.5f32;
-    for row in world.rows::<Lamp>() {
+    for row in world.rows::<Lightable>() {
         if row.lantern.lit {
             continue;
         }
@@ -406,12 +477,14 @@ fn light_nearest(world: &mut World, sound: bool) {
             nearest = Some(row.id);
         }
     }
-    let Some(entity) = nearest else { return };
+    let Some(entity) = nearest else { return Ok(()) };
     world.edit(entity, |row| {
         row.lantern.lit = true;
         row.lantern.glow.set_target(world.now(), 1.0);
     });
-    let name = world.name(entity.entity()).unwrap_or_default();
+    let name = world
+        .name(entity.entity())
+        .ok_or_else(|| exact_game::KindError::unnamed::<Lamp>(world, entity.entity()))?;
     world.log(format_args!("{name} lit"));
     if sound {
         world.play("chime").at(entity.entity()).start();
@@ -420,6 +493,7 @@ fn light_nearest(world: &mut World, sound: bool) {
         world.resource_mut::<Session>().phase = 2;
         world.log("all lanterns lit");
     }
+    Ok(())
 }
 
 fn update_lanterns(world: &mut World) {
@@ -555,3 +629,6 @@ fn bake_scene() -> exact_game_scene::bake::Baked {
 }
 #[cfg(test)]
 mod scene_tests;
+
+#[cfg(test)]
+mod kind_tests;

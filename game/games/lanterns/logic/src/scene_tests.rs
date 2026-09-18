@@ -145,7 +145,7 @@ fn changed_scene_authored_fields_apply_while_carried_simulation_state_survives()
         .get_mut::<Transform>("player")
         .unwrap()
         .position = Vec3::new(-12.0, 0.65, 10.0);
-    light_nearest(running.world_mut(), false);
+    light_nearest(running.world_mut(), false).unwrap();
     running
         .world_mut()
         .get_mut::<Transform>("crate")

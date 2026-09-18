@@ -3,7 +3,6 @@
 use std::{env, fs, path::PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/kinds.rs");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let source = fs::read_to_string(root.join("src/lib.rs")).unwrap();
     let source = source.split("#[cfg(test)]").next().unwrap();
@@ -12,10 +11,6 @@ fn main() {
         .filter(|l| !l.starts_with("//!") && !l.starts_with("#!"))
         .collect::<Vec<_>>()
         .join("\n")
-        .replace(
-            "mod kinds;",
-            &format!("#[path = {:?}] mod kinds;", root.join("src/kinds.rs")),
-        )
         .replace(
             "include_bytes!(\"../../assets/Fox.glb\")",
             &format!("include_bytes!({:?})", root.join("../assets/Fox.glb")),
