@@ -4973,3 +4973,66 @@ Build capture `1277f38262ae380b168e6df7afe590340a710d77dc7bb14e1d6cea23d1999d86`
 and binary `25e98b0a2439583d6b20aaba1d8976847442613502d5bd3dfef5a5631cefa598`
 remain immutable. Startup geometry must be explained before a separately bound
 continuity experiment; this failed admission is not replaced by earlier results.
+
+A separately frozen980 binding then also exits1 before its poster starts: this
+time the actual clip and current-image certificate are963×400. Empty-document
+snapshots start at980; the full document's two later snapshots both show963.
+All eight commands are setup only. The actual scroller style, visibility and
+insets were not recorded, so the opposite geometry is not explained by these
+receipts. Neither accepting both sizes nor another blind retry follows from it.
+The three recorded processes and sole group are absent without watchdog action.
+`target/apple-giant-retained-measured980-execution-v1/runtime-manifest.json`
+binds25 artifacts/5,008,934B, SHA
+`438ba2824a64beb75acaf1babf5ecca03165991d533e57c73e708bafa67af117`.
+
+This failed cell does contain one narrower startup observation: the original
+980×400 image stays owned and is cropped to963×400 at zero translation, scale1,
+with matching publication/source/artifact and all2047 retention flags. A second
+raster's acceptance86 joins first model-layer assignment92,31.634250ms later;
+99/106 are repeats. This is a viewport recrop at the same940px paragraph width,
+not the unrun new-width B transition. No clear row is observed, but neither
+uninterrupted coverage nor physical presentation follows from that absence.
+Both failed archives and the original product remain immutable.
+
+### 8.82 Glyph-path bounds dominate compact metadata, 2026-09-18
+
+One diagnostic over the unchanged §8.80 full-body fixture brackets the four
+CoreText calls inside each compact line's construction. The exact operation
+`CTLineGetBoundsWithOptions(.useGlyphPathBounds)` accounts for almost all of the
+observed metadata wall time. Range, duplicate typographic metrics and flush
+offset together account for less than1ms at either width.
+
+| Width / lines | Shape ms | Metadata ms | Range ms | Typographic ms | Glyph-path bounds ms | Flush ms |
+|---|---:|---:|---:|---:|---:|---:|
+|940 /8155|140.112124|68.466166|0.074366|0.069839|67.466807|0.309553|
+|856 /8988|101.170291|76.853125|0.094166|0.083346|75.397943|0.688017|
+
+Each of the four call counts equals the line count. Exactly two aggregate
+records join108 scopes5/10 to100 parents1/6 with the same request, generation,
+owner and offered axes. The same-width height hit takes0.002333ms and emits no
+metadata aggregate. No aggregate or primary row is omitted or mismatched.
+
+The diagnostic adds137,144 clock reads, an88-byte local accumulator and480 bytes
+for three summary slots per existing lane; both lanes reserve960 bytes in total.
+There are no added per-line trace rows or
+locks. These are scalar layout sizes, not allocator/RSS or zero-overhead proof.
+The brackets include probe effects and any waiting within the calls; no CPU
+attribution, overhead subtraction, array-only residual or performance A/B is
+claimed. Parent and child spans overlap and cannot be added.
+
+Seventeen pure reader controls, one strict optimized Swift6 compile, one backend
+run and both readers pass without retry. Every line's geometry and full glyph
+digest still matches ordinary TextEngine; all six RGBA outputs and ICC bytes
+equal §8.80, and all seven pixel-owner releases, alias retirement and reset
+checks pass. Actual13 compiler dependency files bind the header/module inputs.
+Compiler and backend groups are absent. Production is unchanged; these three
+observer overlays exist only in the ignored fixture.
+
+`target/region-metadata-calls-validation/execution-v1/manifest.json` binds110
+artifacts/7,797,932B, SHA
+`6f72d5b9732435dc6861e96e9459f6b381ab15d2b0eed8dec59f6366231b0455`.
+Independent raw arithmetic verifies both aggregates and their containing spans.
+The next source investigation targets exact ink-bound work while preserving
+conservative paint coverage and the pixel oracle. Replacing ink with ordinary
+typographic bounds is not established as correct. This fixture does not measure
+full-app continuity, UI responsiveness or physical120Hz.
