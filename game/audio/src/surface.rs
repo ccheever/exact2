@@ -1,8 +1,8 @@
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
 use crate::AppleOutput as Device;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(not(test), target_arch = "wasm32"))]
 use crate::WebOutput as Device;
-#[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+#[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
 use crate::{Listener, Output};
 use crate::{NullOutput, Player, Transport};
 use exact_game::World;
@@ -11,10 +11,12 @@ use exact_game::World;
 /// Default construction and every seekable/headless frame open no device.
 pub struct SurfacePlayer {
     null: Player<NullOutput>,
-    #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
     device: Option<Player<Device>>,
-    #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
-    attempted: bool,
+    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    retry_frames: u32,
+    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    warned: bool,
     unlocked: bool,
     epoch: u64,
 }
@@ -22,32 +24,47 @@ impl Default for SurfacePlayer {
     fn default() -> Self {
         Self {
             null: Player::new(NullOutput, 48000),
-            #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
             device: None,
-            #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
-            attempted: false,
+            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            retry_frames: 0,
+            #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+            warned: false,
             unlocked: false,
             epoch: 0,
         }
     }
 }
 impl SurfacePlayer {
+    #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+    fn ensure_device(&mut self) {
+        if self.device.is_some() || self.retry_frames != 0 {
+            return;
+        }
+        match Device::new() {
+            Ok(output) => self.device = Some(Player::new(output, 48000)),
+            Err(error) => {
+                // Five seconds of frames at 60 Hz; input cannot defeat the bound.
+                self.retry_frames = 300;
+                if !self.warned {
+                    eprintln!("game audio unavailable (retrying every 300 live frames): {error:?}");
+                    self.warned = true;
+                }
+            }
+        }
+    }
+
     pub fn sync(&mut self, world: &World, generation: u64, playing: bool, seekable: bool) {
-        #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
         {
             if seekable {
                 // Also close a previously human-owned device on entering agent mode.
                 self.device = None;
-                self.attempted = false;
+                self.retry_frames = 0;
                 self.unlocked = false;
             } else {
-                if !self.attempted {
-                    self.attempted = true;
-                    match Device::new() {
-                        Ok(output) => self.device = Some(Player::new(output, 48000)),
-                        Err(error) => eprintln!("game audio unavailable: {error:?}"),
-                    }
-                }
+                self.retry_frames = self.retry_frames.saturating_sub(1);
+                self.ensure_device();
                 if let Some(player) = &mut self.device {
                     let ready = player.output.ready();
                     if ready && !self.unlocked {
@@ -77,7 +94,7 @@ impl SurfacePlayer {
         );
     }
     pub fn unlock(&mut self) {
-        #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
         if let Some(player) = &mut self.device {
             Output::unlock(&mut player.output);
         }
@@ -102,7 +119,60 @@ mod tests {
             surface.unlock();
         }
         assert_eq!(surface.null.cached_sounds(), 0);
-        #[cfg(any(target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
-        assert!(surface.device.is_none() && !surface.attempted);
+        #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
+        assert!(surface.device.is_none() && surface.retry_frames == 0);
+    }
+}
+
+#[cfg(test)]
+use test_device::Device;
+#[cfg(test)]
+mod test_device {
+    use crate::Output;
+    use std::{cell::Cell, sync::Arc};
+    std::thread_local! {
+        pub static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
+        pub static FAIL: Cell<bool> = const { Cell::new(false) };
+        pub static UNLOCKS: Cell<usize> = const { Cell::new(0) };
+    }
+    pub struct Device;
+    impl Device {
+        pub fn new() -> Result<Self, &'static str> {
+            ATTEMPTS.set(ATTEMPTS.get() + 1);
+            if FAIL.get() {
+                Err("test output unavailable")
+            } else {
+                Ok(Self)
+            }
+        }
+    }
+    impl Output for Device {
+        fn unlock(&mut self) {
+            UNLOCKS.set(UNLOCKS.get() + 1);
+        }
+        fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {}
+        fn set(&mut self, _: u64, _: f32, _: f32) {}
+        fn stop(&mut self, _: u64) {}
+    }
+    #[test]
+    fn failed_device_creation_retries_at_bounded_frame_intervals() {
+        FAIL.set(true);
+        ATTEMPTS.set(0);
+        let mut surface = super::SurfacePlayer::default();
+        let world = exact_game::World::new(60, 0);
+        for _ in 0..601 {
+            surface.sync(&world, 0, true, false);
+        }
+        assert_eq!(ATTEMPTS.get(), 3);
+        FAIL.set(false);
+        for _ in 0..300 {
+            surface.sync(&world, 0, true, false);
+        }
+        assert_eq!(ATTEMPTS.get(), 4);
+        assert!(surface.device.is_some());
+        for _ in 0..600 {
+            surface.sync(&world, 0, true, false);
+        }
+        assert_eq!(ATTEMPTS.get(), 4);
     }
 }

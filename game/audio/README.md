@@ -82,17 +82,23 @@ The Web probe demonstrates this ownership and asynchronous API.
 Apple has 32 fixed voice slots. `start_at`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
 identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
-retain their order and PCM until acknowledged. With 32 selected voices, queued
-controls are bounded by the published voices plus current winners. A stalled device cannot panic the producer. The host calls
-`AppleOutput::suspend()`/`resume()` for interruption notifications, updates playing,
-and increments generation after resume. The host still owns AVAudioSession policy.
+retain their order and PCM until acknowledged. Published starts occupy at most 32
+slots, including stopped voices awaiting acknowledgement. Up to 32 newer selected
+starts stay in the coalescible producer queue: at the 60 s / 48 kHz / f32 maximum,
+these two windows retain at most 737,280,000 PCM bytes, independent of churn or ring
+length (the Player cache is separate). Stops can pass unpublished starts to release
+capacity; sequence watermarks are assigned at publication. A refused start remains
+inactive in the Player and is retried on the next sync; a full mixer leaves the
+start unconsumed and unacknowledged. `AppleOutput::suspend()`/`resume()` exist but
+have no lifecycle caller, and no `AVAudioSession` is configured: AU3c owes both.
 The callback allocates nothing, locks nothing, and performs no reference counting.
 It linearly resamples, ramps stereo gains over 10 ms, maps non-finite samples to
 zero, sums linearly and clamps only outside [-1,1]. Quiet/full-scale authored gains
 therefore agree with WebAudio instead of being compressed by `x/(1+abs(x))`.
 
-The callback drains commands even on null/unsupported output layouts. It writes
-interleaved or planar stereo, silences other layouts, and returns success.
+The callback drains commands even on null/unsupported output layouts. It always
+advances the mixer for the full quantum, writing interleaved or planar stereo and
+discarding samples while silencing other layouts.
 The coalesced Set table is bounded by the Player's selected voices.
 
 
@@ -108,8 +114,11 @@ The surface syncs once after each render's simulation advance, with its presenta
 generation and `!paused`. `SurfacePlayer` opens WebAudio on wasm and AudioUnit on
 Apple lazily, only on a non-seekable frame. Seekable frames use `Player<NullOutput>`
 and close any previous device. A headless surface never renders/opens a device;
-other native targets use NullOutput. The existing synchronous `gpu_input` call in
-web glue preserves the user gesture, so no core hook change is needed.
+other native targets use NullOutput. Failed device creation retries every 300 live
+sync frames (about five seconds at 60 Hz), with one warning per surface. The
+existing synchronous `gpu_input` call preserves the user gesture, but currently
+carries no live/seekable flag to surface input: unlock before the first render
+still needs that flag threaded through the presentation hook.
 
 ## Synthesis and proof
 
@@ -171,3 +180,16 @@ AU3 web module size (`web` profile, wasm-bindgen, wasm-opt -Oz; gzip level 9):
 for ten seconds resumed the context and created a wind source with non-zero PCM,
 but the audio clock stalled at 5.33 ms and analyser RMS stayed zero. Device output
 was **not verified**; the temporary analyser was removed and Chrome closed.
+
+AU3b adds `EXACT_AUDIO_PROBE=1 bun game/games/greybox/proof.mjs web` (from the
+repository root). Its separate live browser injects a bench-only observer before
+boot, records trusted resume calls, context time and analyser RMS alongside wind
+state, and writes `artifacts/audio-web.json`. No GPU module entry point is added.
+Saved registry and voice definitions now refuse invalid synth parameters with a
+`DataError` before replacing the world; authored registration still asserts.
+
+AU3b live web result (2026-09-18): one trusted keydown called resume on the event
+stack; the context reported `running`, `currentTime` advanced 0 → 2.784 s over
+30 samples, and wind's analyser RMS reached 0.0027969. The same samples report
+wind playing in the world's audio sources. This verifies output after a render;
+it does not cover the still-blocked input-before-first-frame ordering.

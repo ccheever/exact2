@@ -148,30 +148,47 @@ impl Synth {
     }
     /// Validate authored parameters before synthesis or registration.
     pub fn validate(&self) {
-        for n in [
-            self.hz,
-            self.slide,
-            self.vibrato_hz,
-            self.vibrato_depth,
-            self.attack,
-            self.decay,
-            self.sustain,
-            self.release,
-            self.seconds,
-            self.lowpass_hz,
-            self.highpass_hz,
-            self.gain,
+        let result = self.validate_data();
+        assert!(result.is_ok(), "invalid synth: {result:?}");
+    }
+    fn validate_data(&self) -> Result<(), crate::DataError> {
+        for (name, n) in [
+            ("hz", self.hz),
+            ("slide", self.slide),
+            ("vibrato_hz", self.vibrato_hz),
+            ("vibrato_depth", self.vibrato_depth),
+            ("attack", self.attack),
+            ("decay", self.decay),
+            ("sustain", self.sustain),
+            ("release", self.release),
+            ("seconds", self.seconds),
+            ("lowpass_hz", self.lowpass_hz),
+            ("highpass_hz", self.highpass_hz),
+            ("gain", self.gain),
         ] {
-            assert!(n.is_finite(), "nonfinite synth parameter");
+            if !n.is_finite() {
+                return Err(crate::DataError::new("nonfinite synth parameter").at(name));
+            }
         }
-        assert!(
-            (0.0..=60.0).contains(&self.seconds),
-            "synth duration must be 0..60 seconds"
-        );
-        assert!(self.hz >= 0.0 && self.attack >= 0.0 && self.decay >= 0.0 && self.release >= 0.0);
-        for layer in &self.layers {
-            layer.validate();
+        if !(0.0..=60.0).contains(&self.seconds) {
+            return Err(
+                crate::DataError::new("synth duration must be 0..60 seconds").at("seconds"),
+            );
         }
+        for (name, n) in [
+            ("hz", self.hz),
+            ("attack", self.attack),
+            ("decay", self.decay),
+            ("release", self.release),
+        ] {
+            if n < 0.0 {
+                return Err(crate::DataError::new("synth parameter must be nonnegative").at(name));
+            }
+        }
+        for (i, layer) in self.layers.iter().enumerate() {
+            layer.validate_data().map_err(|e| e.at(i).at("layers"))?;
+        }
+        Ok(())
     }
 }
 /// Immutable definition shared by the registry and voices that started with it.
@@ -214,7 +231,12 @@ impl Data for Definition {
     fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
         let mut synth = Synth::default();
         synth.read(r)?;
-        *self = Self::new(synth);
+        synth.validate_data()?;
+        let revision = crate::hash::of(&synth);
+        *self = Self {
+            synth: std::sync::Arc::new(synth),
+            revision,
+        };
         Ok(())
     }
 }
@@ -631,3 +653,44 @@ pub fn state(world: &World) -> String {
 #[cfg(test)]
 #[path = "audio_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod decode_regression {
+    use super::*;
+    #[test]
+    fn malformed_saved_synth_is_refused_without_changing_world() {
+        let mut world = World::new(60, 42);
+        world.register_audio();
+        world
+            .resource_mut::<Sounds>()
+            .add("tone", Synth::sine(440.));
+        world.play("tone").start();
+        let before = world.save();
+        let hash = world.hash();
+        let journal = world.journal();
+        for voice in [false, true] {
+            let mut malformed = World::new(60, 0);
+            malformed.register_audio();
+            malformed.load(&before).unwrap();
+            let bad = Definition {
+                synth: std::sync::Arc::new(Synth::sine(440.).seconds(61.)),
+                revision: 0,
+            };
+            if voice {
+                malformed.resource_mut::<Voices>().voices[0].synth = bad;
+            } else {
+                malformed
+                    .resource_mut::<Sounds>()
+                    .0
+                    .insert("tone".into(), bad);
+            }
+            let error = world
+                .load(&malformed.save())
+                .expect_err("invalid synth must be refused");
+            assert!(error.to_string().contains("duration"), "{error}");
+            assert_eq!(world.save(), before);
+            assert_eq!(world.hash(), hash);
+            assert_eq!(world.journal().len(), journal.len());
+        }
+    }
+}

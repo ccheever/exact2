@@ -598,3 +598,43 @@ fn capacity_and_silence_are_selected_before_pcm_materialization() {
         8
     );
 }
+
+#[test]
+fn refused_start_is_retried_without_a_transport_bump() {
+    use exact_game_audio::Output;
+    use std::sync::Arc;
+    #[derive(Default)]
+    struct Busy {
+        attempts: usize,
+        accepted: bool,
+    }
+    impl Output for Busy {
+        fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {
+            self.attempts += 1;
+            self.accepted = self.attempts > 1;
+        }
+        fn try_start_at(
+            &mut self,
+            id: u64,
+            pcm: &Arc<[f32]>,
+            rate: u32,
+            looping: bool,
+            offset: usize,
+            pitch: f32,
+        ) -> bool {
+            self.start_at(id, pcm, rate, looping, offset, pitch);
+            self.accepted
+        }
+        fn set(&mut self, _: u64, _: f32, _: f32) {}
+        fn stop(&mut self, _: u64) {}
+    }
+    let sim = Sim::<SoundGame>::new(()).unwrap();
+    let mut player = Player::new(Busy::default(), 48000);
+    player.sync(sim.world(), None, Default::default());
+    assert!(!player.output.accepted);
+    player.sync(sim.world(), None, Default::default());
+    assert!(player.output.accepted);
+    assert_eq!(player.output.attempts, 2);
+    player.sync(sim.world(), None, Default::default());
+    assert_eq!(player.output.attempts, 2);
+}

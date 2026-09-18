@@ -58,6 +58,15 @@ impl<T: Copy> Producer<T> {
     }
 }
 impl<T: Copy> Consumer<T> {
+    fn peek(&self) -> Option<T> {
+        let r = self.ring.read.load(Ordering::Relaxed);
+        if r == self.ring.write.load(Ordering::Acquire) {
+            return None;
+        }
+        // SAFETY: publication initialized this slot, and only this consumer
+        // can release it. Copying does not release the slot to the producer.
+        Some(unsafe { (*self.ring.slots[r % CAPACITY].get()).assume_init_read() })
+    }
     fn pop(&mut self) -> Option<T> {
         let r = self.ring.read.load(Ordering::Relaxed);
         if r == self.ring.write.load(Ordering::Acquire) {
@@ -109,6 +118,7 @@ struct Pending {
     retained: BTreeMap<usize, (Arc<[f32]>, u64)>,
     live: BTreeMap<u64, usize>,
     sent: BTreeMap<u64, usize>,
+    stopping: BTreeMap<u64, u64>,
     sequence: u64,
     acknowledged: u64,
 }
@@ -125,6 +135,7 @@ impl Pending {
                 retained: BTreeMap::new(),
                 live: BTreeMap::new(),
                 sent: BTreeMap::new(),
+                stopping: BTreeMap::new(),
                 sequence: 0,
                 acknowledged: 0,
             },
@@ -137,13 +148,12 @@ impl Pending {
             },
         )
     }
-    fn control(&mut self, command: Command) -> u64 {
-        self.sequence += 1;
+    fn control(&mut self, command: Command) {
+        // Sequence numbers describe publication order, not coalescible queue order.
         self.controls.push_back(Packet {
-            sequence: self.sequence,
+            sequence: 0,
             command,
         });
-        self.sequence
     }
     fn start(
         &mut self,
@@ -153,12 +163,12 @@ impl Pending {
         looping: bool,
         offset: usize,
         pitch: f32,
-    ) {
+    ) -> bool {
         if self.live.contains_key(&id) {
             self.stop(id);
         }
         if self.live.len() >= 32 {
-            return;
+            return false;
         }
         self.control(Command::Start {
             id,
@@ -175,6 +185,7 @@ impl Pending {
             .entry(pcm.as_ptr() as usize)
             .or_insert_with(|| (pcm.clone(), 0));
         self.live.insert(id, pcm.as_ptr() as usize);
+        true
     }
     fn stop(&mut self, id: u64) {
         self.sets.remove(&id);
@@ -185,10 +196,11 @@ impl Pending {
         self.controls
             .retain(|p| !matches!(p.command, Command::Start { id: pending, .. } if pending == id));
         if self.sent.contains_key(&id) {
-            if !self
-                .controls
-                .iter()
-                .any(|p| matches!(p.command, Command::Stop(pending) if pending == id))
+            if !self.stopping.contains_key(&id)
+                && !self
+                    .controls
+                    .iter()
+                    .any(|p| matches!(p.command, Command::Stop(pending) if pending == id))
             {
                 self.control(Command::Stop(id));
             }
@@ -208,30 +220,62 @@ impl Pending {
         while let Some(ack) = self.acknowledgements.pop() {
             self.acknowledged = ack;
         }
+        self.stopping.retain(|id, sequence| {
+            if *sequence <= self.acknowledged {
+                self.sent.remove(id);
+                false
+            } else {
+                true
+            }
+        });
         self.retained.retain(|ptr, (_, last)| {
             *last > self.acknowledged
                 || self.live.values().any(|p| p == ptr)
                 || self.sent.values().any(|p| p == ptr)
         });
-        while let Some(packet) = self.controls.front() {
-            if self.commands.push(*packet).is_err() {
+        while let Some(front) = self.controls.front() {
+            let blocked = matches!(front.command, Command::Start { id, .. }
+                if self.sent.len() >= 32 || self.sent.contains_key(&id));
+            // Stops must pass blocked unpublished starts, otherwise a full device
+            // could never release capacity. Published commands remain FIFO.
+            let index = if blocked {
+                let Some(i) = self
+                    .controls
+                    .iter()
+                    .position(|p| matches!(p.command, Command::Stop(_)))
+                else {
+                    break;
+                };
+                i
+            } else {
+                0
+            };
+            let mut packet = self.controls[index];
+            packet.sequence = self.sequence + 1;
+            if self.commands.push(packet).is_err() {
                 return;
             }
+            self.sequence = packet.sequence;
             match packet.command {
                 Command::Start { id, pcm, .. } => {
                     self.sent.insert(id, pcm.ptr as usize);
                     self.retained.get_mut(&(pcm.ptr as usize)).unwrap().1 = packet.sequence;
                 }
                 Command::Stop(id) => {
-                    if let Some(ptr) = self.sent.remove(&id) {
+                    if let Some(&ptr) = self.sent.get(&id) {
+                        self.stopping.insert(id, packet.sequence);
                         self.retained.get_mut(&ptr).unwrap().1 = packet.sequence;
                     }
                 }
                 Command::Set { .. } => unreachable!(),
             }
-            self.controls.pop_front();
+            self.controls.remove(index);
         }
-        while let Some((&id, &(left, right))) = self.sets.first_key_value() {
+        while let Some((&id, &(left, right))) = self
+            .sets
+            .iter()
+            .find(|(id, _)| self.sent.contains_key(id) && !self.stopping.contains_key(id))
+        {
             let packet = Packet {
                 sequence: self.sequence + 1,
                 command: Command::Set { id, left, right },
@@ -268,9 +312,16 @@ impl Mixer {
     fn commands(&mut self) {
         // Bounded work even if a producer keeps refilling the ring.
         for _ in 0..CAPACITY {
-            let Some(cmd) = self.commands.pop() else {
+            let Some(cmd) = self.commands.peek() else {
                 break;
             };
+            if matches!(cmd.command, Command::Start { .. })
+                && self.voices.iter().all(Option::is_some)
+            {
+                // Leave ownership and the watermark untouched until a slot exists.
+                break;
+            }
+            self.commands.pop();
             self.pending_ack = Some(cmd.sequence);
             match cmd.command {
                 Command::Start {
@@ -282,9 +333,7 @@ impl Mixer {
                     pitch,
                 } => {
                     // Player stops losers before starting winners. There is no stealing.
-                    let Some(slot) = self.voices.iter().position(Option::is_none) else {
-                        continue;
-                    };
+                    let slot = self.voices.iter().position(Option::is_none).unwrap();
                     self.voices[slot] = Some(Voice {
                         id,
                         pcm,
@@ -400,6 +449,9 @@ unsafe extern "C" fn render(
     let mixer = unsafe { &mut *context.cast::<Mixer>() };
     mixer.commands();
     if buffers.is_null() {
+        for _ in 0..frames {
+            mixer.frame();
+        }
         return 0;
     }
     // SAFETY: non-null AudioBufferList supplied by the HAL (or the test fixture).
@@ -435,6 +487,9 @@ unsafe extern "C" fn render(
             }
         }
     } else {
+        for _ in 0..frames {
+            mixer.frame();
+        }
         for buffer in buffers {
             if !buffer.data.is_null() {
                 // SAFETY: silence only the advertised bytes, including short/mono layouts.
@@ -646,6 +701,17 @@ mod device {
             pitch: f32,
         ) {
             self.pending.start(id, pcm, rate, looping, offset, pitch);
+        }
+        fn try_start_at(
+            &mut self,
+            id: u64,
+            pcm: &Arc<[f32]>,
+            rate: u32,
+            looping: bool,
+            offset: usize,
+            pitch: f32,
+        ) -> bool {
+            self.pending.start(id, pcm, rate, looping, offset, pitch)
         }
         fn set(&mut self, id: u64, left: f32, right: f32) {
             self.pending.set(id, left, right);
