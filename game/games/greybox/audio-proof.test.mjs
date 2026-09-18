@@ -30,11 +30,13 @@ test('probe setup failure reaps its process group and removes its profile', asyn
 test('probe source is outside the deterministic proof input digest', () => {
   // Execute the actual exclusion condition used by the proof, not a copied regex.
   const source = readFileSync(resolve(import.meta.dir, '../../proof.mjs'), 'utf8');
-  const condition = source.match(/if \((\/\^\(game[\s\S]*?)\) continue;/)[1];
-  const excluded = new Function('file', 'name', 'existsSync', 'resolve', 'root', `return (${condition});`);
+  const condition = source.match(/if \((\(?\/\^\(game[\s\S]*?)\) continue;/)[1];
+  const excluded = new Function('file', 'appPrefix', 'existsSync', 'resolve', 'root', `return (${condition});`);
   const root = resolve(import.meta.dir, '../../..');
-  expect(excluded('game/bench/probes/audio.mjs', 'greybox', existsSync, resolve, root)).toBe(true);
-  expect(excluded('game/games/greybox/logic/src/lib.rs', 'greybox', existsSync, resolve, root)).toBe(false);
+  expect(excluded('game/bench/probes/audio.mjs', 'game/games/greybox/', existsSync, resolve, root)).toBe(true);
+  expect(excluded('game/games/greybox/logic/src/lib.rs', 'game/games/greybox/', existsSync, resolve, root)).toBe(false);
+  expect(excluded('game/bench/cubes/logic/src/lib.rs', 'game/bench/cubes/', existsSync, resolve, root)).toBe(false);
+  expect(excluded('game/bench/probes/audio.mjs', 'game/bench/cubes/', existsSync, resolve, root)).toBe(true);
 });
 
 test('web visibility and page events reach every canvas under either clock', () => {
