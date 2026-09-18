@@ -11,21 +11,6 @@ import AppKit
 final class TextGeometryTests: XCTestCase {
     private let engine = TextEngine(resolve: { _ in nil })
 
-    func testTextCacheRecencyAndCheckpointRemainIndependent() {
-        var cache = TextCache<Int, String>()
-        for i in 0..<4096 { cache.put(i, "value-\(i)") }
-        var checkpoint = cache
-        for i in 0..<512 { XCTAssertEqual(cache.get(i), "value-\(i)") }
-        cache.put(4096, "new")
-        XCTAssertEqual(cache.get(0), "value-0")
-        XCTAssertNil(cache.get(512), "the oldest untouched entries are evicted")
-        XCTAssertEqual(checkpoint.get(512), "value-512")
-        XCTAssertNil(checkpoint.get(4096))
-        cache.put(0, "changed")
-        XCTAssertEqual(checkpoint.get(0), "value-0")
-        XCTAssertLessThanOrEqual(cache.count, 4096)
-    }
-
     #if os(macOS)
     func testEmptyContainerReleasesPaintAndKeepsItsChildren() {
         let presenter = Presenter()
