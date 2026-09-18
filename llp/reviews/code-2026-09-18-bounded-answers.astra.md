@@ -57,3 +57,16 @@ VERDICT: MATERIAL FINDINGS
 
 VERDICT: MATERIAL FINDINGS
 **Disposition (Claude):** both findings are confirmed as defects in the D3 arming rules the orchestrator specified. Re-arming on a key change oscillates when the whole window is visible, and the "membership unchanged" test lets a second edge supersede an async request. They went to lane S1 as its third and last review-fix round: re-arm by geometry only, dispatch the second edge only after a pure no-op, and guarantee a deferred edge a follow-up evaluation.
+
+Outcome of round final-2: both fixed in 9f4498c. Edges re-arm by geometry only, and the second edge dispatches only after a no-op, with one follow-up after settlement.
+
+## Round final-3 at e08e25a (verbatim; brief sha256 `d6fdd7ff513a63d4cebcad051982215289af704366387fffc5688e9d8190a539`, diff 765e369..e08e25a)
+
+1. **HIGH — [runner/src/instance/collection/mod.rs:234](/Users/ccheever/projects/exact2-bounded-20260918/review-final3/runner/src/instance/collection/mod.rs:234): Provisional heights can sustain an edge-dispatch storm.** With 200 one-pixel rows in a 320px scrollport, a cursor shift introduces unmeasured rows estimated at 32px. Anchor restoration and `geometric_edges()` interpret that temporary expansion as an edge exit and re-arm it. Subsequent measurements fire the opposite edge, whose replacement repeats the process. Earlier/later windows can oscillate without scrolling, violating D3’s all-fitting-window idle requirement. The existing two/eight-row tests miss this because even their estimates fit. **Fix:** prevent replacement estimates from manufacturing re-arming; require an established geometric exit, and add a 200-row regression using measured feedback through settlement.
+
+2. **HIGH — [apps/messages/app.ts:212](/Users/ccheever/projects/exact2-bounded-20260918/review-final3/apps/messages/app.ts:212): Arrivals slide a non-empty cursor window after its anchor becomes past-end.** Retain a cursor, delete its anchor and all later messages, then receive an incoming reply. The fallback initially centers on the last surviving row; the next answer centers on the new arrival instead. Reproducing this in the producer changed a 101-row window’s first message and discarded it, rather than appending a 102nd row. This breaks D1’s stable history window. **Fix:** retain the resolved surviving anchor when falling back, so later arrivals cannot recenter that cursor; test deletion followed by `advanceReplies`, asserting unchanged first row and appended arrival.
+
+VERDICT: MATERIAL FINDINGS
+**Disposition (Claude):**
+1. Confirmed, and **declared rather than fixed**. Lane S1 had used its three review-fix rounds (RULES: fix loops get three rounds). The oscillation needs a fully visible window of rows far below the 32 px estimate, and no current consumer comes near that. It is recorded in LLP 1027.004 D5 and `QUEUE.md` (e61369b) as a question for Charlie: authorize one more round or leave it queued.
+2. Confirmed. It went to lane S2 as its third and last fix round: a cursor resolves to the last surviving row at or before its position, which arrivals can never capture.
