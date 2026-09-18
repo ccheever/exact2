@@ -122,6 +122,22 @@ pub(crate) fn read_vec<T: Data>(
                 .ok_or_else(|| DataError::new("allocation size overflow"))?,
         )?;
     }
+    if r.patching() {
+        let mut index = 0;
+        while r.item()? {
+            if index == limit {
+                return Err(DataError::new("sequence count exceeds load limit"));
+            }
+            if index == v.len() {
+                reserve(r, v, 1)?;
+                v.push(T::default());
+            }
+            v[index].read(r).map_err(|e| e.at(index))?;
+            index += 1;
+        }
+        v.truncate(index);
+        return Ok(());
+    }
     v.clear();
     while r.item()? {
         if v.len() == limit {

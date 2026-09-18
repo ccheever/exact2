@@ -171,6 +171,15 @@ impl BulkKind {
 
 /// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
+    /// An entity reference; ordinary codecs retain its historical record encoding.
+    fn entity(&mut self, index: u32, generation: u32) {
+        self.begin_struct();
+        self.field("index");
+        self.number(Number::Unsigned(index.into()));
+        self.field("generation");
+        self.number(Number::Unsigned(generation.into()));
+        self.end_struct();
+    }
     /// Write a boolean.
     fn boolean(&mut self, value: bool);
     /// Write a number, canonicalizing NaNs in binary representations.
@@ -207,6 +216,10 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Reload patches retain skipped fields and existing container elements.
+    fn patching(&self) -> bool {
+        false
+    }
     /// Check a declared collection's minimum storage before reading any elements.
     /// Reservations still claim their actual capacity through `claim`.
     fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {

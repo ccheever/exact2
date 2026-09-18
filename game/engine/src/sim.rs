@@ -75,6 +75,8 @@ struct Saved {
     game: String,
     version: u32,
     world: Vec<u8>,
+    base: Vec<u8>,
+    base_args: String,
     args: String,
     input: Input,
     queue: Vec<Queued>,
@@ -96,6 +98,9 @@ struct LiveTime {
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
+    base: Vec<u8>,
+    base_args: String,
+    pub(crate) reload: crate::world::reload::Report,
     setup_pending: bool,
     asset_mesh_revision: u64,
     defer_assets: bool,
@@ -226,9 +231,15 @@ impl<G: Game> Sim<G> {
                 );
             }
         }
-        self.finish_assets();
+        if let Err(reason) = self.finish_assets() {
+            self.world.log(format_args!("setup refused: {reason}"));
+            self.world
+                .assets
+                .states
+                .insert(name.into(), AssetState::Failed(reason));
+        }
     }
-    fn finish_assets(&mut self) {
+    fn finish_assets(&mut self) -> Result<(), String> {
         use crate::asset::AssetState;
         let assets = &mut self.world.assets;
         for (name, model) in &assets.models {
@@ -256,10 +267,15 @@ impl<G: Game> Sim<G> {
             }
         }
         if self.setup_pending && assets.ready() {
-            self.world = Self::build(&self.args, self.world.assets.clone());
+            let world = Self::build(&self.args, self.world.assets.clone());
+            let base = world.initializer().map_err(|e| e.to_string())?;
+            self.base_args = crate::json::to_string(&self.args).map_err(|e| e.to_string())?;
+            self.world = world;
+            self.base = base;
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }
+        Ok(())
     }
     /// Transport failure after the host's bounded retries.
     pub fn asset_failed(&mut self, name: &str, reason: &str) {
@@ -306,13 +322,13 @@ impl<G: Game> Sim<G> {
             }
             Ok(())
         })();
+        let result = result.and(self.finish_assets());
         if let Err(reason) = &result {
             self.world.assets.states.insert(
                 name.into(),
                 AssetState::Failed(format!("asset `{name}`: {reason}")),
             );
         }
-        self.finish_assets();
         result.map_err(|e| format!("asset `{name}`: {e}"))
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
@@ -331,8 +347,13 @@ impl<G: Game> Sim<G> {
         }
         args.check_scalars()?;
         G::validate(&args)?;
+        let world = Self::build(&args, Default::default());
+        let base = world.initializer().map_err(|e| e.to_string())?;
         Ok(Self {
-            world: Self::build(&args, Default::default()),
+            world,
+            base,
+            base_args: crate::json::to_string(&args).map_err(|e| e.to_string())?,
+            reload: Default::default(),
             setup_pending: !G::ASSETS.is_empty(),
             asset_mesh_revision: u64::MAX,
             defer_assets: false,
@@ -407,12 +428,17 @@ impl<G: Game> Sim<G> {
         let restart = if !self.args.setup_changed(&args) {
             None
         } else {
-            Some(Self::build(&args, self.world.assets.clone()))
+            let world = Self::build(&args, self.world.assets.clone());
+            let base = world.initializer().map_err(|e| e.to_string())?;
+            Some((world, base))
         };
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
         }
-        if let Some(mut world) = restart {
+        if let Some((mut world, base)) = restart {
+            self.base_args = crate::json::to_string(&args).map_err(|e| e.to_string())?;
+            self.base = base;
+            self.reload = Default::default();
             self.capture_fail("construction binding restarted the world; start a new capture");
             world.presentation_generation = self
                 .world
@@ -1145,6 +1171,14 @@ impl<G: Game> Sim<G> {
             game: G::ID.into(),
             version: G::SAVE_VERSION,
             world: self.world.save(),
+            base: self.base.clone(),
+            // Usually identical: only retain a separate construction after live
+            // bindings or an authored carry made the two argument sets differ.
+            base_args: if self.base_args == self.args_json {
+                String::new()
+            } else {
+                self.base_args.clone()
+            },
             args: self.args_json.clone(),
             input: self.input.clone(),
             queue: self.relative_queue(),
@@ -1154,7 +1188,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut bytes = b"EXSIM\0\x05".to_vec();
+        let mut bytes = b"EXSIM\0\x06".to_vec();
         bytes.extend(bin::to_vec(&saved));
         bytes
     }
@@ -1168,13 +1202,20 @@ impl<G: Game> Sim<G> {
         budget: Option<&LoadBudget>,
     ) -> Result<Self, DataError> {
         let payload = bytes
-            .strip_prefix(b"EXSIM\0\x05")
-            .ok_or_else(|| DataError::new("unsupported simulation save format"))?;
+            .strip_prefix(b"EXSIM\0\x06")
+            .ok_or_else(|| DataError::new("unsupported simulation save format (expected EXSIM v6; older saves lack the tick-zero base, restart required)"))?;
         let saved: Saved = bin::from_slice_in(payload, budget)?;
         if saved.game != G::ID {
             return Err(DataError::new("save game ID differs"));
         }
-        let args = crate::json::from_str_in(&saved.args, budget)?;
+        let args = crate::json::from_str_in(
+            if saved.base_args.is_empty() {
+                &saved.args
+            } else {
+                &saved.base_args
+            },
+            budget,
+        )?;
         let mut sim = Self::new(args).map_err(DataError::new)?;
         sim.restore_into(bytes, None, budget)?;
         Ok(sim)
@@ -1204,9 +1245,9 @@ impl<G: Game> Sim<G> {
         args: Option<&str>,
         budget: Option<&LoadBudget>,
     ) -> Result<(), DataError> {
-        let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
+        let payload = bytes.strip_prefix(b"EXSIM\0\x06").ok_or_else(|| {
             DataError::new(format!(
-                "unsupported simulation save format (expected EXSIM v5; saw {:02x?})",
+                "unsupported simulation save format (expected EXSIM v6; older saves lack the tick-zero base, restart required; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
@@ -1249,13 +1290,37 @@ impl<G: Game> Sim<G> {
         } else {
             saved_args
         };
-        let mut next = Self::new(bound).map_err(DataError::new)?;
+        // The saved gameplay construction may predate an applied scene edit.
+        // Reconstruct tick zero from the arguments that produced its base, so a
+        // second same-build restore cannot undo that edit.
+        let initial_args = if args.is_some() {
+            &self.base_args
+        } else if s.base_args.is_empty() {
+            &s.args
+        } else {
+            &s.base_args
+        };
+        let initial_args = crate::json::from_str_in(initial_args, budget)?;
+        let mut next = Self::new(initial_args).map_err(DataError::new)?;
         next.world = Self::build(&next.args, self.world.assets.clone());
+        next.args_json = crate::json::to_string(&bound)?;
+        next.args = bound;
         next.setup_pending = !next.world.assets.ready();
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
             return Err(DataError::new("restore awaits declared assets"));
         }
+        // A bound continuation compares against this destination's construction,
+        // including its freshly baked scene, before retaining saved setup args.
+        let theirs = if args.is_some() {
+            self.base.clone()
+        } else {
+            next.world.initializer()?
+        };
+        if args.is_some() && self.setup_pending {
+            return Err(DataError::new("restore awaits declared assets"));
+        }
+        next.base = theirs;
         if args.is_some() {
             next.world.inherit_registry(&self.world);
         }
@@ -1267,9 +1332,11 @@ impl<G: Game> Sim<G> {
         if s.version < G::SAVE_VERSION {
             G::migrate(&mut next.world, s.version);
         }
+        next.reload = next.world.merge_initializer(&s.base, &next.base, budget)?;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
+        next.reload.log(&next.world);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
         next.input.restore_dynamic(s.input);
@@ -1387,7 +1454,7 @@ mod render_time_tests {
         let good = s.save();
         let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
         saved.world_us = 10_000;
-        let mut bad = b"EXSIM\0\x05".to_vec();
+        let mut bad = b"EXSIM\0\x06".to_vec();
         bad.extend(bin::to_vec(&saved));
         assert!(s
             .restore(&bad)

@@ -306,6 +306,7 @@ pub(crate) trait Erased {
     );
     fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError>;
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
@@ -490,6 +491,11 @@ impl<C: Data> Erased for Storage<C> {
             }
         }
         Some(at)
+    }
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut(index)
+            .ok_or_else(|| DataError::new("reload component disappeared"))?
+            .read(r)
     }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         if let Some(c) = self.get(index) {

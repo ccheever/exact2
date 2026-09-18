@@ -177,9 +177,13 @@ impl<T: Data> Data for Option<T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         if r.option()? {
-            let mut value = T::default();
-            value.read(r)?;
-            *self = Some(value);
+            if r.patching() {
+                self.get_or_insert_with(T::default).read(r)?;
+            } else {
+                let mut value = T::default();
+                value.read(r)?;
+                *self = Some(value);
+            }
         } else {
             *self = None;
         }
@@ -207,7 +211,9 @@ where
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
-        *self = Self::default();
+        if !r.patching() {
+            *self = Self::default();
+        }
         let mut i = 0;
         while r.item()? {
             if let Some(v) = self.get_mut(i) {
@@ -256,12 +262,21 @@ impl<T: Data> Data for BTreeMap<String, T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
-        self.clear();
+        if !r.patching() {
+            self.clear();
+        }
         while let Some(k) = r.field()? {
             r.claim(64 + std::mem::size_of::<T>())?;
-            let mut value = T::default();
-            value.read(r).map_err(|e| e.at(&k))?;
-            self.insert(k, value);
+            if r.patching() {
+                self.entry(k.clone())
+                    .or_default()
+                    .read(r)
+                    .map_err(|e| e.at(&k))?;
+            } else {
+                let mut value = T::default();
+                value.read(r).map_err(|e| e.at(&k))?;
+                self.insert(k, value);
+            }
         }
         Ok(())
     }

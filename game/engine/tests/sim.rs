@@ -519,13 +519,13 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x05"));
+    assert!(saved.starts_with(b"EXSIM\0\x06"));
     old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v5"));
+        .contains("EXSIM v6"));
     assert_eq!(s.save(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
@@ -554,7 +554,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v5"),
+            error.contains(&seen) && error.contains("EXSIM v6"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
@@ -1172,4 +1172,87 @@ fn live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead() {
         first.push(drawn_at.unwrap());
     }
     assert_eq!(first, [3, 4]); // T = 1.75 / 2.25 steps, R = 1.25 steps for both.
+}
+#[derive(Default, Component)]
+struct ReloadProbe {
+    authored: u32,
+    running: u32,
+}
+struct ReloadGame<const EDITED: bool>;
+impl<const EDITED: bool> Game for ReloadGame<EDITED> {
+    const ID: &'static str = "reload-boundary";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "probe",
+            ReloadProbe {
+                authored: if EDITED { 2 } else { 1 },
+                running: if EDITED { 20 } else { 10 },
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        w.get_mut::<ReloadProbe>("probe").unwrap().running += 1;
+    }
+}
+#[derive(Default, Data)]
+struct ReloadItem {
+    entity: String,
+    component: String,
+    field: String,
+}
+#[derive(Default, Data)]
+struct ReloadReport {
+    applied: Vec<ReloadItem>,
+    kept: Vec<ReloadItem>,
+}
+#[derive(Default, Data)]
+struct ReloadState {
+    reload: ReloadReport,
+}
+#[derive(Default, Data)]
+struct ReloadEnvelope {
+    world: ReloadState,
+}
+#[test]
+fn reload_report_survives_ticks_clears_on_restore_and_refusal_is_atomic() {
+    let mut old = Sim::<ReloadGame<false>>::new(()).unwrap();
+    old.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
+    old.agent(r#"{"op":"clock","ticks":1}"#);
+    let saved = old.save();
+    for bound in [false, true] {
+        let mut next = Sim::<ReloadGame<true>>::new(()).unwrap();
+        next.agent(r#"{"op":"clock","owner":"agent","now":9000}"#);
+        if bound {
+            next.restore_bound(&saved)
+        } else {
+            next.restore(&saved)
+        }
+        .unwrap();
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state.world.reload.applied.len(), 1);
+        assert_eq!(state.world.reload.kept.len(), 1);
+        let item = &state.world.reload.applied[0];
+        assert_eq!(
+            (&*item.entity, &*item.component, &*item.field),
+            ("probe", "ReloadProbe", "authored")
+        );
+        let probe = next.world().get::<ReloadProbe>("probe").unwrap();
+        assert_eq!((probe.authored, probe.running), (2, 11));
+        drop(probe);
+        let current = next.save();
+        let mut v5 = current.clone();
+        v5[6] = 5;
+        let error = next.restore_bound(&v5).unwrap_err();
+        assert!(error.message.contains("restart required"));
+        assert_eq!(next.save(), current);
+        next.agent(r#"{"op":"clock","ticks":2}"#);
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state.world.reload.applied.len(), 1);
+        let saved = next.save();
+        next.restore_bound(&saved).unwrap();
+        assert_eq!(next.save(), saved);
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert!(state.world.reload.applied.is_empty() && state.world.reload.kept.is_empty());
+    }
 }

@@ -69,3 +69,71 @@ fn replacement_running_clip_has_different_cpu_skinning() {
     assert_eq!(run.len(), walk.len());
     assert!(run.iter().zip(&walk).any(|(a, b)| a.0 != b.0));
 }
+
+#[test]
+fn carried_initializer_edits_reach_real_feed_on_next_tick() {
+    struct Edited;
+    impl Game for Edited {
+        const ID: &'static str = Lanterns::ID;
+        const SAVE_VERSION: u32 = Lanterns::SAVE_VERSION;
+        type Args = Options;
+        fn actions() -> exact_game::Actions {
+            Lanterns::actions()
+        }
+        fn assets() -> &'static [exact_game::Asset] {
+            Lanterns::assets()
+        }
+        fn setup(w: &mut World, args: &Options) {
+            Lanterns::setup(w, args);
+            w.get_mut::<Transform>("ledge").unwrap().position.x += 1.0;
+            w.get_mut::<Material>("lantern-12/bulb").unwrap().color = [0.1, 0.35, 0.8, 1.0];
+        }
+        fn tick(w: &mut World, input: &Input, args: &Options) {
+            Lanterns::tick(w, input, args);
+        }
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games/lanterns");
+    let bytes = std::fs::read(root.join("fixtures/difficult-moment.sim")).unwrap();
+    let mut old = Sim::<Lanterns>::from_save(&bytes).unwrap();
+    let mut sim = Sim::<Edited>::new(Options {
+        scene: exact_game_scene::bake::compile(
+            root.join("scene.json"),
+            &lanterns_logic::scene_types(),
+            Lanterns::assets(),
+        )
+        .unwrap()
+        .content,
+        seed: 1_041_003,
+        started: true,
+        sound: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut feed = Feed::with_assets(Lanterns::assets()).unwrap();
+    let mut writes = Recording::default();
+    feed.feed_to(old.world(), &mut writes).unwrap();
+    let ledge = old.world().named("ledge").unwrap();
+    assert_eq!(writes.position(ledge, false).x, 10.0);
+    sim.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
+    sim.restore_bound(&bytes).unwrap();
+    sim.agent(r#"{"op":"clock","ticks":1}"#);
+    feed.feed_to(sim.world(), &mut writes).unwrap();
+    assert_eq!(writes.position(ledge, false).x, 11.0);
+    let bulb = sim.world().named("lantern-12/bulb").unwrap();
+    let material = &writes.materials[bulb.index() as usize * 12..];
+    assert_eq!(&material[..4], &[0.1, 0.35, 0.8, 1.0]);
+    old.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
+    old.agent(r#"{"op":"clock","ticks":1}"#);
+    assert_eq!(
+        old.world()
+            .get::<lanterns_logic::Lantern>("lantern-12")
+            .unwrap()
+            .glow
+            .value(old.world().now()),
+        sim.world()
+            .get::<lanterns_logic::Lantern>("lantern-12")
+            .unwrap()
+            .glow
+            .value(sim.world().now())
+    );
+}

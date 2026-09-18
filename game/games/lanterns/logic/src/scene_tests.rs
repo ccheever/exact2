@@ -129,7 +129,7 @@ fn authored_initial_world_matches_previous_rust_construction() {
 }
 
 #[test]
-fn later_content_is_for_restart_and_never_reapplied_to_a_saved_world() {
+fn changed_scene_authored_fields_apply_while_carried_simulation_state_survives() {
     let baked = bake_scene();
     let mut running = Sim::<Lanterns>::new(Options {
         scene: baked.content.clone(),
@@ -182,7 +182,7 @@ fn later_content_is_for_restart_and_never_reapplied_to_a_saved_world() {
         -11.0
     );
     fresh.restore_bound(&save).unwrap();
-    assert_eq!(fresh.world().hash(), before);
+    assert_ne!(fresh.world().hash(), before);
     assert_eq!(fresh.world().resource::<Session>().elapsed, 6);
     assert!(fresh.world().get::<Lantern>("lantern-1").unwrap().lit);
     assert_eq!(
@@ -196,14 +196,33 @@ fn later_content_is_for_restart_and_never_reapplied_to_a_saved_world() {
             .unwrap()
             .position
             .x,
-        -12.0
+        -11.0
     );
     assert_eq!(
         fresh
             .world()
             .resource::<exact_game_scene::SceneIdentity>()
             .digest,
-        baked.digest
+        replacement.digest
+    );
+    assert!(fresh
+        .agent(r#"{"op":"state"}"#)
+        .contains("authored initializer changed"));
+    // A second save/restore in this build must not reconstruct the old scene
+    // as its initializer and silently undo the applied edit.
+    let carried = fresh.save();
+    let mut twice = Sim::<Lanterns>::from_save(&carried).unwrap();
+    assert_eq!(twice.save(), carried);
+    twice.restore(&carried).unwrap();
+    assert_eq!(twice.save(), carried);
+    assert_eq!(
+        twice
+            .world()
+            .get::<Transform>("lantern-1")
+            .unwrap()
+            .position
+            .x,
+        -11.0
     );
     // The ordinary portable save retains its original initial-condition argument too.
     let mut restored = Sim::<Lanterns>::new(Options {

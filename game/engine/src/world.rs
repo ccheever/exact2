@@ -8,10 +8,26 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// A slot and its incarnation; a recycled index never revives a stale entity.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Data)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Entity {
     index: u32,
     generation: u32,
+}
+impl Data for Entity {
+    fn write(&self, w: &mut dyn Writer) {
+        w.entity(self.index, self.generation);
+    }
+    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        r.begin_struct()?;
+        while let Some(field) = r.field()? {
+            match field.as_str() {
+                "index" => self.index.read(r)?,
+                "generation" => self.generation.read(r)?,
+                _ => r.unknown()?,
+            }
+        }
+        Ok(())
+    }
 }
 impl Default for Entity {
     fn default() -> Self {
@@ -916,3 +932,5 @@ pub(crate) use inspect::{Observation, ObservationState};
 
 mod save;
 use save::Free;
+
+pub(crate) mod reload;

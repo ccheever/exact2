@@ -91,6 +91,11 @@ impl<C: Data> Erased for Singleton<C> {
             *self.value.get_mut() = None;
         }
     }
+    fn patch(&self, _: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut()
+            .ok_or_else(|| DataError::new("reload resource disappeared"))?
+            .read(r)
+    }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         if index == 0 {
             if let Some(value) = self.get() {
