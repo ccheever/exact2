@@ -46,114 +46,117 @@ welcome document and says so for anything else.
 
 ## Performance work in progress — 2026-09-18
 
-Latest comparison: **typical startup remains tied; the larger-document scroll result favors Exact but needs replication**.
-The latest external startup series uses Exact `e98722ab…`, including the
-empty-container, flattened-row and parser improvements below. Thirty alternating
-fresh processes per app and document, warm filesystem caches, 900×700 windows:
+Latest comparison: **Exact opens this README slightly ahead of Legend, but
+integrating `origin/main` regressed scrolling on the full corpus**. The speed
+goal is not achieved.
 
-| Launch to readable document | Exact median / p95 | Legend median / p95 |
+After macOS screen-capture approval, launch timing uses a ScreenCaptureKit
+stream started before process launch. The observer matches the document body
+against a visually verified reference, including dark text pixels, and uses
+[WindowServer's frame display timestamp](https://developer.apple.com/documentation/screencapturekit/scstreamframeinfo/displaytime).
+A blank window cannot satisfy the match. Thirty fresh processes per app, six
+rotating orders, warm filesystem caches, 900×700 outer windows, 27,405-byte
+README; no workspace builds owned by this comparison ran during measurement.
+Other shared-machine activity is uncontrolled. The display stream requests
+120 Hz; this is a WindowServer timestamp, not a photon measurement.
+
+| Launch until reference content is displayed | Median | p95 |
 | --- | ---: | ---: |
-| 27 KB README | 224 / 280 ms | 249 / 1,686 ms |
-| 263 KB specification | 275 / 3,862 ms | 282 / 319 ms |
-| 964 KB distinct-document corpus | 271 / 4,040 ms | 268 / 295 ms |
+| Minimal Swift/AppKit Hello World | 150 ms | 193 ms |
+| Exact, integrated `origin/main` | 240 ms | 303 ms |
+| Legend Markdown | 264 ms | 322 ms |
 
-Typical startup is effectively tied within the observer's timing uncertainty.
-The long tails are real observations, but they are capture-completion times,
-not precise app rendering durations. A later 40-launch diagnostic found one
-Exact window at 170 ms followed by a screenshot call that took 1,931 ms;
-the returned image contained the document. That does not locate readable
-presentation within that interval or explain every earlier outlier. Capture
-calls typically took around 55 ms in that diagnostic, in addition to polling.
-Other work was running; these are not isolated-machine or cold-cache trials.
-The raw large-document tails are worse for Exact, but neither app's p95 is
-currently a reliable measure of its rendering tail.
-`parser-startup-{readme,spec,corpus}-summary.json` contains the results;
-corresponding `runs.json` files retain every launch. Attribution evidence is
-in `startup-phase-diagnostic-{runs,summary,method}.json`.
+The native baseline is an optimized Swift AppKit executable with one
+`NSTextField`, no document loading and no Exact code. Exact's README appears
+about 90 ms after that baseline and 24 ms ahead of Legend at the median in
+this test. This does not establish a meaningful general startup lead or
+already-running file-switch latency. All 90 launches matched; none were
+discarded. Raw runs, binary/reference identity and observer source are in
+`target/markdown-comparison/origin-integration/display-startup/` and
+`probe/display-startup/`.
 
-The latest Hitches-only scrolling series uses retained Exact `e98722ab…`
-and a 2,242,305-byte corpus of 75 distinct repository documents. Three fresh
-processes per app, 900×700 outer windows, 600 HID wheel events at 60 events/s
-for ten seconds; all input intervals are covered by their trace. Median of
-the per-run hitch totals, and longest stall observed across the three runs:
+The preceding paired CGWindow screenshot series recorded first windows at
+167/193/195 ms median for Hello World/Exact/Legend, and capture completion at
+224/249/293 ms. Its multi-second tails occurred inside capture calls. Those
+numbers answer different questions and are superseded for visible startup by
+the display-stream series above. The earlier standalone Hello World result
+(305 ms median capture completion) was not paired and must not be subtracted
+from reader runs made at other times. Its sources and evidence remain in
+`probe/hello-world/`; the paired screenshot series is in
+`origin-integration/paired-readme-startup/`.
 
-| Sustained scroll, 2.24 MB corpus | Exact | Legend |
+The current scrolling comparison uses a 2,242,305-byte corpus of 75 distinct
+repository documents. Three fresh processes per app/build, rotating order,
+900×700 outer windows, 1,200 HID wheel events of 30 pixels at 120 events/s for
+ten seconds, Hitches instrument only. All nine input intervals are covered
+by their target PID's trace. Endpoint OCR confirms substantial nonblank text
+movement. These are input rates, not measured display FPS.
+
+| Sustained scroll, 2.24 MB corpus | Median hitch ms/s | Longest stall across runs |
 | --- | ---: | ---: |
-| Hitch milliseconds / second | 3.33 | 18.75 |
-| Longest individual stall | 8.33 ms | 16.67 ms |
+| Exact, integrated `origin/main` | 155.00 | 33.33 ms |
+| Exact, retained pre-merge build | 7.50 | 25.00 ms |
+| Legend Markdown | 5.83 | 83.33 ms |
 
-All outliers are retained: Exact's three hitch totals are 17.50, 3.33 and
-2.50 ms/s; Legend's are 9.17, 18.75 and 19.17 ms/s. Before/after captures
-confirm substantial body movement. The apps have different reading layouts
-inside their matched outer windows, and background builds were running.
-These small trials suggest a lead on this workload, not an overall win.
-`async-text-full-hitches-{identity,runs,summary}.json` preserves the evidence;
-raw labels `flat` mean retained Exact and `exact` mean the rejected async-text
-experiment. The summary uses unambiguous `retained`, `async` and `legend` keys.
-Asynchronous paragraph drawing had a worse median (4.17 ms/s) and is not kept.
-The higher-input-rate comparison is deferred until integration of the newly
-fetched text changes from `origin/main` is validated.
+All runs are retained: integrated Exact 67.50/162.50/155.00 ms/s;
+pre-merge Exact 11.67/7.50/3.33; Legend 11.67/0.83/5.83. The apps have
+different reading layouts inside their matched outer windows. The small
+sample does not establish a general ranking, but the consistent merged-build
+regression needs repair. Active-scroll profiles put the additional sampled
+work in list settlement/layout and text measurement; drawing itself consumed
+less sampled time. That identifies the path, not yet the cause.
+`origin-integration/hitches-120hz/{identity,runs,summary}.json` and
+`origin-integration/scroll-profile/` preserve traces, samples and coverage.
 
-The earlier 231 KB repeated-document series used Exact `6e85cc90…`.
-Its Hitches-only medians were 2.50 vs 7.50 ms/s at 60 input events/second,
-and 1.67 vs 0.83 ms/s at 120 input events/second (Exact vs Legend). Longest
-stalls were respectively 16.67 vs 8.33 ms, and 8.33 ms for both apps. These
-are input rates, not measured display FPS. The heavier instrument series
-favored Legend; do not pool these different fixtures and instruments.
+Earlier 60-event/s full-corpus runs favored the retained pre-merge Exact:
+3.33 vs 18.75 median hitch ms/s, longest stalls 8.33 vs 16.67 ms.
+Exact's three runs were 17.50/3.33/2.50; Legend's 9.17/18.75/19.17.
+Background builds were running. These results are historical and do not
+apply to the merged build. `async-text-full-hitches-{identity,runs,summary}.json`
+retains them; raw labels `flat` mean retained Exact and `exact` mean the
+rejected asynchronous text experiment. The async experiment's median was
+worse (4.17 ms/s), so it was not kept. The earlier 231 KB repeated-document
+series also varies by input rate and instrument; do not pool those results.
 
-Last complete process-footprint measurements also use `d26b0c81…`. On the
-263 KB specification, Exact/Legend use 63/67 MiB after opening and 299/317 MiB
-after scrolling. On the README, post-scroll footprint is worse for Exact:
-242/88 MiB. This excludes WindowServer and children; memory is a mixed result.
-`corpus-memory-v2-summary.json` contains all three documents.
+Last complete footprint measurements use the older Exact `d26b0c81…`.
+On the 263 KB specification, Exact/Legend used 63/67 MiB after opening and
+299/317 MiB after scrolling. README post-scroll footprint was worse for Exact:
+242/88 MiB. This excludes WindowServer and children, and does not measure
+settling or repeated-pass growth. `corpus-memory-v2-summary.json` retains all
+three documents. Current-build sustained-memory comparison remains pending.
 
 Charlie confirmed this metric priority on 2026-09-18:
 
-1. Launch to a readable document: median and p95. Measure opening another
-   file in an already-running process separately.
-2. Scroll smoothness: total hitch milliseconds per second and longest stall.
-3. Input to visible response: scroll response plus blank or stale content
-   during fast movement. This still lacks a reliable measurement.
-4. Memory after sustained scrolling: settling footprint and growth over
-   repeated passes, not just one peak or a single post-scroll sample.
+1. Launch to readable document: median and p95; already-running file changes
+   measured separately.
+2. Scroll smoothness: hitch milliseconds per second and longest stall.
+3. Input to visible response, including blank/stale content during fast motion.
+4. Settling memory and growth across repeated scrolling passes.
 
-Internal parse, layout and synchronous flush timings diagnose costs; they do
-not establish visible frame rate or a competitor win. Future comparison runs
-should use the same latest frozen builds across metrics, realistic distinct
-content, matched viewports and repeated input, with background build work
-stopped. Screenshot completion currently obscures startup p95, so it remains
-an observation with timing uncertainty rather than a precise rendering tail.
+Internal parse/layout/flush timings diagnose costs; they do not establish
+visible frame rate. Input latency and repeated-pass memory still need reliable
+current-build measurements.
 
 `origin/main` at `7e77aaf1` adds warm paragraph ink indexing, bounded cache
 maintenance, paragraph identities and Apple scalar-measurement reuse. Its
-cold AppKit background paragraph path is opt-in for Markdown Stress and is
-not automatically enabled in this reader. The integration is committed as `0d32840c` in
-`exact2-wt-markdown-origin`; the measurements above still identify the previous
-frozen binaries. The combined Mac Release build, 227 core
+cold AppKit background paragraph path is opt-in for Markdown Stress, not
+this reader. The integration is committed as `0d32840c` in
+`exact2-wt-markdown-origin`; the current measured binary is `245d3466…`, the
+retained pre-merge binary `e98722ab…`. The combined Mac Release build, 227 core
 unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
-tests, strict host/compiler Clippy, formatting, caps and boot pass. Physical
-launch validation is still pending: the driver was sampled blocked inside
-macOS `posix_spawn`, before an app PID or ready reply. The original shared checkout remains
-recoverable as snapshot `2c765e80`. The whole-workspace build subsequently
-found a browser worker dispatch call still expecting decoded JSON after the
-upstream byte-transport change. Commit `8137210c` decodes that response; the
-three browser-module tests, targeted strict Clippy, formatting, caps and boot
-pass. Whole-workspace build/test/lint completion remains pending.
+tests, strict host/compiler Clippy, formatting, caps and boot passed.
+Native launch and the agent's full-corpus open now run successfully; an
+intermittent launch stall was observed before Swift main, separately from
+rendering. The original shared checkout remains recoverable as snapshot
+`2c765e80`.
 
-A minimal optimized Swift/AppKit Hello World app was also measured after
-Charlie asked for the native baseline: one `NSTextField`, no document loading
-or Exact code, and a 900×700 outer window. Thirty fresh processes with warm
-filesystem caches produced 233 ms median / 259 ms p95 until the window was
-observed, and 305 ms median / 330 ms p95 until a screenshot matched the label.
-The capture call itself took a median 68 ms. The reference was visually
-checked, and the observer requires dark text pixels as well as the body match
-so a blank window cannot pass. These are capture observations, not exact
-presentation timestamps. Both Exact and Legend stalled in fresh pilot launch
-calls during this run, so the Hello World numbers are **not a paired overhead
-comparison** with the earlier 224–275 / 249–282 ms reader medians. Machine
-activity and the different run time prevent subtracting them or claiming
-Exact is faster than Hello World. `probe/hello-world/{summary,runs}.json`,
-its Swift sources, build commands and verified reference retain the evidence.
+The whole-workspace build found a browser worker dispatch call still expecting
+decoded JSON after the upstream byte-transport change. Commit `8137210c`
+decodes that response; its three module tests and targeted strict Clippy pass.
+Superseded full-workspace checks were stopped at recorded process IDs after
+profiling found TypeScript scanning a heavily populated shared temporary
+ancestor. Validation is being rerun with a private `TMPDIR`; whole-workspace
+build/test/lint completion remains pending.
 
 The comparison target is [Legend Markdown](https://github.com/LegendApp/legend-apps/tree/2b7b91d949cf873ddef7ea0dde892ddd51944501/apps/markdown),
 pinned to `2b7b91d949cf873ddef7ea0dde892ddd51944501`. Its ARM64 Release
