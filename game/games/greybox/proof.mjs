@@ -149,7 +149,9 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const checkpointState = await session.world('world').snapshot();
   const saved = await session.world('world').save(worldFile);
   const continueWorld = async () => {
+    const before = (await session.state()).world[0].tick;
     await session.world('world').run(500);
+    check('first continuation clock +500 advances exactly 30 ticks', (await session.state()).world[0].tick === before + 30);
     const jumped = await session.world('world').position('player');
     check('saved queued jump executes after capture', jumped?.[1] > 0.9, jumped);
     await session.world('world').key_up('Space');

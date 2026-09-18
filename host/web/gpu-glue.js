@@ -119,7 +119,7 @@ function create(entry, module, carry) {
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
   entry.stateful = module.gpu_carry(entry.id) !== undefined;
   if (exact.now && entry.stateful) {
-    const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent"})) || "null");
+    const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent",now:exact.now()})) || "null");
     entry.ownership = owner?.ownership ?? {unavailable:"module does not acknowledge clock owner"};
   }
   if (carry !== undefined) {

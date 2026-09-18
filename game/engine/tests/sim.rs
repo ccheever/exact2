@@ -145,6 +145,83 @@ fn epoch_pause_live_gap_and_backwards_clock() {
     assert_eq!(c.released, 0);
     assert_eq!(s.world().tick(), 21);
 }
+
+#[test]
+fn controlled_restore_anchors_destination_clock_before_first_advance() {
+    for bound in [false, true] {
+        let mut original = sim();
+        key(&mut original, "KeyW", true, 0.0);
+        original.run(500.0);
+        key(&mut original, "KeyE", true, 750.0);
+        let saved = original.save();
+        original.run(500.0);
+
+        let mut restored = sim();
+        // The destination's epoch differs from the checkpoint's host epoch.
+        restored.agent(r#"{"op":"clock","owner":"agent","now":9000}"#);
+        if bound {
+            restored.restore_bound(&saved).unwrap();
+        } else {
+            restored.restore(&saved).unwrap();
+        }
+        assert_eq!(restored.world().tick(), 30);
+        assert_eq!(restored.save(), saved);
+        let state = restored.agent(r#"{"op":"state"}"#);
+        assert!(state.contains(r#""hostMicros":9000000"#), "{state}");
+        assert!(state.contains(r#""owner":"agent""#), "{state}");
+        for op in ["state", "tree", "logs", "layout"] {
+            let entity = if op == "layout" {
+                r#", "entity":"counter""#
+            } else {
+                ""
+            };
+            let reply = restored.agent(&format!(r#"{{"op":"{op}","now":999999{entity}}}"#));
+            assert!(!reply.contains("error"), "{reply}");
+            assert_eq!(restored.save(), saved, "inspection must remain read-only");
+        }
+        assert_eq!(restored.advance(9500.0, Clock::Seekable), 30);
+        assert_eq!(restored.world().tick(), 60);
+        assert_eq!(restored.world().resource::<Counts>().pressed, 1);
+        assert_eq!(
+            restored.save(),
+            original.save(),
+            "held and future input survive"
+        );
+        let before = restored.save();
+        assert!(restored.restore(b"invalid").is_err());
+        assert_eq!(restored.save(), before);
+        assert_eq!(restored.advance(9600.0, Clock::Seekable), 6);
+    }
+}
+
+#[test]
+fn live_restore_rebases_without_counting_paused_wall_time() {
+    for bound in [false, true] {
+        let mut original = sim();
+        original.run(500.0);
+        key(&mut original, "KeyE", true, 550.0);
+        let saved = original.save();
+        original.run(100.0);
+
+        let mut restored = sim();
+        restored.advance(100.0, Clock::Live);
+        if bound {
+            restored.restore_bound(&saved).unwrap();
+        } else {
+            restored.restore(&saved).unwrap();
+        }
+        let state = restored.agent(r#"{"op":"state","now":999999}"#);
+        assert!(state.contains(r#""hostMicros":null"#), "{state}");
+        assert!(state.contains(r#""owner":"human""#), "{state}");
+        assert_eq!(restored.world().tick(), 30);
+        assert_eq!(restored.save(), saved);
+        assert_eq!(restored.advance(900_000.0, Clock::Live), 0);
+        assert_eq!(restored.world().tick(), 30, "paused wall time is discarded");
+        assert_eq!(restored.advance(900_100.0, Clock::Live), 6);
+        assert_eq!(restored.world().tick(), 36);
+        assert_eq!(restored.save(), original.save());
+    }
+}
 #[test]
 fn touch_is_data_and_pointer_wheel_deltas_expire() {
     let mut s = sim();

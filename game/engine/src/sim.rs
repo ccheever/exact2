@@ -922,7 +922,9 @@ impl<G: Game> Sim<G> {
         sim.restore(bytes)?;
         Ok(sim)
     }
-    /// Atomically restore dynamic state onto this binary's actions and a new epoch.
+    /// Atomically restore dynamic state onto this binary's actions.
+    /// An agent-owned clock retains its established host boundary; a live clock
+    /// rebases on its next sample, excluding time spent paused from simulation.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         self.restore_into(bytes, None)
     }
@@ -1019,6 +1021,14 @@ impl<G: Game> Sim<G> {
             .presentation_generation
             .checked_add(1)
             .expect("presentation generation exhausted");
+        // The controlled host cannot move during restore. Anchor its current
+        // boundary explicitly, including saved pending input offsets, so the
+        // next seek executes its full duration. Live time instead rebases on
+        // the next sample; loading a checkpoint must not simulate the pause.
+        if let Some(now) = self.last_us.filter(|_| self.agent_owned) {
+            next.rebase(now as f64 / 1000.0, false)
+                .map_err(DataError::new)?;
+        }
         self.capture_fail("world restored during recording; start a new capture window");
         next.recorder = self.recorder.take();
         next.agent_owned = self.agent_owned;
