@@ -140,11 +140,13 @@ fn agent_snapshots_and_pick() {
     struct Layout {
         entity: EntityLayout,
     }
-    let layout: Layout =
-        exact_game::json::from_str(&s.agent(r#"{"op":"layout","entity":"player"}"#)).unwrap();
+    let layout: Layout = exact_game::json::from_str(
+        &s.agent(r#"{"op":"layout","entity":"player","width":800,"height":600}"#),
+    )
+    .unwrap();
     let screen = layout.entity.screen;
     let hit = s.agent(&format!(
-        "{{\"op\":\"layout\",\"x\":{},\"y\":{}}}",
+        "{{\"op\":\"layout\",\"width\":800,\"height\":600,\"x\":{},\"y\":{}}}",
         screen.x + screen.w * 0.5,
         screen.y + screen.h * 0.5
     ));
@@ -157,9 +159,15 @@ fn agent_snapshots_and_pick() {
         s.agent(r#"{"op":"wat"}"#),
         r#"{"tick":0,"error":"unknown op `wat`"}"#
     );
+    let saved = s.save();
     assert!(s
-        .agent(r#"{"op":"layout","entity":"player","now":1000}"#)
-        .starts_with("{\"tick\":60,"));
+        .agent(r#"{"op":"layout","entity":"player","width":800,"height":600,"now":1000}"#)
+        .starts_with("{\"tick\":0,"));
+    assert_eq!(
+        s.save(),
+        saved,
+        "inspection does not advance time or store viewport"
+    );
 }
 #[test]
 fn headless_throughput() {
