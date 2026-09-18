@@ -90,8 +90,8 @@ impl Queries<'_> {
     }
 }
 
-// Only component values and derived geometry live here; neither partition enters
-// EXPHYS. A dirty page is a candidate, not permission to rebuild static geometry.
+// Derived stamps, poses and Rapier geometry never enter EXPHYS. One retained
+// collider set serves ordinary queries and the character controller.
 struct Geometry {
     collider_generation: u64,
     body_geometry: Option<(crate::BodyKind, f32)>,
@@ -100,7 +100,7 @@ struct Geometry {
 }
 #[derive(Default)]
 pub(crate) struct Scene {
-    parts: [Part; 1],
+    part: Part,
     order: crate::binned::Binned,
     bounds: Vec<rapier3d::parry::bounding_volume::Aabb>,
     #[cfg(test)]
@@ -117,7 +117,7 @@ impl Scene {
             let mut members = changes.statics.clone();
             members.extend_from_slice(&changes.bodies);
             members.sort_unstable();
-            self.parts[0] = Part::new(world, &members);
+            self.part = Part::new(world, &members);
             self.rebuild_order();
             #[cfg(test)]
             {
@@ -126,7 +126,7 @@ impl Scene {
             }
             return;
         }
-        let part = &mut self.parts[0];
+        let part = &mut self.part;
         let mut moved = Vec::new();
         let mut dirty = [false; 2];
         for &e in &changed.rows {
@@ -187,13 +187,13 @@ impl Scene {
         }
         if !moved.is_empty() {
             if dirty[0] || !self.order.matches(&self.bounds) {
-                self.parts[0].bvh = Bvh::from_iter(
+                self.part.bvh = Bvh::from_iter(
                     BvhBuildStrategy::Binned,
                     self.bounds.iter().copied().enumerate(),
                 );
                 self.rebuild_order();
             } else {
-                let bvh = &mut self.parts[0].bvh;
+                let bvh = &mut self.part.bvh;
                 for &id in &moved {
                     bvh.insert_or_update_partially(self.bounds[id as usize], id, 0.);
                 }
@@ -208,7 +208,7 @@ impl Scene {
         }
     }
     fn rebuild_order(&mut self) {
-        let part = &self.parts[0];
+        let part = &self.part;
         self.bounds = part
             .rapier
             .colliders
@@ -224,7 +224,7 @@ impl Scene {
         self.order = crate::binned::Binned::new(&self.bounds, &dynamic);
     }
     pub(crate) fn controller(&mut self) -> &mut Part {
-        &mut self.parts[0]
+        &mut self.part
     }
 }
 // A live component view: reads see same-tick edits without altering saved solver
@@ -348,19 +348,14 @@ impl Queries<'_> {
         let predicate = |_: ColliderHandle, c: &rapier3d::prelude::Collider| {
             c.collision_groups().memberships.bits() & mask != 0
         };
-        scene
-            .parts
-            .iter()
-            .flat_map(|part| {
-                let q = part.queries(QueryFilter::default().predicate(&predicate));
-                q.intersect_ray(Ray::new(math::vector(origin), math::vector(dir)), max, true)
-                    .map(|(h, _, hit)| Hit {
-                        entity: part.entity(h),
-                        distance: hit.time_of_impact,
-                        point: origin + dir * hit.time_of_impact,
-                        normal: math::vec3(hit.normal),
-                    })
-                    .min_by(nearest)
+        let part = &scene.part;
+        let q = part.queries(QueryFilter::default().predicate(&predicate));
+        q.intersect_ray(Ray::new(math::vector(origin), math::vector(dir)), max, true)
+            .map(|(h, _, hit)| Hit {
+                entity: part.entity(h),
+                distance: hit.time_of_impact,
+                point: origin + dir * hit.time_of_impact,
+                normal: math::vec3(hit.normal),
             })
             .min_by(nearest)
     }
@@ -371,14 +366,12 @@ impl Queries<'_> {
             c.collision_groups().memberships.bits() & mask != 0
         };
         let shape = math::shape(shape, pose.scale);
-        let mut result = Vec::new();
-        for part in &scene.parts {
-            let q = part.queries(QueryFilter::default().predicate(&predicate));
-            result.extend(
-                q.intersect_shape(math::pose(pose), &*shape)
-                    .map(|(h, _)| part.entity(h)),
-            );
-        }
+        let part = &scene.part;
+        let q = part.queries(QueryFilter::default().predicate(&predicate));
+        let mut result: Vec<_> = q
+            .intersect_shape(math::pose(pose), &*shape)
+            .map(|(h, _)| part.entity(h))
+            .collect();
         result.sort();
         result.dedup();
         result
@@ -399,34 +392,29 @@ impl Queries<'_> {
         let dir = math::vector(motion.normalize());
         let aabb =
             shape.compute_swept_aabb(&p, &(Pose::from_translation(math::vector(motion)) * p));
-        scene
-            .parts
-            .iter()
-            .flat_map(|part| {
-                let q = part.queries(QueryFilter::default().predicate(&predicate));
-                q.intersect_aabb_conservative(aabb)
-                    .filter_map(|(h, c)| {
-                        let hit = cast_shapes(
-                            c.position(),
-                            Vector::ZERO,
-                            c.shape(),
-                            &p,
-                            dir,
-                            &*shape,
-                            ShapeCastOptions {
-                                max_time_of_impact: motion.length(),
-                                ..ShapeCastOptions::default()
-                            },
-                        )
-                        .ok()??;
-                        Some(Hit {
-                            entity: part.entity(h),
-                            distance: hit.time_of_impact,
-                            point: math::vec3(c.position() * hit.witness1),
-                            normal: math::vec3(c.position().rotation * hit.normal1),
-                        })
-                    })
-                    .min_by(nearest)
+        let part = &scene.part;
+        let q = part.queries(QueryFilter::default().predicate(&predicate));
+        q.intersect_aabb_conservative(aabb)
+            .filter_map(|(h, c)| {
+                let hit = cast_shapes(
+                    c.position(),
+                    Vector::ZERO,
+                    c.shape(),
+                    &p,
+                    dir,
+                    &*shape,
+                    ShapeCastOptions {
+                        max_time_of_impact: motion.length(),
+                        ..ShapeCastOptions::default()
+                    },
+                )
+                .ok()??;
+                Some(Hit {
+                    entity: part.entity(h),
+                    distance: hit.time_of_impact,
+                    point: math::vec3(c.position() * hit.witness1),
+                    normal: math::vec3(c.position().rotation * hit.normal1),
+                })
             })
             .min_by(nearest)
     }

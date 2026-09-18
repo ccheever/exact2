@@ -10,12 +10,14 @@ use rapier3d::parry::{
 #[derive(Clone, Copy)]
 struct Bin {
     bounds: Aabb,
+    centers: Aabb,
     count: usize,
 }
 impl Default for Bin {
     fn default() -> Self {
         Self {
             bounds: Aabb::new_invalid(),
+            centers: Aabb::new_invalid(),
             count: 0,
         }
     }
@@ -23,6 +25,9 @@ impl Default for Bin {
 impl Bin {
     fn add(&mut self, bounds: &Aabb) {
         self.bounds.merge(bounds);
+        let center = bounds.center();
+        self.centers.mins = self.centers.mins.min(center);
+        self.centers.maxs = self.centers.maxs.max(center);
         self.count += 1;
     }
     fn merge(&mut self, other: Self) {
@@ -201,12 +206,15 @@ impl Node {
         }
         let grid = Grid::new(c);
         if grid != self.grid {
-            // New bin boundaries require rebinning this branch's static bounds.
-            // Usually these are tiny branches near a body; extrema changes at the
-            // root can still visit all statics (measured separately).
-            self.bins = [Bin::default(); 8];
-            for &id in &self.statics {
-                self.bins[grid.bin(bounds[id as usize].center())].add(&bounds[id as usize]);
+            // A moving extremum can change the grid without moving any static
+            // center to another bin. The center ranges certify this in O(8).
+            if !self.bins.iter().enumerate().all(|(i, b)| {
+                b.count == 0 || (grid.bin(b.centers.mins) == i && grid.bin(b.centers.maxs) == i)
+            }) {
+                self.bins = [Bin::default(); 8];
+                for &id in &self.statics {
+                    self.bins[grid.bin(bounds[id as usize].center())].add(&bounds[id as usize]);
+                }
             }
             self.grid = grid;
         }

@@ -245,3 +245,69 @@ fn retained_terrain() {
     physics::move_character(&mut w, player, Vec3::X);
     eprintln!("1024x1024 heightfield: first ray={query_us:.3} us first character={:.3} us, RSS world={before} query={query} character={} KiB", start.elapsed().as_secs_f64()*1e6, rss_kib());
 }
+
+#[test]
+#[ignore = "character changes scene extrema; diagnostic with canonical fallback"]
+fn character_extrema() {
+    for teleport in [false, true] {
+        let (mut w, statics) = scenery(false);
+        let e = w.spawn((Transform::at(1000., 1.41, 0.), Character::default()));
+        physics::move_character(&mut w, e, Vec3::ZERO);
+        check(&w, statics[0]);
+        let mut samples = Vec::new();
+        for tick in 0..140 {
+            if teleport {
+                w.get_mut::<Transform>(e).unwrap().position.x =
+                    if tick % 2 == 0 { -1000. } else { 1000. };
+            }
+            let start = Instant::now();
+            physics::move_character(&mut w, e, Vec3::X);
+            if tick >= 20 {
+                samples.push(start.elapsed().as_secs_f64() * 1e6);
+            }
+        }
+        check(&w, statics[19999]);
+        let med = median(&mut samples);
+        eprintln!("S=20000 character outside scenery, teleport={teleport}: move median={med:.3} us p95={:.3} us (120 calls, 20 warmup)", samples[samples.len()*95/100]);
+    }
+}
+
+#[test]
+#[ignore = "consecutive character calls without solver or intervening queries"]
+fn characters_only() {
+    for count in [1, 8] {
+        let (mut w, statics) = scenery(false);
+        let players: Vec<_> = (0..count)
+            .map(|i| {
+                w.spawn((
+                    Transform::at(i as f32 * 3., 1.41, 0.),
+                    Character::default(),
+                    Collider {
+                        layer: 2,
+                        ..Default::default()
+                    },
+                ))
+            })
+            .collect();
+        for &p in &players {
+            physics::move_character(&mut w, p, Vec3::ZERO);
+        }
+        check(&w, statics[0]);
+        let mut samples = Vec::new();
+        for tick in 0..140 {
+            let start = Instant::now();
+            for &p in &players {
+                physics::move_character(&mut w, p, Vec3::X);
+            }
+            if tick >= 20 {
+                samples.push(start.elapsed().as_secs_f64() * 1e6);
+            }
+        }
+        for (i, &p) in players.iter().enumerate() {
+            assert!(w.get::<Transform>(p).unwrap().position.x > i as f32 * 3. + 2.);
+        }
+        check(&w, statics[19999]);
+        let med = median(&mut samples);
+        eprintln!("S=20000 characters={count}, movement only: batch median={med:.3} us p95={:.3} us (120 batches, 20 warmup)", samples[samples.len()*95/100]);
+    }
+}
