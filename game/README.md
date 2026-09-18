@@ -206,82 +206,68 @@ Pixels are held to a band; simulation state is held exactly. The two game proofs
 and saved physics pile demonstrate this on arm64 macOS, x86-64 Linux and Chrome
 wasm; unexercised engine APIs do not inherit a measured parity claim.
 
-Hashing diagnostic: `cargo test --manifest-path game/Cargo.toml -p exact-game
---release stillness_hash_cost -- --ignored --nocapture` measures observation at
-1k/10k/200k entities, then advancing ticks at 200k with zero or 100 Transform
-writes. The movers occupy either one page or 100 pages. It reports observation,
-canonical hash, fused observation/hash, and the final seek sample pair separately
-(each extended case uses 100 samples after five warmups). Single-operation timings
-exclude writes; the seek pair includes the intervening tick's writes and comparison.
+Observation caches each storage page's per-instance digests by its write
+version, presence mask and observed Ambient membership. Unchanged pages reuse
+those digests; a mutable lease dirties its page even if nothing is written, so the
+next sample rehashes values and still reports Still when they are equal. Resources
+and RNG cache their digests until a mutable lease or replacement. Existence pages
+track slot membership/incarnations, and hierarchy propagation marks global-pose
+pages when a descendant's pose or availability changes, including motion inherited
+from Ambient ancestors. Observation reads the last propagated pose.
 
-The canonical hash is a nonlinear stream: each lane depends on the preceding
-state, beginning with the changing tick. Independent page digests cannot replace
-those lanes while preserving pinned hashes. Caching serialized pages would still
-require streaming all their bytes every tick. T1a therefore stops before changing
-the runtime or hash format; incremental observation alone or a versioned paged
-proof hash requires a scope decision.
+Caches are derived state: neither saved nor hashed, discarded on load and world
+identity/presentation-generation changes. The sorted entries vector and comparison
+are unchanged, including the eight reasons and Ambient/AMBIENT rules. Building
+that flat vector still costs O(entries); value hashing costs O(dirty-page values).
+`World::hash` and its canonical streaming definition are unchanged. A fused
+observation/hash sample still streams every component into the canonical hash,
+while reusing the separate observation digests.
 
-The proposed observation cache would retain ordered per-entity hashes in immutable
-pages keyed by storage write generation, page membership/incarnations, and Ambient
-membership. Samples would share unchanged pages and compare changed pages in the
-existing category/name/entity order, retaining the same eight reasons. Entity
-existence needs its own page generations on spawn/despawn. Propagation must mark
-global-pose pages for every affected descendant, including descendants of Ambient
-parents; observation must still use the last propagated pose. World identity and
-presentation generation would invalidate all pages, and load would recreate them
-without serializing any cache. A new paged proof hash would additionally need
-ordered digests for the complete slot table, free list, RNG and resources; Ambient
-skips apply only to observation. This design is not implemented in T1a.
+Diagnostics (release profile, from the repository root):
 
-T1a baseline on shared x86-64 Linux (EPYC 9454), release profile: the original
-observation diagnostic measured 0.213/1.889/38.468 ms median at 1k/10k/200k entities
-(p95 0.220/1.935/40.686 ms). The extended diagnostic below also runs the unchanged
-engine; milliseconds are median / p95. These are diagnostic costs, not gates or
-an optimization claim.
+```sh
+cargo test --manifest-path game/Cargo.toml -p exact-game --release --lib stillness_hash_cost -- --ignored --nocapture
+cargo test --manifest-path game/Cargo.toml -p exact-game --release --lib settle_200k_cost -- --ignored --nocapture
+```
 
-| 200k entities | Observe | Hash | Observe + hash | Seek pair |
-| --- | ---: | ---: | ---: | ---: |
-| Still | 37.940 / 38.465 | 72.291 / 77.959 | 106.573 / 110.083 | 144.161 / 148.772 |
-| 100 movers, one page | 41.620 / 75.168 | 104.346 / 145.373 | 102.321 / 106.811 | 144.552 / 147.929 |
-| 100 movers, 100 pages | 38.382 / 38.554 | 69.530 / 77.601 | 103.549 / 106.696 | 144.690 / 148.830 |
+The observation benchmark includes 1k/10k/200k still worlds and 200k entities with
+100 writes clustered in one page or spread over 100 pages. It separates observation,
+canonical hash, fused observation/hash and the seek pair. The extended cases use
+100 samples after five warmups; single-operation timings exclude writes. Settle
+measures an initial Unknown world, then 100 samples after five warmups, invalidating
+each sample with an unwritten Transform lease so it must actually observe rest.
+At 1,024 slots per page, the spread case rehashes 102,400 values; the clustered
+case rehashes 1,024. Neither timing is a gate.
 
-After the diagnostic/test increment, the same benchmark on the unchanged runtime
-gave the following repeat measurements. There is no optimized-runtime AFTER
-result because the hash compatibility condition stopped implementation. The
-original 1k/10k/200k observation medians were 0.214/2.064/41.524 ms on this repeat.
+T1a observation-only measurements on shared x86-64 Linux (EPYC 9454), with 200k
+Transform entities; milliseconds are median / p95:
 
-| 200k entities, repeat | Observe | Hash | Observe + hash | Seek pair |
-| --- | ---: | ---: | ---: | ---: |
-| Still | 40.935 / 44.818 | 69.512 / 70.058 | 100.848 / 103.403 | 150.602 / 153.497 |
-| 100 movers, one page | 43.074 / 44.028 | 73.987 / 77.672 | 106.508 / 107.316 | 149.229 / 153.780 |
-| 100 movers, 100 pages | 41.571 / 42.245 | 68.793 / 71.312 | 104.192 / 105.098 | 150.105 / 153.515 |
+| Operation | Before | After |
+| --- | ---: | ---: |
+| Observe, still | 37.829 / 38.254 | 0.758 / 0.786 |
+| Observe, 100 clustered movers | 37.803 / 38.517 | 0.960 / 0.976 |
+| Observe, 100 spread movers | 37.864 / 38.435 | 21.210 / 21.383 |
+| Settle after an unwritten lease | 139.267 / 140.468 | 66.954 / 67.779 |
 
-At 1,024 slots per page the spread case dirties 100 of 196 pages, so even a page
-cache would rehash 102,400 component values; the clustered case rehashes 1,024.
+The single initial settle sample was 158.295 → 126.409 ms, excluding world
+construction. Settle retains the full canonical hash cost. Both measurements
+used the same diagnostic and reduced-debug/non-incremental environment.
 
-Linux proofs before / after the diagnostic-only change, in build-inclusive seconds:
+The old uncached observation path remains a test-only oracle: three seeded scripts
+cover 576 ticks and compare 2,304 samples before/after propagation, with and without
+the fused hash. They cover spawn/despawn/reuse, unwritten leases, parent edits,
+resources, RNG, Ambient, load and identity changes; entries, verdicts, reasons,
+saves and canonical hashes agree. Separate tests count value writes on dirty pages
+and cover equal-pose globals becoming available after slot reuse or reparenting.
 
-| Game | Before | After | Result on both runs |
-| --- | ---: | ---: | --- |
-| Beacons | 85.044 | 75.035 | Same three baseline failures |
-| Lanterns | 78.507 | 52.171 | Same missing `dist/index.html` failure |
-| Greybox | 31.360 | 20.860 | Same three baseline failures |
-| Asset Fixture | 32.347 | 18.808 | Pass; pinned hash unchanged |
-
-Failure lines and printed world-hash sequences matched between the two runs.
-The machine ran out of disk between them; all clone build outputs were removed
-and rebuilt with `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0` and
-`CARGO_INCREMENTAL=0`. These proof timings therefore do not measure a runtime
-speedup. The cubes proof ignores `linux` and launches Chrome; with Chrome absent,
-its cleanup hung and only its recorded benchmark child was stopped.
-
-T1a verification: the full Rust workspace passed 377 tests with 9 ignored,
-including 18 G1c/G1d cases and both new lease/incarnation regressions. Bun
-matched the supplied baseline: 38 passed, 2 failed, 826 assertions. Workspace
-Clippy remains blocked by the existing `type_complexity` warning at
-`render/src/assets.rs:239`; formatting remains red in that file and
-`engine/tests/capture.rs`. Neither file was changed. Engine-only Clippy, caps and
-boot pass. GPU presentation, Chrome, macOS and iOS were not verified on this host.
+Validation: 381 Rust tests passed, 10 diagnostics ignored; engine Clippy, caps and
+boot pass. Bun matches the baseline (38 passed, 2 failed). Workspace Clippy remains
+red on the existing `render/src/assets.rs:239` type-complexity warning; workspace
+formatting remains red in that file and `engine/tests/capture.rs`, both untouched.
+The Linux proofs retain identical failure lines and printed hashes: Beacons has
+three baseline failures, Lanterns the missing `dist/index.html`, Greybox three
+baseline failures, and Asset Fixture passes. GPU, Chrome and Apple execution
+remain unverified on this host.
 
 ## Publications and events
 

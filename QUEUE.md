@@ -10,7 +10,6 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-- Game T1a: choose whether to optimize observation alone while retaining the canonical proof hash, or authorize a versioned paged hash. The existing nonlinear stream cannot combine page digests bit-identically; its tick prefix changes every tick. `stillness_hash_cost` now measures still/100-mover observation and hash costs separately.
 - Cubes benchmark proof: `proof.mjs linux` still launches its web carrier; absent Chrome leaves `bench/exact.mjs::stop` awaiting an exit event after a failed spawn. Refuse unsupported hosts and let cleanup finish when no child was started (T1a).
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
