@@ -4069,3 +4069,57 @@ Evidence: `target/web-observer-baseline-validation/freeze-v1/`, 33 artifacts /
 `7e365f0ec8484463ae0713a7267f8a5f46720a4f7b9475b1e60a68ae7093799f`;
 source manifest `2616287b945b5d55d7ed54f7849737118415a77ded679d3bf6fce596f6a8cb62`,
 two-file patch `100aa303c9c3a88ec7c200e36c37dc06195bdd1eb8f64a307861a3bb7a62a0ef`.
+
+### 8.62 Fresh browser observer-baseline comparison, 2026-09-18
+
+One fresh control then candidate pair measures §8.61's navigation change with
+the same instrumented Wasm, plan, Reusable factory, glue and driver. Both cells
+pass functional checks and capture complete traces. Only served navigation and
+its unserved build-identity card differ; the server verifies the exact Buffer
+it serves. This is not an independent browser-body digest or a rebuilt Wasm.
+
+Both arms supply all10,000 records with32 revised records per loaded update.
+Silent progress is0→8, loaded8→16 and recovery16→16. All144 scheduled offers and
+48 input echoes complete across six fixed2s phases;162 fully contained rAF gaps
+are recorded. Loaded/recovery boundary geometry matches. Idle starts at different
+scroll offsets,328319 versus328343, then ends at matching port facts. Sparse
+snapshots do not establish all-frame geometry. Wheel-caused movement remains
+`NOT_ESTABLISHED` because resize and anchoring also change scroll offsets.
+
+Selected renderer tasks wholly contained within conservative clock bounds:
+
+| Phase | Control count / union / max ms | Candidate count / union / max ms |
+|---|---:|---:|
+| idle |349 /120.331 /5.505|313 /102.417 /5.301|
+| loaded |276 /117.220 /6.319|331 /137.818 /6.431|
+| recovery |306 /85.001 /4.252|330 /87.580 /4.161|
+
+None of these contained tasks exceeds8.333ms in either arm. Crossing tasks
+remain separate:2/2/3 control and2/3/2 candidate. Loaded key evaluation has eight
+`exact_advance` parents per arm, each109nodes/32keys. But loaded resize tasks
+number7 versus8, collection-feedback exports15 versus21, and total task counts
+differ. Matching revision progress and key-parent ownership do not make the
+complete browser work identical. The single pair establishes neither a timing
+gain nor a causal regression; idle decreases while load/recovery increase.
+
+Loaded Script/style/layout/paint unions are77.936/1.348/15.510/10.320ms versus
+85.442/1.324/16.995/16.086ms. These intervals overlap each other and whole tasks;
+they are not additive CPU costs. No named selected-thread event isolates the
+collection ResizeObserver callback. Observer-specific cost and layouts saved
+remain unavailable despite the source tests proving fewer rectangle reads.
+Setup retains an unscored13.2ms control dispatch. rAF and echo timings are not
+physical presentation; the known display remains60Hz and120Hz is unproved.
+
+Independent raw reconstruction matches both target-frame renderer/thread choices,
+clock brackets,9,943/10,402 normalized spans and1,691/1,791 complete task spans.
+All six scored task/family unions and crossing counts match. Conservative export
+joins identify80/198 and104/201 calls; unavailable joins are not assigned by
+nearest timestamp. Both cells and their supervisor exit0 once, without retry or
+cleanup action; all five recorded PIDs/three groups and both private ports retire.
+The unchanged trace overhead is uncalibrated. No additional browser run or new
+instrumentation follows from this comparison.
+
+Evidence: `target/web-observer-baseline-trace-cell-v1/`,30 artifacts/34,422,503
+bytes, manifest `d760378de413c0fe7bdc10e8e4ae3f28150040cc10b0e8dea7ef1cedee55c7c5`;
+report `8d0cb401189da027e521327b80cf5914d2ba1f32fe35a19742d9c5b6ea600016`.
+The earlier §8.55 pair and §8.61 source-test failures remain unchanged.
