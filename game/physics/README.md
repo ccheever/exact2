@@ -80,6 +80,13 @@ reflection and scene reconstruction. Cached Lanterns Linux proof wall time was
 The saved-pile tick-600 hash remains `0x5ba7691abdc98058`; static edits, ancestor
 edits, membership/recycling, cache identity/load and query ties have regression tests.
 
+T1b2 retains the **O(n) BVH rebuild per static edit** limit to preserve canonical
+character traversal ties. Shapes and collider sets now survive a pose-only edit.
+The checked 20,000-static diagnostic teleports one collider and performs a ray
+and overlap 1,000 times: before **9,894.964 ms total / 9,873.984 µs median**;
+after **3,779.307 ms total / 3,751.108 µs median** (release, shared x86-64 Linux,
+2026-09-18). This workload remains expensive; it is not a constant-time static refit.
+
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
