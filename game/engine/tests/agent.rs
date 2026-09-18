@@ -94,11 +94,13 @@ fn projection_refusals_and_lossless_state_are_read_only() {
         assert!(s.agent(request).contains("\"error\":"), "{request}");
     }
     assert_eq!(s.world().hash(), hash);
+    let saved = s.save();
     assert!(s
         .agent(r#"{"op":"layout","entity":"child","width":800,"height":600}"#)
         .contains("\"inFrustum\":true"));
+    assert_eq!(s.save(), saved);
     s.world_mut().teleport(e, Transform::at(0.0, 0.0, 20.0));
-    let behind = s.agent(r#"{"op":"layout","entity":"child"}"#);
+    let behind = s.agent(r#"{"op":"layout","entity":"child","width":800,"height":600}"#);
     assert!(behind.contains("\"behindCamera\":true"));
     assert!(behind.contains("\"inFrustum\":false"));
 }

@@ -18,6 +18,9 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Game save schema version; older versions pass through migrate.
     const SAVE_VERSION: u32 = 1;
+    /// Opt in only when every tick dependency is world state, bindings, input, or explicit time.
+    /// Hidden network/storage/random results must remain unsupported by world-only replay.
+    const CAPTURE_SUPPORTED: bool = false;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Immutable model and texture bytes embedded in the lazily loaded game module.
@@ -45,6 +48,8 @@ pub trait Game: 'static {
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
     /// Fixed steps per second.
     const HZ: u32 = 60;
+    /// Clear any live bindings that represent physically held input on handoff.
+    fn release_input(_args: &mut Self::Args) {}
 }
 /// How host elapsed time becomes simulation time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +96,10 @@ pub struct Sim<G: Game> {
     pub(crate) last_us: Option<i64>,
     pub(crate) world_us: i64,
     observations: [crate::world::Observation; 2],
+    pub(crate) recorder: Option<crate::capture::Recorder>,
+    pub(crate) agent_owned: bool,
+    pub(crate) contamination: u64,
+    pub(crate) source_tagged: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -133,6 +142,10 @@ impl<G: Game> Sim<G> {
             last_us: None,
             world_us: 0,
             observations: Default::default(),
+            recorder: None,
+            agent_owned: false,
+            contamination: 0,
+            source_tagged: false,
             game: PhantomData,
         })
     }
@@ -187,6 +200,7 @@ impl<G: Game> Sim<G> {
             self.advance_with(at, Clock::Seekable, after);
         }
         if let Some(mut world) = restart {
+            self.capture_fail("construction binding restarted the world; start a new capture");
             world.presentation_generation = self
                 .world
                 .presentation_generation
@@ -203,6 +217,7 @@ impl<G: Game> Sim<G> {
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
         }
+        let before = self.world.tick();
         self.args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
         self.args = args;
         if changed {
@@ -210,6 +225,9 @@ impl<G: Game> Sim<G> {
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
+        }
+        if changed {
+            self.record(before, crate::capture::Operation::Bind(values.to_vec()));
         }
         Ok(())
     }
@@ -219,7 +237,13 @@ impl<G: Game> Sim<G> {
             width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0,
             "viewport dimensions must be positive finite points"
         );
-        self.input.viewport = Vec2::new(width, height);
+        if self.input.viewport != Vec2::new(width, height) {
+            self.input.viewport = Vec2::new(width, height);
+            self.record(
+                self.world.tick(),
+                crate::capture::Operation::Viewport { width, height },
+            );
+        }
     }
     fn projected(&self, e: &Queued) -> i64 {
         e.world_us.unwrap_or_else(|| {
@@ -233,11 +257,23 @@ impl<G: Game> Sim<G> {
     /// Queue a raw event in stamp order, preserving arrival order at equal stamps.
     /// Paused input updates held state directly, without edges or queued wheel deltas.
     pub fn input(&mut self, event: InputEvent) {
+        let before = self.world.tick();
+        let saved = self
+            .recorder
+            .as_ref()
+            .filter(|r| r.active())
+            .map(|_| event.clone());
+        let accepted = self.accept_input(event);
+        if let Some(event) = saved.filter(|_| accepted) {
+            self.record(before, crate::capture::Operation::Input(event));
+        }
+    }
+    fn accept_input(&mut self, event: InputEvent) -> bool {
         assert!(event.at_ms().is_finite(), "input stamp must be finite");
         self.invalidate();
         if G::paused(&self.args) {
             self.input.apply_paused(event);
-            return;
+            return true;
         }
         let host_us = micros(event.at_ms());
         let e = Queued {
@@ -265,7 +301,7 @@ impl<G: Game> Sim<G> {
                 })
                 .unwrap_or_else(|| self.input.keys.contains(code));
             if previous == *down {
-                return;
+                return false;
             }
         }
         // Only coalesce across other moves/wheels: contact and key edges retain
@@ -290,12 +326,12 @@ impl<G: Game> Sim<G> {
                 ) if old == id => {
                     self.queue.remove(i);
                     self.queue.insert(position - 1, e);
-                    return;
+                    return true;
                 }
                 (InputEvent::Wheel { dx, dy, .. }, InputEvent::Wheel { dx: x, dy: y, .. }) => {
                     *dx += x;
                     *dy += y;
-                    return;
+                    return true;
                 }
                 (
                     InputEvent::Pointer {
@@ -310,6 +346,7 @@ impl<G: Game> Sim<G> {
         }
         let mut position = position;
         if self.queue.len() == QUEUE_LIMIT {
+            self.capture_fail("simulation input queue overflow; accepted event was dropped");
             let drop = self
                 .queue
                 .iter()
@@ -346,6 +383,7 @@ impl<G: Game> Sim<G> {
             }
         }
         self.queue.insert(position, e);
+        true
     }
     fn flush_paused(&mut self, now: i64) {
         while self
@@ -357,6 +395,55 @@ impl<G: Game> Sim<G> {
                 .apply_paused(self.queue.pop_front().unwrap().event);
         }
         self.input.clear_edges();
+    }
+    /// Explicit owner handoff clears physical input and rebases at the next host sample.
+    /// It does not alter any persistent save or simulate time spent detached.
+    pub fn handoff(&mut self, agent: bool) {
+        self.capture_fail("input/clock owner changed; start a new capture window");
+        self.queue.clear();
+        self.input.apply_paused(InputEvent::Blur { at_ms: 0.0 });
+        self.input.clear_edges();
+        G::release_input(&mut self.args);
+        self.args_json = crate::json::to_string(&self.args).expect("valid input bindings");
+        self.agent_owned = agent;
+        self.last_us = None;
+        self.world.log(if agent {
+            "control: agent attached; controlled clock"
+        } else {
+            "control: agent detached; human input and live clock"
+        });
+    }
+    /// Input with a host-attested source; unexpected human input contaminates a controlled run.
+    pub fn input_from(&mut self, event: InputEvent, agent: bool) {
+        self.source_tagged = true;
+        if self.agent_owned && !agent {
+            self.contamination = self.contamination.saturating_add(1);
+            self.capture_fail("external human input contaminated the controlled capture");
+            self.world
+                .log("control: external human input during agent ownership");
+        }
+        self.input(event);
+    }
+    /// Rebase after a staged replacement without executing a tick or consuming an action.
+    pub fn rebase(&mut self, now_ms: f64, release_input: bool) -> Result<(), String> {
+        if !now_ms.is_finite() {
+            return Err("rebase clock must be finite".into());
+        }
+        self.capture_fail("host clock rebased during recording; start a new capture window");
+        let owner = self.agent_owned;
+        if release_input {
+            self.handoff(owner);
+        }
+        self.last_us = Some(micros(now_ms));
+        if self.rebase_queue {
+            for e in &mut self.queue {
+                if e.world_us.is_none() {
+                    e.host_us = e.host_us.saturating_add(micros(now_ms));
+                }
+            }
+            self.rebase_queue = false;
+        }
+        Ok(())
     }
     /// Number of steps the next advance would complete. Presentation can skip
     /// timing samples that a long advance would immediately evict from its ring.
@@ -392,6 +479,7 @@ impl<G: Game> Sim<G> {
             self.world.unobserve();
         }
         let now = micros(now_ms);
+        let before = self.world.tick();
         let last = self.last_us.unwrap_or(now);
         if now < last {
             return 0;
@@ -408,6 +496,15 @@ impl<G: Game> Sim<G> {
         self.last_us = Some(now);
         if G::paused(&self.args) {
             self.flush_paused(now);
+            if now != last {
+                self.record(
+                    before,
+                    crate::capture::Operation::Advance {
+                        at_us: now,
+                        live: clock == Clock::Live,
+                    },
+                );
+            }
             return 0;
         }
         let gap = now.saturating_sub(last);
@@ -471,6 +568,15 @@ impl<G: Game> Sim<G> {
                 u32::try_from(target - self.world.tick()).unwrap_or(u32::MAX),
             );
         }
+        if now != last {
+            self.record(
+                before,
+                crate::capture::Operation::Advance {
+                    at_us: now,
+                    live: clock == Clock::Live,
+                },
+            );
+        }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
     }
     /// Fraction of a tick remaining after the last completed boundary, in [0,1).
@@ -491,6 +597,7 @@ impl<G: Game> Sim<G> {
     }
     /// Edit simulation state, for setup tools and tests.
     pub fn world_mut(&mut self) -> &mut World {
+        self.capture_fail("direct world mutation is outside the input/binding capture");
         self.invalidate();
         &mut self.world
     }
@@ -659,8 +766,10 @@ impl<G: Game> Sim<G> {
         }
         keys.into_iter().collect()
     }
-    /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Vec<u8> {
+    pub(crate) fn capture_queue(&self) -> Vec<u8> {
+        bin::to_vec(&self.relative_queue())
+    }
+    fn relative_queue(&self) -> Vec<Queued> {
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
         for e in &mut queue {
             if let Some(us) = &mut e.world_us {
@@ -671,13 +780,17 @@ impl<G: Game> Sim<G> {
             }
             e.event.set_at_ms(0.0); // the queue owns the stamp; no absolute host time in a save
         }
+        queue
+    }
+    /// Save world time and relative pending input, independent of the host epoch.
+    pub fn save(&self) -> Vec<u8> {
         let saved = Saved {
             game: G::ID.into(),
             version: G::SAVE_VERSION,
             world: self.world.save(),
             args: self.args_json.clone(),
             input: self.input.clone(),
-            queue,
+            queue: self.relative_queue(),
             world_us: self.world_us,
             published: self.world.publications(),
             journal: self.world.journal(),
@@ -688,11 +801,26 @@ impl<G: Game> Sim<G> {
         bytes.extend(bin::to_vec(&saved));
         bytes
     }
+    /// Build a fresh simulation using the checkpoint construction arguments.
+    /// Defaults need not be valid construction input for this game.
+    pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
+        let payload = bytes
+            .strip_prefix(b"EXSIM\0\x05")
+            .ok_or_else(|| DataError::new("unsupported simulation save format"))?;
+        let saved: Saved = bin::from_slice(payload)?;
+        if saved.game != G::ID {
+            return Err(DataError::new("save game ID differs"));
+        }
+        let args = crate::json::from_str(&saved.args)?;
+        let mut sim = Self::new(args).map_err(DataError::new)?;
+        sim.restore(bytes)?;
+        Ok(sim)
+    }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         self.restore_into(bytes, None)
     }
-    /// A surface retains the current app bindings, including setup arguments.
+    /// Continue retains saved construction arguments and takes current live bindings.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
         self.restore_into(bytes, Some(&args))
@@ -723,7 +851,26 @@ impl<G: Game> Sim<G> {
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
-        let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
+        let saved_args: G::Args = crate::json::from_str(&s.args)?;
+        let bound = if let Some(args) = args {
+            let current: G::Args = crate::json::from_str(args)?;
+            let saved_values = saved_args.values();
+            let values: Vec<_> = G::Args::FIELDS
+                .iter()
+                .zip(current.values())
+                .zip(saved_values)
+                .map(|(((_, kind), current), saved)| {
+                    if *kind == ArgumentKind::Setup {
+                        saved
+                    } else {
+                        current
+                    }
+                })
+                .collect();
+            G::Args::decode(&values).map_err(DataError::new)?
+        } else {
+            saved_args
+        };
         let mut next = Self::new(bound).map_err(DataError::new)?;
         next.world.load(&s.world)?;
         if next.world.hz() != G::HZ
@@ -759,6 +906,11 @@ impl<G: Game> Sim<G> {
             .presentation_generation
             .checked_add(1)
             .expect("presentation generation exhausted");
+        self.capture_fail("world restored during recording; start a new capture window");
+        next.recorder = self.recorder.take();
+        next.agent_owned = self.agent_owned;
+        next.contamination = self.contamination;
+        next.source_tagged = self.source_tagged;
         *self = next;
         Ok(())
     }

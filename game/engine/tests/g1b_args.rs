@@ -9,6 +9,7 @@ struct Original {
 struct Reordered {
     right: u32,
     left: u32,
+    #[live]
     added: u32,
 }
 struct Old;
@@ -48,7 +49,7 @@ fn saved_arguments_follow_names_default_new_fields_and_ignore_removed_fields() {
     bound.restore_bound(&s.save()).unwrap();
     assert_eq!(
         (bound.args().left, bound.args().right, bound.args().added),
-        (2, 3, 4)
+        (17, 42, 4)
     );
     let state = bound.agent(r#"{"op":"state"}"#);
     assert!(
