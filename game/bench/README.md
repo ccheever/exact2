@@ -489,6 +489,34 @@ not mean the loaded runner delivered every edge precisely on time. These are
 one provisional attempt's event-to-drawn-state numbers, with no new twin runs
 in the same sitting; they cannot establish a latency ranking. No retake was made.
 
+### After frame pacing — one provisional attempt, same build, load 74
+
+`host/web/pace.js` (commit 05cbe640) hands the module a clock snapped to the
+display's lattice. Same bake, same command, the working-tree glue copied into the
+dist by hand (a first copy carried the assets builder's half-done `gpu_assets`
+call and was invalid: build what you measure).
+
+| variant | status | peak load1 | frame p50 / p95 / p99 / max ms | hitches | player / camera judder | repeated positions | input p50 / p95 ms |
+|---|---|---:|---|---:|---|---|---|
+| exact/60hz, paced | valid, PROVISIONAL | 74.0 | 8.34 / 8.36 / 8.36 / 10.79 | 0 | 0.042 / 0.042 | 0% / 0% | 18.00 / 19.50 |
+
+The frame columns now describe the paced clock (uniform by construction). The
+displacement was identical on 176 of the 180 frames in the judder window; the four
+that differ are real late callbacks (10.8 ms) at load 74, which the pacer of that
+run passed through — the committed pacer snaps them, and replaying the recorded
+callbacks through it gives a delta CV of 0.002. Judder 0.106 → 0.042 in this run,
+→ ~0.002 with the committed rule, against Godot-with-interpolation's 6.9e-6 and
+three.js's 0.43.
+
+The latency column is the other lesson: 6.9 ms in the unpaced run, 18.0 ms here,
+on the same code. The raw traces show a **tick-phase lottery**: the 60 Hz tick
+deadlines fell just before the frames that ran them in the first run (alpha 0.02)
+and 7.5 ms before them in this one (alpha 0.45), so every input waited most of a
+frame period for a tick that was already due. Godot has the same lottery; three.js
+ticks every frame. A tick that is due before the next frame should run now (brief
+F2b); until then a single latency row from any 60 Hz fixed-step engine is one draw
+from that lottery and three attempts are the minimum.
+
 **Full measurement pending:** the orchestrator must run `compare` in a quiet
 sitting for three attempts of all five variants. The 120 Hz bake was selected and
 fingerprinted in tests, but not launched here. The normal stale-build path was
