@@ -206,6 +206,11 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Check a declared collection's minimum storage before reading any elements.
+    /// Reservations still claim their actual capacity through `claim`.
+    fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {
+        Ok(())
+    }
     /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())

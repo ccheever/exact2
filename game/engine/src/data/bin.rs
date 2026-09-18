@@ -126,6 +126,7 @@ pub struct Decoder<'a> {
     names: Vec<String>,
     frames: Vec<Frame>,
     budget: Budget,
+    preflight_collections: bool,
 }
 enum Frame {
     Seq(u64),
@@ -142,6 +143,15 @@ impl<'a> Decoder<'a> {
             names: vec![],
             frames: vec![],
             budget: Budget::default(),
+            preflight_collections: false,
+        }
+    }
+    /// An importing subsystem can tighten allocations without changing world saves.
+    pub(crate) fn with_budget(bytes: &'a [u8], allocation_bytes: usize) -> Self {
+        Self {
+            budget: Budget::new(allocation_bytes),
+            preflight_collections: true,
+            ..Self::new(bytes)
         }
     }
     /// Check that the caller consumed the entire stream.
@@ -229,6 +239,13 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn check_allocation(&self, bytes: usize) -> Result<(), DataError> {
+        if self.preflight_collections {
+            self.budget.check(bytes)
+        } else {
+            Ok(())
+        }
+    }
     fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError> {
         let tag = self.byte()?;
         if tag != 12 + kind as u8 {
