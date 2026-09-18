@@ -3,6 +3,7 @@ use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
 use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
+mod assets;
 mod scene;
 mod upload;
 pub(crate) use scene::snap as trace_snap;
@@ -10,6 +11,18 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
+    fn model(
+        &mut self,
+        _: &exact_game::asset::Model,
+    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
+        Err(RenderError::scene(
+            "recording backend has no model support".into(),
+        ))
+    }
+    fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        Ok(())
+    }
+    fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
@@ -19,6 +32,18 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl Writes for Renderer {
+    fn model(
+        &mut self,
+        model: &exact_game::asset::Model,
+    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
+        self.add_model(model)
+    }
+    fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        self.set_draw_instances(records)
+    }
+    fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
+        self.model_poses(w, entities, initial);
+    }
     fn max_slots(&self) -> u32 {
         self.max_slots()
     }
@@ -107,6 +132,7 @@ struct Group {
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 struct Versions {
+    assets: u64,
     transform: u64,
     parent: u64,
     material: u64,
@@ -118,6 +144,7 @@ struct Versions {
 impl Versions {
     fn of(w: &World) -> Self {
         Self {
+            assets: w.assets_revision(),
             transform: w.revision::<Transform>(),
             parent: w.revision::<Parent>(),
             material: w.revision::<Material>(),
@@ -135,6 +162,7 @@ impl Versions {
 /// Decomposed globals are exact TRS for uniform ancestor scale; shear is approximated.
 /// Storage, batches and meshes grow only when scene structure changes.
 pub struct Feed {
+    assets: assets::Assets,
     versions: Option<Versions>,
     filter_same_values: bool,
     tick: u64,
@@ -158,6 +186,7 @@ pub struct Feed {
 impl Default for Feed {
     fn default() -> Self {
         Self {
+            assets: Default::default(),
             versions: None,
             filter_same_values: true,
             tick: 0,
@@ -226,6 +255,7 @@ impl Feed {
             || next.membership != old.membership
             || next.mesh != old.mesh;
         let batches = initial
+            || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
             || next.live != old.live
@@ -344,6 +374,9 @@ impl Feed {
             }
             for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
                 mesh.validate().map_err(RenderError::scene)?;
+                if matches!(mesh, Mesh::Asset(_)) {
+                    continue;
+                }
                 let shape = Shape::of(mesh)?;
                 let slot = e.index() as usize;
                 if self.dimensions.len() <= slot {
@@ -445,7 +478,14 @@ impl Feed {
             }
         }
         if batches {
+            if next.assets != 0 || !self.assets.records.is_empty() {
+                self.assets
+                    .batches(w, r, &mut self.batches, &mut self.slots)?;
+            }
             r.batches(&self.batches, &self.slots)?;
+        }
+        if !self.assets.records.is_empty() && (moved || batches) {
+            r.model_poses(w, &self.assets.entities, initial || batches);
         }
         self.scene.feed(
             w,

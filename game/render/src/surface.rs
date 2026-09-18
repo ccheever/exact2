@@ -19,6 +19,7 @@ impl Presentation for () {}
 /// Pipeline creation happens at the first render, never during bind or agent reads.
 pub struct WorldSurface<G: Game, P: Presentation = ()> {
     sim: Option<Sim<G>>,
+    pending_restore: Option<Vec<u8>>,
     presentation: P,
     render: Option<(Renderer, Feed)>,
     format: Option<wgpu::TextureFormat>,
@@ -34,6 +35,7 @@ impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
     fn default() -> Self {
         Self {
             sim: None,
+            pending_restore: None,
             presentation: P::default(),
             render: None,
             format: None,
@@ -102,6 +104,9 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         self.bind_at(values, None)
     }
     fn bind_at(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        if at_ms.is_some_and(|at| !at.is_finite()) {
+            return Err(SurfaceError("bind clock must be finite".into()));
+        }
         if let Some(e) = &self.error {
             return Err(e.clone());
         }
@@ -127,15 +132,43 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 self.perf = Perf::default();
             }
         } else {
-            self.sim = Some(Sim::from_values(values).map_err(SurfaceError)?);
+            let mut sim = Sim::from_values(values).map_err(SurfaceError)?;
+            if let Some(at) = at_ms {
+                sim.advance(at, Clock::Seekable);
+            }
+            self.sim = Some(sim);
         }
         self.dirty = true;
         Ok(())
     }
+    fn assets(&mut self) -> Vec<String> {
+        self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
+    }
+    fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
+        if let Some(sim) = &mut self.sim {
+            let mut result = sim.asset(name, bytes);
+            if result.is_ok() && !sim.is_loading() {
+                if let Some(bytes) = self.pending_restore.take() {
+                    result = sim.restore_bound(&bytes).map_err(|e| e.to_string());
+                }
+            }
+            if let Err(error) = result {
+                self.error = Some(SurfaceError(error));
+                self.reported = false;
+            }
+            self.dirty = true;
+        }
+    }
     fn carry(&mut self) -> Option<Vec<u8>> {
-        self.sim.as_ref().map(Sim::save)
+        self.pending_restore
+            .clone()
+            .or_else(|| self.sim.as_ref().map(Sim::save))
     }
     fn restore(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if self.sim.as_ref().is_some_and(Sim::is_loading) {
+            self.pending_restore = Some(bytes.to_vec());
+            return Ok(());
+        }
         self.sim
             .as_mut()
             .ok_or("world has not been bound")?
@@ -215,6 +248,17 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             );
             self.dirty = true;
             return self.error.is_none();
+        }
+        if sim.is_loading() {
+            sim.advance(
+                frame.now_ms,
+                if frame.seekable {
+                    Clock::Seekable
+                } else {
+                    Clock::Live
+                },
+            );
+            return true;
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {

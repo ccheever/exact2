@@ -279,9 +279,11 @@ fn asset_refusal_reaches_the_surface_error_with_its_name() {
     let w = s.sim.as_mut().unwrap().world_mut();
     *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle");
     fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
-    let error = s.take_error().expect("an asset is refused").0;
+    assert_eq!(s.assets(), ["castle"]);
+    s.asset("castle", None);
+    let error = s.take_error().expect("a missing asset is refused").0;
     assert!(
-        error.contains("castle") && error.contains("asset meshes are not implemented"),
+        error.contains("castle") && error.contains("missing file"),
         "{error}"
     );
 }

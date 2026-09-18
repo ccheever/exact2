@@ -45,3 +45,6 @@ pub use values::Published;
 pub use world::{Bundle, Component, Entity, Event, Resource, Target, World, WorldId};
 
 pub mod audio;
+
+/// Baked GPU-ready assets, independent of the renderer.
+pub mod asset;

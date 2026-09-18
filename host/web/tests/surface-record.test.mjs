@@ -27,6 +27,7 @@ async function fixture(options = {}) {
     gpu_agent: () => JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
+    gpu_assets: () => '[]', gpu_asset: () => true,
   };
   const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));

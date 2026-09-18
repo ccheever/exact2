@@ -136,7 +136,7 @@ export async function proof(meta, script) {
         || /(^|\/)(artifacts|dist|target|node_modules|tests|examples)\//.test(file)
         || file.startsWith('apps/')
         || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
-          && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
+          && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
         || /(^|\/)(proof\.mjs|.*\.test\.mjs)$/.test(file)
         || !existsSync(resolve(root,file))) continue;
       hash.update(file).update(readFileSync(resolve(root,file)));

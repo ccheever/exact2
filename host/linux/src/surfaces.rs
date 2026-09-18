@@ -51,6 +51,8 @@ impl Abi {
                 "gpu_input",
                 "gpu_wants_input",
                 "gpu_published",
+                "gpu_assets",
+                "gpu_asset",
                 "gpu_messages",
                 "gpu_carry",
                 "gpu_restore",
@@ -187,7 +189,12 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
 }
 impl Surfaces {
-    fn sync<D: DataSource>(&mut self, host: &mut Host<D>, compat: &str) -> bool {
+    fn sync<D: DataSource>(
+        &mut self,
+        host: &mut Host<D>,
+        compat: &str,
+        assets: &crate::image::Assets,
+    ) -> bool {
         let mut changed = false;
         let dead: Vec<_> = self
             .canvases
@@ -310,6 +317,27 @@ impl Surfaces {
             }
         }
         for (&view, c) in &self.canvases {
+            loop {
+                let names = abi
+                    .read(b"gpu_assets", c.id)
+                    .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+                    .unwrap_or_default();
+                if names.is_empty() {
+                    break;
+                }
+                for name in names {
+                    let bytes = assets.read(&format!("assets/{name}"));
+                    let (ptr, len) = bytes
+                        .as_ref()
+                        .map_or((std::ptr::null(), 0), |b| (b.as_ptr(), b.len()));
+                    let ok = unsafe {
+                        abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, *const u8, usize) -> bool>(b"gpu_asset")(c.id, name.as_ptr(), name.len(), ptr, len)
+                    };
+                    if !ok {
+                        self.error = abi.error();
+                    }
+                }
+            }
             if let Some(bytes) = abi.read(b"gpu_published", c.id) {
                 if c.owner {
                     let record = String::from_utf8_lossy(&bytes);
@@ -369,7 +397,10 @@ impl<D: DataSource> Presenter<D> {
         // A publication/message may change the canvas arguments. Drain to a fixed
         // point; an app feedback loop is refused rather than hanging the carrier.
         for _ in 0..16 {
-            if !self.surfaces.sync(&mut self.host, &self.compat) {
+            if !self
+                .surfaces
+                .sync(&mut self.host, &self.compat, &self.assets)
+            {
                 return;
             }
             if let Some(e) = self.after_commit() {
@@ -569,6 +600,7 @@ mod tests {
             &source,
             r#"
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
@@ -582,6 +614,8 @@ uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
 }
 uint32_t gpu_input(void) { return 0; }
 uint32_t gpu_wants_input(void) { return 0; }
+uint32_t gpu_assets(void) { return 0; }
+bool gpu_asset(void) { return true; }
 uint32_t gpu_published(void) { return 268435457; }
 uint32_t gpu_messages(void) { return 268435457; }
 uint32_t gpu_carry(void) { return 268435457; }

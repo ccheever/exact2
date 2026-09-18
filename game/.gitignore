@@ -2,3 +2,5 @@
 /games/*/dist.previous/
 /games/*/artifacts/
 /games/*/app.contract.d.ts
+
+/artifacts/s3a/

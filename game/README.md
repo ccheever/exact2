@@ -18,6 +18,7 @@ canvas children are the HUD, a placement is a sign in the world.
 | | |
 |---|---|
 | `engine/` | `exact-game` — the simulation: world, data, ticks, input, scene, the agent's reads. **No GPU, no host.** |
+| `bake/` | `exact-game-bake` — build-time glTF, PNG/JPEG decode, geometry preparation and mip generation. Never linked into a running game. |
 | `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
 | `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`, `#[derive(Args)]`. No `syn`. |
 | `render/` | `exact-game-render` — the wgpu renderer and `WorldSurface`, the `exact_gpu::Surface` a canvas binds. |
@@ -295,7 +296,34 @@ remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true
 hemispheres without stretching them. Normals use inverse dimension scale.
 Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
-`Mesh::Asset(name)` is refused by the surface until asset meshes are implemented.
+`Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
+The nodes keep their own materials; an optional entity `Material` multiplies base
+colour and adds emission. Models supply layout/pick bounds after arrival; absent
+models have no stand-in geometry.
+
+Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
+Setup and tick zero wait for all declared bytes, on headless hosts too. Missing or
+malformed files refuse by name through the surface error. `state.world.loading`
+lists outstanding names. Later `Mesh::asset` references request on first sight and
+pop in when delivered; declare them up front if simulation reads their data.
+`world.model(name)` reads immutable Data. Asset caches are excluded from saves and
+hashes; restore and module carry re-request declarations before continuing.
+
+Put `.glb`/`.gltf` sources and their image/buffer dependencies in a game's `art/`.
+The synthesized GPU shell's `build.rs` calls `exact_game_bake::bake_art`; Cargo builds
+the GPU product before the app bake and host asset copy. Each model becomes
+`assets/<stem>.model`; add `/assets/*.model` to that game's `.gitignore`. Stems must
+be unique even across art subdirectories. The standalone equivalent is
+`cargo run -p exact-game-bake -- art/fox.glb assets/fox.model` (from `game/`).
+
+The runtime decodes only `bin` Data and uploads plain vertices/RGBA8 mip chains.
+No glTF, JSON asset parser or image decoder enters the module. The existing typed
+bulk `Vec<f32/u32/u16/u8>` codec is unchanged: EXGAME v3 and EXSIM v5 remain current,
+and existing saves retain identical bytes. The baker refuses sparse accessors,
+morph targets, non-triangle primitives, unsupported vertex channels and extensions
+other than `KHR_materials_emissive_strength`/`KHR_texture_transform` by name. UV0
+transforms are baked per material texture; additional UV sets are currently refused.
+Skins and TRS animation tracks round-trip as Data but are not played until S3b.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.

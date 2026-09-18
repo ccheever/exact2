@@ -11,6 +11,8 @@
 mod bloom;
 mod buffers;
 mod frame;
+mod model_pipeline;
+mod models;
 mod perf;
 mod pipeline;
 mod renderer;
@@ -72,8 +74,27 @@ impl std::fmt::Display for RenderError {
 impl std::error::Error for RenderError {}
 
 /// A mesh in one renderer's append-only arena.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MeshId(pub(crate) usize);
+
+/// A renderer-owned baked material; primitives use their existing per-entity floats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MaterialId(pub(crate) usize);
+/// Render slots live outside the entity index space and do not allocate entities.
+pub const RENDER_SLOT_BASE: u32 = 1 << 31;
+/// One model mesh node under an entity. Geometry/material are batch keys; the
+/// transform slot and full affine offset are uploaded into the instance buffer.
+#[derive(Debug, Clone)]
+pub struct DrawInstance {
+    /// Entity transform and tint slot (the existing page upload stays unchanged).
+    pub transform: u32,
+    /// Mesh geometry in this renderer.
+    pub geometry: MeshId,
+    /// Baked material in this renderer.
+    pub material: MaterialId,
+    /// Composed model node offset.
+    pub local: Mat4,
+}
 
 /// One tightly packed, 32-byte mesh vertex.
 #[repr(C)]

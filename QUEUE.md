@@ -514,3 +514,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Game Bun suite: the generated-game test receives empty stdout from its shell-location subprocess (exit 0); it then leaves stale generated shell members because it never captures their paths. Reproduced from `game/` in D7b.
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
+
+- Baked model delivery sizes (S3a): DamagedHelmet's RGBA8 mip chains produce a 112,733,848-byte `.model`, above PlanURL's existing 64 MiB per-asset limit. The GPU fixture renders it, but a native URL generation cannot carry that file. Choose a GPU-ready compression/chunking policy without introducing a runtime image decoder; evidence in `game/artifacts/s3a/report.md`.

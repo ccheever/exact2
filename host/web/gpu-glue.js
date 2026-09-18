@@ -24,6 +24,38 @@ let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
 
+// Track the entire delivery chain, including names discovered by a delivery.
+const assetFlights = new Set();
+function assets(entry) {
+  if (!entry.id || !gpu) return;
+  const module = gpu, id = entry.id;
+  for (const name of JSON.parse(module.gpu_assets(id))) {
+    const task = (async () => {
+      let bytes = null;
+      try {
+        if (exact.devAssets instanceof Map) bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
+        else {
+          const response = await fetch(new URL(`./assets/${name}`, document.baseURI));
+          if (response.ok) bytes = new Uint8Array(await response.arrayBuffer());
+          else if (response.status !== 404) throw new Error(`asset ${name}: HTTP ${response.status}`);
+        }
+      } catch (error) { console.error("exact gpu:", error); }
+      if (gpu !== module || live(entry.view) !== entry || entry.id !== id) return;
+      if (!module.gpu_asset(id, name, bytes)) console.error("exact gpu:", module.gpu_error());
+      messages(entry); schedule();
+    })();
+    assetFlights.add(task);
+    task.finally(() => assetFlights.delete(task));
+  }
+}
+async function settled() {
+  await ready;
+  do {
+    for (const entry of surfaces.values()) assets(entry);
+    if (assetFlights.size) await Promise.all([...assetFlights]);
+  } while (assetFlights.size);
+}
+
 function size(el) {
   const r = el.getBoundingClientRect();
   return { w: Math.max(r.width, 1), h: Math.max(r.height, 1), s: devicePixelRatio || 1 };
@@ -148,6 +180,7 @@ function drainRecords() {
   } finally { drainingRecords = false; }
 }
 function messages(entry) {
+  assets(entry);
   const record = gpu.gpu_published(entry.id);
   if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
   const texts = gpu.gpu_messages(entry.id);
@@ -253,7 +286,7 @@ function worlds(request) {
 exact.gpu = {
   drainRecords,
   agent,
-  settled: () => ready,
+  settled,
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true,
   handle(request, ask, tagged) {

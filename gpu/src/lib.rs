@@ -20,7 +20,7 @@
 
 #![deny(missing_docs)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -83,6 +83,12 @@ pub trait Surface {
     fn bind_at(&mut self, inputs: &[Value], _at_ms: Option<f64>) -> Result<(), SurfaceError> {
         self.bind(inputs)
     }
+    /// Names under the app's assets directory that this surface wants; drained by the module.
+    fn assets(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Deliver GPU-ready bytes, or None when the host has no such file.
+    fn asset(&mut self, _name: &str, _bytes: Option<&[u8]>) {}
     /// State as bytes this surface can later restore: a save or a dev reload's carry.
     /// None means this surface has nothing worth carrying.
     fn carry(&mut self) -> Option<Vec<u8>> {
@@ -230,6 +236,7 @@ struct Instance {
     messages: Vec<String>,
     published: Option<String>,
     presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
+    outstanding: BTreeSet<String>,
     bound: bool,
     dirty: bool,
     children: Option<Children>,
@@ -422,6 +429,7 @@ impl Module {
                 messages: Vec::new(),
                 published: None,
                 presentation,
+                outstanding: BTreeSet::new(),
                 bound: false,
                 dirty: false,
                 children: None,
@@ -770,6 +778,48 @@ impl Module {
                 false
             }
         }
+    }
+
+    /// Drain wanted asset names once; refuse absolute, escaping or non-ASCII paths.
+    pub fn take_assets(&mut self, id: u32) -> Vec<String> {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return Vec::new();
+        };
+        let mut wanted = Vec::new();
+        for name in inst.surface.assets() {
+            if !asset_name(&name) {
+                self.error =
+                    format!("asset `{name}`: expected a relative asset path without .. segments");
+            } else if inst.outstanding.insert(name.clone()) {
+                wanted.push(name);
+            }
+        }
+        wanted
+    }
+
+    /// Deliver one requested asset, with None for a missing file; works without a device.
+    pub fn asset(&mut self, id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+        if !asset_name(name) {
+            self.error = format!("asset `{name}`: invalid relative asset path");
+            return false;
+        }
+        let Some(inst) = self.instances.get_mut(&id) else {
+            self.error = "no such canvas".into();
+            return false;
+        };
+        if !inst.outstanding.remove(name) {
+            self.error = format!("asset `{name}`: not requested by this surface");
+            return false;
+        }
+        inst.surface.asset(name, bytes);
+        inst.drain();
+        inst.dirty = true;
+        if let Some(SurfaceError(error)) = inst.surface.take_error() {
+            self.error = error;
+            return false;
+        }
+        true
     }
 
     /// Capture state without advancing the surface or consuming its publications.
@@ -1216,4 +1266,14 @@ mod device_loss_tests {
             assert!(!m.dirty(id));
         }
     }
+}
+
+/// A relative path under assets/, using the portable ASCII filename vocabulary.
+pub fn asset_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('/')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
+        && name.split('/').all(|part| part != "..")
 }

@@ -16,6 +16,8 @@ pub trait Game: 'static {
     const NAME: &'static str = "world";
     /// Stable save identity, independent of the shared surface name.
     const ID: &'static str;
+    /// Named models required before setup and tick zero. Later mesh references load on sight.
+    const ASSETS: &'static [&'static str] = &[];
     /// Game save schema version; older versions pass through migrate.
     const SAVE_VERSION: u32 = 1;
     /// Canvas argument declarations in positional order; also declares exact arity.
@@ -73,6 +75,8 @@ struct Saved {
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
+    setup_pending: bool,
+    asset_mesh_revision: u64,
     pub(crate) args: G::Args,
     pub(crate) restored_from: Option<String>,
     settle_delay: std::cell::Cell<u32>,
@@ -93,14 +97,103 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
-    fn build(args: &G::Args) -> World {
+    fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
+        world.assets = assets;
         world.register_scene();
+        for &name in G::ASSETS {
+            if !world.assets.models.contains_key(name) {
+                world.assets.pending.insert(name.into());
+            }
+        }
+        if G::ASSETS
+            .iter()
+            .any(|name| !world.assets.models.contains_key(*name))
+        {
+            return world;
+        }
         G::setup(&mut world, args);
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();
         world
+    }
+    /// Whether setup is waiting for declared model bytes.
+    pub fn is_loading(&self) -> bool {
+        self.setup_pending
+    }
+    /// Drain first-sight model requests. Nondeclared meshes may pop in after tick zero.
+    pub fn take_assets(&mut self) -> Vec<String> {
+        let revision = self.world.revision::<crate::Mesh>();
+        if revision != self.asset_mesh_revision {
+            let names: Vec<_> = self
+                .world
+                .query::<&crate::Mesh>()
+                .iter()
+                .filter_map(|(_, mesh)| {
+                    if let crate::Mesh::Asset(name) = mesh {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for name in names {
+                if !self.world.assets.models.contains_key(&name)
+                    && !self.world.assets.failed.contains_key(&name)
+                {
+                    self.world.assets.pending.insert(name);
+                }
+            }
+            self.asset_mesh_revision = revision;
+        }
+        let assets = &mut self.world.assets;
+        let names: Vec<_> = assets
+            .pending
+            .difference(&assets.requested)
+            .cloned()
+            .collect();
+        assets.requested.extend(names.iter().cloned());
+        names
+    }
+    /// Install baked model bytes without a device. Missing or malformed models refuse by name.
+    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+        let result = bytes
+            .ok_or_else(|| format!("asset `{name}`: missing file"))
+            .and_then(|bytes| {
+                bin::from_slice::<crate::asset::Model>(bytes)
+                    .map_err(|e| format!("asset `{name}`: {e}"))
+            })
+            .and_then(|model| {
+                model
+                    .validate()
+                    .map_err(|e| format!("asset `{name}`: {e}"))?;
+                Ok(model)
+            });
+        self.world.assets.pending.remove(name);
+        match result {
+            Ok(model) => {
+                self.world
+                    .assets
+                    .models
+                    .insert(name.into(), std::sync::Arc::new(model));
+            }
+            Err(error) => {
+                self.world.assets.failed.insert(name.into(), error.clone());
+                return Err(error);
+            }
+        }
+        self.world.assets.revision += 1;
+        if self.setup_pending
+            && G::ASSETS
+                .iter()
+                .all(|name| self.world.assets.models.contains_key(*name))
+        {
+            self.world = Self::build(&self.args, self.world.assets.clone());
+            self.setup_pending = false;
+            self.asset_mesh_revision = u64::MAX;
+        }
+        Ok(())
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn from_values(values: &[Value]) -> Result<Self, String> {
@@ -114,7 +207,9 @@ impl<G: Game> Sim<G> {
         args.check_scalars()?;
         G::validate(&args)?;
         Ok(Self {
-            world: Self::build(&args),
+            world: Self::build(&args, Default::default()),
+            setup_pending: !G::ASSETS.is_empty(),
+            asset_mesh_revision: u64::MAX,
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             args,
             last_epoch: std::cell::Cell::new(0),
@@ -176,7 +271,7 @@ impl<G: Game> Sim<G> {
         let restart = if !self.args.setup_changed(&args) {
             None
         } else {
-            Some(Self::build(&args))
+            Some(Self::build(&args, self.world.assets.clone()))
         };
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
@@ -187,6 +282,10 @@ impl<G: Game> Sim<G> {
                 .presentation_generation
                 .checked_add(1)
                 .expect("presentation generation exhausted");
+            self.setup_pending = G::ASSETS
+                .iter()
+                .any(|name| !world.assets.models.contains_key(*name));
+            self.asset_mesh_revision = u64::MAX;
             self.world = world;
             self.world_us = 0;
             self.queue.clear();
@@ -356,7 +455,7 @@ impl<G: Game> Sim<G> {
     /// Number of steps the next advance would complete. Presentation can skip
     /// timing samples that a long advance would immediately evict from its ring.
     pub fn ticks_due(&self, now_ms: f64, clock: Clock) -> u32 {
-        if !now_ms.is_finite() || G::paused(&self.args) {
+        if self.setup_pending || !now_ms.is_finite() || G::paused(&self.args) {
             return 0;
         }
         let now = micros(now_ms);
@@ -382,6 +481,10 @@ impl<G: Game> Sim<G> {
         mut after: impl FnMut(&World, u32),
     ) -> u32 {
         assert!(now_ms.is_finite(), "host clock must be finite");
+        if self.setup_pending {
+            self.last_us = Some(micros(now_ms));
+            return 0;
+        }
         self.check_epoch();
         if clock == Clock::Live {
             self.world.unobserve();
@@ -586,7 +689,9 @@ impl<G: Game> Sim<G> {
     /// Pending input and unobserved mutations prevent rest unless time is paused.
     pub fn quiescent(&self) -> bool {
         self.check_epoch();
-        let settled = self.queue.is_empty() && (G::paused(&self.args) || self.world.quiescent());
+        let settled = !self.setup_pending
+            && self.queue.is_empty()
+            && (G::paused(&self.args) || self.world.quiescent());
         if settled {
             self.settle_delay.set(100);
         }
@@ -720,6 +825,13 @@ impl<G: Game> Sim<G> {
         }
         let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
         let mut next = Self::new(bound).map_err(DataError::new)?;
+        next.world = Self::build(&next.args, self.world.assets.clone());
+        next.setup_pending = G::ASSETS
+            .iter()
+            .any(|name| !next.world.assets.models.contains_key(*name));
+        if next.setup_pending {
+            return Err(DataError::new("restore awaits declared assets"));
+        }
         next.world.load(&s.world)?;
         if next.world.hz() != G::HZ
             || next.world.tick() as u128 != s.world_us as u128 * G::HZ as u128 / 1_000_000

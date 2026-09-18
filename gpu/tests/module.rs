@@ -544,3 +544,77 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert!(m.agent(id, "state").is_none());
     assert_eq!(m.take_error(), "no such canvas");
 }
+
+#[test]
+fn assets_are_validated_drained_and_delivered_without_a_device() {
+    use exact_gpu::{wgpu, Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct AssetProbe {
+        wanted: Vec<String>,
+        delivered: Vec<String>,
+    }
+    impl Surface for AssetProbe {
+        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+            self.wanted = vec![
+                "tables/lookup.bin".into(),
+                "missing.bin".into(),
+                "tables/lookup.bin".into(),
+                "../escape".into(),
+                "/absolute".into(),
+                "bad%20name".into(),
+                "x/../y".into(),
+                "雪".into(),
+            ];
+            Ok(())
+        }
+        fn assets(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.wanted)
+        }
+        fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
+            self.delivered.push(format!("{name}:{bytes:?}"));
+            if name == "tables/lookup.bin" {
+                self.wanted.push("next.bin".into());
+            }
+        }
+        fn messages(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.delivered)
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static ASSETS: Registry = Registry {
+        surfaces: &[("lookup", 0, || Box::<AssetProbe>::default())],
+        shaders: &[],
+    };
+    let mut m = Module::new(&ASSETS);
+    let id = m.create_headless("lookup").unwrap();
+    assert!(m.bind(id, &[], None));
+    assert_eq!(m.take_assets(id), ["tables/lookup.bin", "missing.bin"]);
+    assert!(m.take_error().contains("asset `雪`"));
+    assert!(m.take_assets(id).is_empty());
+    assert!(!m.asset(id, "../escape", Some(&[1])));
+    assert!(!m.asset(id, "unrequested", Some(&[1])));
+    assert!(m.asset(id, "tables/lookup.bin", Some(&[1, 2, 3])));
+    assert_eq!(m.take_assets(id), ["next.bin"]);
+    assert!(m.take_assets(id).is_empty());
+    assert!(m.asset(id, "missing.bin", None));
+    assert!(m.asset(id, "next.bin", Some(&[])));
+    assert_eq!(
+        m.take_messages(id),
+        [
+            "tables/lookup.bin:Some([1, 2, 3])",
+            "missing.bin:None",
+            "next.bin:Some([])"
+        ]
+    );
+    assert!(m.take_messages(id).is_empty());
+    assert!(!m.asset(id, "next.bin", None));
+}
