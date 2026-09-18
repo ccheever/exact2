@@ -1,0 +1,77 @@
+{
+  "selfRepairRounds": 2,
+  "repairLoops": [
+    {
+      "name": "terminal return route tolerance",
+      "repairs": 2,
+      "items": [
+        "item_14",
+        "item_16",
+        "item_17",
+        "item_20",
+        "item_21"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 2,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "readmeReads": [
+    {
+      "path": "game/README.md",
+      "lines": "1\u2013240",
+      "item": "item_1"
+    },
+    {
+      "path": "game/README.md",
+      "lines": "241\u2013520",
+      "item": "item_2"
+    },
+    {
+      "path": "game/README.md",
+      "lines": "508\u20131150",
+      "item": "item_7"
+    },
+    {
+      "path": "game/README.md",
+      "lines": "2280\u20132345 (file ends at 2337)",
+      "item": "item_8"
+    },
+    {
+      "path": "game/README.md",
+      "lines": "heading search",
+      "item": "item_6"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u2013260 (whole file)",
+      "item": "item_2"
+    }
+  ],
+  "recurrence": {
+    "repinUsed": false,
+    "pinFiles": 0,
+    "pinLinesAdded": 0,
+    "pinLinesDeleted": 0,
+    "historicalEvidenceChanged": false,
+    "unexpectedRouteStalls": true,
+    "inheritedStallDiagnosticRan": true,
+    "diagnosticNamedBlocker": null,
+    "actedOnUnexpectedStall": "Changed exact-spawn goal to boundary waypoint, then added four ticks of ordinary S input to cross win boundary.",
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "taskBPhaseContract": "FAIL: public returning phase. 1/7 task checks pass; instruction wording also rejected by frozen regex."
+  },
+  "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps.",
+  "quotes": [
+    {
+      "item": "item_15",
+      "text": "once the fox crosses the 2-unit boundary, gameplay correctly freezes in `won`, while `move_to` was still trying to reach the exact spawn center and eventually reported a stall."
+    },
+    {
+      "item": "item_19",
+      "text": "The boundary-target route stopped within its navigation tolerance just outside the win radius (phase remained `returning`)."
+    }
+  ]
+}

@@ -1,0 +1,1059 @@
+[
+  {
+    "engine": "exact2-linux",
+    "ref": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "task": "a",
+    "attempt": "1",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:13:09.703Z",
+    "humanInterventions": 0,
+    "agentSeconds": 506.02360524500006,
+    "buildSeconds": 20.229019065,
+    "proofSeconds": 21.14486838900007,
+    "usage": {
+      "input_tokens": 5330839,
+      "cached_input_tokens": 5020544,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 12631,
+      "reasoning_output_tokens": 4384
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 150018888,
+    "setupSeconds": 102.42866911,
+    "inputCommit": "3800fa8d8f71493cf463f9f04d92b41c9afea50a",
+    "promptHash": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+    "dispatchedAt": "2026-09-18T20:15:17.171Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T20:23:43.195Z",
+    "invocations": {
+      "build": 0,
+      "proof": 2,
+      "tests": 2,
+      "commands": 19,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/logic/src/kind_tests.rs",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 11,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 45,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/pins.json",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/proof.mjs",
+        "added": 10,
+        "deleted": 0
+      },
+      {
+        "path": "game/games/lanterns/scene.json",
+        "added": 55,
+        "deleted": 0
+      }
+    ],
+    "filesChanged": 8,
+    "linesAdded": 130,
+    "linesDeleted": 13,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "a6e5fd61e94b0e9ad2599332cfd8047cbdce84234ed18de9428d0be6d8f5fe58",
+      "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+      "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+      "game/games/lanterns/logic/src/lib.rs": "23d3a68f43f033a79a513a0fbd9a1baf60c4a37e2da4b47013a8d0bbfb586b43",
+      "game/games/lanterns/logic/tests/capture.rs": "bb813634bb983cec4a424ae712b8b850bc6142243e71df26155bb23577e02174",
+      "game/games/lanterns/pins.json": "6e77985b24d00b7b160301244291611b425cdee261a6daced8c2cc1cbb5a3be5",
+      "game/games/lanterns/proof.mjs": "47bb4232230e6233597e248ce73adcc7076c738432eef535011042b5c9af075b",
+      "game/games/lanterns/scene.json": "443ff52b68daed65b3b549f2642ad46ea24c46838c86a86d8d6e944104c3f632"
+    },
+    "freeKiBBeforeBuild": 147482696,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T20:24:03.465Z",
+    "evaluatorStartedAt": "2026-09-18T20:24:03.465Z",
+    "taskFunctionalPassed": true,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T20:24:24.610Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/won.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "after2",
+    "audit": {
+      "selfRepairRounds": 1,
+      "repairLoops": [
+        {
+          "name": "current-game deterministic pins",
+          "repairs": 1,
+          "items": [
+            "item_17",
+            "item_19"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 1,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "readmeReads": [
+        {
+          "path": "game/README.md",
+          "lines": "1\u2013240",
+          "item": "item_2"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u2013260 (whole file)",
+          "item": "item_2"
+        }
+      ],
+      "recurrence": {
+        "repinUsed": true,
+        "pinFiles": 1,
+        "pinLinesAdded": 3,
+        "pinLinesDeleted": 3,
+        "historicalEvidenceChanged": false,
+        "unexpectedRouteStalls": false,
+        "inheritedStallDiagnosticRan": true,
+        "diagnosticNamedBlocker": "sign-board",
+        "actedOnUnexpectedStall": "not applicable",
+        "semanticStateHashMismatch": false,
+        "resourceLeaseBorrowError": false,
+        "taskBPhaseContract": "not applicable"
+      },
+      "captureCoverage": "Original live-terminal recapture retained; inherited fractional-clock terminal regression retained and passed.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps. Agent used repin and subsequently repeated required package tests and ordinary Linux proof.",
+      "quotes": [
+        {
+          "item": "item_18",
+          "text": "The only failure is the expected deterministic pin mismatch caused by adding scene entities; all three execution modes produced identical new hashes."
+        },
+        {
+          "item": "item_23",
+          "text": "I\u2019m now running the two exact verification commands requested against the final files."
+        }
+      ]
+    }
+  },
+  {
+    "engine": "exact2-linux",
+    "ref": "next/baseline",
+    "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+    "task": "a",
+    "attempt": "4",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:24:38.836Z",
+    "humanInterventions": 0,
+    "agentSeconds": 307.990553874,
+    "buildSeconds": 17.447456385000027,
+    "proofSeconds": 20.526994345000013,
+    "usage": {
+      "input_tokens": 1233107,
+      "cached_input_tokens": 1141632,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 11936,
+      "reasoning_output_tokens": 4709
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 150004492,
+    "setupSeconds": 98.93226300799999,
+    "inputCommit": "793f4dd5480855ff587c8352bdd2ae6bbee8ae21",
+    "promptHash": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+    "dispatchedAt": "2026-09-18T20:26:42.126Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T20:31:50.117Z",
+    "invocations": {
+      "build": 1,
+      "proof": 1,
+      "tests": 3,
+      "commands": 19,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 3,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 15,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/logic/src/scene_tests.rs",
+        "added": 10,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 35,
+        "deleted": 19
+      },
+      {
+        "path": "game/games/lanterns/proof.mjs",
+        "added": 31,
+        "deleted": 0
+      },
+      {
+        "path": "game/games/lanterns/scene.json",
+        "added": 55,
+        "deleted": 0
+      }
+    ],
+    "filesChanged": 7,
+    "linesAdded": 152,
+    "linesDeleted": 29,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "b37e976ed1e368b392bbad09c4d043df2b66f8b8930ce3075922155f9d892fc5",
+      "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+      "game/games/lanterns/logic/src/lib.rs": "0b8c022a3b523d43f97f8420d397e42546a711bd18f2ae4f9775349ecf525254",
+      "game/games/lanterns/logic/src/scene_tests.rs": "4867884e8f09ec7b9e355a497b45543c992fafae0d2487f0de0be5381b16e693",
+      "game/games/lanterns/logic/tests/capture.rs": "a440bbeb7dee08610253ed78beb468a1d5a61fa7a685ed6790f3a48f03697d05",
+      "game/games/lanterns/proof.mjs": "b00fc2f275cbea1d83ce6e1571a473d14c0a0f0090ddbbd8d14b11389abeab48",
+      "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+    },
+    "freeKiBBeforeBuild": 147631488,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T20:32:07.588Z",
+    "evaluatorStartedAt": "2026-09-18T20:32:07.588Z",
+    "taskFunctionalPassed": true,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T20:32:28.116Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/won.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "baseline",
+    "audit": {
+      "selfRepairRounds": 1,
+      "repairLoops": [
+        {
+          "name": "route around new platform",
+          "repairs": 1,
+          "items": [
+            "item_17",
+            "item_19",
+            "item_20"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 1,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "recurrence": {
+        "repinUsed": false,
+        "pinFiles": 0,
+        "pinLinesAdded": 0,
+        "pinLinesDeleted": 0,
+        "unexpectedRouteStalls": true,
+        "diagnosticNamedBlocker": false,
+        "actedOnUnexpectedStall": "inferred new platform; routed around north edge",
+        "semanticStateHashMismatch": false,
+        "resourceLeaseBorrowError": false,
+        "missingLanternsSimTestDiscovery": true,
+        "taskBPhaseContract": "not applicable"
+      },
+      "captureCoverage": "Live terminal assertion retained and passed; action helpers voluntarily changed to keyboard taps after green verification.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps."
+    }
+  },
+  {
+    "engine": "exact2-linux",
+    "ref": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "task": "b",
+    "attempt": "1",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:32:51.441Z",
+    "humanInterventions": 0,
+    "agentSeconds": 258.297326202,
+    "buildSeconds": 20.213060093000006,
+    "proofSeconds": 20.269123604000022,
+    "usage": {
+      "input_tokens": 1457738,
+      "cached_input_tokens": 1388416,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 9370,
+      "reasoning_output_tokens": 3475
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 150002920,
+    "setupSeconds": 102.23690076800001,
+    "inputCommit": "151d9100d723159e54d67631ab12f98660e51b1c",
+    "promptHash": "5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a",
+    "dispatchedAt": "2026-09-18T20:34:58.904Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T20:39:17.202Z",
+    "invocations": {
+      "build": 0,
+      "proof": 2,
+      "tests": 4,
+      "commands": 14,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 5,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+        "added": 3,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 31,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 25,
+        "deleted": 1
+      }
+    ],
+    "filesChanged": 5,
+    "linesAdded": 66,
+    "linesDeleted": 8,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "daad98b546fec0086863334b3d42a5426af1edf170c4d7e1c364598aca6bd7a1",
+      "game/games/lanterns/app.contract": "9b9c39ac88627ffc957b06f2070b4db887b18b76f9afc5b8bfac94ceac50f129",
+      "game/games/lanterns/assets/lanterns-adapter.mjs": "87a163ce019e1e5a9183070de08dfa89bd5e3eb101c04367acaea6ad3ca4b292",
+      "game/games/lanterns/logic/src/lib.rs": "2584cf2df28d6f3c2f9fff74b08545654306b52b603267a9c39d6e42bc233ee8",
+      "game/games/lanterns/logic/tests/capture.rs": "0cd78dd679db68d52019e9c4bca585095529ae6d21344d89f2a4e62aa7b014a5"
+    },
+    "freeKiBBeforeBuild": 147491984,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T20:39:37.452Z",
+    "evaluatorStartedAt": "2026-09-18T20:39:37.452Z",
+    "taskFunctionalPassed": true,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T20:39:57.722Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/won.png",
+      "evaluation/return-home.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "after2",
+    "audit": {
+      "selfRepairRounds": 3,
+      "repairLoops": [
+        {
+          "name": "formatting",
+          "repairs": 1,
+          "items": [
+            "item_12",
+            "item_14"
+          ]
+        },
+        {
+          "name": "terminal navigation tolerance",
+          "repairs": 1,
+          "items": [
+            "item_14",
+            "item_16",
+            "item_17"
+          ]
+        },
+        {
+          "name": "Contract bool spelling",
+          "repairs": 1,
+          "items": [
+            "item_20",
+            "item_23",
+            "item_24"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 1,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "readmeReads": [
+        {
+          "path": "game/README.md",
+          "lines": "1\u2013240",
+          "item": "item_1"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u2013260 (whole file)",
+          "item": "item_3"
+        }
+      ],
+      "recurrence": {
+        "repinUsed": false,
+        "pinFiles": 0,
+        "pinLinesAdded": 0,
+        "pinLinesDeleted": 0,
+        "historicalEvidenceChanged": false,
+        "unexpectedRouteStalls": true,
+        "inheritedStallDiagnosticRan": true,
+        "diagnosticNamedBlocker": null,
+        "actedOnUnexpectedStall": "Changed tolerance 1.95 to 2.0 for a terminal victory freeze, item_16; no geometry obstruction was identified.",
+        "semanticStateHashMismatch": false,
+        "resourceLeaseBorrowError": false,
+        "taskBPhaseContract": "PASS: phase remains playing; derived returnHome publication carries the objective."
+      },
+      "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps.",
+      "quotes": [
+        {
+          "item": "item_15",
+          "text": "simulation froze on victory around 1.98 units, so the helper kept waiting for 1.95"
+        },
+        {
+          "item": "item_21",
+          "text": "The Linux proof reached app-contract compilation and found one schema spelling issue: this contract language uses a different Boolean type name than `boolean`."
+        }
+      ],
+      "contextNote": "Broad bool-spelling search returned unrelated app.contract field declarations from supplied root apps; no other game implementation output observed."
+    }
+  },
+  {
+    "engine": "exact2-linux",
+    "ref": "next/baseline",
+    "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+    "task": "b",
+    "attempt": "4",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:40:14.367Z",
+    "humanInterventions": 0,
+    "agentSeconds": 261.64921758599996,
+    "buildSeconds": 17.438552437999984,
+    "proofSeconds": 17.958022383000003,
+    "usage": {
+      "input_tokens": 1005889,
+      "cached_input_tokens": 957184,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 9666,
+      "reasoning_output_tokens": 4292
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 149999348,
+    "setupSeconds": 98.922287026,
+    "inputCommit": "46efa622401b10faa3259b4046234b9aedca4747",
+    "promptHash": "5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a",
+    "dispatchedAt": "2026-09-18T20:42:17.642Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T20:46:39.291Z",
+    "invocations": {
+      "build": 0,
+      "proof": 1,
+      "tests": 5,
+      "commands": 13,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 4,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 31,
+        "deleted": 11
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 49,
+        "deleted": 10
+      }
+    ],
+    "filesChanged": 5,
+    "linesAdded": 90,
+    "linesDeleted": 28,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "960ac9f35e5458a42312a1a61a70b3acacd30f558d0fed4cd3502a467097502a",
+      "game/games/lanterns/app.contract": "94860e2654eeba116e8f5da47d57f4697bff41a88cb69a1fbab7dbc60655702f",
+      "game/games/lanterns/assets/lanterns-adapter.mjs": "7004ffd0b4b7eebc9aa50bb960b1c49e22f618cd26c19953799b96ca9bb8f30a",
+      "game/games/lanterns/logic/src/lib.rs": "3d524c5d0ca6ef3a9b364f88618cbba2ee8dfece55c48d8d50406dc62fa0ae38",
+      "game/games/lanterns/logic/tests/capture.rs": "942f4d42b4a3923a847b7744ffef302aa2e2736cd003161a61d9850a3101e1a6"
+    },
+    "freeKiBBeforeBuild": 147631956,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T20:46:56.755Z",
+    "evaluatorStartedAt": "2026-09-18T20:46:56.755Z",
+    "taskFunctionalPassed": false,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T20:47:14.714Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "baseline",
+    "audit": {
+      "selfRepairRounds": 3,
+      "repairLoops": [
+        {
+          "name": "formatting",
+          "repairs": 1,
+          "items": [
+            "item_10",
+            "item_11"
+          ]
+        },
+        {
+          "name": "return route and terminal capture",
+          "repairs": 2,
+          "items": [
+            "item_11",
+            "item_13",
+            "item_14",
+            "item_16",
+            "item_17"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 2,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "readmeReads": [
+        {
+          "path": "game/README.md",
+          "lines": "1\u2013240",
+          "item": "item_1"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u2013240 (whole file)",
+          "item": "item_2"
+        }
+      ],
+      "recurrence": {
+        "repinUsed": false,
+        "pinFiles": 0,
+        "pinLinesAdded": 0,
+        "pinLinesDeleted": 0,
+        "unexpectedRouteStalls": true,
+        "diagnosticNamedBlocker": false,
+        "actedOnUnexpectedStall": "inferred signpost; added clear waypoints",
+        "semanticStateHashMismatch": true,
+        "resourceLeaseBorrowError": false,
+        "taskBPhaseContract": "FAIL: public returning phase; 2/7 task checks pass."
+      },
+      "coverageCaveat": "After item_14 corrupt checkpoint: semantic state/hash differs, item_16 removes original live-terminal recapture block. Final green self-tests do not prove this defect fixed.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps."
+    }
+  },
+  {
+    "engine": "exact2-linux",
+    "ref": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "task": "a",
+    "attempt": "2",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:47:30.970Z",
+    "humanInterventions": 0,
+    "agentSeconds": 506.13120709800006,
+    "buildSeconds": 20.188083062999997,
+    "proofSeconds": 21.158575849999906,
+    "usage": {
+      "input_tokens": 1522824,
+      "cached_input_tokens": 1442688,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 10829,
+      "reasoning_output_tokens": 2975
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 150002944,
+    "setupSeconds": 102.43299990199999,
+    "inputCommit": "70a2a0b9399577d659d77fd4cc0d6d6caab46088",
+    "promptHash": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+    "dispatchedAt": "2026-09-18T20:49:38.389Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T20:58:04.521Z",
+    "invocations": {
+      "build": 0,
+      "proof": 2,
+      "tests": 4,
+      "commands": 18,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 3,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/logic/src/kind_tests.rs",
+        "added": 2,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 14,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 50,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/pins.json",
+        "added": 3,
+        "deleted": 3
+      },
+      {
+        "path": "game/games/lanterns/scene.json",
+        "added": 55,
+        "deleted": 0
+      }
+    ],
+    "filesChanged": 7,
+    "linesAdded": 130,
+    "linesDeleted": 13,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "f87e4be92244a7abc39dd902aa4d9202864bd4769d5bbce3677b085ea8702cc5",
+      "game/games/lanterns/app.contract": "467aa3a7870998d8a47d763cd5d96c903a183d38414cd8d06232849a804ef421",
+      "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+      "game/games/lanterns/logic/src/lib.rs": "372af24f597336943a3fce9fa023749673128bcd2c8065dc1e9009e99c303282",
+      "game/games/lanterns/logic/tests/capture.rs": "70e1679eccd668576a7da3b47d8d389b2f09b1537fe6702baf463104ce0d4e80",
+      "game/games/lanterns/pins.json": "464a4e6b4d2f0ae24656394ee86ea11c619b3b045864d7ef0eaf88c9aff7bd1f",
+      "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+    },
+    "freeKiBBeforeBuild": 147483520,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T20:58:24.752Z",
+    "evaluatorStartedAt": "2026-09-18T20:58:24.752Z",
+    "taskFunctionalPassed": true,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T20:58:45.911Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/won.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "after2",
+    "audit": {
+      "selfRepairRounds": 2,
+      "repairLoops": [
+        {
+          "name": "formatting",
+          "repairs": 1,
+          "items": [
+            "item_15",
+            "item_16"
+          ]
+        },
+        {
+          "name": "current-game deterministic pins",
+          "repairs": 1,
+          "items": [
+            "item_18",
+            "item_20"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 1,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "readmeReads": [
+        {
+          "path": "game/README.md",
+          "lines": "1\u2013260",
+          "item": "item_2"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u2013320 (whole file)",
+          "item": "item_2"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u201342 (whole file)",
+          "item": "item_8"
+        }
+      ],
+      "recurrence": {
+        "repinUsed": true,
+        "pinFiles": 1,
+        "pinLinesAdded": 3,
+        "pinLinesDeleted": 3,
+        "historicalEvidenceChanged": false,
+        "unexpectedRouteStalls": false,
+        "inheritedStallDiagnosticRan": true,
+        "diagnosticNamedBlocker": "sign-board",
+        "actedOnUnexpectedStall": "not applicable",
+        "semanticStateHashMismatch": false,
+        "resourceLeaseBorrowError": false,
+        "taskBPhaseContract": "not applicable"
+      },
+      "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps. Agent used repin and then repeated required package tests and Linux proof.",
+      "quotes": [
+        {
+          "item": "item_19",
+          "text": "The full suite has one expected failure only: all three simulation modes agree byte-for-byte, but the committed scene hashes still describe the 12-lantern world."
+        },
+        {
+          "item": "item_23",
+          "text": "I\u2019m now rerunning the exact requested Rust command against the updated pins, followed by the exact requested Linux proof command."
+        }
+      ]
+    }
+  },
+  {
+    "engine": "exact2-linux",
+    "ref": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+    "task": "b",
+    "attempt": "2",
+    "model": "gpt-5.6-sol",
+    "effort": "high",
+    "wallCeilingSeconds": 900,
+    "startedAt": "2026-09-18T20:58:58.147Z",
+    "humanInterventions": 0,
+    "agentSeconds": 279.959277809,
+    "buildSeconds": 20.147654972000048,
+    "proofSeconds": 18.299757128999975,
+    "usage": {
+      "input_tokens": 1084675,
+      "cached_input_tokens": 1003648,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 10335,
+      "reasoning_output_tokens": 4999
+    },
+    "passed": false,
+    "evaluatorHashes": {
+      "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+      "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+      "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+      "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+      "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+      "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+    },
+    "externalQueueDelaySeconds": null,
+    "freeKiBBefore": 149993772,
+    "setupSeconds": 102.256774139,
+    "inputCommit": "e782ee1d1d2e69187878041bda82612970fc961a",
+    "promptHash": "5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a",
+    "dispatchedAt": "2026-09-18T21:01:05.513Z",
+    "agentTimedOut": false,
+    "agentExit": 0,
+    "modelCompletedAt": "2026-09-18T21:05:45.472Z",
+    "invocations": {
+      "build": 0,
+      "proof": 1,
+      "tests": 3,
+      "commands": 14,
+      "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+    },
+    "files": [
+      {
+        "path": "game/games/lanterns/README.md",
+        "added": 2,
+        "deleted": 1
+      },
+      {
+        "path": "game/games/lanterns/app.contract",
+        "added": 6,
+        "deleted": 2
+      },
+      {
+        "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+        "added": 4,
+        "deleted": 4
+      },
+      {
+        "path": "game/games/lanterns/logic/src/lib.rs",
+        "added": 23,
+        "deleted": 4
+      },
+      {
+        "path": "game/games/lanterns/logic/tests/capture.rs",
+        "added": 37,
+        "deleted": 2
+      }
+    ],
+    "filesChanged": 5,
+    "linesAdded": 72,
+    "linesDeleted": 13,
+    "scopeViolations": [],
+    "sourceHashes": {
+      "game/games/lanterns/README.md": "62b4e46cd58aaf0ab82c2b14e1fa885176c5ebdb434f28e9157fe69d43024f8f",
+      "game/games/lanterns/app.contract": "14fb46320c50b79f618f121699595c0252ac000f070c8eade371f0c0a139ff87",
+      "game/games/lanterns/assets/lanterns-adapter.mjs": "d5d4ad1f135465c01cfbd3795783ce5c44828717364472a02358a6ead86ddb4c",
+      "game/games/lanterns/logic/src/lib.rs": "6cb8caa195527c5ffecd963d3b7b61f5b2a96bfa79cb0aa101a03f20221f4cb0",
+      "game/games/lanterns/logic/tests/capture.rs": "2baa5d4268bf9d16877002e3245bf169cb8840c7382608ada135e74fc9fc9730"
+    },
+    "freeKiBBeforeBuild": 147483572,
+    "buildExit": 0,
+    "buildCompletedAt": "2026-09-18T21:06:05.657Z",
+    "evaluatorStartedAt": "2026-09-18T21:06:05.657Z",
+    "taskFunctionalPassed": false,
+    "baselineMechanicsPassed": false,
+    "selfRepairRounds": null,
+    "screenshotInspections": null,
+    "protocolCompliant": null,
+    "finishedAt": "2026-09-18T21:06:23.958Z",
+    "buildOutputDeleted": true,
+    "removedRenderFiles": [
+      "controls/task-a/final.png",
+      "controls/acceptance/won.png",
+      "controls/acceptance/title.png",
+      "controls/acceptance/moving.png",
+      "controls/acceptance/lost.png",
+      "controls/task-b/final.png",
+      "evaluation/title.png",
+      "evaluation/moving.png",
+      "evaluation/final.png",
+      "evaluation/lost.png"
+    ],
+    "cohort": "after2",
+    "audit": {
+      "selfRepairRounds": 2,
+      "repairLoops": [
+        {
+          "name": "terminal return route tolerance",
+          "repairs": 2,
+          "items": [
+            "item_14",
+            "item_16",
+            "item_17",
+            "item_20",
+            "item_21"
+          ]
+        }
+      ],
+      "maximumRepairsInOneLoop": 2,
+      "repairCapCompliant": true,
+      "screenshotInspections": 0,
+      "readmeReads": [
+        {
+          "path": "game/README.md",
+          "lines": "1\u2013240",
+          "item": "item_1"
+        },
+        {
+          "path": "game/README.md",
+          "lines": "241\u2013520",
+          "item": "item_2"
+        },
+        {
+          "path": "game/README.md",
+          "lines": "508\u20131150",
+          "item": "item_7"
+        },
+        {
+          "path": "game/README.md",
+          "lines": "2280\u20132345 (file ends at 2337)",
+          "item": "item_8"
+        },
+        {
+          "path": "game/README.md",
+          "lines": "heading search",
+          "item": "item_6"
+        },
+        {
+          "path": "game/games/lanterns/README.md",
+          "lines": "1\u2013260 (whole file)",
+          "item": "item_2"
+        }
+      ],
+      "recurrence": {
+        "repinUsed": false,
+        "pinFiles": 0,
+        "pinLinesAdded": 0,
+        "pinLinesDeleted": 0,
+        "historicalEvidenceChanged": false,
+        "unexpectedRouteStalls": true,
+        "inheritedStallDiagnosticRan": true,
+        "diagnosticNamedBlocker": null,
+        "actedOnUnexpectedStall": "Changed exact-spawn goal to boundary waypoint, then added four ticks of ordinary S input to cross win boundary.",
+        "semanticStateHashMismatch": false,
+        "resourceLeaseBorrowError": false,
+        "taskBPhaseContract": "FAIL: public returning phase. 1/7 task checks pass; instruction wording also rejected by frozen regex."
+      },
+      "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+      "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps.",
+      "quotes": [
+        {
+          "item": "item_15",
+          "text": "once the fox crosses the 2-unit boundary, gameplay correctly freezes in `won`, while `move_to` was still trying to reach the exact spawn center and eventually reported a stall."
+        },
+        {
+          "item": "item_19",
+          "text": "The boundary-target route stopped within its navigation tolerance just outside the win radius (phase remained `returning`)."
+        }
+      ]
+    }
+  }
+]

@@ -1,7 +1,25 @@
 # Lanterns change trials — third interleaved round
 
-Work in progress: retained rows below are historical evidence; new dispatches are
-recorded individually as they finish. No new outcome is inferred before evaluation.
+**This round does not establish an authoring-speed improvement.** After2 A1/A2
+pass Task A; after2 B1 passes Task B and B2 fails its phase/text contract. Fresh
+baseline A4 passes A and B4 fails B. All exact2 rows still fail strict full
+acceptance because the unchanged direct crate route stalls and world pixels are
+unavailable on this host.
+
+E1's maintenance change is visible: both after2 A sessions used `--repin`, changing
+one pin file at +3/−3 lines each, with no edits to frozen historical evidence.
+No after2 session encountered the capture hash failure or borrow error, and all
+retained their live-terminal capture assertions. Baseline B4 did encounter the
+hash failure and deleted its failing recapture block. This is a useful observed
+recurrence contrast, not proof from four trials that every capture is fixed.
+
+After2 Task A mean is **506.1 s**, versus **308.0 s** for fresh baseline A4
+(**+64.3%**) and **512.4 s** for prior after at 7c65726 (**−1.2%**).
+After2 Task B mean is **269.1 s**, versus **261.6 s** for fresh baseline B4
+(**+2.9%**) and **330.0 s** for prior after (**−18.4%**). Each after mean has only
+two observations; each new baseline comparator has one. Functional after2 task
+passes are **3/4**, with **0/4 strict full passes**. These are descriptive numbers,
+not causal estimates or reliable success rates.
 
 After2 is pinned to `a30e5e36b3be8d518471b76b1b439af5e227f98a`, this checkout's
 initial HEAD, containing the engine re-merge, EXCAP v2 and E1. The local
@@ -42,6 +60,7 @@ strict full acceptance, which also requires common-route and world-pixel checks.
 | After2 | [A1](evidence/I4/after2/a-1/trial.json) | 506.0 | 20.2 | 21.1 | Task pass | 310,295 / 12,631 | 8 | 130 / 13 | 0 / 2 / 2 | 1 (1) |
 | After2 | [B1](evidence/I4/after2/b-1/trial.json) | 258.3 | 20.2 | 20.3 | Task pass | 69,322 / 9,370 | 5 | 66 / 8 | 0 / 2 / 4 | 3 (1) |
 | After2 | [A2](evidence/I4/after2/a-2/trial.json) | 506.1 | 20.2 | 21.2 | Task pass | 80,136 / 10,829 | 7 | 130 / 13 | 0 / 2 / 4 | 2 (1) |
+| After2 | [B2](evidence/I4/after2/b-2/trial.json) | 280.0 | 20.1 | 18.3 | Fail: phase contract + instruction regex | 81,027 / 10,335 | 5 | 72 / 13 | 0 / 1 / 3 | 2 (2) |
 | babylon reference | A1 | 407.2 | 2.0 | 20.9 | Pass | 63,450 / 13,307 | unknown | unknown | unknown | unknown |
 | babylon reference | A2 | 468.7 | 2.1 | 20.4 | Pass | 51,682 / 12,038 | unknown | unknown | unknown | unknown |
 | babylon reference | B1 | 220.4 | 2.2 | 20.2 | Pass | 49,007 / 8,330 | unknown | unknown | unknown | unknown |
@@ -111,3 +130,129 @@ the updated pins, followed by the exact requested Linux proof command” (item_2
 or borrow error occurred. The named sign-board stall is the inherited diagnostic
 proof; both live-terminal capture checks remain. This submission leaves the host
 proof unchanged and adds its new ordinary-input feature assertions in Rust.
+
+**After2 B2 — deeper reading, two terminal-route repairs, and the phase mismatch.**
+[Log](evidence/I4/after2/b-2/agent.log),
+[diff](evidence/I4/after2/b-2/changes.diff),
+[audit](evidence/I4/after2/b-2/audit.json).
+It read README lines 1–240, 241–520, 508–1150, and 2280–2345 (the file ends at
+2337), plus headings: the deepest after2 read. It chose saved numeric phase 4 and
+public `returning`. Its first route failed with a null blocker: “once the fox
+crosses the 2-unit boundary, gameplay correctly freezes in `won`, while `move_to`
+was still trying to reach the exact spawn center” (item_15). The boundary-waypoint
+repair then stopped outside victory: “within its navigation tolerance just outside
+the win radius” (item_19). Four ticks of ordinary S input resolved it. **Two repairs
+in one loop**; the package tests and Linux proof passed. No pins changed or
+`--repin` ran, and both live-terminal captures remain and pass.
+
+The external result is **1/7**, not a task pass. Five failures are coupled to public
+`returning` while v3 expects and advances `playing`. The sixth is a distinct
+instrument limitation: the visible instruction is “Return to where you began before
+night falls!” but the frozen text check requires `return … home/spawn` or `go … home`.
+The UI supplies a semantically explicit instruction; the exact regex rejects its
+wording. The evaluator is not changed and the failed cell is retained. This is not
+six independent demonstrations of broken game mechanics.
+
+## Recurrence and maintenance
+
+“Not observed” means absent from the completed session's failures, not impossible.
+README line ranges are actual commands, not inferred from the model's claims.
+All four after2 sessions read the task cards at lines 8–44. A command's requested
+range can extend beyond EOF; B2's final range actually ends at 2337.
+
+| Item | After2 A1 | After2 B1 | After2 A2 | After2 B2 | New baseline A4 / B4 |
+|---|---|---|---|---|---|
+| Fixture/pin maintenance | `--repin` yes; 1 file, +3/−3 | No repin; 0 files/lines | `--repin` yes; 1 file, +3/−3 | No repin; 0 files/lines | Neither repins; 0 pin/fixture files/lines |
+| Frozen engine evidence | Untouched; checks pass | Untouched; checks pass | Untouched; checks pass | Untouched; checks pass | No E1 frozen-evidence boundary in baseline |
+| Unexpected route stalls | None | Exact-spawn request after victory; blocker null | None | Exact-spawn request after victory; blocker null; first repair stops outside radius | A4 new platform; B4 signpost; old messages name no blocker |
+| Did it act on the stall? | N/A | Yes: tolerance 1.95 → 2.0 | N/A | Yes: boundary waypoint, then 4 ticks S | Both yes: clear waypoints inferred from geometry |
+| Named-blocker diagnostic | Inherited proof names `sign-board`; no unexpected obstruction to diagnose | Same inherited proof; terminal stall truthfully has no blocker | Same inherited proof | Same inherited proof | Not available in baseline helper |
+| Capture semantic/hash failure | Not observed; live assertions retained | Not observed; live assertions retained | Not observed; live assertions retained | Not observed; live assertions retained | A4 absent; **B4 recurs at item_14 and assertion deleted at item_16** |
+| Resource-lease `E0502` borrow error | Not observed | Not observed | Not observed | Not observed | Not observed in either |
+| API README read depth | 1–240, item_2 | 1–240, item_1 | 1–260, item_2 | 1–240, 241–520, 508–1150, 2280–2345; items 1/2/7/8; heading search item_6 | Both 1–240, item_1 |
+| Task B phase contract | N/A | **Pass**: `playing` + `returnHome`; 7/7 | N/A | **Fail**: `returning`; 1/7, including separate text-regex rejection | A4 N/A; B4 `returning`, 2/7 |
+
+Fixture counts include generated fixture files and pin-bearing timing files;
+they exclude behavior tests and UI edits. For prior after A1/A2, four fixture
+files plus `logic/tests/timing.rs` changed in each: **5 files, +645/−635** text lines
+for A1 and **5 files, +645/−635** for A2; two files in each set are binary and add
+no text lines. A1's timing file includes one test-function rename, so this is a
+file-level maintenance footprint, not a claim that every counted line is a hash.
+Both prior sessions also weakened historical-byte checks, as documented in
+[RESULTS-after.md](RESULTS-after.md). After2's one-file maintenance and preserved
+historical coverage are the clearest measured E1 difference; total A agent time
+did not materially fall relative to those two prior after observations.
+
+The four after2 sessions execute the inherited `Sim::move_to`/`world.moveTo`
+regressions and preserve their work limits. The observed unexpected B stalls are
+terminal-state navigation errors, not tests of whether a geometric blocker name
+helps an agent choose a path. No after2 session had an unexpected sign obstruction
+and then acted on its named diagnostic. Thus this round confirms the diagnostic
+runs and names the sign in its regression, but cannot estimate its authoring benefit.
+
+## Protocol, retained limitations, and sample size
+
+All six [raw records and audits](evidence/I4/trials-summary-third.json) retain
+full/cached/uncached input, output and reasoning counters, commands, binary-capable
+diffs, controls, evaluations and PID inventories. Every prompt and evaluator hash
+matches v3; no old submissions needed re-evaluation. All six sessions completed
+below 900 seconds, without restarts, replacements, parent feedback or scope
+violations. Every repair loop stayed at or below three. No new session inspected
+screenshots. The timeout termination path was not exercised.
+
+The model's own verification is inside agent time. Parent preparation/build/eval
+are separate. Each archive started without a copied Cargo target; cold setup took
+98.9–102.4 s, complete preparation 123.3–127.5 s. No checkout verification build ran
+alongside a trial. Shared-machine load and external service queue delay are unknown.
+Dispatches, in UTC on 2026-09-18: after2 A1 **20:15:17.171**, baseline A4
+**20:26:42.126**, after2 B1 **20:34:58.904**, baseline B4 **20:42:17.642**,
+after2 A2 **20:49:38.389**, after2 B2 **21:01:05.513**.
+
+Invocation counts are completed shell-command records, counting a combined command
+once in each matching category; an `&&`-blocked test request still counts. Proof
+internal builds are excluded. `--repin` is one proof invocation, although it
+internally runs multiple tests/proofs. Repairs count source changes following a
+failure, including formatting, pin updates and assertion deletion; diagnostics and
+voluntary pre-failure edits are not repairs. File totals include every changed
+tracked file; binary fixtures contribute files but no text lines. Historical
+baseline timing cells preserve the original report, while verdicts use final v3;
+the older cold replay times remain in their records. Browser references are supplied
+measurements, not reruns or Linux parity claims; their missing metrics stay unknown.
+PlayCanvas B1 remains a repair-cap failure despite functional success.
+
+The corrected I2 packaging is used for all six: other game/benchmark consumers are
+metadata-only stubs, inherited instructions/history/memories are stripped, and
+Landlock probes deny evaluator reads while allowing resolver and directory-capability
+access. Shared source dependencies and root apps remain available, as before.
+B1's `bool` search returned three unrelated root-app field declarations. No new log
+shows another game's implementation; E1's frozen Lanterns source is intentionally
+available to its historical tests. This is source-available isolation, not a claim
+that only Lanterns bytes can be read. Prior original A1/A2 infrastructure/context
+faults and I2 A2's cubes exposure remain in the retained table, not silently excluded.
+
+The frozen B prompt preserves inspection command names but does not enumerate
+phase values. `returning` therefore remains a real mismatch with v3 and also a
+prompt limitation. Candidate browser-adapter edits do not alter the parent driver.
+B2 additionally exposes the text matcher limitation described above. Neither
+limitation was repaired mid-round or used to relabel a failed check as passing.
+
+The unfavorable cases are retained: unchanged-ref missing-feature controls fail on
+absent A/B behavior, the common direct crate route still stalls at approximately
+(4.179, 10.401), baseline B4's live-terminal failure is recorded, and after2 B2's
+contract failure remains. Work bounds are the existing 900-second session ceiling,
+three repairs per loop, evaluator navigation at most 180 iterations, integer step
+counts 0–216,000 with explicit refusal outside that interval, complete-or-refused
+world rosters, and a 4,096-event journal. E1's inherited movement probes run at most
+160 bursts / 1,760 ticks and refuse with diagnostic output. No new gameplay feature
+or tick work was introduced by this lane.
+
+**What this n supports:** after2 has **n=4, two per task**; this round has just
+**one new baseline observation per task**. The full table has 16 exact2 attempts
+(including an infrastructure abort) and eight supplied browser references across
+different rounds. It supports a reproducible account of these attempts, observed
+maintenance reduction, capture nonrecurrence with preserved assertions, and the
+reported contract outcomes. It does **not** establish a general speedup/regression,
+a stable success probability, universal capture correctness, the causal value of
+individual changes, or a ranking against browser engines. Fixed order, changed
+engine/tests/docs, model variation, shared-host load and instrument limits prevent
+those inferences. We do not pool all historical rows into an exchangeable sample.
