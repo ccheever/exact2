@@ -3312,6 +3312,8 @@ The four giant slot-store→take intervals are 0.057792, 14.777387, 0.041667 and
 currently waits for the page-flip event before the loop returns to its input and
 worker wake descriptors. That is a concrete next scheduling investigation, not
 proof that every measured delay has that cause or a reason to add a worker pool.
+The two long intervals overlap 9.134/2.041ms of display wait and 4.140/4.024ms
+of diagnostic work respectively; removing the wait would not remove all of them.
 
 All processes retired; the candidate's SIGTERM followed completed observations.
 The original failure, bounded recorder, censored final observer flush and
@@ -3319,3 +3321,53 @@ The original failure, bounded recorder, censored final observer flush and
 memory-saving or physical-frame claim follows. Evidence is under
 `target/linux-ui-critical-runtime-1m-v4/`, manifest
 `18eedd010b432164e3b839fe85d3d51da051b52d98b703f578b69c599a9f9bbe`.
+
+### 8.47 Native Messages prefit comparison, 2026-09-18
+
+The first fresh A→B pair isolates the page-wrapper prefitting change on exact630
+with the same reusable data factory and native-cut observer. B changes only
+PresenterMac; the text-identity cleanup is excluded. Both arms keep all 10,000
+rows, batch32, ordinary timers, typing, wheels and the same 18 external window
+changes per phase. Actual window/display/port geometry and all 18 accepted
+viewport offers match. Backing scale is not separately recorded by this carrier.
+
+Each baseline step produces a transient viewport followed by the accepted one;
+B goes directly to the accepted dimensions. Across the complete delivery of
+those 18 steps, layout calls fall from 36 to 18 in every phase. Measured whole
+resize-interval unions in idle/load/recovery are 258.513→185.692,
+248.244→163.241 and 219.843→145.352ms. Full synchronous Swift measurement counts
+are 5,956→2,998, 4,992→2,496 and 4,992→2,496. Nested feedback is not added again.
+These totals exclude AppKit work outside the observed entries, including the
+prefit operation itself; they are not total main-thread occupancy or CPU costs.
+
+The strictly inside-edge cohort is different: A has 35 calls and its final
+accepted viewport arrives after didEnd; B has all 18 inside. Both views are
+retained. Removing calls changes the mix: per-call medians are higher in B,
+and 14/11/9 inside-edge resize calls still exceed 8.333ms. Loaded timer whole
+medians worsen 5.059→7.502ms and typing ACK maxima 4.179→16.960ms. The separate
+command-free periods have eight versus nine timer chains, with four versus
+seven deadline misses. Lower aggregate resize work is not a uniform latency win.
+
+Both cells pass their resize/input endpoints, all 72 inputs receive replies,
+and shared-argument full-history values match. Mode coverage remains incomplete;
+recovery revisions differ. All owned processes retired. This first pair alone
+does not establish a repeated gain, robust tail latency or physical 120Hz.
+Evidence is under `target/native-630-prefit-pair-v1/`, manifest
+`1f9b3fd3bf1ee26c99136c66f454721792dad56ca6147e33114ec89616c63dfb`.
+
+A separate fresh B→A pair reuses those exact products and recipe without a
+rebuild. The 36→18 calls and accepted-viewport sequence repeat in all phases.
+Full-delivery resize unions are 267.725→195.084, 244.875→165.948 and
+249.732→165.419ms: 27.1%, 32.2% and 33.8% lower, versus 28.2%, 34.2% and
+33.9% in the first pair. This confirms the direction of measured aggregate
+resize-work reduction across both run orders, with the same probe exclusions.
+
+The latency limits repeat too: B resize maxima are 17.022/14.325/13.916ms;
+loaded timer medians are 4.051→7.649ms (seven versus eight callbacks) and typing
+ACK maxima 9.295→17.090ms. Other tails improve, so neither uniform improvement
+nor regression of all latency follows. Loaded revisions are 8→18 in this pair,
+versus 9→19 in the first; no cross-pair timed-progress equality is imposed.
+Both cells pass, all 72 offered inputs reply, selected full histories agree and
+all owned processes retire. No further run or generalized frame-rate claim is
+implied. Reverse-pair evidence: `target/native-630-prefit-reverse-pair-v1/`,
+manifest `5456d96efee7993ce86496e1f3c9f6d3aa5d33a68ebdc16a149079804930da29`.
