@@ -159,6 +159,7 @@ pub struct World {
     observed_epoch: u64,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
+    observation_cache: RefCell<inspect::Cache>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     state: State,
@@ -178,6 +179,7 @@ pub struct World {
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
+    entity_pages: Vec<u64>,
     pub(crate) presentation_generation: u64,
 }
 const SINGLETON: Entity = Entity {
@@ -200,6 +202,7 @@ impl World {
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
             hash_prefix: RefCell::new(None),
+            observation_cache: RefCell::new(inspect::Cache::default()),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
@@ -223,6 +226,7 @@ impl World {
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
+            entity_pages: vec![],
             presentation_generation: 0,
         }
     }
@@ -297,6 +301,7 @@ impl World {
         }
         self.alive_mask[word] |= 1 << (index % 64);
         self.entities_revision = self.entities_revision.wrapping_add(1);
+        self.mark_entity_page(index as usize);
         self.fresh.push(e);
         bundle.insert(self, e);
         self.log(format_args!("spawn #{}", e.index));
@@ -329,6 +334,7 @@ impl World {
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
         self.state.free.0.insert(e.index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
+        self.mark_entity_page(e.index as usize);
         self.log(format_args!("despawn #{}", e.index));
         true
     }

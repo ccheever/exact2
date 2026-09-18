@@ -269,6 +269,69 @@ Pixels are held to a band; simulation state is held exactly. The two game proofs
 and saved physics pile demonstrate this on arm64 macOS, x86-64 Linux and Chrome
 wasm; unexercised engine APIs do not inherit a measured parity claim.
 
+Observation caches each storage page's per-instance digests by its write
+version, presence mask and observed Ambient membership. Unchanged pages reuse
+those digests; a mutable lease dirties its page even if nothing is written, so the
+next sample rehashes values and still reports Still when they are equal. Resources
+and RNG cache their digests until a mutable lease or replacement. Existence pages
+track slot membership/incarnations, and hierarchy propagation marks global-pose
+pages when a descendant's pose or availability changes, including motion inherited
+from Ambient ancestors. Observation reads the last propagated pose.
+
+Caches are derived state: neither saved nor hashed, discarded on load and world
+identity/presentation-generation changes. The sorted entries vector and comparison
+are unchanged, including the eight reasons and Ambient/AMBIENT rules. Building
+that flat vector still costs O(entries); value hashing costs O(dirty-page values).
+`World::hash` and its canonical streaming definition are unchanged. A fused
+observation/hash sample still streams every component into the canonical hash,
+while reusing the separate observation digests.
+
+Diagnostics (release profile, from the repository root):
+
+```sh
+cargo test --manifest-path game/Cargo.toml -p exact-game --release --lib stillness_hash_cost -- --ignored --nocapture
+cargo test --manifest-path game/Cargo.toml -p exact-game --release --lib settle_200k_cost -- --ignored --nocapture
+```
+
+The observation benchmark includes 1k/10k/200k still worlds and 200k entities with
+100 writes clustered in one page or spread over 100 pages. It separates observation,
+canonical hash, fused observation/hash and the seek pair. The extended cases use
+100 samples after five warmups; single-operation timings exclude writes. Settle
+measures an initial Unknown world, then 100 samples after five warmups, invalidating
+each sample with an unwritten Transform lease so it must actually observe rest.
+At 1,024 slots per page, the spread case rehashes 102,400 values; the clustered
+case rehashes 1,024. Neither timing is a gate.
+
+T1a observation-only measurements on shared x86-64 Linux (EPYC 9454), with 200k
+Transform entities; milliseconds are median / p95:
+
+| Operation | Before | After |
+| --- | ---: | ---: |
+| Observe, still | 37.829 / 38.254 | 0.758 / 0.786 |
+| Observe, 100 clustered movers | 37.803 / 38.517 | 0.960 / 0.976 |
+| Observe, 100 spread movers | 37.864 / 38.435 | 21.210 / 21.383 |
+| Settle after an unwritten lease | 139.267 / 140.468 | 66.954 / 67.779 |
+
+The single initial settle sample was 158.295 → 126.409 ms, excluding world
+construction. Settle retains the full canonical hash cost. Both measurements
+used the same diagnostic and reduced-debug/non-incremental environment.
+
+The old uncached observation path remains a test-only oracle: three seeded scripts
+cover 576 ticks and compare 2,304 samples before/after propagation, with and without
+the fused hash. They cover spawn/despawn/reuse, unwritten leases, parent edits,
+resources, RNG, Ambient, load and identity changes; entries, verdicts, reasons,
+saves and canonical hashes agree. Separate tests count value writes on dirty pages
+and cover equal-pose globals becoming available after slot reuse or reparenting.
+
+Validation: 381 Rust tests passed, 10 diagnostics ignored; engine Clippy, caps and
+boot pass. Bun matches the baseline (38 passed, 2 failed). Workspace Clippy remains
+red on the existing `render/src/assets.rs:239` type-complexity warning; workspace
+formatting remains red in that file and `engine/tests/capture.rs`, both untouched.
+The Linux proofs retain identical failure lines and printed hashes: Beacons has
+three baseline failures, Lanterns the missing `dist/index.html`, Greybox three
+baseline failures, and Asset Fixture passes. GPU, Chrome and Apple execution
+remain unverified on this host.
+
 ## Publications and events
 
 `World::publish("beacons", count)` updates the current public record. Contract reads

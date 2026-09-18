@@ -16,6 +16,7 @@ sits on that list carries the trade it would take.
 - **Game test prerequisites** (2026-09-18, T0c): the generated-game test launches web
   on both parents and requires Chrome; engine's feel `--no-build` test requires existing
   60/120 Hz web bakes. Both remain environmental failures on this headless box.
+- Cubes benchmark proof: `proof.mjs linux` still launches its web carrier; absent Chrome leaves `bench/exact.mjs::stop` awaiting an exit event after a failed spawn. Refuse unsupported hosts and let cleanup finish when no child was started (T1a).
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms

@@ -2,7 +2,7 @@
 //! leases exclude aliasing. Structural edits require an exclusive world borrow.
 use crate::{Data, DataError, Entity, Reader, Writer};
 use std::any::Any;
-use std::cell::{Cell, UnsafeCell};
+use std::cell::{Cell, RefCell, UnsafeCell};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
@@ -18,6 +18,14 @@ pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 pub const PAGE: usize = 1024;
 const WORDS: usize = PAGE / 64;
 type Slots<C> = UnsafeCell<[MaybeUninit<C>; PAGE]>;
+
+#[derive(Default)]
+struct ObservedPage {
+    generation: Option<u64>,
+    mask: [u64; WORDS],
+    skip: [u64; WORDS],
+    entries: Vec<(usize, u64)>,
+}
 
 struct Lease<'a> {
     count: &'a Cell<isize>,
@@ -102,6 +110,7 @@ pub(crate) struct Storage<C> {
     borrowed: Cell<isize>,
     revision: Cell<u64>,
     membership: u64,
+    observation: RefCell<Vec<ObservedPage>>,
     pub(super) epoch: std::rc::Rc<Cell<u64>>,
 }
 impl<C> Default for Storage<C> {
@@ -116,6 +125,7 @@ impl<C> Default for Storage<C> {
             borrowed: Cell::new(0),
             revision: Cell::new(0),
             membership: 0,
+            observation: RefCell::new(Vec::new()),
             epoch: Default::default(),
         }
     }
@@ -147,6 +157,17 @@ impl<C> Storage<C> {
     }
     pub(crate) fn membership(&self) -> u64 {
         self.membership
+    }
+    pub(crate) fn page_count(&self) -> usize {
+        self.generations.len()
+    }
+    pub(crate) fn page_generation(&self, page: usize) -> u64 {
+        self.generations.get(page).map_or(0, Cell::get)
+    }
+    pub(crate) fn page_mask(&self, page: usize) -> [u64; WORDS] {
+        self.mask
+            .get(page * WORDS..(page + 1) * WORDS)
+            .map_or([0; WORDS], |mask| mask.try_into().unwrap())
     }
     fn mark_page(&self, page: usize) {
         if let Some(generation) = self.generations.get(page) {
@@ -260,6 +281,15 @@ impl<C> Drop for Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
+    fn reset_observation(&self);
+    #[cfg(test)]
+    fn snapshot_uncached(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(usize, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+    );
     fn snapshot(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
@@ -291,7 +321,8 @@ pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -
     storage
 }
 impl<C: Data> Erased for Storage<C> {
-    fn snapshot(
+    #[cfg(test)]
+    fn snapshot_uncached(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
         out: &mut Vec<(usize, u64)>,
@@ -329,6 +360,80 @@ impl<C: Data> Erased for Storage<C> {
                     out.push((i, crate::hash::of(value)));
                 }
             }
+        }
+        if let Some(w) = &mut full {
+            w.end_seq();
+        }
+    }
+    fn reset_observation(&self) {
+        self.observation.borrow_mut().clear();
+    }
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(usize, u64)>,
+        mut full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+    ) {
+        // Even a cache hit must honor an outstanding mutable lease.
+        let _lease = self.lease(false);
+        let mut pages = self.observation.borrow_mut();
+        pages.resize_with(self.page_count(), ObservedPage::default);
+        if let Some(w) = &mut full {
+            w.begin_seq(self.len);
+        }
+        for (page, cached) in pages.iter_mut().enumerate() {
+            let generation = self.page_generation(page);
+            let mask = self.page_mask(page);
+            let mut skipped = skip.map_or([0; WORDS], |s| s.page_mask(page));
+            for (skip, present) in skipped.iter_mut().zip(mask) {
+                *skip &= present;
+            }
+            let dirty = cached.generation != Some(generation)
+                || cached.mask != mask
+                || cached.skip != skipped;
+            if dirty {
+                // A panicking Data::write must not leave a partially valid page.
+                cached.generation = None;
+                cached.entries.clear();
+            }
+            if dirty || full.is_some() {
+                for (word, &bits) in mask.iter().enumerate() {
+                    let mut bits = bits;
+                    while bits != 0 {
+                        let bit = bits.trailing_zeros() as usize;
+                        let i = page * PAGE + word * 64 + bit;
+                        bits &= bits - 1;
+                        let observe = skipped[word] & (1 << bit) == 0;
+                        if !observe && full.is_none() {
+                            continue;
+                        }
+                        // SAFETY: presence proves initialization; the shared lease excludes writers.
+                        let value = unsafe { &*self.ptr(i) };
+                        if let Some(w) = &mut full {
+                            w.item();
+                            w.begin_seq(2);
+                            w.item();
+                            entity(i).write(*w);
+                            w.item();
+                            if dirty && observe {
+                                cached.entries.push((i, w.with_observation(value)));
+                            } else {
+                                value.write(*w);
+                            }
+                            w.end_seq();
+                        } else {
+                            cached.entries.push((i, crate::hash::of(value)));
+                        }
+                    }
+                }
+            }
+            if dirty {
+                cached.mask = mask;
+                cached.skip = skipped;
+                cached.generation = Some(generation);
+            }
+            out.extend_from_slice(&cached.entries);
         }
         if let Some(w) = &mut full {
             w.end_seq();

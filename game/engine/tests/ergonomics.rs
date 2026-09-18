@@ -185,7 +185,7 @@ fn wildcard_state_is_complete_bounded_and_narrowable() {
 }
 
 #[test]
-fn seeks_hash_only_twice_and_live_never_hashes() {
+fn seeks_reuse_observation_hashes_and_live_never_hashes() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static WRITES: AtomicUsize = AtomicUsize::new(0);
     #[derive(Default)]
@@ -203,13 +203,18 @@ fn seeks_hash_only_twice_and_live_never_hashes() {
         const NAME: &'static str = "Counted";
     }
     let mut s = Sim::<Moving>::new(()).unwrap();
-    s.world_mut().spawn(Counted);
+    let counted = s.world_mut().spawn(Counted);
     s.advance(0.0, Clock::Seekable);
     s.advance(60_000.0, Clock::Seekable);
     assert_eq!(WRITES.swap(0, Ordering::Relaxed), 2);
     s.advance(60_000.0, Clock::Seekable);
     assert_eq!(WRITES.load(Ordering::Relaxed), 0);
     s.advance(60_017.0, Clock::Seekable);
+    // The warm observation reuses its digest; the canonical stream still
+    // serializes this value once for the final seek sample.
+    assert_eq!(WRITES.swap(0, Ordering::Relaxed), 1);
+    drop(s.world().get_mut::<Counted>(counted));
+    s.advance(60_034.0, Clock::Seekable);
     assert_eq!(WRITES.swap(0, Ordering::Relaxed), 2);
     s.advance(60_100.0, Clock::Live);
     assert_eq!(WRITES.load(Ordering::Relaxed), 0);
