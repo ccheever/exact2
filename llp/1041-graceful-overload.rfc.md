@@ -3888,3 +3888,67 @@ watchdog action or retry. Earlier failures and both1MiB pairs remain unchanged.
 Evidence: `target/pending-flip-span-budget-runtime-after-4m-v1/`, manifest
 `1b46d9e363667c87b2f0a1a669b79f46569d86e0282cf83a2dea7ef09f1840c9`;
 report `aeaf30fa44f6cc20fb3de5ee6dd32c3ab3d2524e323c424ad607cdff30d8fb99`.
+
+### 8.59 Native Messages memo-miss diagnostic, 2026-09-18
+
+One fresh optimized Mac capture and one native cell extend the borrowed-text
+treatment with bounded cache witnesses. This is an ignored diagnostic overlay,
+not a production cache-policy change or A/B comparison. The existing256-owner,
+four-offer FIFO, exact two-axis keys, metrics and lifetime rules remain unchanged.
+The10,000-row/batch32 workload, ordinary timer, resize/type/wheel recipe and
+4,096/512 observer limits are unchanged. The original96-byte cost reply is
+preserved inside a224-byte reply carrying16 additional scalars in eight rows.
+Actual compiler inputs include the new Rust helper and checked C header; the
+generated Reusable factory, plan and compatibility bytes match the prior treatment.
+
+Independent raw reconstruction agrees with all54 complete scored resize parents,
+18 per phase. Each has all eight ordered, correctly owned diagnostic rows, valid
+integer partitions and no diagnostic flags or primary trace omissions.
+
+| Scored resize calls | Idle | Load | Recovery |
+| --- | ---: | ---: | ---: |
+| Identified memo lookups | 5,604 | 4,980 | 5,016 |
+| Memo hits | 2,605 | 2,484 | 2,520 |
+| Stable-owner offer misses / Swift callbacks | 2,999 | 2,496 | 2,496 |
+| Exact evicted-offer recurrence witnesses | 1,367 | 1,188 | 1,188 |
+| Not previously admitted within covered interval | 36 | 285 | 48 |
+| Unknown beyond retained history | 1,596 | 1,023 | 1,260 |
+
+All7,991 scored misses belong to still-valid resident owners whose exact offer
+is absent. These parents record zero absent owners, metric invalidations, invalid
+raw results, owner evictions or plain callbacks. That scope does not include
+every producer/timer call. There are7,938 offer evictions and7,663 witness
+overwrites. The3,743 positive exact recurrence witnesses are46.84% of scored
+misses; they support testing offer retention. The remaining3,879 unknowns are
+not evidence of novelty. The369 covered misses mean not previously *admitted*
+within a fully covered current metric interval, not first-ever requests.
+
+Observed exact-witness gaps reach340/596/304 global identified-get ordinals.
+They include other owners and accesses outside scored parents, and are neither
+per-owner working-set sizes nor FIFO/LRU distances. They cannot select a cache
+capacity or predict the number of hits a different policy would achieve.
+Counts are not time shares. The fixed73,776-byte diagnostic bookkeeping bound
+excludes existing cache payload and allocator overhead; its comparisons and
+recording add work, so these timings are not a speed comparison.
+
+Whole resize maxima remain15.617/15.686/13.700ms, with38/54 above8.333ms. Three
+of seven loaded timer chains also exceed that budget, maximum13.088ms. The
+command-free interval has nine complete producer chains and revision+9;
+four exceed8.333ms, maximum13.430ms. All36 input handlers complete inside their
+edges, including18 directional40px wheels, but typing ACK reaches32.295ms and
+wheel ACK22.022ms. Passive observations overflow, so mode remains
+`NOTESTABLISHED`. The display is still60Hz; no physical120Hz or tail bound follows.
+
+The build and cell each exit0 once, without watchdog action or retry. All four
+external posters release their owned input; all recorded processes/groups retire.
+Reader validation retains116 distinct pure checks and meaningful refusal REDs.
+The dependency-symlink and shebang setup corrections are preserved separately;
+neither changed native source or the workload. A modest bounded offer-retention
+experiment is the next candidate, with exact metrics and both axes retained.
+
+Evidence: `target/native-630-memo-causes-native-v1/`,579 files/125,751,386 bytes;
+artifact manifest `23126504c7ec16c158ce390579c1b2b1a46db1b43cf53d380fd682647a1fa612`;
+report `d7b738472b2c5449e022fd72ee1538e071c91d3716ced6a00f37bd870ea2409c`.
+The immutable build capture is
+`ca5858a2bf6edfc032e9c1d91fb60f96ffbbd9c85e1faa3d8ce5f5a72aae283d`;
+source/binding archive `b1ce06f0e5d1005e3c67d4dda384b0286c3e2dd6104accc43ca433bdb004cfc6`.
