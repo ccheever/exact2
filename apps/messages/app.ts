@@ -46,6 +46,11 @@ function lowerBound(rows:StoredMessage[],position:Position) {
   while(low<high){const mid=Math.floor((low+high)/2);if(compareMessages(rows[mid],position)<0)low=mid+1;else high=mid;}
   return low;
 }
+function cursorAnchor(rows:StoredMessage[],cursor:string) {
+  const position=cursorPosition(cursor),at=lowerBound(rows,position);
+  // Resolve deleted anchors backward so later arrivals cannot capture them.
+  return at<rows.length && compareMessages(rows[at],position)===0?at:Math.max(0,at-1);
+}
 function insertSorted(rows:StoredMessage[],row:StoredMessage) {
   if(!rows.length || compareMessages(rows[rows.length-1],row)<0)rows.push(row);
   else rows.splice(lowerBound(rows,row),0,row);
@@ -209,7 +214,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const person=people.find(p=>p.id===id) || people[0];
   const rows=threads.get(person.id) || [];
   const index=indexes.get(person.id)||emptyIndex();
-  const anchor=cursor===''?rows.length-1:Math.min(lowerBound(rows,cursorPosition(cursor)),rows.length-1);
+  const anchor=cursor===''?rows.length-1:cursorAnchor(rows,cursor);
   const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,anchor-windowSize/2);
   const end=Math.min(rows.length,start+windowSize);
   const selectedRows=[...new Set(selection.split('|'))].flatMap(id=>{const row=index.byId.get(id);return row?[row]:[];});

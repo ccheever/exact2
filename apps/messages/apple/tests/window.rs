@@ -341,6 +341,51 @@ fn answer_work_stays_bounded_at_1000_and_25000() {
 }
 
 #[test]
+fn arrivals_append_after_deleting_a_cursor_anchor_and_all_later_rows() {
+    let mut model = Model::new();
+    model.grow("weekend", 5, 1_000);
+    model.send(
+        "weekend",
+        "Schedule an incoming reply",
+        "weekend-1",
+        30_000.,
+    );
+    let tail = model.chat("weekend", "", "", "");
+    let cursor = text(&tail, "earlier");
+    assert!(!cursor.is_empty());
+    let deleted: Vec<_> = rows(&tail).iter().map(|row| text(row, "id")).collect();
+    model.delete("weekend", &deleted.join("|"));
+    let history = model.chat("weekend", cursor, "", "");
+    assert_eq!(history["hasLater"], false);
+    assert_eq!(rows(&history).len(), K / 2 + 1);
+    assert!(rows(&history)
+        .iter()
+        .all(|row| !deleted.contains(&text(row, "id"))));
+    model.call(
+        "advanceReplies",
+        vec![
+            Value::Number(30_020.),
+            Value::str("weekend"),
+            Value::Number(30_020_000.),
+        ],
+    );
+    let arrived = model.chat("weekend", cursor, "", "");
+    assert_eq!(
+        rows(&arrived)[0]["id"],
+        rows(&history)[0]["id"],
+        "arrival moved the first row after the cursor became past-end"
+    );
+    assert_eq!(rows(&arrived).len(), rows(&history).len() + 1);
+    for (position, previous) in rows(&history).iter().enumerate() {
+        assert_eq!(rows(&arrived)[position]["id"], previous["id"]);
+    }
+    let incoming = rows(&arrived).last().unwrap();
+    assert!(text(incoming, "id").starts_with("received-"));
+    assert_eq!(incoming["replyRoot"], "weekend-1");
+    assert_eq!(incoming["outgoing"], false);
+}
+
+#[test]
 fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
     let mut model = Model::new();
     model.grow("weekend", 5, 1_000);
@@ -348,10 +393,11 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
     let middle = model.chat("weekend", text(&tail, "earlier"), "", "");
     let anchor = text(&middle, "earlier");
     let deleted = text(&rows(&middle)[0], "id");
-    let neighbor = text(&rows(&middle)[1], "id");
+    let centered = model.chat("weekend", anchor, "", "");
+    let predecessor = text(&rows(&centered)[K / 2 - 1], "id");
     model.delete("weekend", deleted);
     let resolved = model.chat("weekend", anchor, "", "");
-    assert_eq!(rows(&resolved)[K / 2]["id"], neighbor);
+    assert_eq!(rows(&resolved)[K / 2]["id"], predecessor);
     assert!(!rows(&resolved).iter().any(|m| m["id"] == deleted));
     assert_eq!(
         rows(&model.chat("weekend", "9007199254740991:past-end", "", "")),
@@ -737,14 +783,12 @@ fn cursors_traverse_and_resolve_deleted_anchors_inside_large_order_ties() {
     assert_eq!(rows(&current).last(), rows(&tail).last());
     let cursor = text(&tail, "earlier");
     let anchor = text(&rows(&tail)[0], "id");
-    let neighbour = text(&rows(&tail)[1], "id");
-    assert_eq!(
-        rows(&model.chat("maya", cursor, "", ""))[K / 2]["id"],
-        anchor
-    );
+    let centered = model.chat("maya", cursor, "", "");
+    let predecessor = text(&rows(&centered)[K / 2 - 1], "id");
+    assert_eq!(rows(&centered)[K / 2]["id"], anchor);
     model.delete("maya", anchor);
     let resolved = model.chat("maya", cursor, "", "");
-    assert_eq!(rows(&resolved)[K / 2]["id"], neighbour);
+    assert_eq!(rows(&resolved)[K / 2]["id"], predecessor);
     assert!(!rows(&resolved).iter().any(|row| row["id"] == anchor));
     model.recover("maya");
     assert_eq!(
