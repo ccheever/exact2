@@ -177,7 +177,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             if !same {
                 // @ref LLP 1038 D6 — replacements (tabs/open) swap immediately.
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
-                nav.setViewControllers(stack, animated: pushOrPop && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                nav.setViewControllers(stack, animated: pushOrPop && index == owners.count - 1 && mounted.count == boundaries.count && !(presenter.session?.freezesAnimations == true) && nav.view.window != nil)
             }
             nav.view.layoutIfNeeded()
         }

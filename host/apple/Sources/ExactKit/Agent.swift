@@ -1,9 +1,9 @@
 // The agent API's presenter half, the part both presenters share (LLP
 // 1012). Requests arrive as JSON lines on a stream the platform opened —
 // stdin on macOS, a Unix socket on iOS (a simulator app has no stdin) —
-// and are answered in order on the main thread; the clock is the last
-// `clock` value: no timer advances the runner, events carry the agent's
-// time, the engine is seeked to it. `tree`, `state`, `logs`, and `settle`
+// and are answered in order on the main thread. Explicit ownership chooses
+// live time or a controlled clock; read-only requests never acquire it.
+// `tree`, `state`, `logs`, and `settle`
 // go to the library (`exact_agent`); `clock` moves both clocks here;
 // `layout`, `tap`, `type`, and `screenshot` are the platform's
 // (`AgentMac.swift`, `AgentIOS.swift`), being about what it renders and
@@ -12,6 +12,11 @@
 // there is more than one — routing, not a ninth operation.
 import Foundation
 import CoreFoundation
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 public final class Agent {
     #if os(iOS)
@@ -32,12 +37,15 @@ public final class Agent {
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
 
+    nonisolated(unsafe) static var keepAliveOnEOF = false
+    nonisolated(unsafe) static var carrierConnected = false
+
     /// The sessions a carrier routes among, by label; the first is the default.
     nonisolated(unsafe) static var routes: [(String, ExactSession)] = []
 
     /// Serve requests from `fd` until it closes — on the calling thread:
     /// each line is answered on the main thread before the next is read.
-    /// The stream closing ends the process.
+    /// EOF exits an isolated launch unless an acknowledged handoff requested live play.
     public static func serve(fd: Int32) {
         var pending = Data()
         var buf = [UInt8](repeating: 0, count: 65536)
@@ -62,16 +70,21 @@ public final class Agent {
                 completed.wait()
             }
         }
-        DispatchQueue.main.async { exit(0) }
+        DispatchQueue.main.async {
+            let keepPlaying = disconnected()
+            if !keepPlaying { exit(0) }
+            close(fd)
+        }
     }
 
     /// One line: the session it names (or the default), then its operation.
     static func handle(_ line: String) {
+        carrierConnected = true
         guard let data = line.data(using: .utf8),
               let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let op = req["op"] as? String
         else { reply(["error": "unreadable request: \(line)"]); return }
-        if op == "quit" { exit(0) }
+        if op == "quit" { _ = disconnected(); exit(0) }
         let wanted = req["session"] as? String
         var target: ExactSession? = nil
         if let wanted {
@@ -97,6 +110,13 @@ public final class Agent {
             Agent.reply(["error": "canvas creation is still in flight"])
             return
         }
+        if ["tap", "type", "focus"].contains(op), session.clock == nil {
+            Agent.reply(["error": "human owns input: explicitly acquire with clock owner:agent before driving", "ownership": session.ownership])
+            return
+        }
+        // Ownership belongs to the session, including every world, even if a driver
+        // retained an id/world selector from its preceding inspection.
+        if op == "clock", req["owner"] != nil { Agent.reply(tagged(clock(req))); return }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         switch op {
         case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.webviews.tree())))
@@ -127,6 +147,8 @@ public final class Agent {
             var reply = session.agent(json)
             let world = session.canvases.worlds(["op": "state"])
             var extra = session.canvases.restoreReply(stateSections())
+            extra["ownership"] = session.ownership
+            extra["capabilities"] = capabilities
             if !world.isEmpty { extra["world"] = world }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: extra) {
@@ -155,6 +177,7 @@ public final class Agent {
               let d = session.agent("{\"op\":\"tags\"}").data(using: .utf8),
               let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }
         var out = r
+        out["ownership"] = session.ownership
         for (key, value) in tags where out[key] == nil { out[key] = value }
         return out
     }
@@ -185,7 +208,31 @@ public final class Agent {
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
     func clock(_ req: [String: Any]) -> [String: Any] {
-        let from = session.clock ?? 0
+        if let owner = req["owner"] as? String {
+            guard owner == "human" || owner == "agent" else { return ["error": "clock owner must be human or agent"] }
+            guard req["detach"] as? Bool != true || owner == "human" else { return ["error": "detach requires owner human"] }
+            if req["detach"] as? Bool == true {
+                // The transport closes for all routed sessions. Acknowledge only
+                // after every controlled session has released its inputs and time.
+                var outcomes: [[String: Any]] = []
+                for (label, target) in Agent.routes where target.state != .destroyed {
+                    var outcome = target.agentInstance.handoff(owner: "human")
+                    outcome["session"] = label; outcomes.append(outcome)
+                }
+                if Agent.routes.isEmpty { outcomes = [handoff(owner: "human")] }
+                guard !outcomes.contains(where: { $0["worldHandoff"] != nil }) else {
+                    return ["error": "detach: a loaded world did not acknowledge live ownership; close the isolated driver and relaunch normally",
+                            "detached": false, "sessions": outcomes, "ownership": session.ownership]
+                }
+                Agent.keepAliveOnEOF = true
+                return ["detached": true, "ownership": session.ownership, "sessions": outcomes,
+                        "clock": session.now(), "reconnect": false]
+            }
+            return handoff(owner: owner)
+        }
+        guard let from = session.clock else {
+            return ["error": "live clock: explicitly acquire with clock owner:agent before seeking", "ownership": session.ownership]
+        }
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
@@ -245,6 +292,81 @@ public final class Agent {
             if rounds >= 16 { return reply(landed, false) }
             to = next
         }
+    }
+
+    /// Release host bookkeeping before the engine discards held and queued input.
+    func cancelOwnedInput() {
+        let releases = keyReleases.values
+        keyReleases.removeAll()
+        for release in releases { _ = release() }
+        for view in session.presenter.views.values {
+            view.canvasInput?.blur()
+            #if os(macOS)
+            view.pressed = false
+            #endif
+        }
+        #if os(macOS)
+        // Clear the host's press latch first: lifting the platform mouse must not
+        // activate a Save/Restart button that happened to be held at detachment.
+        if contact != nil { _ = contact("up", [:]) }
+        #endif
+        contact = nil; canvasContact = nil
+    }
+
+    @discardableResult
+    func handoff(owner: String) -> [String: Any] {
+        let controlled = owner == "agent"
+        let boundary = session.now()
+        // Freeze cancellation callbacks at the boundary, then rebase live time.
+        session.clock = boundary
+        cancelOwnedInput()
+        let worlds = session.canvases.handoff(owner: owner)
+        if !controlled { session.clock = nil }
+        session.frames.run(session.frames.motion || session.canvases.wantsFrames)
+        #if os(iOS)
+        if !controlled { UIApplication.shared.isIdleTimerDisabled = false }
+        #endif
+        var reply: [String: Any] = ["ownership": session.ownership, "clock": session.now(),
+            "releasedInput": true, "rebased": true, "world": worlds]
+        let refused = worlds.filter { $0["error"] != nil || $0["ownership"] == nil }
+        if !refused.isEmpty { reply["worldHandoff"] = ["unavailable": true, "reason": "loaded surface did not acknowledge clock ownership", "world": refused] }
+        return reply
+    }
+
+    /// Called on the main thread at EOF; safe even after a prior acknowledged handoff.
+    @discardableResult
+    static func disconnected() -> Bool {
+        carrierConnected = false
+        for (_, session) in routes where session.state != .destroyed {
+            if session.clock != nil { _ = session.agentInstance.handoff(owner: "human") }
+            else { session.agentBox?.cancelOwnedInput() }
+        }
+        return keepAliveOnEOF
+    }
+
+    var capabilities: [String: Any] {
+        #if os(iOS)
+        let host = "ios"
+        let active = ExactEnv.environment["EXACT_AGENT_CONNECT"] == nil ? "unix-socket" : "outbound-tcp"
+        let carriers = ["unix-socket", "outbound-tcp"]
+        let delivery: [String: Any] = ["tap": "recognized", "canvasKey": "recognized", "physicalTouch": false, "heldContact": false]
+        #else
+        let host = "macos"
+        let active = "stdio"
+        let carriers = ["stdio"]
+        let delivery: [String: Any] = ["tap": "platform", "canvasKey": "recognized", "heldContact": "platform"]
+        #endif
+        let compat = GpuModule.bakedCompatibility
+        let gpu = (compat["embedded"] as? [String: Any])?["gpu"] ?? NSNull()
+        return ["host": host, "carrier": ["active": Agent.carrierConnected ? active : "none", "available": carriers,
+                    "scope": "launch", "reconnect": false, "eof": Agent.keepAliveOnEOF ? "live" : "exit", "delivery": delivery],
+                "clockOwnership": true, "handoff": true, "detach": true,
+                "inputProvenance": ["unavailable": true, "reason": "GPU input ABI does not carry source attestation"],
+                "reload": ["ui": "restart-with-compatible-slot-carry", "worldOnUIReload": "reset",
+                    "game": "rebuild-relaunch", "liveGameReplacement": false, "worldCarry": "explicit-save-restore"],
+                "build": ["host": compat["id"] ?? NSNull(), "requestedGame": gpu,
+                    "loadedGame": session.canvases.module == nil ? NSNull() : gpu,
+                    "planDigest": ["unavailable": true], "lastSuccessfulSwap": NSNull(), "phase": "launch"]]
     }
 
     /// How many requests the runner has in flight (`state.pending`).

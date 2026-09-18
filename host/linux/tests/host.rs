@@ -698,3 +698,30 @@ fn ordinary_node_state_is_not_routed_to_a_surface() {
     let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
     assert_eq!(targeted, plain);
 }
+
+#[test]
+fn ownership_observation_and_launch_scoped_handoff_are_truthful() {
+    let mut p = boot();
+    let before = p.host().agent(r#"{"op":"state"}"#);
+    let read: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(read["ownership"]["owner"], "agent");
+    assert_eq!(read["ownership"]["clock"], "controlled");
+    assert_eq!(read["capabilities"]["carrier"]["active"], "stdio-headless");
+    assert_eq!(read["capabilities"]["reload"]["game"], "rebuild-relaunch");
+    assert_eq!(read["capabilities"]["handoff"], false);
+    assert_eq!(p.host().agent(r#"{"op":"state"}"#), before);
+    let refused = handle(
+        &mut p,
+        r#"{"op":"clock","world":true,"id":999,"owner":"human","detach":true}"#,
+    );
+    assert!(
+        refused.contains("relaunch without EXACT_AGENT"),
+        "{refused}"
+    );
+    assert_eq!(p.host().agent(r#"{"op":"state"}"#), before);
+    let acquired: serde_json::Value =
+        serde_json::from_str(&handle(&mut p, r#"{"op":"clock","owner":"agent"}"#)).unwrap();
+    assert_eq!(acquired["releasedInput"], true);
+    assert_eq!(acquired["ownership"]["scope"], "launch");
+}
