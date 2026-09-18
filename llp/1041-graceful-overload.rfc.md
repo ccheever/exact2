@@ -3637,8 +3637,8 @@ recorded; no app or Rust build is involved.
 
 This proves fewer DOM geometry calls with equivalent fixture feedback, not a
 timing gain or fewer forced layouts. The necessary observer reads can still
-force layout, and the temporary map/string work has a cost. A fresh matched
-runtime comparison remains outstanding. Evidence:
+force layout, and the temporary map/string work has a cost. The first fresh
+runtime comparison follows in §8.55. Evidence:
 `target/web-collection-read-reuse-validation/freeze-v1/`, artifact manifest
 `d87d34a2a8488619299f1f16a6dd6d23c0ebe80ef246b49d415825e14632dbfb`.
 
@@ -3669,6 +3669,7 @@ line/event/byte limits and complete final-picture fence. No timing filter or
 workload reduction is proposed. A latent AFTER binding mismatch also needs its
 exact 1MiB receiver port guard to agree with the already assigned port5940;
 BEFORE remains5939. Neither correction changes this failed record.
+The corrected, separately built pair is recorded in §8.56.
 Evidence: `target/pending-flip-observer-runtime-before-1m-v1/`, manifest
 `d6c54d21c4273cde3aa8637db3ebe23c390ee30b538f2bab9ed78388702c7b25`.
 
@@ -3716,3 +3717,71 @@ physical120Hz or latency-tail guarantee. Trace overhead remains uncalibrated,
 and the known display remains60Hz. Evidence:
 `target/web-collection-read-reuse-trace-cell-v1/`, manifest
 `6f45517f54c8e62a49e81497a9994c8fe10691488470f612c5dc14474d45ccac`.
+
+### 8.56 First complete Linux pending-flip pair, 2026-09-18
+
+One fresh 1MiB control/treatment pair exercises §8.50 on actual Linux. Both
+arms pass two independent reference renders, the candidate workload and the
+final publication fence. Each candidate and its bound oracle was rebuilt from
+the corrected observer source. The 8,192-span limit applies to both arms;
+the 256-row native buffer, depth32, other trace limits, input sequence, 2.5GiB
+address-space cap and time limits are unchanged. Boundary tests include actual
+old-limit failures, 171 Python passes per arm and seven standalone Rust cases;
+these are distinct from the four successful Linux artifact builds. §8.54's
+failed 4,096-span control remains immutable.
+
+The treatment demonstrably services input while a display update is pending.
+Ten input records occur between submit and readiness for two treatment
+pictures: inputs23–25 during picture17, and31–37 during picture21. The control
+has no input records inside its blocking submit-to-ready intervals. Thirty
+treatment acknowledgments arrive in later UI turns than their paints; the
+control's acknowledgments all occur in the painting turn. Matching stamps
+join paint, submit, readiness and actual publication without substituting live
+state for the submitted picture.
+
+| Recorded work | Control | Treatment |
+| --- | ---: | ---: |
+| Blocking KMS waits | 31; 288.499ms total; 18.605ms max | None |
+| KMS readiness handler | No separate handler | 30; 0.056ms total; 0.003375ms max |
+| Publication spans | 32; 0.494ms total; 0.025ms max | 31; 5.432ms total; 1.089ms max |
+| Complete UI turns / spans / pictures | 83 / 3,017 / 32 | 178 / 4,250 / 31 |
+
+Readiness and publication remain UI work. The treatment moves display waiting
+into the existing event loop; it does not make the display finish sooner or
+make acknowledgment handling free. The initial synchronous modeset remains:
+its submit takes18.670ms in the treatment. Whole-turn maxima are41.243→34.451ms,
+and treatment turn1 still takes8.447ms. Raw turns above8.333ms number31/83→2/178,
+but the loop structure and counts differ, so this is not a matched per-turn
+speedup estimate or a physical frame-rate measurement.
+
+The two same-width giant reuse jobs have store-to-take intervals15.056/15.122ms
+in the control and5.240/0.024ms in the treatment. The control intervals overlap
+9.573/8.748ms of KMS waiting and about4ms of observer work each. The remaining
+5.240ms treatment interval still overlaps3.966ms of observer work. These are
+finite instrumented handoffs including scheduling/unlock, not pure queue or
+CPU costs; overlapping frame/observer spans cannot be added together.
+
+All26 proof fields match each fresh width reference. Each accepted A/B crop
+matches1,228,800 RGB bytes exactly; both532,224-byte40px overlap checks also
+pass in each arm. Four private jobs share two numeric layouts/indexes with
+one shape; giant UI construction counters remain zero. Retained-A interaction,
+autonomous B publication, coexistence and A retirement pass. Accessible payload
+capacity peaks at345,492,154 bytes in both runs, excluding in-progress work,
+fonts and allocator costs. Sampled AS/RSS maxima are1,222,612/544,204KiB versus
+1,221,116/544,304KiB; these do not establish an isolated memory saving or peak bound.
+
+The raw stderr reproduces all772/1,027 journal records. Final frame32/input48
+joins turn82/seq772 in the control; frame31/input48 joins turn177/seq1027 in the
+treatment. Both end with the same picture hash, clean live state and no pending
+work or unacknowledged later picture. Final trace-flush cost remains censored.
+Both runtime wrappers exit0; each display is intentionally stopped with SIGTERM
+after observations, and all recorded processes/groups retire. No retry or4MiB
+run is included. The display remains fixed1024×768 at60Hz;600→984 is authored
+content width. This pair supports removal of blocking display waits while
+preserving tested correctness, not sustained120Hz, general latency tails or
+an isolated CPU gain.
+
+Evidence: `target/pending-flip-span-budget-runtime-before-1m-v1/`, manifest
+`5ebe63eb69c72c788f0f708013044406f0cbac34514b09a21a892f2b87f83b91`;
+`target/pending-flip-span-budget-runtime-after-1m-v1/`, manifest
+`db3194ff997555c2571dddc7491f5cca23b432e6c25d9c0bb45d1703720f44fc`.
