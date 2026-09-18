@@ -4573,3 +4573,52 @@ This change was made after the immutable native products in§8.71. Their measure
 76–77ms index spans do not measure this change: traversal, index allocation,
 construction and sorting remain. No native speedup or120Hz result is inferred
 from removing the duplicate calls.
+
+### 8.73 Reversed viewport-hit native comparison, 2026-09-18
+
+Two fresh cells run treatment→control using the same immutable products as§8.71;
+there is no rebuild or index-reuse change. All four cells have the same actual
+980×852 window,980×820 content, backing scale1, complete1MiB source and paragraph
+940→856/8155→8988 lines. The18 accepted resize dimensions match across both
+orders. Each new cell handles six type and six directional40px wheel offers
+inside its edge. Edge duration and completed work remain unequal.
+
+Semantically control→treatment, the reversed run records:
+
+| Recorded wall scope or boundary | Control, ms | Viewport hits, ms |
+| --- | ---: | ---: |
+| Full shape, width940 | 2684.753 | 126.756 |
+| Full shape, width927 | 2702.543 | 124.932 |
+| Full shape, width856 | 2502.093 | 119.002 |
+| Final index construction | 77.443 | 74.919 |
+| First qualified layer assignment after edge | 3643.744 | 295.347 |
+| Accepted raster to first qualified assignment | 5.288500 | 0.299000 |
+
+First assignment joins acceptance612→layer618 in control and641→647 in treatment,
+with exact generation/publication/serial/frame/source/artifact/scroll identity.
+Later repeats631/667 remain current-state witnesses, not first-delivery endpoints.
+Both run orders show shorter full shape scopes and earlier first post-edge layers.
+Neither produces a new-width raster and layer inside resize; the first post-edge
+snapshots again show displayable=false/visible publication0. This does not measure
+a continuous blank interval or physical presentation.
+
+Unequal work and negatives remain explicit. Complete shape scopes are16→60;
+source captures4→5 and cumulative captured UTF8 bytes1,048,617→2,097,116 differ
+despite equal accepted documents. Raster scopes80→6 have summed wall16.584→27.178ms
+and maximum1.936→8.393ms; raster completions remain three each. Region-UI clipped
+union rises7.936→15.384ms and worker union1671.221→1756.375ms. These inclusive
+and overlapping scopes are not additive CPU. Resize envelopes improve in this
+order, but the first order's increased total and wheel ACK maximum remain.
+Typing ACK maximum rises3.870→3.949ms; six samples do not establish robust tails.
+Primary and reflow probes have no omissions, while passive mode remains
+NOTESTABLISHED. The display is60Hz, and continuous visible reflow/120Hz remain open.
+
+Both cells exit0 once, without retries or builds. Eight recorded PIDs/four groups
+are absent, with two owned mouse-ups, before the quiet lane is released. The
+separate reverse archive is `target/apple-giant-viewport-hit-reverse-execution-v1/`,
+106files/28,593,965B, manifest
+`6de0a6464270ecb2724aa663dd14c37b6a297789ce4a162cc50221bd306a2c12`, report
+`60ed1d335149173580916e4705c857b298fb63c0460bfdf5c127fd215d2ad639`.
+The first310-file archive and its separate first-assignment correction remain
+unchanged. Independent selected raw joins reproduce the new source, resize,
+shape/index and first-layer endpoints; no screenshot or memory-bound claim is added.
