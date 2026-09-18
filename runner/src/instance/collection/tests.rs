@@ -355,6 +355,78 @@ fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     assert!(end.snapshot().correction.is_none());
 }
 #[test]
+fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
+    for (at_end, follow) in [(true, true), (false, true), (true, false)] {
+        let mut h = Harness::new(2, false, follow);
+        let mut initial = h.feedback(0.0);
+        initial.port_height = 519.0;
+        h.send(initial); // establish width before accepting measurements
+        let mut measured = h.feedback(0.0);
+        measured.port_height = 519.0;
+        measured.measurements = h
+            .snapshot()
+            .rows
+            .iter()
+            .zip([335_080.0, 297.078_125])
+            .map(|(r, height)| RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                height,
+            })
+            .collect();
+        h.send(measured);
+        assert_eq!(h.snapshot().total_extent, 335_377.078_125);
+        let top = if at_end {
+            334_858.0
+        } else {
+            334_858.078_125 - 0.500_001
+        };
+        let mut tail = h.feedback(top);
+        tail.port_height = 519.0;
+        let sequence = tail.scroll_sequence;
+        h.send(tail.clone());
+        h.slots[0] = values(3);
+        h.update().unwrap();
+        let appended = h.snapshot();
+        if at_end && follow {
+            let correction = appended.correction.expect("DOM end must follow append");
+            assert_eq!(correction.scroll_sequence, sequence);
+            assert_eq!(correction.scroll_top, appended.total_extent - 519.0);
+        } else {
+            assert!(appended.correction.is_none());
+        }
+        assert!(
+            !h.send(tail),
+            "old revision must not replace the accepted append"
+        );
+        assert_eq!(h.snapshot(), appended);
+        let row = appended.rows.iter().find(|r| r.index == 2).unwrap();
+        let mut growth = h.feedback(if at_end && follow {
+            (appended.total_extent - 519.0).round()
+        } else {
+            top
+        });
+        growth.port_height = 519.0;
+        growth.measurements = vec![RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            height: 134.593_75,
+        }];
+        h.send(growth);
+        let grown = h.snapshot();
+        assert_eq!(grown.total_extent, 335_511.671_875);
+        if at_end && follow {
+            assert_eq!(
+                grown.correction.unwrap().scroll_top,
+                grown.total_extent - 519.0
+            );
+        } else {
+            assert!(grown.correction.is_none());
+        }
+    }
+}
+
+#[test]
 fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
     let mut h = Harness::new(25_000, true, false);
     h.send(h.feedback(0.0));

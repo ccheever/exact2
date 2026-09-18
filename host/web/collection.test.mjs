@@ -82,6 +82,33 @@ test('actual nested scrollport, content padding, mounted rows, and coalesced scr
   expect(result.last.rows[0].epoch).toBe('9007199254740993');
   expect(result.anchor).toBe('none');
 });
+test('integer DOM end retains fractional measured extent in actual collection feedback', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture();
+    f.root.innerHTML='<div data-view="1" style="height:519px;width:320px;overflow:auto;padding:0;border:0"><div data-view="2" style="height:335080px"></div><div data-view="4" style="height:297.078125px"></div></div>';
+    f.views.clear();
+    for(const el of f.root.querySelectorAll('[data-view]'))f.views.set(+el.dataset.view,el);
+    const port=f.views.get(1);
+    f.controller.commit([f.snapshot('1',{totalExtent:335377.078125,count:2,
+      rows:[{view:2,root:2,index:0,top:0,height:335080,epoch:'1'},
+        {view:4,root:4,index:1,top:335080,height:297.078125,epoch:'1'}]})]);
+    port.scrollTop=10000000;
+    port.dispatchEvent(new Event('scroll'));f.flush();
+    const facts=f.reports.at(-1), measured=facts.rows.reduce((n,r)=>n+r.height,0);
+    return {top:port.scrollTop,height:port.clientHeight,extent:port.scrollHeight,
+      remaining:port.scrollHeight-port.clientHeight-port.scrollTop,facts,measured,
+      fractionalRemaining:measured-facts.height-facts.top};
+  })()`);
+  expect(result.top).toBe(334858);
+  expect(result.height).toBe(519);
+  expect(result.extent).toBe(335377);
+  expect(result.remaining).toBe(0);
+  expect(result.facts.top).toBe(result.top);
+  expect(result.facts.height).toBe(result.height);
+  expect(result.measured).toBe(335377.078125);
+  expect(result.fractionalRemaining).toBe(0.078125);
+  console.log('DOM integer-end facts', JSON.stringify(result));
+});
 test('correction consumes once, never overwrites a newer DOM scroll even before its event', async () => {
   const result = await evaluate(`(() => { const f=fixture(); f.controller.commit([f.snapshot()]); f.port.scrollTop=160; f.port.dispatchEvent(new Event('scroll')); f.flush(); const seq=f.reports.at(-1).sequence; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:140}})]); const corrected=f.port.scrollTop; f.port.scrollTop=260; f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]); const newer=f.port.scrollTop; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:0}})]); return {corrected,newer,old:f.port.scrollTop}; })()`);
   expect(result).toEqual({ corrected: 200, newer: 260, old: 260 });

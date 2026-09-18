@@ -293,11 +293,10 @@ impl HeightIndex {
         let offset = self.clamp_offset(offset, viewport)?;
         let row = self.tree.find(offset, false);
         let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
-        // Hosts may round document/layout geometry through f32. Allow relative
-        // roundoff with a tiny absolute floor, but never treat a reader more
-        // than half a logical pixel/point from the end as following it.
-        let tolerance =
-            (self.total_height().max(viewport) * f64::from(f32::EPSILON)).clamp(1.0 / 1024.0, 0.5);
+        // DOM scrollHeight rounds to integer CSS pixels even when measured rows
+        // retain fractional heights. Admit up to half a logical pixel/point on
+        // every host, independent of extent; never follow a reader beyond it.
+        let tolerance = 0.5;
         Ok(Anchor {
             order: Rc::clone(&self.order),
             row,
