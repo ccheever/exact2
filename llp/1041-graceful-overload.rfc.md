@@ -5142,3 +5142,80 @@ All restoration processes/groups retire without cleanup signals. The41-file,
 `target/wayland-device-restoration-validation/current139-v1/`, manifest
 `1ccb7da95a8a5ef8ed9f4bf28ab14a9c80b007b00a8127da770e57d70e824d69`.
 The original failed attempt remains unchanged.
+
+A separately bound second attempt accepts the actual platform/module/card
+identity and passes package, source, toolchain, font and product preflights.
+It then fails in the first reference's output-directory setup: the supervisor
+creates and chowns the directory, but the unchanged oracle calls `create_dir`
+on that same path. Reference A aborts with EEXIST after0.061793s, before its
+trace, source construction, shaping or pixels. This is a harness error, not a
+product, compositor or memory-cap failure.
+
+Reference B, the client, libdrm identity query, seatd server, Sway and uinput
+remain unrun. The2.5GiB reference limit was applied; no watchdog or cleanup
+signal fired. All recorded guest and Mac processes/groups are absent. The
+module remains loaded without package installation; the first failure remains
+unchanged. The56-file,114,138B failed-attempt archive is
+`target/wayland-window-validation/attempt-v2/`, manifest
+`3a1656555e374fc239aab63476004eb3d8f8e9f14823fa7a1c6029cf2751b5b4`.
+No Wayland window acceptance follows from either attempt.
+
+The third and final bounded attempt fixes only that output path: the unchanged
+oracle creates a fresh child of its owned container. The old caller produces an
+actual EEXIST failure with one ownership control passing; the corrected caller
+passes six local filesystem tests. An earlier test-only umask assumption failed
+before the intended assertion and is preserved separately.
+
+Both native references now exit0, in1.666160s and1.617747s, and the actual DRM
+identity query passes. The run then exits1 when starting `/usr/bin/seatd`:
+Popen reports ENOENT before the server starts. Sway, the client and input/window
+acceptance remain unrun. This is another launch-harness failure, not a product
+crash; reference results are not candidate results. All recorded processes and
+groups retire without signals. Wayland runtime validation is deferred after
+these three attempts; no fourth automatic retry or backend fallback follows.
+
+### 8.85 Full-app retained-image placements during resize, 2026-09-18
+
+One diagnostic-only scroll-geometry observer resolves startup admission without
+choosing a963/980px allowlist. It records AppKit's actual scroll classes, border,
+insets, scroller style, layout dirtiness and independent content-size prediction.
+In this run the standard legacy vertical scroller occupies17px: Cocoa predicts
+a963×400 clip inside the980×400 scroll view, matching the actual clip, ink view
+and accepted raster certificate. Unknown configurations or inconsistent geometry
+still refuse. This does not explain the historical cause of both earlier startup
+failures, which remain unchanged.
+
+The one optimized build and one full-app cell exit0. All18 actual resize changes,
+six typing handlers/ACKs and six signed40px wheel handlers/ACKs occur inside the
+native resize interval. The canonical paragraph remains1,048,499UTF8 bytes and
+999,569UTF16 units, changing from940px/8,155 lines to856px/8,988 lines. No workload,
+quota, input cadence or production presentation policy changes.
+
+There are24 qualified retained-image placements,23 inside the interval and one
+just after it. They reuse the963×400 accepted image at scale1 with translations
+(0,0) or(0,-40). Fourteen placements cover their viewport; ten cover only360 of
+400 vertical pixels after scrolling. Those placements deliberately leave the
+newly exposed strip to the background policy. Discrete model-layer records do
+not prove continuous coverage, WindowServer pixels or usable fresh text hits.
+
+The retained episode closes with a fresh final-width assignment. Its frame/source
+records973/974 join raster acceptance989 and the **first** matching layer record995:
+12.254500ms after acceptance and231.130375ms after resize ends. Record1023 is a
+later repeat, not the first assignment. Fresh new-width publication inside the
+resize interval remains not established. The captured observer uses retained
+placement stage34, children35–43 and clear44; newer MAIN stage numbers must not
+be applied to these raw records.
+
+This binary is the earlier8410 fixture plus retention and the geometry observer;
+it does not contain the subsequent prepared-source or worker-digest changes.
+It is one functional observation, not an A/B speedup or current-MAIN timing.
+UI/worker records have no omissions, but passive-mode omissions keep mode
+classification not established. The Mac display remains60Hz. All four recorded
+processes and two groups retire, the owned external pointer releases, and no
+retry follows.
+
+The raw report is
+`target/apple-giant-scroll-geometry-observation-execution-v1/candidate/cell-01/report.json`,
+SHA `a0e2c376467b6e53b4347dc1594f2625fb88cfa2fabb95574801e6e0956de618`.
+Its separate retention evidence identifies the first assignment; the summary's
+`geometry.after` field identifies the latest assignment. Both must be retained.

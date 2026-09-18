@@ -47,8 +47,8 @@ final class RegionTextSource: Sendable {
     let text: String
     let utf16Count: Int
     let sourceUTF8Bytes: Int
-    /// Full joined source is additional storage, even if individual run Strings
-    /// share COW storage with input. CF attributed storage is worker-local extra.
+    /// Logical joined UTF8 length, not distinct allocated storage: joining one
+    /// run may share its String. CF attributed storage is worker-local extra.
     let joinedSourceUTF8Bytes: Int
     let captureSeconds: Double
     let capturedOnMainThread: Bool
