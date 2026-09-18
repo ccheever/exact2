@@ -72,6 +72,7 @@ try {
   sync('git',['init','-q'],work);sync('git',['config','user.name','Trial baseline'],work);sync('git',['config','user.email','trial@localhost'],work);
   const ignore=resolve(work,'.git/info/exclude');writeFileSync(ignore,'/.trial-tmp/\n/.trial-codex/\n');
   sync('git',['add','-A'],work);sync('git',['commit','-qm',`Immutable input ${sha}`],work);
+  report.inputCommit=sync('git',['rev-parse','HEAD'],work);
   const brief=readFileSync(resolve(home,'lanes/gamenext/comparison-full/BRIEF.md'),'utf8');
   const trials=readFileSync(resolve(home,'lanes/gamenext/comparison-full/TRIALS.md'),'utf8');
   const taskText=trials.split(`## Task ${task.toUpperCase()}:`)[1].split('\n## ')[0];
@@ -93,8 +94,8 @@ try {
   const commands=events.filter(e=>e.type==='item.completed'&&e.item?.type==='command_execution').map(e=>e.item.command);
   report.invocations={build:commands.filter(c=>/cargo (?:build|rustc)|build\.mjs|run\.sh build/.test(c)).length,proof:commands.filter(c=>/proof\.mjs|run\.sh proof/.test(c)).length,tests:commands.filter(c=>/cargo test|bun test|run\.sh test/.test(c)).length,commands:commands.length,method:'completed shell command records matching build/proof/test; combined shell commands count once; proof-internal builds excluded'};
   writeFileSync(resolve(out,'commands.json'),JSON.stringify(commands,null,2));
-  sync('git',['add','-A'],work);const diff=sync('git',['diff','--cached','--binary','HEAD'],work);writeFileSync(resolve(out,'changes.diff'),diff+'\n');
-  const stats=sync('git',['diff','--cached','--numstat','HEAD'],work).split('\n').filter(Boolean).map(l=>{const [add,del,...path]=l.split('\t');return {path:path.join('\t'),added:Number(add)||0,deleted:Number(del)||0};});
+  sync('git',['add','-A'],work);const diff=sync('git',['diff','--cached','--binary',report.inputCommit],work);writeFileSync(resolve(out,'changes.diff'),diff+'\n');
+  const stats=sync('git',['diff','--cached','--numstat',report.inputCommit],work).split('\n').filter(Boolean).map(l=>{const [add,del,...path]=l.split('\t');return {path:path.join('\t'),added:Number(add)||0,deleted:Number(del)||0};});
   report.files=stats;report.filesChanged=stats.length;report.linesAdded=stats.reduce((n,f)=>n+f.added,0);report.linesDeleted=stats.reduce((n,f)=>n+f.deleted,0);
   report.scopeViolations=stats.filter(f=>!f.path.startsWith('game/games/lanterns/')).map(f=>f.path);
   report.sourceHashes=Object.fromEntries(stats.filter(f=>existsSync(resolve(work,f.path))).map(f=>[f.path,createHash('sha256').update(readFileSync(resolve(work,f.path))).digest('hex')]));
