@@ -4496,10 +4496,13 @@ raster includes viewport-hit construction. It is not a uniform reduction in work
 Neither arm establishes an accepted new-width raster **and** model-layer
 assignment inside live resize. Both first post-edge snapshots have
 displayable=false and visible publication0. The final raster is accepted
-3642.321→281.279ms after the edge; final model-layer assignment follows at
-3961.678→1078.265ms. The treatment's acceptance-to-layer gap is consequently
-longer,319.357→796.986ms. Faster shaping has not established continuous visible
-reflow, and layer assignment does not prove physical presentation.
+3642.321→281.279ms after the edge; its **first qualified** model-layer assignment
+follows at3642.739→281.716ms, only0.418→0.437ms after raster acceptance.
+The original report selected the latest repeated assignment of that raster,
+at3961.678→1078.265ms after the edge. Those endpoints certify the final saved
+state but do not measure first delivery; the earlier interpretation of a
+319.357→796.986ms delivery gap is withdrawn. Faster shaping has not established
+continuous visible reflow, and layer assignment does not prove physical presentation.
 
 All18 measured resize calls per arm are under8.333ms, but their whole-call
 maximum rises3.507→4.091ms and their totals17.122→17.439ms. Typing ACK maxima
@@ -4519,7 +4522,7 @@ with both external mouse-ups retained. Evidence is
 `1e10d131bc78b037c52bdd7352b23ddada7a5eb28583f8ccbf15989dc9564660`,
 treatment `579581d86cca1216add89c9265fcc36fcb068bba009002746f65b6f631989253`.
 Independent selected-raw reconstruction agrees on shape/index spans, complete
-source, geometry, input counts and final layer delays. No screenshot/crop or
+source, geometry, input counts and first-versus-latest layer endpoints. No screenshot/crop or
 general memory-bound claim is added by this experiment. The next work separates
 remaining index construction from retaining valid visible content and prompt
 publication; a reversed pair must use these same products and fresh cells.
@@ -4529,6 +4532,14 @@ The owner runtime freeze records310 files/125,064,209B, manifest
 report `6cf2b15e3140510a4666aeda50b8943a1cb29d66d78fc9eb406d6b5fdea5d13f`.
 A retained offline summary-script parse failure was corrected without changing
 the diagnostic reader, oracle, source or native runs.
+The frozen report's endpoint error remains preserved; the correction is in
+`target/apple-giant-viewport-hit-first-assignment-addendum-v1/`, manifest
+`8a9475350384d68cb532844d0837b189b792dcd6f6f09015b46d8d29e77c782e`.
+Independent raw joins qualify first layer440 after accepted raster434 in control,
+and first layer605 after accepted raster599 in treatment, with the same generation,
+publication, raster serial, frame/source/artifact and scroll coordinates as their
+latest certificates. A repeated-assignment behavioral RED and seven pure checks
+cover the offline correction. No runtime rerun or historical artifact rewrite occurred.
 
 ### 8.72 Reuse captured line metrics when building the Apple paint index, 2026-09-18
 
