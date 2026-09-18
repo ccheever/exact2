@@ -5622,3 +5622,80 @@ All six recorded PIDs and three groups retired, with exactly one actual control
 poster release and no invented candidate cleanup. The next step is a separate
 source-only import-closure correction. No full-app benefit, physical120Hz or
 robust latency-tail result follows from this incomplete pair.
+
+### 8.94 Current Web Messages separates short tasks from long frame waits, 2026-09-18
+
+One unmodified00272ea Messages build and one headless Chrome cell use the current
+nine-field History and default ReusableMessagesStress. The workload supplies all
+10,000 records, observes32 changed records after a positive revision, and keeps
+viewport mounting enabled. Silent revisions advance0→8, loaded8→16, and recovery
+stays16. All72 scheduled offers and24 exact input echoes pass across the three
+fixed2s phases. The existing cadence, four-outstanding limit and trace caps are
+unchanged. No diagnostic Rust hooks or smaller workload are introduced.
+
+The build exits0 in25.218s. An initial capture assertion incorrectly compares raw
+Git index bytes across the planned mtime/stat-cache refresh. That failure remains
+preserved. Offline finalization verifies all1417 stage0 path/mode/blob entries
+against the pinned tree, exact source bytes and the first build's619 saved input
+files, linked products and generated factory. No producer or build is rerun.
+The actual optimized Wasm is3f6a00d7, with plan392a1006; older834d timing is not a
+control for this product.
+
+The59,650-event trace has no reported loss, reaches EOF and closes its stream.
+Independent frame/process/thread and outward clock reconstruction agrees with
+all9678 selected-thread spans. Tasks fully contained in idle/load/recovery number
+360/306/267, with wall unions114.947/92.826/66.571ms and maxima7.992/8.199/3.805ms.
+None of those tasks exceeds8.333ms; two crossing tasks per phase remain separate.
+The largest unscored whole task is21.702ms. Loaded exports include eight advances
+with maximum2.2ms and eight resizes with maximum3.5ms. These are inclusive wall
+observations, not CPU, isolated layout cost or one export per revision. Only80
+of205 exports have conservative whole-task joins; missing joins stay unavailable.
+Absent EST1 packets make query/shape/key/index work counts `NOT_ESTABLISHED`.
+
+Input-capture-to-echo maxima are1.2/1.3/1.0ms, but the90 scored frame-callback gaps
+have maxima116.7/216.7/250ms. Input-to-next-callback maxima are78.7/99.4/96.6ms.
+The actual frame/callback232 request43317 and fire43782 are229.752ms apart; the
+recorded main-thread task union within that interval is3.366ms across22 tasks.
+This wait is not explained by one equally long observed application task. It
+does not prove CPU idleness or identify a throttle, compositor or OS cause.
+
+The carrier is Chrome153 headless, with target focus emulation and no explicit
+frame-rate override. Visibility/occlusion and a complete frame-scheduler chain
+were not captured. Existing AnimationFrame presentation markers are browser
+breadcrumbs, not physical scanout receipts. Generic scrolling is observed but
+wheel causality remains unestablished. There is no paired optimization result,
+robust tail guarantee or physical120Hz proof on the known60Hz display. More Web
+threading is not justified by these task costs alone; a separate visible-browser
+discriminator is prepared without changing application work.
+
+The18-file runtime archive is under
+`target/web-current-messages-00272ea/cell-v1/`. The sole execution exits0, all
+three recorded processes and the owned group retire, and its port is free.
+The independent raw reconstruction and carrier note are separate from the seal.
+
+### 8.95 Corrected metadata pair stops at native startup admission, 2026-09-18
+
+The missing module from8.93 is restored byte-for-byte from the earlier frozen
+driver. Both entry points' source-only import closure resolves42 modules and220
+edges. Only the treatment's shared-driver import and new control-cohort path
+change; existing app products, readers, geometry policy and workload remain.
+The original missing-module attempt is unchanged.
+
+One fresh control completes. The candidate now launches, but its fifth command,
+the second initial full-state read, fails `pending/unknown native layout` before
+any poster, resize edge or measured input workload. It has a current accepted
+940px paragraph and image at publication15/generation2/artifact14/source11, with
+a963×400 clip and matching current certificate. Only the RegionSurfaceMac node
+reports `needsLayout=true`; its constraint flag and other sampled layout flags
+are false. Current publication and Cocoa-layout admission are distinct checks.
+The saved sample does not establish why that flag remains set, later settlement,
+incorrect pixels or causation by the metadata checkpoint.
+
+The control's first final-width assignment is178.222ms after its edge; it records
+64 shape attempts/returns, four raster returns and no abandonment or refusal.
+Those control-only facts cannot replace missing candidate timing. All seven
+recorded PIDs and three groups retire, with one actual control poster release
+and no invented candidate release. The75-file archive is under
+`target/apple-region-metadata-pair-corrected-execution-v1/`. This second attempt
+is also failed/incomplete. No third run, added wait, relaxed layout admission or
+performance claim follows; the next action is source diagnosis of the flag.
