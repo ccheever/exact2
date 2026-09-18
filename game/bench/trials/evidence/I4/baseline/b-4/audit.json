@@ -1,0 +1,53 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_10",
+        "item_11"
+      ]
+    },
+    {
+      "name": "return route and terminal capture",
+      "repairs": 2,
+      "items": [
+        "item_11",
+        "item_13",
+        "item_14",
+        "item_16",
+        "item_17"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 2,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "readmeReads": [
+    {
+      "path": "game/README.md",
+      "lines": "1\u2013240",
+      "item": "item_1"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u2013240 (whole file)",
+      "item": "item_2"
+    }
+  ],
+  "recurrence": {
+    "repinUsed": false,
+    "pinFiles": 0,
+    "pinLinesAdded": 0,
+    "pinLinesDeleted": 0,
+    "unexpectedRouteStalls": true,
+    "diagnosticNamedBlocker": false,
+    "actedOnUnexpectedStall": "inferred signpost; added clear waypoints",
+    "semanticStateHashMismatch": true,
+    "resourceLeaseBorrowError": false,
+    "taskBPhaseContract": "FAIL: public returning phase; 2/7 task checks pass."
+  },
+  "coverageCaveat": "After item_14 corrupt checkpoint: semantic state/hash differs, item_16 removes original live-terminal recapture block. Final green self-tests do not prove this defect fixed.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps."
+}
