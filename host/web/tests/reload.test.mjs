@@ -90,7 +90,7 @@ test('slow loading captures at cutover, rebases without build-time ticks, suppre
   let message=true; f.nextGpu.gpu_messages=()=>message?(message=false,'["durable-write"]'):undefined;
   f.gpu.gpu_carry=()=>{events.push(['capture',clock]);return new Uint8Array([1]);};
   const swap=f.exact.gpu.swap(1); await waiting; clock=12000; release(); await swap;
-  assert.deepEqual(events.filter(v=>['capture','rebase','render'].includes(v[0])),[['capture',12000],['rebase',12000],['render',12000]]);
+  assert.deepEqual(events.filter(v=>['capture','rebase','render'].includes(v[0])),[['capture',12000],['rebase',12000],['render',12000],['rebase',12000]]);
 });
 
 test('repeated swaps disconnect observers and dispose previous modules once per successful commit',async()=>{
@@ -175,4 +175,94 @@ test('retained setup and released input stay effective until a new live value; R
   assert.deepEqual(bindings.at(-1),['old-scene',2,8]);
   await f.exact.gpu.swap(2,{intent:'restart'});
   assert.deepEqual(bindings.at(-1),['new-scene',2,8]);
+});
+
+test('normal stateless GPU canvases do not opt a data-backed core app into game transactions',async()=>{
+  const f=await fixture({gpu:{gpu_carry:()=>undefined,gpu_agent:()=>''}});
+  f.create(1,'line-map'); assert.equal(f.exact.gpu.participates(),false);
+  f.exact.gpu.reset(true); f.create(2,'line-map'); f.exact.gpu.finishRestart();
+  assert.equal(f.exact.gpu.participates(),false);
+});
+
+test('candidate pipelines may block, but final rebase excludes that time from the next game frame',async()=>{
+  let time=100;const rebases=[];
+  const f=await fixture({now:()=>time,nextGpu:{
+    gpu_agent:(id,text)=>{const q=JSON.parse(text);if(q.reload){rebases.push(q.now);return '{"reload":{}}';}return '{"world":{}}';},
+    gpu_render:()=>{time+=5000;return 0;},
+  }});f.create(1);await f.exact.gpu.swap(1);
+  assert.deepEqual(rebases,[100,5100]);
+});
+
+test('first usable timing waits for a rendering opportunity and observers stay bounded over repeated swaps',async()=>{
+  const f=await fixture();f.create(1);assert.equal(f.observers.size,2);
+  await f.exact.gpu.swap(1,{timing:{detectedAt:Date.now()-1000,buildCompleteAt:Date.now()-50}});
+  assert.equal(f.exact.gpu.diagnostics().phase,'committed');
+  f.paint();assert.equal(f.exact.gpu.diagnostics().phase,'committed');
+  f.paint();const state=f.exact.gpu.diagnostics();assert.equal(state.phase,'usable');
+  assert.ok(state.lastSuccessfulSwap.timing.editToFirstUsableFrameMs>=1000);
+  for(let version=2;version<=6;version++) {await f.exact.gpu.swap(version);assert.equal(f.observers.size,2);}
+  f.destroy(1);assert.equal(f.observers.size,0);
+});
+
+test('read-only world inspection supplies neither an advancing clock nor a viewport mutation',async()=>{
+  const seen=[],f=await fixture({now:()=>999});f.create(1);
+  f.gpu.gpu_agent=(id,json)=>{seen.push(JSON.parse(json));return '{"world":{}}';};
+  f.exact.gpu.agent(1,{op:'state'});
+  assert.deepEqual(seen,[{op:'state'}]);
+});
+
+test('Contract outcome names reset, removed and initialized UI slots',async()=>{
+  const f=await fixture();f.create(1);
+  const stage=f.exact.gpu.stagePlan({ops:[{op:'surface',id:2,name:'world',values:[]}]},{count:4,removed:true,kept:7},{count:'fresh',added:false,kept:7});
+  f.exact.gpu.reset(true);f.create(2);f.exact.gpu.finishRestart();stage.commit();
+  assert.deepEqual(f.exact.gpu.diagnostics().restoreOutcome.ui.resetFields,[{name:'count',outcome:'reset'},{name:'removed',outcome:'removed'},{name:'added',outcome:'initialized'}]);
+});
+
+test('explicit host detach rebases live pacing; attach freezes without implicit read ownership',async()=>{
+  const source=readFileSync(new URL('../glue.js',import.meta.url),'utf8');
+  const clock=source.slice(source.indexOf('async function clock(request)'),source.indexOf('\nlet ticker =',source.indexOf('async function clock(request)')));
+  const run=new Function(`
+    let wall=100000, t0=0, agentClock=10, ticker=null, hasTimers=true, starts=new WeakMap();
+    const calls=[], animation={currentTime:5,playState:'paused',play(){this.playState='running';calls.push('play');}};
+    const performance={now:()=>wall},document={getAnimations:()=>[animation]};
+    const now=()=>agentClock ?? wall-t0,register=at=>calls.push(['register',at]),seek=at=>calls.push(['seek',at]);
+    const setInterval=()=>123,clearInterval=id=>calls.push(['clear',id]),settleGpu=async()=>{};
+    const globalThis={exact:{now,ownership:()=>({owner:agentClock===null?'human':'agent',clock:agentClock===null?'live':'controlled'}),gpu:{
+      handoff:(owner,at)=>{calls.push(['handoff',owner,at]);return {world:[{tick:42,hash:'same'}],releasedInput:true};},resumeClock:on=>calls.push(['resume',on])
+    }}};
+    ${clock}
+    return {clock,calls,now,advance:ms=>wall+=ms,exact:globalThis.exact};
+  `)();
+  const detached=await run.clock({owner:'human'});
+  assert.equal(detached.control.clock,'live');assert.equal(detached.world[0].tick,42);assert.equal(run.exact.now,undefined);
+  assert.equal(run.now(),10);run.advance(16);assert.equal(run.now(),26);
+  assert.match((await run.clock({to:100})).error,/clock is live/);
+  assert.equal(run.now(),26,'refused stepping acquired no clock');
+  const attached=await run.clock({owner:'agent'});assert.equal(attached.clock,26);
+  run.advance(5000);assert.equal(run.now(),26);
+  const again=await run.clock({owner:'agent'});assert.equal(again.changed,false);
+  assert.equal(run.calls.filter(c=>Array.isArray(c)&&c[0]==='handoff').length,2);
+  assert.match((await run.clock({owner:'nobody'})).error,/human or agent/);
+  assert.match((await run.clock({owner:'human',to:10})).error,/separate/);
+});
+
+test('world handoff preflights the complete participant set and releases held input',async()=>{
+  let owner='agent',supported=true;
+  const f=await fixture({input:true,gpu:{gpu_agent:(id,json)=>{
+    const q=JSON.parse(json);
+    if(q.owner){owner=q.owner;return JSON.stringify({tick:42,hash:'same',ownership:{owner},reload:{values:[]}});}
+    return JSON.stringify({world:{ownership:supported||id===1?{owner}:undefined,input:{forwarded:[]}}});
+  }}});const a=f.create(1);f.create(2,'second');
+  a.listeners.keydown({target:a,code:'KeyW',timeStamp:0});
+  supported=false;assert.match(f.exact.gpu.handoff('human',10).error,/unsupported/);assert.equal(owner,'agent');
+  supported=true;const result=f.exact.gpu.handoff('human',10);assert.equal(result.world.length,2);assert.equal(owner,'human');
+  const before=f.events.length;a.listeners.keyup({target:a,code:'KeyW',timeStamp:10});assert.equal(f.events.length,before,'old held key owner survived handoff');
+});
+
+test('controlled creation declares ownership before restoring intentional checkpoint-held input',async()=>{
+  const order=[];
+  const f=await fixture({input:true,gpu:{gpu_agent:(id,json)=>{if(JSON.parse(json).owner)order.push('owner');return '{"world":{"input":{"forwarded":["Space"]}},"ownership":{"owner":"agent"}}';},gpu_restore:()=>{order.push('restore');return true;}}});
+  f.exact.worldCarry=new Uint8Array([1]);const host=f.create(1);
+  assert.deepEqual(order,['owner','restore']);
+  host.listeners.keyup({target:host,code:'Space',timeStamp:0});assert.equal(f.events.at(-1).code,'Space');
 });

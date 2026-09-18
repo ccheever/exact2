@@ -236,6 +236,14 @@ if (es) {
   };
   const controls = document.body.appendChild(document.createElement('span'));
   controls.style = 'position:fixed;left:10px;bottom:10px;z-index:2147483646;font:13px system-ui';
+  const ownershipNotice = controls.appendChild(document.createElement('span'));
+  const release = controls.appendChild(document.createElement('button')); release.textContent = 'Return control';
+  release.onclick = () => globalThis.exact.control('human').then(result => {if(result.error) show(result.error);}).catch(error=>show(String(error)));
+  globalThis.exact.ownershipChanged = state => {
+    ownershipNotice.textContent = state.owner === 'agent' ? 'Agent controls input and clock. ' : '';
+    release.hidden = state.owner !== 'agent';
+  };
+  globalThis.exact.ownershipChanged(globalThis.exact.ownership());
   for (const intent of ['continue','restart','restore']) {
     const button = controls.appendChild(document.createElement('button'));
     button.textContent = intent[0].toUpperCase()+intent.slice(1);

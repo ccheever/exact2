@@ -8,6 +8,8 @@ export async function fixture(options = {}) {
   const views = new Map(), records = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [];
+  const frames = new Map(), observers = new Set(); let frameId=0;
+  class Observer { observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve();
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
@@ -26,11 +28,11 @@ export async function fixture(options = {}) {
     gpu_error: () => "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
     gpu_agent: (id, json) => JSON.parse(json).reload ? JSON.stringify({reload:{values:options.values ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
-    gpu_shader: () => true,
+    gpu_shader: () => true, ...options.gpu,
   };
   const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
-  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) op(); });
+  const applyBatch = new Function('globalThis', 'apply', `let agentClock = null, hasTimers = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) op(); });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
@@ -67,13 +69,14 @@ export async function fixture(options = {}) {
     'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console',
     source
   )({ exact }, async version => version ? (options.candidate ? options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{} }, Element, 1,
-    class { observe() {} disconnect() {} }, class { observe() {} disconnect() {} }, () => 1, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {}, warn() {} });
+    Observer, Observer, cb=>{frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {}, warn() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element,
+  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, observers,
+    paint() { const callbacks=[...frames.values()]; frames.clear(); for(const cb of callbacks) cb(performance.now()); },
     expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
