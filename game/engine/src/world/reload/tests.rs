@@ -352,3 +352,31 @@ fn interleaved_200k_churn_reload_cost() {
         );
     }
 }
+
+#[test]
+fn a_recycled_unnamed_reference_is_simulation_state() {
+    let mut mine = World::new(60, 0);
+    let old = mine.spawn(Probe::default());
+    mine.spawn_named(
+        "link",
+        Links {
+            entity: old,
+            ..Default::default()
+        },
+    );
+    mine.spawn_named("target", Probe::default());
+    let base = mine.initializer().unwrap();
+    mine.despawn(old);
+    let recycled = mine.spawn(Probe::default());
+    mine.get_mut::<Links>("link").unwrap().entity = recycled;
+    let mut theirs = World::new(60, 0);
+    theirs.spawn(Probe::default());
+    let link = theirs.spawn_named("link", Links::default());
+    let target = theirs.spawn_named("target", Probe::default());
+    theirs.get_mut::<Links>(link).unwrap().entity = target;
+    let report = mine
+        .merge_initializer(&base, &theirs.initializer().unwrap(), None)
+        .unwrap();
+    assert_eq!(report.kept.len(), 1);
+    assert_eq!(mine.get::<Links>("link").unwrap().entity, recycled);
+}

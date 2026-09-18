@@ -626,8 +626,9 @@ storage; encoded bases are at most 128 MiB. Changed-build decoding shares a 1 Gi
 allowance, or an importer's tighter `LoadBudget`. Overflow refuses with `DataError`
 before replacing the live simulation. Work is linear in visited Data plus ordered
 map lookup/insertion, at most O(V log V) with bounded depth; no merge runs in a tick.
-Registered custom `Data` code remains trusted, as it is for save/load. Contract edits carry uniquely
-named surfaces across the plan restart; ambiguous duplicate surface instances refuse transactional continuation. A GPU swap stages
+Registered custom `Data` code remains trusted, as it is for save/load.
+
+Contract edits carry uniquely named surfaces across the plan restart; ambiguous duplicate surface instances refuse transactional continuation. A GPU swap stages
 all replacement canvases before cutover; a create/bind/render failure leaves the
 old worlds running. Dev bindgen glue has function scope so old Wasm instances can
 be collected; production keeps its static ES module loader.

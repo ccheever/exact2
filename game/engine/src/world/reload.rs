@@ -39,6 +39,14 @@ pub(super) fn resolve(world: &World, key: &str) -> Option<Entity> {
             .first()
             .copied();
     }
+    if let Some(reference) = key.strip_prefix("r:") {
+        let (index, generation) = reference.split_once(':')?;
+        let e = Entity {
+            index: index.parse().ok()?,
+            generation: generation.parse().ok()?,
+        };
+        return world.contains(e).then_some(e);
+    }
     let i = key.strip_prefix("u:")?.parse::<usize>().ok()?;
     let slot = world.state.slots.get(i)?;
     (slot.alive && slot.name.is_none()).then(|| world.entity_at(i))
@@ -385,7 +393,13 @@ impl Merge<'_> {
 }
 fn references_match(node: &Node, matched: &BTreeSet<&str>) -> bool {
     match node {
-        Node::Reference(k) => k == "null" || k.starts_with("n:") || matched.contains(k.as_str()),
+        Node::Reference(k) => {
+            k == "null"
+                || k.starts_with("n:")
+                || k.strip_prefix("r:")
+                    .and_then(|s| s.split_once(':'))
+                    .is_some_and(|(index, _)| matched.contains(format!("u:{index}").as_str()))
+        }
         Node::Record(v) => v.values().all(|v| references_match(v, matched)),
         Node::Seq(v) => v.iter().all(|v| references_match(v, matched)),
         Node::Variant(_, _, v) | Node::Option(true, v) => references_match(v, matched),
@@ -442,7 +456,7 @@ impl Report {
         };
         let bounded = |s: &str| {
             if s.chars().count() > 256 {
-                format!("{}…", s.chars().take(256).collect::<String>())
+                format!("{}…", s.chars().take(255).collect::<String>())
             } else {
                 s.into()
             }

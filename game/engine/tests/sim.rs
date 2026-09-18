@@ -810,3 +810,87 @@ fn live_frame_history_does_not_cross_handoff_or_rebase() {
     assert_eq!(s.advance(900_100.0, Clock::Live), 7);
     assert_eq!(s.world().tick(), 14);
 }
+
+#[derive(Default, Component)]
+struct ReloadProbe {
+    authored: u32,
+    running: u32,
+}
+struct ReloadGame<const EDITED: bool>;
+impl<const EDITED: bool> Game for ReloadGame<EDITED> {
+    const ID: &'static str = "reload-boundary";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "probe",
+            ReloadProbe {
+                authored: if EDITED { 2 } else { 1 },
+                running: if EDITED { 20 } else { 10 },
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        w.get_mut::<ReloadProbe>("probe").unwrap().running += 1;
+    }
+}
+#[derive(Default, Data)]
+struct ReloadItem {
+    entity: String,
+    component: String,
+    field: String,
+}
+#[derive(Default, Data)]
+struct ReloadReport {
+    applied: Vec<ReloadItem>,
+    kept: Vec<ReloadItem>,
+}
+#[derive(Default, Data)]
+struct ReloadState {
+    reload: ReloadReport,
+}
+#[derive(Default, Data)]
+struct ReloadEnvelope {
+    world: ReloadState,
+}
+#[test]
+fn reload_report_survives_ticks_clears_on_restore_and_refusal_is_atomic() {
+    let mut old = Sim::<ReloadGame<false>>::new(()).unwrap();
+    old.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
+    old.agent(r#"{"op":"clock","ticks":1}"#);
+    let saved = old.save();
+    for bound in [false, true] {
+        let mut next = Sim::<ReloadGame<true>>::new(()).unwrap();
+        next.agent(r#"{"op":"clock","owner":"agent","now":9000}"#);
+        if bound {
+            next.restore_bound(&saved)
+        } else {
+            next.restore(&saved)
+        }
+        .unwrap();
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state.world.reload.applied.len(), 1);
+        assert_eq!(state.world.reload.kept.len(), 1);
+        let item = &state.world.reload.applied[0];
+        assert_eq!(
+            (&*item.entity, &*item.component, &*item.field),
+            ("probe", "ReloadProbe", "authored")
+        );
+        let probe = next.world().get::<ReloadProbe>("probe").unwrap();
+        assert_eq!((probe.authored, probe.running), (2, 11));
+        drop(probe);
+        let current = next.save();
+        let mut v5 = current.clone();
+        v5[6] = 5;
+        let error = next.restore_bound(&v5).unwrap_err();
+        assert!(error.message.contains("restart required"));
+        assert_eq!(next.save(), current);
+        next.agent(r#"{"op":"clock","ticks":2}"#);
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state.world.reload.applied.len(), 1);
+        let saved = next.save();
+        next.restore_bound(&saved).unwrap();
+        assert_eq!(next.save(), saved);
+        let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
+        assert!(state.world.reload.applied.is_empty() && state.world.reload.kept.is_empty());
+    }
+}

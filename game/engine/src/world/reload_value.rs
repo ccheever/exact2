@@ -192,7 +192,12 @@ impl Writer for Collect<'_> {
             let key = if entity == crate::Entity::default() {
                 "null".into()
             } else {
-                super::reload::key(self.world, entity)
+                let key = super::reload::key(self.world, entity);
+                if key.starts_with("u:") {
+                    format!("r:{index}:{generation}")
+                } else {
+                    key
+                }
             };
             self.add(Node::Reference(key));
         }
