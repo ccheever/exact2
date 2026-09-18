@@ -162,6 +162,14 @@ Churn, mixed-page ancestors, static edits, membership/recycling, world identity
 and load have separate regressions. The saved-pile tick-600 pin remains
 `0x5ba7691abdc98058`; no pinned hash or position was changed.
 
+Validation on this Linux host: **413 workspace Rust tests passed**, plus all
+**6 release timing diagnostics**. Game workspace clippy (`-D warnings`), formatting,
+root caps and boot pass. Linux proofs pass **54 Beacons, 62 Greybox, 8 Lanterns,
+6 asset-fixture assertions** (130 total). Bun is **38 passed / 2 environmental
+failures**: absent Chrome for the generated-game web proof and missing prebuilt
+60/120 Hz feel artifacts. GPU pixels, browser execution and Apple runtimes were
+not verified here. No public signature, pinned position or hash was changed.
+
 ## Saved solver and historical measurements
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
