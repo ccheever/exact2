@@ -49,6 +49,9 @@ export function resolveApp(nameOrCrate) {
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
   const manifest = readManifest(dir, name);
+  if (dirname(dir) === resolve(workspace, 'games') && manifest.game === undefined) {
+    throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
+  }
   if (manifest.game !== undefined) name = gameShells(dir, manifest.game, workspace);
   let packages;
   const cargoPackage = kind => {
@@ -62,7 +65,13 @@ export function resolveApp(nameOrCrate) {
   return {
     name, dir, workspace, target, crate: (kind) => `${name}-${kind}`,
     cargoPackage,
-    get hasGpu() { return manifest.game !== undefined || !!cargoPackage('gpu'); },
+    get hasGpu() {
+      if (manifest.game !== undefined) return !!cargoPackage('gpu');
+      const gpu = resolve(dir, 'gpu');
+      if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
+      const pkg = cargoPackage('gpu');
+      return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+    },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
     /** The app identity, reverse-DNS: the bundle id on every platform (`build.mjs:48–49` derived it from the crate name before the manifest). */
@@ -233,6 +242,7 @@ function buildGraph(app, target, kind, env, gpu) {
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
   const surface = gpu && metadata.packages.find((p) => p.name === app.crate('gpu'));
   if (!root) throw new Error(`Cargo has no ${app.crate(kind)} target`);
+  if (gpu && !surface) throw new Error(`Cargo has no GPU surface ${app.crate('gpu')}`);
   const roles = new Map(), pending = [[root.id, target], ...(surface ? [[surface.id, target]] : [])];
   while (pending.length) {
     let [id, role] = pending.pop();

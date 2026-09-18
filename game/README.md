@@ -32,37 +32,55 @@ The complete example below is compiled and run by `cargo test --doc -p exact-gam
 
 ```rust
 use exact_game::*;
+use exact_game::motion::{Move, Jump, Gravity};
 
 #[derive(Default, Args)]
-struct Options {
-    seed: u64,
+pub struct Options {
+    pub seed: u64,
     #[live]
-    paused: bool,
+    pub paused: bool,
 }
 #[derive(Default, Component)]
+struct Player { velocity: Vec3 }
+#[derive(Default, Component)]
 struct Beacon { glow: Spring }
-struct SmallGame;
+pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "small-game";
     type Args = Options;
     fn actions() -> Actions {
         Actions::new().stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"])
+            .button("light", &["KeyE"]).button("jump", &["Space"])
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::default()));
-        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1)));
+        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::grid([0.16, 0.23, 0.24], 1.0)));
+        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1), Player::default()));
         w.spawn_named("camera", (Transform::default(), Camera::default(),
             Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
         w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
         w.publish("lit", 0);
-        scene::follow(w);
     }
     fn paused(args: &Options) -> bool { args.paused }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        w.get_mut::<Transform>("player").unwrap().position +=
-            input.stick_xz("move") * 4.0 * w.dt();
+        let dt = w.dt();
+        if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
+            Move { speed: 4.0, accel: 12.0, brake: 20.0 }
+                .step(&mut player.velocity, input.stick_xz("move"), dt);
+            if input.pressed("jump") && pose.position.y <= 0.9 {
+                Jump { height: 1.2, gravity: 9.81 }.start(&mut player.velocity);
+            }
+            pose.position.x += player.velocity.x * dt;
+            pose.position.z += player.velocity.z * dt;
+            if pose.position.y > 0.9 || player.velocity.y > 0.0 {
+                pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
+                Gravity(9.81).step(&mut player.velocity, dt);
+                if pose.position.y <= 0.9 {
+                    pose.position.y = 0.9;
+                    player.velocity.y = 0.0;
+                }
+            }
+        }
         let mut count = 0;
         for (mut beacon, mut material) in w.query::<(&mut Beacon, &mut Material)>() {
             if input.pressed("light") { beacon.glow.set_target(w.now(), 1.0); }
@@ -75,11 +93,20 @@ impl Game for SmallGame {
 }
 fn main() {
     let mut game = Sim::<SmallGame>::new(Options { seed: 7, paused: false }).unwrap();
+    // The engine places the follower before the first tick.
+    assert!(game.world().get::<Transform>("camera").unwrap().position.y > 9.0);
+    game.hold("KeyW", 100.0);
+    let z = game.world().get::<Transform>("player").unwrap().position.z;
+    assert!(z < 0.0 && z > -0.35);
+    game.tap("Space");
+    game.run(400.0);
+    assert!(game.world().get::<Transform>("player").unwrap().position.y > 1.8);
     game.tap("KeyE");
     assert!(game.settle());
+    assert_eq!(game.world().get::<Transform>("player").unwrap().position.y, 0.9);
     assert_eq!(game.world().published("lit").unwrap().as_number(), Some(1.0));
-    assert!(game.world().get::<Transform>("camera").unwrap().position.y > 9.0);
 }
+
 ```
 
 - **A tick is a function that calls functions.** No scheduler, no plugins, no
@@ -187,8 +214,10 @@ game/games/my-game/
 `app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
-`game/.shells/my-game-{gpu,web,apple}/` before building. These ignored crates
-contain the GPU module and the web/Apple bakes; identical bytes are never rewritten.
+`game/.shells/<app-id-hash>-{gpu,web,apple}/` before Cargo metadata. These ignored
+crates contain the GPU module and web/Apple bakes. Complete replacements are staged
+outside the member glob and installed by rename; unchanged inputs keep their timestamps.
+Renaming a logic crate reuses the app identity, and resolving removes deleted games’ shells.
 The workspace glob includes them; its tracked `.gitignore` lets Cargo resolve an
 otherwise empty glob before the first bake. Games embed the engine shaders and
 have no `gpu/shaders` directory.
@@ -216,8 +245,9 @@ back-off; ordinary clock reads do not. A settle jump observes its last two ticks
 a one-shot change entirely inside a 2 s jump can be skipped. It is an observation
 of rest, not a record of every intermediate transition.
 
-`scene::follow(world)` steps saved `Follow` components where called. Call it at the
-end of `setup` for exact first-frame placement, and in `tick` for following.
+The engine places saved `Follow` components after setup and setup-argument rebuilds,
+and initializes new followers on restore. Call `scene::follow(world)` in `tick`
+where following should happen; setup needs no follow call.
 It accepts a handle (no name search) or a name resolved by the same lowest-index rule as `world.get`, reads the target's current
 parent chain, and reinitializes after teleport or a name's new incarnation.
 The up-axis is transported from the previous view through vertical; coincident aim preserves rotation.

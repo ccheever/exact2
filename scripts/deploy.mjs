@@ -54,7 +54,8 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, rustBundle, rustPackage } from './rust.mjs';
-import { buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
+import { gameShells } from '../game/app/shells.mjs';
+import { readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
@@ -245,7 +246,7 @@ function sourcePathspec(repo, app, exactRoot) {
   const workspace = canonicalPath(app.workspace ?? app.dir);
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
-    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'),
+    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'),
     resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
     resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
@@ -549,6 +550,8 @@ export function materializeSnapshot(snapshot, run, app) {
   // its runs). Otherwise keep absolute source paths out of the live target by
   // giving this materialized generation its own cache.
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
+  const manifest = readManifest(dir, app.name);
+  if (manifest.game) gameShells(dir, manifest.game, workspace);
   assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
   return {
     exactRoot, sourceRoot,

@@ -27,6 +27,7 @@ test('a newly generated game builds, tests and proves without editing', async ()
   assert.ok(!existsSync(app));
   const lockfile = resolve(import.meta.dir, 'Cargo.lock'), originalLock = readFileSync(lockfile);
   let registeredLock;
+  let shellDirs = [];
   try {
     await run('bun', ['game/new.mjs', name]);
     assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','proof.mjs']);
@@ -34,8 +35,10 @@ test('a newly generated game builds, tests and proves without editing', async ()
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     registeredLock = readFileSync(lockfile);
     for (const file of ['Cargo.toml','Cargo.lock','web','apple','gpu']) assert.ok(!existsSync(resolve(app, file)), file);
-    const shellFiles = ['gpu','web','apple'].flatMap(kind => ['Cargo.toml','src/lib.rs', ...(kind === 'gpu' ? [] : ['build.rs'])]
-      .map(file => resolve(import.meta.dir, '.shells', `${name}-${kind}`, file)));
+    const located = spawnSync('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; import {dirname} from "node:path"; const app=resolveApp(); console.log(JSON.stringify(["gpu","web","apple"].map(kind=>dirname(app.cargoPackage(kind).manifest_path))));'], {cwd:resolve(import.meta.dir,'..'), env, encoding:'utf8'});
+    assert.equal(located.status, 0, located.stderr);
+    shellDirs = JSON.parse(located.stdout);
+    const shellFiles = shellDirs.flatMap((dir, index) => ['Cargo.toml','src/lib.rs', ...(index === 0 ? [] : ['build.rs'])].map(file=>resolve(dir,file)));
     const stamps = shellFiles.map(file => statSync(file).mtimeMs);
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
@@ -44,7 +47,7 @@ test('a newly generated game builds, tests and proves without editing', async ()
     assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), new RegExp(`PROOF PASS ${name} web: 0 failures`));
   } finally {
     rmSync(app, {recursive:true, force:true});
-    for (const kind of ['gpu','web','apple']) rmSync(resolve(import.meta.dir, '.shells', `${name}-${kind}`), {recursive:true, force:true});
+    for (const dir of shellDirs) rmSync(dir, {recursive:true, force:true});
     if (registeredLock) assert.deepEqual(readFileSync(lockfile), registeredLock, 'shared lockfile changed during test');
     writeFileSync(lockfile, originalLock);
   }

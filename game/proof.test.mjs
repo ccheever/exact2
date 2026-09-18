@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {artifactDigest, closeSessions, equal} from './proof.mjs';
@@ -227,4 +227,23 @@ test('world convenience keeps simulation fields only and dispatches the existing
   ]);
   expect(calls[1].reply).toMatchObject({clock:2000,epoch:1,incarnation:1});
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
+});
+
+
+test('author examples and documentation describe current motion, placement and parity pins', () => {
+  const read = path => readFileSync(resolve(import.meta.dir, path), 'utf8');
+  const main = read('README.md'), engine = read('engine/README.md'), greybox = read('games/greybox/README.md');
+  for (const source of [main, read('new/logic/src/lib.rs')]) {
+    const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
+    expect(setup).not.toContain('scene::follow');
+    for (const motion of ['Move', 'Jump', 'Gravity']) expect(source).toContain(motion);
+  }
+  expect(main).not.toContain('Call it at the\nend of `setup`');
+  expect(engine).not.toContain('stepped explicitly by `scene::follow`');
+  expect(greybox).not.toContain('math::ease');
+  const proof = read('games/greybox/proof.mjs');
+  for (const pin of ['0xbba6329f68d0c2f1', '0x5d40bcb196c6e6e2', '[0, 0.9, -5.3666644]']) {
+    expect(proof).toContain(pin);
+    expect(greybox).toContain(pin);
+  }
 });

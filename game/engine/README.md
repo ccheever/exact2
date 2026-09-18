@@ -35,7 +35,9 @@ Seekable advances observe the final tick's components, RNG and non-ambient
 resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
 One-tick advances compare before/after; zero ticks retain the previous answer.
 Live ticks do no observation. Springs and `busy(&self, reason)` also participate.
-`Follow` is saved data, stepped explicitly by `scene::follow`; `math::ease` uses a
+`Follow` is saved data. The engine places followers after setup and setup-argument
+rebuilds, and initializes new followers on restore; games call `scene::follow` in
+`tick` where following should happen. `math::ease` uses a
 portable exponential and snaps within 1e-4 so settling is finite.
 
 Mesh dimensions are authored once; see `Mesh` for conventions and constructors.

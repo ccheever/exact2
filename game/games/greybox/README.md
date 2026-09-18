@@ -20,12 +20,13 @@ its existing proof skips screenshots when unavailable. iOS is supported by the
 harness but these game proofs have only been driven on web for this change.
 
 `GreyboxArgs` declares seed then `#[live] paused`. `Mesh` carries primitive sizes;
-a zero-lag `Follow` retains the original camera offset. The game calls
-`scene::follow` explicitly and uses arriving `math::ease` for movement. Seekable Sim
+a zero-lag `Follow` retains the original camera offset. The engine places the camera after setup; the game calls `scene::follow` in ticks.
+`Move` accelerates and brakes, `Jump` starts a ballistic hop, and `Gravity` steps
+vertical velocity; the game integrates position and clamps it to the ground. Seekable Sim
 observes changed components, springs and explicitly reported work when settling.
 
-Current native/Chrome pins: setup `0x6b4d864d2da4c316`, W for 1,500 ms
-`0xe361b9c0055bede6`, player `[0, 0.9, -5.7333384]`. Read all components with
+Current native/Chrome pins: setup `0xbba6329f68d0c2f1`, W for 1,500 ms
+`0x5d40bcb196c6e6e2`, player `[0, 0.9, -5.3666644]`. Read all components with
 `state world:*`; hold a key with `type world KeyW for 1500`. These are forms of the
 existing eight operations.
 
