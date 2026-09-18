@@ -21,7 +21,7 @@ canvas children are the HUD, a placement is a sign in the world.
 | `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
 | `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`, `#[derive(Args)]`. No `syn`. |
 | `render/` | `exact-game-render` — the wgpu renderer and `WorldSurface`, the `exact_gpu::Surface` a canvas binds. |
-| `physics/`, `audio/`, `bake/` | as they land |
+| `physics/`, `audio/` | Rapier integration and optional synthesis/playback executors |
 | `games/` | consumers: `greybox` (LLP 1041.000 S0), `beacons` |
 | `bench/`, `twins/` | the same scenes here, in Godot 4 and in three.js; numbers, never checks |
 | `diaries/` | what building with it was like, scored against the twins |
@@ -113,7 +113,9 @@ bit. What that costs, and the only rules a game author must remember:
 3. No `HashMap` iteration in a tick, no threads in a tick.
 4. State lives in components and resources, nowhere else.
 
-Pixels are held to a band; simulation state is held exactly.
+Pixels are held to a band; simulation state is held exactly. The two game proofs
+and saved physics pile demonstrate this on arm64 macOS, x86-64 Linux and Chrome
+wasm; unexercised engine APIs do not inherit a measured parity claim.
 
 ## Publications and events
 
@@ -123,7 +125,8 @@ and extra keys are ignored. It needs no app data module. `Sim::take_published`
 drains changed state; a rebuilt or restored simulation publishes again.
 The first live canvas owns its surface name: other instances cannot publish or clear its record and produce one diagnostic naming the surface.
 `World::emit("won")` separately queues a string for the canvas's `message=` handler.
-Undelivered events are saved in order. An empty queue adds no world save bytes.
+Undelivered events are saved in order but excluded from the simulation hash.
+An empty queue adds no world save bytes.
 
 ## The agent's interface
 
@@ -201,7 +204,7 @@ The up-axis is transported from the previous view through vertical; coincident a
 smoothstep beside `Spring`, with a known settle deadline.
 
 Primitive dimensions are instance data; animation creates no geometry and all
-spheres share one draw. The existing 48-byte material record is RGBA, metallic,
+spheres share one draw per geometry pass (each shadow cascade draws again). The existing 48-byte material record is RGBA, metallic,
 roughness, RGB emission, then three dimension floats (capsules: diameter, half
 stem, diameter). At 200k slots it remains 9.6 MB; the two 40-byte transform records
 remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true

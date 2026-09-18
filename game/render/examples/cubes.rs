@@ -210,14 +210,7 @@ fn main() {
             if let (Some(g), Some(r), Some(target)) = (&gpu, &mut renderer, &target) {
                 let start = Instant::now();
                 let frame = feed.frame(sim.world(), sim.alpha(), 2560. / 1440.);
-                r.draw(
-                    &g.device,
-                    &g.queue,
-                    target,
-                    wgpu::TextureFormat::Rgba8Unorm,
-                    (2560, 1440),
-                    &frame,
-                );
+                r.draw(target, (2560, 1440), &frame);
                 if i >= 60 {
                     encodes.push(start.elapsed().as_secs_f64() * 1000.);
                 }

@@ -6,7 +6,12 @@ mod greybox;
 use exact_game::{Game, Sim};
 fn card<G: Game>(args: G::Args) {
     let mut s = Sim::<G>::new(args).unwrap();
-    println!("{} setup=0x{:016x}", G::ID, s.world().hash());
+    println!(
+        "{} setup=0x{:016x} save_bytes={}",
+        G::ID,
+        s.world().hash(),
+        s.save().len()
+    );
     for (name, request) in [
         ("tree", r#"{"op":"tree","world":true}"#),
         ("state", r#"{"op":"state"}"#),

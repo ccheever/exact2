@@ -72,7 +72,7 @@ impl Stream {
     }
 }
 impl Hasher {
-    fn bytes(&mut self, bytes: &[u8]) {
+    fn raw(&mut self, bytes: &[u8]) {
         self.stream.bytes(bytes);
         if let Some(observation) = &mut self.observation {
             observation.bytes(bytes);
@@ -89,63 +89,68 @@ impl Hasher {
     }
 }
 impl Writer for Hasher {
+    fn bytes(&mut self, value: &[u8]) {
+        self.raw(&[16]);
+        self.raw(&(value.len() as u64).to_le_bytes());
+        self.raw(value);
+    }
     fn boolean(&mut self, n: bool) {
-        self.bytes(&[u8::from(n)]);
+        self.raw(&[u8::from(n)]);
     }
     fn number(&mut self, n: Number) {
         match n {
             Number::Unsigned(n) => {
-                self.bytes(&[2]);
-                self.bytes(&n.to_le_bytes());
+                self.raw(&[2]);
+                self.raw(&n.to_le_bytes());
             }
             Number::Signed(n) => {
-                self.bytes(&[3]);
-                self.bytes(&n.to_le_bytes());
+                self.raw(&[3]);
+                self.raw(&n.to_le_bytes());
             }
             Number::F32(n) => {
-                self.bytes(&[4]);
-                self.bytes(&f32_bits(n).to_le_bytes());
+                self.raw(&[4]);
+                self.raw(&f32_bits(n).to_le_bytes());
             }
             Number::F64(n) => {
-                self.bytes(&[5]);
-                self.bytes(&f64_bits(n).to_le_bytes());
+                self.raw(&[5]);
+                self.raw(&f64_bits(n).to_le_bytes());
             }
         }
     }
     fn string(&mut self, s: &str) {
-        self.bytes(&[6]);
-        self.bytes(&(s.len() as u64).to_le_bytes());
-        self.bytes(s.as_bytes());
+        self.raw(&[6]);
+        self.raw(&(s.len() as u64).to_le_bytes());
+        self.raw(s.as_bytes());
     }
     fn begin_seq(&mut self, len: usize) {
-        self.bytes(&[7]);
-        self.bytes(&(len as u64).to_le_bytes());
+        self.raw(&[7]);
+        self.raw(&(len as u64).to_le_bytes());
     }
     fn item(&mut self) {}
     fn end_seq(&mut self) {
-        self.bytes(&[12]);
+        self.raw(&[12]);
     }
     fn begin_struct(&mut self) {
-        self.bytes(&[8]);
+        self.raw(&[8]);
     }
     fn field(&mut self, _: &str) {}
     fn key(&mut self, key: &str) {
         self.string(key);
     }
     fn end_struct(&mut self) {
-        self.bytes(&[13]);
+        self.raw(&[13]);
     }
     fn variant(&mut self, _: &str, index: u32) {
-        self.bytes(&[9]);
-        self.bytes(&index.to_le_bytes());
+        self.raw(&[9]);
+        self.raw(&index.to_le_bytes());
     }
     fn end_variant(&mut self) {
-        self.bytes(&[14]);
+        self.raw(&[14]);
     }
     fn option(&mut self, some: bool) {
-        self.bytes(&[if some { 11 } else { 10 }]);
+        self.raw(&[if some { 11 } else { 10 }]);
     }
     fn end_option(&mut self) {
-        self.bytes(&[15]);
+        self.raw(&[15]);
     }
 }

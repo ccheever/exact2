@@ -37,10 +37,7 @@ pub(super) fn render(
     frame: &FrameInput<'_>,
 ) -> fixture::Pixels {
     let stats = renderer.draw(
-        &gpu.device,
-        &gpu.queue,
         &target.create_view(&Default::default()),
-        target.format(),
         (target.width(), target.height()),
         frame,
     );

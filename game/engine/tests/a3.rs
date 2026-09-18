@@ -7,7 +7,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 struct Arrow {
     #[data(skip)]
     f: Option<fn() -> u32>,
-    nested: Vec<Vec<u32>>,
+    nested: Vec<Vec<u64>>,
     score: u32,
 }
 #[test]
@@ -169,7 +169,7 @@ fn a06_containers_replace_while_records_patch() {
     let mut option = Some(record);
     json::read_into("[{}]", &mut option).unwrap();
     assert_eq!(option.unwrap().hp, 0);
-    let mut vector = vec![9u32, 8];
+    let mut vector = vec![9u64, 8];
     json::read_into("[1]", &mut vector).unwrap();
     assert_eq!(vector, [1]);
     let mut array = [9u32, 8];
@@ -400,12 +400,11 @@ fn a17_material_builders_preserve_defaults_and_each_other() {
     let m = Material::rgb(0.8, 0.45, 0.15)
         .emissive(1.0, 2.0, 3.0)
         .metallic(0.5)
-        .rough(0.3)
-        .alpha(0.7);
+        .rough(0.3);
     assert_eq!(
         m,
         Material {
-            color: [0.8, 0.45, 0.15, 0.7],
+            color: [0.8, 0.45, 0.15, 1.0],
             emissive: [1.0, 2.0, 3.0],
             metallic: 0.5,
             roughness: 0.3,

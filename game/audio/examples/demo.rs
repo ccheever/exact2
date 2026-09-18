@@ -1,8 +1,6 @@
 //! `cargo run -p exact-game-audio --example demo -- /tmp/audio-demo [--play]`
-use exact_game::{
-    audio::{render, Synth},
-    hash,
-};
+use exact_game::{audio::Synth, hash};
+use exact_game_audio::render;
 #[cfg(target_os = "macos")]
 use exact_game_audio::Output;
 use std::{fs, io::Write, path::Path};

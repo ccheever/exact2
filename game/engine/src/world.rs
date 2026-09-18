@@ -161,14 +161,14 @@ const SINGLETON: Entity = Entity {
     index: 0,
     generation: 0,
 };
-const MAGIC: &[u8; 8] = b"EXGAME\0\x01";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x02";
 
 impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
         let mut rng = Storage::default();
-        rng.insert(0, Rng::new(seed), 0);
+        rng.insert(0, Rng::new(seed));
         let epoch = rng.epoch.clone();
         Self {
             epoch,
@@ -279,7 +279,7 @@ impl World {
             .checked_add(1)
             .expect("entity generation exhausted");
         for s in self.components.values_mut() {
-            s.remove(e.index as usize, self.state.tick);
+            s.remove(e.index as usize);
         }
         let slot = &mut self.state.slots[e.index as usize];
         slot.generation = generation;
@@ -398,7 +398,7 @@ impl World {
             .any_mut()
             .downcast_mut::<Storage<C>>()
             .unwrap()
-            .insert(e.index as usize, c, self.state.tick);
+            .insert(e.index as usize, c);
         true
     }
     /// Remove a component, returning its last value.
@@ -410,7 +410,7 @@ impl World {
             .get_mut(C::NAME)?
             .any_mut()
             .downcast_mut::<Storage<C>>()?
-            .remove(e.index as usize, self.state.tick)
+            .remove(e.index as usize)
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
@@ -431,7 +431,7 @@ impl World {
         if !self.contains(e) {
             return None;
         }
-        self.storage::<C>()?.get_mut(e.index as usize, self.tick())
+        self.storage::<C>()?.get_mut(e.index as usize)
     }
     /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
@@ -442,11 +442,6 @@ impl World {
     /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
-    }
-    /// Last tick exclusively leased or structurally changed, or zero if absent.
-    /// A same-tick edit keeps the same stamp; this is not a mutation counter.
-    pub fn changed<C: Component>(&self) -> u64 {
-        self.storage::<C>().map_or(0, Storage::changed)
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
@@ -481,7 +476,7 @@ impl World {
             .any_mut()
             .downcast_mut::<Storage<R>>()
             .unwrap()
-            .insert(0, r, self.state.tick);
+            .insert(0, r);
     }
     fn resource_storage<R: Resource>(&self) -> &Storage<R> {
         self.resources
@@ -503,9 +498,7 @@ impl World {
     }
     /// Borrow a resource exclusively; absence panics with its name.
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
-        self.resource_storage::<R>()
-            .get_mut(0, self.tick())
-            .unwrap()
+        self.resource_storage::<R>().get_mut(0).unwrap()
     }
     /// Current fixed-step tick.
     pub fn tick(&self) -> u64 {
@@ -525,7 +518,7 @@ impl World {
     }
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
-        self.rng.get_mut(0, self.tick()).unwrap()
+        self.rng.get_mut(0).unwrap()
     }
     /// Draw one value and release the random column before returning.
     pub fn rand<T: crate::RangeValue>(&self, range: std::ops::Range<T>) -> T {
@@ -576,7 +569,6 @@ impl World {
     }
     /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
-        self.mutated();
         self.messages.borrow_mut().push(text.into());
     }
     /// Last value published under a key.
@@ -594,7 +586,7 @@ impl World {
             .expect("world clock exhausted");
     }
 
-    fn write(&self, w: &mut dyn Writer) {
+    fn write(&self, w: &mut dyn Writer, delivery: bool) {
         w.begin_struct();
         w.field("state");
         self.state.write(w);
@@ -618,13 +610,13 @@ impl World {
             }
             w.end_struct();
         }
-        if !self.messages.borrow().is_empty() {
+        if delivery && !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
         }
         w.end_struct();
     }
-    /// Hash all simulation state, with component and resource types sorted by name.
+    /// Hash simulation state in type-name order, excluding saved delivery queues.
     pub fn hash(&self) -> u64 {
         if let Some((epoch, hash)) = self.hash_cache.get() {
             if epoch == self.mutation_epoch() {
@@ -645,15 +637,11 @@ impl World {
                 s.write(w, &|_| SINGLETON);
             }
             w.end_struct();
-            if !self.messages.borrow().is_empty() {
-                w.field("messages");
-                self.messages.borrow().write(w);
-            }
             w.end_struct();
             w.finish()
         } else {
             let mut w = hash::Hasher::default();
-            self.write(&mut w);
+            self.write(&mut w, false);
             w.finish()
         };
         self.hash_cache.set(Some((self.mutation_epoch(), hash)));
@@ -662,7 +650,7 @@ impl World {
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     pub fn save(&self) -> Vec<u8> {
         let mut w = bin::Encoder::default();
-        self.write(&mut w);
+        self.write(&mut w, true);
         let mut bytes = MAGIC.to_vec();
         bytes.extend(w.finish());
         bytes
@@ -674,7 +662,9 @@ impl World {
             return Err(DataError::new("save exceeds load size limit"));
         }
         if !bytes.starts_with(MAGIC) {
-            return Err(DataError::new("invalid game save magic or version"));
+            return Err(DataError::new(
+                "unsupported world save format (expected EXGAME v2; EXGAME v1 is obsolete)",
+            ));
         }
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
@@ -764,17 +754,13 @@ impl World {
                             })?;
                         let mut s = (reg.make)(key, self.epoch.clone());
                         let resource = field == "resources";
-                        s.read(
-                            r,
-                            &|e| {
-                                if resource {
-                                    e == SINGLETON
-                                } else {
-                                    self.contains(e)
-                                }
-                            },
-                            self.tick(),
-                        )
+                        s.read(r, &|e| {
+                            if resource {
+                                e == SINGLETON
+                            } else {
+                                self.contains(e)
+                            }
+                        })
                         .map_err(|e| e.at(&name))?;
                         if resource && s.len() != 1 {
                             return Err(DataError::new("resource must contain one value").at(name));

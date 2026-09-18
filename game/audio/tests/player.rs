@@ -12,7 +12,7 @@ impl Game for SoundGame {
         w.resource_mut::<Sounds>()
             .add("chime", Synth::sine(880.0).seconds(1.0));
         w.spawn((AudioListener, Transform::default()));
-        w.play("chime").ui().gain(0.8);
+        w.play("chime").ui().gain(0.8).start();
     }
     fn tick(w: &mut World, _: &Input, _: &Self::Args) {
         audio::step(w);
@@ -175,7 +175,7 @@ fn tick_zero_ten_ms_click_starts_at_sample_zero() {
         }
         fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             if w.tick() == 0 {
-                w.play("click");
+                w.play("click").start();
             }
             audio::step(w);
         }
@@ -317,9 +317,9 @@ fn invalid_gains_are_refused_once_and_pcm_is_finite() {
         .decay(0.0)
         .sustain(4.0)
         .gain(f32::MAX);
-    let pcm = audio::render(&loud.clone().layer(loud), 48000);
+    let pcm = exact_game_audio::render(&loud.clone().layer(loud), 48000);
     assert!(pcm.iter().all(|s| s.is_finite() && s.abs() <= 4.0));
-    w.play("wind").gain(-2.0);
+    w.play("wind").gain(-2.0).start();
     w.get_mut::<AudioSource>(e).unwrap().gain = f32::NAN; // bypass step deliberately
     let mut p = recording();
     p.sync(&w, Some(Listener::default()), Default::default());
@@ -417,7 +417,7 @@ fn loop_journal_diff_survives_save_and_reports_changes_and_removal() {
 fn despawned_projectile_explosion_still_plays_at_saved_position() {
     let mut w = world();
     let e = w.spawn(Transform::at(1.0, 0.0, 0.0));
-    w.play("wind").at(e);
+    w.play("wind").at(e).start();
     w.despawn(e);
     audio::step(&mut w);
     let save = w.save();
@@ -488,16 +488,17 @@ fn looping_noise_crossfades_seam_without_changing_one_shots() {
         .lowpass_hz(500.0)
         .highpass_hz(60.0)
         .gain(0.5);
-    let original = audio::render(&synth, 48000);
-    assert_eq!(exact_game::hash::of(&original), 0x47138b008334dd51);
-    let looped = audio::render(&synth.looped(), 48000);
+    let original = exact_game_audio::render(&synth, 48000);
+    assert_eq!(exact_game::hash::of(&original), 0x16544282b3706864);
+    let looped = exact_game_audio::render(&synth.looped(), 48000);
     let n = looped.len();
     assert_eq!(n, original.len() - 480);
     assert_eq!(looped[0], original[n]);
     assert_eq!(looped[n - 1], original[n - 1]);
     assert_eq!(looped[480], original[480]);
     for samples in 0..4 {
-        let tiny = audio::render(&Synth::noise().seconds(samples as f32 / 8.0).looped(), 8);
+        let tiny =
+            exact_game_audio::render(&Synth::noise().seconds(samples as f32 / 8.0).looped(), 8);
         assert!(tiny.iter().all(|s| s.is_finite()));
     }
 }

@@ -321,7 +321,7 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     s.world().publish("count", 4);
     s.world().emit("first");
     s.world().emit("second");
-    assert_ne!(s.world().hash(), empty_hash);
+    assert_eq!(s.world().hash(), empty_hash);
     let saved = s.save();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
@@ -383,4 +383,74 @@ fn forwarded_keys_include_pending_downs_and_releases_without_changing_tick_held_
     assert!(state.contains(r#""held":[],"forwarded":["KeyE"]"#));
     key(&mut s, "KeyE", false, 0.0);
     assert!(s.agent(r#"{"op":"state"}"#).contains(r#""forwarded":[]"#));
+}
+
+#[test]
+fn delivery_is_saved_but_never_changes_simulation_hash() {
+    let mut a = sim();
+    let before = a.world().hash();
+    let epoch = a.world().mutation_epoch();
+    a.world().emit("first");
+    a.world().emit("second");
+    assert_eq!(before, a.world().hash());
+    assert_eq!(epoch, a.world().mutation_epoch());
+    let saved = a.save();
+    let mut b = sim();
+    b.restore(&saved).unwrap();
+    assert_eq!(b.take_messages(), ["first", "second"]);
+    assert_eq!(a.world().hash(), b.world().hash());
+    a.run(100.0);
+    b.run(100.0);
+    assert_eq!(a.world().hash(), b.world().hash()); // observation-prefix hash path too
+    let epoch = a.world().mutation_epoch();
+    assert_eq!(a.take_messages(), ["first", "second"]);
+    assert_eq!(epoch, a.world().mutation_epoch());
+    assert_eq!(a.world().hash(), b.world().hash());
+}
+
+#[test]
+fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
+    let mut a = sim();
+    a.viewport(800.0, 600.0);
+    a.input(InputEvent::Pointer {
+        id: 7,
+        phase: PointerPhase::Down,
+        x: 700.0,
+        y: 300.0,
+        at_ms: 0.0,
+    });
+    a.run(100.0);
+    let mut b = sim();
+    b.restore(&a.save()).unwrap();
+    a.run(100.0);
+    b.run(100.0);
+    assert_eq!(a.world().hash(), b.world().hash());
+    let before = b.world().resource::<Counts>().held;
+    b.viewport(1600.0, 600.0); // contact now lies in the left half
+    b.run(100.0);
+    assert_eq!(b.world().resource::<Counts>().held, before);
+}
+
+#[test]
+fn old_save_containers_are_refused_by_name_atomically() {
+    let mut s = sim();
+    let saved = s.save();
+    let mut old = saved.clone();
+    old[6] = 3;
+    assert!(s
+        .restore(&old)
+        .unwrap_err()
+        .to_string()
+        .contains("EXSIM v3"));
+    assert_eq!(s.save(), saved);
+    let saved = s.world().save();
+    let mut old = saved.clone();
+    old[7] = 1;
+    assert!(s
+        .world_mut()
+        .load(&old)
+        .unwrap_err()
+        .to_string()
+        .contains("EXGAME v1"));
+    assert_eq!(s.world().save(), saved);
 }

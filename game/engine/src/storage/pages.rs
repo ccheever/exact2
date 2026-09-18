@@ -34,7 +34,7 @@ impl<'w, C: Component> Pages<'w, C> {
     pub(crate) fn new(storage: Option<&'w Storage<C>>) -> Self {
         Self {
             storage,
-            _lease: storage.map(|s| s.lease(false, 0)),
+            _lease: storage.map(|s| s.lease(false)),
         }
     }
     /// Allocated pages in ascending entity-index order, skipping freed pages.
@@ -103,18 +103,6 @@ impl<C> Page<'_, C> {
             Some((self.first + start as u32, unsafe {
                 std::slice::from_raw_parts(self.slots.add(start), at - start)
             }))
-        })
-    }
-}
-impl Page<'_, Transform> {
-    /// Present runs as ten floats per transform, ready for a renderer's byte copy.
-    pub fn float_runs(&self) -> impl Iterator<Item = (u32, &[f32])> {
-        self.runs().map(|(first, values)| {
-            // SAFETY: Transform's asserted repr(C) layout is ten adjacent f32s;
-            // this run contains initialized values and shares the page lease.
-            (first, unsafe {
-                std::slice::from_raw_parts(values.as_ptr().cast(), values.len() * 10)
-            })
         })
     }
 }

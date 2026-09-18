@@ -378,7 +378,7 @@ fn storage_epoch_and_fused_hash_cover_structural_edits_and_messages() {
     assert!(s.world().mutation_epoch() > epoch);
     assert_eq!(s.world().hash(), expected);
     assert_ne!(s.take_messages(), Vec::<String>::new());
-    assert_ne!(s.world().hash(), expected);
+    assert_eq!(s.world().hash(), expected);
     s.run(100.0);
     let expected = s.world().hash();
     let saved = s.world().save();

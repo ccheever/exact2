@@ -336,3 +336,14 @@ fn presentation_trace_is_opt_in_read_once_and_never_advances_the_clock() {
         r#"{"trace":"stopped"}"#
     );
 }
+
+#[test]
+fn full_seekable_render_has_no_performance_samples() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = surface();
+    for now in [0.0, 17.0, 1000.0] {
+        crate::perf::CLOCK_READS.with(|n| n.set(0));
+        fixture::render(&gpu, &mut s, &frame(now)).unwrap();
+        assert_eq!(crate::perf::CLOCK_READS.with(|n| n.get()), 0);
+    }
+}

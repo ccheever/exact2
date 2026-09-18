@@ -95,6 +95,17 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn bytes(&mut self, value: &[u8]) {
+        let mut hash = super::hash::Hasher::default();
+        hash.bytes(value);
+        write!(
+            self.text,
+            "{{\"bytes\":{},\"hash\":\"0x{:016x}\"}}",
+            value.len(),
+            hash.finish()
+        )
+        .unwrap();
+    }
     fn boolean(&mut self, n: bool) {
         self.text.push_str(if n { "true" } else { "false" });
     }
@@ -289,6 +300,11 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn bytes(&mut self) -> Result<Vec<u8>, DataError> {
+        Err(DataError::new(
+            "JSON byte summaries are inspection-only; restore from binary",
+        ))
+    }
     fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         self.budget.claim(bytes)
     }

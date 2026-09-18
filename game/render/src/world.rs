@@ -1,5 +1,5 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
-use crate::{shapes, Batch, MeshId, RenderError, Renderer, Rewrite, Vertex};
+use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
 use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
@@ -11,7 +11,7 @@ use scene::Scene;
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
     fn max_slots(&self) -> u32;
-    fn begin_tick(&mut self, rewrite: Rewrite);
+    fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
@@ -22,8 +22,8 @@ impl Writes for Renderer {
     fn max_slots(&self) -> u32 {
         self.max_slots()
     }
-    fn begin_tick(&mut self, rewrite: Rewrite) {
-        self.begin_tick(rewrite);
+    fn begin_tick(&mut self) {
+        self.begin_tick();
     }
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError> {
         if both {
@@ -235,7 +235,7 @@ impl Feed {
         }
         let parent_changed = next.parent != old.parent;
         if moved || (self.history_pending && w.tick() != self.tick) {
-            r.begin_tick(Rewrite::All);
+            r.begin_tick();
             self.current = 1 - self.current;
             self.overrides.clear();
             for (e, _) in w.query::<(&Parent, &Transform)>().iter() {

@@ -20,11 +20,10 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
   the character's rigid collider is a sensor.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
-joints and integration parameters, plus entity/handle maps and last writes. Live state
-loads lazily; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
+joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
-measures the same operation. Stepping does not serialize. JSON is consequently large;
-malformed Rapier bytes panic on first use, rather than failing during `World::load`.
+measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
+Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Measurements, 2026-09-17: release; 100 boxes poured every 12 ticks into a finite 24 m
 bin. Active samples start at the last pour; 180 asleep samples finish each run. Sleep
@@ -32,18 +31,21 @@ is seconds after the last pour. Times are p50/p95 ms; shared hosts, no concurren
 Snapshots are ten dirty refreshes from the last pour; bytes exclude maps/outer World,
 while refresh timing includes mapping copies. The 5,000-box pour exceeds the bin walls.
 
-| Host | Boxes | Active ms | Sleep s | Asleep ms | Snapshot bytes | Snapshot ms | Wasm raw / gz bytes | Crates added |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Mac arm64 | 1,000 | 3.895 / 4.875 | 2.250 | 0.017 / 0.031 | 4,016,891 | 1.786 / 2.518 | 1,231,611 / 438,271 | 43 |
-| Mac arm64 | 2,000 | 8.287 / 10.805 | 2.967 | 0.032 / 0.033 | 10,030,616 | 4.714 / 5.373 | same | same |
-| Mac arm64 | 5,000 | 24.776 / 30.287 | 5.283 | 0.089 / 0.285 | 28,096,249 | 15.191 / 18.336 | same | same |
-| Linux x86-64 | 1,000 | 3.322 / 3.926 | 2.250 | 0.018 / 0.019 | 4,016,891 | 1.879 / 3.849 | 1,231,874 / 438,315 | 44 |
-| Linux x86-64 | 2,000 | 7.936 / 8.327 | 2.967 | 0.042 / 0.046 | 10,030,616 | 5.418 / 12.080 | same | same |
-| Linux x86-64 | 5,000 | 31.206 / 32.517 | 5.283 | 0.109 / 0.116 | 28,096,249 | 19.121 / 41.395 | same | same |
+| Host | Boxes | Active ms | Sleep s | Asleep ms | Rapier payload bytes | Snapshot ms |
+|---|---:|---:|---:|---:|---:|---:|
+| Mac arm64 | 1,000 | 3.895 / 4.875 | 2.250 | 0.017 / 0.031 | 4,016,891 | 1.786 / 2.518 |
+| Mac arm64 | 2,000 | 8.287 / 10.805 | 2.967 | 0.032 / 0.033 | 10,030,616 | 4.714 / 5.373 |
+| Mac arm64 | 5,000 | 24.776 / 30.287 | 5.283 | 0.089 / 0.285 | 28,096,249 | 15.191 / 18.336 |
+| Linux x86-64 | 1,000 | 3.322 / 3.926 | 2.250 | 0.018 / 0.019 | 4,016,891 | 1.879 / 3.849 |
+| Linux x86-64 | 2,000 | 7.936 / 8.327 | 2.967 | 0.042 / 0.046 | 10,030,616 | 5.418 / 12.080 |
+| Linux x86-64 | 5,000 | 31.206 / 32.517 | 5.283 | 0.109 / 0.116 | 28,096,249 | 19.121 / 41.395 |
 
-Wasm: `minimal` cdylib, web profile (opt-level z, fat LTO), gzip -9; retains register,
-step and hash, excluding unused query/character APIs. Crates: normal/build graph delta
-from physics→engine/glam, excluding this crate; Linux adds `safe_arch`. No new closeout dependencies.
+Payload counts above exclude the eight-byte EXPHYS marker; `refresh_snapshot()`
+includes it. The D1 Sim save measurement is in [engine README](../engine/README.md).
+The wasm `minimal` cdylib retains register/step/hash plus the saved-pile continuation
+card, excluding query/character APIs: web profile, **1,393,618 raw / 502,053 gzip-9
+bytes** on the Mac builder. The Rapier dependency graph adds 43 normal/build crates
+on Mac, 44 on Linux (`safe_arch`), excluding this crate and engine/glam.
 Mac 2,000-box active p95 still exceeds 10 ms; Linux snapshot p50 exceeds 5 ms.
 2,000-box sleep/asleep targets pass; 5,000-box sleep exceeds 4 s.
 
@@ -60,11 +62,16 @@ Accuracy against independent geometry: capsule-ray normal ≤3° (measured 1.845
 ray distance ≤3 mm; curved sweeps ≤5 mm per 3 m (measured 2.955 mm; Parry stops near
 1e-3 relative); exact sphere/box cases ≤0.1 mm (sweep worst 0.04077 mm).
 Rolling contact drift is bounded at 0.1 m/s and acceleration within 3% of (5/7)g sin θ.
-Both hosts pass 20 physics tests, engine tests, clippy `-D warnings`, and workspace fmt.
+Physics, engine and audio tests pass on arm64 macOS and x86-64 Linux.
 Pile resume hashes are checked every tick through 600, mid-bounce through 240.
-Tick-600 hash: Mac `0x10adc45f96879746`; Linux `0x10adc45f96879746` (unchanged).
+D1 bulk-format cards agree on **arm64 macOS, x86-64 Linux and Chrome 153 wasm**:
+pile tick 600 `0x68fadd78ef1d93f8`, two-body `simulate(120)`
+`0x2c1221fdf12e6744`. The browser pile card saves at tick 90, restores and checks
+exact continuation every tick through 600. `minimal.wasm` exports `pile_hash()`
+and `simulate(ticks)` for direct `WebAssembly.instantiate` calls.
 Enhanced determinism, glam scalar-math/libm; no parallel, simd8 or fast-math features.
-Parry still uses four-lane `wide`; wasm execution determinism remains unmeasured.
+Parry still uses four-lane `wide`. These executed cards establish fixture parity,
+not a claim of whole-engine determinism for every physics query and character API.
 Owed: joints API, CCD policy beyond Rapier’s automatic fixed-collider CCD, compound shapes.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:

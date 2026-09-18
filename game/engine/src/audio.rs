@@ -146,7 +146,8 @@ impl Synth {
             .iter()
             .fold(self.seconds.max(0.0), |d, s| d.max(s.duration()))
     }
-    fn validate(&self) {
+    /// Validate authored parameters before synthesis or registration.
+    pub fn validate(&self) {
         for n in [
             self.hz,
             self.slide,
@@ -173,112 +174,6 @@ impl Synth {
         }
     }
 }
-fn held(s: &Synth, t: f32) -> f32 {
-    if t < s.attack {
-        t / s.attack
-    } else if t < s.attack + s.decay {
-        math::lerp(1.0, s.sustain, (t - s.attack) / s.decay)
-    } else {
-        s.sustain
-    }
-}
-fn envelope(s: &Synth, t: f32) -> f32 {
-    let off = (s.seconds - s.release).max(0.0);
-    if t >= s.seconds {
-        0.0
-    } else if t < off {
-        held(s, t)
-    } else if s.release > 0.0 {
-        held(s, off) * (s.seconds - t) / (s.seconds - off)
-    } else {
-        held(s, t)
-    }
-}
-/// Pure mono PCM, using only libm math, fixed operation order and a local noise seed.
-/// No normalization: authored layers can exceed ±1; device outputs handle clipping.
-pub fn render(s: &Synth, sample_rate: u32) -> Vec<f32> {
-    assert!(sample_rate > 0, "sample rate must be positive");
-    s.validate();
-    let mut out = vec![0.0; math::ceil(s.duration() * sample_rate as f32) as usize];
-    render_into(s, sample_rate, &mut out);
-    for sample in &mut out {
-        *sample = if sample.is_finite() {
-            sample.clamp(-4.0, 4.0)
-        } else {
-            0.0
-        };
-    }
-    if s.looping && out.len() > 3 {
-        // Overlap the tail onto the head, then remove that tail. The end of the
-        // overlap joins the untouched head; the wrap joins adjacent tail samples.
-        let n = (sample_rate as usize / 100).max(2).min(out.len() / 2);
-        let end = out.len() - n;
-        for i in 0..n {
-            let angle = i as f32 / (n - 1) as f32 * std::f32::consts::FRAC_PI_2;
-            out[i] = (out[end + i] * math::cos(angle) + out[i] * math::sin(angle)).clamp(-4.0, 4.0);
-        }
-        out.truncate(end);
-    }
-    out
-}
-fn render_into(s: &Synth, rate: u32, out: &mut [f32]) {
-    let tau = std::f32::consts::TAU;
-    let dt = 1.0 / rate as f32;
-    let lp = if s.lowpass_hz > 0.0 {
-        1.0 - math::exp(-tau * s.lowpass_hz * dt)
-    } else {
-        1.0
-    };
-    let hp = if s.highpass_hz > 0.0 {
-        math::exp(-tau * s.highpass_hz * dt)
-    } else {
-        0.0
-    };
-    let (mut phase, mut low, mut high, mut previous) = (0.0, 0.0, 0.0, 0.0);
-    let mut noise = 0x12345678u32;
-    for (i, sample) in out
-        .iter_mut()
-        .enumerate()
-        .take(math::ceil(s.seconds * rate as f32) as usize)
-    {
-        let t = i as f32 * dt;
-        let x = match s.wave {
-            Wave::Sine => math::sin(tau * phase),
-            Wave::Square => {
-                if phase < 0.5 {
-                    1.0
-                } else {
-                    -1.0
-                }
-            }
-            Wave::Saw => 2.0 * phase - 1.0,
-            Wave::Triangle => 1.0 - 4.0 * (phase - 0.5).abs(),
-            Wave::Noise => {
-                noise ^= noise << 13;
-                noise ^= noise >> 17;
-                noise ^= noise << 5;
-                (noise >> 8) as f32 / 8388608.0 - 1.0
-            }
-        };
-        low += lp * (x - low);
-        let filtered = if hp != 0.0 {
-            high = hp * (high + low - previous);
-            previous = low;
-            high
-        } else {
-            low
-        };
-        *sample += filtered * envelope(s, t) * s.gain;
-        let semitones = s.slide * t + s.vibrato_depth * math::sin(tau * s.vibrato_hz * t);
-        let frequency = (s.hz * math::powf(2.0, semitones / 12.0)).min(rate as f32 * 0.5);
-        phase += frequency * dt;
-        phase -= math::floor(phase);
-    }
-    for layer in &s.layers {
-        render_into(layer, rate, out);
-    }
-}
-
 /// Sound definitions, authored during setup and included in saves and hashes.
 #[derive(Resource, Default, Clone)]
 pub struct Sounds(pub BTreeMap<String, Synth>);
@@ -457,7 +352,7 @@ impl World {
     pub fn has_audio(&self) -> bool {
         self.try_resource::<Voices>().is_some()
     }
-    /// Build a play event, committed once at the end of the statement.
+    /// Build a play event; call `start()` to commit it.
     pub fn play(&mut self, sound: &str) -> Play<'_> {
         self.register_audio();
         let synth = self
@@ -471,7 +366,7 @@ impl World {
         let ends = began.saturating_add(math::ceil(duration * self.hz() as f32) as u64);
         Play {
             world: self,
-            voice: Some(Voice {
+            voice: Voice {
                 sound: sound.into(),
                 at: At::Ui,
                 gain: 1.0,
@@ -481,31 +376,32 @@ impl World {
                 began,
                 ends,
                 id: 0,
-            }),
+            },
         }
     }
 }
-/// A pending play. Dropping it commits exactly one journal line and one voice.
+/// A pending play. Only `start()` adds a voice and its journal line.
+#[must_use = "call .start() to play the sound"]
 pub struct Play<'a> {
     world: &'a mut World,
-    voice: Option<Voice>,
+    voice: Voice,
 }
 impl Play<'_> {
     /// Follow an entity.
     pub fn at(mut self, entity: Entity) -> Self {
-        let voice = self.voice.as_mut().unwrap();
+        let voice = &mut self.voice;
         voice.at = At::Entity(entity);
         voice.position = self.world.global(entity).map(|t| t.translation.into());
         self
     }
     /// Play at a fixed position.
     pub fn at_point(mut self, point: Vec3) -> Self {
-        self.voice.as_mut().unwrap().at = At::Point(point);
+        self.voice.at = At::Point(point);
         self
     }
     /// Play without spatial attenuation.
     pub fn ui(mut self) -> Self {
-        self.voice.as_mut().unwrap().at = At::Ui;
+        self.voice.at = At::Ui;
         self
     }
     /// Set play gain.
@@ -514,7 +410,7 @@ impl Play<'_> {
         if sanitized != gain {
             self.world.log("refusal: invalid play gain");
         }
-        self.voice.as_mut().unwrap().gain = sanitized;
+        self.voice.gain = sanitized;
         self
     }
     /// Playback rate (1 is authored pitch), bounded to 0.01..16.
@@ -524,19 +420,16 @@ impl Play<'_> {
         } else {
             1.0
         };
-        let voice = self.voice.as_mut().unwrap();
+        let voice = &mut self.voice;
         voice.pitch = rate;
         voice.ends = voice.began.saturating_add(math::ceil(
             voice.synth.duration() / rate * self.world.hz() as f32,
         ) as u64);
         self
     }
-    /// Commit now and return a handle. Drop still commits if this is omitted.
-    pub fn start(mut self) -> VoiceId {
-        self.commit().unwrap()
-    }
-    fn commit(&mut self) -> Option<VoiceId> {
-        let mut voice = self.voice.take()?;
+    /// Commit now and return the voice handle.
+    pub fn start(self) -> VoiceId {
+        let mut voice = self.voice;
         let mut voices = self.world.resource_mut::<Voices>();
         voice.id = voices.next_id;
         voices.next_id = voices.next_id.checked_add(1).expect("voice ids exhausted");
@@ -548,14 +441,7 @@ impl Play<'_> {
         ));
         let id = voice.id;
         voices.voices.push(voice);
-        Some(id)
-    }
-}
-impl Drop for Play<'_> {
-    fn drop(&mut self) {
-        if !std::thread::panicking() {
-            self.commit();
-        }
+        id
     }
 }
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.

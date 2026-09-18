@@ -1,5 +1,5 @@
 use super::*;
-use exact_game_render::{Bloom, RenderError, Rewrite, Shadows};
+use exact_game_render::{Bloom, RenderError, Shadows};
 
 fn cube_scene(gpu: &Gpu, format: wgpu::TextureFormat) -> Renderer {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
@@ -84,10 +84,7 @@ fn overrange_emissive_cannot_poison_bloom_or_tonemap() {
         for bloom in [None, Some(Bloom::default())] {
             f.bloom = bloom;
             floating.draw(
-                &gpu.device,
-                &gpu.queue,
                 &float_target.create_view(&Default::default()),
-                float_target.format(),
                 (640, 360),
                 &f,
             );
@@ -121,7 +118,7 @@ fn zero_quaternion_sparse_hole_and_negative_scale() {
         let mut negative = positive;
         negative[axis] = -negative[axis];
         r.write_transforms_both(0, &positive).unwrap();
-        r.begin_tick(Rewrite::All);
+        r.begin_tick();
         r.write_transforms(0, &negative).unwrap();
         for alpha in [0.0, 0.5, 1.0] {
             f.alpha = alpha;
@@ -145,42 +142,8 @@ fn zero_quaternion_sparse_hole_and_negative_scale() {
         .unwrap();
     sparse.set_batches(&[Batch::new(mesh, 0..1)], &[0]).unwrap();
     let floating = target(&gpu, (256, 160), wgpu::TextureFormat::Rgba16Float);
-    sparse.draw(
-        &gpu.device,
-        &gpu.queue,
-        &floating.create_view(&Default::default()),
-        floating.format(),
-        (256, 160),
-        &f,
-    );
+    sparse.draw(&floating.create_view(&Default::default()), (256, 160), &f);
     assert_finite_half_output(&gpu, &floating);
-}
-
-#[test]
-fn rewrite_all_and_some_render_identical_ticks() {
-    let Some(gpu) = gpu() else { return };
-    let mut all = cube_scene(&gpu, wgpu::TextureFormat::Rgba8Unorm);
-    let mut some = cube_scene(&gpu, wgpu::TextureFormat::Rgba8Unorm);
-    let texture = target(&gpu, (256, 160), wgpu::TextureFormat::Rgba8Unorm);
-    let mut f = frame();
-    for tick in 0..5 {
-        let t = transform(
-            Vec3::new(tick as f32 * 0.3, 0.0, 0.0),
-            Quat::from_rotation_y(tick as f32 * 0.2),
-            Vec3::ONE,
-        );
-        all.begin_tick(Rewrite::All);
-        some.begin_tick(Rewrite::Some);
-        all.write_transforms(0, &t).unwrap();
-        some.write_transforms(0, &t).unwrap();
-        for alpha in [0.0, 0.5, 1.0] {
-            f.alpha = alpha;
-            assert_eq!(
-                render(&gpu, &mut all, &texture, &f).data,
-                render(&gpu, &mut some, &texture, &f).data
-            );
-        }
-    }
 }
 
 #[test]
@@ -260,14 +223,7 @@ fn resize_buckets_preserve_logical_pixels_and_never_shrink() {
     .enumerate()
     {
         let texture = target(&gpu, size, wgpu::TextureFormat::Rgba8Unorm);
-        let stats = r.draw(
-            &gpu.device,
-            &gpu.queue,
-            &texture.create_view(&Default::default()),
-            texture.format(),
-            size,
-            &f,
-        );
+        let stats = r.draw(&texture.create_view(&Default::default()), size, &f);
         let pixels = fixture::read(&gpu, &texture).unwrap();
         if index == 0 {
             first = Some(pixels.data.clone());

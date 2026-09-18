@@ -229,7 +229,7 @@ impl<G: Game> Surface for WorldSurface<G> {
         let (renderer, feed) = self.render.as_mut().unwrap();
         let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
-        self.perf.stats = renderer.draw(device, queue, target, format, frame.pixels(), &input);
+        self.perf.stats = renderer.draw(target, frame.pixels(), &input);
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);

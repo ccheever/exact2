@@ -86,7 +86,6 @@ pub(crate) struct Storage<C> {
     mask: Vec<u64>,
     len: usize,
     borrowed: Cell<isize>,
-    changed: Cell<u64>,
     revision: Cell<u64>,
     membership: u64,
     pub(super) epoch: std::rc::Rc<Cell<u64>>,
@@ -100,7 +99,6 @@ impl<C> Default for Storage<C> {
             mask: vec![],
             len: 0,
             borrowed: Cell::new(0),
-            changed: Cell::new(0),
             revision: Cell::new(0),
             membership: 0,
             epoch: Default::default(),
@@ -139,12 +137,9 @@ impl<C> Storage<C> {
         self.epoch.set(self.epoch.get().wrapping_add(1));
         self.revision.set(self.revision.get().wrapping_add(1));
     }
-    pub(crate) fn changed(&self) -> u64 {
-        self.changed.get()
-    }
 }
 impl<C: Data> Storage<C> {
-    fn lease(&self, mutable: bool, tick: u64) -> Lease<'_> {
+    fn lease(&self, mutable: bool) -> Lease<'_> {
         let n = self.borrowed.get();
         assert!(n >= 0, "{} is already borrowed mutably", self.name);
         assert!(
@@ -159,16 +154,14 @@ impl<C: Data> Storage<C> {
         });
         if mutable {
             self.edited();
-            self.changed.set(tick);
         }
         Lease {
             count: &self.borrowed,
             mutable,
         }
     }
-    pub(crate) fn insert(&mut self, index: usize, c: C, tick: u64) {
+    pub(crate) fn insert(&mut self, index: usize, c: C) {
         self.edited();
-        self.changed.set(tick);
         if self.has(index) {
             // SAFETY: the bit proves initialization; &mut self excludes all leases.
             // Replace before dropping, so even a panicking destructor leaves a live slot.
@@ -194,13 +187,12 @@ impl<C: Data> Storage<C> {
         self.counts[page] += 1;
         self.len += 1;
     }
-    pub(crate) fn remove(&mut self, index: usize, tick: u64) -> Option<C> {
+    pub(crate) fn remove(&mut self, index: usize) -> Option<C> {
         if !self.has(index) {
             return None;
         }
         self.edited();
         self.membership = self.membership.wrapping_add(1);
-        self.changed.set(tick);
         let ptr = self.ptr(index);
         self.mask[index / 64] &= !(1 << (index % 64));
         self.len -= 1;
@@ -223,17 +215,17 @@ impl<C: Data> Storage<C> {
         }
         Some(Ref {
             ptr: self.ptr(index),
-            _lease: self.lease(false, 0),
+            _lease: self.lease(false),
             _life: PhantomData,
         })
     }
-    pub(crate) fn get_mut(&self, index: usize, tick: u64) -> Option<RefMut<'_, C>> {
+    pub(crate) fn get_mut(&self, index: usize) -> Option<RefMut<'_, C>> {
         if !self.has(index) {
             return None;
         }
         Some(RefMut {
             ptr: self.ptr(index),
-            _lease: self.lease(true, tick),
+            _lease: self.lease(true),
             _life: PhantomData,
         })
     }
@@ -270,14 +262,10 @@ pub(crate) trait Erased {
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
-    fn remove(&mut self, index: usize, tick: u64);
+    fn remove(&mut self, index: usize);
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity);
-    fn read(
-        &mut self,
-        r: &mut dyn Reader,
-        valid: &dyn Fn(Entity) -> bool,
-        tick: u64,
-    ) -> Result<(), DataError>;
+    fn read(&mut self, r: &mut dyn Reader, valid: &dyn Fn(Entity) -> bool)
+        -> Result<(), DataError>;
 }
 pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
     let mut storage = Box::new(Storage::<C>::default());
@@ -293,7 +281,7 @@ impl<C: Data> Erased for Storage<C> {
         mut full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
     ) {
-        let _lease = self.lease(false, 0);
+        let _lease = self.lease(false);
         if let Some(w) = &mut full {
             w.begin_seq(self.len);
         }
@@ -334,7 +322,7 @@ impl<C: Data> Erased for Storage<C> {
         self.has(index)
     }
     fn moving(&self, now: crate::Now) -> bool {
-        let _lease = self.lease(false, 0);
+        let _lease = self.lease(false);
         self.mask.iter().enumerate().any(|(word, &bits)| {
             let mut bits = bits;
             while bits != 0 {
@@ -349,7 +337,7 @@ impl<C: Data> Erased for Storage<C> {
         })
     }
     fn visit_moving(&self, now: crate::Now, visit: &mut dyn FnMut(usize) -> bool) {
-        let _lease = self.lease(false, 0);
+        let _lease = self.lease(false);
         for (word, &bits) in self.mask.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
@@ -363,7 +351,7 @@ impl<C: Data> Erased for Storage<C> {
         }
     }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        let _lease = self.lease(false, 0);
+        let _lease = self.lease(false);
         let mut at = now.tick;
         for (word, &bits) in self.mask.iter().enumerate() {
             let mut bits = bits;
@@ -393,11 +381,11 @@ impl<C: Data> Erased for Storage<C> {
     fn len(&self) -> usize {
         self.len
     }
-    fn remove(&mut self, index: usize, tick: u64) {
-        self.remove(index, tick);
+    fn remove(&mut self, index: usize) {
+        self.remove(index);
     }
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        let _lease = self.lease(false, 0);
+        let _lease = self.lease(false);
         w.begin_seq(self.len);
         for (word, &bits) in self.mask.iter().enumerate() {
             let mut bits = bits;
@@ -420,7 +408,6 @@ impl<C: Data> Erased for Storage<C> {
         &mut self,
         r: &mut dyn Reader,
         valid: &dyn Fn(Entity) -> bool,
-        tick: u64,
     ) -> Result<(), DataError> {
         r.begin_seq()?;
         let mut last = None;
@@ -458,9 +445,8 @@ impl<C: Data> Erased for Storage<C> {
             if self.pages.get(page).is_none_or(Option::is_none) {
                 r.claim(std::mem::size_of::<Slots<C>>())?;
             }
-            self.insert(e.index() as usize, c, tick);
+            self.insert(e.index() as usize, c);
         }
-        self.changed.set(tick);
         Ok(())
     }
 }

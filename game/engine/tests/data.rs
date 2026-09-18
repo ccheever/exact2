@@ -207,7 +207,7 @@ fn numbers_nan_and_negative_zero() {
 }
 #[test]
 fn builtins_and_unicode() {
-    round_trip((true, vec![1u32, 2, 3], Some(Some(3i32)), Box::new(34i64)));
+    round_trip((true, vec![1u64, 2, 3], Some(Some(3i32)), Box::new(34i64)));
     round_trip(None::<Option<u32>>);
     round_trip(Some(None::<u32>));
     round_trip([1u16, 2, 3]);
@@ -280,4 +280,77 @@ fn name_table_walks_unknown_fields() {
         kept: Inner { reused: 12 },
     });
     assert_eq!(bin::from_slice::<New>(&b).unwrap().kept.reused, 12);
+}
+
+#[test]
+fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
+    use exact_game::{Reader, Writer};
+    let bytes: Vec<u8> = (0..=255).collect();
+    let encoded = bin::to_vec(&bytes);
+    assert_eq!(encoded.len(), bytes.len() + 3);
+    assert_eq!(&encoded[3..], bytes);
+    assert_eq!(bin::from_slice::<Vec<u8>>(&encoded).unwrap(), bytes);
+    for end in 0..encoded.len() {
+        assert!(bin::from_slice::<Vec<u8>>(&encoded[..end]).is_err());
+    }
+    let summary = json::to_string(&bytes).unwrap();
+    assert_eq!(
+        summary,
+        format!("{{\"bytes\":256,\"hash\":\"0x{:016x}\"}}", hash::of(&bytes))
+    );
+    assert!(json::from_str::<Vec<u8>>(&summary)
+        .unwrap_err()
+        .to_string()
+        .contains("inspection-only"));
+    let mut cursor = bin::Decoder::new(&encoded);
+    cursor
+        .claim(exact_game::data::MAX_LOAD_BYTES - 255)
+        .unwrap();
+    assert!(cursor.bytes().is_err());
+    let u16s = vec![0x1234u16, 0xffff];
+    assert_eq!(&bin::to_vec(&u16s)[2..], &[0x34, 0x12, 0xff, 0xff]);
+    assert_eq!(
+        bin::from_slice::<Vec<u16>>(&bin::to_vec(&u16s)).unwrap(),
+        u16s
+    );
+    let encoded_u32 = bin::to_vec(&vec![1u32]);
+    let mut cursor = bin::Decoder::new(&encoded_u32);
+    cursor.claim(exact_game::data::MAX_LOAD_BYTES - 7).unwrap();
+    let mut decoded_u32 = Vec::<u32>::new();
+    assert!(decoded_u32.read(&mut cursor).is_err()); // payload fits, typed allocation does not
+    assert_eq!(decoded_u32.capacity(), 0);
+    let u32s = vec![0x12345678u32, u32::MAX];
+    assert_eq!(&bin::to_vec(&u32s)[2..6], &[0x78, 0x56, 0x34, 0x12]);
+    assert_eq!(
+        bin::from_slice::<Vec<u32>>(&bin::to_vec(&u32s)).unwrap(),
+        u32s
+    );
+    let floats = vec![-0.0f32, 1.25, f32::from_bits(0xffa12345)];
+    let encoded = bin::to_vec(&floats);
+    let decoded = bin::from_slice::<Vec<f32>>(&encoded).unwrap();
+    assert_eq!(
+        decoded.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        vec![0x80000000, 1.25f32.to_bits(), 0x7fc00000]
+    );
+    assert_eq!(hash::of(&floats), hash::of(&decoded));
+    assert_ne!(hash::of(&vec![0.0f32]), hash::of(&vec![-0.0f32]));
+    assert!(bin::from_slice::<Vec<u32>>(&bin::to_vec(&vec![1u8, 2, 3])).is_err());
+    let mut encoded = bin::Encoder::default();
+    encoded.begin_seq(2);
+    encoded.item();
+    encoded.bytes(&bytes);
+    encoded.item();
+    encoded.number(exact_game::data::Number::Unsigned(42));
+    encoded.end_seq();
+    let encoded = encoded.finish();
+    let mut cursor = bin::Decoder::new(&encoded);
+    cursor.begin_seq().unwrap();
+    assert!(cursor.item().unwrap());
+    cursor.skip().unwrap();
+    assert!(cursor.item().unwrap());
+    let mut tail = 0u32;
+    tail.read(&mut cursor).unwrap();
+    assert_eq!(tail, 42);
+    assert!(!cursor.item().unwrap());
+    cursor.finish().unwrap();
 }

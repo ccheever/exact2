@@ -227,7 +227,7 @@ normals use inverse dimension scale.
 At 200k slots: materials remain 9.6 MB and two transform histories remain 16 MB.
 The Feed additionally retains 2.4 MB of CPU dimensions. There is no GPU slot-size
 increase, dimension cache, eviction policy or exhaustion threshold. Five thousand
-distinct sphere radii plus 4,100 animated revisions retain one mesh and one draw.
+distinct sphere radii plus 4,100 animated revisions retain one mesh and one draw per geometry pass (shadow cascades draw again).
 Dimensions still cost material uploads and feed work when changed; “free” means
 no new geometry or draw groups, not zero CPU/GPU work. This capacity/batching
 result is clearly better than the static-only fallback; the measurements below

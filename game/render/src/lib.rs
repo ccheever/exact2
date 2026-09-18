@@ -34,16 +34,6 @@ pub use renderer::Renderer;
 use std::ops::Range;
 pub use timing::{GPU_PASS_COUNT, GPU_PASS_NAMES};
 
-/// Which transform slots the caller will rewrite after advancing history.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Rewrite {
-    /// Make every live slot current before drawing; swap without copying.
-    /// A feed may retain already-matching target pages instead of rewriting them.
-    All,
-    /// Rewrite a subset; copy history so untouched slots stay still.
-    Some,
-}
-
 /// A refused arena capacity request. `limit` is an exclusive slot count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderError {
@@ -163,45 +153,7 @@ impl Default for Shadows {
     }
 }
 
-/// HDR bloom. None on [`FrameInput`] owns no bloom textures and runs no bloom passes.
-#[derive(Debug, Clone, Copy)]
-pub struct Bloom {
-    /// Bright-pass onset in peak linear HDR channel (default 1).
-    pub threshold: f32,
-    /// Contribution before exposure and tonemapping (default 0.08).
-    pub intensity: f32,
-    /// Tent upsampling radius in source texels (default 1).
-    pub radius: f32,
-}
-impl Default for Bloom {
-    fn default() -> Self {
-        Self {
-            threshold: 1.0,
-            intensity: 0.08,
-            radius: 1.0,
-        }
-    }
-}
-
-/// Exponential distance fog with density falling exponentially above world Y=0.
-#[derive(Debug, Clone, Copy)]
-pub struct Fog {
-    /// Linear colour; None uses the environment horizon.
-    pub color: Option<[f32; 3]>,
-    /// Extinction per world metre at Y=0 (default 0.02).
-    pub density: f32,
-    /// Density height falloff per world metre (default 0.1).
-    pub height_falloff: f32,
-}
-impl Default for Fog {
-    fn default() -> Self {
-        Self {
-            color: None,
-            density: 0.02,
-            height_falloff: 0.1,
-        }
-    }
-}
+pub use exact_game::{Bloom, Fog};
 
 /// An inverse-square point light, smoothly extinguished at its range.
 #[derive(Debug, Clone, Copy, Default)]
@@ -304,8 +256,6 @@ pub struct Stats {
     pub instances: u64,
     /// Forward mesh triangles plus the tonemap triangle (baseline comparable).
     pub triangles: u64,
-    /// CPU upload/encoding/submission time in microseconds; zero on wasm32.
-    pub encode_us: f64,
     /// Cumulative attachment textures created by this renderer, including bloom/shadows.
     pub texture_creations: u64,
 }

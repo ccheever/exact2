@@ -21,7 +21,7 @@ mod probe {
             world
                 .resource_mut::<Sounds>()
                 .add("chime", Synth::sine(880.0));
-            world.play("chime").ui();
+            world.play("chime").ui().start();
             Ok(Self {
                 player: Player::new(NullOutput, 48000),
                 world,
@@ -34,4 +34,15 @@ mod probe {
             self.player.sync(&self.world, None, Default::default());
         }
     }
+}
+
+/// Cross-host PCM hash card, independent of an audio device.
+#[no_mangle]
+pub extern "C" fn chime_hash() -> u64 {
+    use exact_game::audio::Synth;
+    let chime = Synth::sine(880.0)
+        .decay(0.6)
+        .seconds(0.8)
+        .layer(Synth::sine(1320.0).gain(0.4));
+    exact_game::hash::of(&exact_game_audio::render(&chime, 48000))
 }

@@ -2,8 +2,9 @@
 
 The engine owns saved sound descriptions, play events, loop reports and master gain.
 This crate reads that state and executes it. Agents and headless Linux use the
-zero-sized, discarding `NullOutput`. Tests opt into `RecordingOutput`. Neither opens
-a device. Apple FFI, teardown order and the SPSC implementation remain unchanged.
+zero-sized, discarding `NullOutput` when explicitly testing the executor. Ordinary
+headless simulation needs no Player. `RecordingOutput` records device commands;
+neither test output opens a device. NullOutput still incurs Player synthesis/cache work.
 
 ```rust
 use exact_game::{audio::{self, Audio, Sounds, Synth}, World};
@@ -15,8 +16,8 @@ world.resource_mut::<Audio>().master = 0.5;
 audio::stop(&mut world, voice);
 ```
 
-A play builder commits exactly once, either at `.start()` (returning a `VoiceId`)
-or on drop at statement end. Pitch is playback rate, bounded to 0.01..16. The saved
+A `#[must_use]` play builder commits only at `.start()` (returning a `VoiceId`).
+Dropping it creates no voice or playback journal event. Pitch is playback rate, bounded to 0.01..16. The saved
 voice holds its definition, rate, lifetime and last known world position. Edits to
 a definition affect later plays; an attached one-shot survives despawning its
 entity. `at_point(Vec3)` is stationary; `ui()` bypasses spatialization. Games can
@@ -92,8 +93,9 @@ The coalesced Set table is bounded by the Player's selected voices.
 
 ## Synthesis and proof
 
-Synthesis uses fixed operation order, libm and a local xorshift32 noise stream.
-Oscillators, envelopes and filters are unchanged. Rendered PCM is made finite and
+`exact_game_audio::render(&Synth, sample_rate)` generates PCM here, beside playback.
+The engine retains saved definitions, validation, durations, voices and events.
+Synthesis uses fixed operation order, libm and a local xorshift32 noise stream. Rendered PCM is made finite and
 clamped to ±4 before caching. `Synth::looped()` adds a 10 ms equal-power overlap of
 tail into head, removes that overlapped tail, and leaves one-shot renders alone.
 The demo uses it for wind. The seam now connects adjacent samples from the original
@@ -117,28 +119,16 @@ cases are marked AU2.1–13 in `tests/player.rs` and `src/apple_tests.rs`; callb
 and queue scenarios use the real mixer without opening a device. The Player cases
 use RecordingOutput. The existing million-transfer SPSC ordering test is retained.
 
-| Sound | Previous PCM hash | AU2 PCM hash |
-|---|---|---|
-| chime | `f674dcb28a6f2d96` | `f674dcb28a6f2d96` |
-| footstep | `a0e63ab8aeb11a78` | `a0e63ab8aeb11a78` |
-| thud | `61001743ff4a6326` | `61001743ff4a6326` |
-| wind | `47138b008334dd51` | `926b35610b65f1ec` |
-| night-sting | `91841647939b0610` | `91841647939b0610` |
+| Sound | Current PCM hash |
+|---|---|
+| chime | `e9a167c58f84df24` |
+| footstep | `9ebb544ce4c25a86` |
+| thud | `0272cb7bdffcc068` |
+| looped wind | `4bd1a25503d77bbd` |
+| night-sting | `034b3dd59c4a8e50` |
 
-Only wind is expected to move, due to its new loop overlap. The original one-shot
-wind hash and chime hash remain pinned by tests.
-
-AU2 validation (2026-09-17): native build, native and wasm audio clippy with
-`-D warnings`, and Apple-output checks for aarch64 macOS/iOS pass. All 21 audio
-crate tests and the five engine audio tests pass on both arm64 Mac and x86-64
-Linux. Both complete scoped suites report 121 passed, one failed: the Greybox
-state golden under `game/games/` still expects `sources: 0` instead of `sources:
-[]`; that excluded directory was not edited. All five demo PCM hashes above match
-between machines. Audio-file rustfmt, caps and boot pass. The complete package
-fmt check flags concurrent presentation-generation edits in engine `sim.rs` and
-`world.rs`, outside these audio changes.
-
-Final audio source line counts: engine `audio.rs` 690; executor `lib.rs` 368;
-`apple.rs` 634; `web.rs` 135; regression files `player.rs` 530 and `apple_tests.rs`
-132. The clock integration adds five lines across `world.rs` and its existing
-`begin_tick` hook. No new scripts, checks, device frameworks or sub-agents.
+All five demo cards agree on arm64 macOS and x86-64 Linux (2026-09-17).
+Chrome 153 wasm also agrees on chime via `null_probe`'s `chime_hash()` export;
+initializing its wasm-bindgen module does not open a device. The chime pin is in
+`src/synth_tests.rs`; the unlooped wind pin is `16544282b3706864` in `tests/player.rs`.
+Bulk f32 hashing changed these hashes without changing the generated samples.

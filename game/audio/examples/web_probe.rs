@@ -22,7 +22,7 @@ mod probe {
             world
                 .resource_mut::<Sounds>()
                 .add("chime", Synth::sine(880.0));
-            world.play("chime").ui();
+            world.play("chime").ui().start();
             Ok(Self {
                 player: Player::new(WebOutput::new()?, 48000),
                 world,

@@ -176,7 +176,7 @@ fn interpolation_teleport_untouched_and_growth() {
             &[7, 7],
         )
         .unwrap();
-    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer.begin_tick();
     renderer
         .write_transforms(
             7,
@@ -198,7 +198,7 @@ fn interpolation_teleport_untouched_and_growth() {
     renderer
         .write_transforms_both(7, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
         .unwrap();
-    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer.begin_tick();
     renderer
         .write_transforms(
             7,
@@ -229,7 +229,7 @@ fn interpolation_teleport_untouched_and_growth() {
         "nlerp quarter turn midpoint must be an eighth turn"
     );
     // Antipodal quaternion representations denote the same rotation.
-    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer.begin_tick();
     renderer
         .write_transforms(
             7,
@@ -253,7 +253,7 @@ fn interpolation_teleport_untouched_and_growth() {
         .unwrap();
     for tick in 0..3 {
         if tick != 0 {
-            renderer.begin_tick(exact_game_render::Rewrite::Some);
+            renderer.begin_tick();
         }
         for alpha in [0.0, 0.5, 1.0] {
             frame.alpha = alpha;
@@ -293,7 +293,7 @@ fn interpolation_teleport_untouched_and_growth() {
             &slots,
         )
         .unwrap();
-    renderer.begin_tick(exact_game_render::Rewrite::Some);
+    renderer.begin_tick();
     for alpha in [0.0, 0.5, 1.0] {
         frame.alpha = alpha;
         let pixels = render(&gpu, &mut renderer, &target, &frame);

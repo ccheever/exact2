@@ -335,6 +335,7 @@ impl Input {
         }
     }
     pub(crate) fn restore_dynamic(&mut self, saved: Self) {
+        self.viewport = saved.viewport;
         self.keys = saved.keys;
         self.pointer = saved.pointer;
         self.contacts = saved.contacts;

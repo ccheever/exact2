@@ -1,4 +1,5 @@
 use super::{Data, DataError, Number, Reader, Writer};
+use std::any::Any;
 use std::collections::BTreeMap;
 
 impl Data for bool {
@@ -93,6 +94,25 @@ impl<T: Data> Data for Vec<T> {
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
+        // Stable Rust has no specialization: downcasts select the four closed
+        // bulk types without unsafe layout casts or changing other Vec<T> values.
+        let any = self as &dyn Any;
+        if let Some(v) = any.downcast_ref::<Vec<u8>>() {
+            w.bytes(v);
+            return;
+        }
+        macro_rules! bulk {
+            ($ty:ty, $bytes:expr) => {
+                if let Some(v) = any.downcast_ref::<Vec<$ty>>() {
+                    let bytes: Vec<u8> = v.iter().flat_map($bytes).collect();
+                    w.bytes(&bytes);
+                    return;
+                }
+            };
+        }
+        bulk!(u16, |v: &u16| v.to_le_bytes());
+        bulk!(u32, |v: &u32| v.to_le_bytes());
+        bulk!(f32, |v: &f32| super::f32_bits(*v).to_le_bytes());
         w.begin_seq(self.len());
         for v in self {
             w.item();
@@ -101,6 +121,38 @@ impl<T: Data> Data for Vec<T> {
         w.end_seq();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        let any = self as &mut dyn Any;
+        if let Some(v) = any.downcast_mut::<Vec<u8>>() {
+            *v = r.bytes()?;
+            return Ok(());
+        }
+        macro_rules! bulk {
+            ($ty:ty, $decode:expr) => {
+                if let Some(v) = any.downcast_mut::<Vec<$ty>>() {
+                    let bytes = r.bytes()?;
+                    const WIDTH: usize = std::mem::size_of::<$ty>();
+                    if bytes.len() % WIDTH != 0 {
+                        return Err(DataError::new(concat!(
+                            "invalid byte length for Vec<",
+                            stringify!($ty),
+                            ">"
+                        )));
+                    }
+                    r.claim(bytes.len())?;
+                    let mut out = Vec::new();
+                    out.try_reserve_exact(bytes.len() / WIDTH)
+                        .map_err(super::limits::allocation)?;
+                    out.extend(bytes.chunks_exact(WIDTH).map($decode));
+                    *v = out;
+                    return Ok(());
+                }
+            };
+        }
+        bulk!(u16, |b: &[u8]| u16::from_le_bytes(b.try_into().unwrap()));
+        bulk!(u32, |b: &[u8]| u32::from_le_bytes(b.try_into().unwrap()));
+        bulk!(f32, |b: &[u8]| f32::from_bits(super::f32_bits(
+            f32::from_le_bytes(b.try_into().unwrap())
+        )));
         super::limits::read_vec(r, self, super::MAX_LOAD_BYTES)
     }
 }

@@ -65,7 +65,7 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         let storage = world.storage::<C>();
         Self {
             storage,
-            _lease: storage.map(|s| s.lease(M, world.tick())),
+            _lease: storage.map(|s| s.lease(M)),
         }
     }
     fn required_words(&self) -> usize {

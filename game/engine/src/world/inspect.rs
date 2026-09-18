@@ -27,7 +27,7 @@ impl World {
     /// Restart the world's random stream from an explicit game argument.
     pub fn reseed(&mut self, seed: u64) {
         self.state.seed = seed;
-        self.rng.insert(0, Rng::new(seed), self.tick());
+        self.rng.insert(0, Rng::new(seed));
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
     pub fn busy(&self, reason: &'static str) {

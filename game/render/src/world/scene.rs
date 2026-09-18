@@ -1,4 +1,4 @@
-use crate::{Bloom, Environment, Fog, FrameInput, PointLightInput, Shadows, Sun};
+use crate::{Environment, FrameInput, PointLightInput, Shadows, Sun};
 use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
 use glam::{Mat4, Vec3};
 
@@ -274,18 +274,10 @@ impl Scene {
                 ground: e.ground,
                 ambient: e.ambient,
                 sun_disc: e.sun_disc,
-                fog: e.fog.map(|f| Fog {
-                    color: f.color,
-                    density: f.density,
-                    height_falloff: f.height_falloff,
-                }),
+                fog: e.fog,
             },
             exposure: e.exposure,
-            bloom: e.bloom.map(|b| Bloom {
-                threshold: b.threshold,
-                intensity: b.intensity,
-                radius: b.radius,
-            }),
+            bloom: e.bloom,
             timestamps: None,
         }
     }

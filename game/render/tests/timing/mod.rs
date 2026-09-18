@@ -57,15 +57,12 @@ fn timing_200k() {
         fog: None,
     };
     for _ in 0..10 {
-        renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
+        renderer.draw(&view, (1280, 720), &frame);
         gpu.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
     }
-    for rewrite in [
-        exact_game_render::Rewrite::Some,
-        exact_game_render::Rewrite::All,
-    ] {
+    {
         let mut encode_us = 0.0;
         let mut upload_ms = 0.0;
         let mut total_ms = 0.0;
@@ -80,17 +77,18 @@ fn timing_200k() {
             let start = std::time::Instant::now();
             if index % 2 == 0 {
                 let upload = std::time::Instant::now();
-                renderer.begin_tick(rewrite);
+                renderer.begin_tick();
                 renderer.write_transforms(0, &transforms).unwrap();
                 upload_ms += upload.elapsed().as_secs_f64() * 1000.0;
             }
             frame.alpha = if index % 2 == 0 { 0.0 } else { 0.5 };
-            let stats = renderer.draw(&gpu.device, &gpu.queue, &view, format, (1280, 720), &frame);
+            let encode = std::time::Instant::now();
+            let stats = renderer.draw(&view, (1280, 720), &frame);
             assert_eq!(
                 (stats.draws, stats.instances, stats.triangles),
                 (2, N as u64, N as u64 * 12 + 1)
             );
-            encode_us += stats.encode_us;
+            encode_us += encode.elapsed().as_secs_f64() * 1_000_000.0;
             // Bound outstanding work; wall time includes GPU completion, encode does not.
             gpu.device
                 .poll(wgpu::PollType::wait_indefinitely())
@@ -100,7 +98,7 @@ fn timing_200k() {
                 eprintln!("timing: {} / 600 frames", index + 1);
             }
         }
-        eprintln!("200000 cubes {rewrite:?}, 1280x720, 4x MSAA, 600 frames: CPU encode {:.4} ms/frame; tick copy+upload {:.4} ms/tick; GPU-completed wall {:.4} ms/frame",
+        eprintln!("200000 cubes, 1280x720, 4x MSAA, 600 frames: CPU encode {:.4} ms/frame; tick copy+upload {:.4} ms/tick; GPU-completed wall {:.4} ms/frame",
         encode_us / 600_000.0, upload_ms / 300.0, total_ms / 600.0);
     }
     fixture::read(&gpu, &target).unwrap().save("timing-200k");
@@ -304,14 +302,9 @@ fn timing_effects_300() {
         }
         f.timestamps = queries.as_ref().map(|q| &q.set);
         for index in 0..100 {
-            let stats = r.draw(
-                &gpu.device,
-                &gpu.queue,
-                &view,
-                texture.format(),
-                (2560, 1440),
-                &f,
-            );
+            let encode = std::time::Instant::now();
+            r.draw(&view, (2560, 1440), &f);
+            let encode_ms = encode.elapsed().as_secs_f64() * 1000.0;
             let times = if let Some(q) = &queries {
                 q.read(&gpu)
             } else {
@@ -321,7 +314,7 @@ fn timing_effects_300() {
                 [0.0; 17]
             };
             if index >= 10 {
-                cpu[mode] += stats.encode_us / 90_000.0;
+                cpu[mode] += encode_ms / 90.0;
                 for (sum, value) in pass_ms[mode].iter_mut().zip(times) {
                     *sum += value / 90.0;
                 }
@@ -382,18 +375,13 @@ fn timing_beacons_shadows() {
     let mut spans = Vec::new();
     let mut encodes = Vec::new();
     for i in 0..300 {
-        let stats = r.draw(
-            &gpu.device,
-            &gpu.queue,
-            &view,
-            texture.format(),
-            (1280, 720),
-            &f,
-        );
+        let encode = std::time::Instant::now();
+        r.draw(&view, (1280, 720), &f);
+        let encode_ms = encode.elapsed().as_secs_f64() * 1000.0;
         let ms = queries.read(&gpu)[16];
         if i >= 60 {
             spans.push(ms);
-            encodes.push(stats.encode_us / 1000.0);
+            encodes.push(encode_ms);
         }
     }
     spans.sort_by(f64::total_cmp);

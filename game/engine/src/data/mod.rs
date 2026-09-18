@@ -140,6 +140,8 @@ pub trait Writer {
     fn boolean(&mut self, value: bool);
     /// Write a number, canonicalizing NaNs in binary representations.
     fn number(&mut self, value: Number);
+    /// Write an opaque length-prefixed byte payload; JSON emits an inspection summary.
+    fn bytes(&mut self, value: &[u8]);
     /// Write a UTF-8 value (as opposed to a field name).
     fn string(&mut self, value: &str);
     /// Begin a sequence of exactly `len` elements.
@@ -182,6 +184,8 @@ pub trait Reader {
     fn boolean(&mut self) -> Result<bool, DataError>;
     /// Read a number without losing integer precision.
     fn number(&mut self) -> Result<Number, DataError>;
+    /// Read an owned byte payload, claiming its allocation before reserving.
+    fn bytes(&mut self) -> Result<Vec<u8>, DataError>;
     /// Read UTF-8 text.
     fn string(&mut self) -> Result<String, DataError>;
     /// Enter a sequence.

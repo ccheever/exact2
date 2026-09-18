@@ -250,11 +250,6 @@ impl Material {
         self.roughness = r;
         self
     }
-    /// Set opacity.
-    pub fn alpha(mut self, a: f32) -> Self {
-        self.color[3] = a;
-        self
-    }
 }
 
 /// Parallel light rays along the entity's negative Z axis.

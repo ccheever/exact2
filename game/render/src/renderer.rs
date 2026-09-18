@@ -6,7 +6,7 @@ use crate::{
     shadows::{Cascades, ShadowMaps},
     timing,
 };
-use crate::{Batch, FrameInput, MeshId, RenderError, Rewrite, Stats, Vertex};
+use crate::{Batch, FrameInput, MeshId, RenderError, Stats, Vertex};
 use exact_gpu::wgpu;
 use glam::Vec3;
 use std::ops::Range;
@@ -23,7 +23,6 @@ struct Mesh {
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    format: wgpu::TextureFormat,
     pipelines: Pipelines,
     uniform: wgpu::Buffer,
     transforms: [Buffer; 2],
@@ -43,8 +42,8 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Compile all effect variants and pipelines for this output format. `draw` must use the same
-    /// device, queue and format. RGBA/BGRA unorm and sRGB targets are supported.
+    /// Compile effect pipelines for this output format and retain the device/queue.
+    /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Starts small; all arenas grow on demand and never shrink.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
@@ -87,7 +86,6 @@ impl Renderer {
         Self {
             device: device.clone(),
             queue: queue.clone(),
-            format,
             pipelines,
             uniform,
             transforms,
@@ -111,26 +109,12 @@ impl Renderer {
         }
     }
 
-    /// Advance history. `Some` copies the written high-water range before later
-    /// writes, preserving untouched slots. `All` only swaps roles: the caller must
-    /// make every live slot current before drawing (including sparse holes it lists).
-    /// Feed retains page hashes and reuses target pages whose bytes already match.
-    pub fn begin_tick(&mut self, rewrite: Rewrite) {
+    /// Swap history roles. The caller makes every live slot current before drawing.
+    /// Feed retains matching target pages instead of copying the previous buffer.
+    pub fn begin_tick(&mut self) {
         let previous = self.current;
         self.current = 1 - self.current;
-        let size = self.transforms[previous].live;
-        if size != 0 && rewrite == Rewrite::Some {
-            let mut encoder = self.device.create_command_encoder(&Default::default());
-            encoder.copy_buffer_to_buffer(
-                &self.transforms[previous].raw,
-                0,
-                &self.transforms[self.current].raw,
-                0,
-                size,
-            );
-            self.queue.submit([encoder.finish()]);
-        }
-        self.transforms[self.current].live = size;
+        self.transforms[self.current].live = self.transforms[previous].live;
     }
 
     /// Upload one contiguous run (ten floats per slot) into the current tick.
@@ -298,25 +282,16 @@ impl Renderer {
 
     /// Upload fixed-size frame data and submit the enabled passes.
     /// Zero dimensions become one. Attachments grow in 64-pixel buckets or change
-    /// on effect toggles. No CPU collections are allocated in steady state
-    /// (wgpu manages its own encoding).
-    /// Panics if `format` differs from the construction format.
-    #[allow(clippy::too_many_arguments)]
+    /// on effect toggles. Steady retained-scene draws allocate no renderer-owned
+    /// collections; this excludes wgpu command encoding/staging.
     pub fn draw(
         &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
         target: &wgpu::TextureView,
-        format: wgpu::TextureFormat,
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
-        #[cfg(not(target_arch = "wasm32"))]
-        let start = std::time::Instant::now();
-        assert_eq!(
-            format, self.format,
-            "output format is fixed at Renderer::new"
-        );
+        let device = &self.device;
+        let queue = &self.queue;
         let size = (size_px.0.max(1), size_px.1.max(1));
         if size.0 > self.targets.size.0 || size.1 > self.targets.size.1 {
             let bucket = |n: u32| n.div_ceil(64) * 64;
@@ -489,14 +464,6 @@ impl Renderer {
         let mut stats = self.counts;
         stats.draws += extra_draws;
         stats.texture_creations = self.texture_creations;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            stats.encode_us = start.elapsed().as_secs_f64() * 1_000_000.0;
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            stats.encode_us = 0.0;
-        }
         stats
     }
 

@@ -1,4 +1,4 @@
-//! Minimal retained physics entry point for raw/gzip wasm size measurements.
+//! Retained physics entry points for wasm size and cross-host continuation parity.
 use exact_game::{Transform, World};
 use exact_game_physics::{self as physics, Body, Collider};
 #[no_mangle]
@@ -15,4 +15,26 @@ pub extern "C" fn simulate(ticks: u32) -> u64 {
         physics::step(&mut w);
     }
     w.hash()
+}
+
+#[path = "../tests/common/mod.rs"]
+pub(crate) mod common;
+/// Full saved pile continuation card, also callable directly from browser wasm.
+#[no_mangle]
+pub extern "C" fn pile_hash() -> u64 {
+    let mut sim = common::scene("pile");
+    for tick in 1..=90 {
+        common::tick(&mut sim, tick);
+    }
+    let mut restored = common::scene("pile");
+    restored.restore(&sim.save()).unwrap();
+    common::tick(&mut restored, 90);
+    for tick in 91..=600 {
+        common::tick(&mut sim, tick);
+        common::tick(&mut restored, tick);
+        assert_eq!(sim.world().hash(), restored.world().hash());
+    }
+    let hash = sim.world().hash();
+    assert_eq!(hash, 0x68fadd78ef1d93f8);
+    hash
 }

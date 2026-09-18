@@ -1,5 +1,8 @@
 //! Sound executors. Construction of Player<NullOutput> never opens an audio device.
 #![deny(unsafe_code)]
+mod synth;
+pub use synth::render;
+
 use exact_game::{
     audio::{self, At, AudioListener, AudioSource, Sounds, Voices},
     hash, math, Quat, Vec3, World,
@@ -294,7 +297,7 @@ impl<O: Output> Player<O> {
             let pcm = self
                 .cache
                 .entry((w.sound.clone(), w.digest))
-                .or_insert_with(|| audio::render(&w.synth, self.rate).into());
+                .or_insert_with(|| render(&w.synth, self.rate).into());
             if pcm.is_empty() {
                 return false;
             }

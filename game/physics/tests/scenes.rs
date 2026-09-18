@@ -80,6 +80,7 @@ fn resume_and_replay_every_tick() {
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
         assert_eq!(a.world().hash(), restored.world().hash(), "resume tick {t}");
     }
+    assert_eq!(a.world().hash(), 0x68fadd78ef1d93f8);
     eprintln!("PILE_HASH_600=0x{:016x}", a.world().hash());
 }
 #[test]

@@ -10,7 +10,6 @@ fn renderer_revisions_see_same_tick_edits_without_entering_the_hash() {
     let live = w.entities_revision();
     drop(w.get_mut::<Transform>(e));
     assert_ne!(revision, w.revision::<Transform>());
-    assert_eq!(w.changed::<Transform>(), 0);
     assert_eq!(membership, w.membership::<Transform>());
     assert_eq!(hash, w.hash());
     w.despawn(e);

@@ -74,44 +74,6 @@ fn hierarchy_and_fresh_tick() {
 }
 
 #[test]
-fn changed_tracks_leases_structure_and_load_but_is_not_saved() {
-    let mut w = World::new(60, 0);
-    assert_eq!(w.changed::<Transform>(), 0);
-    w.step_clock();
-    let e = w.spawn((Transform::default(),));
-    assert_eq!(w.changed::<Transform>(), 1);
-    w.step_clock();
-    let bytes = w.save();
-    let hash = w.hash();
-    drop(w.get::<Transform>(e));
-    drop(w.query::<&Transform>());
-    drop(w.pages::<Transform>());
-    assert_eq!(w.changed::<Transform>(), 1);
-    drop(w.query::<Option<&mut Transform>>());
-    assert_eq!(w.changed::<Transform>(), 2);
-    assert_eq!(w.save(), bytes);
-    assert_eq!(w.hash(), hash);
-    w.step_clock();
-    drop(w.get_mut::<Transform>(e));
-    assert_eq!(w.changed::<Transform>(), 3);
-    w.step_clock();
-    w.insert(e, Transform::default());
-    assert_eq!(w.changed::<Transform>(), 4);
-    w.step_clock();
-    w.remove::<Transform>(e);
-    assert_eq!(w.changed::<Transform>(), 5);
-    w.step_clock();
-    w.insert(e, Transform::default());
-    w.step_clock();
-    w.despawn(e);
-    assert_eq!(w.changed::<Transform>(), 7);
-    w.load(&bytes).unwrap();
-    assert_eq!(w.tick(), 2);
-    assert_eq!(w.changed::<Transform>(), 2);
-    assert_eq!(w.save(), bytes);
-}
-
-#[test]
 fn save_entity_limit_is_checked_before_reserving_slots() {
     let mut out = bin::Encoder::default();
     out.begin_struct();

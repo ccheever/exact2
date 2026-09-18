@@ -1,9 +1,10 @@
 //! Release measurements: clocks never enter simulation state.
-use exact_game::{Transform, Vec3, World};
+use exact_game::{Game, Input, Sim, Transform, Vec3, World};
 use exact_game_physics::{self as physics, Body, Collider, Physics, Shape};
 use std::time::Instant;
-#[path = "../tests/common/mod.rs"]
-mod common;
+#[path = "minimal.rs"]
+mod minimal;
+use minimal::common;
 fn box_at(w: &mut World, p: Vec3, half: Vec3, dynamic: bool) {
     let e = w.spawn((
         Transform {
@@ -28,14 +29,19 @@ fn percentiles(mut v: Vec<f64>) -> (f64, f64) {
         (v[n / 2], v[(n * 95 / 100).min(n - 1)])
     }
 }
+struct SaveFixture;
+impl Game for SaveFixture {
+    const ID: &'static str = "pile-save";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        physics::register(w);
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     if args.iter().any(|a| a == "--verify") {
-        let mut s = common::scene("pile");
-        for t in 1..=600 {
-            common::tick(&mut s, t);
-        }
-        println!("PILE_HASH_600=0x{:016x}", s.world().hash());
+        println!("PILE_HASH_600=0x{:016x}", minimal::pile_hash());
         let mut a = common::scene("bounce");
         for t in 1..=45 {
             common::tick(&mut a, t);
@@ -49,6 +55,9 @@ fn main() {
             assert_eq!(a.world().hash(), b.world().hash(), "resume tick {t}");
         }
         println!("MID_BOUNCE_RESUME=exact ticks=45..240");
+        let hash = minimal::simulate(120);
+        assert_eq!(hash, 0x2c1221fdf12e6744);
+        println!("MINIMAL_HASH_120=0x{hash:016x}");
         return;
     }
     let counts: Vec<usize> = args.iter().filter_map(|s| s.parse().ok()).collect();
@@ -132,6 +141,29 @@ fn main() {
             if asleep.len() >= 180 {
                 break;
             }
+        }
+        if args.iter().any(|a| a == "--save") {
+            let mut sim = Sim::<SaveFixture>::new(()).unwrap();
+            *sim.world_mut() = w;
+            let mut saves = Vec::new();
+            let mut loads = Vec::new();
+            let mut size = 0;
+            for _ in 0..5 {
+                let start = Instant::now();
+                let bytes = sim.save();
+                saves.push(start.elapsed().as_secs_f64() * 1000.0);
+                size = bytes.len();
+                let mut restored = Sim::<SaveFixture>::new(()).unwrap();
+                let start = Instant::now();
+                restored.restore(&bytes).unwrap();
+                loads.push(start.elapsed().as_secs_f64() * 1000.0);
+                assert_eq!(sim.world().hash(), restored.world().hash());
+            }
+            println!(
+                "SIM_SAVE boxes={count} steps={limit} bytes={size} save_ms={:.3} load_ms={:.3}",
+                percentiles(saves).0,
+                percentiles(loads).0
+            );
         }
         println!("observed_still_tick={observed_tick:?}");
         let a = percentiles(active);

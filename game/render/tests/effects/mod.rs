@@ -116,7 +116,7 @@ fn sun_shadow_ratio_acne_and_subdegree_stability() {
     // Moving casters must use the very same prev/current interpolation as forward.
     batches[1].casts_shadows = true;
     r.set_batches(&batches, &[0, 1]).unwrap();
-    r.begin_tick(exact_game_render::Rewrite::Some);
+    r.begin_tick();
     r.write_transforms(
         1,
         &transform(Vec3::new(2.0, 0.5, -5.0), Quat::IDENTITY, Vec3::ONE),

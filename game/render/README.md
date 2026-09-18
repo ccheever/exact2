@@ -1,548 +1,156 @@
 # exact-game-render
 
-Opaque PBR over slot-indexed floats, plus `WorldSurface<G>` connecting an
-`exact-game` simulation to the GPU canvas. `Renderer::draw` still does no CPU
-per-instance work. Dependencies are `exact-game`, `exact-gpu`, `glam`, and on wasm
-`web-sys` for wall-clock performance samples.
+Opaque PBR over slot-indexed floats. `WorldSurface<G>` connects a simulation to an
+Exact canvas; the simulation crate owns no GPU or host. Geometry draws once per
+mesh batch **per geometry pass**: each shadow cascade draws its casters again,
+then forward rendering draws the scene. There is no frustum rejection in those loops.
 
-Create `Renderer::new(device, queue, target_format)`, add meshes, initialize
-transforms with `write_transforms_both` and materials with `write_materials`, then
-call `set_batches`. `Batch::new(mesh, slots)` casts shadows by default. Each tick
-calls `begin_tick(Rewrite::Some)` followed by contiguous transform writes: history
-is copied GPU-side so untouched slots stay still. `begin_tick(Rewrite::All)` swaps
-roles without copying; the caller promises to rewrite every live slot before draw. The GPU interpolates
-the two ticks; forward and shadow vertices share `shaders/transform.wgsl`.
-The caller initializes every listed slot, including holes in sparse uploads.
-Quaternions should be unit length; a zero quaternion draws as identity.
-**Scale is positive.** Stray negative components use their absolute values in both
-position and normal transforms, before interpolation. Mirrored instances return
-as a double-sided material, not as a sign.
+## Renderer contract
 
-`max_slots()` is the exclusive slot limit from the device's granted adapter storage
-binding limit and the widest arena (48-byte materials), capped by max buffer size.
-`write_transforms`, `write_transforms_both`, `write_materials`, and `set_batches`
-return `Result<(), RenderError>` with arena, requested slot and limit on capacity
-refusal, before changing state. Incomplete records and invalid meshes/draw ranges
-remain caller errors.
+Construct `Renderer::new(device, queue, format)`, add meshes, initialize both
+transform histories with `write_transforms_both`, upload materials, and set batches.
+`begin_tick()` swaps the history roles without copying. The caller must make every
+listed slot current before `draw(target, size, frame)`; a retained target page may
+already match. The renderer retains the device/queue and pipelines for its format.
+The target must match that format. Direct callers initialize sparse holes too.
 
-`FrameInput::default()` gives a shadowed sun, a gradient sky, hemisphere ambient
-light and bloom. Supply matching view/projection/camera-position values. Matrices
-use conventional WebGPU 0–1 depth, near zero, positive view-space near distance;
-reverse-Z is not supported. Materials, environment and lights use linear RGB.
-Base alpha is reserved; geometry is opaque. Capsule height is tip-to-tip.
+Transform records are ten floats (position, quaternion, scale); materials are twelve
+(linear base RGBA, metallic, roughness, emissive RGB, primitive dimensions XYZ).
+Base alpha is reserved; the forward shader returns 1. Quaternions should be unit
+length; zero draws as identity. Scale is positive; negative inputs use absolute
+values. Mirroring awaits double-sided materials. WebGPU depth is 0–1, near zero;
+reverse-Z is unsupported. Capsule height is tip-to-tip.
 
-- `Sun.shadows = Some(Shadows::default())`: 60 m reach, three 2048² Depth32Float
-  layers, practical splits (lambda 0.7), rotation-invariant frustum spheres,
-  light-space texel snapping in a [Duff basis](https://graphics.pixar.com/library/OrthonormalB/paper.pdf)
-  (Y is the sign axis; continuous near vertical, hemisphere seam at the horizon), comparison-sampled 3×3 PCF of radius 1.5 texels.
-  The final 10% of each slice cross-fades; the last fades to unshadowed. Casters
-  up to one shadow distance towards the sun beyond the slice are included.
-- Receiver bias uses each cascade's **world metres per texel**. Normal offset is
-  `0.5 × texel × sin(theta) × cos(theta)`, where theta is the normal/light angle;
-  its projection onto the receiver moves the shadow by at most half a world texel.
-  PCF offsets are projected from the receiver plane into the light map, preventing
-  a `1 / N·L` stretch of the filter on grazing ground. Each tap uses its exact
-  local receiver-plane depth slope. The separate conservative bilinear-footprint
-  bias is capped at **two texels of world depth**, converted through the cascade's
-  depth scale, plus 1e-6 normalized depth for roundoff. Above that footprint budget,
-  four explicit depth loads compare each bilinear texel against its own plane
-  depth and interpolate visibility; no large comparison bias is needed.
-  This uses nine hardware comparisons or up to 36 explicit loads per cascade
-  (twice during cross-fade). Raster depth bias is zero.
-  With shadows enabled, direct sun fades to zero over **N·L = 0.01 down to 0.005**;
-  at/below 0.005 no singular plane slope is evaluated. The fade also applies across
-  cascade blends and beyond shadow distance, so unsupported angles never turn lit.
-  A 1° sun on level ground remains fully supported. Shadow-disabled rendering
-  retains the unfaded direct BRDF; ambient, emissive and point lights are unaffected.
-  Back faces remain culled: global front-face culling erases open sheets, and the
-  renderer has no closed-mesh classification. The thin-sheet fixture casts.
-  CPU fitting overlaps exactly the preceding slice's final 10%, matching sampling.
-- `FrameInput.bloom = Some(Bloom::default())`: threshold 1, intensity 0.08,
-  tent radius 1. A one-sided soft knee starts at the threshold, followed by
-  13-tap half-resolution/downsample filters and additive tent upsampling.
-  Up to six levels, stopping before either dimension would fall below 8;
-  tiny outputs still have one level. Coarser octaves contribute half as much.
-  Portable, filterable/blendable RGBA16F avoids optional Rg11b10Ufloat features.
-- `Environment { zenith, horizon, ground, .. }` supplies both the directional sky
-  and hemisphere lighting. Sky draws at far depth after geometry. `sun_disc`
-  is an angular radius in radians (zero removes disc/glow). Equal sky colours
-  and no disc use the clear directly, with no sky draw or inverse-matrix work,
-  unless an explicit fog colour differs from that clear.
-- `Environment.fog = Some(Fog::default())`: exponential extinction, analytically
-  integrated through an exponential Y-height density profile. `color: None`
-  uses the horizon. Density defaults to 0.02/m, height falloff to 0.1/m. Geometry
-  and sky share the integral; sky integrates 10 km along the view ray. The height
-  difference remains unclamped so upward rays retain the correct finite extinction.
-  Camera and endpoint exponents are computed independently; only the inputs to
-  `exp` are clamped to [-40, 40]. Equal-height and near-horizontal rays retain the
-  stable constant-density limit.
+`max_slots()` is an exclusive limit from granted storage binding/buffer limits and
+48-byte materials. Writes and batch changes return named `RenderError`s before
+mutation on capacity refusal. Incomplete records/invalid meshes are caller errors.
+Arenas grow with GPU copies and never shrink. `Stats.instances/triangles` describe
+the forward scene; `draws` includes all passes; `texture_creations` is cumulative.
+CPU timing belongs to the caller; `draw` makes no performance clock calls.
 
-All pipeline variants compile in `Renderer::new`, including fog-free and
-shadow-free forward entry points and bloom-free tonemapping. Setting an effect
-to None skips its passes and releases its textures/bindings; no dummy effect
-textures are retained. HDR/depth and bloom attachments grow in 64-pixel buckets;
-shrinking never reallocates. Viewports/scissors use the logical size, and post-pass
-UVs clamp to its edges, excluding unused padding. Bloom level count still follows
-the logical size. `Stats.texture_creations` counts cumulative attachment textures,
-including shadow/effect enables; it stays unchanged on shrink or within a bucket.
-Steady frames allocate no renderer-owned CPU collections, upload a
-1040-byte stack frame uniform (+768 bytes with shadows, +3072 bytes with bloom), and walk only retained
-batches, at most four times. wgpu owns command encoding and staging allocations.
-Both discarded 4× MSAA attachments (RGBA16F colour and Depth32Float) are
-`RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT`, accepted by wgpu 30 / Metal on the
-M5 Max (`transient_saves_memory: true`); wgpu makes this a no-op where unsupported.
-The resolved 4× MSAA HDR image passes through ACES-fitted tonemapping; non-sRGB
-outputs use an explicit sRGB transfer, sRGB outputs the hardware transfer once.
-HDR reads map NaN to zero and clamp to [0, 65472] (the last half-float below 65504).
-The bright pass sanitizes before bilinear interpolation; tonemapping sanitizes
-HDR, bloom and exposure-scaled values before the ACES fit.
+## Effects
 
-`mesh_bounds` retains conservative local spheres. `set_batches` accepts any
-subset; shadow casters must be present in that retained list, including offscreen
-casters that should affect visible receivers. Arenas grow with GPU copies and
-never shrink. Sparse slot 1,000,000 retains a large high-water copy with `Rewrite::Some`;
-`Rewrite::All` avoids that tick copy.
-`Stats.instances/triangles` describe the forward scene; `draws` includes all passes.
-`encode_us` includes upload/encoding/submission, not completion, and is zero on wasm.
+`FrameInput::default()` supplies a shadowed sun, gradient sky, hemisphere ambient
+light and bloom. Supply matching view/projection/camera position. All colours are
+linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
 
-From `game/`, keeping build and image artifacts inside this crate:
+- Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
+  (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up
+  to one shadow distance towards the sun are included. The last 10% of each slice
+  cross-fades; the final slice fades to unshadowed.
+- Receiver normal bias is `0.5 × world texel × sin(theta) × cos(theta)`. Nine PCF
+  taps project the receiver plane into the light map, using exact plane depth
+  slopes. Bilinear footprint bias is capped at two world-depth texels plus 1e-6
+  normalized depth. Beyond that budget, four explicit depth loads per tap compare
+  against their individual plane depths. Raster depth bias is zero. Thin sheets
+  cast; back faces are culled. Supported direct sun fades over N·L 0.01→0.005;
+  at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
+  Shadow-disabled lighting is unfaded. Ambient/emission/point lights are unaffected.
+- Bloom defaults to threshold 1, intensity 0.08, radius 1: one-sided knee, 13-tap
+  downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
+  before either dimension falls below 8; tiny outputs retain one level.
+- Sky and hemisphere illumination share zenith/horizon/ground colours. A constant
+  sky without disc or differing fog colour uses the clear directly. `sun_disc` is
+  angular radius in radians. Fog integrates exponential distance and Y-height
+  density analytically, including a stable near-horizontal limit; sky uses 10 km.
+  Default density is 0.02/m and height falloff 0.1/m; absent fog colour uses horizon.
 
-```sh
-export EXACT_UPDATE_TRUST=development CARGO_TARGET_DIR="$PWD/render/target"
-export EXACT_GPU_OUT="$PWD/render/target/pictures"
-cargo build -p exact-game-render
-cargo test -p exact-game-render -- --nocapture
-cargo clippy -p exact-game-render --all-targets -- -D warnings
-cargo fmt -p exact-game-render -- --check
-cargo build -p exact-game-render --target wasm32-unknown-unknown
-cargo test -p exact-game-render --release -- --ignored --nocapture --test-threads=1
-```
+Eleven pipeline variants compile on first world render, including effect-free
+entry points. Optional loading after app first pixel does not remove this Play
+latency. Disabling effects skips their passes and releases their attachments.
+HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
+Viewports and post-pass UVs respect logical size. Discarded 4× MSAA colour/depth
+attachments request transient storage (a no-op where unsupported). ACES-fitted
+tonemapping applies sRGB transfer once. HDR reads sanitize NaN and clamp to
+[0,65472]; bright-pass sanitization precedes filtering.
 
-GPU fixtures print an explicit skip reason without an adapter. Geometry and WGSL
-validation still run. `tests/core.rs` includes the effects and timing modules.
-The pictures are PPMs; all were converted to PNGs and visually inspected on Metal.
-The lit plane is clean, the shadow contacts its cube, and yaw changes the recovered
-world edge by 4 mm (under one output pixel). Shadow/ambient-only probes both read
-59/255 versus 183/255 in sun; lit-patch variance is zero. Shadows exist at 5, 25,
-55 m and vanish at 70 m. The bloom fixture lights 16,392 pixels outside the sphere;
-0.95 HDR stays identical with bloom enabled/disabled. Fog leaves the nearby dark
-cube clear and washes the far cube toward the horizon; lifting both to Y=20
-removes almost all fog. The 170° sky diagnostic deliberately exaggerates its
-perspective curvature. The 300-object image shows soft grounded cubes, a yellow
-beacon halo, and atmospheric depth. Remaining visual limitations: distant shadows
-are blurrier than nearby ones, the beacon's bright core clips to white, and the
-simple gradient has no atmospheric scattering. There is no ambient occlusion.
+## WorldSurface and feed
 
-Measured 2026-09-17, Apple M5 Max, shared machine (not vsync/FPS):
+A game's GPU shell is `exact_game_render::module!(MyGame)`. Bind constructs Sim;
+first render constructs Renderer. Feed setup and only the last two completed ticks
+of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
+records, without per-instance CPU work.
 
-| Scene | CPU encode ms | Tick upload ms | GPU-completed wall ms |
-|---|---:|---:|---:|
-| B0 before edits, 200k cubes, 1280×720 | 0.3812 | 2.4352 | 3.9829 |
-| B0b, all effects off, same 200k geometry/resolution | 0.1437 | 1.1760 | 1.8355 |
-| B0c, `Rewrite::Some`, same 200k scene | 0.2558 | 1.6117 | 2.3480 |
-| B0c, `Rewrite::All`, same 200k scene | 0.3186 | 2.0196 | 3.2794 |
+Feed fingerprints allocated Transform pages against each target history, patches
+parented global poses into retained scratch, coalesces dirty runs and writes them.
+After two still ticks, unchanged column revisions skip hashing. A changed column
+still requires a page scan, even when most pages are unchanged. Selected pages
+are copied into retained scratch; this is not zero-copy. At least 75% dirty pages
+selects full-run uploads; every 32nd feed probes three ticks to return to hashing.
+Scenes below 32 pages always hash. Materials use one history and repack 40-byte
+engine records into 48-byte GPU records.
 
-B0c ran both modes for 600 frames each on the shared M5 Max. `All` removes the
-GPU history copy but was slower in this run; these measurements do not establish
-a speedup. All release tests and both ignored diagnostics pass on Metal; scoped
-clippy (`-D warnings`), fmt, wasm32 build and the repository caps check pass.
-The new fixtures verify half-float RGB before byte conversion, the unchanged far
-corner under over-range bloom, zero/sparse quaternions, negative-scale twins,
-capacity refusal without mutation, both tick modes, and grow/shrink pixel identity.
-The vertical-sun sweep reaches ±8.25° (the old switch was 8.11°): its straight edge,
-recovered across a small patch, moves at most 0.008200 m versus a 0.029480 m shadow
-texel. A single rasterized scanline can jump a full projected texel; this is not a
-universal sub-texel motion guarantee for arbitrary casters and camera settings.
+Fresh/teleported entities and Parent edits patch both histories. World replacement
+generations force both histories to refresh even without a tick. Revisions and
+presentation histories are excluded from saves/hashes. Parented TRS decomposition
+is exact under uniform ancestor scale; shear is approximated. Each primitive kind
+shares one unit mesh; dimensions are instance data. Capsules translate cap
+hemispheres instead of stretching them. Asset meshes are refused by name.
+At 200k slots materials cost 9.6 MB, two transform histories 16 MB.
 
-The brief's earlier baseline was 0.26 / 1.6 / 2.3. Machine load changed during the
-earlier B0/B0b session: those numbers show no observed regression, not a claimed renderer speedup. The
-effects-off benchmark uses a constant environment (flat ambient, no sky pass).
+Camera/sun/point rotations use normalized slerp histories. The first posed sun
+wins. Point-light selection is feed-only, at most sixteen lights, with a 10%
+incumbent distance margin and entity-order ties. Engine illuminance is lux:
+10,000 lux maps to renderer radiance 3. Missing materials/environment use defaults.
 
-The 300-object diagnostic renders at **2560×1440**, 4× MSAA. Off / shadows / all
-CPU encode: **0.0691 / 0.1627 / 0.3194 ms**. GPU frame spans:
-**0.2814 / 0.4438 / 0.5401 ms**. Shadow delta: **0.0936 ms CPU**, **0.1624 ms GPU**
-by frame-span difference; summing depth intervals plus the forward delta gives
-0.2493 ms, also below budget. Measurements include optional timestamp writes.
+Performance samples appear only in `state.world.perf`: live frame stamps, tick,
+feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
+rings retain 16,384 values. Seekable renders, agent advances and timed binds make
+no perf clock calls; samples do not enter hashes. The allocation-free claim covers
+only the `steady_sim_feed_and_frame_inputs_allocate_nothing` moving-cube/camera/light
+fixture (including trace recording), after warmup,
+without input edges, structural churn, audio or physics. wgpu owns its command and
+staging allocations; the claim does not include those.
 
-All-effects GPU intervals (ms):
+Capacity errors precede history swaps and propagate through the surface ABI;
+failed draws are not presented. Invalid viewports skip drawing and preserve the
+input viewport, while a finite seekable clock can still advance.
 
-| Pass | Interval |
-|---|---:|
-| Shadow 0 / 1 / 2 | 0.0210 / 0.0266 / 0.0261 |
-| Forward + sky + fog | 0.2693 |
-| Bloom bright | 0.2938 |
-| Bloom down 1 / 2 / 3 / 4 / 5 | 0.2907 / 0.2767 / 0.2609 / 0.2497 / 0.2358 |
-| Bloom up 4 / 3 / 2 / 1 / 0 | 0.2272 / 0.2219 / 0.2186 / 0.2192 / 0.2558 |
-| Tonemap | 0.2670 |
+## Latest recorded performance and remaining budgets
 
-**These intervals overlap; do not sum them.** Metal samples from vertex start to
-fragment end, and later fullscreen vertices run ahead of dependent fragments.
-`FrameInput.timestamps` optionally borrows a 32-entry query set; the caller must
-request TIMESTAMP_QUERY and resolve/read it outside draw. `GPU_PASS_NAMES` maps
-the 16 pairs; disabled passes do not write theirs. The diagnostic waits for GPU
-completion before its separate resolve submission (otherwise Metal can return
-trailing zero samples), and reports invalid/reversed pairs as NaN, never zero.
+Apple M5 Max / Metal, release, 2026-09-17; shared-machine observations, not vsync
+or a speedup claim. Feed diagnostic: 2560×1440, 4× MSAA, 60 warmup + 240 frames.
+These are the latest recorded feed measurements; D1 changes persistence/APIs.
 
-
-## WorldSurface
-
-`WorldSurface::<G>::default()` implements `exact_gpu::Surface`; bind constructs the
-simulation, and the first render compiles every pipeline. A game's GPU crate can
-contain just `exact_game_render::module!(MyGame);`. It needs this crate and its
-logic crate, plus wasm-bindgen, wasm-bindgen-futures and web-sys/HtmlCanvasElement
-on wasm. The macro reuses the GPU ABI through re-exports and declares no external
-shaders. `examples/module.rs` exercises the expansion on native and wasm.
-
-`Feed` owns tick uploads, mesh registrations, retained batches and small camera/light
-histories. Seed it with the setup world, then call `feed` from `advance_with` only
-when `ticks_left < 2`. Each GPU tick buffer has an eight-byte content fingerprint
-per allocated Transform page. The feed swaps roles with `Rewrite::All`, hashes
-against the target buffer, patches propagated parent poses into retained scratch,
-and submits one write per consecutive dirty run. No GPU history copy is needed.
-`Rewrite::Some` remains available for direct Renderer callers; **Feed never uses it**.
-TRS decomposition is exact with uniform ancestor scale; shear is approximated.
-
-One unchanged tick catches the target buffer up; after two still ticks, unchanged
-column revisions skip even hashing. Fresh slots, teleports (including descendants),
-and Parent edits patch the other buffer and invalidate its page fingerprint.
-The retained parent list also catches removed Parent components. Initial feeding
-and a changed World presentation generation rewrite both histories. `load`, setup
-rebuilds and `Sim::restore` preserve and increment that generation; render checks
-it even without a bind or a simulation tick. Mesh registrations and scratch survive.
-
-At least 75% dirty pages enables full-run uploads without hashing. Every 32nd feed
-starts a three-feed probe, long enough to establish both target histories before
-judging dirtiness. A single probe with unknown hashes would always look 100% dirty
-and never leave that mode. Scenes below 32 pages stay hashed: skipping their cheap
-hash would miss same-value assignments when a player or glow comes to rest.
-Material pages use the same hashing/coalescing path with one GPU buffer; retained
-page scratch repacks the engine's 40-byte records to 48-byte renderer records.
-
-Camera, sun and point-light rotations use safe normalization and slerp histories.
-The selected sun is the first DirectionalLight with a pose. Ancestor freshness and
-Parent edits reset camera/light histories too. Point-light membership is selected
-only during feeds; incumbents get a 10% distance margin, with entity-order ties.
-Frames visit only the retained sixteen lights, never the entity storage.
-
-Missing materials use the default white material. Each primitive kind owns one unit
-mesh and one draw group. The 48-byte material record now uses its last three floats
-for dimensions: XYZ scale, or (diameter, half stem, diameter) for capsules. The
-vertex shader scales unit vertices and inverse-scales normals; capsule cap signs
-in the reserved UVs translate hemispheres without distortion. Animated dimensions
-never create geometry. At 200k slots materials still cost 9.6 MB, with 16 MB for
-the two transform histories. Asset meshes are refused by name until implemented.
-
-The small engine additions are mutation/membership/live-set revisions (tick stamps
-cannot detect setup-to-first-tick edits or repeated same-tick edits), whole-page
-float views for the two closed Plain layouts, optional resource lookup, presentation
-replacement generation, and post-tick observers on agent seeks and timed binds.
-All revisions and presentation histories are outside saves and hashes.
-`DirectionalLight.shadows` is saved scene state and defaults to true. The new
-`Environment` resource supplies sky colours, fog, exposure and bloom; absence uses
-its default: gradient sky, 0.5 hemisphere ambient, exposure 1, bloom intensity 0.08,
-no fog. Engine illuminance is lux: 10,000 lux maps to renderer illuminance 3.
-Point intensity is passed directly to the renderer's inverse-square light.
-
-Perf lives in fixed 240-sample rings and is spliced into `state.world.perf` only.
-`frameMs` measures consecutive LIVE display stamps, resetting continuity on a seek;
-`tickMs` measures individual simulation steps, excluding feeding; `feedMs` measures
-each fed tick; `encodeMs` includes frame inputs, draw encoding and submission;
-`ticksPerFrame` has the same p50/p95/p99/max summary. Native CPU samples use Instant;
-wasm caches the Performance object. Only ticks retained in the 240-sample ring
-are timed; seekable renders, agent advances and timed binds make no perf clock
-calls. `Sim::ticks_due` determines whether the first tick's sample will survive.
-Samples are diagnostic and outside world hashes.
-No allocations occur in steady live Sim/Feed/frame-input work (instrumented unit test).
-wgpu retains ownership of its command/staging allocations.
-
-Capacity errors are returned before Feed swaps history. `Surface::take_error`
-reports them through Module render/readback/input/agent failures (render returns
-ABI status 2; native readback retains its existing failure status 1, since 2 there
-already means a successful read that wants another frame); a failed draw is never presented as success. A timed bind
-that already committed still returns Ok; its advance error is drained separately.
-`WorldSurface::error()` retains the sticky capacity refusal. Empty or non-finite
-viewports skip drawing without setting an error or changing the input viewport;
-a finite seekable clock still advances. A non-finite clock is ignored for that frame.
-
-Proof and timing, from `game/`:
-
-```sh
-export EXACT_UPDATE_TRUST=development CARGO_TARGET_DIR="$PWD/render/target"
-export EXACT_GPU_OUT="$PWD/render/target/pictures/world"
-cargo build -p exact-game -p exact-game-render
-cargo test -p exact-game -p exact-game-render --no-fail-fast -- --nocapture
-cargo clippy -p exact-game -p exact-game-render --all-targets -- -D warnings
-cargo fmt -p exact-game -p exact-game-render -- --check
-cargo build -p exact-game-render --target wasm32-unknown-unknown
-cargo build -p exact-game-render --example module --target wasm32-unknown-unknown
-cargo run --release -p exact-game-render --example cubes
-# Or select a count and measured frame count (60 warm-up frames precede them):
-cargo run --release -p exact-game-render --example cubes -- 200000 240
-```
-
-GPU tests explicitly print SKIP when no adapter exists; recording-backend tests and
-allocation tests always run. `tests/world.rs` uses the real Greybox through fixture
-render/readback. Its camera follows the player exactly, so the up-screen movement
-proof uses a wrapper that freezes only the camera. Beacon tests use actual input,
-material emission and projected agent bounds. Stopped pixels are byte-identical
-across several alphas, and agent-seek versus frame-seek pixels match.
-
-The benchmark runs the authored cubes Game at 2560×1440, 4× MSAA, with shadows,
-bloom and fog off and flat ambient, matching the bench scene. It defaults to 10k,
-100k, 200k and 500k, printing sim/tick, feed/tick and encode/frame p50/p95 in ms.
-GPU completion is awaited outside the measured regions to bound work in flight.
-These are CPU submission diagnostics, not displayed FPS or GPU execution timings.
-
-B1a measured on Apple M5 Max / Metal, 2026-09-17, shared machine, repository
-release profile (thin LTO, one codegen unit), 60 warm-up + 240 measured frames:
-
-| Cubes | Sim/tick ms p50 / p95 | Feed/tick ms p50 / p95 | Encode/frame ms p50 / p95 |
-|---:|---:|---:|---:|
-| 10,000 | 0.0339 / 0.0467 | 0.2080 / 0.3201 | 0.1204 / 0.2032 |
-| 100,000 | 0.3251 / 0.3962 | 1.6291 / 2.0565 | 0.1646 / 0.2452 |
-| 200,000 | 0.5445 / 0.7305 | 2.8900 / 3.4996 | 0.1532 / 0.2334 |
-| 500,000 | 1.4670 / 2.0095 | 7.5832 / 9.4575 | 0.1632 / 0.2642 |
-
-All 31 non-ignored renderer tests pass, including GPU readback on Metal; three
-new engine bridge tests pass. Both native and wasm cdylib macro consumers compiled
-with only renderer + logic + the three required wasm dependencies. The capsule
-pixel centroid moved from y=178.31 to 130.53 after one second of W in the fixed-camera
-fixture. Beacon projected-box luminance rose from 166.61 to 177.20 (8-bit weighted
-RGB). Two still ticks produce byte-identical pictures across interpolation alphas.
-The pictures were inspected: ground contact and glow are present, but the large
-Greybox plane exposes a fine shadow self-pattern, and the nearby player partly
-occludes the beacon. These are visible limitations, not a claim of artifact-free
-shadows or a luminance change for every pixel of the projected bounding box.
-
-Two existing engine tests include Greybox fixtures outside this brief's permitted
-edit directories. Adding saved `DirectionalLight.shadows` intentionally changes
-those pinned hashes: setup `0x81029be74d2334e2` → `0x4a9f1ad15148813e`, and the
-1.5-second W replay `0x4dcde63de7f70139` → `0x70c17d4a69834418`. The old fixture
-assertions remain failing until their owner updates them; seek partition equality
-and save/restore equality pass. No out-of-scope fixture was edited for B1a.
-Validation used disposable manifests under `render/target/` pointing at the actual
-source files, to keep the concurrently edited `game/Cargo.lock` untouched.
-
-## B1d proof — 2026-09-17, Apple M5 Max / Metal
-
-Same diagnostic as above, 2560×1440, 4× MSAA, 60 warm-up + 240 measured
-frames. This worktree and machine were shared with the audio/physics/game lanes;
-load averages during the run were roughly 32–44. These are submission timings,
-not a claim about vsync or GPU completion.
-
-Before B1d:
-
-| Cubes | Sim ms p50 / p95 | Feed ms p50 / p95 | Encode ms p50 / p95 |
-|---:|---:|---:|---:|
-| 10,000 | 0.0350 / 0.0638 | 0.2233 / 0.4027 | 0.1314 / 0.2442 |
-| 100,000 | 0.3465 / 0.4062 | 1.8112 / 2.1159 | 0.1708 / 0.2433 |
-| 200,000 | 0.6997 / 0.8332 | 3.4663 / 3.9879 | 0.1739 / 0.2646 |
-| 500,000 | 1.8412 / 2.1100 | 8.8117 / 9.9677 | 0.1825 / 0.2722 |
-
-After B1d:
-
-| Cubes | Sim ms p50 / p95 | Feed ms p50 / p95 | Encode ms p50 / p95 |
+| Cubes | Sim ms p50/p95 | Feed ms p50/p95 | Encode ms p50/p95 |
 |---:|---:|---:|---:|
 | 10,000 | 0.0418 / 0.0911 | 0.1724 / 0.4077 | 0.1671 / 0.5722 |
 | 100,000 | 0.4080 / 0.8699 | 0.9537 / 2.0966 | 0.1929 / 0.4053 |
 | 200,000 | 0.7976 / 1.1324 | 1.6949 / 2.2815 | 0.1960 / 0.3274 |
 | 500,000 | 2.3245 / 3.0835 | 4.5562 / 5.6280 | 0.2170 / 0.4038 |
 
-**The two feed latency targets are not met.** The final 500k turning result is
-4.5562 ms versus the 3 ms target. `cubes -- 500000 240 still` (only the camera
-moves) measures 1.1262 / 1.4261 ms feed p50 / p95 versus the 0.3 ms target.
-The eight-lane page hash measures **28.72 GB/s** in its release diagnostic,
-exceeding the requested 5 GB/s. But reading 20 MB at 28.72 GB/s alone costs about
-0.70 ms; a 0.3 ms whole-feed target needs more than 66.7 GB/s before other work.
-Page mutation metadata, or a substantially faster hash path, would be needed to
-close that gap. Neither performance target is claimed from write-count reduction.
+**Both feed targets remain unmet.** Turning 500k: 4.5562 ms p50 versus 3 ms.
+Still 500k with only a moving camera: **1.1262 / 1.4261 ms p50/p95 versus a
+0.3 ms target**. Unchanged pages still cost a scan when the column changes.
+The 28.72 GB/s page-hash microbenchmark does not establish whole-feed latency.
 
-The recording backend asserts one contiguous transform submit for a dense scene,
-one page/write per tick for **500,000 still transforms with a moving camera**,
-and the actual Greybox's **one transform page per moving tick, at most two pages
-while the beacon glows, zero writes after settling**. It also proves the dense
-mode returns to hashing after unchanged assignments, sparse runs stay separate,
-capacity refusal precedes swaps, and steady feed/frame work allocates nothing.
-Run the hash diagnostic with `cargo test --release -p exact-game-render --lib
-hash_bandwidth -- --ignored --nocapture`.
+Latest paired renderer diagnostics: 200k cubes, effects off, 1280×720, CPU encode
+0.2429 ms, tick upload 1.4430 ms, GPU-completed frame 2.8317 ms. Shadowed Beacons
+GPU frame 0.5214 ms, CPU encode 0.2570 ms. These are medians of three run summaries;
+shared-machine variance precludes a tight speedup claim. Optional GPU timestamp
+intervals overlap on Metal: **do not sum them**. `GPU_PASS_NAMES` maps sixteen
+query pairs; disabled passes leave theirs unwritten. Resolve after completion;
+invalid/reversed pairs are NaN.
 
-All 45 non-ignored renderer tests and the engine tests pass, including a GPU
-half-alpha teleport fixture whose pixels exactly equal the new child pose,
-zero-size recovery, load/restore generation collisions, committed timed-bind
-capacity failure, sun interpolation, zero quaternion, light hysteresis, and zero
-perf clock reads for a 3,600-tick seek. All 12 exact-gpu tests pass through the
-native ABI; render failure returns 2 and readback retains its existing error 1.
-Workspace build/clippy, scoped fmt, renderer wasm32 build, GPU clippy/fmt and
-repository caps pass.
-The full game workspace test run encountered four failures in the concurrently
-edited physics lane (character step, two query fixtures, sphere rolling); its fmt
-check also reported physics-only differences. Those files were not edited here.
+## Reproduce
 
-The browser proof passes with **zero failures**: setup hash
-`0x4a9f1ad15148813e`, 1.5-second W position `[0, 0.9, -5.733332]`, replay hash
-`0x70c17d4a69834418`. The half-alpha child fixture was also inspected visually.
-Logs and pictures are under `render/target/`, with the browser transcript in
-`render/target/greybox-proof/`.
+From `game/`, with `EXACT_UPDATE_TRUST=development`:
 
+```sh
+cargo build --workspace
+cargo test --workspace --no-fail-fast
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo build -p greybox-gpu --profile web --target wasm32-unknown-unknown
+cargo run -p exact-game-render --release --example cubes -- 500000 240
+cargo run -p exact-game-render --release --example cubes -- 500000 240 still
+cargo test -p exact-game-render --release -- --ignored --nocapture --test-threads=1
+bun games/greybox/proof.mjs web
+bun games/beacons/proof.mjs web
+bun games/greybox/proof.mjs macos
+```
 
-## R3 shadow and fog proof — 2026-09-17, Apple M5 Max / Metal
-
-`tests/effects/shadow_quality.rs` renders a 40 m matte plane and resting 1 m cube
-at 1280×720, elevations 12/30/55/80°, azimuths 35/145°, from (0,9,13) looking at
-zero and (0,1.5,13) looking horizontally. Each shadowed picture has a paired
-shadow-disabled clean reference. Lit-ground masks exclude the cube, its possible
-shadow and the plane edges; every 5×5 neighbourhood must be fully inside the mask.
-The test also compares lit pixels against the reference so uniformly darkened
-receivers cannot pass the banding check.
-
-Post-tonemap normalized luminance MAD from each pixel's 5×5 mean (ranges over
-both cameras and azimuths):
-
-| Elevation | Before R3 | Clean reference = after R3 |
-|---|---:|---:|
-| 12° | 0.001530–0.001609 | 0.000060–0.000229 |
-| 30° | 0.002206–0.002236 | 0.000013–0.000099 |
-| 55° | 0.002247–0.002294 | 0–0.000065 |
-| 80° | 0.002350–0.002359 | 0–0.000065 |
-
-The fixed bar is **0.001**: all 16 original pictures fail, all 16 corrected pictures
-pass. Maximum clean-relative luminance step across sampled cascade overlap edges
-is **0% after**, versus up to **1.7143% before** (bar 2%). A supplementary translated
-40 m fixture samples the last cascade's 54–62 m fade at two azimuths, including
-110°: MAD **0.000138–0.000881**, identical to clean, with **0%** fade error.
-These larger clean values reflect the compressed BRDF gradient near the horizon.
-
-A 256×8192 readback with the **same projection and cascade fits** resolves contact
-in the grazing camera; a 720p image alone cannot prove 3 cm there. Ground-only
-pixels exclude the cube's MSAA footprint. The conservative contact-gap bounds,
-including half-pixel extent, are **0.665 cm high / 2.407 cm grazing** (bar 3 cm).
-At least four interior pixels per case agree with ambient-only brightness within
-2/255; measured interior/lit ratios **0.2837–0.4609** match the expected ratios.
-The sheet caster, all-cascade reach and subdegree stability fixtures also pass.
-
-Default fog: far object and adjacent horizon sky both **[201,214,217]**.
-Explicit fog colour over a constant sky: both **[206,165,112]**. An upward-ray
-probe checks finite integrated density rather than merely painting the sky solid.
-The saved PNGs were inspected: the high camera shows a smooth ground plane and
-an attached short shadow; the grazing camera shows a smooth plane and long,
-attached shadow with a soft tip. No concentric rings remain. The earlier Beacons
-artifact and original fixture renders visibly contain the fine repeating pattern.
-
-Performance uses three sequential before/after pairs, reversing order for pair 2,
-with saved native binaries, 600 frames per fast-path mode and 60 warm-up + 240
-measured frames for the Beacons camera/40 m plane/cube/sun (-5,-10,-5) diagnostic.
-Medians of the three run summaries, milliseconds:
-
-| Diagnostic | Before | After |
-|---|---:|---:|
-| 200k `Some`, CPU encode | 0.3072 | 0.2848 |
-| 200k `Some`, tick copy/upload | 1.9868 | 1.8620 |
-| 200k `Some`, GPU-completed wall | 2.7664 | 2.6269 |
-| 200k `All`, CPU encode | 0.3027 | 0.2920 |
-| 200k `All`, tick upload | 1.8535 | 1.6740 |
-| 200k `All`, GPU-completed wall | 2.9219 | 2.6513 |
-| Beacons-like shadowed frame, GPU timestamp median | 0.2075 | 0.2160 |
-| Beacons-like shadowed frame, CPU encode median | 0.2795 | 0.3051 |
-
-Observed fast-path medians improve 3.5–9.3% for encode/completed-frame time, inside
-the requested 2% regression bar. The shadowed GPU frame costs **8.5 µs more**;
-the sampling arithmetic changes, but texture comparisons stay at nine per cascade.
-This is a shared machine: individual fast-path runs varied substantially (e.g.
-`Some` completed-frame time 2.45–5.10 ms before), so this is not a precise 2%
-confidence bound or a speedup claim. An earlier after-run overlapping the GPU
-suite was discarded. Local native launches worked; no builder fallback was needed.
-
-Artifacts and logs are in `render/target/r3-before`, `r3-after`, and `r3-*.log`.
-Run the new diagnostics with the README's absolute `EXACT_GPU_OUT` convention;
-`cargo test --release -p exact-game-render --test core timing_ -- --ignored
---nocapture --test-threads=1` includes the Beacons GPU timestamp fixture.
-The existing Greybox GPU fixture now consumes `published()` for HUD state, matching
-the concurrent core migration; `surface.rs` and the core crates were not edited
-as part of R3.
-
-Final validation: **49 tests passed**, four diagnostics ignored by the ordinary
-run; all three GPU timing diagnostics were run separately. Scoped clippy with
-`-D warnings`, scoped rustfmt, and the staged repository caps check pass.
-
-
-## R3b review fixes — 2026-09-17, Apple M5 Max / Metal
-
-Compared with 8b80740, using the same new fixtures before and after:
-
-| Probe | Before | After |
-|---|---:|---:|
-| Fog, eye Y=450 to ground Y=0, output byte | 206 | 104 (analytic 104) |
-| Fog, eye Y=-10 to Y=450, output byte | 156 | 156 (analytic 156) |
-| Fog, eye Y=-450 to Y=0, scaled density, output byte | 104 | 104 (analytic 104) |
-| 2° contact, high / low camera | no 75%-occluded pixel within 8 cm | ≤6.65 / ≤24.07 mm |
-| 2° interior/lit ratio, azimuth 35°, high camera | 0.8933 | 0.7867 (ambient reference 0.7867) |
-| 2° interior/lit ratio, azimuth 35°, low camera | 0.8625 | 0.7284 (ambient reference 0.7284) |
-| Wall under nearby overhang, N·L≈0.003, excess output byte | 50 | 0 |
-| Glossy metal sphere terminator under overhang, same sun, excess byte | 12 | 0 |
-
-The high-altitude fog transmission is 0.818731, rather than approximately
-1.29e-13 from the shifted endpoint exponent. Below-base upward transmission is
-0.580621 for the -10→450 m probe. The -450 m probe scales density by exp(-40) to
-keep the clamped-density result measurable rather than saturating the image.
-
-The contact matrix now includes **1°, 2°, 3°**, both camera heights and both
-azimuths. All twelve dusk cases meet the same 3 cm contact bound and have at least
-four near-base shadow pixels within 2/255 of ambient. The ratio assertion now
-uses the ambient reference: a fixed ratio below 0.65 cannot describe a dim dusk
-sun above unchanged ambient. Low-sun lit-ground masks exclude the entire long
-shadow. MAD is **0.000034–0.000250**, equal to the clean references; sampled lit
-cascade-boundary error is zero. The old 12/30/55/80° cases still pass.
-
-The overhang is 17.5 cm above the wall probe's origin. Wall and sphere fixtures
-also test sun X/Y ratios 0.02 and 0.05: all occluded probes have zero excess bytes;
-removing the overhang's casting restores **187/221** bytes on the wall and
-**61/67** on the sphere. At 0.003 the wall's direct term intentionally fades out
-with or without an overhang; the sphere probes span its changing normals and
-still recover 57 bytes without the overhang. This names the supported-angle
-tradeoff rather than claiming exact illumination at the singular terminator.
-
-Both high- and low-camera 2° PNG pairs and the high-camera contact crops were
-visually inspected. Before, the long shadow fades into a lighter region next to
-the cube, giving a detached appearance. After, the dark shadow meets the base
-continuously; its near edge is firmer and the surrounding ground stays smooth.
-Files: `target/r3b-before` and `target/r3b-after`, including
-`quality-h9-e2-a35.png`, `quality-h1.5-e2-a35.png`, and `contact-2deg.png`.
-
-All three review diagnoses reproduce. The additional contributor was the
-isotropic light-map PCF footprint stretching on the receiver at dusk; bounding
-normal offset alone did not restore the contact's darkness. The bias fix therefore
-also projects the PCF grid and handles steep bilinear footprints explicitly.
-
-Timing: three sequential before/after pairs of saved release binaries, reversing
-order for pair 2; 600 frames per 200k fast-path mode. Medians of run summaries:
-
-| Diagnostic, ms | Before | After |
-|---|---:|---:|
-| 200k `Some`, CPU encode | 0.2636 | 0.1975 |
-| 200k `Some`, tick copy/upload | 1.6081 | 1.3801 |
-| 200k `Some`, completed frame | 3.1029 | 2.5200 |
-| 200k `All`, CPU encode | 0.2586 | 0.2429 |
-| 200k `All`, tick upload | 1.6211 | 1.4430 |
-| 200k `All`, completed frame | 3.2152 | 2.8317 |
-| Beacons shadowed GPU frame | 0.4993 | 0.5214 |
-| Beacons CPU encode | 0.2564 | 0.2570 |
-| 300 objects, effects off, CPU encode | 0.1818 | 0.1581 |
-| 300 objects, effects off, GPU envelope | 0.4054 | 0.5609 |
-
-No regression in the 200k fast-path medians; shadowed Beacons costs 22.1 µs more
-GPU time. Shared-machine variance is substantial: the 300-object effects-off GPU
-envelope rises despite the unchanged fog/shadow-free shader path, with individual
-before/after envelopes spanning 0.2980–0.6287 ms. These are observations, not a
-speedup claim or a tight confidence bound. Logs are `target/r3b-pair-*.log`.
-
-Validation: **51 tests pass**, four diagnostics ignored by the ordinary test run;
-all three GPU timing diagnostics pass separately. Scoped clippy with `-D warnings`
-and rustfmt pass; the staged repository caps check passes. Native launches worked
-locally; no Linux fallback was needed.
-
-
-G1's current dimensioned Mesh and Follow schema supersedes the historical pins
-above: Greybox setup is `0x6b4d864d2da4c316`, W1500 is `0xe361b9c0055bede6`.
-The full game workspace, including the formerly separate physics assertions,
-passes. The current [ergonomics report](../diaries/002-ergonomics.md) records
-macOS/Linux/Chrome parity, paired timing runs, stillness cost and both proofs.
+GPU tests explicitly skip without an adapter; geometry and shader validation still
+run. Set `EXACT_GPU_OUT` for image artifacts. The current game proofs pin native
+and browser hashes. [Game README](../README.md) covers clock, save and dev carry;
+[ergonomics diary](../diaries/002-ergonomics.md) retains experiment history.

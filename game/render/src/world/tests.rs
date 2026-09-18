@@ -5,7 +5,7 @@ use exact_game::{
 
 #[derive(Debug, PartialEq)]
 enum Call {
-    Begin(Rewrite),
+    Begin,
     Transform(u32, usize, bool),
     Material(u32, usize),
     Previous(u32, usize),
@@ -56,12 +56,9 @@ impl Writes for Recording {
     fn max_slots(&self) -> u32 {
         self.limit
     }
-    fn begin_tick(&mut self, rewrite: Rewrite) {
-        self.call(Call::Begin(rewrite));
+    fn begin_tick(&mut self) {
+        self.call(Call::Begin);
         std::mem::swap(&mut self.current, &mut self.previous);
-        if rewrite == Rewrite::Some {
-            self.current.clone_from(&self.previous);
-        }
     }
     fn transforms(&mut self, first: u32, values: &[f32], both: bool) -> Result<(), RenderError> {
         self.call(Call::Transform(first, values.len(), both));
@@ -177,18 +174,12 @@ fn moved_then_two_still_ticks_stop_all_history_work() {
     sim.advance(0., Clock::Seekable);
     r.calls.clear();
     sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
-    assert!(r.calls.contains(&Call::Begin(Rewrite::All)));
+    assert!(r.calls.contains(&Call::Begin));
     assert_ne!(r.previous, r.current); // Includes the setup-to-first-tick stamp collision.
     assert!(!r.calls.contains(&Call::Batches));
     r.calls.clear();
     sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
-    assert_eq!(
-        r.calls,
-        [
-            Call::Begin(Rewrite::All),
-            Call::Transform(0, PAGE * 10, false)
-        ]
-    );
+    assert_eq!(r.calls, [Call::Begin, Call::Transform(0, PAGE * 10, false)]);
     assert_eq!(r.previous, r.current);
     r.calls.clear();
     sim.advance_with(51., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
@@ -733,7 +724,6 @@ fn dirty_pages_coalesce_overrides_and_dense_mode_reprobes() {
         if tick > 40 {
             assert!(!r.calls.iter().any(|c| matches!(c, Call::Transform(..))));
         }
-        assert!(!r.calls.contains(&Call::Begin(Rewrite::Some)));
     }
     assert_eq!(r.position(child, true), r.position(child, false));
 }
@@ -772,7 +762,7 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
             assert_eq!(
                 r.calls,
                 [
-                    Call::Begin(Rewrite::All),
+                    Call::Begin,
                     Call::Transform((500_000 / PAGE * PAGE) as u32, PAGE * 10, false)
                 ]
             );

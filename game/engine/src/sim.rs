@@ -497,9 +497,6 @@ impl<G: Game> Sim<G> {
     }
     /// Drain only explicit string events, in emission order.
     pub fn take_messages(&mut self) -> Vec<String> {
-        if !self.world.messages.borrow().is_empty() {
-            self.world.mutated();
-        }
         std::mem::take(&mut *self.world.messages.borrow_mut())
     }
     fn invalidate(&mut self) {
@@ -665,7 +662,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut bytes = b"EXSIM\0\x03".to_vec();
+        let mut bytes = b"EXSIM\0\x04".to_vec();
         bytes.extend(bin::to_vec(&saved));
         bytes
     }
@@ -679,9 +676,11 @@ impl<G: Game> Sim<G> {
         self.restore_into(bytes, Some(&args))
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
-        let payload = bytes
-            .strip_prefix(b"EXSIM\0\x03")
-            .ok_or_else(|| DataError::new("invalid simulation save magic or version"))?;
+        let payload = bytes.strip_prefix(b"EXSIM\0\x04").ok_or_else(|| {
+            DataError::new(
+                "unsupported simulation save format (expected EXSIM v4; EXSIM v3 is obsolete)",
+            )
+        })?;
         let s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(

@@ -58,6 +58,11 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn bytes(&mut self, value: &[u8]) {
+        self.bytes.push(12);
+        self.var(value.len() as u64);
+        self.bytes.extend_from_slice(value);
+    }
     fn boolean(&mut self, n: bool) {
         self.bytes.push(u8::from(n));
     }
@@ -223,6 +228,17 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn bytes(&mut self) -> Result<Vec<u8>, DataError> {
+        self.tag(12, "expected bytes")?;
+        let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
+        let bytes = self.take(len)?;
+        self.claim(len)?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(len)
+            .map_err(super::limits::allocation)?;
+        out.extend_from_slice(bytes);
+        Ok(out)
+    }
     fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         self.budget.claim(bytes)
     }
@@ -358,6 +374,11 @@ impl Reader for Decoder<'_> {
             }
             Some(6) => {
                 self.string()?;
+            }
+            Some(12) => {
+                self.byte()?;
+                let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
+                self.take(len)?;
             }
             Some(7) => {
                 self.begin_seq()?;
