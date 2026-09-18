@@ -60,3 +60,12 @@ fn difficult_moment_cost() {
         status.lines().find(|l| l.starts_with("VmHWM:")).unwrap()
     );
 }
+
+#[test]
+fn replacement_running_clip_has_different_cpu_skinning() {
+    let model = crate::assets::Model::parse(Lanterns::assets()[0].bytes).unwrap();
+    let run = model.sample("Run", 1.0 / 60.0, true).unwrap();
+    let walk = model.sample("Walk", 1.0 / 60.0, true).unwrap();
+    assert_eq!(run.len(), walk.len());
+    assert!(run.iter().zip(&walk).any(|(a, b)| a.0 != b.0));
+}

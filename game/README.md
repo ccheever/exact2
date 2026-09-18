@@ -603,3 +603,28 @@ here. The Linux stdio driver supports controlled launches only, so live restore
 is verified at the Sim level. Separately, the Linux host still replaces T5's
 CPU occlusion result with `unavailable`; that existing behavior and assertion
 are unchanged and the follow-up is recorded in `QUEUE.md`.
+
+## Difficult-moment carry diagnostic (I3)
+
+[Diary 003](diaries/003-difficult-moment.md) records the four edited Lanterns
+builds restored through `Sim::restore_bound(&mut self, &[u8]) -> Result<(), DataError>`.
+No public API or production engine behavior changes. The test binary compiles
+independent copies of the game with explicit source substitutions; shipped Lanterns
+is unchanged. `games/lanterns/fixtures/difficult-moment.script.json` uses the
+existing Sim key and clock verbs from tick zero, including scheduled key edges.
+`difficult-moment.sim` is its EXSIM v5 save; the adjacent JSON describes the
+observed moment and the JSONL records all 120 ticks of each continuation.
+The exact requested combined moment was **not reached**: no animation blending
+exists, and the crate sleeps before the apex. `moving-crate.sim` separately tests
+nonzero linear and angular velocity, with the same four edits.
+
+Run the deterministic probe with
+`cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test difficult_moment`.
+`EXACT_I3_OUT=<directory>` additionally writes full fresh/restored/continued state
+and journals. `EXACT_I3_RECORD=1` deliberately regenerates these new diagnostic
+fixtures; normal tests only compare them. Existing game proof pins are unchanged.
+CPU timing is opt-in:
+`cargo test --manifest-path game/Cargo.toml -p exact-game-render difficult_moment_cost -- --ignored --nocapture`.
+It uses the existing recording feed backend, times actual CPU animation sampling
+inside feed, and reports separate simulation, animation and remaining-feed medians
+plus Linux process peak RSS. This cannot measure GPU upload, drawing, or pixels.

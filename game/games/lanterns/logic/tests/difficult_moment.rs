@@ -1,4 +1,6 @@
 //! I3 instrument. Compiled game edits, no mutation of the carried world.
+// Each second build needs its own kinds bound to that build's component types.
+#![allow(clippy::duplicate_mod)]
 use exact_game::{Args, Game, InputEvent, Sim};
 use lanterns_logic::{Lanterns, Options};
 use serde_json::{json, Value};
@@ -8,7 +10,8 @@ use std::path::PathBuf;
 mod physics_edit {
     include!(concat!(env!("OUT_DIR"), "/i3_physics.rs"));
 }
-#[allow(dead_code)]
+// Preserve the literal Run-to-Walk edit, including identical fast/slow branches.
+#[allow(dead_code, clippy::if_same_then_else)]
 mod clip_edit {
     include!(concat!(env!("OUT_DIR"), "/i3_clip.rs"));
 }
@@ -258,8 +261,12 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
             .any(|v| v.as_f64().unwrap() != 0.0));
     }
     let moving_physics = probe::<physics_edit::Lanterns>(&moving, options());
+    let moving_placement = probe::<Lanterns>(&moving, edited_scene("placement"));
+    let moving_clip = probe::<clip_edit::Lanterns>(&moving, options());
+    let moving_appearance = probe::<appearance_edit::Lanterns>(&moving, edited_scene("appearance"));
+    assert_eq!(moving_v1["trajectory"], moving_placement["trajectory"]);
     let report = json!({"v1":v1,"placement":placement,"physics":physics,"clip":clip,"appearance":appearance,
-        "supplementary_moving_crate":{"v1":moving_v1,"physics":moving_physics}});
+        "supplementary_moving_crate":{"v1":moving_v1,"physics":moving_physics,"placement":moving_placement,"clip":moving_clip,"appearance":moving_appearance}});
     // Full 120-tick per-edit records are written only when explicitly requested.
     if let Some(dir) = std::env::var_os("EXACT_I3_OUT") {
         std::fs::create_dir_all(&dir).unwrap();
