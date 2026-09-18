@@ -46,9 +46,10 @@ welcome document and says so for anything else.
 
 ## Performance work in progress — 2026-09-18
 
-Latest comparison: **Exact opens this README slightly ahead of Legend, but
-integrating `origin/main` regressed scrolling on the full corpus**. The speed
-goal is not achieved.
+Latest comparison: **Exact opens this README ahead of Legend, but Legend still
+scrolls more smoothly on the full corpus**. Reusing scalar measurements repairs
+part of the scrolling regression introduced by integrating `origin/main`. The
+speed goal is not achieved.
 
 After macOS screen-capture approval, launch timing uses a ScreenCaptureKit
 stream started before process launch. The observer matches the document body
@@ -62,18 +63,32 @@ Other shared-machine activity is uncontrolled. The display stream requests
 
 | Launch until reference content is displayed | Median | p95 |
 | --- | ---: | ---: |
-| Minimal Swift/AppKit Hello World | 150 ms | 193 ms |
-| Exact, integrated `origin/main` | 240 ms | 303 ms |
-| Legend Markdown | 264 ms | 322 ms |
+| Minimal Swift/AppKit Hello World | 158 ms | 193 ms |
+| Exact, integrated `origin/main` plus scalar reuse | 240 ms | 286 ms |
+| Legend Markdown | 277 ms | 318 ms |
 
 The native baseline is an optimized Swift AppKit executable with one
 `NSTextField`, no document loading and no Exact code. Exact's README appears
-about 90 ms after that baseline and 24 ms ahead of Legend at the median in
+about 82 ms after that baseline and 37 ms ahead of Legend at the median in
 this test. This does not establish a meaningful general startup lead or
 already-running file-switch latency. All 90 launches matched; none were
-discarded. Raw runs, binary/reference identity and observer source are in
-`target/markdown-comparison/origin-integration/display-startup/` and
-`probe/display-startup/`.
+discarded. An earlier attempt stopped at its first launch because an unrelated
+Chrome crash dialog visibly occluded the document. That failure is retained
+in `origin-integration/scalar-display-startup/`; the dialog was dismissed and
+the complete series restarted with unchanged references and thresholds. Raw
+runs and binary/reference identity are in
+`target/markdown-comparison/origin-integration/scalar-display-startup-v2/`;
+the observer is in `probe/display-startup/`. The preceding origin-only binary
+measured 150/240/264 ms median for Hello/Exact/Legend in its separate series
+(`origin-integration/display-startup/`); do not pool the two series.
+
+A separate paired series opens the 2,242,305-byte corpus of 75 distinct repository
+documents, using the same observer and window size: 30 fresh processes per app,
+alternating order, all matched. Exact is 255 ms median / 286 ms p95; Legend is
+292 / 329 ms. This observes the opening body content, not full-document layout
+completion. `origin-integration/scalar-full-display-startup/` retains every run
+and the reference/binary hashes. Hello World was measured with the README series,
+so do not subtract its timing from this later series.
 
 The preceding paired CGWindow screenshot series recorded first windows at
 167/193/195 ms median for Hello World/Exact/Legend, and capture completion at
@@ -94,19 +109,31 @@ movement. These are input rates, not measured display FPS.
 
 | Sustained scroll, 2.24 MB corpus | Median hitch ms/s | Longest stall across runs |
 | --- | ---: | ---: |
-| Exact, integrated `origin/main` | 155.00 | 33.33 ms |
-| Exact, retained pre-merge build | 7.50 | 25.00 ms |
-| Legend Markdown | 5.83 | 83.33 ms |
+| Exact, integrated `origin/main` plus scalar reuse | 21.67 | 16.67 ms |
+| Exact, integrated `origin/main` before scalar reuse | 59.16 | 33.33 ms |
+| Legend Markdown | 3.33 | 8.33 ms |
 
-All runs are retained: integrated Exact 67.50/162.50/155.00 ms/s;
-pre-merge Exact 11.67/7.50/3.33; Legend 11.67/0.83/5.83. The apps have
-different reading layouts inside their matched outer windows. The small
-sample does not establish a general ranking, but the consistent merged-build
-regression needs repair. Active-scroll profiles put the additional sampled
-work in list settlement/layout and text measurement; drawing itself consumed
-less sampled time. That identifies the path, not yet the cause.
-`origin-integration/hitches-120hz/{identity,runs,summary}.json` and
-`origin-integration/scroll-profile/` preserve traces, samples and coverage.
+All runs are retained: scalar Exact 3.33/40.00/21.67 ms/s;
+origin-only Exact 55.00/59.16/148.33; Legend 0.83/3.33/4.17. Shared-machine
+load rose during the series; no comparison-owned builds were active. The apps
+have different reading layouts inside matched outer windows. Three runs do
+not establish a general ranking, but this series favors the scalar fix over
+the merged baseline and still favors Legend overall.
+`origin-integration/scalar-hitches-120hz/{identity,runs,summary}.json` retains
+all nine target-PID traces and verified input coverage.
+
+The earlier, separate series established the integration regression:
+origin-only Exact 155.00 median hitch ms/s, pre-merge Exact 7.50, Legend 5.83.
+Its raw runs remain in `origin-integration/hitches-120hz/`. Active-scroll
+profiles put the added work in list settlement and text measurement. Repeated
+width offers discarded complete paragraphs and then wrapped the same text
+again. The fix retains only their scalar size/baseline under the existing
+cache bounds when obsolete paragraphs retire. A regression test verifies
+revisited widths hit the scalar cache without retaining obsolete CTLine arrays,
+and that font-catalog replacement invalidates those scalars. The fresh scalar
+profile shows fewer text-layout samples, but repeated native measurement and
+list settlement remain. Profiles are diagnostic samples, not elapsed costs
+or display frame rates (`origin-integration/{scroll-profile,scalar-scroll-profile}/`).
 
 Earlier 60-event/s full-corpus runs favored the retained pre-merge Exact:
 3.33 vs 18.75 median hitch ms/s, longest stalls 8.33 vs 16.67 ms.
@@ -118,12 +145,57 @@ rejected asynchronous text experiment. The async experiment's median was
 worse (4.17 ms/s), so it was not kept. The earlier 231 KB repeated-document
 series also varies by input rate and instrument; do not pool those results.
 
-Last complete footprint measurements use the older Exact `d26b0c81…`.
-On the 263 KB specification, Exact/Legend used 63/67 MiB after opening and
-299/317 MiB after scrolling. README post-scroll footprint was worse for Exact:
-242/88 MiB. This excludes WindowServer and children, and does not measure
-settling or repeated-pass growth. `corpus-memory-v2-summary.json` retains all
-three documents. Current-build sustained-memory comparison remains pending.
+Current-build memory uses the same 2.24 MB corpus and 900×700 windows, with
+three alternating fresh processes per app. Each process makes four forward
+and reverse passes over approximately the first 36,000 points of the document,
+not its entire length. Each direction lasts five seconds at 120 HID events/s;
+reverse travel is slightly longer to reach the beginning. Endpoint OCR verifies
+changed body content and return to the first heading. `vmmap` measures process
+physical footprint, excluding WindowServer and children. No Instruments or
+screen stream runs during this test. Median of three processes:
+
+| Physical footprint | Exact | Legend |
+| --- | ---: | ---: |
+| After opening | 80.2 MiB | 63.7 MiB |
+| After pass 1, two seconds idle | 98.3 MiB | 90.6 MiB |
+| After pass 2, two seconds idle | 99.1 MiB | 98.1 MiB |
+| After pass 3, two seconds idle | 99.3 MiB | 103.1 MiB |
+| After pass 4, two seconds idle | 99.3 MiB | 109.5 MiB |
+| After ten more seconds idle | 91.7 MiB | 100.7 MiB |
+| Peak during the run | 359.0 MiB | 381.8 MiB |
+
+Exact settles consistently across these four passes. Legend's settled footprint
+rises in this short series; that does not establish indefinite growth or a leak.
+Both have much larger transient footprints than their idle values. Evidence is
+in `origin-integration/scalar-memory-repeated/{identity,runs,summary,endpoint-validation}.json`.
+The older `d26b0c81…` results in `corpus-memory-v2-summary.json` measured only
+opening and immediate post-scroll memory; they do not describe the current build
+or settling behavior.
+
+Wheel input to first visibly changed body frame now uses ScreenCaptureKit's
+WindowServer timestamp, from immediately before posting one 120-pixel ordinary
+wheel event (no gesture phase). Three alternating fresh processes per app,
+30 inputs per process, with the body stable for at least 520 ms before each
+input. All 90 inputs per app produced a changed frame; none were discarded.
+The first changed crops were visually checked for actual text movement.
+
+| Wheel input to visible response | Median | p95 |
+| --- | ---: | ---: |
+| Exact | 21.5 ms | 28.5 ms |
+| Legend | 21.5 ms | 25.2 ms |
+
+This is synthetic wheel-post to WindowServer presentation, not physical
+trackpad-to-photon latency, and does not establish a meaningful response lead.
+Each process then receives a ten-second fast-scroll burst at 120 events/s.
+No entirely blank body crops were detected among 3,067 observed Exact frames
+and 3,320 Legend frames. These are changed/complete captured frames, not display
+FPS counts; the ink-presence check cannot rule out partial blanks or stale text.
+`origin-integration/scalar-input-display/{identity,runs,summary}.json` retains
+frame timestamps, stability checks, misses (none), and images. An earlier
+isolated gesture-start pilot produced no response to alternating Legend events;
+it was not accepted as a latency comparison, and is retained with the reason
+in `origin-integration/input-display-pilot/`. Both apps used the same corrected
+ordinary-wheel protocol for the reported series.
 
 Charlie confirmed this metric priority on 2026-09-18:
 
@@ -134,16 +206,16 @@ Charlie confirmed this metric priority on 2026-09-18:
 4. Settling memory and growth across repeated scrolling passes.
 
 Internal parse/layout/flush timings diagnose costs; they do not establish
-visible frame rate. Input latency and repeated-pass memory still need reliable
-current-build measurements.
+visible frame rate. Partial blank/stale-content detection and already-running
+file-switch latency still need reliable comparative measurements.
 
 `origin/main` at `7e77aaf1` adds warm paragraph ink indexing, bounded cache
 maintenance, paragraph identities and Apple scalar-measurement reuse. Its
 cold AppKit background paragraph path is opt-in for Markdown Stress, not
 this reader. The integration is committed as `0d32840c` in
-`exact2-wt-markdown-origin`; the current measured binary is `245d3466…`, the
-retained pre-merge binary `e98722ab…`. The combined Mac Release build, 227 core
-unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
+`exact2-wt-markdown-origin`; the current measured binary is `d222c8b0…` from
+`8b69fa64`, the origin-only baseline `245d3466…`, and the retained pre-merge
+binary `e98722ab…`. The combined Mac Release build, 227 core unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
 tests, strict host/compiler Clippy, formatting, caps and boot passed.
 Native launch and the agent's full-corpus open now run successfully; an
 intermittent launch stall was observed before Swift main, separately from
@@ -155,8 +227,19 @@ decoded JSON after the upstream byte-transport change. Commit `8137210c`
 decodes that response; its three module tests and targeted strict Clippy pass.
 Superseded full-workspace checks were stopped at recorded process IDs after
 profiling found TypeScript scanning a heavily populated shared temporary
-ancestor. Validation is being rerun with a private `TMPDIR`; whole-workspace
-build/test/lint completion remains pending.
+ancestor. With a private temporary directory, the final workspace test run
+reports 1,555 passed, four failed and eight ignored: one fixture inherited the
+worktree's Cargo workspace because its temporary directory was inside it;
+three assertions still treat the newly assigned event tag 18 as unknown. Strict
+workspace Clippy, formatting, caps and boot pass. The final workspace build
+failed when a Messages bake helper exited without replying; an earlier build
+passed. After three validation rounds, these broader repairs are stopped and
+recorded in `QUEUE.md`, not reported as green. The scalar change separately
+passes all 149 Swift host tests and the standard Mac Release bundle build.
+`origin-integration/workspace-validation-round{2,3}.json`,
+`workspace-round3-test-corrected.json` and `cache-diagnostic/scalar-tests-round1.json`
+retain the results. Future private temporary directories must be outside any
+Cargo workspace.
 
 The comparison target is [Legend Markdown](https://github.com/LegendApp/legend-apps/tree/2b7b91d949cf873ddef7ea0dde892ddd51944501/apps/markdown),
 pinned to `2b7b91d949cf873ddef7ea0dde892ddd51944501`. Its ARM64 Release

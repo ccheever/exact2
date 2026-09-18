@@ -23,10 +23,13 @@ sits on that list carries the trade it would take.
   sweep, raster budget and Messages acceptance. Memory and construction cost trigger it now; further Messages
   decorative artwork/material/timing polish waits. The fixed-height web slice does not complete the native/consumer sweep.
 
-- **Markdown performance comparison** (2026-09-18): repeat matched first-content
-  and scrolling-hitch trials across real documents; measure process memory.
-  Exact-offer measurement reuse halves callback traffic but has only a modest
-  CPU benefit; verify its scrolling traces against Legend and profile what remains.
+- **Markdown performance comparison** (2026-09-18): displayed launch now favors
+  Exact modestly on README and the 2.24 MB corpus; ordinary-wheel response is
+  tied, and footprint settles across four repeated scrolling passes. Legend
+  still has lower hitch time after the scalar-width reuse fix. Next: reduce
+  native measurement/list settlement, measure already-running file switches,
+  and validate partial blank/stale content during fast scrolling. Current
+  identities, methods and limits are in `apps/markdown/README.md`.
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
