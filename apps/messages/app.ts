@@ -154,6 +154,8 @@ function responder(id:string) {
 function conversation(id:string,replying:string,selection:string):Result<'conversation'> {
   const person=people.find(p=>p.id===id) || people[0];
   const rows=threads.get(person.id) || [];
+  const replyCounts=new Map<string,number>();
+  for(const row of rows)if(row.id!==row.replyRoot)replyCounts.set(row.replyRoot,(replyCounts.get(row.replyRoot)||0)+1);
   const selected=new Set(selection.split("|").filter(id=>rows.some(m=>m.id===id)));
   const decorate=(visible:StoredMessage[])=>{
     let lastOutgoing=-1;
@@ -173,7 +175,7 @@ function conversation(id:string,replying:string,selection:string):Result<'conver
         tail:!sameRun(m,visible[i+1]),
         senderName:sender?.name || '',senderInitials:sender?.initials || '',senderColor:sender?.color || '',
         showSender:!!sender && (startsDay || visible[i-1].sender!==m.sender),
-        replyCount:rows.filter(r=>r.id!==m.id && r.replyRoot===m.id).length};
+        replyCount:replyCounts.get(m.id)||0};
     });
   };
   const messages=decorate(rows);
@@ -402,6 +404,10 @@ export const answer: Answer = (source,args,store,storage,native) => {
   return local(async()=>{
     const client=await ready();
     if(!client)return sources[source](args,store,storage,native);
+    // These queries only inspect the restored model. In particular a chat
+    // refresh must not detach and diff the entire durable history again.
+    // recentlyDeleted is excluded: reading it expires persisted recovery rows.
+    if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
     const previousPending=new Map(pending),previousTicks=ticks;
     const value=await sources[source](args,store,storage,native);
     try{await client.persist(snapshot());}catch(error){

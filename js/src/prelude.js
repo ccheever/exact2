@@ -212,15 +212,19 @@
     if (typeof captureString !== "function") return JSON.stringify(reply);
     var paths = new WeakMap(), root = true;
     return JSON.stringify(reply, function (key, item) {
-      var path = root ? [] : paths.get(this).concat([key]);
+      var first = root;
       root = false;
       if (typeof item === "string" && item.length >= 65536) {
+        var path = first ? [] : [key];
+        for (var link = first ? null : paths.get(this); link; link = link.parent) path.push(link.key);
+        path.reverse();
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
         captureString(JSON.stringify(path), item);
         return "";
       }
-      if (item !== null && typeof item === "object") paths.set(item, path);
+      // Retain one link per visited object; only a captured string needs a path.
+      if (item !== null && typeof item === "object") paths.set(item, first ? null : {parent:paths.get(this), key:key});
       return item;
     });
   }
