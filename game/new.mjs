@@ -2,6 +2,7 @@
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { gameShells } from './app/shells.mjs';
 
 export function createGame(name, directory = import.meta.dir, run = spawnSync) {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
@@ -18,6 +19,11 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync) {
       .replaceAll('small_game', name.replaceAll('-', '_'))
       .replaceAll('Small game', title));
   }
+  // Synthesize this game's host shells and prune orphans first: an abandoned
+  // shell (a deleted game's) would fail every cargo command below.
+  const appJson = resolve(destination, 'app.json');
+  const manifest = existsSync(appJson) ? JSON.parse(readFileSync(appJson, 'utf8')) : {};
+  if (manifest.game) gameShells(destination, manifest.game, directory);
   // A locked resolution is read-only, including when these packages were already recorded.
   const check = run('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'],
     {cwd:directory, stdio:['ignore','ignore','pipe'], encoding:'utf8'});
