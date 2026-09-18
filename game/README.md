@@ -35,65 +35,102 @@ The complete example below is compiled and run by `cargo test --doc -p exact-gam
 use exact_game::character::Character;
 use exact_game::*;
 
+#[derive(Default, exact_game::Data)]
+struct Hud {
+    lit: u32,
+    near: String,
+}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    // Changing restart_generation reconstructs setup; Play again increments it.
-    pub restart_generation: u32,
+    #[restart]
+    pub restart: bool,
 }
 #[derive(Default, Component)]
-struct Player { character: Character }
-#[derive(Default, Component)]
-pub struct Beacon { pub lit: bool, glow: Spring }
-#[derive(Default, Data)]
-struct Hud { lit: u32, near: String }
+pub struct Beacon {
+    pub lit: bool,
+    glow: Spring,
+}
 pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "small-game";
+    const HZ: u32 = 120;
     type Args = Options;
     fn actions() -> Actions {
-        Actions::new().stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"]).button("jump", &["Space"])
+        Actions::new()
+            .stick("move", Stick::wasd().or_arrows())
+            .button("light", &["KeyE"])
+            .button("jump", &["Space"])
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::grid([0.16, 0.23, 0.24], 1.0)));
-        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1),
-            Player { character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6) }));
-        w.spawn_named("camera", (Transform::default(), Camera::default(),
-            Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
+        w.insert_resource(Environment {
+            background: Some([0.49, 0.67, 0.64]),
+            ..Environment::default()
+        });
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(40.0, 40.0),
+            Material::grid([0.16, 0.23, 0.24], 1.0),
+        ));
+        let player = w.spawn_named(
+            "player",
+            (
+                Transform::at(0.0, 0.9, 0.0),
+                Mesh::capsule(0.4, 1.8),
+                Material::rgb(0.8, 0.4, 0.1),
+                // These are Character's defaults, kept visible for auditing the game.
+                Character::new().speed(4.0).accel(12.0).brake(20.0)
+                    .jump(1.2).gravity(9.81).ground(0.9).bounds_xz(-19.6..=19.6),
+            ),
+        );
+        w.spawn_named(
+            "camera",
+            (
+                Transform::default(),
+                Camera::default(),
+                Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15),
+            ),
+        );
         for (i, x) in [2.0, 6.0].into_iter().enumerate() {
-            w.spawn_named(format!("plinth-{}", i + 1), (Transform::at(x, 0.1, 0.0),
-                Mesh::cylinder(0.9, 0.2), Material::rgb(0.3, 0.4, 0.42)));
-            w.spawn_named(format!("beacon-{}", i + 1), (Transform::at(x, 0.7, 0.0),
-                Mesh::sphere(0.5), Material::default(), Beacon::default()));
+            w.spawn_named(
+                format!("plinth-{}", i + 1),
+                (
+                    Transform::at(x, 0.1, 0.0),
+                    Mesh::cylinder(0.9, 0.2),
+                    Material::rgb(0.3, 0.4, 0.42),
+                ),
+            );
+            w.spawn_named(
+                format!("beacon-{}", i + 1),
+                (
+                    Transform::at(x, 0.7, 0.0),
+                    Mesh::sphere(0.5),
+                    Material::default(),
+                    Beacon::default(),
+                ),
+            );
         }
         w.publish_record(&Hud::default());
     }
-    fn paused(args: &Options) -> bool { args.paused }
+    fn paused(args: &Options) -> bool {
+        args.paused
+    }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        let dt = w.dt();
-        {
-            let mut query = w.query::<(&mut Player, &mut Transform)>();
-            let (player, pose) = query.one().expect("one player");
-            player.character.step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
-        }
-        let position = Vec3::from(w.current_global(w.named("player").unwrap()).unwrap().translation);
-        let mut nearest = None;
-        for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
-            let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
-            if !beacon.lit && input.pressed("light") {
+        w.character("player").step(input.stick_xz("move"), input.pressed("jump"));
+        let nearest = w.nearest_xz::<Beacon>("player", 1.5)
+            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit);
+        if input.pressed("light") {
+            if let Some(e) = nearest {
+                let mut beacon = w.get_mut::<Beacon>(e).unwrap();
                 beacon.lit = true;
                 beacon.glow.set_target(w.now(), 1.0);
             }
-            let distance = Vec2::new(pose.position.x - position.x, pose.position.z - position.z).length_squared();
-            if !beacon.lit && nearest.is_none_or(|(_, old)| distance < old) {
-                nearest = Some((entity, distance));
-            }
         }
-        let near = nearest.and_then(|(e, _)| w.name(e)).unwrap_or("").to_owned();
+        let near = nearest.filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
+            .and_then(|e| w.name(e)).unwrap_or("").to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
@@ -116,7 +153,7 @@ fn main() {
 ```
 
 `Character` composes `Move`, `Jump` and `Gravity`. Its velocity and configuration
-are saved and hashed inside the player's component. `step` reports `grounded`,
+are saved and hashed as a component on the player. `step` reports `grounded`,
 `jumped` and `landed`; bounds stop outward velocity, braking and landing arrive
 exactly. It uses no physics dependency; collider worlds can use Rapier's controller.
 `near` and `near_xz` return `(entity, pose)` in entity order, with an inclusive radius
@@ -130,6 +167,11 @@ and global positions, including parent chains (XZ ignores height). A missing ori
 - **Arguments are a struct; field order is canvas order.** `#[derive(Args)]`
   supports bool, u32/u64, i32/i64, f32/f64, and String (`()` for none).
   Unmarked fields construct; `#[live]` fields are read each tick.
+  `#[restart] pub restart: bool` marks a restart edge: either transition uses the
+  same setup reconstruction path. In Contract, `state again = false`,
+  `action restart writes again` / `again = not again`, then `world(7, paused, again)`.
+  The explicit boolean replaces a generation counter; `state.world.restarted` counts
+  reconstruction in this session, outside the save/hash. No ninth operation.
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
   swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID`, world time and dynamic input; the first restored host clock
@@ -215,9 +257,11 @@ is closed and recorded children are checked before exit. Artifacts are in the ga
 From the repository root:
 
 ```sh
-bun game/new.mjs my-game                 # create the three files and logic crate
+bun game/new.mjs my-game                 # author code, Contract, proof and tests
 bun game/dev.mjs my-game                 # the shared dev loop, on loopback
-bun game/games/my-game/proof.mjs web      # or linux / macos
+bun game/games/my-game/proof.mjs linux    # HUD and gameplay, GPU-less
+bun game/games/my-game/proof.mjs web --screenshot-only
+bun game/prove.mjs beacons --hosts web,linux --repeat 2 --compare-saves
 ```
 
 Games are members of this workspace: one lockfile, profiles and dependency pins in
@@ -226,13 +270,36 @@ new packages in that shared lockfile without upgrading dependencies. An author o
 
 ```text
 game/games/my-game/
-  logic/          Cargo.toml, src/lib.rs, tests/sim.rs
+  logic/          src/lib.rs (the game), tests/sim.rs
   app.contract
-  app.json
   proof.mjs
 ```
 
-`app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
+Default `logic/Cargo.toml` and `app.json` are generated, ignored bake inputs.
+The directory supplies the package/title; the template's literal `impl Game for T`
+and `Game::ID` supply the type and app identity (`com.exact.<ID>`). An existing
+manifest wins; delete a generated one to re-derive it after renaming the game.
+Nonliteral/cfg/macro game declarations supply an explicit `app.json` override;
+Rust still checks the exported type. `git add -f app.json` or `logic/Cargo.toml`
+records an intentional override. Greybox retains `app.json` for `game.audio: true`.
+
+New action games explicitly set `Game::HZ = 120`: the first Feel sitting measured
+3.5–4.1 ms event-to-submitted-pose latency there. Seekable proofs remain tick-exact.
+Beacons r4 and Greybox retain 60 Hz, their movement constants and trajectories.
+The template uses grid ground, an Environment background, explicit accessible
+button names, initial Play autofocus and a centred victory overlay with autofocus.
+Contract has no default hover/focus-visible button styles; that gap is in QUEUE.md.
+The hosts currently process autofocus once per document, so dynamically inserted
+victory autofocus is declared but does not yet move keyboard focus automatically.
+
+`prove.mjs` builds hosts serially, then runs their existing proofs in parallel with
+isolated output directories. Its table compares every final world tick/hash and,
+with `--compare-saves`, every named save's complete bytes across hosts and repeats.
+The template runs headless gameplay first; its web screenshot-only step captures
+the same Contract/world. Linux `tree` reads the runner's actual text, accessible
+names and focus; no game-specific HUD mirror is involved.
+
+`app.json` may override `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
 Add `"audio": true` to `game` to include the sound executor; omit it for a silent
 GPU module with no audio dependency. Audio games define sounds in setup and call
 `audio::step(world)` in tick (see `audio/README.md`).
@@ -546,16 +613,20 @@ The native `Sim` and `session.world("world")` share `run(ms)`, `settle()`,
 Rust reads use `get::<Component>(entity)`; JavaScript uses `get(entity, "Component")`.
 JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` keeps
 simulation fields only. These helpers dispatch the existing eight agent operations.
-The generated game demonstrates nearby prompts, beacon plinths, and `restart_generation` as the
-world's restart identity, with the same movement/light sequence in its test and proof.
+The generated game demonstrates nearby prompts, beacon plinths, and a boolean restart
+edge, with the same movement/light sequence in its test and proof.
 
 
 Native spatial reads use `sim.layout("player").unwrap().screen` and
 `sim.pick(rect.center())`; set `sim.viewport(width, height)` for CSS-pixel coordinates.
 Both use the agent's geometry, current global poses and viewport. A missing entity,
 camera, projected rectangle or hit returns `None`.
-Changing the non-live `Options::restart_generation` reconstructs setup through the
-same argument-binding path as any other setup change; there is no second reset path.
+`World::position` and `Sim::position` read current global positions.
+`w.nearest_xz::<Beacon>("player", 1.5)` returns the closest entity, breaking ties
+in entity order; `.filter(|&e| !w.get::<Beacon>(e).unwrap().lit)` excludes it when lit.
+Use `near_xz` to iterate all candidates (including when selecting the nearest unlit
+among overlapping ranges). `w.character("player").step(wish, jump)` borrows its
+Character and Transform only for the step and uses the fixed world dt.
 World performance state keeps small counts, totals, maxima and draw counters by
 default. Request `state` with `perf: true` or `perf_reset: true` to arm the five
 16,384-sample rings. Arming preserves aggregates and cadence; only explicit reset

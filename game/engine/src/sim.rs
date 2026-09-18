@@ -112,6 +112,7 @@ pub struct Sim<G: Game> {
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
+    pub(crate) restarted: u64,
     pub(crate) restored_from: Option<String>,
     settle_delay: std::cell::Cell<u32>,
     last_epoch: std::cell::Cell<u64>,
@@ -428,6 +429,7 @@ impl<G: Game> Sim<G> {
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             args,
+            restarted: 0,
             last_epoch: std::cell::Cell::new(0),
             restored_from: None,
             settle_delay: std::cell::Cell::new(100),
@@ -474,7 +476,7 @@ impl<G: Game> Sim<G> {
             .zip(&old_values)
             .zip(&new_values)
             .filter(|((arg, old), new)| {
-                arg.1 == ArgumentKind::Setup
+                arg.1 != ArgumentKind::Live
                     && match (old, new) {
                         (Value::Number(a), Value::Number(b)) => a.to_bits() != b.to_bits(),
                         _ => old != new,
@@ -499,6 +501,7 @@ impl<G: Game> Sim<G> {
             self.advance_with(at, Clock::Seekable, after);
         }
         if let Some(mut world) = restart {
+            self.restarted += 1;
             world.presentation_generation = self
                 .world
                 .presentation_generation
@@ -1047,10 +1050,9 @@ impl<G: Game> Sim<G> {
     ) -> Option<crate::Ref<'_, C>> {
         self.world.get::<C>(entity)
     }
-    /// Read the entity's authored position, or None when it has no Transform.
+    /// Read the entity's current global position, including ancestor transforms.
     pub fn position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
-        self.get::<crate::Transform>(entity)
-            .map(|pose| pose.position)
+        self.world.position(entity)
     }
     /// Advance by milliseconds on the seekable clock, establishing an epoch if needed.
     pub fn run(&mut self, ms: f64) -> u32 {

@@ -8,7 +8,7 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
 const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   let session = await open();
   const s = session;
-  const screenshot = path => host === 'web' || host === 'linux' ? s.screenshot(path) : (say('SKIP macOS screenshot: screencapture has no permission in this session'), Promise.resolve({skipped:'screen capture permission'}));
+  const screenshot = path => host === 'web' ? s.screenshot(path) : (say(host === 'linux' ? 'SKIP headless screenshot: gameplay and HUD use tree/state' : 'SKIP macOS screenshot: screencapture has no permission in this session'), Promise.resolve({skipped:host === 'linux' ? 'headless proof' : 'screen capture permission'}));
   const title = await s.tree();
   check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
@@ -29,7 +29,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
   const initial = await s.state();
-  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7df5e5a89b4d0207', initial?.world?.[0]?.hash);
+  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7544ef30a82fdcdc', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.world('world').run(1500);
@@ -40,7 +40,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('W for 1500 ms equals the native pinned position', equal(position, [0, 0.9, -5.3666644]), position);
   const forward = await s.state();
   const hash = forward?.world?.[0]?.hash;
-  check('W for 1500 ms equals the current native hash', hash === '0x0f14b8b231091d12', hash);
+  check('W for 1500 ms equals the current native hash', hash === '0xa655423c9a442bce', hash);
   check('1500 ms advances exactly 90 ticks', forward?.world?.[0]?.tick === 90, forward?.world?.[0]?.tick);
   const layout = await s.layout('world:player');
   const box = layout?.entity?.screen;

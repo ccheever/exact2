@@ -57,8 +57,11 @@ fn strip(tokens: &[TokenTree], field: bool) -> Result<(&[TokenTree], bool), Stri
     while i + 1 < tokens.len() && punct(&tokens[i], '#') {
         if let TokenTree::Group(g) = &tokens[i + 1] {
             let a: Vec<_> = g.stream().into_iter().collect();
-            if !field && a.first().is_some_and(|t| t.to_string() == "live") {
-                return Err("live attribute is only meaningful on a field".into());
+            if !field
+                && a.first()
+                    .is_some_and(|t| matches!(t.to_string().as_str(), "live" | "restart"))
+            {
+                return Err("live/restart attribute is only meaningful on a field".into());
             }
             if a.first().is_some_and(|t| t.to_string() == "data") {
                 if !field {
@@ -377,7 +380,7 @@ fn settle_body(b: &Body, access: &[String]) -> String {
 }
 
 /// Decode ordered, typed canvas arguments; fields are setup unless marked live.
-#[proc_macro_derive(Args, attributes(live))]
+#[proc_macro_derive(Args, attributes(live, restart))]
 pub fn args(input: TokenStream) -> TokenStream {
     let data = expand(input.clone(), None);
     match expand_args(input).and_then(|args| data.map(|data| data + &args)) {
@@ -408,6 +411,10 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
             punct(&w[0], '#')
                 && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "live")
         });
+        let restart = tokens.windows(2).any(|w| {
+            punct(&w[0], '#')
+                && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "restart")
+        });
         let (f, _) = strip(tokens, true)?;
         if f.len() != 3 || !punct(&f[1], ':') {
             return Err(format!(
@@ -420,13 +427,21 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
             if punct(&pair[0], '#') {
                 if let TokenTree::Group(g) = &pair[1] {
                     let a: Vec<_> = g.stream().into_iter().collect();
-                    if a.first().is_some_and(|t| t.to_string() == "live") && a.len() != 1 {
+                    if a.first()
+                        .is_some_and(|t| matches!(t.to_string().as_str(), "live" | "restart"))
+                        && a.len() != 1
+                    {
                         return Err(format!(
-                            "{name}.{field}: expected #[live], without arguments"
+                            "{name}.{field}: expected #[live] or #[restart], without arguments"
                         ));
                     }
                 }
             }
+        }
+        if restart && (live || ty != "bool") {
+            return Err(format!(
+                "{name}.{field}: #[restart] requires a bool and cannot be #[live]"
+            ));
         }
         values.push(match ty.as_str() {
             "String" => format!("::exact_game::Value::str(&self.{field})"),
@@ -450,7 +465,13 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         if let Some(invalid) = invalid {
             checks.push(format!("if {invalid} {{ return Err(format!(\"{{}}: expected {{}}\", {:?}, <{ty} as ::exact_game::args::Argument>::EXPECTED)); }}", clean(&field)));
         }
-        let kind = if live { "Live" } else { "Setup" };
+        let kind = if live {
+            "Live"
+        } else if restart {
+            "Restart"
+        } else {
+            "Setup"
+        };
         fields.push(format!(
             "({:?}, ::exact_game::ArgumentKind::{kind})",
             clean(&field)

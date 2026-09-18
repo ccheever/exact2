@@ -388,18 +388,22 @@ fn full_seekable_render_has_no_performance_samples() {
 fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     use exact_gpu::{Module, Registry};
     static REGISTRY: Registry = Registry {
-        surfaces: &[("world", 2, || {
+        surfaces: &[("world", 3, || {
             Box::<WorldSurface<greybox_logic::Greybox>>::default()
         })],
         shaders: &[],
     };
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("world").unwrap();
-    assert!(module.bind(id, &[Value::Number(7.), Value::Bool(false)], Some(0.)));
+    assert!(module.bind(
+        id,
+        &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+        Some(0.)
+    ));
     let setup = module
         .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
         .unwrap();
-    assert!(setup.contains("0x7df5e5a89b4d0207"), "{setup}");
+    assert!(setup.contains("0x7544ef30a82fdcdc"), "{setup}");
     assert!(setup.contains("\"device\":false"));
     assert!(module.input_json(
         id,
@@ -407,14 +411,14 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
     assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains("0x0f14b8b231091d12"), "{tick}");
+    assert!(tick.contains("0xa655423c9a442bce"), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap();
     module.lose_device();
     assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
-    assert!(state.contains("0x0f14b8b231091d12"), "{state}");
+    assert!(state.contains("0xa655423c9a442bce"), "{state}");
 }
 
 #[test]
@@ -436,15 +440,21 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         return;
     };
     let mut s = WorldSurface::<greybox_logic::Greybox, Probe>::default();
-    s.bind(&[Value::Number(7.), Value::Bool(false)], None)
-        .unwrap();
+    s.bind(
+        &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+        None,
+    )
+    .unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(17.)).unwrap();
     assert_eq!(s.presentation.frames.len(), 2);
     assert_eq!(s.presentation.frames[1].0, 1);
     assert!(s.presentation.frames.iter().all(|f| f.2 && f.3));
-    s.bind(&[Value::Number(7.), Value::Bool(true)], None)
-        .unwrap();
+    s.bind(
+        &[Value::Number(7.), Value::Bool(true), Value::Bool(false)],
+        None,
+    )
+    .unwrap();
     let mut hidden = frame(34.);
     hidden.width = 0.;
     fixture::render(&gpu, &mut s, &hidden).unwrap();

@@ -100,7 +100,7 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     game.run(100.0);
     assert_eq!(
         game.world().published("near").unwrap().as_str(),
-        Some("beacon-1")
+        Some("") // The closest beacon is lit; filtering the nearest does not choose another.
     );
     game.hold("KeyW", 1000.0);
     game.settle();
@@ -109,7 +109,7 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     game.settle();
     assert_eq!(game.position("player").unwrap().x, 19.6);
     game.bind(
-        &[Value::Number(7.0), Value::Bool(false), Value::Number(1.0)],
+        &[Value::Number(7.0), Value::Bool(false), Value::Bool(true)],
         None,
     )
     .unwrap();

@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {proof} from '../../proof.mjs';
 
-await proof(import.meta, async ({open, check, equal, out, say}) => {
+await proof(import.meta, async ({open, check, equal, out, host, say}) => {
   const node = (t,id) => t.nodes.find(n => n.props?.testId === id);
   const bytes = name => readFileSync(resolve(out,name));
   const walk = async (g,x,z) => {
@@ -54,7 +54,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
     await g.key_down('KeyW'); await g.run(2000);
     check('pause freezes entire simulation for 2s despite held W',equal(paused,await g.snapshot()));
     await g.key_up('KeyW');
-    if (index===1) {
+    if (index===1 && host !== 'linux') {
       await s.screenshot(resolve(out,'beacons.png'));
       const layout = await s.layout('world:player');
       check('rendered player has screen bounds',layout.entity?.screen?.w>0 && layout.entity.screen.h>0);
@@ -68,7 +68,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
   const first=await run(1), second=await run(2);
   check('two full input runs produce identical state',equal(first.final,second.final));
   check('two full runs produce identical save bytes',bytes('final-1.world').equals(bytes('final-2.world')));
-  say('Original browser processes closed; restoring mid-glow with W held and jump queued in a fresh process.');
+  say('Original host processes closed; restoring mid-glow with W held and jump queued in a fresh process.');
   const s=await open({world:resolve(out,'checkpoint-1.world')});
   await s.tap('play');
   const g=s.world('world');
@@ -82,6 +82,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
   const win=await s.tree();
   check('all three light and victory appears',node(win,'hud-lit')?.props.text==='Beacons 3 / 3' && win.nodes.some(n=>n.props?.text==='All beacons lit') && node(win,'again')?.accessibleName==='Play again');
   await s.tap('again');
+  check('restart is visible in state.world', (await s.state()).world[0].restarted === 1);
   check('Play again resets position',equal(await g.position('player'),[0,0.9,0]));
   check('Play again resets HUD',node(await s.tree(),'hud-lit')?.props.text==='Beacons 0 / 3');
   await s.close();

@@ -15,8 +15,6 @@ struct Hud {
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
 #[derive(Default, Component)]
 pub struct Player {
-    /// Current velocity, carried by saves along with the pose.
-    pub character: Character,
     /// Ground distance carried toward the next footstep.
     pub stride: f32,
 }
@@ -38,9 +36,13 @@ pub struct GreyboxArgs {
     /// Canvas live argument.
     #[live]
     pub paused: bool,
+    /// Toggle to reconstruct through setup.
+    #[restart]
+    pub restart: bool,
 }
 impl Game for Greybox {
     const ID: &'static str = "greybox";
+    const HZ: u32 = 60;
     type Args = GreyboxArgs;
 
     fn actions() -> Actions {
@@ -97,10 +99,16 @@ impl Game for Greybox {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.45, 0.15),
-                Player {
-                    stride: 0.0,
-                    character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
-                },
+                Player::default(),
+                // Character defaults, explicit so the movement is auditable here.
+                Character::new()
+                    .speed(4.0)
+                    .accel(12.0)
+                    .brake(20.0)
+                    .jump(1.2)
+                    .gravity(9.81)
+                    .ground(0.9)
+                    .bounds_xz(-19.6..=19.6),
             ),
         );
         world.spawn_named(
@@ -145,19 +153,16 @@ impl Game for Greybox {
         args.paused
     }
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
-        let dt = world.dt();
         let now = world.now();
         let mut footsteps = 0;
         {
-            let mut query = world.query::<(&mut Player, &mut Transform)>();
-            let (player, pose) = query.one().expect("one player");
-            let before = pose.position;
-            let motion =
-                player
-                    .character
-                    .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
+            let before = world.position("player").unwrap();
+            let motion = world
+                .character("player")
+                .step(input.stick_xz("move"), input.pressed("jump"));
             if motion.grounded {
-                let delta = pose.position - before;
+                let mut player = world.get_mut::<Player>("player").unwrap();
+                let delta = world.position("player").unwrap() - before;
                 player.stride += exact_game::Vec2::new(delta.x, delta.z).length();
                 while player.stride >= 0.45 {
                     player.stride -= 0.45;

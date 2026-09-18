@@ -31,6 +31,7 @@ fn main() {
         &greybox::GreyboxArgs {
             seed: 7,
             paused: false,
+            restart: false,
         },
     );
     let allocated = BYTES.load(Relaxed) - before;

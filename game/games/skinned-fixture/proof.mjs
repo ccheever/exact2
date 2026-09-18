@@ -1,12 +1,24 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
+import { residencyProbe, checkResidency } from '../asset-fixture/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
 await proof(import.meta, async ({open, check, equal, out, say, host}) => {
-  const start = async world => { const s = await open(world ? {world} : {}); await s.tap('play'); return s; };
+  const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex');
+  const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
+    const reply = await probe.fetch(request); if(reply) return reply;
+    const path = probe.assetPath(new URL(request.url).pathname);
+    const file = Bun.file(resolve(import.meta.dir,'dist',path==='/'?'index.html':path.slice(1)));
+    const textureReply = await probe.textureResponse(path,file); if(textureReply) return textureReply;
+    if(path==='/gpu-glue.js') return new Response(await file.text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
+    return new Response(file);
+  }}) : null;
+  try {
+  const start = async world => { const s = await open({...server && {url:`http://127.0.0.1:${server.port}/`},...world && {world}}); await s.tap('play'); return s; };
   const s = await start();
+  const ready = (await s.state()).world[0];
   await s.world('world').run(750);
   const at45 = await s.world('world').snapshot();
   check('save is mid-transition at tick 45', at45.tick === 45 && at45.entities.find(e=>e.name==='fox').components.Animator.since > 0);
@@ -28,6 +40,10 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   const log=await s.logs();
   check('fixture consumes step markers', JSON.stringify(log).includes('fox footstep'));
   check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
+  const afterTicks = (await s.state()).world[0];
+  check('steady ticks including paranoid Save do no GPU residency work', JSON.stringify(ready.gpu)===JSON.stringify(afterTicks.gpu),afterTicks.gpu);
+  if(host==='web') await checkResidency(probe,s,check,say);
+  else say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
   await s.close();
   const restored = await start(save);
   check('fresh process restores mid-transition exactly',equal(await restored.world('world').snapshot(),at45));
@@ -41,4 +57,5 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   const code=await new Promise((ok,reject)=>{cli.on('exit',ok);cli.on('error',reject);});
   const replies=stdout.trim().split('\n').filter(Boolean).map(line=>{try{return JSON.parse(line);}catch{return null;}});
   check('literal CLI state world:fox pose forwards pose:true',code===0 && replies.some(r=>Array.isArray(r?.pose) && r.pose.length===24),stderr || stdout.slice(-300));
+  } finally { server?.stop(true); }
 });

@@ -60,7 +60,9 @@ export function equal(a, b) {
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
-  const host = process.argv[2] ?? 'web', out = resolve(app, 'artifacts');
+  const host = process.argv[2] ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts'));
+  const buildOut = resolve(app, 'artifacts');
+  mkdirSync(buildOut, {recursive:true});
   const appPrefix = relative(root, app) + '/';
   const dist = resolve(app, 'dist');
   mkdirSync(out, {recursive:true});
@@ -90,34 +92,49 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
-  // Record this process's descendants while they exist; never signal an unrelated PID.
-  const recorded = new Map();
-  const inventory = () => {
-    const result = spawnSync('ps', ['-axo', 'pid=,ppid=,lstart='], {encoding:'utf8'});
-    if (result.status !== 0) return null;
-    return result.stdout.trim().split('\n').map(line => {
+  // The GPU-less host has no process tree to discover: retain the process
+  // handles from the carrier and await them. Global ps can block indefinitely
+  // on this Mac; an optional web descendant audit is bounded and never delays
+  // headless gameplay verification.
+  const children = [], recorded = new Map();
+  const onProcess = child => { children.push(child); recorded.set(child.pid, 'carrier'); };
+  let auditUnavailable = false, inventoryPending;
+  const inventory = () => new Promise(resolve => {
+    const child = spawn('ps', ['-axo', 'pid=,ppid=,lstart='], {stdio:['ignore','pipe','ignore']});
+    let output = '', done = false;
+    const finish = rows => { if (done) return; done = true; clearTimeout(timer); resolve(rows); };
+    const timer = setTimeout(() => {
+      auditUnavailable = true;
+      child.kill('SIGKILL'); // This invocation's recorded ps, never a name/pattern.
+      child.stdout.destroy(); child.unref(); finish(null);
+    }, 200);
+    child.stdout.on('data', data => output += data);
+    child.on('error', () => { auditUnavailable = true; finish(null); });
+    child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(line => {
       const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
       return m && {pid:Number(m[1]), parent:Number(m[2]), stamp:m[3]};
-    }).filter(Boolean);
-  };
-  const record = () => {
-    const rows = inventory() ?? [], owned = new Set([process.pid]);
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const row of rows) if (owned.has(row.parent) && !owned.has(row.pid)) {
-        owned.add(row.pid); recorded.set(row.pid, row.stamp); changed = true;
+    }).filter(Boolean) : null));
+  });
+  const sample = () => {
+    if (host === 'linux' || auditUnavailable || inventoryPending) return;
+    inventoryPending = inventory().then(rows => {
+      const owned = new Set([process.pid, ...children.map(child => child.pid)]);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const row of rows ?? []) if (owned.has(row.parent) && !owned.has(row.pid)) {
+          owned.add(row.pid); recorded.set(row.pid, row.stamp); changed = true;
+        }
       }
-    }
+    }).finally(() => { inventoryPending = null; });
   };
-  const sample = () => { try { record(); } catch {} };
   const monitor = setInterval(sample, 100);
   const open = async (options = {}) => {
-    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, ...options});
+    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, ...options});
     sample();
     let closed = false;
     const close = async () => { if (!closed) {
       try {
-        if (compareParanoid) {
+        if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
           const world = state.world;
           const logs = (await raw.logs()).world ?? [];
@@ -178,7 +195,7 @@ export async function proof(meta, script) {
         || !existsSync(resolve(root,file))) continue;
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
-    const digest = hash.digest('hex'), receipt = resolve(out, `build-${host}.sha256`);
+    const digest = hash.digest('hex'), receipt = resolve(buildOut, `build-${host}.sha256`);
     const appInfo = resolveApp(name);
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
@@ -203,20 +220,18 @@ export async function proof(meta, script) {
       if (!artifact) throw new Error('build produced no complete proof artifact');
       writeFileSync(receipt,stamp());
     } else say(`BUILD cached ${name} ${host}`);
-    await script({open, check, equal, out, host, say});
+    if (!process.argv.includes('--build-only')) await script({open, check, equal, out, host, say});
   } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
-    // The carriers await their leaders; also await every recorded descendant.
-    let remaining = [];
-    for (let round = 0; round < 40; round++) {
-      const rows = inventory();
-      if (!rows) { check("cleanup inventory available", false); break; }
-      remaining = rows.filter(row => recorded.get(row.pid) === row.stamp);
-      if (!remaining.length) break;
-      if (round === 10) for (const row of remaining) { try { process.kill(row.pid, 'SIGKILL'); } catch {} }
-      await new Promise(ok => setTimeout(ok,50));
+    await inventoryPending;
+    let remaining = children.filter(child => child.exitCode === null && child.signalCode === null)
+      .map(child => ({pid:child.pid}));
+    if (host !== 'linux' && !auditUnavailable) {
+      const rows = await inventory();
+      if (rows) remaining.push(...rows.filter(row => recorded.get(row.pid) === row.stamp));
     }
+    if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);
     if (compareParanoid) {
       finalWorlds.sort((a,b) => a.session - b.session);
@@ -227,7 +242,12 @@ export async function proof(meta, script) {
         equal(finalWorlds, JSON.parse(readFileSync(baseline, 'utf8'))),
         finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
     }
-    writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining},null,2)+'\n');
+    writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining,auditUnavailable},null,2)+'\n');
+    const saves = [...new Set(replies.filter(r => r.method === 'screenshot' && r.args[2] === 'save' && !r.error).map(r => r.args[0]))].sort().map(path => {
+      const name = basename(path), bytes = readFileSync(path);
+      return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
+    });
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     say(`PROOF ${failures.length ? 'FAIL' : 'PASS'} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');

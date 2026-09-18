@@ -1,10 +1,10 @@
 //! A saved, kinematic character without colliders or a physics dependency.
 use crate::motion::{Gravity, Jump, Move};
-use crate::{Data, Transform, Vec3};
+use crate::{Component, Target, Transform, Vec3, World};
 use std::ops::RangeInclusive;
 
-/// Movement configuration and velocity, embedded in a game's player component.
-#[derive(Clone, Debug, Data)]
+/// Movement configuration and velocity, attached directly to a named entity.
+#[derive(Clone, Debug, Component)]
 pub struct Character {
     /// Current velocity in metres per second; saved and hashed with the component.
     pub velocity: Vec3,
@@ -154,5 +154,96 @@ impl Character {
             jumped,
             landed,
         }
+    }
+}
+
+/// A named character and its world timestep; no component borrow escapes a step.
+pub struct CharacterHandle<'a> {
+    world: &'a World,
+    entity: crate::Entity,
+}
+impl World {
+    /// Address a required Character + Transform. Missing components are setup errors.
+    pub fn character(&self, target: impl Target) -> CharacterHandle<'_> {
+        let entity = target
+            .entity(self)
+            .expect("character target does not exist");
+        assert!(
+            self.has::<Character>(entity),
+            "character target has no Character"
+        );
+        assert!(
+            self.has::<Transform>(entity),
+            "character target has no Transform"
+        );
+        CharacterHandle {
+            world: self,
+            entity,
+        }
+    }
+}
+impl CharacterHandle<'_> {
+    /// Step with the world's fixed dt, returning contact events for this tick.
+    pub fn step(&self, wish: Vec3, jump: bool) -> Contact {
+        self.world.get_mut::<Character>(self.entity).unwrap().step(
+            &mut self.world.get_mut::<Transform>(self.entity).unwrap(),
+            wish,
+            jump,
+            self.world.dt(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[derive(Default, crate::Component)]
+    struct Beacon {
+        lit: bool,
+    }
+    #[test]
+    fn named_step_matches_explicit_step_and_releases_borrows() {
+        let mut w = World::new(60, 7);
+        w.spawn_named(
+            "player",
+            (Transform::at(0.0, 0.9, 0.0), Character::new().ground(0.9)),
+        );
+        let mut expected = Character::new().ground(0.9);
+        let mut pose = Transform::at(0.0, 0.9, 0.0);
+        for tick in 0..120 {
+            let wish = if tick < 90 { -Vec3::Z } else { Vec3::ZERO };
+            let jump = tick == 30;
+            assert_eq!(
+                w.character("player").step(wish, jump),
+                expected.step(&mut pose, wish, jump, w.dt())
+            );
+            assert_eq!(w.position("player"), Some(pose.position));
+        }
+        assert_eq!(
+            w.get::<Character>("player").unwrap().velocity,
+            expected.velocity
+        );
+    }
+    #[test]
+    fn nearest_uses_current_global_pose_and_stable_ties() {
+        let mut w = World::new(60, 7);
+        let parent = w.spawn(Transform::at(10.0, 0.0, 0.0));
+        w.spawn_named(
+            "player",
+            (crate::Parent(parent), Transform::at(1.0, 0.0, 0.0)),
+        );
+        let a = w.spawn((Transform::at(10.0, 90.0, 0.0), Beacon::default()));
+        w.spawn((Transform::at(12.0, 0.0, 0.0), Beacon::default()));
+        assert_eq!(w.position("player"), Some(Vec3::new(11.0, 0.0, 0.0)));
+        assert_eq!(w.nearest_xz::<Beacon>("player", 1.0), Some(a));
+        assert!(w.nearest_xz::<Beacon>("missing", 1.0).is_none());
+        assert!(w.nearest_xz::<Beacon>("player", 0.9).is_none());
+        w.get_mut::<Beacon>(a).unwrap().lit = true;
+        assert!(w
+            .nearest_xz::<Beacon>("player", 1.0)
+            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
+            .is_none());
+        w.get_mut::<Transform>(parent).unwrap().position.x = 20.0;
+        assert!(w.nearest_xz::<Beacon>("player", 1.0).is_none());
     }
 }

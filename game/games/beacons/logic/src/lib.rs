@@ -11,12 +11,8 @@ pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    // Restart idiom: changing restart_generation reconstructs setup; Play again increments it.
-    pub restart_generation: u32,
-}
-#[derive(Default, Component)]
-pub struct Player {
-    pub character: Character,
+    #[restart]
+    pub restart: bool,
 }
 #[derive(Default, Component)]
 pub struct Beacon {
@@ -26,6 +22,7 @@ pub struct Beacon {
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
+    const HZ: u32 = 60; // Preserve the r4 movement timings.
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -49,9 +46,15 @@ impl Game for Beacons {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.4, 0.1),
-                Player {
-                    character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
-                },
+                // These are Character's defaults, kept visible for auditing the game.
+                Character::new()
+                    .speed(4.0)
+                    .accel(12.0)
+                    .brake(20.0)
+                    .jump(1.2)
+                    .gravity(9.81)
+                    .ground(0.9)
+                    .bounds_xz(-19.6..=19.6),
             ),
         );
         w.spawn_named(
@@ -107,34 +110,21 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        let dt = w.dt();
-        {
-            let mut query = w.query::<(&mut Player, &mut Transform)>();
-            let (player, pose) = query.one().expect("one player");
-            player
-                .character
-                .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
-        }
-        let position = Vec3::from(
-            w.current_global(w.named("player").unwrap())
-                .unwrap()
-                .translation,
-        );
-        let mut nearest = None;
-        for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
-            let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
-            if !beacon.lit && input.pressed("light") {
+        w.character("player")
+            .step(input.stick_xz("move"), input.pressed("jump"));
+        let nearest = w
+            .nearest_xz::<Beacon>("player", 1.5)
+            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit);
+        if input.pressed("light") {
+            if let Some(e) = nearest {
+                let mut beacon = w.get_mut::<Beacon>(e).unwrap();
                 beacon.lit = true;
                 beacon.glow.to(w.now(), 1.0, 0.5);
             }
-            let distance = Vec2::new(pose.position.x - position.x, pose.position.z - position.z)
-                .length_squared();
-            if !beacon.lit && nearest.is_none_or(|(_, old)| distance < old) {
-                nearest = Some((entity, distance));
-            }
         }
         let near = nearest
-            .and_then(|(e, _)| w.name(e))
+            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
+            .and_then(|e| w.name(e))
             .unwrap_or("")
             .to_owned();
         let mut count = 0;

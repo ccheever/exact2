@@ -40,6 +40,7 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     format: Option<wgpu::TextureFormat>,
     device: bool,
     perf: Perf,
+    ready_work: Option<crate::world::assets::Work>,
     trace: Option<crate::trace::Trace>,
     error: Option<SurfaceError>,
     dirty: bool,
@@ -62,6 +63,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             format: None,
             device: false,
             perf: Perf::default(),
+            ready_work: None,
             trace: None,
             error: None,
             dirty: true,
@@ -232,19 +234,17 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
     }
     fn retired_assets(&mut self) -> Vec<String> {
-        let mut retired = self
+        let retired = self
             .sim
             .as_mut()
             .map_or_else(Vec::new, Sim::take_retired_assets);
         if !retired.is_empty() {
-            // Geometry arenas are append-only; rebuild the bounded live set on retirement.
-            self.render = None;
-            self.format = None;
-            self.assets_dirty = true;
-            self.dirty = true;
-            if let Some(sim) = &mut self.sim {
-                retired.extend(sim.invalidate_device_assets());
+            // A reference disappearing (including a restore) retires host flights,
+            // not device residency. A later arrival must still compare its digest.
+            if let Some((_, feed)) = &mut self.render {
+                feed.reset();
             }
+            self.dirty = true;
         }
         retired
     }
@@ -283,6 +283,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             return;
         }
         if self.format != Some(format) {
+            self.ready_work = None;
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
                 Feed::default(),
@@ -349,6 +350,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
     fn device_lost(&mut self) {
         self.device = false;
         self.render = None;
+        self.ready_work = None;
         self.format = None;
         if let Some(sim) = &mut self.sim {
             sim.invalidate_device_assets();
@@ -438,6 +440,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {
+            self.ready_work = None;
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
                 Feed::default(),
@@ -489,6 +492,8 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
         self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
+        self.ready_work
+            .get_or_insert_with(|| renderer.residency_work());
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);
@@ -643,6 +648,29 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 ",\"device\":false"
             });
             self.perf.append(&mut reply);
+            let work = self
+                .render
+                .as_ref()
+                .map_or_else(Default::default, |(r, _)| r.residency_work());
+            let ready = self.ready_work.is_some()
+                && !sim.is_loading()
+                && sim.device_assets_ready()
+                && self.error.is_none();
+            let reasons: Vec<_> = if ready {
+                Vec::new()
+            } else if !self.device {
+                vec!["no device"]
+            } else if sim.is_loading() {
+                vec!["declared content pending"]
+            } else if !sim.device_assets_ready() {
+                vec!["device assets pending"]
+            } else {
+                vec!["first draw pending"]
+            };
+            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances and skin buffers\"}}",
+                exact_game::json::to_string(&reasons.into_iter().map(str::to_owned).collect::<Vec<_>>()).unwrap(),
+                self.ready_work.unwrap_or(work).json(),
+                self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
             reply.push_str("}}");
         }
         if let Some(error) = &self.error {
@@ -742,5 +770,101 @@ mod lifecycle_tests {
             assert_eq!(surface.carry(), saved_after_input);
         }
         assert_ne!(saved, saved_after_input); // only the actual input changes saved state
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod residency_tests {
+    use super::*;
+    struct Fox;
+    impl Game for Fox {
+        type Args = ();
+        const ID: &'static str = "residency-fox";
+        const ASSETS: &'static [&'static str] = &["fox.model"];
+        fn setup(w: &mut World, _: &()) {
+            w.spawn((
+                exact_game::Transform::default(),
+                exact_game::Mesh::asset("fox.model"),
+            ));
+        }
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    #[test]
+    fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut surface = WorldSurface::<Fox, (), true>::default();
+        surface.device_ready();
+        surface.bind(&[], None).unwrap();
+        surface.asset(
+            "fox.model",
+            Ok(include_bytes!(
+                "../../games/skinned-fixture/assets/fox.model"
+            )),
+        );
+        surface.asset(
+            "fox/0-srgb-straight.tex",
+            Ok(include_bytes!(
+                "../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"
+            )),
+        );
+        let mut frame = Frame {
+            width: 16.,
+            height: 16.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: true,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+        };
+        exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+        let before = surface.render.as_ref().unwrap().0.residency_work().json();
+        let saved = surface.carry().unwrap();
+        for mode in [Restore::Open, Restore::Carry] {
+            surface.restore(&saved, mode).unwrap();
+            exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+            assert_eq!(
+                before,
+                surface.render.as_ref().unwrap().0.residency_work().json()
+            );
+            assert_eq!(surface.carry().unwrap(), saved);
+        }
+        let mut texture: exact_game::asset::TextureData = exact_game::bin::from_slice(
+            include_bytes!("../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"),
+        )
+        .unwrap();
+        texture.mips[0][0] ^= 127;
+        let changed = exact_game::bin::to_vec(&texture);
+        surface.asset("fox/0-srgb-straight.tex", Ok(&changed));
+        surface.restore(&saved, Restore::Carry).unwrap();
+        exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+        let work = surface.render.as_ref().unwrap().0.residency_work();
+        let delta = work.since(surface.ready_work.unwrap());
+        assert_eq!(delta.texture_uploads, 1);
+        assert_eq!(delta.mesh_uploads, 0);
+        assert_eq!(delta.pipeline_creations, 0);
+        assert_eq!(delta.buffer_reallocations, 0);
+        surface.asset("fox/0-srgb-straight.tex", Ok(&changed));
+        exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+        assert_eq!(
+            work.json(),
+            surface.render.as_ref().unwrap().0.residency_work().json()
+        );
+        let before = work.json();
+        surface.sim = surface
+            .sim
+            .take()
+            .map(|s| s.paranoid(exact_game::Paranoid::Save));
+        for tick in 1..=4 {
+            frame.now_ms = tick as f64 * 1000. / 60.;
+            exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+            assert_eq!(
+                before,
+                surface.render.as_ref().unwrap().0.residency_work().json()
+            );
+        }
+        assert!(surface.render.as_ref().unwrap().0.models.skinning.is_some());
     }
 }

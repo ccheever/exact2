@@ -150,6 +150,65 @@ Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the
 input viewport, while a finite seekable clock can still advance.
 
+## Residency across restore
+
+`Models.loaded[name].digest` and `Models.textures[name].digest` use the engine's
+`hash::of` over the complete decoded content, including bulk geometry/mip bytes.
+Equal name/content retains GPU handles and prepared pipelines. Changed content
+under the same name uploads the replacement and updates its bindings. The hash
+is the engine's noncryptographic content hash, not an authentication digest.
+
+`presentation_generation` invalidates world-derived transform histories, material
+pages, draw records, instance lists and skin pose histories. It does not invalidate
+asset residency or palette capacity. `Feed::reset` clears old entity identities
+before inspecting the replacement world. Retiring a host request likewise resets
+the feed without destroying the renderer; shared textures and pipelines survive.
+Residency lasts for the renderer/device lifetime. Device loss, a format change or
+a full module replacement needs a new renderer and new uploads. Retired resident
+content remains allocated; this change trades the former whole-renderer eviction
+for reuse. Geometry/material arenas remain append-only until renderer destruction.
+
+`state.world` includes `{ready, readyReasons, gpu: {beforeReady, afterReady,
+bufferScope}}`. Each work record has `textureUploads`, `meshUploads`,
+`pipelineCreations`, and `bufferReallocations`. The first completed drawable frame
+after preparation fixes `beforeReady`; later work accumulates in `afterReady`.
+Restore and retirement do not reset that boundary. A new device/renderer does.
+Texture counts include the three default maps; mesh counts include primitives;
+pipelines include the eleven primitive/effect pipelines and skin compute pipelines.
+`bufferScope` explicitly limits reallocation counts to model instance, weight,
+hierarchy, local-pose, job and palette buffers; core transform/geometry arena
+instrumentation is outside this slice. Headless state has `ready: false`, reason
+`no device`, and zero GPU work; it is simulation evidence only.
+
+Both asset fixture proofs exercise same-device restores after ready and compare
+work across ordinary and paranoid ticks. Their web-only response instrumentation
+records browser `performance.measure('a3-restore')` through the first draw. A
+reference round trip retires/re-requests the original texture on the same device,
+serves changed pixels, and carries the original scene back: exactly one texture
+uploads. Repeating those bytes uploads nothing. The negative control restores a
+mesh under a new undeclared name: its geometry uploads while shared textures and
+pipelines remain resident. The native `residency_tests` also exercise changed
+texture delivery and `Restore::Carry` directly on a device-backed Fox surface;
+`content_digest_reuses_equal_bytes_and_replaces_changed_names` covers changed
+model geometry, texture color space and sampler state. Simulation pins are unchanged.
+
+A3 measurements, 2026-09-18, web at 1280×720, Fox tick 45/hash
+`0x1f9f91652dc258e6`, 20 same-device restore-through-first-draw samples after one
+warmup: p50 **0.60 → 0.50 ms**, p95 **1.00 → 0.90 ms**. Browser clock quantization
+and shared-machine load make this a diagnostic, not a demonstrated speedup. The
+starting HEAD already retained assets on a same-scene restore; A3 adds digest
+replacement and removes whole-renderer eviction on reference retirement. The
+post-change work is exactly zero for all four recorded categories. Raw samples:
+`/tmp/a3-baseline.log`, `/tmp/a3-after.log`.
+
+A3 proof gap: the web changed-texture round-trip currently tries to capture the
+temporary scene while an undeclared asset is pending; the ABI correctly refuses
+that save. After the repository's three repair rounds, this browser-probe repair
+is stopped pending the author's override. Consequently the changed-texture and
+negative-control web assertions above are **not passing evidence**. The direct
+native Fox changed-texture/carry test passes. `next/t6` was not present in the
+shared repository; the counter field names above could not be checked against it.
+
 ## Latest recorded performance and remaining budgets
 
 P1, 2026-09-17, release: before is a237949; after is this worktree. Each entry

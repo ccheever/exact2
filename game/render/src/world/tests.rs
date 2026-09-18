@@ -644,6 +644,7 @@ fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
     let mut sim = Sim::<greybox_logic::Greybox>::from_values(&[
         exact_game::Value::Number(7.),
         exact_game::Value::Bool(false),
+        exact_game::Value::Bool(false),
     ])
     .unwrap();
     let mut f = Feed::default();

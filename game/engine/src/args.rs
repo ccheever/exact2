@@ -5,6 +5,8 @@ use crate::Value;
 pub enum ArgumentKind {
     /// Construct a new world when this value changes.
     Setup,
+    /// A boolean edge: either transition reconstructs through the setup path.
+    Restart,
     /// Pass the new value to subsequent ticks.
     Live,
 }
@@ -163,5 +165,69 @@ impl Argument for f32 {
     const EXPECTED: &'static str = "a finite f32 number";
     fn value(v: &Value) -> Option<Self> {
         v.as_number().map(|n| n as f32).filter(|n| n.is_finite())
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use crate::{Args, Game, Input, Sim, Transform, Value, World};
+    #[derive(Default, Args)]
+    struct Options {
+        seed: u64,
+        #[live]
+        paused: bool,
+        #[restart]
+        restart: bool,
+    }
+    struct Example;
+    impl Game for Example {
+        const ID: &'static str = "restart-test";
+        type Args = Options;
+        fn setup(w: &mut World, args: &Options) {
+            w.reseed(args.seed);
+            w.spawn_named("player", Transform::default());
+        }
+        fn tick(w: &mut World, _: &Input, _: &Options) {
+            w.get_mut::<Transform>("player").unwrap().position.x += 1.0;
+        }
+        fn paused(args: &Options) -> bool {
+            args.paused
+        }
+    }
+    #[test]
+    fn both_edges_reconstruct_but_identical_bind_and_live_pause_do_not() {
+        let mut sim = Sim::<Example>::new(Options::default()).unwrap();
+        let bind = |restart, paused| {
+            [
+                Value::Number(0.0),
+                Value::Bool(paused),
+                Value::Bool(restart),
+            ]
+        };
+        for edge in [true, false] {
+            sim.run(100.0);
+            assert!(sim.position("player").unwrap().x > 0.0);
+            sim.bind(&bind(edge, false), None).unwrap();
+            assert_eq!(sim.position("player").unwrap().x, 0.0);
+            let count = sim.restarted;
+            sim.run(100.0);
+            let hash = sim.world().hash();
+            sim.bind(&bind(edge, false), None).unwrap();
+            assert_eq!(sim.world().hash(), hash);
+            sim.bind(&bind(edge, true), None).unwrap();
+            sim.run(100.0);
+            assert_eq!(sim.world().hash(), hash);
+            assert_eq!(sim.restarted, count);
+            assert!(sim
+                .bind(
+                    &[Value::Number(0.0), Value::Bool(false), Value::Number(1.0)],
+                    None
+                )
+                .is_err());
+            assert_eq!(sim.restarted, count);
+            sim.bind(&bind(edge, false), None).unwrap();
+        }
+        assert_eq!(sim.restarted, 2);
+        assert!(sim.agent(r#"{"op":"state"}"#).contains(r#""restarted":2"#));
     }
 }

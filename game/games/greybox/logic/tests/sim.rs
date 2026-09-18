@@ -5,6 +5,7 @@ fn sim() -> Sim<Greybox> {
     Sim::new(GreyboxArgs {
         seed: 7,
         paused: false,
+        restart: false,
     })
     .unwrap()
 }
@@ -35,7 +36,7 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         Vec3::new(0.0, 0.9, -5.3666644)
     );
-    assert_eq!(one.world().hash(), 0x0f14b8b231091d12);
+    assert_eq!(one.world().hash(), 0xa655423c9a442bce);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {

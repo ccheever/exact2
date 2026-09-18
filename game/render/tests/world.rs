@@ -110,7 +110,10 @@ fn greybox_surface_agent_pixels_and_beacon() {
     };
     let mut surface = WorldSurface::<Greybox>::default();
     surface
-        .bind(&[Value::Number(7.), Value::Bool(false)], None)
+        .bind(
+            &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     assert!(surface.wants_input());
     assert!(surface.published().unwrap().contains(r#""beacons":0"#));
@@ -139,7 +142,10 @@ fn greybox_surface_agent_pixels_and_beacon() {
     eprintln!("beacon patch luminance {before_luma:.2} -> {after_luma:.2}");
     assert!(after_luma > before_luma + 8.);
     surface
-        .bind(&[Value::Number(7.), Value::Bool(true)], None)
+        .bind(
+            &[Value::Number(7.), Value::Bool(true), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     let (_, wants) = fixture::render(&gpu, &mut surface, &frame(2810.)).unwrap();
     assert!(
@@ -177,8 +183,11 @@ fn holding_w_moves_capsule_pixels_up_screen() {
         return;
     };
     let mut s = WorldSurface::<FixedCameraGreybox>::default();
-    s.bind(&[Value::Number(7.), Value::Bool(false)], None)
-        .unwrap();
+    s.bind(
+        &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+        None,
+    )
+    .unwrap();
     let before = render(&gpu, &mut s, 0., "world-player-before");
     let by = orange_y(&before, &bounds(&mut s, "player"));
     key(&mut s, "KeyW", true, 0.);
@@ -227,11 +236,17 @@ fn stopped_pixels_identical_across_alphas_and_agent_seeks_feed_history() {
     }
     let mut via_agent = WorldSurface::<FixedCameraGreybox>::default();
     via_agent
-        .bind(&[Value::Number(7.), Value::Bool(false)], None)
+        .bind(
+            &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     let mut via_frame = WorldSurface::<FixedCameraGreybox>::default();
     via_frame
-        .bind(&[Value::Number(7.), Value::Bool(false)], None)
+        .bind(
+            &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     render(&gpu, &mut via_agent, 0., "world-agent-start");
     render(&gpu, &mut via_frame, 0., "world-frame-start");
@@ -248,7 +263,10 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
     let mut surface = WorldSurface::<Greybox>::default();
     assert!(surface.bind(&[], None).unwrap_err().0.contains("seed"));
     surface
-        .bind(&[Value::Number(7.), Value::Bool(false)], None)
+        .bind(
+            &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     let hash = surface.sim().unwrap().world().hash();
     let state = surface.agent(r#"{"op":"state"}"#).unwrap();
@@ -264,7 +282,10 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
         .contains("perf"));
     let gen = surface.sim().unwrap().generation();
     surface
-        .bind(&[Value::Number(8.), Value::Bool(true)], None)
+        .bind(
+            &[Value::Number(8.), Value::Bool(true), Value::Bool(false)],
+            None,
+        )
         .unwrap();
     assert_ne!(gen, surface.sim().unwrap().generation());
     surface.agent(r#"{"op":"clock","now":0}"#);
@@ -279,7 +300,7 @@ fn beacons_grid_fog_and_bloom() {
     let mut sim = exact_game::Sim::<Beacons>::new(Options {
         seed: 7,
         paused: false,
-        restart_generation: 0,
+        restart: false,
     })
     .unwrap();
     // This render fixture opts into a grid; the consumer's ground is plain.
@@ -295,7 +316,7 @@ fn beacons_grid_fog_and_bloom() {
     let mut surface = WorldSurface::<Beacons>::default();
     surface
         .bind(
-            &[Value::Number(7.0), Value::Bool(false), Value::Number(0.0)],
+            &[Value::Number(7.0), Value::Bool(false), Value::Bool(false)],
             None,
         )
         .unwrap();

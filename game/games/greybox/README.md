@@ -1,10 +1,11 @@
 # Grey box
 
-A Contract title screen and one `world(seed, paused)` canvas. The native HUD reads
+A Contract title screen and one `world(seed, paused, again)` canvas. The native HUD reads
 `exactSurface("world")`; there is no app data module. WASD or arrows move, Space
 jumps, E/Enter lights the beacon, and Pause/Resume changes a live typed argument.
 
 ```sh
+bun game/games/greybox/proof.mjs linux
 bun game/games/greybox/proof.mjs web
 bun game/games/greybox/proof.mjs macos
 ```
@@ -19,14 +20,14 @@ saves, `process-cleanup.json`). macOS capture needs screen-recording permission;
 its existing proof skips screenshots when unavailable. iOS is supported by the
 harness; this change was driven on web and macOS, with native parity also checked on x86-64 Linux.
 
-`GreyboxArgs` declares seed then `#[live] paused`. `Mesh` carries primitive sizes;
+`GreyboxArgs` declares seed, `#[live] paused`, and a boolean `#[restart] restart`. `Mesh` carries primitive sizes;
 a zero-lag `Follow` retains the original camera offset. The engine places the camera after setup; the game calls `scene::follow` in ticks.
 `Character` composes `Move`, `Jump` and `Gravity`, integrates the pose, lands at
 0.9 metres and clamps XZ to ±19.6 metres. `near_xz` selects beacons by player name. Seekable Sim
 observes changed components, springs and explicitly reported work when settling.
 
-Current arm64 macOS / x86-64 Linux / Chrome wasm pins: setup `0x7df5e5a89b4d0207`, W for 1,500 ms
-`0x0f14b8b231091d12`, player `[0, 0.9, -5.3666644]`. Read all components with
+E5 pins checked in Chrome wasm and the Linux headless host on this arm64 Mac: setup `0x7544ef30a82fdcdc`, W for 1,500 ms
+`0xa655423c9a442bce`, player `[0, 0.9, -5.3666644]`. Read all components with
 `state world:*`; hold a key with `type world KeyW for 1500`. These are forms of the
 existing eight operations.
 
@@ -41,9 +42,12 @@ published timing fields. These measure rendering opportunities, not scanout.
 
 
 The HUD uses `publish_record(&Hud { beacons })` over `Data`; Contract checks its
-shape. Player movement requires `query.one().expect("one player")`, and only ground
-and bounds override `Character` defaults. Proximity uses global positions. Native
+shape. `world.character("player").step(wish, jump)` drives the named Character component;
+its default speed, acceleration, braking, jump and gravity are explicit in setup. Proximity uses global positions. Native
 saves use `sim.save()?`; proofs use `session.world("world").save(path)` over the
 existing screenshot-save transport. Native layout/pick reads have typed results.
 Sound playback uses `&World` inside the beacon loop, and wind is
-`AudioSource::new("wind").gain(0.3)`. This game has no restart control.
+`AudioSource::new("wind").gain(0.3)`. The centred victory overlay declares Play again with an accessible name and autofocus.
+The boolean restart edge uses the setup reconstruction path. The Character component
+changes the old setup/forward hashes, while the 60 Hz movement and sound sequence stay
+the same. No new x86-64 or macOS GUI sweep is claimed here.

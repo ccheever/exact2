@@ -4,27 +4,29 @@ shape Hud
 
 component SmallGame
   state playing = false
-  state restart_generation = 0
+  state again = false
   resource hud = exactSurface("world") as shape Hud
 
   action play writes playing
     playing = true
 
-  action again writes restart_generation
-    restart_generation = restart_generation + 1
+  action restart writes again
+    again = not again
 
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
-        canvas surface=world(7, false, restart_generation) testId="world" width="100%" height="100%" position="relative"
+        canvas surface=world(7, false, again) testId="world" width="100%" height="100%" position="relative"
           text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           when hud.near != ""
             text "Press E to light this beacon" testId="near-prompt" position="absolute" bottom=24 left=24 padding=12 background-color="#202731"
           when hud.lit == 2
-            button press=again testId="again" position="absolute" top=24 right=24 padding=16 background-color="#e8ad61"
-              text "Play again" color="#202731"
+            column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
+              text "All beacons lit" font-size=32
+              button press=restart autofocus aria-label="Play again" testId="again" padding=16 background-color="#e8ad61"
+                text "Play again" color="#202731"
       else
         column height="100%" align-items="center" justify-content="center" gap=24
           text "Small game" font-size=48 color="#ffffff"
-          button press=play autofocus testId="play" padding=16 background-color="#e8ad61"
+          button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"

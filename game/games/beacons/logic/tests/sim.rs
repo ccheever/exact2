@@ -1,4 +1,5 @@
-use beacons_logic::{Beacons, Options, Player};
+use beacons_logic::{Beacons, Options};
+use exact_game::character::Character;
 use exact_game::{Sim, Transform, Vec3};
 fn sim(seed: u64) -> Sim<Beacons> {
     Sim::new(Options {
@@ -24,17 +25,11 @@ fn movement_seed_jump_and_save() {
     b.key_up("ArrowUp");
     assert_eq!(a.position("player"), b.position("player"));
     assert!((a.position("player").unwrap() - Vec3::new(0.0, 0.9, -5.3666644)).length() < 0.001);
-    assert_eq!(
-        a.get::<Player>("player").unwrap().character.velocity.z,
-        -4.0
-    );
+    assert_eq!(a.get::<Character>("player").unwrap().velocity.z, -4.0);
     a.run(100.0);
     assert!(a.position("player").unwrap().z < -5.3666644);
     assert!(a.settle());
-    assert_eq!(
-        a.get::<Player>("player").unwrap().character.velocity,
-        Vec3::ZERO
-    );
+    assert_eq!(a.get::<Character>("player").unwrap().velocity, Vec3::ZERO);
     a.tap("Space");
     a.run(300.0);
     let bytes = a.save().unwrap();

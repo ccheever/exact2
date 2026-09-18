@@ -220,10 +220,13 @@ fn accessibility_tree<D: DataSource>(p: &Presenter<D>) -> String {
                 row["unavailable"] = true.into();
             }
             if let Some(node) = p.host().kernel().node(id) {
-                if matches!(
-                    node.props.str(PropId::AccessibilityRole),
-                    Some("button" | "link")
-                ) {
+                if node.props.str(PropId::AccessibilityLabel).is_some()
+                    || node.props.str(PropId::Text).is_some()
+                    || matches!(
+                        node.props.str(PropId::AccessibilityRole),
+                        Some("button" | "link")
+                    )
+                {
                     row["accessibleName"] = node
                         .props
                         .str(PropId::AccessibilityLabel)

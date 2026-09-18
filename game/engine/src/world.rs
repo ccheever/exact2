@@ -232,7 +232,8 @@ impl World {
     pub fn id(&self) -> WorldId {
         self.id.clone()
     }
-    /// Replacement epoch for presentation caches, excluded from saves and hashes.
+    /// Replacement epoch for world-derived presentation histories and draw records.
+    /// Device assets keyed by name/content digest survive it. Excluded from saves/hashes.
     pub fn presentation_generation(&self) -> u64 {
         self.presentation_generation
     }
@@ -493,6 +494,26 @@ impl World {
     /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
+    }
+    /// Current global position, including ancestor transforms; None if missing.
+    pub fn position(&self, target: impl Target) -> Option<crate::Vec3> {
+        self.current_global(target.entity(self)?)
+            .map(|pose| pose.translation.into())
+    }
+    /// Closest other entity carrying C in an inclusive XZ radius. Equal distances
+    /// retain entity order. Filter the returned handle to inspect its component.
+    pub fn nearest_xz<C: Component>(&self, origin: impl Target, radius: f32) -> Option<Entity> {
+        let entity = origin.entity(self)?;
+        let position = self.position(entity)?;
+        self.near_xz::<C>(entity, radius)
+            .min_by(|(_, a), (_, b)| {
+                let distance = |p: crate::Vec3| {
+                    let delta = p - position;
+                    delta.x * delta.x + delta.z * delta.z
+                };
+                distance(a.position).total_cmp(&distance(b.position))
+            })
+            .map(|(entity, _)| entity)
     }
     /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances and returned poses use global transforms; missing origins yield no rows.

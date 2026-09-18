@@ -12,6 +12,8 @@ struct Template {
 }
 pub(crate) struct Skinning {
     pub weights: Buffer,
+    pub reallocations: u64,
+    pub pipeline_creations: u64,
     pub palette: Buffer,
     meta: Buffer,
     poses: Buffer,
@@ -32,6 +34,8 @@ impl Skinning {
         let buffer = |label| Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, label);
         Self {
             weights: buffer("game vertex joints weights"),
+            reallocations: 0,
+            pipeline_creations: 0,
             palette: buffer("game skin palette"),
             meta: buffer("game skin hierarchy"),
             poses: buffer("game skin locals"),
@@ -99,6 +103,7 @@ impl Skinning {
             });
             self.layout = Some(layout);
             self.pipeline = Some(pipeline);
+            self.pipeline_creations += 1;
         }
         let order = animation::node_order(model);
         let rest = animation::bind_pose(model);
@@ -120,8 +125,11 @@ impl Skinning {
             self.metadata
                 .extend(skin.inverse_binds.iter().map(|v| v.to_bits()));
         }
-        self.meta
-            .grow(device, queue, (self.metadata.len() * 4) as u64);
+        self.reallocations += u64::from(self.meta.grow(
+            device,
+            queue,
+            (self.metadata.len() * 4) as u64,
+        ));
         self.meta.write(queue, 0, bytes(&self.metadata));
         ids
     }
@@ -162,11 +170,14 @@ impl Skinning {
                 "skin palette/pose buffer exceeds device limit".into(),
             ));
         }
-        self.palette.grow(device, queue, (palette * 64) as u64);
-        self.poses.grow(device, queue, (pose * 4) as u64);
+        self.reallocations += u64::from(self.palette.grow(device, queue, (palette * 64) as u64));
+        self.reallocations += u64::from(self.poses.grow(device, queue, (pose * 4) as u64));
         self.pose_words.resize(pose, 0.);
-        self.jobs
-            .grow(device, queue, (self.jobs_words.len() * 4) as u64);
+        self.reallocations += u64::from(self.jobs.grow(
+            device,
+            queue,
+            (self.jobs_words.len() * 4) as u64,
+        ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
         if let Some(layout) = &self.layout {
             self.bind = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {

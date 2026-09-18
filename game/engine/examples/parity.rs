@@ -32,6 +32,7 @@ fn main() {
     card::<greybox::Greybox>(greybox::GreyboxArgs {
         seed: 7,
         paused: false,
+        restart: false,
     });
     card::<beacons::Beacons>(beacons::Options {
         seed: 7,

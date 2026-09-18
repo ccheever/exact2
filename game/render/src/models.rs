@@ -18,8 +18,10 @@ pub(crate) struct Material {
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
+    digest: u64,
 }
 struct Texture {
+    digest: u64,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
 }
@@ -30,6 +32,7 @@ pub(crate) struct Models {
     textures: BTreeMap<String, Texture>,
     samplers: BTreeMap<([Wrap; 2], [Filter; 3]), wgpu::Sampler>,
     pub uploads: u64,
+    pub reallocations: u64,
     pub records: Vec<DrawInstance>,
     pub materials: Vec<Material>,
     pub instances: Option<Buffer>,
@@ -110,7 +113,7 @@ impl Models {
             ));
         }
         let instances = self.instances.as_mut().expect("prepared model instances");
-        instances.grow(device, queue, (words.len() * 4) as u64);
+        self.reallocations += u64::from(instances.grow(device, queue, (words.len() * 4) as u64));
         self.bind = Some(instance_bind(device, layout, instances, skinning));
         instances.write(queue, 0, bytes(words));
         self.records.clear();
@@ -197,7 +200,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                         words.extend(w.iter().map(|w| w.to_bits()));
                     }
                     let weights = &mut self.models.skinning.as_mut().unwrap().weights;
-                    weights.grow(&self.device, &self.queue, start + (words.len() * 4) as u64);
+                    self.models.reallocations += u64::from(weights.grow(
+                        &self.device,
+                        &self.queue,
+                        start + (words.len() * 4) as u64,
+                    ));
                     weights.write(&self.queue, start, bytes(&words));
                 }
                 id
@@ -220,7 +227,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     }
     /// Prepare a named model inside its Pending window. Later feeds only read handles.
     pub fn prepare_model(&mut self, name: &str, model: &Model) -> Result<(), RenderError> {
-        if self.models.loaded.contains_key(name) {
+        let digest = exact_game::hash::of(model);
+        if self
+            .models
+            .loaded
+            .get(name)
+            .is_some_and(|m| m.digest == digest)
+        {
             return Ok(());
         }
         let (meshes, materials) = self.add_model(model)?;
@@ -249,17 +262,27 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 })
             })
             .collect();
-        self.models.loaded.insert(name.into(), Uploaded { nodes });
+        self.models
+            .loaded
+            .insert(name.into(), Uploaded { nodes, digest });
         self.models.revision += 1;
         Ok(())
     }
-    /// Upload once by immutable asset name. The caller drops the CPU mip payload.
+    /// Reuse a name only when its content digest matches. CPU mips may be dropped.
     pub fn add_texture(&mut self, name: &str, data: &TextureData) -> Result<(), RenderError> {
-        if self.models.textures.contains_key(name) {
+        let digest = exact_game::hash::of(data);
+        if self
+            .models
+            .textures
+            .get(name)
+            .is_some_and(|t| t.digest == digest)
+        {
             return Ok(());
         }
         data.validate().map_err(RenderError::scene)?;
-        let texture = upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
+        let mut texture =
+            upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
+        texture.digest = digest;
         self.models.textures.insert(name.into(), texture);
         self.models.uploads += 1;
         for material in &mut self.models.materials {
@@ -291,6 +314,16 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }),
             self.models.uploads,
         )
+    }
+    pub(crate) fn residency_work(&self) -> crate::world::assets::Work {
+        let (pipelines, textures) = self.asset_work();
+        let skin = self.models.skinning.as_ref();
+        crate::world::assets::Work {
+            texture_uploads: textures,
+            mesh_uploads: self.meshes.len() as u64,
+            pipeline_creations: 11 + pipelines as u64 + skin.map_or(0, |s| s.pipeline_creations),
+            buffer_reallocations: self.models.reallocations + skin.map_or(0, |s| s.reallocations),
+        }
     }
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
@@ -509,6 +542,7 @@ fn upload_texture(
         })
     });
     Texture {
+        digest: 0,
         view: texture.create_view(&Default::default()),
         sampler: sampler.clone(),
     }
@@ -517,6 +551,66 @@ fn upload_texture(
 #[cfg(test)]
 mod arrival_tests {
     use super::*;
+    #[test]
+    fn content_digest_reuses_equal_bytes_and_replaces_changed_names() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let mut model = Model {
+            meshes: vec![exact_game::asset::MeshData {
+                positions: vec![0.; 9],
+                normals: vec![0.; 9],
+                uvs: vec![0.; 6],
+                indices: vec![0, 1, 2],
+                ..Default::default()
+            }],
+            nodes: vec![exact_game::asset::Node {
+                mesh: Some(0),
+                ..Default::default()
+            }],
+            materials: vec![MaterialData::default()],
+            ..Default::default()
+        };
+        renderer.prepare_model("resident.model", &model).unwrap();
+        let before = renderer.residency_work();
+        let old_mesh = renderer.models.loaded["resident.model"].nodes[0].0;
+        renderer
+            .prepare_model("resident.model", &model.clone())
+            .unwrap();
+        assert_eq!(before.json(), renderer.residency_work().json());
+        model.meshes[0].positions[0] = 0.5;
+        renderer.prepare_model("resident.model", &model).unwrap();
+        assert_ne!(
+            old_mesh,
+            renderer.models.loaded["resident.model"].nodes[0].0
+        );
+        let delta = renderer.residency_work().since(before);
+        assert_eq!(delta.mesh_uploads, 1);
+        assert_eq!(delta.pipeline_creations, 0);
+        assert_eq!(delta.texture_uploads, 0);
+        let mut texture = TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        };
+        renderer.add_texture("resident.tex", &texture).unwrap();
+        let before = renderer.residency_work();
+        renderer
+            .add_texture("resident.tex", &texture.clone())
+            .unwrap();
+        assert_eq!(before.json(), renderer.residency_work().json());
+        texture.mips[0][0] = 0;
+        renderer.add_texture("resident.tex", &texture).unwrap();
+        assert_eq!(renderer.residency_work().since(before).texture_uploads, 1);
+        texture.srgb = !texture.srgb;
+        renderer.add_texture("resident.tex", &texture).unwrap();
+        texture.wrap[0] = Wrap::Clamp;
+        renderer.add_texture("resident.tex", &texture).unwrap();
+        assert_eq!(renderer.residency_work().since(before).texture_uploads, 3);
+    }
     #[test]
     fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
         let Ok(gpu) = exact_gpu::fixture::device() else {

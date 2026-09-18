@@ -4,6 +4,7 @@ fn main() {
     let mut sim = Sim::<Greybox>::new(GreyboxArgs {
         seed: 7,
         paused: false,
+        restart: false,
     })
     .unwrap();
     sim.key_down("KeyW");

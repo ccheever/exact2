@@ -3,7 +3,7 @@ use crate::{shapes, Batch, MeshId, RenderError, Vertex};
 use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
-mod assets;
+pub(crate) mod assets;
 mod scene;
 mod upload;
 pub(crate) use scene::snap as trace_snap;
@@ -166,6 +166,7 @@ impl Versions {
 
 /// Persistent bridge from one world to one renderer. World loads invalidate it
 /// automatically; reset it when replacing a World with an unrelated instance.
+/// Replacement invalidates world-derived records, never renderer asset residency.
 /// Page hashes select coalesced uploads; parented poses are patched before hashing.
 /// Decomposed globals are exact TRS for uniform ancestor scale; shear is approximated.
 /// Storage, batches and meshes grow only when scene structure changes.
@@ -234,6 +235,8 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.assets.records.clear();
+        self.assets.entities.clear();
     }
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
@@ -254,6 +257,10 @@ impl Feed {
         self.scene.frame(world, alpha, aspect)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
+        if self.generation != w.presentation_generation() {
+            self.reset();
+            self.generation = w.presentation_generation();
+        }
         for &entity in &self.assets.entities {
             if w.global(entity)
                 .is_some_and(|p| p.matrix3.determinant() < 0.)
@@ -268,10 +275,6 @@ impl Feed {
             }
         }
 
-        if self.generation != w.presentation_generation() {
-            self.reset();
-            self.generation = w.presentation_generation();
-        }
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();

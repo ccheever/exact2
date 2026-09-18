@@ -1,8 +1,16 @@
 #!/usr/bin/env bun
+import {resolve} from 'node:path';
 import { proof } from '../../proof.mjs';
 
-await proof(import.meta, async ({open, check}) => {
+await proof(import.meta, async ({open, check, out, host}) => {
   const s = await open();
+  if (process.argv.includes('--screenshot-only')) {
+    check('screenshot uses web', host === 'web');
+    await s.tap('play');
+    await s.screenshot(resolve(out, 'game.png'));
+    await s.close();
+    return;
+  }
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
   check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
@@ -33,4 +41,5 @@ await proof(import.meta, async ({open, check}) => {
   await game.hold('KeyW', 1000);
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
+  await s.close();
 });

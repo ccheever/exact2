@@ -539,3 +539,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   Standard, task-owned TMPDIR, and `-j 1` attempts were stopped after three rounds;
   do not report the root build green. Root Cargo metadata confirms Rapier is absent.
   Re-run after resolving the local bake/process stall; game workspace checks pass.
+
+- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Autofocus is processed once per document on web/Linux; dynamically mounted victory controls need deliberate focus support.

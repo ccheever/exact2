@@ -13,6 +13,11 @@ test('a newly generated game builds, tests and proves without editing', async ()
   delete env.EXACT_APP_DIR;
   delete env.CARGO_TARGET_DIR;
   const run = (command, args, cwd = resolve(import.meta.dir, '..')) => new Promise((ok, fail) => {
+    if (command === 'cargo' || args.includes('web')) {
+      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
+      process.stdout.write(disk.stdout);
+      if (disk.status !== 0) return fail(new Error('disk check failed'));
+    }
     const child = spawn(command, args, {cwd, env, detached:true, stdio:['ignore','pipe','pipe']});
     let timer;
     const reset = () => {
@@ -30,7 +35,7 @@ test('a newly generated game builds, tests and proves without editing', async ()
   let shellDirs = [];
   try {
     await run('bun', ['game/new.mjs', name]);
-    assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','app.contract','app.json','logic','proof.mjs']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     registeredLock = readFileSync(lockfile);
@@ -43,7 +48,8 @@ test('a newly generated game builds, tests and proves without editing', async ()
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
     await run('cargo', ['test', '-p', `${name}-logic`], import.meta.dir);
-    await run('bun', [resolve(app, 'proof.mjs'), 'web']);
+    await run('bun', [resolve(app, 'proof.mjs'), 'linux']);
+    await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only']);
     assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), new RegExp(`PROOF PASS ${name} web: 0 failures`));
   } finally {
     rmSync(app, {recursive:true, force:true});
@@ -93,3 +99,22 @@ test('generator preserves an already locked workspace and registers only missing
     run(['metadata', '--locked', '--offline', '--format-version', '1']);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 180000);
+
+test('default manifests derive the directory and literal Game ID; authored overrides win', async () => {
+  const {gameDefaults} = await import('./app/shells.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'e5-defaults-')), dir = resolve(root,'runner-game');
+  try {
+    mkdirSync(resolve(dir,'logic/src'), {recursive:true});
+    writeFileSync(resolve(dir,'logic/src/lib.rs'), `pub struct MyGame; impl Game for MyGame { const ID: &'static str = "stable-save-id"; }`);
+    const defaults = gameDefaults(dir);
+    assert.equal(defaults.app.id, 'com.exact.stable-save-id');
+    assert.equal(defaults.game.crate, 'runner-game-logic');
+    assert.equal(defaults.game.type, 'MyGame');
+    assert.match(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'), /name = "runner-game-logic"/);
+    const override = {...defaults, app:{id:'org.custom.game',name:'Custom'}};
+    writeFileSync(resolve(dir,'app.json'),JSON.stringify(override));
+    writeFileSync(resolve(dir,'logic/Cargo.toml'),'authored dependencies\n');
+    assert.deepEqual(gameDefaults(dir), override);
+    assert.equal(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'),'authored dependencies\n');
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

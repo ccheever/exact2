@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
-import { gameShells } from '../game/app/shells.mjs';
+import { gameDefaults, gameShells } from '../game/app/shells.mjs';
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -90,7 +90,8 @@ export function resolveApp(nameOrCrate) {
 export function readManifest(dir, name) {
   const path = resolve(dir, 'app.json');
   const fallback = { name: name[0].toUpperCase() + name.slice(1), app: { id: `com.exact.${name}`, name: name[0].toUpperCase() + name.slice(1) }, host: {}, deploy: {} };
-  if (!existsSync(path)) return fallback;
+  if (!existsSync(path) && !gameDefaults(dir)) return fallback;
+  gameDefaults(dir);
   let parsed;
   try { parsed = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   const problems = validate(parsed, schema(), '', schema());

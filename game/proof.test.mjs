@@ -247,13 +247,13 @@ test('author examples and documentation describe current motion, placement and p
     const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
     expect(setup).not.toContain('scene::follow');
     expect(source).toContain('Character');
-    expect(source).toContain('near_xz::<Beacon>');
+    expect(source).toContain('nearest_xz::<Beacon>');
   }
   expect(main).not.toContain('Call it at the\nend of `setup`');
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');
   expect(greybox).not.toContain('math::ease');
   const proof = read('games/greybox/proof.mjs');
-  for (const pin of ['0x7df5e5a89b4d0207', '0x0f14b8b231091d12', '[0, 0.9, -5.3666644]']) {
+  for (const pin of ['0x7544ef30a82fdcdc', '0xa655423c9a442bce', '[0, 0.9, -5.3666644]']) {
     expect(proof).toContain(pin);
     expect(greybox).toContain(pin);
   }

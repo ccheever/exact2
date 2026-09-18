@@ -2,7 +2,7 @@
 import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { gameShells } from './app/shells.mjs';
+import { gameDefaults, gameShells } from './app/shells.mjs';
 
 export function createGame(name, directory = import.meta.dir, run = spawnSync, options = {}) {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
@@ -22,7 +22,7 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync, o
   // Synthesize this game's host shells and prune orphans first: an abandoned
   // shell (a deleted game's) would fail every cargo command below.
   const appJson = resolve(destination, 'app.json');
-  const manifest = existsSync(appJson) ? JSON.parse(readFileSync(appJson, 'utf8')) : {};
+  const manifest = gameDefaults(destination) ?? {};
   if (options.assets === true && manifest.game) {
     manifest.game.assets = true;
     writeFileSync(appJson, JSON.stringify(manifest, null, 2) + "\n");
@@ -46,7 +46,8 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync, o
     if (lock.status !== 0) throw new Error(`Could not register packages in the shared game lockfile: ${check.stderr ?? ''}`);
     action = `Shared game lockfile registered ${name} (${args.slice(0, args.indexOf('--offline')).join(' ')}).`;
   }
-  return `${action}\nCreated game/games/${name}\n  bun game/dev.mjs ${name}\n  bun game/games/${name}/proof.mjs web`;
+  return `${action}\nCreated game/games/${name}\n  bun game/dev.mjs ${name}\n  bun game/games/${name}/proof.mjs linux
+  bun game/games/${name}/proof.mjs web --screenshot-only`;
 }
 
 if (import.meta.main) console.log(createGame(process.argv[2], undefined, undefined, {assets:process.argv.includes("--assets")}));
