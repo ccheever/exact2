@@ -5330,3 +5330,41 @@ classification remains not established and the display remains60Hz. No physical
 120fps or repeated performance gain is claimed. Raw cells and separate capture
 receipts are under `target/apple-current-region-pair-execution-v1/`; the lead's
 independent per-cell reconstruction is `lead-independent-per-cell.json` there.
+
+### 8.88 Assign qualified replacement pixels before clearing, 2026-09-18
+
+The replacement transition observed in8.87 has a narrow production cause.
+`publish` can install accepted B in the surface's stored raster/image before
+AppKit calls `updateLayer`. An intervening phase invalidation rejects A's old
+visible witness, but the retained-image branch also rejects exact-current B.
+It therefore clears the layer until the ordinary display callback assigns B.
+
+The surface now shares its existing exact-current assignment between ordinary
+display and phase invalidation. It validates the accepted raster against the
+actual current phase and image/profile/scale, assigns the image, frame and
+background, then publishes B's visible witness. Invalidation issues no raster
+request and dispatches no pending link; link completion stays in ordinary
+display. Source/appearance/refusal and geometry guards remain intact, as do
+selection ownership, display-only retained pixels and existing pixel budgets.
+
+The existing AppKit fixture adds the actual interleaving: display A, retain it
+during resize, accept B while ordinary display is blocked, then invalidate the
+phase. Old production fails seven of221 assertions, exposing nil contents and
+one clear before B can be shown. The candidate passes all221: B is directly
+assigned with its exact frame/provider and fresh hit identity, zero clears and
+zero additional raster requests. The same fixture retains multi-move selection,
+blocked sparse input, ABA, refusal and context-cancellation controls.
+
+The scoped retention/raster assertion runner passes17 methods/230 assertions;
+it is a direct assertion shim, not a full XCTest run. All70 current ExactKit
+sources typecheck with warnings as errors against the current header. Both
+compiled fixture variants invert exactly to their claimed production inputs and
+use identical test-main bytes. Integrated production matches the compiled
+candidate. These are real AppKit/model-layer fixtures with explicit runtime and
+presenter doubles, not a relinked full app, physical blanking test, UIKit result
+or performance A/B. The earlier runtime archives remain unchanged.
+
+Source and execution evidence is preserved under
+`target/region-atomic-publication-validation/`. No worker, queue, image history
+or wider budget is added. The change closes the tested model-layer gap; it does
+not establish continuous physical120Hz presentation.

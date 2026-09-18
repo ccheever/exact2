@@ -86,6 +86,25 @@ import XCTest
         XCTAssertTrue(a.sameInkAndGeometry(as: selection),"ordinary selection-only anchor contract stays unchanged")
         XCTAssertFalse(a.samePixels(as: selection))
     }
+    func testReplacementCannotUseOldVisibleWitnessOrRelaxExactPixelIdentity() {
+        let a = request()
+        let b = request(size: CGSize(width: 200,height: 140),publication: 8,profile: a.profile)
+        let old = RegionVisibleWitness(publication: a.publication,size: a.size,scroll: a.scroll,
+            profile: a.profile.bytes,scale: a.scale)
+        XCTAssertFalse(old.matches(publication: b.publication,size: b.size,scroll: b.scroll,
+            profile: b.profile.bytes,scale: b.scale))
+        XCTAssertNil(mapping(a,b),"a replacement publication is not retained-A geometry")
+        XCTAssertTrue(b.samePixels(as: b),"already accepted B can qualify without a new raster request")
+        for stale in [a, request(size: b.size,publication: 8,selected: true,profile: b.profile),
+                      request(size: b.size,generation: 3,publication: 8,profile: b.profile),
+                      request(size: b.size,publication: 8,background: [0,0,0,1],profile: b.profile)] {
+            XCTAssertFalse(b.samePixels(as: stale))
+        }
+        let fresh = RegionVisibleWitness(publication: b.publication,size: b.size,scroll: b.scroll,
+            profile: b.profile.bytes,scale: b.scale)
+        XCTAssertTrue(fresh.matches(publication: b.publication,size: b.size,scroll: b.scroll,
+            profile: b.profile.bytes,scale: b.scale))
+    }
     #if os(macOS)
     func testPreApplyProtectsOldNewMembersAndAncestorsButAllowsGeometryAndSiblingTyping() {
         let protected: Set<UInt32> = [1,2,3,4,5]

@@ -91,7 +91,7 @@ final class RegionSurfaceMac: NSView {
         controller?.geometryChanged()
     }
     func invalidatePhase() {
-        if !displayable && !showRetained() { clearVisible() }
+        if !displayable && !showCurrent() && !showRetained() { clearVisible() }
         ink.needsDisplay = true
     }
     private var displayable: Bool {
@@ -190,21 +190,28 @@ final class RegionSurfaceMac: NSView {
         controller.requestRaster(size: current.size, scale: current.scale, profile: current.profile,
             format: current.format, background: current.background, selectionColor: current.selectionColor,
             scroll: current.scroll, selections: selections, interaction: current.interaction)
-        if retention.valid, let raster, let image, let presentation,
-           let shown = currentRequest(for: presentation),
-           raster.request.samePixels(as: shown), raster.request.scroll == scrollOffset,
-           MainActor.assumeIsolated({ raster.accepts(image, size: shown.size, scale: shown.scale, profile: shown.profile) }) {
-            let changed = visible?.publication != raster.request.publication || !displayable
-            place(image,request: raster.request,frame: CGRect(origin: .zero,size: raster.request.size))
-            retained = nil
-            if changed { layerPublications += 1 }
-            visible = RegionVisibleWitness(publication: raster.request.publication, size: raster.request.size,
-                scroll: raster.request.scroll, profile: shown.profile.bytes, scale: raster.request.scale)
-            pendingLabel.isHidden = true
+        if showCurrent() {
             finishPendingLink()
         } else if !showRetained() {
             clearVisible(); pendingLabel.stringValue = controller.failure ?? "Preparing viewport…"
         }
+    }
+    /// Delivery can replace the accepted raster before the next updateLayer.
+    /// Assign qualified current pixels before clearing their predecessor's
+    /// witness. Invalidation neither requests work nor dispatches pending links.
+    @discardableResult private func showCurrent() -> Bool {
+        guard retention.valid, let raster, let image, let presentation,
+              let shown = currentRequest(for: presentation),
+              raster.request.samePixels(as: shown), raster.request.scroll == scrollOffset,
+              MainActor.assumeIsolated({ raster.accepts(image, size: shown.size, scale: shown.scale, profile: shown.profile) }) else { return false }
+        let changed = visible?.publication != raster.request.publication || !displayable
+        place(image,request: raster.request,frame: CGRect(origin: .zero,size: raster.request.size))
+        retained = nil
+        if changed { layerPublications += 1 }
+        visible = RegionVisibleWitness(publication: raster.request.publication, size: raster.request.size,
+            scroll: raster.request.scroll, profile: shown.profile.bytes, scale: raster.request.scale)
+        pendingLabel.isHidden = true
+        return true
     }
     private func invalidateChangedContext(_ current: RegionRasterRequest) {
         guard let old = raster?.request else { return }
