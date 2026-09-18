@@ -83,7 +83,8 @@ fn recording() -> (Sim<Fixture>, Capture) {
 #[test]
 fn isolated_twice_interleaved_touch_bindings_pause_and_epoch() {
     let (sim, capture) = recording();
-    let mut first = Sim::<Fixture>::replay_capture(&capture, "sha256:loaded-artifacts", None).unwrap();
+    let mut first =
+        Sim::<Fixture>::replay_capture(&capture, "sha256:loaded-artifacts", None).unwrap();
     let second = Sim::<Fixture>::replay_capture(&capture, "sha256:loaded-artifacts", None).unwrap();
     assert_eq!(sim.world().hash(), first.world().hash());
     assert!(first
