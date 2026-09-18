@@ -189,7 +189,7 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         view: ViewId,
         kind: EventKind,
-    ) -> Result<CommitReceipt, RunnerError> {
+    ) -> Result<(CommitReceipt, bool), RunnerError> {
         let name = match kind {
             EventKind::Reachstart => "reachstart",
             EventKind::Reachend => "reachend",
@@ -197,6 +197,7 @@ impl<D: DataSource> Runner<D> {
         };
         let mut what = format!("{name} view {view}");
         let was_poisoned = self.poisoned;
+        let mut changed = false;
         let result = (|| {
             let (node, frames) = self
                 .tree
@@ -213,10 +214,13 @@ impl<D: DataSource> Runner<D> {
                 .ok_or(RunnerError::NoHandler { view, event: name })?;
             let action = handler.action;
             let _ = write!(what, " ({})", self.plan.str(self.plan.action(action).name));
-            self.run_action(action, Vec::new(), &frames)
+            let before = super::collection::EdgeState::capture(self, &frames);
+            let receipt = self.run_action(action, Vec::new(), &frames)?;
+            changed = before.changed(self);
+            Ok(receipt)
         })();
         self.log_outcome(&what, &result, was_poisoned);
-        result
+        result.map(|receipt| (receipt, changed))
     }
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.

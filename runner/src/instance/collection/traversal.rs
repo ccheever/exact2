@@ -122,6 +122,21 @@ impl Tree {
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
+    pub(crate) fn has_collection(&self, view: ViewId) -> bool {
+        find_collection(&self.children, view).is_some()
+    }
+    /// Publish one fresh set of host measurement identities after a deferred
+    /// edge's state change settles. No keys, data or row bodies are evaluated.
+    /// Reuses the hosts' bounded feedback scheduling, even for unchanged rows.
+    pub(crate) fn wake_collection_edge(&mut self, view: ViewId) -> Result<(), InstanceError> {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            for row in &mut collection.mounted {
+                row.epoch = advance(&mut collection.next_epoch)?;
+            }
+            advance(&mut collection.revision)?;
+        }
+        Ok(())
+    }
     /// A refused action did not consume its edge. Retry only on later accepted
     /// host feedback, never by redispatching inside the current call.
     pub(crate) fn rearm_collection_edge(&mut self, view: ViewId, event: EventKind) {
@@ -134,13 +149,12 @@ impl Tree {
             collection.edge_armed[index] = true;
         }
     }
-    /// Consume the second candidate only if the first action left this exact
-    /// keyed membership alive. No query, key evaluation or new edge discovery.
-    pub(crate) fn take_collection_end(&mut self, view: ViewId, membership: &Rc<()>) -> bool {
+    /// Consume the second candidate after the runner established a pure no-op.
+    pub(crate) fn take_collection_end(&mut self, view: ViewId) -> bool {
         let Some(collection) = find_collection_mut(&mut self.children, view) else {
             return false;
         };
-        if !Rc::ptr_eq(&collection.membership, membership) || !collection.edge_armed[1] {
+        if !collection.edge_armed[1] {
             return false;
         }
         collection.edge_armed[1] = false;

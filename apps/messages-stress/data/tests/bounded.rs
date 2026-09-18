@@ -164,17 +164,10 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
                 assert!((row.top - corrected - offset).abs() <= 0.01,
                     "N={count}, earlier={earlier}, anchor={anchor}, offset={offset}, corrected={corrected}, row={row:?}");
                 max_mounted = max_mounted.max(c.rows.len());
-                // Accept the correction. A final shift can still
-                // geometrically contain the new endpoint: its newly armed edge
-                // dispatches once, but hasEarlier/hasLater prevents a query.
+                // Accept the correction. A changed endpoint key cannot re-arm
+                // an edge that stayed inside the geometric window.
                 let queries = r.data_ref().queries;
-                let terminal_edge = !has(&r, earlier)
-                    && if earlier {
-                        corrected - 320. < 32.
-                    } else {
-                        corrected + 640. > c.total_extent - 32.
-                    };
-                assert_eq!(feed(&mut r, corrected).1, usize::from(terminal_edge));
+                assert_eq!(feed(&mut r, corrected).1, 0);
                 assert_eq!(r.data_ref().queries, queries);
                 assert_eq!(r.last_instance_work().rows_keyed, 0);
                 shifts[direction] += 1;

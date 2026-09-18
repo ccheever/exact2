@@ -603,27 +603,26 @@ whose sum would overflow native geometry are rejected without poisoning the
 runner. End-follow tolerates at most 0.5 logical units of host geometry rounding,
 including the browser's integer scroll range for fractional CSS row extents.
 
-**2026-09-18 (LLP 1027.004 S1):** `reachstart` and `reachend` are argument-free
-list handlers dispatched by the runner after accepted host geometry commits.
-They qualify only on nonempty virtualized collections whose geometric window
-(scrollport plus one viewport of overscan) contains the first/last supplied row;
-bootstrap rows and pins alone never qualify. Each edge starts armed, disarms on
-successful dispatch, and re-arms when its endpoint leaves that
-window or its supplied key changes. Each edge fires at most once per feedback
-call. When both qualify, `reachstart` runs first; after it succeeds, `reachend`
-runs in the same call only if the collection's keyed membership is unchanged.
-A membership change leaves `reachend` armed for fresh host feedback, so even tiny
-rows load at most one window per call. An action refusal stops the sequence.
-The ordinary action transaction runs after feedback; committed receipts survive an action
-refusal and reach hosts alongside its error. Hosts attach no edge listeners.
-Offset-only feedback without a qualifying handler still performs no source query
-or key evaluation. Messages stress now also exercises bounded 200-record answers;
-its scrollbar spans the resident window, not the complete history. A refused
-handler stays armed for the next accepted feedback call; hosts request one new
-report after deferred data activation. New row measurement epochs replenish the
-web controller's bounded callback allowance, so membership shifts can continue
-without another scroll. Geometry acceptance is independent of a later edge-action
-error, including when recording pin releases.
+**2026-09-18 (LLP 1027.004 S1, revised after review):** `reachstart` and
+`reachend` are argument-free list handlers dispatched after accepted host geometry
+commits. Only nonempty virtualized collections qualify: the geometric window
+(scrollport plus one viewport of overscan) must contain the first/last supplied
+row; bootstrap rows and pins alone never qualify. Edges start armed, disarm on
+successful dispatch, and re-arm only when an evaluation finds the current edge
+row outside that geometric window. Changing endpoint keys does not re-arm them.
+Each edge fires at most once per feedback call. When both qualify, start precedes
+end; end runs in the same call only after a pure no-op start (no state change or
+request started). Otherwise end remains armed, waits for the first action's async
+targets to settle, and gets one bounded follow-up report even if rows and geometry
+are unchanged. Continuation tickets keep that wait; settled geometry decides
+whether end still qualifies. An all-fitting window therefore becomes idle.
+Refused actions remain armed and stop the sequence; hosts re-evaluate once after
+deferred data activation. Ordinary action transactions preserve committed
+feedback receipts and surface action errors separately from geometry acceptance,
+including pin releases. Hosts attach no edge listeners. Offset-only feedback
+without a qualifying handler performs no source query or key evaluation. Messages
+stress also exercises bounded 200-record answers; its scrollbar spans the resident
+window, not the complete history.
 
 ### 6.6 Paired runner evidence, 2026-09-16
 

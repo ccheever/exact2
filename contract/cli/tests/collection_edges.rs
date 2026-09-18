@@ -105,7 +105,7 @@ fn hits(r: &Runner<Rows>) -> (f64, f64) {
 }
 
 #[test]
-fn bootstrap_then_edges_rearm_on_leaving_or_endpoint_key_change() {
+fn bootstrap_then_edges_rearm_only_after_leaving_the_geometric_window() {
     let mut r = boot(SOURCE);
     assert_eq!(r.collections()[0].rows.len(), 16);
     assert_eq!(hits(&r), (0., 0.));
@@ -126,26 +126,36 @@ fn bootstrap_then_edges_rearm_on_leaving_or_endpoint_key_change() {
     r.act("change", vec![Value::Number(1.), Value::Number(200.)])
         .unwrap();
     send(&mut r, 0.);
-    assert_eq!(hits(&r), (3., 0.));
+    assert_eq!(
+        hits(&r),
+        (2., 0.),
+        "a changed first key inside the window stays disarmed"
+    );
     send(&mut r, 6080.);
     send(&mut r, 6080.);
-    assert_eq!(hits(&r), (3., 1.));
+    assert_eq!(hits(&r), (2., 1.));
     r.act("change", vec![Value::Number(1.), Value::Number(201.)])
         .unwrap();
     send(&mut r, 6112.);
-    assert_eq!(hits(&r), (3., 2.));
+    assert_eq!(
+        hits(&r),
+        (2., 1.),
+        "a changed last key inside the window stays disarmed"
+    );
     send(&mut r, 1000.);
     send(&mut r, 6112.);
-    assert_eq!(hits(&r), (3., 3.));
+    assert_eq!(hits(&r), (2., 2.));
 }
 
 #[test]
-fn both_edges_dispatch_start_then_end_once_and_empty_never_dispatches() {
+fn stateful_start_defers_end_once_and_empty_never_dispatches() {
     let mut r = boot(SOURCE);
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
         .unwrap();
     assert_eq!(hits(&r), (0., 0.));
-    assert!(send(&mut r, 0.).receipts.len() <= 3);
+    assert!(send(&mut r, 0.).receipts.len() <= 2);
+    assert_eq!(hits(&r), (1., 0.));
+    send(&mut r, 0.);
     assert_eq!(hits(&r), (1., 1.));
     let edges: Vec<_> = r.journal().filter(|line| line.contains("reach")).collect();
     assert!(edges[0].contains("reachstart"));
@@ -176,7 +186,7 @@ fn no_op_start_does_not_require_another_host_report_for_end() {
 }
 
 #[test]
-fn same_keys_after_start_refresh_still_dispatch_end_in_the_same_call() {
+fn same_keys_after_start_refresh_defer_end_until_another_report() {
     let source = SOURCE
         .replace(
             "action onStart writes starts, refused",
@@ -192,6 +202,8 @@ fn same_keys_after_start_refresh_still_dispatch_end_in_the_same_call() {
     let queries = r.data_ref().queries;
     send(&mut r, 0.);
     assert_eq!(r.data_ref().queries, queries + 1);
+    assert_eq!(hits(&r), (1., 0.));
+    send(&mut r, 0.);
     assert_eq!(hits(&r), (1., 1.));
 }
 
@@ -222,7 +234,7 @@ fn changed_interior_membership_defers_end_even_when_endpoints_are_unchanged() {
 }
 
 #[test]
-fn tiny_rows_shift_only_once_per_feedback_whether_start_or_end_loads() {
+fn tiny_rows_shift_at_most_once_per_report_then_stay_disarmed() {
     for start_loads in [true, false] {
         let source = SOURCE
             .replace("state count = 200", "state count = 8")
@@ -259,13 +271,15 @@ fn tiny_rows_shift_only_once_per_feedback_whether_start_or_end_loads() {
                 .collect();
             let result = r.collection_feedback(f).unwrap();
             assert!(result.error.is_none());
-            assert!(result.receipts.len() <= if start_loads { 2 } else { 3 });
-            assert_eq!(r.slot("start"), Some(&Value::Number((n * 8) as f64)));
-            assert_eq!(r.data_ref().queries, initial_queries + n);
-            assert_eq!(
-                hits(&r),
-                (n as f64, if start_loads { 0. } else { n as f64 })
-            );
+            assert!(result.receipts.len() <= 2);
+            let shifts = if start_loads {
+                n.min(2)
+            } else {
+                usize::from(n >= 2)
+            };
+            assert_eq!(r.slot("start"), Some(&Value::Number((shifts * 8) as f64)));
+            assert_eq!(r.data_ref().queries, initial_queries + shifts);
+            assert_eq!(hits(&r), (1., if n >= 2 { 1. } else { 0. }));
         }
     }
 }
@@ -370,6 +384,7 @@ fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
     r.act("change", vec![Value::Number(0.), Value::Number(2.)])
         .unwrap();
     r.act("armFailure", vec![]).unwrap();
+    send(&mut r, 0.); // The successful stateful start defers end.
     for _ in 0..3 {
         let queries = r.data_ref().queries;
         let result = r.collection_feedback(facts(&r, 0.)).unwrap();
@@ -427,4 +442,33 @@ fn edge_handlers_are_list_only_and_take_no_arguments() {
         assert!(contract::compile(&source).is_err());
     }
     contract::compile(&SOURCE.replace("virtualized=true", "virtualized=false")).unwrap();
+}
+
+#[test]
+fn bidirectional_tiny_rows_do_not_rearm_on_endpoint_key_changes() {
+    let source = SOURCE
+        .replace("state count = 200", "state count = 2")
+        .replace("height=32", "height=1")
+        .replace(
+            "action onStart writes starts, refused",
+            "action onStart writes starts, refused, start",
+        )
+        .replace(
+            "refused = fail",
+            "refused = fail\n    if start > 0\n      start = 2 - start",
+        )
+        .replace(
+            "action onEnd writes ends",
+            "action onEnd writes ends, start",
+        )
+        .replace(
+            "ends = ends + 1",
+            "ends = ends + 1\n    if start < 2\n      start = 2",
+        );
+    let mut r = boot(&source);
+    for _ in 0..12 {
+        send(&mut r, 0.);
+    }
+    assert_eq!(r.slot("start"), Some(&Value::Number(2.)));
+    assert_eq!(hits(&r), (1., 1.), "an all-fitting window must become idle");
 }

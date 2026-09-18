@@ -250,7 +250,7 @@ fn real_browser_collection_feedback_and_navigation() {
 
 #[test]
 #[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
-fn real_browser_edge_membership_progresses_without_scroll() {
+fn real_browser_bidirectional_edges_and_state_only_deferral_become_idle() {
     use std::{path::Path, process::Command};
     let source = r#"shape Row
   index: number
@@ -259,10 +259,11 @@ component App
   state ended = 0
   resource rows = rows(2) as shape list<Row>
   action start writes first
-    if first < 6
-      first = first + 1
-  action end writes ended
+    if first > 0
+      first = 0
+  action end writes ended, first
     ended = ended + 1
+    first = 6
   view
     column
       text `${first}` testId="steps"
@@ -271,24 +272,37 @@ component App
         each x in rows key=x.index + first * 2
           text `${x.index + first * 2}` height=1
 "#;
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let dir = std::env::temp_dir().join(format!("exact-collection-edges-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let baked = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
-    std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-    let output = Command::new("bun")
-        .arg("host/web/tests/collection.mjs")
-        .env("EXACT_COLLECTION_TEST", &dir)
-        .env("EXACT_COLLECTION_EDGES", "1")
-        .current_dir(root)
-        .output()
-        .unwrap();
-    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
-    std::fs::remove_dir_all(dir).unwrap();
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for (case, source) in [
+        ("bidirectional", source.to_owned()),
+        (
+            "state",
+            source
+                .replace("if first > 0\n      first = 0", "first = 1")
+                .replace("    first = 6\n", "")
+                .replace("key=x.index + first * 2", "key=x.index")
+                .replace("`${x.index + first * 2}`", "`${x.index}`"),
+        ),
+    ] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir =
+            std::env::temp_dir().join(format!("exact-collection-edges-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let baked = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
+        std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
+        let output = Command::new("bun")
+            .arg("host/web/tests/collection.mjs")
+            .env("EXACT_COLLECTION_TEST", &dir)
+            .env("EXACT_COLLECTION_EDGES", case)
+            .current_dir(root)
+            .output()
+            .unwrap();
+        eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+        std::fs::remove_dir_all(dir).unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

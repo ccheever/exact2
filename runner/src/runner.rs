@@ -215,6 +215,8 @@ pub struct Runner<D: DataSource> {
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
     next_ticket: u64,
+    /// Second edges waiting for the first action's async targets to settle.
+    deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle.
@@ -444,6 +446,7 @@ impl<D: DataSource> Runner<D> {
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
             next_ticket: 1,
+            deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             store,
@@ -1089,6 +1092,10 @@ impl<D: DataSource> Runner<D> {
                 return Err(e.into());
             }
         };
+        if let Err(error) = self.wake_deferred_edges() {
+            self.poison();
+            return Err(error);
+        }
         match self.apply(ops) {
             Ok(receipt) => {
                 self.surfaces.extend(surfaces);

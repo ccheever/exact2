@@ -80,16 +80,19 @@ fn collection_boot_measures_wrappers_in_nested_port_and_scroll_rewindows() {
 }
 
 #[test]
-fn edge_membership_commits_continue_beyond_two_reports_without_scroll() {
+fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
     let mut p = boot_source(
         r#"component App
   state first = 0
   resource rows = rows(first) as shape list<number>
   action start writes first
+    if first > 0
+      first = 0
+  action end writes first
     if first < 12
-      first = first + 2
+      first = 12
   view
-    list virtualized=true height=180 width=320 reachstart=start
+    list virtualized=true height=180 width=320 reachstart=start reachend=end
       each x in rows key=x
         text `${x}` height=1
 "#,
@@ -100,6 +103,14 @@ fn edge_membership_commits_continue_beyond_two_reports_without_scroll() {
     assert_eq!(p.host.runner().slot("first"), Some(&Value::Number(12.)));
     let snapshot = &p.host.collections()[0];
     assert!(snapshot.rows.iter().all(|row| row.measured));
+    assert!(!p.collection.pending());
+    let epoch = p.host.kernel().epoch();
+    settle(&mut p);
+    assert_eq!(
+        p.host.kernel().epoch(),
+        epoch,
+        "no callback or dispatch storm"
+    );
     assert!(!p.collection.pending());
 }
 

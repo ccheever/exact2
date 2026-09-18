@@ -22,10 +22,10 @@ const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 
 /// Candidates from one accepted geometry report. The second edge may run only
-/// while the same collection and keyed membership still exist after the first.
+/// after a pure no-op first action. State changes defer it until settlement.
 pub(crate) struct CollectionEdges {
     pub first: EventKind,
-    pub end_if_unchanged: Option<Rc<()>>,
+    pub end_after_noop: bool,
 }
 
 #[derive(Debug)]
@@ -45,7 +45,6 @@ pub(crate) struct Collection {
     index: HeightIndex,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
-    membership: Rc<()>,
     string_keys: bool,
     mounted: Vec<Mounted>,
     spacers: Vec<(ViewId, f64)>,
@@ -155,7 +154,6 @@ impl Collection {
             index: HeightIndex::new(ESTIMATED_HEIGHT).map_err(index_error)?,
             items: Rc::new(Vec::new()),
             keys: Vec::new(),
-            membership: Rc::new(()),
             string_keys: true,
             mounted: Vec::new(),
             spacers: Vec::new(),
@@ -226,17 +224,8 @@ impl Collection {
                 text_keys.push(text);
             }
             self.index.replace_keys(text_keys).map_err(index_error)?;
-            if self.keys != keys {
-                self.membership = Rc::new(());
-            }
             self.items = items;
             self.string_keys = keys.iter().all(|key| key.as_str().is_some());
-            if self.keys.first() != keys.first() {
-                self.edge_armed[0] = true;
-            }
-            if self.keys.last() != keys.last() {
-                self.edge_armed[1] = true;
-            }
             self.keys = keys;
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
@@ -572,9 +561,8 @@ impl Collection {
             self.edge_armed[i] = false;
             CollectionEdges {
                 first: [EventKind::Reachstart, EventKind::Reachend][i],
-                // Do not disarm end until it actually dispatches. A membership
-                // shift must wait for another report of the new rows' geometry.
-                end_if_unchanged: (ready[0] && ready[1]).then(|| Rc::clone(&self.membership)),
+                // End remains armed until an action actually consumes it.
+                end_after_noop: ready[0] && ready[1],
             }
         });
         Ok((changed, event))
