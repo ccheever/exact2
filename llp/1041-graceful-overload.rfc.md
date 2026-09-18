@@ -3247,3 +3247,35 @@ Session/NodeView-dependent methods are excluded from that standalone harness;
 this is not a full XCTest or native performance run. No saving is measured yet.
 The source and checks are retained under `target/apple-text-known-identity/`,
 manifest `4743d8edadd3e91adce1872a0025415a6836cae3b25fdc3caec2857bdc89f90d`.
+
+### 8.45 Fitting documents before AppKit resize tiling, 2026-09-17
+
+The page scroll view now remembers a completed document fit and shrinks only
+previously fitting wrapper axes before AppKit tiles a smaller outer viewport.
+This prevents the old wrapper extent from temporarily introducing unnecessary
+scrollbars. Authored root frames and genuinely overflowing axes stay owned by
+normal layout. The fit is consumed before callbacks and refused after changes
+to the document, geometry, scrollbar configuration or insets, and during batch
+application/reset. No fixed gutter width, timer or extra layout loop is added.
+
+The small AppKit control retains its behavioral baseline failure. Across its
+28 resize steps, candidate viewport offers fall from 40 to 30; the stable legacy
+fitting case uses one offer per shrink. Eight cases over the full compiled
+ExactKit module pass 38 assertions, covering overflow, scroll origin, successive
+shrinks, invalidation and reentrant batch handling. The standalone runner uses
+the unchanged test bodies because this CLT installation lacks XCTest; the
+failed SwiftPM attempt is retained.
+
+A separate real ExactView/Session/Runtime fixture checks viewport-derived width
+and height at four natural drawing boundaries without corrective fit/layout
+or pump calls. All four agree, including after vertical overflow appears. Its
+first 956-point outer width nevertheless has a 939-point clip, so that fixture
+does not prove every transient gutter is removed. The earlier control's final
+manual-layout height discrepancy remains separate. Missing-view-section and
+string-valued sizing fixture failures are preserved before the successful
+numeric fixture. These are correctness and callback-count results, not a
+Messages latency comparison or a physical 120Hz claim.
+
+Exact production/test patch `e9c5902487d17c48f4b40994e643d12c972889bc51f2c4fd07c13fcbc0fa86d3`
+and the control, eight-case and natural-draw evidence are retained in the private
+`exact2-appkit-prefit-document/target/appkit-prefit-validation/` archive.
