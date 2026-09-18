@@ -1,0 +1,19 @@
+[package]
+name = "exact-live-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+messages-stress-data = { path = "../../messages-stress/data" }
+interaction-gallery-data = { path = "../../interaction-gallery/data" }
+completion-storm-data = { path = "../../completion-storm/data" }
+markdown-parse = { path = "../../markdown/parse" }
+markdown-stress-data = { path = "../../markdown-stress/data" }
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }

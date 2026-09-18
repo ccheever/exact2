@@ -827,6 +827,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-live-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-live-data",
+ "exact-logic",
+]
+
+[[package]]
+name = "exact-live-data"
+version = "0.1.0"
+dependencies = [
+ "completion-storm-data",
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "interaction-gallery-data",
+ "markdown-parse",
+ "markdown-stress-data",
+ "messages-stress-data",
+]
+
+[[package]]
+name = "exact-live-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-linux",
+ "exact-live-data",
+ "exact-logic",
+]
+
+[[package]]
+name = "exact-live-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-live-data",
+ "exact-logic",
+ "exact-web",
+]
+
+[[package]]
 name = "exact-logic"
 version = "0.1.0"
 dependencies = [
