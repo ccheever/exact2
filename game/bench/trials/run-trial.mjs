@@ -55,6 +55,8 @@ try {
   for(const name of ['llp','rules','experiments','game/bench/trials','game/diaries','game/twins','QUEUE.md'])rmSync(resolve(work,name),{recursive:true,force:true});
   function strip(dir){for(const e of readdirSync(dir,{withFileTypes:true})){const p=resolve(dir,e.name);if(e.isSymbolicLink())continue;if(e.isDirectory())strip(p);else if(['AGENTS.md','CLAUDE.md'].includes(e.name))rmSync(p);}}
   strip(work);
+  // Only Lanterns and its shared authored fragments are supplied as games.
+  for(const name of readdirSync(resolve(work,'game/games')))if(!['lanterns','shared'].includes(name))rmSync(resolve(work,'game/games',name),{recursive:true,force:true});
   const target=resolve(work,'game/target');mkdirSync(target,{recursive:true});
   // Copy-on-write where supported; never a hardlink or a shared writable target.
   if(existsSync(resolve(root,'game/target')))sync('cp',['-a','--reflink=auto',`${root}/game/target/.`,target]);

@@ -90,3 +90,10 @@ that symlink target. A1 is retained, never replaced or timed from a reset point.
 Subsequent attempts permit the resolver's exact real path and probe that it is
 readable alongside evaluator denial. This is an instrument defect, not evidence
 about Lanterns authoring difficulty. Agent parameters and evaluator remain fixed.
+
+A2's live log revealed that the archive still exposed other games in the source
+workspace: it searched `game/games` for existing proof examples. This exceeds
+“only the game” context, so A2 must carry that protocol deviation. Later archives
+remove other game consumers, retaining only Lanterns and its shared scene
+fragments. Engine/path dependencies remain source-available for Rust compilation.
+No session is restarted or supplied feedback as a result of this audit.
