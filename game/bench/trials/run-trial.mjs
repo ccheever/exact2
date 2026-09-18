@@ -65,6 +65,12 @@ try {
     // is compiled by the Lanterns build or its package-scoped tests.
     if(metadata){mkdirSync(resolve(dir,'logic/src'),{recursive:true});writeFileSync(manifest,metadata);writeFileSync(resolve(dir,'logic/src/lib.rs'),'// Unavailable consumer fixture; metadata only.\n');}
   }
+  // Bench consumers are games too. Keep Cargo's explicit cubes member as
+  // metadata only, matching the other removed consumer stubs above.
+  const bench=resolve(work,'game/bench'), cubes=resolve(bench,'cubes/logic/Cargo.toml');
+  const cubesMetadata=existsSync(cubes)?readFileSync(cubes):null;
+  rmSync(bench,{recursive:true,force:true});
+  if(cubesMetadata){mkdirSync(resolve(bench,'cubes/logic/src'),{recursive:true});writeFileSync(cubes,cubesMetadata);writeFileSync(resolve(bench,'cubes/logic/src/lib.rs'),'// Unavailable consumer fixture; metadata only.\n');}
   const target=resolve(work,'game/target');mkdirSync(target,{recursive:true});
   // Copy-on-write where supported; never a hardlink or a shared writable target.
   if(existsSync(resolve(root,'game/target')))sync('cp',['-a','--reflink=auto',`${root}/game/target/.`,target]);

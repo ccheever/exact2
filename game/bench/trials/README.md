@@ -148,3 +148,13 @@ moved. The sequence is after A1, baseline A3, after B1, baseline B3, after A2,
 after B2. Evaluator version 3 and all six evaluator hashes remain unchanged.
 The 900-second dispatch ceiling, three-repair prompt, same-ref missing-feature
 negative controls, isolation read-denial probe and cleanup remain in force.
+
+I2 context audit during after A2 found an inherited omission: `game/bench/cubes`
+was not stripped with `game/games` consumers. Its broad grep returned the cubes
+proof's status-print line and a one-line crate comment. Both refs contained this
+consumer; no other completed I2 log shows cubes implementation output. A2 is
+retained with that context deviation. Before final after B2, the runner removes
+benchmark implementations and keeps only the cubes manifest and an empty library,
+as for other Cargo consumer stubs. No running workspace, prompt or evaluator was
+changed. This late packaging correction is disclosed; the six attempts are not
+claimed to have identical context packaging.
