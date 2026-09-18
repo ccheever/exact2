@@ -215,8 +215,14 @@
       var first = root;
       root = false;
       if (typeof item === "string" && item.length >= 65536) {
-        var path = first ? [] : [key];
-        for (var link = first ? null : paths.get(this); link; link = link.parent) path = [link.key].concat(path);
+        var parent = first ? null : paths.get(this), depth = first ? 0 : 1;
+        for (var link = parent; link; link = link.parent) depth++;
+        var path = [];
+        function pathKey(key) {
+          Object.defineProperty(path, --depth, {value:key, enumerable:true, writable:true, configurable:true});
+        }
+        if (!first) pathKey(key);
+        for (var link = parent; link; link = link.parent) pathKey(link.key);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
         captureString(JSON.stringify(path), item);

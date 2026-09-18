@@ -46,8 +46,9 @@ function transfer(mode:string):unknown {
   if(mode==='plain')return big;
   if(mode==='boxed')return new String(big);
   if(mode==='lone')return 'x'.repeat(65536)+'\ud800';
-  if(mode==='reverseHook'){
-    Object.defineProperty(Array.prototype,'reverse',{value(){throw new Error('application reverse hook');},configurable:true});
+  if(mode==='arrayMethodsHook'){
+    for(const name of ['concat','push','reverse'])
+      Object.defineProperty(Array.prototype,name,{value(){throw new Error('application array method hook');},configurable:true});
     return {first:big,second:big};
   }
   if(mode==='arrayHook'){

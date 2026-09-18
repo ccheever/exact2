@@ -105,7 +105,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ("cycle", "Pair"),
         ("bigint", "Pair"),
         ("lone", "string"),
-        ("reverseHook", "Pair"),
+        ("arrayMethodsHook", "Pair"),
         ("arrayHook", "string"),
         ("private", "string"),
         ("small", "string"),
