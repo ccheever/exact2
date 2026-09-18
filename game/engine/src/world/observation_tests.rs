@@ -85,6 +85,52 @@ struct Payload {
 }
 #[derive(Default, crate::Resource)]
 struct Count(u32);
+
+#[test]
+fn in_place_read_discards_every_observation_cache() {
+    let mut w = World::new(60, 7);
+    let old = w.spawn_named("old", crate::Transform::default());
+    w.insert_resource(Count(1));
+    let mut before = Observation::default();
+    w.observe_with_hash(&mut before, true);
+    let id = w.id();
+    let mut source = World::new(60, 19);
+    let dead = source.spawn(());
+    source.despawn(dead);
+    let new = source.spawn_named("new", crate::Transform::at(9.0, 0.0, 0.0));
+    source.insert_resource(Count(2));
+    assert_eq!(old.index(), new.index());
+    assert_ne!(old, new);
+    let bytes = source.save();
+    let mut decoder = bin::Decoder::for_load(&bytes[MAGIC.len()..], None);
+    w.read(&mut decoder).unwrap();
+    decoder.finish().unwrap();
+    assert_eq!(w.id(), id);
+    assert!(!w.contains(old));
+    assert_eq!(w.get::<crate::Transform>(new).unwrap().position.x, 9.0);
+    assert_eq!(w.resource::<Count>().0, 2);
+    for full in [false, true] {
+        let mut cached = Observation::default();
+        let mut oracle = Observation::default();
+        w.observe_with_hash(&mut cached, full);
+        w.observe_uncached(&mut oracle, full);
+        assert_eq!(cached.entries, oracle.entries);
+        assert_ne!(cached.entries, before.entries);
+        assert_eq!(w.hash(), source.hash());
+    }
+    // A smaller, sparse save must also clear old alive bits and absent columns.
+    source.despawn(new);
+    let bytes = source.save();
+    w.read(&mut bin::Decoder::for_load(&bytes[MAGIC.len()..], None))
+        .unwrap();
+    assert_eq!(w.entities().count(), 0);
+    let mut cached = Observation::default();
+    let mut oracle = Observation::default();
+    w.observe(&mut cached);
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(cached.entries, oracle.entries);
+    assert_eq!(w.save(), bytes);
+}
 #[derive(Default, crate::Data)]
 struct AmbientResource(u32);
 impl crate::Resource for AmbientResource {
@@ -125,7 +171,9 @@ fn randomized_cached_observations_equal_the_original_path() {
                 let live: Vec<_> = w.entities().collect();
                 let e = *script.pick(&live).unwrap();
                 let action = script.range(0u32..coverage.len() as u32) as usize;
-                coverage[action] += 1;
+                let before_bytes = w.save();
+                let before_generation = w.presentation_generation;
+                let before_epoch = w.mutation_epoch();
                 match action {
                     0 => {
                         w.spawn_named("new", (Transform::default(), Payload::default()));
@@ -197,6 +245,13 @@ fn randomized_cached_observations_equal_the_original_path() {
                         }
                     }
                 }
+                // An unwritten lease deliberately changes only the observation epoch.
+                let mutated = if action == 4 {
+                    w.mutation_epoch() != before_epoch
+                } else {
+                    w.save() != before_bytes || w.presentation_generation != before_generation
+                };
+                coverage[action] += usize::from(mutated);
             }
             if tick % 67 == 0 {
                 w.id = WorldId(std::rc::Rc::new(()));
@@ -269,7 +324,7 @@ fn writes(w: &World, sample: &mut Observation) -> usize {
 }
 
 #[test]
-fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
+fn only_dirty_slots_are_hashed_and_context_changes_reset_them() {
     let mut w = World::new(60, 0);
     let entities: Vec<_> = (0..storage::PAGE * 2 + 1)
         .map(|_| w.spawn(Measured(0)))
@@ -278,11 +333,11 @@ fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
     assert_eq!(writes(&w, &mut sample), entities.len());
     assert_eq!(writes(&w, &mut sample), 0);
     drop(w.get_mut::<Measured>(entities[0]));
-    assert_eq!(writes(&w, &mut sample), storage::PAGE);
+    assert_eq!(writes(&w, &mut sample), 1);
     w.get_mut::<Measured>(*entities.last().unwrap()).unwrap().0 = 1;
     assert_eq!(writes(&w, &mut sample), 1);
     w.insert(entities[0], crate::Ambient);
-    assert_eq!(writes(&w, &mut sample), storage::PAGE - 1);
+    assert_eq!(writes(&w, &mut sample), 63);
     assert_eq!(writes(&w, &mut sample), 0);
     w.presentation_generation += 1;
     assert_eq!(writes(&w, &mut sample), entities.len() - 1);
@@ -306,7 +361,98 @@ fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.observe(&mut sample))).is_err()
     );
     drop(guard);
-    assert_eq!(writes(&w, &mut sample), storage::PAGE - 1);
+    assert_eq!(writes(&w, &mut sample), 1);
+}
+
+#[test]
+fn spread_every_word_and_all_slots_have_bounded_hash_work() {
+    let mut w = World::new(60, 0);
+    let entities: Vec<_> = (0..200_000).map(|i| w.spawn(Measured(i))).collect();
+    let mut sample = Observation::default();
+    assert_eq!(writes(&w, &mut sample), 200_000);
+    for stride in [2000, 64, 1] {
+        let mut count = 0;
+        for &e in entities.iter().step_by(stride) {
+            w.get_mut::<Measured>(e).unwrap().0 += 1;
+            count += 1;
+        }
+        assert_eq!(writes(&w, &mut sample), count);
+        let mut oracle = Observation::default();
+        w.observe_uncached(&mut oracle, false);
+        assert_eq!(sample.entries, oracle.entries);
+        assert_eq!(writes(&w, &mut sample), 0);
+    }
+    // Partial, owning query: only yielded slots are dirtied, including on a
+    // second iteration over the same leased query after an earlier sample.
+    let mut query = w.query::<&mut Measured>().into_iter();
+    for _ in 0..3 {
+        query.next().unwrap().0 += 1;
+    }
+    drop(query);
+    assert_eq!(writes(&w, &mut sample), 3);
+    let mut oracle = Observation::default();
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(sample.entries, oracle.entries);
+}
+
+#[test]
+fn empty_pages_release_component_and_structure_cache_capacity() {
+    let mut w = World::new(60, 0);
+    let root = w.spawn(crate::Transform::default());
+    let entities: Vec<_> = (1..storage::PAGE * 3)
+        .map(|_| w.spawn((Measured(0), crate::Parent(root))))
+        .collect();
+    w.propagate();
+    let mut sample = Observation::default();
+    w.observe(&mut sample);
+    assert!(w.storage::<Measured>().unwrap().observation_capacity().1 >= entities.len());
+    // Empty an interior page, retaining a high live page to catch mere truncation.
+    for &e in &entities[storage::PAGE - 1..storage::PAGE * 2 - 1] {
+        w.despawn(e);
+    }
+    w.observe(&mut sample);
+    assert_eq!(w.observation_cache.borrow().exists[1].entries.capacity(), 0);
+    assert_eq!(
+        w.observation_cache.borrow().globals[1].entries.capacity(),
+        0
+    );
+    assert_eq!(
+        w.storage::<Measured>().unwrap().observation_capacity().1,
+        (storage::PAGE * 2 - 1).next_multiple_of(64)
+    );
+    // Free every remaining page, and verify no high-water digest capacity survives.
+    for e in entities {
+        w.despawn(e);
+    }
+    w.despawn(root);
+    w.propagate();
+    w.observe(&mut sample);
+    assert_eq!(
+        w.storage::<Measured>().unwrap().observation_capacity(),
+        (0, 0)
+    );
+    assert_eq!(w.observation_cache.borrow().exists.capacity(), 0);
+    assert_eq!(w.observation_cache.borrow().globals.capacity(), 0);
+    assert_eq!(sample.entries.len(), 1); // RNG only; not a vacuous empty observer.
+    let e = w.spawn(Measured(9));
+    w.observe(&mut sample);
+    assert!(sample
+        .entries
+        .iter()
+        .any(|row| row.1 == "Measured" && row.2 == e));
+    let mut oracle = Observation::default();
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(sample.entries, oracle.entries);
+}
+
+#[test]
+#[should_panic(expected = "observation exceeds 1000000 entity slots")]
+fn observation_refuses_work_past_slot_bound() {
+    let mut w = World::new(60, 0);
+    for _ in 0..1_000_001 {
+        w.spawn(());
+    }
+    w.observe(&mut Observation::default());
 }
 
 #[test]
@@ -395,3 +541,6 @@ fn newly_available_globals_invalidate_equal_pose_cache_entries() {
             .any(|row| row.0 == 1 && row.2 == child));
     }
 }
+
+#[path = "observation_invalidation.rs"]
+mod invalidation;
