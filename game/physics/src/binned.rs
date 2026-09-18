@@ -239,12 +239,11 @@ impl Node {
                 if !ids.is_empty() {
                     centers.merge(&crate::binned::centers(ids.iter().copied(), bounds));
                 }
-                if centers.mins.x <= centers.maxs.x {
-                    if (side == 0 && grid.bin(centers.maxs) > plane)
-                        || (side == 1 && grid.bin(centers.mins) <= plane)
-                    {
-                        return false;
-                    }
+                if centers.mins.x <= centers.maxs.x
+                    && ((side == 0 && grid.bin(centers.maxs) > plane)
+                        || (side == 1 && grid.bin(centers.mins) <= plane))
+                {
+                    return false;
                 }
             }
         }

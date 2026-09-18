@@ -523,6 +523,14 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
 - Baked model delivery sizes (S3a): DamagedHelmet's RGBA8 mip chains produce a 112,733,848-byte `.model`, above PlanURL's existing 64 MiB per-asset limit. The GPU fixture renders it, but a native URL generation cannot carry that file. Choose a GPU-ready compression/chunking policy without introducing a runtime image decoder; evidence in `game/artifacts/s3a/report.md`.
-- Physics character queries: Rapier's controller still needs an O(n) combined BVH after geometry edits. T1b retains static shapes and splits ordinary query BVHs; remove the controller assembly only while preserving its traversal ties and pinned crate-push positions.
+- Physics canonical repartition (T1b2): warm characters retain geometry and certify refits,
+  but partition changes still rebuild O(n). Eight characters/20k statics measure 36.4 ms
+  p95; remove that tail without changing canonical hit order. Static edits remain 3.83 ms/edit.
+- Physics first-character membership (T1b2): installing Body/Collider after a terrain query
+  reconstructs the ordered query set; 1024² heightfield first-move latency rose 0.556 → 7.884 ms.
+  Preserve existing shapes across membership changes without restoring source-vector clones.
+- Rapier coincident-body fixture (T1b2): stepping the initial character parity fixture hit
+  `touching pair (edge 0) not linked in the persistent islands`. Minimize the solver case;
+  the shipped controller oracle compares movement and resulting state without stepping it.
 - Game verification (T1b, Linux): render's world test omits `Beacons::Options.scene`; assets.rs trips clippy type-complexity and engine/render formatting is red. Two surface library fixtures also fail with baseline physics (clock ownership leaves tick zero; restored run binding stays zero). Bun's feel test imports missing `games/beacons/feel.mjs`.
 - Linux proof fixtures (T1b): Beacons has five failures (movement hash, glow and continuation); Greybox has three queued-input/continuation failures, while its setup and movement hash pins pass. Neither game links physics; repair the input/clock and scene expectations without re-pinning to conceal a regression.
