@@ -37,6 +37,7 @@ async function fixture(options = {}) {
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replaceAll('import.meta.url', '"http://fixture/"')
+    .replace('import { pacer } from "./pace.js";', 'const pacer = () => now => now;') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
     .replace('await import(`./gpu.js${query}`)', 'await candidate(0)')
     .replaceAll('await loadModule(version)', 'await candidate(version)');

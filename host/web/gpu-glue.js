@@ -3,6 +3,7 @@
 // the app's GPU wasm (wgpu on the browser's WebGPU, wasm-bindgen glue) and
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
+import { pacer } from "./pace.js";
 let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
@@ -49,12 +50,17 @@ function render(entry, now) {
   messages(entry);
 }
 
+// The live frame clock is the callback's timestamp paced onto the display's
+// lattice (pace.js): a world drawn at the raw timestamp judders by the
+// timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
+const pace = pacer();
 function frame(now) {
   raf = null;
+  const at = pace(now);
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id) continue;
-    if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, now);
+    if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, at);
     more ||= entry.wants;
   }
   // Under the agent's clock a frame is asked for by `clock`, never by the

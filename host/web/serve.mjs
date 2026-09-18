@@ -20,7 +20,7 @@ const PUBLIC_FILES = new Set([
   ...INSTALL_FILES,
   '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-prelude.js',
   '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
-  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/gpu-glue.js',
+  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/gpu-glue.js', '/pace.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
