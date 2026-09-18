@@ -113,6 +113,18 @@ isolated allocation-site measurement. The source, fonts and cap were not reduced
 Continuous resize, repeated latency measurements and physical120Hz remain
 outstanding. LLP1041 §8.29 records the native sharing replay and its limits.
 
+A later retained-document reflow trial also passes at both 1MiB and 4MiB:
+the authored content column changes from 600 to 984px inside a fixed 1024×768
+display. It combines the frozen ef12f06 sharing path with glyph compaction and
+the span-reservation removal. The old layout remains interactive while the new
+width computes; publication needs no additional input. Both accepted viewport
+crops and both 40px scroll-overlap strips match fresh independent references.
+At 4MiB, sampled VmPeak is 2,411,644KiB and RSS/HWM is 1,774,156KiB, leaving
+209,796KiB below the unchanged address-space cap in this one fixture. Earlier
+novel-width crashes remain recorded. This proves the bounded content-reflow
+case, not a general memory bound, continuous window resize or 120Hz; §8.41
+records the exact composite, full-source checks and preserved failures.
+
 Earlier failed scroll-metadata and prelaunch port cells remain unchanged in §8.22.
 The scroll repair keeps limits tied to the successfully painted document; the old
 zero metadata did not prove immobile pixels. The display loop watches completion

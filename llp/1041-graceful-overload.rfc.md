@@ -2903,10 +2903,10 @@ run on macOS and establish neither actual-Linux memory savings nor 120 Hz.
 Sources, original failures, both test binaries and before-data are archived at
 `target/span-reservation-validation/`; the four-path source manifest is
 `b0435fd62b7a0861e4c5e8daf2e0d60bd4f802e95fdaec1f3f107732b3a9e809`.
-The next native experiment combines this change with shared and compacted
-layouts under the unchanged 1 MiB/4 MiB workloads, retained painted A and
-2.5 GiB address-space cap. The earlier 4 MiB novel-width SIGABRT remains a
-failure; reduced span capacity alone does not prove that concurrent A+B fits.
+The subsequent native experiment in §8.41 combines this change with shared
+and compacted layouts under the unchanged 1 MiB/4 MiB workloads, retained
+painted A and 2.5 GiB address-space cap. The earlier 4 MiB novel-width SIGABRT
+remains a failure; the later experiment supplies separate A+B evidence.
 
 ### 8.39 Repeated browser key-reuse measurements, 2026-09-17
 
@@ -3001,8 +3001,8 @@ not added as independent CPU cost.
 Mode coverage remains unestablished in all phases despite positive tracking
 samples, because the passive quota overflows; primary records do not overflow.
 This is one instrumented pair, not repeatability, robust tail latency or physical
-120 Hz evidence. Two alternating repeat pairs are prepared separately with the
-same products and recipe. No shipped entry is activated by this experiment.
+120 Hz evidence. Two alternating repeat pairs use the same products and recipe
+in §8.42. No shipped entry is activated by this experiment.
 
 The frozen raw pair, exact geometry/content cohorts, build receipts and cleanup
 proofs are at `target/messages-row-reuse-native-630-v1/`, runtime manifest
@@ -3011,3 +3011,121 @@ proofs are at `target/messages-row-reuse-native-630-v1/`, runtime manifest
 PIDs and ten groups retire, and eight posters issue their owned button-up.
 Original bootstrap and offline comparison errors remain separate from these
 successful runtime cells; no source fix, rebuild or runtime retry occurred.
+
+### 8.41 Capped Linux reflow after span reservation removal, 2026-09-17
+
+The complete retained-A → novel-B recipe now passes at both 1 MiB and 4 MiB.
+Each budget runs two fresh synchronous references and one native CPU/VKMS
+candidate under the unchanged 2.5 GiB address-space cap and 60 s process limit.
+The authored column changes effective text width from 600 to 984 px inside a
+fixed 1024×768 display. This is content reflow, not continuous physical window
+resizing. Both runs are recorded as instrumented, nonquiet correctness work.
+
+The frozen ef12f06 pointer-v2/shared-layout composite already contains glyph
+compaction; the only new source change is §8.38's span-reservation deletion.
+It is not a clean current-MAIN snapshot. Observer, receiver, oracle, font guard,
+external dependencies, workload and quotas remain unchanged. Both fresh ELF
+builds select the pinned local cosmic-text copy. Candidate identity is
+`a04a1f6df78eabf2a35b55bd6eb1667465216d93a21d6a8cb7e2d1cdbe7affb8`;
+reference identity is
+`058a4b2f3d2b3f668cc2862be95062f2beb513c90830f3e3b17fa9f9e7ba3c47`.
+The font capture retains 39 faces from 13 reads and 107,296,644 owned bytes.
+
+Raw source/canonical paragraph sizes are 1,048,531/1,048,499 bytes and
+4,194,181/4,194,149 bytes. Both widths match all 26 fresh-reference proof fields,
+including complete source, glyph, geometry and classified wrap-space coverage.
+Each accepted 1,228,800-byte viewport crop matches exactly. A has no pointer;
+B's independent reference includes the same document-center pointer. Both
+532,224-byte scroll-overlap strips also match exactly, with no mask or tolerance.
+Newly exposed pixels and entire continued-input pictures are outside those
+pixel comparisons; numeric full-paragraph proof is separate from viewport ink.
+
+A remains painted during B work and accepts typing and scroll. A and B each
+publish with no intervening input, at unchanged input sequences 18 and 41;
+subsequent B typing and scroll also complete. Four private jobs preserve full
+two-axis request identities. Two same-width hits share backing identities;
+the total is one shape, two layouts and two ink indexes. Ledger checkpoints
+show A+B coexistence followed by A numeric-backing retirement. Cumulative giant
+UI shape/layout/index construction counters stay zero, which does not exclude
+other UI work, source copies or destruction.
+
+| Budget | Sampled VmPeak | Sampled RSS/HWM | Accessible backing capacity peak |
+| --- | ---: | ---: | ---: |
+| 1 MiB | 1,223,884 KiB | 545,360 KiB | 345,492,154 B |
+| 4 MiB | 2,411,644 KiB | 1,774,156 KiB | 1,382,011,614 B |
+
+The 4 MiB observed AS margin is 209,796 KiB, about 204.879 MiB. The K/S/L/B/I
+ledger deduplicates categories and backing identities; it excludes in-progress
+arrays, fonts/catalogs, scratch, allocator overhead and RSS. Its shared S is
+667,208,977 B at 4 MiB, 234,872,176 B below the prior compaction run's S ledger.
+That category difference is not measured RSS savings or allocation-site proof.
+Do not add the ledger to RSS or compare the earlier A-only checkpoint subtotal
+as though it were a completed A+B peak. No general width/memory bound follows.
+
+All six cells complete once: references and coordinators exit 0; each display
+candidate receives its intended owned SIGTERM only after the passing observations.
+Recorded processes and groups retire. The 4 MiB post-terminal bind probe returns
+Errno 98 with only TIME_WAIT and no listener; its diagnostic exit 1 is preserved
+separately. There is no retry, port substitution, source reduction or cap increase.
+Earlier reserve-only, shared-layout and compaction failures keep their verdicts.
+This clears their tested 4 MiB content-reflow barrier, not a latency or 120 Hz bar.
+
+Final archives are `target/novel-width-span-reserve-runtime-1m-v1/` (84 files,
+31,270,472 B; manifest
+`2674ca7b055147158164538aa3cce43a708cebdb1c73ce585244fae1d602ae30`)
+and `target/novel-width-span-reserve-runtime-4m-v1/` (88 files, 31,472,007 B;
+manifest `11dcb637f09ee3faf749fa4c772df573f0cf177df22f9062ae822d063dd253ac`).
+The separate build archive proves source/package/binary selection; raw journals,
+fresh references, memory samples, pictures and ownership receipts remain available.
+
+### 8.42 Two alternating native Messages repeat pairs, 2026-09-17
+
+Four further fresh cells complete once in BA then AB order using §8.40's exact
+two binaries, plan, recipe and 10,000-row/32-change workload. No source change,
+rebuild, runtime retry or factory activation occurs. Before remains the stateless
+source; After uses row reuse, with the same Runner key memo in both arms.
+
+The lower loaded advance/decode median recurs in each order. These are complete
+linked timer chains wholly inside genuine AppKit resize edges, not isolated
+query CPU time or display frames. The first pair is retained for comparison:
+
+| Pair/order | Before/After inside chains | Before/After loaded revisions | Before/After core median | Before/After whole-chain maximum |
+| --- | ---: | --- | ---: | ---: |
+| 1, AB | 7 / 7 | 8→18 / 8→18 | 10.337 / 3.882 ms | 25.586 / 14.386 ms |
+| 2, BA | 6 / 7 | 9→19 / 9→18 | 10.181 / 3.959 ms | 19.621 / 11.059 ms |
+| 3, AB | 7 / 7 | 8→18 / 9→19 | 10.822 / 3.277 ms | 14.774 / 10.245 ms |
+
+Callback counts and revision intervals differ naturally; the two new pairs are
+not matched at every timed payload or progress boundary. All 60 saved full
+History states validate ordered keys, five row fields and body-byte totals,
+and whole values match across every equal six-argument tuple. Shared tuples
+also match the original pair. Final revisions 19/19/19/20 are preserved.
+These small repeated cohorts support the observed core-cost reduction, not a
+general speedup or robust latency distribution.
+
+Whole timer chains still exceed 1000/120 ms in every After cell. New After
+loaded resize-whole medians are 6.406/6.284 ms versus 5.975/6.221 ms Before;
+After maxima are 15.645/15.597 ms. Each uses 35 complete inside-edge resize
+chains; the 36th occurs entirely afterward. There is no resize improvement in
+these pairs. The original After core maximum 10.358 ms, whole maximum 14.386 ms
+and loaded typing ACK maximum 28.748 ms remain in the record. Core includes
+FFI/JSON decoding, apply includes feedback, and ACK is not presentation.
+
+All twelve new resize/input endpoints are established: 144 ACKs, 72 typing
+actions and 72 actual directional ±40 px wheels, without skipped offers.
+Each edge has 18 genuine AppKit live changes. Actual window, port, backing
+scale and Quartz trajectories match between arms and the retained first pair;
+absolute scroll/revision/clock equality is not forced. Each new cell also has
+eight complete timer chains in its separate two-second command-free interval.
+Mode coverage stays unestablished despite positive tracking samples because
+the passive quota overflows; primary trace records do not overflow.
+
+All four cells exit 0, all 28 recorded PIDs and twenty groups retire, and all
+sixteen posters issue their owned button-up. Two offline schema-assumption
+failures remain separate; neither changes raw data, oracle or runtime results.
+The original 922-file archive stays immutable. New reports, raw states, exact
+geometry/content cohorts and cleanup evidence are under
+`target/messages-row-reuse-native-630-followup/`, 735 files/278,227,700 bytes,
+manifest `6ffbe73c511a12d0d7205e79ed1be3f81af489f2b1544ab6282421a2aae17930`.
+Remaining work is the UI/resize cost split and actual presentation evidence;
+neither repeated lower core medians nor these functional endpoints prove 120 Hz.
