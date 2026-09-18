@@ -134,3 +134,17 @@ after load. A focused probe saved while W was held and observed another 0.75m of
 movement after load; the corrected probe observes no movement and no held keys.
 All unchanged candidates receive the final version-3 evaluation, with no model
 restarts. The version-2 A1 intermediate evaluation is retained separately.
+
+## I2 interleaved after run
+
+The runner now loads `prompt-a.txt` / `prompt-b.txt` from this directory. These
+are byte-for-byte copies of the original retained baseline prompts (both
+attempts of each task agree), eliminating reads from another lane. SHA-256:
+A `94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7`;
+B `5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a`.
+The scratch destination is `~/lanes/gamenext/scratch/I2/trials/`; original
+attempts remain untouched. Pin after to `7c65726`, because `next/trunk` has
+moved. The sequence is after A1, baseline A3, after B1, baseline B3, after A2,
+after B2. Evaluator version 3 and all six evaluator hashes remain unchanged.
+The 900-second dispatch ceiling, three-repair prompt, same-ref missing-feature
+negative controls, isolation read-denial probe and cleanup remain in force.
