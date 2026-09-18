@@ -5037,6 +5037,20 @@ conservative paint coverage and the pixel oracle. Replacing ink with ordinary
 typographic bounds is not established as correct. This fixture does not measure
 full-app continuity, UI responsiveness or physical120Hz.
 
+A subsequent helper-only discriminator rejects reuse by exact previous line
+range for this workload: A's8155 and B's8988 output ranges have zero exact
+matches. A constant-scratch merge first validates positive, ordered, disjoint
+in-source ranges. Equal output ranges would only be an upper bound on safe
+creation-range reuse; zero matches therefore leaves that proposal no coverage
+for these widths. No certificate cache or associated memory account is added.
+One strict compile, backend and unchanged reader pass, retaining all full
+geometry/glyph/copy checks, six exact pictures and seven owner-release checks.
+`target/region-range-overlap-validation/execution-v1/manifest.json` binds87
+artifacts/6,902,939B, SHA
+`f687b13626fb03035a70ee44ca2bdaf7363df7058581eeeb300dde082aa24bd4`.
+This counts coverage in the frozen pre-§8.83 fixture; it is not a timing comparison
+or proof that every other form of exact ink reuse is impossible.
+
 ### 8.83 Compute accepted-source digests on the existing worker, 2026-09-18
 
 Giant-source capture previously hashed the full joined UTF8 and allocated its
@@ -5070,3 +5084,38 @@ cannot be credited entirely to this change. Worker preparation now includes the
 hash; previous frozen diagnostic recipes retain their original scope and must
 be explicitly rebound before new measurements. No native speedup or120Hz result
 is claimed from the scoped tests.
+
+`target/region-worker-digest-validation/freeze-v1/manifest.json` binds262
+artifacts/5,314,451B, SHA
+`784c229584b577e3e60957665d3c44915dc2dbf394accabf430d9cb6205cb43b`.
+The six integrated source/test files equal the compiled and frozen inputs.
+
+### 8.84 Wayland window attempt refuses device identity before launch, 2026-09-18
+
+The observed Linux client and independent reference compile successfully from
+the corrected source, producing ELFs7f0c783a and1c481467. The first window-run
+binding stages successfully, then its guest preflight exits1 at the requirement
+for exactly one DRM card whose `device/driver` resolves to `vkms`. The failed
+cardinality assertion does not record the selected count or sysfs inventory;
+it does not distinguish absent hardware from a selector mismatch.
+
+Only a read-only `systemctl show seatd.service` child ran and reported inactive.
+Neither reference, app, compositor, seatd server nor input device launched.
+There are no window, configure, pixel, input or timing results. All recorded Mac
+and guest processes/groups are absent, without signals or forced cleanup.
+Successful build evidence remains unchanged. Device identity must be explained
+before another explicitly bound attempt; no backend or mode fallback occurred.
+
+`target/wayland-window-validation/attempt-v1/artifact-manifest.json`, SHA
+`2216f495a3c712db0cf5080190599631ad0af10a3a9f4682552d36d2a8df2d5e`,
+preserves the original failed run, staging and cleanup receipts. The corrected
+retained-A input/B-worker reader remains a pure-test result, not native acceptance.
+
+Subsequent read-only diagnosis finds zero cards under `/sys/class/drm` and no
+`/dev/dri` entries. The running kernel is6.8.0-139; neither VKMS nor virtio_gpu is
+loaded, and `modinfo` cannot find a matching VKMS module. The139 modules-extra
+package is not installed; uinput is built into this kernel. Older successful
+captures record a134 VKMS module, which is not a compatible substitute. These
+facts explain zero selector matches without establishing when device state was
+lost. No driver load, package install, device open or native retry is covered by
+this diagnosis. Restoring the matching virtual device is separate setup work.
