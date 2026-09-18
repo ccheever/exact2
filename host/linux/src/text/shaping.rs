@@ -168,7 +168,7 @@ impl ShapedSource {
         } else {
             Ellipsize::None
         };
-        let layouts = {
+        let mut layouts: Vec<Vec<LayoutLine>> = {
             let mut scratch = ShapeBuffer::default();
             self.data
                 .lines
@@ -190,6 +190,28 @@ impl ShapedSource {
                 })
                 .collect()
         }; // Request scratch dies before publication, never accumulates by width.
+           // Ordinary paragraphs avoid shrinking allocations for small savings.
+           // This is an optimization threshold, not admission or a memory limit.
+        let spare = layouts.iter().flatten().fold(0usize, |bytes, line| {
+            bytes.saturating_add(
+                (line.glyphs.capacity() - line.glyphs.len())
+                    .saturating_mul(std::mem::size_of::<cosmic_text::LayoutGlyph>()),
+            )
+        });
+        if spare >= 64 * 1024 {
+            for line in layouts.iter_mut().flatten() {
+                if line.glyphs.capacity() > line.glyphs.len() {
+                    // These vectors are still private. Preserve every glyph
+                    // and the public Vec/slice API before Arc/index creation.
+                    // A moving shrink may need old + one new line allocation;
+                    // an unwrapped giant line is not bounded by the viewport.
+                    // Tight capacity does not guarantee allocator/AS release.
+                    line.glyphs = std::mem::take(&mut line.glyphs)
+                        .into_boxed_slice()
+                        .into_vec();
+                }
+            }
+        }
         let mut paragraph = Paragraph {
             source: self.clone(),
             layouts: Arc::new(layouts),

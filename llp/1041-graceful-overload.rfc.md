@@ -2732,3 +2732,76 @@ All owned processes retire; planned display shutdown after the 1 MiB proofs is
 distinct from the unsignaled 4 MiB allocation abort. No cap increase or retry
 follows the 4 MiB failure. These instrumented, nonquiet cases establish neither
 an isolated memory saving, latency bound nor physical 120 Hz.
+
+The next production change compacts private glyph vectors before their layout
+is shared. It runs after shaping scratch is dropped and before Arc publication,
+baselines and ink-index construction. A paragraph with less than 64 KiB spare
+glyph capacity keeps its allocations; otherwise each oversized vector is moved
+through a boxed slice to discard spare slots. This is an allocation optimization,
+not admission or a memory ceiling. Source, glyph values, layout geometry, job
+identities and the one Weak reuse slot stay intact.
+
+The independent Buffer oracle records 96,096→64,073 glyph slots at width 600
+and 76,288→64,477 at width 984 for the larger wrapped test, saving 2,818,024 and
+1,039,368 capacity bytes. The unwrapped test saves 487,168 bytes; the ordinary
+mixed-text test retains its 104 glyph slots. All four new tests are included in
+96 passing text tests, independently repeated after integration, with strict
+all-targets Clippy. Exact glyph/geometry/selection/cursor, CPU pixels, GPU batch
+data, adopted-A sharing and last-owner retirement are checked. The initial
+ordinary-control outer-array comparison error is preserved separately from the
+three meaningful capacity failures.
+
+Tight capacity does not prove allocator AS/RSS release. Reallocation may retain
+the old block plus one replacement line; the unwrapped test's replacement is
+5,280,000 bytes, not viewport-bounded scratch. Ordinary layout adds a line-header
+scan; no overhead timings were collected. Full uncompacted output still exists
+before this step. The purpose is to reduce A retained during later B construction;
+the failed 4 MiB case has not yet been rerun with this change. The source/test
+freeze is `target/layout-capacity-validation/freeze-v1/`, manifest
+`f0cc711d4df9dc16246fb253812e31e6b6800d6d8ce3086aff1ea17f394971d0`;
+integrated logs are in the adjacent `integration/` directory.
+
+### 8.37 Messages per-update stages identify remaining key work, 2026-09-17
+
+Private diagnostic builds add four stage hooks to both 70668a3 source variants:
+query, shape validation, key evaluation/uniqueness and index replacement. Actual
+InstanceWork is captured at each tree update, under its owning Wasm call. Both
+`exact_advance` and `exact_resize` are observed. There is no per-row clock or new
+application scheduling. The two generated runtime factories remain the only
+application difference; diagnostic hooks and the full 10,000-row/32-change
+workload are equal. This instrumentation is not integrated into production.
+
+The first control run fails its full functional oracle: an idle typing offer
+arrives 113.461 ms late and is skipped under the existing 100 ms policy. The
+original pair stops before reuse. No observed export spans that delay; an
+overlapping 200 ms rAF gap does not identify its cause. All loaded offers still
+complete and eight complete stage-bearing parents lie inside the loaded window.
+The failed run remains failed.
+
+A separately released reuse-only continuation passes once without a rebuild,
+retune or skip-policy change. It has seven fully contained loaded stage-bearing
+parents. An eighth parent crosses the window end and remains wholly unscored;
+the revision snapshots 8→16 must not replace that actual interval count.
+
+| Stage | Control median, 8 contained records | Reuse median, 7 contained records |
+| --- | ---: | ---: |
+| Query | 10.75 ms | 0.6 ms |
+| Shape validation | 0.75 ms | 1.5 ms |
+| Key evaluation and uniqueness | 6.6 ms | 8.8 ms |
+| Index replacement | 0.2 ms | 0.5 ms |
+
+Each of these records visits 109 nodes and evaluates 10,000 keys. Parent calls
+span 18.9–24.2 ms in the control and 11.0–14.6 ms in reuse. Both captures observe
+all hooks, 328 packets and 174 work records, without collector errors or overflow.
+Silent, boundary and zero-stage update records remain separate. Tree-ok describes
+the local tree result, not kernel or physical presentation. Callback/clock costs
+are retained; unmarked work is not assigned to these four stages.
+
+These single samples identify query construction and then all-row key work as
+concrete costs. They establish neither a passing paired cohort, repeated gain,
+default-entry activation nor physical 120 Hz. All owned processes/listeners retire.
+The failed control is preserved under `target/collection-stage-web-pair-706/runtime-v1/`,
+21 artifacts/607,596 bytes, manifest
+`33ddcb51ec6f153f0bc470d2e03f9b084fee130335f923b0bd96fc8337d4cf06`.
+The separate continuation is under `runtime-b1-continuation-v1/`, 21 artifacts/
+848,495 bytes, manifest `d6fbbef39bdcd44a5ad9b9f7885656bc44c490fb831b215f4c6980bc745ebaa9`.

@@ -616,3 +616,81 @@ fn definite_shared_capacity_deduplicates_arrays_and_local_ink_independently() {
     // Source/worker/request handles are still live but only have weak slots.
     assert!(life.1.upgrade().is_none());
 }
+
+#[test]
+fn compacted_adopted_a_keeps_fresh_job_reuse_pixels_and_last_owner_retirement() {
+    let mut engine = TextEngine::with_catalog(fixture_catalog());
+    let (recipe, raster) = freeze_catalog(&engine).unwrap();
+    let (mut k, _) = large_request(recipe.catalog_label());
+    let q = next_request(&mut k, recipe.catalog_label(), 600.);
+    assert!(q.source().bytes() >= 65536);
+    let a = prepare(&recipe, q.clone(), PaintContext::new(1.).unwrap(), None).unwrap();
+    let b = prepare(&recipe, q, PaintContext::new(1.).unwrap(), Some(a.source())).unwrap();
+    let mut worker = FontWorker::new(recipe.clone()).unwrap();
+    let result = worker.execute(a.clone()).unwrap();
+    let life = (result.probe.clone(), result.ink_probe.clone());
+    let pa = adopt(result, &a, &raster).unwrap();
+    // CompletedText has been consumed. Only adopted A holds the backing when
+    // the fresh private job executes; the source slot itself is still Weak.
+    let old = pa.paragraph().unwrap();
+    super::super::sharing_tests::assert_tight_glyph_storage(old);
+    let pictures: Vec<_> = [0., -old.height / 2., -old.height + 100.]
+        .into_iter()
+        .map(|y| full(old, y, 1.))
+        .collect();
+    let old_capacity = old.owned_capacity_bytes();
+    let before = (work::read(), ink::build_work());
+    let result = worker.execute(b.clone()).unwrap();
+    assert_eq!((work::read(), ink::build_work()), before);
+    assert!(std::sync::Weak::ptr_eq(&life.0, &result.probe));
+    assert!(std::sync::Weak::ptr_eq(&life.1, &result.ink_probe));
+    let pb = adopt(result, &b, &raster).unwrap();
+    let reused = pb.paragraph().unwrap();
+    assert!(Arc::ptr_eq(&old.layouts, &reused.layouts));
+    assert!(Arc::ptr_eq(&old.baselines, &reused.baselines));
+    assert_eq!(reused.owned_capacity_bytes(), old_capacity);
+    let retiring = cache::Cache::default().retiring([old, reused].into_iter());
+    assert_eq!(retiring.owned_capacity_bytes, old_capacity);
+    for (y, expected) in [0., -old.height / 2., -old.height + 100.]
+        .into_iter()
+        .zip(&pictures)
+    {
+        assert_eq!(&clipped(&mut engine, reused, y, 1.), expected);
+    }
+    let wrong = worker.execute(b.clone()).unwrap();
+    assert!(matches!(
+        adopt(wrong, &a, &raster),
+        Err(TransferError::StaleResult)
+    ));
+    assert!(life.0.upgrade().is_some());
+    // A novel width builds one new independent backing without mutating A.
+    let q = next_request(&mut k, recipe.catalog_label(), 984.);
+    let c = prepare(&recipe, q, PaintContext::new(1.).unwrap(), Some(a.source())).unwrap();
+    let before = (work::read(), ink::build_work());
+    let result = worker.execute(c.clone()).unwrap();
+    assert_eq!(work::read().layouts, before.0.layouts + 1);
+    assert_eq!(work::read().shapes, before.0.shapes);
+    assert_eq!(ink::build_work().attempts, before.1.attempts + 1);
+    let novel_life = (result.probe.clone(), result.ink_probe.clone());
+    let pc = adopt(result, &c, &raster).unwrap();
+    super::super::sharing_tests::assert_tight_glyph_storage(pc.paragraph().unwrap());
+    assert!(!Arc::ptr_eq(&old.layouts, &pc.paragraph().unwrap().layouts));
+    for (y, expected) in [0., -old.height / 2., -old.height + 100.]
+        .into_iter()
+        .zip(&pictures)
+    {
+        assert_eq!(&clipped(&mut engine, old, y, 1.), expected);
+    }
+    assert_eq!(old.owned_capacity_bytes(), old_capacity);
+    drop(pa);
+    assert!(life.0.upgrade().is_some());
+    drop(pb);
+    assert!(life.0.upgrade().is_none());
+    assert!(life.1.upgrade().is_none());
+    assert!(novel_life.0.upgrade().is_some());
+    drop(pc);
+    assert!(novel_life.0.upgrade().is_none());
+    assert!(novel_life.1.upgrade().is_none());
+    // Worker and PreparedSources remain alive, without retaining width history.
+    assert!(a.source().0.shape.get().is_some());
+}
