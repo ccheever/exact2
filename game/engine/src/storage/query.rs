@@ -320,6 +320,21 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             words,
         }
     }
+    // Structural singleton lookup uses the same presence-mask join without
+    // borrowing values or marking pages. It remains valid during an edit.
+    pub(crate) fn matching_count(world: &'w World) -> (usize, Option<Entity>) {
+        let state = Q::prepare(world, &mut [None; 8]);
+        let mut count = 0;
+        let mut found = None;
+        for word in 0..state.words().min(world.alive_mask.len()) {
+            let bits = world.alive_mask[word] & state.word(word);
+            count += bits.count_ones() as usize;
+            if bits != 0 {
+                found = Some(world.entity_at(word * 64 + bits.trailing_zeros() as usize));
+            }
+        }
+        (count, found)
+    }
     /// Keep entities carrying C, without borrowing its values.
     pub fn with<C: Component>(mut self) -> Self {
         let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);

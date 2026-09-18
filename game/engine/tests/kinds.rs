@@ -479,3 +479,16 @@ fn edit_context_has_a_bound_and_unwinds_without_poisoning_the_world() {
     nested(&w, id, 32);
     assert_eq!(before, (w.save(), w.mutation_epoch()));
 }
+
+#[test]
+fn singleton_membership_remains_available_while_values_are_leased() {
+    let mut w = World::new(60, 0);
+    let id = w.spawn_kind("lamp", lamp(0.0));
+    w.edit(id, |row| {
+        let epoch = w.mutation_epoch();
+        assert_eq!(w.the::<Lamp>(), id);
+        assert_eq!(w.mutation_epoch(), epoch);
+        row.material.roughness = 0.25;
+    });
+    assert_eq!(w.row(id).unwrap().material.roughness, 0.25);
+}

@@ -519,17 +519,12 @@ impl World {
     pub fn the<K: Kind>(&self) -> Id<K> {
         K::preflight().expect("the preflight");
         self.kind_work_bound("the");
-        let mut found = None;
-        let mut count = 0;
-        for (e, _) in self.query::<K::Read>().iter() {
-            found = Some(Id::new(e));
-            count += 1;
-        }
+        let (count, found) = crate::QueryBorrow::<K::Read>::matching_count(self);
         assert!(
             count == 1,
             "expected exactly one {}, found {count}",
             std::any::type_name::<K>()
         );
-        found.unwrap()
+        Id::new(found.unwrap())
     }
 }
