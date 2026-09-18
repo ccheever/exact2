@@ -45,48 +45,58 @@ impl Writes for Renderer {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Shape {
-    Box([u32; 3]),
-    Sphere(u32),
-    Cylinder(u32, u32),
-    Plane(u32, u32),
-    Capsule(u32, u32),
-    Asset(String),
+    Box,
+    Sphere,
+    Cylinder,
+    Plane,
+    Capsule,
 }
 impl Shape {
-    fn of(mesh: &Mesh) -> Self {
-        match mesh {
-            Mesh::Box { size } => Self::Box(size.to_array().map(f32::to_bits)),
-            Mesh::Sphere { radius } => Self::Sphere(radius.to_bits()),
-            Mesh::Cylinder { radius, height } => Self::Cylinder(radius.to_bits(), height.to_bits()),
-            Mesh::Plane { width, depth } => Self::Plane(width.to_bits(), depth.to_bits()),
-            Mesh::Capsule { radius, height } => Self::Capsule(radius.to_bits(), height.to_bits()),
-            Mesh::Asset(name) => Self::Asset(name.clone()),
-        }
-    }
-    fn geometry(&self) -> (Vec<Vertex>, Vec<u32>) {
-        let f = |v: &u32| f32::from_bits(*v);
-        let (mut vertices, indices) = match self {
-            Self::Box(_) | Self::Asset(_) => shapes::cube(),
-            Self::Sphere(_) => shapes::sphere(24),
-            Self::Cylinder(..) => shapes::cylinder(24),
-            Self::Plane(..) => shapes::plane(),
-            Self::Capsule(r, h) => shapes::capsule(f(r), f(h), 24),
-        };
-        let scale = match self {
-            Self::Box(size) => size.map(f32::from_bits),
-            Self::Sphere(r) => [2.0 * f(r); 3],
-            Self::Cylinder(r, h) => [2.0 * f(r), f(h), 2.0 * f(r)],
-            Self::Plane(w, d) => [f(w), 1.0, f(d)],
-            _ => [1.0; 3],
-        };
-        for v in &mut vertices {
-            for (x, scale) in v.position.iter_mut().zip(scale) {
-                *x *= scale;
+    fn of(mesh: &Mesh) -> Result<Self, RenderError> {
+        Ok(match mesh {
+            Mesh::Box { .. } => Self::Box,
+            Mesh::Sphere { .. } => Self::Sphere,
+            Mesh::Cylinder { .. } => Self::Cylinder,
+            Mesh::Plane { .. } => Self::Plane,
+            Mesh::Capsule { .. } => Self::Capsule,
+            Mesh::Asset(name) => {
+                return Err(RenderError::scene(format!(
+                    "Mesh.Asset({name}): asset meshes are not implemented"
+                )))
             }
+        })
+    }
+    fn geometry(self) -> (Vec<Vertex>, Vec<u32>) {
+        let (mut vertices, indices) = match self {
+            Self::Box => shapes::cube(),
+            Self::Sphere => shapes::sphere(24),
+            Self::Cylinder => shapes::cylinder(24),
+            Self::Plane => shapes::plane(),
+            Self::Capsule => shapes::capsule(0.5, 2.0, 24),
+        };
+        let half = vertices.len() / 2;
+        for (i, v) in vertices.iter_mut().enumerate() {
+            v.uv = if self == Self::Capsule {
+                let sign = if i < half { 1.0 } else { -1.0 };
+                v.position[1] -= sign * 0.5;
+                [sign, 1.0]
+            } else {
+                [0.0; 2]
+            };
         }
         (vertices, indices)
+    }
+}
+fn dimensions(mesh: &Mesh) -> [f32; 3] {
+    match mesh {
+        Mesh::Box { size } => size.to_array(),
+        Mesh::Sphere { radius } => [2.0 * radius; 3],
+        Mesh::Cylinder { radius, height } => [2.0 * radius, *height, 2.0 * radius],
+        Mesh::Plane { width, depth } => [*width, 1.0, *depth],
+        Mesh::Capsule { radius, height } => [2.0 * radius, height * 0.5 - radius, 2.0 * radius],
+        Mesh::Asset(_) => [1.0; 3], // Refused before any upload.
     }
 }
 struct Group {
@@ -132,6 +142,7 @@ pub struct Feed {
     batches: Vec<Batch>,
     slots: Vec<u32>,
     material_page: Box<[f32; PAGE * 12]>,
+    dimensions: Vec<[f32; 3]>,
     transform_page: Box<[f32; PAGE * 10]>,
     scratch: Vec<f32>,
     transforms: [upload::Pages; 2],
@@ -153,6 +164,7 @@ impl Default for Feed {
             batches: Vec::new(),
             slots: Vec::new(),
             material_page: Box::new([0.0; PAGE * 12]),
+            dimensions: Vec::new(),
             transform_page: Box::new([0.0; PAGE * 10]),
             scratch: Vec::new(),
             transforms: Default::default(),
@@ -198,8 +210,10 @@ impl Feed {
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
         let moved = initial || next.transform != old.transform || next.parent != old.parent;
-        let material =
-            initial || next.material != old.material || next.membership != old.membership;
+        let material = initial
+            || next.material != old.material
+            || next.membership != old.membership
+            || next.mesh != old.mesh;
         let batches = initial
             || next.mesh != old.mesh
             || next.visible != old.visible
@@ -307,6 +321,45 @@ impl Feed {
             self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
             self.history_pending = moved && !initial;
         }
+        if batches {
+            self.dimensions.fill([1.0; 3]);
+            for group in &mut self.groups {
+                group.slots.clear();
+            }
+            for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
+                mesh.validate().map_err(RenderError::scene)?;
+                let shape = Shape::of(mesh)?;
+                let slot = e.index() as usize;
+                if self.dimensions.len() <= slot {
+                    self.dimensions.resize(slot + 1, [1.0; 3]);
+                }
+                self.dimensions[slot] = dimensions(mesh);
+                if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+                    continue;
+                }
+                let group = *self.shapes.entry(shape).or_insert_with(|| {
+                    let (v, i) = shape.geometry();
+                    let index = self.groups.len();
+                    self.groups.push(Group {
+                        mesh: r.mesh(&v, &i),
+                        slots: Vec::new(),
+                    });
+                    index
+                });
+                self.groups[group].slots.push(e.index());
+            }
+            self.batches.clear();
+            self.slots.clear();
+            for group in &self.groups {
+                if group.slots.is_empty() {
+                    continue;
+                }
+                let start = self.slots.len() as u32;
+                self.slots.extend_from_slice(&group.slots);
+                self.batches
+                    .push(Batch::new(group.mesh, start..self.slots.len() as u32));
+            }
+        }
         if material {
             let transforms = w.pages::<Transform>();
             let materials = w.pages::<Material>();
@@ -342,10 +395,12 @@ impl Feed {
                         .filter(|p| p.mask[i / 64] & (1 << (i % 64)) != 0)
                     {
                         out[..9].copy_from_slice(&p.floats()[i * 10..i * 10 + 9]);
-                        out[9..].fill(0.0);
                     } else {
                         out.copy_from_slice(&default);
                     }
+                    out[9..12].copy_from_slice(
+                        self.dimensions.get(first as usize + i).unwrap_or(&[1.0; 3]),
+                    );
                 }
                 let values = &self.material_page[..len * 12];
                 let hash = if hashing { upload::hash(values) } else { 0 };
@@ -366,45 +421,6 @@ impl Feed {
             self.materials.finish();
         }
         if batches {
-            for group in &mut self.groups {
-                group.slots.clear();
-            }
-            for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
-                if w.get::<Visible>(e).is_some_and(|v| !v.0) {
-                    continue;
-                }
-                mesh.validate().map_err(RenderError::scene)?;
-                let shape = Shape::of(mesh);
-                if !self.shapes.contains_key(&shape) && self.shapes.len() >= 4096 {
-                    return Err(RenderError::scene(format!(
-                        "Mesh cache exceeds 4096 at {}: {mesh:?}",
-                        w.name(e)
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| format!("#{}", e.index()))
-                    )));
-                }
-                let group = *self.shapes.entry(shape.clone()).or_insert_with(|| {
-                    let (v, i) = shape.geometry();
-                    let index = self.groups.len();
-                    self.groups.push(Group {
-                        mesh: r.mesh(&v, &i),
-                        slots: Vec::new(),
-                    });
-                    index
-                });
-                self.groups[group].slots.push(e.index());
-            }
-            self.batches.clear();
-            self.slots.clear();
-            for group in &self.groups {
-                if group.slots.is_empty() {
-                    continue;
-                }
-                let start = self.slots.len() as u32;
-                self.slots.extend_from_slice(&group.slots);
-                self.batches
-                    .push(Batch::new(group.mesh, start..self.slots.len() as u32));
-            }
             r.batches(&self.batches, &self.slots)?;
         }
         self.scene.feed(
@@ -466,9 +482,9 @@ fn material_floats(m: Material) -> [f32; 12] {
         m.emissive[0],
         m.emissive[1],
         m.emissive[2],
-        0.0,
-        0.0,
-        0.0,
+        1.0,
+        1.0,
+        1.0,
     ]
 }
 

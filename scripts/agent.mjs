@@ -875,12 +875,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
       const key = options.key;
       if (options.for !== undefined) {
         if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
-        const { for: duration, ...held } = options;
-        const steps = [];
-        steps.push({ op: 'type', args: [target, {...held, phase:'down'}], reply: await s.type(target, {...held, phase:'down'}) });
-        try { steps.push({ op: 'clock', args: [`+${duration}`], reply: await s.clock(`+${duration}`) }); }
-        finally { steps.push({ op: 'type', args: [target, {...held, phase:'up'}], reply: await s.type(target, {...held, phase:'up'}) }); }
-        return s.tagged({ typed:node.id, target, key:String(key), for:duration, delivery:steps[0].reply.delivery, steps });
+        return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.tagged(reply), delivery: s.input.delivery('key'), host, timing });
       }
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
       return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
@@ -932,6 +927,38 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
 
 // ---------------------------------------------------------------- the CLI
 
+/** Held-key form: one resolved carrier, including release after a failed clock. */
+export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
+  const {for: duration, ...held} = options, key = String(held.key), steps = [];
+  const send = async phase => {
+    const args = [target, {...held, phase}];
+    try {
+      const r = await carrier.input(node.id, 'key', {...held, key, phase});
+      const reply = tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
+      steps.push({op:'type', args, reply});
+    } catch (error) { steps.push({op:'type', args, error:error.message}); throw error; }
+  };
+  let failure;
+  try {
+    await send('down');
+    const args = [`+${duration}`];
+    try { steps.push({op:'clock', args, reply:await clock(args[0])}); }
+    catch (error) { steps.push({op:'clock', args, error:error.message}); throw error; }
+  } catch (error) { failure = error; }
+  finally { try { await send('up'); } catch (error) { failure ??= error; } }
+  if (failure) { failure.steps = steps; throw failure; }
+  return tagged({typed:node.id, target, key, for:duration, delivery:steps[0].reply.delivery, steps});
+}
+/** Parse the CLI type form without treating an ordinary text suffix as a key. */
+export function typeArguments(args) {
+  if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
+  if (args[3] === 'for') {
+    if (args.length !== 5) throw new Error('type key for: expected one duration');
+    return [args[0], {key:args[2], for:Number(args[4])}];
+  }
+  return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
+}
+
 /**
  * The transcript form (LLP 1012 §7): the one text rendering of a reply, for
  * eyes — a pure function of the JSON, lossy on purpose (the JSON is
@@ -981,7 +1008,7 @@ export function render(op, r) {
     case 'state':
       return q(r, null, 2);
     case 'type':
-      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${render(step.op, step.reply)}`).join('\n');
+      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
       return q(r);
     default:
       return q(r);
@@ -1120,7 +1147,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
@@ -1150,7 +1177,7 @@ async function main(argv) {
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
-        case 'type': r = args[2] === 'for' ? await s.type(args[0], {key:args[1], for:Number(args[3])}) : args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2], ...(args[3] != null ? { phase: args[3] } : {}) }) : await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }
@@ -1163,5 +1190,5 @@ async function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });
+  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (e.steps) console.error(render('type', {steps:e.steps})); console.error(e.message); process.exit(1); });
 }

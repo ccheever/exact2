@@ -20,12 +20,12 @@ impl Game for SoundGame {
 }
 #[test]
 fn save_mid_chime_restores_offset_and_ends() {
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     sim.advance(0.0, Clock::Seekable);
     sim.advance(250.0, Clock::Seekable);
     let save = sim.save();
     let before = sim.world().hash();
-    let mut restored = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut restored = Sim::<SoundGame>::new(()).unwrap();
     restored.restore(&save).unwrap();
     assert_eq!(restored.world().hash(), before);
     let mut player = Player::new(RecordingOutput::default(), 48000);
@@ -130,12 +130,17 @@ fn poses_pan_and_attenuate() {
 }
 
 #[test]
-fn settle_waits_for_voice_and_late_frames_skip_finished_pcm() {
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+fn voices_are_ambient_and_late_frames_skip_finished_pcm() {
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     assert!(!sim.quiescent());
-    sim.advance(0.0, Clock::Seekable);
-    sim.advance(1000.0, Clock::Seekable);
-    assert!(sim.quiescent());
+    sim.run(17.0);
+    assert!(sim.quiescent(), "finite voice bookkeeping is ambient");
+    assert!(!sim
+        .world()
+        .resource::<exact_game::audio::Voices>()
+        .voices
+        .is_empty());
+    sim.run(983.0);
     let mut player = Player::new(RecordingOutput::default(), 48000);
     player.sync(sim.world(), None, Default::default());
     assert!(player.output.calls.is_empty());
@@ -175,7 +180,7 @@ fn tick_zero_ten_ms_click_starts_at_sample_zero() {
             audio::step(w);
         }
     }
-    let mut sim = Sim::<Click>::new(&[]).unwrap();
+    let mut sim = Sim::<Click>::new(()).unwrap();
     sim.advance(0.0, Clock::Seekable);
     sim.advance(17.0, Clock::Seekable);
     let mut p = recording();
@@ -191,7 +196,7 @@ fn tick_zero_ten_ms_click_starts_at_sample_zero() {
 #[test]
 fn transport_restarts_at_world_offset_and_silences_pause() {
     use exact_game_audio::Transport;
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     let mut p = recording();
     p.sync(sim.world(), None, Default::default());
     advance(&mut sim, 250.0);
@@ -231,7 +236,7 @@ fn transport_restarts_at_world_offset_and_silences_pause() {
 // AU2.3: 33 loops contend for 32 slots; the dropped loop returns at current phase.
 #[test]
 fn thirty_third_loop_returns_when_room_opens() {
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     let mut entities = Vec::new();
     for i in 0..33 {
         entities.push(sim.world_mut().spawn((
@@ -328,7 +333,7 @@ fn invalid_gains_are_refused_once_and_pcm_is_finite() {
 // AU2.7: no source may be scheduled before an asynchronous unlock succeeds.
 #[test]
 fn suspended_output_waits_then_starts_at_current_phase() {
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     let mut p = recording();
     p.output.ready = false;
     p.sync(sim.world(), None, Default::default());
@@ -499,7 +504,7 @@ fn looping_noise_crossfades_seam_without_changing_one_shots() {
 
 #[test]
 fn pitch_handle_and_saved_master_apply_without_definition_edits() {
-    let mut sim = Sim::<SoundGame>::new(&[]).unwrap();
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
     let id = sim.world_mut().play("chime").pitch(0.5).start();
     sim.world_mut().resource_mut::<audio::Audio>().master = 0.25;
     advance(&mut sim, 250.0);

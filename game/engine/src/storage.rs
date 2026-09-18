@@ -10,7 +10,7 @@ use std::ops::{Deref, DerefMut};
 mod pages;
 mod query;
 pub use pages::{Page, Pages, Plain};
-pub use query::{Query, QueryBorrow, QueryIter};
+pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 
 /// Number of entity-indexed slots in each component page.
 pub const PAGE: usize = 1024;
@@ -21,10 +21,24 @@ struct Lease<'a> {
     count: &'a Cell<isize>,
     mutable: bool,
 }
+impl<'a> Lease<'a> {
+    // Split only for disjoint slots yielded once by an owning query iterator.
+    fn split(&self) -> Self {
+        self.count.set(if self.mutable {
+            self.count.get().checked_sub(1).expect("too many borrows")
+        } else {
+            self.count.get().checked_add(1).expect("too many borrows")
+        });
+        Self {
+            count: self.count,
+            mutable: self.mutable,
+        }
+    }
+}
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
         self.count.set(if self.mutable {
-            0
+            self.count.get() + 1
         } else {
             self.count.get() - 1
         });
@@ -241,6 +255,7 @@ pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
     fn snapshot(&self, skip: Option<&Storage<crate::Ambient>>, out: &mut Vec<(usize, u64)>);
     fn moving(&self, now: crate::Now) -> bool;
+    fn moving_indices(&self, now: crate::Now) -> Vec<usize>;
     fn settle_tick(&self, now: crate::Now) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn any(&self) -> &dyn Any;
@@ -291,6 +306,22 @@ impl<C: Data> Erased for Storage<C> {
             }
             false
         })
+    }
+    fn moving_indices(&self, now: crate::Now) -> Vec<usize> {
+        let _lease = self.lease(false, 0);
+        let mut out = Vec::new();
+        for (word, &bits) in self.mask.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                // SAFETY: presence and shared lease protect this slot.
+                if unsafe { &*self.ptr(i) }.moving(now) {
+                    out.push(i);
+                }
+            }
+        }
+        out
     }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         let _lease = self.lease(false, 0);

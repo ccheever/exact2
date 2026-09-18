@@ -376,7 +376,8 @@ fn settle_body(b: &Body, access: &[String]) -> String {
 /// Decode ordered, typed canvas arguments; fields are setup unless marked live.
 #[proc_macro_derive(Args, attributes(live))]
 pub fn args(input: TokenStream) -> TokenStream {
-    match expand_args(input) {
+    let data = expand(input.clone(), None);
+    match expand_args(input).and_then(|args| data.map(|data| data + &args)) {
         Ok(s) => s.parse().expect("Args derive emitted Rust"),
         Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
     }
@@ -396,6 +397,7 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
     }
     let mut fields = Vec::new();
     let mut decode = Vec::new();
+    let mut values = Vec::new();
     let mut changed = vec!["false".to_owned()];
     for (i, tokens) in split(g.stream())?.iter().enumerate() {
         let live = tokens.windows(2).any(|w| {
@@ -410,6 +412,23 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         }
         let field = f[0].to_string();
         let ty = f[2].to_string();
+        for pair in tokens.windows(2) {
+            if punct(&pair[0], '#') {
+                if let TokenTree::Group(g) = &pair[1] {
+                    let a: Vec<_> = g.stream().into_iter().collect();
+                    if a.first().is_some_and(|t| t.to_string() == "live") && a.len() != 1 {
+                        return Err(format!(
+                            "{name}.{field}: expected #[live], without arguments"
+                        ));
+                    }
+                }
+            }
+        }
+        values.push(match ty.as_str() {
+            "String" => format!("::exact_game::Value::str(&self.{field})"),
+            "bool" => format!("::exact_game::Value::Bool(self.{field})"),
+            _ => format!("::exact_game::Value::Number(self.{field} as f64)"),
+        });
         if !matches!(
             ty.as_str(),
             "bool" | "u32" | "u64" | "i32" | "i64" | "f32" | "f64" | "String"
@@ -426,7 +445,11 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
             clean(&field)
         ));
         if !live {
-            changed.push(format!("self.{field} != next.{field}"));
+            changed.push(if ty == "f32" || ty == "f64" {
+                format!("self.{field}.to_bits() != next.{field}.to_bits()")
+            } else {
+                format!("self.{field} != next.{field}")
+            });
         }
     }
     Ok(format!(
@@ -435,10 +458,12 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         fn decode(values: &[::exact_game::Value]) -> Result<Self, String> {{
             ::exact_game::args::arity(values, Self::FIELDS)?; Ok(Self {{ {} }})
         }}
+        fn values(&self) -> Vec<::exact_game::Value> {{ vec![{}] }}
         fn setup_changed(&self, next: &Self) -> bool {{ let _ = next; {} }}
     }}",
         fields.join(","),
         decode.join(","),
+        values.join(","),
         changed.join(" || ")
     ))
 }

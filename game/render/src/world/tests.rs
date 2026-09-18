@@ -170,7 +170,7 @@ fn pages_are_whole_ordered_and_holes_are_zero() {
 }
 #[test]
 fn moved_then_two_still_ticks_stop_all_history_work() {
-    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let mut sim = Sim::<Stop>::new(()).unwrap();
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(sim.world(), &mut r).unwrap();
@@ -275,7 +275,7 @@ fn materials_repack_pages_only_on_revision_and_default_missing_values() {
 }
 #[test]
 fn long_advance_feeds_only_last_two_ticks() {
-    let mut sim = Sim::<Moving>::new(&[]).unwrap();
+    let mut sim = Sim::<Moving>::new(()).unwrap();
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(sim.world(), &mut r).unwrap();
@@ -311,7 +311,7 @@ fn capacity_refuses_before_history_and_allows_partial_last_page() {
     assert!(r.calls.contains(&Call::Transform(0, (PAGE + 1) * 10, true)));
 }
 #[test]
-fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
+fn primitive_dimensions_are_instance_data_and_capsules_deform_exactly() {
     let mut w = World::new(60, 0);
     for mesh in [
         Mesh::sphere(1.0),
@@ -329,7 +329,6 @@ fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
             radius: 0.5,
             height: 1.,
         },
-        Mesh::Asset("future".into()),
         Mesh::cube(1.0),
     ] {
         w.spawn((Transform::default(), mesh));
@@ -337,7 +336,7 @@ fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
-    assert_eq!(r.meshes.len(), 7);
+    assert_eq!(r.meshes.len(), 5);
     for (i, expected) in [
         (0, Vec3::ONE),
         (1, Vec3::new(1., 0.5, 1.)),
@@ -347,7 +346,15 @@ fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
         let extent = r.meshes[i]
             .0
             .iter()
-            .map(|v| Vec3::from_array(v.position).abs())
+            .map(|v| {
+                let dims = Vec3::from_slice(&r.materials[i * 12 + 9..i * 12 + 12]);
+                let scale = if v.uv[1] == 1.0 {
+                    Vec3::splat(dims.x)
+                } else {
+                    dims
+                };
+                (Vec3::from_array(v.position) * scale + Vec3::Y * v.uv[0] * dims.y).abs()
+            })
             .fold(Vec3::ZERO, Vec3::max);
         assert!(
             extent.distance(expected) < 1e-5,
@@ -357,7 +364,7 @@ fn primitive_dimensions_and_bit_keys_match_agent_geometry() {
 }
 #[test]
 fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
-    let mut sim = Sim::<Moving>::new(&[]).unwrap();
+    let mut sim = Sim::<Moving>::new(()).unwrap();
     let w = sim.world_mut();
     let camera = w.spawn((Transform::default(), Camera::default()));
     w.spawn((Transform::default(), DirectionalLight::default()));
@@ -431,7 +438,7 @@ mod allocations {
 }
 #[test]
 fn steady_sim_feed_and_frame_inputs_allocate_nothing() {
-    let mut sim = Sim::<Moving>::new(&[]).unwrap();
+    let mut sim = Sim::<Moving>::new(()).unwrap();
     let camera = sim
         .world_mut()
         .spawn((Transform::at(0., 0., 10.), Camera::default()));
@@ -476,7 +483,7 @@ fn first_transform_on_an_older_entity_initializes_history_and_reset_reuses_meshe
             }
         }
     }
-    let mut sim = Sim::<Later>::new(&[]).unwrap();
+    let mut sim = Sim::<Later>::new(()).unwrap();
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(sim.world(), &mut r).unwrap();
@@ -499,7 +506,7 @@ fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
         fn setup(_: &mut World, _: &Self::Args) {}
         fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
-    let mut sim = Sim::<Empty>::new(&[]).unwrap();
+    let mut sim = Sim::<Empty>::new(()).unwrap();
     let w = sim.world_mut();
     let root = w.spawn(Transform::default());
     let middle = w.spawn((Transform::at(1., 0., 0.), Parent(root)));
@@ -567,7 +574,7 @@ fn load_invalidates_equal_revisions_and_does_not_change_save_or_hash() {
 
 #[test]
 fn sun_skips_transformless_light_and_slerps_each_tick() {
-    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let mut sim = Sim::<Stop>::new(()).unwrap();
     sim.world_mut().spawn(DirectionalLight::default());
     let sun = sim
         .world_mut()
@@ -599,7 +606,7 @@ fn zero_quaternion_cpu_pose_is_finite_identity() {
 
 #[test]
 fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
-    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();
     let camera = w.spawn((Transform::default(), Camera::default()));
     for _ in 0..15 {
@@ -628,7 +635,7 @@ fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
 
 #[test]
 fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
-    let mut sim = Sim::<greybox_logic::Greybox>::new(&[
+    let mut sim = Sim::<greybox_logic::Greybox>::from_values(&[
         exact_game::Value::Number(7.),
         exact_game::Value::Bool(false),
     ])
@@ -688,7 +695,7 @@ fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
 
 #[test]
 fn dirty_pages_coalesce_overrides_and_dense_mode_reprobes() {
-    let mut sim = Sim::<Stop>::new(&[]).unwrap();
+    let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();
     let root = w.spawn(Transform::default());
     let mut entities = Vec::new();
@@ -746,7 +753,7 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
             }
         }
     }
-    let mut sim = Sim::<CameraOnly>::new(&[]).unwrap();
+    let mut sim = Sim::<CameraOnly>::new(()).unwrap();
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(sim.world(), &mut r).unwrap();
@@ -774,20 +781,51 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
 }
 
 #[test]
-fn dimension_cache_refuses_the_4097th_mesh_by_entity_name() {
+fn animated_dimensions_never_grow_geometry_and_all_spheres_batch_together() {
     let mut w = World::new(60, 0);
-    for i in 0..4096 {
-        w.spawn((Transform::default(), Mesh::cube(i as f32 + 1.0)));
+    let e = w.spawn_named("pulse", (Transform::default(), Mesh::sphere(0.5)));
+    for i in 1..5000 {
+        w.spawn((Transform::default(), Mesh::sphere(i as f32)));
     }
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
-    assert_eq!(r.meshes.len(), 4096);
-    w.spawn_named("overflow", (Transform::default(), Mesh::cube(4097.0)));
-    let error = f.feed_to(&w, &mut r).unwrap_err().to_string();
+    assert_eq!(r.meshes.len(), 1);
+    assert_eq!(f.batches.len(), 1);
+    assert_eq!(f.slots.len(), 5000);
+    for i in 0..4100 {
+        *w.get_mut::<Mesh>(e).unwrap() = Mesh::sphere(0.5 + i as f32 * 0.001);
+        f.feed_to(&w, &mut r).unwrap();
+        assert_eq!(r.meshes.len(), 1);
+    }
+    assert_eq!(f.batches.len(), 1);
+    assert_eq!(r.materials[9], 2.0 * (0.5 + 4099.0 * 0.001));
+}
+#[test]
+fn asset_mesh_is_a_named_surface_refusal() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Mesh::asset("castle")));
+    let error = Feed::default()
+        .feed_to(&w, &mut Recording::default())
+        .unwrap_err()
+        .to_string();
     assert!(
-        error.contains("overflow") && error.contains("4096"),
+        error.contains("castle") && error.contains("asset meshes are not implemented"),
         "{error}"
     );
-    assert_eq!(r.meshes.len(), 4096);
+}
+
+#[test]
+fn revealing_a_hidden_primitive_keeps_its_dimensions() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn((Transform::default(), Mesh::sphere(2.0), Visible(false)));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(&r.materials[9..12], &[4.0; 3]);
+    assert!(f.batches.is_empty());
+    w.get_mut::<Visible>(e).unwrap().0 = true;
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(f.batches.len(), 1);
+    assert_eq!(&r.materials[9..12], &[4.0; 3]);
 }

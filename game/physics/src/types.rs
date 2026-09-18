@@ -1,4 +1,4 @@
-use exact_game::{Component, Data, Entity, Resource, Transform, Vec3};
+use exact_game::{Component, Data, Entity, Transform, Vec3};
 
 /// How a collider participates in simulation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
@@ -106,6 +106,8 @@ impl Default for Shape {
 pub struct Collider {
     /// Local geometry.
     pub shape: Shape,
+    /// Shape displacement in local metres, before Transform scale.
+    pub offset: Vec3,
     /// Coulomb coefficient; pair coefficients combine geometrically. Default 0.6.
     pub friction: f32,
     /// Restitution in [0, 1]; a pair uses the larger value. Default zero.
@@ -121,6 +123,7 @@ impl Default for Collider {
     fn default() -> Self {
         Self {
             shape: Shape::default(),
+            offset: Vec3::ZERO,
             friction: 0.6,
             bounce: 0.0,
             sensor: false,
@@ -146,13 +149,17 @@ pub struct Touch {
 }
 
 /// World-owned Rapier state, lazily serialized by the engine's Data writer.
-#[derive(Clone, Debug, Resource)]
+#[derive(Clone, Debug, Data)]
 pub struct Physics {
     /// World-space acceleration; defaults to (0, -9.81, 0) m/s².
     pub gravity: Vec3,
     /// This tick's sorted begin/end transitions, including sensors.
     pub events: Vec<Touch>,
     pub(crate) executor: crate::state::Executor,
+}
+impl exact_game::Resource for Physics {
+    const NAME: &'static str = "Physics";
+    const AMBIENT: bool = true;
 }
 impl Default for Physics {
     fn default() -> Self {
@@ -223,7 +230,7 @@ pub struct Hit {
 }
 
 impl Collider {
-    /// Match a primitive's dimensions. A plane becomes a static 1 cm slab whose
+    /// Match a primitive's dimensions. A plane becomes a 1 cm box slab whose
     /// top is at Y=0. Assets require an authored collision shape and are refused.
     pub fn of(mesh: &exact_game::Mesh) -> Self {
         use exact_game::Mesh;
@@ -239,48 +246,20 @@ impl Collider {
                 radius: *radius,
                 height: *height,
             },
-            Mesh::Plane { width, depth } => {
-                let vertices = (0..8)
-                    .map(|i| {
-                        Vec3::new(
-                            if i & 1 == 0 {
-                                -width * 0.5
-                            } else {
-                                width * 0.5
-                            },
-                            if i & 2 == 0 { -0.01 } else { 0.0 },
-                            if i & 4 == 0 {
-                                -depth * 0.5
-                            } else {
-                                depth * 0.5
-                            },
-                        )
-                    })
-                    .collect();
-                Shape::Mesh {
-                    vertices,
-                    indices: vec![
-                        [0, 1, 4],
-                        [1, 5, 4],
-                        [2, 6, 3],
-                        [3, 6, 7],
-                        [0, 2, 1],
-                        [1, 2, 3],
-                        [4, 5, 6],
-                        [5, 7, 6],
-                        [0, 4, 2],
-                        [2, 4, 6],
-                        [1, 3, 5],
-                        [3, 7, 5],
-                    ],
-                }
-            }
+            Mesh::Plane { width, depth } => Shape::Box {
+                half: Vec3::new(width * 0.5, 0.005, depth * 0.5),
+            },
             Mesh::Asset(name) => {
                 panic!("Collider::of: asset {name} needs an authored collision shape")
             }
         };
         Self {
             shape,
+            offset: if matches!(mesh, Mesh::Plane { .. }) {
+                Vec3::new(0.0, -0.005, 0.0)
+            } else {
+                Vec3::ZERO
+            },
             ..Self::default()
         }
     }

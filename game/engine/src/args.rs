@@ -9,11 +9,24 @@ pub enum ArgumentKind {
     Live,
 }
 /// Typed canvas arguments. Derive this on a named struct; field order is wire order.
-pub trait Args: Sized + 'static {
+///
+/// ```compile_fail
+/// use exact_game::Args;
+/// #[derive(Default, Args)]
+/// struct Options { #[live(typo)] volume: f32 }
+/// ```
+/// ```compile_fail
+/// use exact_game::Args;
+/// #[derive(Default, Args)]
+/// struct Options { #[live = true] volume: f32 }
+/// ```
+pub trait Args: crate::Data {
     /// Ordered field names and their binding behavior.
     const FIELDS: &'static [(&'static str, ArgumentKind)];
     /// Decode all values before any world or clock mutation.
     fn decode(values: &[Value]) -> Result<Self, String>;
+    /// Canonical wire values encoded from the decoded fields.
+    fn values(&self) -> Vec<Value>;
     /// Whether any setup field differs.
     fn setup_changed(&self, next: &Self) -> bool;
 }
@@ -22,6 +35,9 @@ impl Args for () {
     fn decode(values: &[Value]) -> Result<Self, String> {
         arity(values, &[])?;
         Ok(())
+    }
+    fn values(&self) -> Vec<Value> {
+        vec![]
     }
     fn setup_changed(&self, _: &Self) -> bool {
         false
@@ -125,21 +141,4 @@ impl Argument for f32 {
     fn value(v: &Value) -> Option<Self> {
         v.as_number().map(|n| n as f32).filter(|n| n.is_finite())
     }
-}
-pub(crate) fn json<A: Args>(values: &[Value]) -> String {
-    format!(
-        "{{{}}}",
-        A::FIELDS
-            .iter()
-            .zip(values)
-            .map(|((name, _), value)| {
-                format!(
-                    "{}:{}",
-                    crate::values::quote(name),
-                    crate::values::value_json(value, true)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",")
-    )
 }

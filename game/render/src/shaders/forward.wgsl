@@ -1,7 +1,7 @@
 override FOG: bool = false;
-@vertex fn vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>,
+@vertex fn vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) cap: vec2<f32>,
     @builtin(instance_index) instance: u32) -> Varying {
-    return transform(position, normal, instance);
+    return transform(position, normal, cap, instance);
 }
 @fragment fn fs(input: Varying) -> @location(0) vec4<f32> { return shade(input, 1.0); }
 @fragment fn fs_shadow(input: Varying) -> @location(0) vec4<f32> {

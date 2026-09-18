@@ -24,7 +24,21 @@ pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> Colli
             || body.is_none_or(|b| b.kind == BodyKind::Static),
         "physics: mesh/heightfield must be static"
     );
-    let builder = ColliderBuilder::new(math::shape(&c.shape, t.scale))
+    assert!(c.offset.is_finite(), "physics: invalid collider offset");
+    let shape = math::shape(&c.shape, t.scale);
+    let shape = if c.offset == exact_game::Vec3::ZERO {
+        shape
+    } else {
+        SharedShape::compound(vec![(
+            math::pose(Transform::at(
+                c.offset.x * t.scale.x,
+                c.offset.y * t.scale.y,
+                c.offset.z * t.scale.z,
+            )),
+            shape,
+        )])
+    };
+    let builder = ColliderBuilder::new(shape)
         .friction(c.friction)
         .friction_combine_rule(CoefficientCombineRule::GeometricMean)
         .restitution(c.bounce)

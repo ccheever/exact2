@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 use exact_game::{
     math, scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
-    Stick, Transform, Vec3, World,
+    Stick, Transform, Tween, Vec3, World,
 };
 
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
@@ -15,12 +15,8 @@ pub struct Player {
 /// A one-shot beacon whose glow can be sampled at any tick.
 #[derive(Default, Component)]
 pub struct Beacon {
-    /// Whether act has lit this beacon.
-    pub lit: bool,
     /// Emission envelope; the engine discovers its settling state automatically.
-    pub glow: f32,
-    /// Ticks since ignition.
-    pub age: u32,
+    pub glow: Tween,
 }
 /// Logic behind `canvas surface=world(seed, run, paused)`.
 pub struct Beacons;
@@ -43,15 +39,7 @@ impl Game for Beacons {
         Actions::new()
             .button("act", &["KeyE", "Enter"])
             .button("jump", &["Space"])
-            .stick(
-                "move",
-                Stick::keys("KeyW", "KeyS", "KeyA", "KeyD").or_keys(
-                    "ArrowUp",
-                    "ArrowDown",
-                    "ArrowLeft",
-                    "ArrowRight",
-                ),
-            )
+            .stick("move", Stick::wasd().or_arrows())
     }
     fn setup(world: &mut World, args: &Self::Args) {
         world.reseed(args.seed);
@@ -63,7 +51,7 @@ impl Game for Beacons {
                 Material::rgb(0.25, 0.27, 0.3),
             ),
         );
-        world.spawn_named(
+        let player = world.spawn_named(
             "player",
             (
                 Transform::at(0.0, 0.9, 0.0),
@@ -75,9 +63,9 @@ impl Game for Beacons {
         world.spawn_named(
             "camera",
             (
-                Transform::at(0.0, 9.9, 13.0).looking_at(Vec3::new(0.0, 0.9, 0.0), Vec3::Y),
+                Transform::default(),
                 Camera::default(),
-                Follow::new("player").offset(0.0, 9.0, 13.0).lag(0.15),
+                Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15),
             ),
         );
         world.spawn_named(
@@ -112,16 +100,16 @@ impl Game for Beacons {
             );
         }
         world.publish("beacons", 0);
+        scene::follow(world);
     }
     fn paused(args: &Self::Args) -> bool {
         args.paused
     }
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
-        let direction = input.stick("move");
-        let desired = Vec3::new(direction.x, 0.0, -direction.y) * 4.0;
+        let desired = input.stick_xz("move") * 4.0;
         let mut position = Vec3::ZERO;
-        if let Some((_, (player, pose))) = world.query::<(&mut Player, &mut Transform)>().one() {
+        if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
             player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
             player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
@@ -142,26 +130,20 @@ impl Game for Beacons {
             position = pose.position;
         }
         let mut count = 0;
-        for (_, (beacon, pose, material)) in world
-            .query::<(&mut Beacon, &Transform, &mut Material)>()
-            .iter()
+        for (mut beacon, pose, mut material) in
+            world.query::<(&mut Beacon, &Transform, &mut Material)>()
         {
             let delta = position - pose.position;
-            if !beacon.lit
+            if beacon.glow.target == 0.0
                 && input.pressed("act")
                 && delta.x * delta.x + delta.z * delta.z <= 1.5 * 1.5
                 && position.y <= 0.9001
             {
-                beacon.lit = true;
+                beacon.glow.to(world.now(), 1.0, 0.5);
                 world.log("beacon lit");
             }
-            if beacon.lit {
-                count += 1;
-                beacon.age = (beacon.age + 1).min(30);
-                let t = beacon.age as f32 / 30.0;
-                beacon.glow = t * t * (3.0 - 2.0 * t);
-            }
-            material.emissive = [beacon.glow * 3.0; 3];
+            count += u32::from(beacon.glow.target == 1.0);
+            material.emissive = [beacon.glow.value(world.now()) * 3.0; 3];
         }
         world.publish("beacons", count);
         scene::follow(world);

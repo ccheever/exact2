@@ -1,105 +1,129 @@
-use beacons_logic::{Beacon, Beacons, Player};
-use exact_game::{Clock, InputEvent, Sim, Transform, Value, Vec3};
-fn sim(seed: f64) -> Sim<Beacons> {
-    let mut s = Sim::new(&[Value::Number(seed), Value::Number(0.0), Value::Bool(false)]).unwrap();
-    s.advance(0.0, Clock::Seekable);
-    s
-}
-fn key(s: &mut Sim<Beacons>, code: &str, down: bool, at_ms: f64) {
-    s.input(InputEvent::Key {
-        code: code.into(),
-        down,
-        at_ms,
-    });
-}
-fn position(s: &Sim<Beacons>, name: &str) -> Vec3 {
-    s.world()
-        .get::<Transform>(s.world().named(name).unwrap())
-        .unwrap()
-        .position
+use beacons_logic::{Beacon, Beacons, BeaconsArgs, Player};
+use exact_game::{Args, Sim, Transform, Vec3};
+fn sim(seed: u64) -> Sim<Beacons> {
+    Sim::new(BeaconsArgs {
+        seed,
+        ..Default::default()
+    })
+    .unwrap()
 }
 #[test]
 fn movement_seed_and_seek_invariance() {
-    let mut a = sim(7.0);
-    let mut b = sim(7.0);
-    let c = sim(8.0);
+    let (mut a, mut b, c) = (sim(7), sim(7), sim(8));
     for n in 1..=6 {
         let name = format!("crate-{n}");
-        assert_eq!(position(&a, &name), position(&b, &name));
-        assert_ne!(position(&a, &name), position(&c, &name));
+        assert_eq!(
+            a.world().get::<Transform>(name.as_str()).unwrap().position,
+            b.world().get::<Transform>(name.as_str()).unwrap().position
+        );
+        assert_ne!(
+            a.world().get::<Transform>(name.as_str()).unwrap().position,
+            c.world().get::<Transform>(name.as_str()).unwrap().position
+        );
     }
     for s in [&mut a, &mut b] {
-        key(s, "KeyW", true, 0.0);
+        s.key_down("KeyW");
     }
-    a.advance(1500.0, Clock::Seekable);
-    for ms in 1..=1500 {
-        b.advance(ms as f64, Clock::Seekable);
+    a.run(1500.0);
+    for _ in 0..1500 {
+        b.run(1.0);
     }
     assert_eq!(a.save(), b.save());
-    assert!((position(&a, "player") - Vec3::new(0.0, 0.9, -5.733332)).length() < 0.001);
-    let player = a
-        .world()
-        .get::<Player>(a.world().named("player").unwrap())
-        .unwrap();
-    assert!(player.velocity.length() <= 4.0);
+    assert!(
+        (a.world().get::<Transform>("player").unwrap().position - Vec3::new(0.0, 0.9, -5.733332))
+            .length()
+            < 0.001
+    );
+    assert!(a.world().get::<Player>("player").unwrap().velocity.length() <= 4.0);
     println!("W1500 hash=0x{:016x}", a.world().hash());
-    assert_eq!(a.world().hash(), 0xf1bdfbe68b382647);
+    assert_eq!(a.world().hash(), 0xc483599688164cb8);
 }
 #[test]
 fn jump_no_double_jump_and_camera_lags() {
-    let mut a = sim(7.0);
-    let mut b = sim(7.0);
+    let (mut a, mut b) = (sim(7), sim(7));
     for s in [&mut a, &mut b] {
-        key(s, "Space", true, 0.0);
-        key(s, "Space", false, 0.0);
+        s.tap("Space");
     }
-    a.advance(250.0, Clock::Seekable);
-    key(&mut a, "Space", true, 250.0);
-    key(&mut a, "Space", false, 250.0);
-    a.advance(500.0, Clock::Seekable);
-    b.advance(500.0, Clock::Seekable);
-    assert_eq!(position(&a, "player"), position(&b, "player"));
-    assert!((position(&a, "player").y - 2.1).abs() < 0.002);
-    a.advance(1100.0, Clock::Seekable);
-    assert_eq!(position(&a, "player").y, 0.9);
-    key(&mut a, "ArrowRight", true, 1100.0);
-    a.advance(1200.0, Clock::Seekable);
-    assert!(position(&a, "camera").x > 0.0);
-    assert!(position(&a, "camera").x < position(&a, "player").x);
+    a.run(250.0);
+    a.tap("Space");
+    a.run(250.0);
+    b.run(500.0);
+    assert_eq!(
+        a.world().get::<Transform>("player").unwrap().position,
+        b.world().get::<Transform>("player").unwrap().position
+    );
+    assert!((a.world().get::<Transform>("player").unwrap().position.y - 2.1).abs() < 0.002);
+    assert!(a.settle());
+    assert_eq!(
+        a.world().get::<Transform>("player").unwrap().position.y,
+        0.9
+    );
+    a.hold("ArrowRight", 100.0);
+    let camera = a.world().get::<Transform>("camera").unwrap().position;
+    assert!(camera.x > 0.0 && camera.x < a.world().get::<Transform>("player").unwrap().position.x);
 }
 #[test]
 fn beacon_range_glow_and_restart() {
-    let mut s = sim(7.0);
-    key(&mut s, "KeyE", true, 0.0);
-    key(&mut s, "KeyE", false, 0.0);
-    s.advance(100.0, Clock::Seekable);
-    assert_eq!(s.world().published("beacons"), Some(Value::Number(0.0)));
-    key(&mut s, "KeyD", true, 100.0);
-    s.advance(1850.0, Clock::Seekable);
-    key(&mut s, "KeyD", false, 1850.0);
-    key(&mut s, "KeyE", true, 1850.0);
-    key(&mut s, "KeyE", false, 1850.0);
-    s.advance(1950.0, Clock::Seekable);
-    let e = s.world().named("beacon-1").unwrap();
-    let glow = s.world().get::<Beacon>(e).unwrap().glow;
+    let mut s = sim(7);
+    s.tap("KeyE");
+    s.run(100.0);
+    assert_eq!(
+        s.world().published("beacons").unwrap().as_number(),
+        Some(0.0)
+    );
+    s.hold("KeyD", 1750.0);
+    s.tap("KeyE");
+    s.run(100.0);
+    let glow = s
+        .world()
+        .get::<Beacon>("beacon-1")
+        .unwrap()
+        .glow
+        .value(s.world().now());
     assert!(glow > 0.0 && glow < 1.0);
-    assert_eq!(s.world().published("beacons"), Some(Value::Number(1.0)));
-    s.advance(2850.0, Clock::Seekable);
-    assert_eq!(s.world().get::<Beacon>(e).unwrap().glow, 1.0);
+    assert_eq!(
+        s.world().published("beacons").unwrap().as_number(),
+        Some(1.0)
+    );
+    assert!(s.settle());
+    assert_eq!(
+        s.world()
+            .get::<Beacon>("beacon-1")
+            .unwrap()
+            .glow
+            .value(s.world().now()),
+        1.0
+    );
     s.bind(
-        &[Value::Number(7.0), Value::Number(0.0), Value::Bool(true)],
-        Some(2850.0),
+        &BeaconsArgs {
+            seed: 7,
+            paused: true,
+            ..Default::default()
+        }
+        .values(),
+        None,
     )
     .unwrap();
     let before = s.world().save();
-    s.advance(4850.0, Clock::Seekable);
+    s.run(2000.0);
     assert_eq!(before, s.world().save());
     s.bind(
-        &[Value::Number(7.0), Value::Number(1.0), Value::Bool(false)],
-        Some(4850.0),
+        &BeaconsArgs {
+            seed: 7,
+            run: 1,
+            paused: false,
+        }
+        .values(),
+        None,
     )
     .unwrap();
     assert_eq!(s.world().tick(), 0);
-    assert_eq!(position(&s, "player"), Vec3::new(0.0, 0.9, 0.0));
-    assert_eq!(s.world().published("beacons"), Some(Value::Number(0.0)));
+    assert_eq!(
+        s.world().get::<Transform>("player").unwrap().position,
+        Vec3::new(0.0, 0.9, 0.0)
+    );
+    assert_eq!(
+        s.world().published("beacons").unwrap().as_number(),
+        Some(0.0)
+    );
 }

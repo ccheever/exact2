@@ -55,7 +55,7 @@ impl Game for Moves {
 }
 #[test]
 fn agent_and_timed_bind_observe_final_propagated_ticks_and_restore_generation() {
-    let mut sim = Sim::<Moves>::new(&[]).unwrap();
+    let mut sim = Sim::<Moves>::new(()).unwrap();
     sim.advance(0., Clock::Seekable);
     let mut ticks = Vec::new();
     sim.agent_with(r#"{"op":"clock","now":1000}"#, |w, left| {

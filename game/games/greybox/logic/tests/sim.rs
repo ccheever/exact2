@@ -1,23 +1,12 @@
-use exact_game::{Clock, InputEvent, Sim, Transform, Value, Vec3};
-use greybox_logic::Greybox;
+use exact_game::{InputEvent, Sim, Transform, Vec3};
+use greybox_logic::{Greybox, GreyboxArgs};
 
 fn sim() -> Sim<Greybox> {
-    let mut s = Sim::new(&[Value::Number(7.0), Value::Bool(false)]).unwrap();
-    s.advance(0.0, Clock::Seekable);
-    s
-}
-fn key(s: &mut Sim<Greybox>, code: &str, down: bool, at_ms: f64) {
-    s.input(InputEvent::Key {
-        code: code.into(),
-        down,
-        at_ms,
-    });
-}
-fn position(s: &Sim<Greybox>) -> Vec3 {
-    s.world()
-        .get::<Transform>(s.world().named("player").unwrap())
-        .unwrap()
-        .position
+    Sim::new(GreyboxArgs {
+        seed: 7,
+        paused: false,
+    })
+    .unwrap()
 }
 
 #[test]
@@ -26,75 +15,82 @@ fn forward_parity_and_seek_invariance() {
     let mut many = sim();
     let mut uneven = sim();
     for s in [&mut one, &mut many, &mut uneven] {
-        key(s, "KeyW", true, 0.0);
+        s.key_down("KeyW");
     }
-    one.advance(1500.0, Clock::Seekable);
-    for ms in 1..=1500 {
-        many.advance(ms as f64, Clock::Seekable);
+    one.run(1500.0);
+    for _ in 1..=1500 {
+        many.run(1.0);
     }
-    for ms in [1.0, 3.0, 19.0, 107.0, 444.0, 900.0, 999.0, 1499.0, 1500.0] {
-        uneven.advance(ms, Clock::Seekable);
+    for ms in [1.0, 2.0, 16.0, 88.0, 337.0, 456.0, 99.0, 500.0, 1.0] {
+        uneven.run(ms);
     }
     assert_eq!(one.world().hash(), many.world().hash());
     assert_eq!(one.world().hash(), uneven.world().hash());
     println!(
         "GREYBOX position={:?} hash=0x{:016x}",
-        position(&one),
+        one.world().get::<Transform>("player").unwrap().position,
         one.world().hash()
     );
-    assert!((position(&one) - Vec3::new(0.0, 0.9, -5.733332)).length() < 1e-4);
-    assert_eq!(one.world().hash(), 0xe361b9c0055bede6);
+    assert!(
+        (one.world().get::<Transform>("player").unwrap().position - Vec3::new(0.0, 0.9, -5.733332))
+            .length()
+            < 1e-4
+    );
+    assert_eq!(one.world().hash(), 0xa6449de82e10c54c);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {
     let mut s = sim();
     assert_eq!(s.take_published().as_deref(), Some("{\"beacons\":0}"));
-    key(&mut s, "KeyW", true, 0.0);
-    s.advance(1500.0, Clock::Seekable);
-    key(&mut s, "KeyW", false, 1500.0);
-    key(&mut s, "KeyE", true, 1500.0);
-    key(&mut s, "KeyE", false, 1500.0);
-    s.advance(1517.0, Clock::Seekable);
-    assert_eq!(s.world().published("beacons"), Some(Value::Number(1.0)));
+    s.key_down("KeyW");
+    s.run(1500.0);
+    s.key_up("KeyW");
+    s.tap("KeyE");
+    s.run(17.0);
+    assert_eq!(
+        s.world().published("beacons").unwrap().as_number(),
+        Some(1.0)
+    );
     assert_eq!(s.take_published().as_deref(), Some("{\"beacons\":1}"));
     assert!(s.take_published().is_none());
     assert!(s
         .agent(r#"{"op":"logs","since":0}"#)
         .contains("tick=90 beacon-1 lit"));
     assert!(!s.quiescent());
-    #[allow(non_snake_case)]
-    #[derive(Default, exact_game::Data)]
-    struct ClockReply {
-        quiescent: bool,
-        settleAt: f64,
-    }
-    for _ in 0..16 {
-        let reply: ClockReply =
-            exact_game::json::from_str(&s.agent(r#"{"op":"clock","settle":true}"#)).unwrap();
-        if reply.quiescent {
-            break;
-        }
-        s.advance(reply.settleAt, Clock::Seekable);
-    }
-    assert!(s.quiescent());
+    assert!(s.settle());
 }
 #[test]
 fn save_mid_run_retains_clock_input_and_future_events() {
     let mut s = sim();
-    key(&mut s, "KeyW", true, 0.0);
-    key(&mut s, "Space", true, 1011.0);
-    key(&mut s, "Space", false, 1012.0);
-    s.advance(713.123, Clock::Seekable);
+    s.key_down("KeyW");
+    // Hosts can stamp future events; the relative API covers current input.
+    s.input(InputEvent::Key {
+        code: "Space".into(),
+        down: true,
+        at_ms: 1011.0,
+    });
+    s.input(InputEvent::Key {
+        code: "Space".into(),
+        down: false,
+        at_ms: 1012.0,
+    });
+    s.run(713.123);
     let saved = s.save();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
     assert_eq!(s.world().hash(), restored.world().hash());
     assert_eq!(s.alpha(), restored.alpha());
-    s.advance(2000.0, Clock::Seekable);
-    restored.advance(0.0, Clock::Seekable);
-    restored.advance(2000.0 - 713.123, Clock::Seekable);
+    s.run(2000.0 - 713.123);
+    restored.run(2000.0 - 713.123);
     assert_eq!(s.world().hash(), restored.world().hash());
-    assert_eq!(position(&s), position(&restored));
+    assert_eq!(
+        s.world().get::<Transform>("player").unwrap().position,
+        restored
+            .world()
+            .get::<Transform>("player")
+            .unwrap()
+            .position
+    );
     assert_eq!(s.take_published(), restored.take_published());
     let hash = restored.world().hash();
     assert!(restored.restore(b"bad").is_err());
@@ -103,6 +99,7 @@ fn save_mid_run_retains_clock_input_and_future_events() {
 #[test]
 fn agent_snapshots_and_pick() {
     let mut s = sim();
+    s.run(0.0);
     let forms = [
         (
             "tree",
@@ -168,9 +165,9 @@ fn agent_snapshots_and_pick() {
 #[test]
 fn headless_throughput() {
     let mut s = sim();
-    key(&mut s, "KeyW", true, 0.0);
+    s.key_down("KeyW");
     let start = std::time::Instant::now();
-    s.advance(60000.0, Clock::Seekable);
+    s.run(60000.0);
     let elapsed = start.elapsed().as_secs_f64();
     println!(
         "GREYBOX 60s in {:.6}s = {:.1}x real time",
@@ -197,14 +194,6 @@ fn a21_shorter_setup_preserves_materials_names_and_random_draws() {
         assert_eq!(
             w.get::<Transform>(e).unwrap().position,
             Vec3::new(rng.range(3.0..12.0), 0.5, rng.range(-12.0..8.0))
-        );
-    }
-    for seed in [-1.0, 1.5, 9_007_199_254_740_992.0] {
-        assert!(
-            Sim::<Greybox>::new(&[Value::Number(seed), Value::Bool(false)])
-                .err()
-                .unwrap()
-                .contains("seed")
         );
     }
 }

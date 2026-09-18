@@ -57,7 +57,7 @@ pub(super) fn transform(position: Vec3, rotation: Quat, scale: Vec3) -> [f32; 10
 
 pub(super) fn material(color: [f32; 3], emissive: f32) -> [f32; 12] {
     [
-        color[0], color[1], color[2], 1.0, 0.0, 0.65, emissive, emissive, emissive, 0.0, 0.0, 0.0,
+        color[0], color[1], color[2], 1.0, 0.0, 0.65, emissive, emissive, emissive, 1.0, 1.0, 1.0,
     ]
 }
 

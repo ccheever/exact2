@@ -133,3 +133,61 @@ fn colliders_match_primitive_dimensions_and_plane_top() {
         }
     }
 }
+
+#[test]
+fn plane_is_a_dynamic_box_and_side_pick_matches_the_physics_slab() {
+    use exact_game::{Camera, Game, Input, Mesh, Sim};
+    struct Plane;
+    impl Game for Plane {
+        type Args = ();
+        const ID: &'static str = "dynamic-plane";
+        fn setup(w: &mut World, _: &()) {
+            physics::register(w);
+            w.spawn_named(
+                "plane",
+                (
+                    Transform::default(),
+                    Mesh::plane(2.0, 2.0),
+                    Collider::of(&Mesh::plane(2.0, 2.0)),
+                    Body {
+                        gravity: 0.0,
+                        velocity: Vec3::X,
+                        ..Default::default()
+                    },
+                ),
+            );
+            w.spawn((
+                Transform::at(2.0, -0.005, 0.0).looking_at(Vec3::new(0.0, -0.005, 0.0), Vec3::Y),
+                Camera::default(),
+            ));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            physics::step(w);
+        }
+    }
+    let mut s = Sim::<Plane>::new(()).unwrap();
+    assert!(
+        matches!(s.world().get::<Collider>("plane").unwrap().shape, Shape::Box { half } if half == Vec3::new(1.0, 0.005, 1.0))
+    );
+    let hit = physics::raycast(
+        s.world(),
+        Vec3::new(2.0, -0.005, 0.0),
+        -Vec3::X,
+        5.0,
+        u32::MAX,
+    )
+    .unwrap();
+    assert!((hit.distance - 1.0).abs() < 1e-6);
+    let pick = s.agent(r#"{"op":"layout","x":400,"y":300,"width":800,"height":600}"#);
+    assert!(
+        pick.contains("\"name\":\"plane\"") && pick.contains("\"distance\":1"),
+        "{pick}"
+    );
+    let bounds = s.agent(r#"{"op":"layout","entity":"plane"}"#);
+    assert!(
+        bounds.contains("\"min\":[-1,-0.01,-1]") && bounds.contains("\"max\":[1,0,1]"),
+        "{bounds}"
+    );
+    s.run(100.0);
+    assert!(s.world().get::<Transform>("plane").unwrap().position.x > 0.09);
+}

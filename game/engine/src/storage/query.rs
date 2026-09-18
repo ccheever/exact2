@@ -1,6 +1,7 @@
-use super::{Lease, Storage};
+use super::{Lease, Ref, RefMut, Storage};
 use crate::{Component, Entity, World};
 use std::any::TypeId;
+use std::marker::PhantomData;
 
 mod sealed {
     pub trait Sealed {}
@@ -15,6 +16,14 @@ mod sealed {
 pub trait Query: sealed::Sealed {
     /// Plain references bounded by the query borrow, not the world's lifetime.
     type Item<'a>;
+    /// Guarded rows from consuming iteration; each guard keeps its column leased.
+    type Owned<'w>;
+    /// Human-readable component names.
+    fn names() -> String;
+    /// # Safety
+    /// The index must match, and may be yielded only once while this state lives.
+    #[doc(hidden)]
+    unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w>;
     /// Storage leases acquired once at query construction.
     #[doc(hidden)]
     type State<'w>: for<'a> Fetch<Item<'a> = Self::Item<'a>>;
@@ -83,10 +92,34 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         self.storage.is_some_and(|s| s.has(index))
     }
 }
+macro_rules! owned_row {
+    (true, $s:ident, $i:ident, $make:ident) => {
+        if $s.has($i) {
+            Some($make())
+        } else {
+            None
+        }
+    };
+    (false, $s:ident, $i:ident, $make:ident) => {
+        $make()
+    };
+}
 macro_rules! reference {
-    ($form:ty, $m:literal, $o:literal, $item:ty, $s:ident, $i:ident, $fetch:expr) => {
+    ($form:ty, $m:literal, $o:tt, $item:ty, $owned:ty, $guard:ident, $s:ident, $i:ident, $fetch:expr) => {
         impl<'q, C: Component> Query for $form {
             type Item<'a> = $item;
+            type Owned<'w> = $owned;
+            fn names() -> String {
+                C::NAME.into()
+            }
+            unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
+                let make = || $guard {
+                    ptr: state.ptr(index),
+                    _lease: state._lease.as_ref().unwrap().split(),
+                    _life: PhantomData,
+                };
+                owned_row!($o, state, index, make)
+            }
             type State<'w> = ComponentBorrow<'w, C, $m, $o>;
             fn prepare<'w>(w: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w> {
                 ComponentBorrow::new(w, seen)
@@ -109,13 +142,35 @@ macro_rules! reference {
         }
     };
 }
-reference!(&'q C, false, false, &'a C, s, i, &*s.ptr(i));
-reference!(&'q mut C, true, false, &'a mut C, s, i, &mut *s.ptr(i));
+reference!(
+    &'q C,
+    false,
+    false,
+    &'a C,
+    Ref<'w, C>,
+    Ref,
+    s,
+    i,
+    &*s.ptr(i)
+);
+reference!(
+    &'q mut C,
+    true,
+    false,
+    &'a mut C,
+    RefMut<'w, C>,
+    RefMut,
+    s,
+    i,
+    &mut *s.ptr(i)
+);
 reference!(
     Option<&'q C>,
     false,
     true,
     Option<&'a C>,
+    Option<Ref<'w, C>>,
+    Ref,
     s,
     i,
     if s.has(i) { Some(&*s.ptr(i)) } else { None }
@@ -125,6 +180,8 @@ reference!(
     true,
     true,
     Option<&'a mut C>,
+    Option<RefMut<'w, C>>,
+    RefMut,
     s,
     i,
     if s.has(i) { Some(&mut *s.ptr(i)) } else { None }
@@ -135,6 +192,12 @@ macro_rules! tuples {
         impl<$($T: Query),+> sealed::Sealed for ($($T,)+) {}
         impl<$($T: Query),+> Query for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
+            type Owned<'w> = ($($T::Owned<'w>,)+);
+            fn names() -> String { [$($T::names(),)+].join(", ") }
+            unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
+                // SAFETY: the caller yields each matched index once; construction rejects aliases.
+                unsafe { ($($T::owned(&state.$i, index),)+) }
+            }
             type State<'w> = ($($T::State<'w>,)+);
             fn prepare<'w>(w: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self::State<'w> {
                 ($($T::prepare(w, seen),)+)
@@ -224,17 +287,11 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         self.filters[self.filter_count] = (mask, with);
         self.filter_count += 1;
     }
-    /// The first row, or None; debug builds refuse a second row, naming the query.
-    /// This lives on the query so its column leases outlive the returned references.
-    pub fn one(&mut self) -> Option<(Entity, Q::Item<'_>)> {
-        let mut rows = self.iter();
-        let first = rows.next();
-        debug_assert!(
-            rows.next().is_none(),
-            "query {} expected one entity, found two",
-            std::any::type_name::<Q>()
-        );
-        first
+    /// The sole item, or None. Multiple matches are refused in every build.
+    pub fn one(&mut self) -> Option<Q::Item<'_>> {
+        let count = self.iter().count();
+        assert!(count <= 1, "expected one {}, found {}", Q::names(), count);
+        self.iter().next().map(|(_, item)| item)
     }
     /// Visit each matching entity once, yielding plain references.
     pub fn iter(&mut self) -> QueryIter<'_, 'w, Q> {
@@ -253,6 +310,55 @@ impl<'a, 'w, Q: Query> IntoIterator for &'a mut QueryBorrow<'w, Q> {
     }
 }
 
+/// An owning iterator of guarded items, keeping leases alive even if a row escapes the loop.
+pub struct QueryRows<'w, Q: Query> {
+    query: QueryBorrow<'w, Q>,
+    word: usize,
+    bits: u64,
+}
+impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
+    type Item = Q::Owned<'w>;
+    type IntoIter = QueryRows<'w, Q>;
+    fn into_iter(self) -> Self::IntoIter {
+        QueryRows {
+            query: self,
+            word: 0,
+            bits: 0,
+        }
+    }
+}
+impl<'w, Q: Query> Iterator for QueryRows<'w, Q> {
+    type Item = Q::Owned<'w>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = next_index(&self.query, &mut self.word, &mut self.bits)?;
+        // SAFETY: the mask proves presence and next_index never repeats a slot.
+        // Each returned guard splits the lease, so dropping this iterator is safe.
+        Some(unsafe { Q::owned(&self.query.state, index) })
+    }
+}
+#[inline]
+fn next_index<Q: Query>(
+    query: &QueryBorrow<'_, Q>,
+    word: &mut usize,
+    bits: &mut u64,
+) -> Option<usize> {
+    while *bits == 0 {
+        if *word == query.words {
+            return None;
+        }
+        let i = *word;
+        *word += 1;
+        *bits = query.world.alive_mask[i] & query.state.word(i);
+        for &(mask, with) in &query.filters[..query.filter_count] {
+            let filter = mask.get(i).copied().unwrap_or(0);
+            *bits &= if with { filter } else { !filter };
+        }
+    }
+    let index = (*word - 1) * 64 + bits.trailing_zeros() as usize;
+    *bits &= *bits - 1;
+    Some(index)
+}
+
 /// A word-by-word mask join, borrowing its query's leases.
 pub struct QueryIter<'a, 'w, Q: Query> {
     query: &'a mut QueryBorrow<'w, Q>,
@@ -263,21 +369,7 @@ impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
     type Item = (Entity, Q::Item<'a>);
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        while self.bits == 0 {
-            if self.word == self.query.words {
-                return None;
-            }
-            let word = self.word;
-            self.word += 1;
-            let mut bits = self.query.world.alive_mask[word] & self.query.state.word(word);
-            for &(mask, with) in &self.query.filters[..self.query.filter_count] {
-                let filter = mask.get(word).copied().unwrap_or(0);
-                bits &= if with { filter } else { !filter };
-            }
-            self.bits = bits;
-        }
-        let index = (self.word - 1) * 64 + self.bits.trailing_zeros() as usize;
-        self.bits &= self.bits - 1;
+        let index = next_index(self.query, &mut self.word, &mut self.bits)?;
         // SAFETY: mask intersection proves presence, each index is yielded only once,
         // and the exclusive borrow of QueryBorrow keeps leases alive for every row.
         let item = unsafe { self.query.state.fetch(index) };

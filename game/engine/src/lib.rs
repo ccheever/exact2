@@ -19,6 +19,7 @@ mod spatial;
 mod spring;
 #[allow(unsafe_code)]
 mod storage;
+mod tween;
 mod values;
 mod world;
 
@@ -34,8 +35,11 @@ pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Sim};
 pub use spring::Spring;
-pub use storage::{Page, Pages, Plain, Query, QueryBorrow, QueryIter, Ref, RefMut, PAGE};
+pub use storage::{
+    Page, Pages, Plain, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE,
+};
+pub use tween::Tween;
 pub use values::Published;
-pub use world::{Bundle, Component, Entity, Event, Resource, World};
+pub use world::{Bundle, Component, Entity, Event, Resource, Target, World};
 
 pub mod audio;

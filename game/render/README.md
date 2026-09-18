@@ -224,10 +224,13 @@ Parent edits reset camera/light histories too. Point-light membership is selecte
 only during feeds; incumbents get a 10% distance margin, with entity-order ties.
 Frames visit only the retained sixteen lights, never the entity storage.
 
-Missing materials use the default white material. Mesh keys include exact float
-bits, with one cached geometry and one draw group per distinct dimensioned value.
-The cache refuses the 4,097th value by entity name. Assets retain a cube placeholder.
-Primitive vertices use the dimensions authored in `Mesh`, matching layout and picks.
+Missing materials use the default white material. Each primitive kind owns one unit
+mesh and one draw group. The 48-byte material record now uses its last three floats
+for dimensions: XYZ scale, or (diameter, half stem, diameter) for capsules. The
+vertex shader scales unit vertices and inverse-scales normals; capsule cap signs
+in the reserved UVs translate hemispheres without distortion. Animated dimensions
+never create geometry. At 200k slots materials still cost 9.6 MB, with 16 MB for
+the two transform histories. Asset meshes are refused by name until implemented.
 
 The small engine additions are mutation/membership/live-set revisions (tick stamps
 cannot detect setup-to-first-tick edits or repeated same-tick edits), whole-page

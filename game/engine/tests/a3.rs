@@ -271,7 +271,7 @@ fn a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick() {
             }
         }
     }
-    let mut s = Sim::<Moving>::new(&[]).unwrap();
+    let mut s = Sim::<Moving>::new(()).unwrap();
     let root = s.world().named("root").unwrap();
     assert_eq!(s.world().fresh(), [root]);
     s.advance(0.0, Clock::Seekable);
@@ -312,7 +312,7 @@ fn a11_orphan_chains_leave_after_game_tick_in_entity_order() {
             assert_eq!(w.len(), 2);
         }
     }
-    let mut s = Sim::<Reaper>::new(&[]).unwrap();
+    let mut s = Sim::<Reaper>::new(()).unwrap();
     s.advance(0.0, Clock::Seekable);
     s.advance(16.667, Clock::Seekable);
     assert!(s.world().is_empty());
@@ -437,26 +437,26 @@ fn a19_integer_argument_and_default_bind_refuse_by_name() {
         fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
     for n in [-1.0, 1.5, 9_007_199_254_740_992.0, f64::INFINITY] {
-        assert!(Sim::<Seeded>::new(&[Value::Number(n)])
+        assert!(Sim::<Seeded>::from_values(&[Value::Number(n)])
             .err()
             .unwrap()
             .contains("seed"));
     }
     assert_eq!(
-        Sim::<Seeded>::new(&[Value::Number(-0.0)])
+        Sim::<Seeded>::from_values(&[Value::Number(-0.0)])
             .unwrap()
             .world()
             .seed(),
         0
     );
     assert_eq!(
-        Sim::<Seeded>::new(&[Value::Number(9_007_199_254_740_991.0)])
+        Sim::<Seeded>::from_values(&[Value::Number(9_007_199_254_740_991.0)])
             .unwrap()
             .world()
             .seed(),
         9_007_199_254_740_991
     );
-    let mut sim = Sim::<Seeded>::new(&[Value::Number(1.0)]).unwrap();
+    let mut sim = Sim::<Seeded>::new(SeededArgs { seed: 1 }).unwrap();
     assert!(sim.bind(&[], None).unwrap_err().contains("seed"));
     assert!(sim
         .bind(&[Value::Number(1.0), Value::Number(2.0)], None)
@@ -464,19 +464,17 @@ fn a19_integer_argument_and_default_bind_refuse_by_name() {
         .contains("seed"));
 }
 #[test]
-fn a20_one_returns_a_leased_row_and_debug_refuses_ambiguity() {
+fn a20_one_returns_a_leased_item_and_refuses_ambiguity() {
     let mut w = World::new(60, 0);
     assert!(w.query::<&ZLater>().one().is_none());
     let e = w.spawn(ZLater(1));
     {
         let mut q = w.query::<&mut ZLater>();
-        let (id, row) = q.one().unwrap();
-        assert_eq!(id, e);
+        let row = q.one().unwrap();
         row.0 = 2;
     }
     assert_eq!(w.get::<ZLater>(e).unwrap().0, 2);
     w.spawn(ZLater(3));
-    #[cfg(debug_assertions)]
     {
         let err = catch_unwind(AssertUnwindSafe(|| {
             w.query::<&ZLater>().one();
@@ -484,6 +482,4 @@ fn a20_one_returns_a_leased_row_and_debug_refuses_ambiguity() {
         .unwrap_err();
         assert!(err.downcast_ref::<String>().unwrap().contains("ZLater"));
     }
-    #[cfg(not(debug_assertions))]
-    assert_eq!(w.query::<&ZLater>().one().unwrap().0, e);
 }

@@ -188,7 +188,8 @@ impl Renderer {
         Ok(())
     }
 
-    /// Upload contiguous material records (twelve floats per slot), one queue write.
+    /// Upload twelve floats per slot: color RGBA, metallic, roughness, emissive RGB,
+    /// then dimensions XYZ (capsules: diameter, half stem, diameter). One queue write.
     /// Base alpha and the final three floats are reserved; all geometry is opaque.
     /// Capacity refusals return the arena, requested slot and exclusive limit.
     pub fn write_materials(&mut self, first_slot: u32, values: &[f32]) -> Result<(), RenderError> {

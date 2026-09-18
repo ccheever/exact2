@@ -112,21 +112,30 @@ pub(crate) fn extent(mesh: Option<&Mesh>) -> Vec3 {
     match mesh {
         Some(Mesh::Sphere { radius }) => Vec3::splat(*radius),
         Some(Mesh::Capsule { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
-        Some(Mesh::Plane { width, depth }) => Vec3::new(width * 0.5, 0.0, depth * 0.5),
+        Some(Mesh::Plane { width, depth }) => Vec3::new(width * 0.5, 0.005, depth * 0.5),
         Some(Mesh::Cylinder { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
         Some(Mesh::Box { size }) => *size * 0.5,
         Some(Mesh::Asset(_)) => Vec3::splat(0.5),
         None => Vec3::ZERO,
     }
 }
-pub(crate) fn corners(pose: Affine3A, half: Vec3) -> [Vec3; 8] {
+pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
+    if matches!(mesh, Some(Mesh::Plane { .. })) {
+        Vec3::new(0.0, -0.005, 0.0)
+    } else {
+        Vec3::ZERO
+    }
+}
+pub(crate) fn corners(pose: Affine3A, half: Vec3, center: Vec3) -> [Vec3; 8] {
     std::array::from_fn(|i| {
         pose.transform_point3(
-            half * Vec3::new(
-                if i & 1 == 0 { -1.0 } else { 1.0 },
-                if i & 2 == 0 { -1.0 } else { 1.0 },
-                if i & 4 == 0 { -1.0 } else { 1.0 },
-            ),
+            center
+                + half
+                    * Vec3::new(
+                        if i & 1 == 0 { -1.0 } else { 1.0 },
+                        if i & 2 == 0 { -1.0 } else { 1.0 },
+                        if i & 4 == 0 { -1.0 } else { 1.0 },
+                    ),
         )
     })
 }
@@ -244,7 +253,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
             Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
             Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
             Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
-            _ => slab(o, d, extent(Some(mesh))),
+            _ => slab(o - center(Some(mesh)), d, extent(Some(mesh))),
         };
         if let Some(t) = t {
             let p = origin + direction * t;

@@ -5,7 +5,7 @@ use exact_game::{
     Mesh, Quat, Resource, Sim, Transform, Vec3, World,
 };
 use exact_game_render::{Feed, Renderer};
-use exact_gpu::{fixture, wgpu, Value};
+use exact_gpu::{fixture, wgpu};
 use std::time::Instant;
 
 #[derive(Default, Component)]
@@ -152,7 +152,7 @@ fn main() {
     };
     for n in counts {
         assert!(n > 0);
-        let mut sim = Sim::<Cubes>::new(&[Value::Number(n as f64)]).unwrap();
+        let mut sim = Sim::<Cubes>::new(CubesArgs { n: n as u64 }).unwrap();
         let still = args.get(2).is_some_and(|s| s == "still");
         if still {
             sim.world_mut().insert_resource(Still { enabled: true });

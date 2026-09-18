@@ -85,7 +85,7 @@ impl Pipelines {
                 uniform,
                 storage(1, wgpu::ShaderStages::VERTEX),
                 storage(2, wgpu::ShaderStages::VERTEX),
-                storage(3, wgpu::ShaderStages::FRAGMENT),
+                storage(3, wgpu::ShaderStages::VERTEX_FRAGMENT),
                 storage(4, wgpu::ShaderStages::VERTEX),
             ],
         );

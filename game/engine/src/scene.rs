@@ -371,15 +371,33 @@ impl World {
             .filter(|n| n.entity == e && n.done == self.hierarchy.stamp)
             .map(|n| n.global)
     }
+    /// Resolve the current local poses through the parent chain, before propagation.
+    pub fn current_global(&self, e: Entity) -> Option<Affine3A> {
+        let mut pose = self.get::<Transform>(e)?.affine();
+        let mut at = e;
+        for _ in 0..self.len() {
+            let Some(parent) = self
+                .get::<Parent>(at)
+                .map(|p| p.0)
+                .filter(|p| self.contains(*p))
+            else {
+                return Some(pose);
+            };
+            pose = self
+                .get::<Transform>(parent)
+                .map_or(Affine3A::IDENTITY, |t| t.affine())
+                * pose;
+            at = parent;
+        }
+        None // A runtime cycle has not yet been repaired by propagate.
+    }
     /// Set a local pose, refresh parented globals and mark this entity fresh.
     pub fn teleport(&mut self, e: Entity, transform: Transform) {
         if self.insert(e, transform) {
             self.fresh.push(e);
-            if let Some(name) = self.name(e) {
-                for (_, follow) in self.query::<&mut Follow>().iter() {
-                    if follow.target == name {
-                        follow.initialized = false;
-                    }
+            for (_, follow) in self.query::<&mut Follow>().iter() {
+                if follow.target.resolve(self, follow.resolved) == Some(e) {
+                    follow.initialized = false;
                 }
             }
             self.propagate();
@@ -522,11 +540,49 @@ mod tests {
 #[derive(Clone, Copy, Debug, Default, Component)]
 pub struct Ambient;
 
+/// A direct follower target, or a name resolved once per incarnation.
+#[derive(Clone, Debug, crate::Data)]
+pub enum FollowTarget {
+    /// Direct entity handle; no name scan.
+    Entity(Entity),
+    /// A name which can resolve again after despawn.
+    Name(String),
+}
+impl Default for FollowTarget {
+    fn default() -> Self {
+        Self::Entity(Entity::default())
+    }
+}
+impl From<Entity> for FollowTarget {
+    fn from(e: Entity) -> Self {
+        Self::Entity(e)
+    }
+}
+impl From<&str> for FollowTarget {
+    fn from(s: &str) -> Self {
+        Self::Name(s.into())
+    }
+}
+impl From<String> for FollowTarget {
+    fn from(s: String) -> Self {
+        Self::Name(s)
+    }
+}
+impl FollowTarget {
+    fn resolve(&self, w: &World, cached: Option<Entity>) -> Option<Entity> {
+        match self {
+            Self::Entity(e) => w.contains(*e).then_some(*e),
+            Self::Name(name) => cached.filter(|e| w.contains(*e)).or_else(|| w.named(name)),
+        }
+    }
+}
+
 /// A saved camera follower. Call `scene::follow` at the desired point in the tick.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Follow {
-    /// Target entity's name.
-    pub target: String,
+    /// Target handle or name. Names retain a resolved handle until it dies.
+    pub target: FollowTarget,
+    resolved: Option<Entity>,
     /// Camera displacement from the target.
     pub offset: Vec3,
     /// Aim displacement from the followed position.
@@ -537,7 +593,7 @@ pub struct Follow {
 }
 impl Follow {
     /// Follow the entity with this name; initial placement snaps exactly.
-    pub fn new(target: impl Into<String>) -> Self {
+    pub fn new(target: impl Into<FollowTarget>) -> Self {
         Self {
             target: target.into(),
             ..Self::default()
@@ -564,17 +620,22 @@ impl Follow {
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 pub fn follow(world: &World) {
     for (e, follow) in world.query::<&mut Follow>().iter() {
-        let Some(target) = world.named(&follow.target) else {
+        let target = follow.target.resolve(world, follow.resolved);
+        if target != follow.resolved {
+            follow.initialized = false;
+            follow.resolved = target;
+        }
+        let Some(target) = target else {
             continue;
         };
         if target == e {
             continue;
         }
-        let Some(target_pose) = world.global(target) else {
+        let Some(target_pose) = world.current_global(target) else {
             continue;
         };
         let target = Vec3::from(target_pose.translation) + follow.offset;
-        let Some(current) = world.global(e) else {
+        let Some(current) = world.current_global(e) else {
             continue;
         };
         let next = if follow.initialized {
@@ -588,11 +649,25 @@ pub fn follow(world: &World) {
             target
         };
         let aim = next - follow.offset + follow.look_at_offset;
-        if next == aim {
-            continue;
+        let (scale, rotation, _) = current.to_scale_rotation_translation();
+        let mut pose = Transform {
+            position: next,
+            rotation,
+            scale,
+        };
+        if next != aim {
+            let forward = (aim - next).normalize();
+            let up = if forward.cross(Vec3::Y).length_squared() < 1e-6 {
+                Vec3::Z
+            } else {
+                Vec3::Y
+            };
+            pose = pose.looking_at(aim, up);
         }
-        let mut pose = Transform::at(next.x, next.y, next.z).looking_at(aim, Vec3::Y);
-        if let Some(parent) = world.get::<Parent>(e).and_then(|p| world.global(p.0)) {
+        if let Some(parent) = world
+            .get::<Parent>(e)
+            .and_then(|p| world.current_global(p.0))
+        {
             let (scale, rotation, position) =
                 (parent.inverse() * pose.affine()).to_scale_rotation_translation();
             pose = Transform {

@@ -32,6 +32,22 @@ impl Entity {
     }
 }
 
+/// An entity handle or a name resolved in this world.
+pub trait Target {
+    /// Resolve a live entity, without reviving a stale handle.
+    fn entity(self, world: &World) -> Option<Entity>;
+}
+impl Target for Entity {
+    fn entity(self, world: &World) -> Option<Entity> {
+        world.contains(self).then_some(self)
+    }
+}
+impl Target for &str {
+    fn entity(self, world: &World) -> Option<Entity> {
+        world.resolve(self)
+    }
+}
+
 /// A named kind of per-entity data. Names must be unique within a world.
 pub trait Component: Data {
     /// Stable save-file and agent spelling.
@@ -46,6 +62,8 @@ pub trait Component: Data {
 pub trait Resource: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
+    /// Exclude executor bookkeeping from observed rest.
+    const AMBIENT: bool = false;
 }
 
 /// One component or a tuple of components supplied to spawn.
@@ -96,6 +114,7 @@ struct State {
 struct Registration {
     id: TypeId,
     make: fn(&'static str) -> Box<dyn Erased>,
+    ambient: bool,
 }
 
 /// One journal event. Reads never generate per-tick samples.
@@ -114,7 +133,7 @@ pub struct Event {
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
     pub(crate) changing: Vec<String>,
-    pub(crate) still: bool,
+    pub(crate) observation: ObservationState,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     state: State,
@@ -148,7 +167,7 @@ impl World {
         rng.insert(0, Rng::new(seed), 0);
         Self {
             changing: Vec::new(),
-            still: true,
+            observation: ObservationState::Unknown,
             in_tick: false,
             state: State {
                 hz,
@@ -178,13 +197,13 @@ impl World {
     }
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
-        self.register_data::<C>(C::NAME)
+        self.register_data::<C>(C::NAME, false)
     }
     /// Register singleton data before loading a save.
     pub fn register_resource<R: Resource>(&mut self) -> &mut Self {
-        self.register_data::<R>(R::NAME)
+        self.register_data::<R>(R::NAME, R::AMBIENT)
     }
-    fn register_data<C: Data>(&mut self, name: &'static str) -> &mut Self {
+    fn register_data<C: Data>(&mut self, name: &'static str, ambient: bool) -> &mut Self {
         let id = TypeId::of::<C>();
         if let Some(old) = self.registry.get(name) {
             assert_eq!(old.id, id, "duplicate component name {}", name);
@@ -194,6 +213,7 @@ impl World {
                 Registration {
                     id,
                     make: storage::make::<C>,
+                    ambient,
                 },
             );
         }
@@ -386,7 +406,8 @@ impl World {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
     /// Borrow one component immutably; conflicts panic with its name.
-    pub fn get<C: Component>(&self, e: Entity) -> Option<Ref<'_, C>> {
+    pub fn get<C: Component>(&self, target: impl Target) -> Option<Ref<'_, C>> {
+        let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
         }
@@ -394,7 +415,8 @@ impl World {
     }
     /// Borrow one component exclusively, locking the whole column.
     /// A nested get::<C> of another entity also panics; use a query for multiple rows.
-    pub fn get_mut<C: Component>(&self, e: Entity) -> Option<RefMut<'_, C>> {
+    pub fn get_mut<C: Component>(&self, target: impl Target) -> Option<RefMut<'_, C>> {
+        let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
         }
@@ -682,7 +704,19 @@ impl World {
                     while let Some(name) = r.field()? {
                         let (&key, reg) =
                             self.registry.get_key_value(name.as_str()).ok_or_else(|| {
-                                DataError::new("unregistered component or resource").at(&name)
+                                DataError::new(format!(
+                                    "unregistered {} `{name}`; call world.{}::<{name}>() in setup",
+                                    if field == "resources" {
+                                        "resource"
+                                    } else {
+                                        "component"
+                                    },
+                                    if field == "resources" {
+                                        "register_resource"
+                                    } else {
+                                        "register"
+                                    }
+                                ))
                             })?;
                         let mut s = (reg.make)(key);
                         let resource = field == "resources";
@@ -725,7 +759,7 @@ impl World {
 mod tests;
 
 mod inspect;
-pub(crate) use inspect::Observation;
+pub(crate) use inspect::{Observation, ObservationState};
 
 mod save;
 use save::Free;

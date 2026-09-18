@@ -46,25 +46,25 @@ impl Game for SmallGame {
     const ID: &'static str = "small-game";
     type Args = Options;
     fn actions() -> Actions {
-        Actions::new().stick("move", Stick::keys("KeyW", "KeyS", "KeyA", "KeyD"))
+        Actions::new().stick("move", Stick::wasd().or_arrows())
             .button("light", &["KeyE"])
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::default()));
-        w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1)));
+        let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1)));
         w.spawn_named("camera", (Transform::default(), Camera::default(),
-            Follow::new("player").offset(0.0, 9.0, 13.0).lag(0.15)));
+            Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
         w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
         w.publish("lit", 0);
+        scene::follow(w);
     }
     fn paused(args: &Options) -> bool { args.paused }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        let movement = input.stick("move");
-        w.get_mut::<Transform>(w.named("player").unwrap()).unwrap().position +=
-            Vec3::new(movement.x, 0.0, -movement.y) * 4.0 * w.dt();
+        w.get_mut::<Transform>("player").unwrap().position +=
+            input.stick_xz("move") * 4.0 * w.dt();
         let mut count = 0;
-        for (_, (beacon, material)) in w.query::<(&mut Beacon, &mut Material)>().iter() {
+        for (mut beacon, mut material) in w.query::<(&mut Beacon, &mut Material)>() {
             if input.pressed("light") { beacon.glow.set_target(w.now(), 1.0); }
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
             count += u32::from(beacon.glow.target == 1.0);
@@ -74,12 +74,11 @@ impl Game for SmallGame {
     }
 }
 fn main() {
-    let mut game = Sim::<SmallGame>::new(&[Value::Number(7.0), Value::Bool(false)]).unwrap();
-    game.advance(0.0, Clock::Seekable);
-    game.input(InputEvent::Key { code: "KeyE".into(), down: true, at_ms: 0.0 });
-    game.advance(1000.0, Clock::Seekable);
-    assert_eq!(game.world().published("lit"), Some(Value::Number(1.0)));
-    assert!(game.world().get::<Transform>(game.world().named("camera").unwrap()).unwrap().position.y > 9.0);
+    let mut game = Sim::<SmallGame>::new(Options { seed: 7, paused: false }).unwrap();
+    game.tap("KeyE");
+    assert!(game.settle());
+    assert_eq!(game.world().published("lit").unwrap().as_number(), Some(1.0));
+    assert!(game.world().get::<Transform>("camera").unwrap().position.y > 9.0);
 }
 ```
 
@@ -93,13 +92,13 @@ fn main() {
   Unmarked fields construct; `#[live]` fields are read each tick.
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
-  swaps. A refused bind changes nothing. Saves carry the game's `ID` and
+  swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and
   `SAVE_VERSION`, world time and dynamic input; the first restored host clock
   establishes a new epoch.
 - **Time is an input.** `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
-- **Names are first class.** `world.named("fox")` in code is `world:fox` to an agent.
+- **Names are first class.** `world.get::<Transform>("fox")` accepts a name or an entity handle; `world:fox` addresses it in the agent. Consuming `query()` yields guarded items (mutable bindings use `mut`); `.iter()` yields `(Entity, item)` with plain references. `.one()` returns an item and refuses multiple matches in all builds.
 - **Iteration is in entity order, always** — storage scans presence bitmasks in
   ascending index order, so a world loaded from a save replays exactly as the one
   that wrote it.
@@ -140,12 +139,12 @@ reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
 reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
-arguments. The iOS path is implemented but has not been driven in this session.
+arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
 then `truncated: true`); `state world:* under world:player` narrows to a subtree.
 `s.type('world', {key: 'KeyW', for: 1500})` presses, advances the agent clock,
-then releases. The reply and transcript retain all three steps.
+then releases on the same carrier even if the clock fails. CLI: `type world key KeyW for 1500`. The reply or error transcript retains partial steps.
 
 `game/proof.mjs` supplies `proof(import.meta, async ({open, check, equal}) => { … })`.
 `open()` builds this game's app only when its inputs change, opens a fresh session,
@@ -160,17 +159,41 @@ is closed and recorded children are checked before exit. Artifacts are in the ga
 holds every file to 1,500 lines. A game is driven like any app, with
 `EXACT_APP_DIR=game/games/<name>`.
 
-A seekable world is still when the last tick changed no component of any entity
-without `Ambient`, no spring is moving, and nothing called `world.busy(reason)`.
-Resources do not count as visible changes. Sim samples only the last two ticks of a
-seek (or the starting state and final tick for one tick); live play does no sampling.
-`clock` lists up to eight changing component names. Springs supply their deadline;
-other work proposes 100 ms, doubling to 2 s until settled. `busy` borrows `&World`.
+A world's observation starts `Unknown`, also after rebuilding, restoring, live
+advancement, queued input, or live argument changes. Unknown is not quiescent.
+Seekable advances sample the last two ticks of each jump (the start and end for
+one tick). Unmarked entities count by existence, components, and parented global
+pose. Resources count unless their `Resource` implementation declares
+`const AMBIENT: bool = true`; physics and audio executor bookkeeping opt out.
+Observations are derived caches, excluded from saves. Pending future input keeps
+the clock awake and bounds its next jump. Replies report up to eight changed
+components, moving springs/tweens, and explicit `world.busy(reason)` reasons.
 
-`scene::follow(world)` steps saved `Follow` components where called. It snaps on its
-first tick and after `world.teleport` of the target, then uses `math::ease` with a lag
-in seconds. Scalar and Vec3 easing both arrive exactly within 1e-4. Primitive sizes
-live in `Mesh`; `exact_game_physics::Collider::of(&mesh)` matches every primitive.
+`sim.run(ms)`, `key_down`, `key_up`, `tap`, `hold(code, ms)`, and `settle()` read
+like proof operations. `settle()` returns whether it reached rest within sixteen
+jumps, the host loop's bound. Spring/tween deadlines and queued input bound the
+jumps; other work backs off from 100 ms to 2 s. Only a settle request increases
+back-off; ordinary clock reads do not. A settle jump observes its last two ticks:
+a one-shot change entirely inside a 2 s jump can be skipped. It is an observation
+of rest, not a record of every intermediate transition.
+
+`scene::follow(world)` steps saved `Follow` components where called. Call it at the
+end of `setup` for exact first-frame placement, and in `tick` for following.
+It accepts a handle (no name search) or a cached name, reads the target's current
+parent chain, and reinitializes after teleport or a name's new incarnation.
+Top-down views choose a safe up-axis; coincident aim preserves rotation.
+`math::ease` arrives within 1e-4; `Tween::to(now, target, seconds)` supplies a finite
+smoothstep beside `Spring`, with a known settle deadline.
+
+Primitive dimensions are instance data; animation creates no geometry and all
+spheres share one draw. The existing 48-byte material record is RGBA, metallic,
+roughness, RGB emission, then three dimension floats (capsules: diameter, half
+stem, diameter). At 200k slots it remains 9.6 MB; the two 40-byte transform records
+remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true
+hemispheres without stretching them. Normals use inverse dimension scale.
+Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
+1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
+`Mesh::Asset(name)` is refused by the surface until asset meshes are implemented.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.

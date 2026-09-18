@@ -121,7 +121,7 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
         }
         assert_eq!(CLOCK_READS.with(|n| n.get()), if measure { 480 } else { 0 });
     }
-    let mut sim = Sim::<Move>::new(&[Value::Bool(true), Value::Number(0.)]).unwrap();
+    let mut sim = Sim::<Move>::from_values(&[Value::Bool(true), Value::Number(0.)]).unwrap();
     sim.advance(0., Clock::Seekable);
     assert_eq!(sim.ticks_due(60_000., Clock::Seekable), 3600);
     assert_eq!(sim.ticks_due(60_000., Clock::Live), 15);
@@ -260,4 +260,20 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .agent(r#"{"op":"state"}"#)
         .unwrap()
         .contains(r#""restored":false"#));
+}
+
+#[test]
+fn asset_refusal_reaches_the_surface_error_with_its_name() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut s = surface();
+    let w = s.sim.as_mut().unwrap().world_mut();
+    *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle");
+    fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
+    let error = s.take_error().expect("an asset is refused").0;
+    assert!(
+        error.contains("castle") && error.contains("asset meshes are not implemented"),
+        "{error}"
+    );
 }

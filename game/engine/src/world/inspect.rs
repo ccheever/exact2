@@ -24,13 +24,54 @@ impl World {
     }
     /// Whether the observed tick changed no countable component, springs rest and no work was reported.
     pub fn quiescent(&self) -> bool {
-        self.still
+        self.observation == ObservationState::Still
             && self.state.busy.borrow().is_empty()
             && !self
                 .components
                 .values()
-                .chain(self.resources.values())
+                .chain(
+                    self.resources
+                        .iter()
+                        .filter(|(name, _)| !self.registry[*name].ambient)
+                        .map(|(_, s)| s),
+                )
                 .any(|s| s.moving(self.now()))
+    }
+    pub(crate) fn unobserve(&mut self) {
+        self.observation = ObservationState::Unknown;
+        self.changing.clear();
+    }
+    pub(crate) fn changing(&self) -> Vec<String> {
+        let mut reasons = self.changing.clone();
+        let mut add = |reason: String| {
+            if reasons.len() < 8 && !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
+        };
+        for (&name, storage) in &self.components {
+            for index in storage.moving_indices(self.now()) {
+                let e = self.entity_at(index);
+                add(format!(
+                    "{}.{}",
+                    self.name(e)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("#{}", e.index())),
+                    name
+                ));
+            }
+        }
+        for (&name, storage) in &self.resources {
+            if !self.registry[name].ambient && storage.moving(self.now()) {
+                add(format!("resource.{name}"));
+            }
+        }
+        for reason in self.state.busy.borrow().iter() {
+            add(reason.to_string());
+        }
+        if reasons.is_empty() && self.observation == ObservationState::Unknown {
+            reasons.push("not observed".into());
+        }
+        reasons
     }
     pub(crate) fn settle_tick(&self) -> Option<u64> {
         if !self.state.busy.borrow().is_empty() {
@@ -38,7 +79,12 @@ impl World {
         }
         self.components
             .values()
-            .chain(self.resources.values())
+            .chain(
+                self.resources
+                    .iter()
+                    .filter(|(name, _)| !self.registry[*name].ambient)
+                    .map(|(_, s)| s),
+            )
             .try_fold(self.tick(), |at, s| {
                 Some(at.max(s.settle_tick(self.now())?))
             })
@@ -101,21 +147,44 @@ impl World {
     }
 }
 
-/// Component observations, ordered by storage name then entity index.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObservationState {
+    Unknown,
+    Still,
+    Changing,
+}
+
+/// Observations ordered by category, storage name, then entity index.
 #[derive(Default)]
 pub(crate) struct Observation {
-    entries: Vec<(&'static str, Entity, u64)>,
+    entries: Vec<(u8, &'static str, Entity, u64)>,
     scratch: Vec<(usize, u64)>,
 }
 impl World {
     pub(crate) fn observe(&self, out: &mut Observation) {
         out.entries.clear();
         let ambient = self.storage::<crate::Ambient>();
+        for e in self.entities() {
+            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
+                continue;
+            }
+            out.entries.push((0, "exists", e, 0));
+        }
+        for (e, _) in self.query::<&crate::Parent>().iter() {
+            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
+                continue;
+            }
+            if let Some(pose) = self.global(e) {
+                out.entries
+                    .push((1, "global", e, crate::hash::of(&pose.to_cols_array())));
+            }
+        }
         for (&name, storage) in &self.components {
             out.scratch.clear();
             storage.snapshot(ambient, &mut out.scratch);
             out.entries.extend(out.scratch.iter().map(|&(i, hash)| {
                 (
+                    2,
                     name,
                     Entity {
                         index: i as u32,
@@ -125,10 +194,26 @@ impl World {
                 )
             }));
         }
+        for (&name, storage) in &self.resources {
+            if self.registry[name].ambient {
+                continue;
+            }
+            out.scratch.clear();
+            storage.snapshot(None, &mut out.scratch);
+            out.entries.extend(
+                out.scratch
+                    .iter()
+                    .map(|&(_, hash)| (3, name, SINGLETON, hash)),
+            );
+        }
     }
     pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
         self.changing.clear();
-        self.still = before.entries == after.entries;
+        self.observation = if before.entries == after.entries {
+            ObservationState::Still
+        } else {
+            ObservationState::Changing
+        };
         let (mut a, mut b) = (0, 0);
         while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
             let old = before.entries.get(a);
@@ -138,7 +223,7 @@ impl World {
                 b += 1;
                 continue;
             }
-            let key = |v: &(&'static str, Entity, u64)| (v.0, v.1);
+            let key = |v: &(u8, &'static str, Entity, u64)| (v.0, v.1, v.2);
             let entry = match (old, new) {
                 (Some(old), Some(new)) => match key(old).cmp(&key(new)) {
                     std::cmp::Ordering::Less => {
@@ -166,10 +251,14 @@ impl World {
                 _ => break,
             };
             let name = self
-                .name(entry.1)
+                .name(entry.2)
                 .map(str::to_owned)
-                .unwrap_or_else(|| format!("#{}", entry.1.index()));
-            self.changing.push(format!("{name}.{}", entry.0));
+                .unwrap_or_else(|| format!("#{}", entry.2.index()));
+            self.changing.push(format!(
+                "{}.{}",
+                if entry.0 == 3 { "resource" } else { &name },
+                entry.1
+            ));
         }
     }
 }

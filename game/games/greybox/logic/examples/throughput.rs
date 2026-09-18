@@ -1,15 +1,14 @@
-use exact_game::{Clock, InputEvent, Sim, Value};
-use greybox_logic::Greybox;
+use exact_game::Sim;
+use greybox_logic::{Greybox, GreyboxArgs};
 fn main() {
-    let mut sim = Sim::<Greybox>::new(&[Value::Number(7.0), Value::Bool(false)]).unwrap();
-    sim.advance(0.0, Clock::Seekable);
-    sim.input(InputEvent::Key {
-        code: "KeyW".into(),
-        down: true,
-        at_ms: 0.0,
-    });
+    let mut sim = Sim::<Greybox>::new(GreyboxArgs {
+        seed: 7,
+        paused: false,
+    })
+    .unwrap();
+    sim.key_down("KeyW");
     let start = std::time::Instant::now();
-    sim.advance(60000.0, Clock::Seekable);
+    sim.run(60000.0);
     let seconds = start.elapsed().as_secs_f64();
     println!(
         "60 s / {seconds:.6} s = {:.1}x; hash=0x{:016x}",

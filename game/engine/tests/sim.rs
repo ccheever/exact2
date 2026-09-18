@@ -53,7 +53,7 @@ impl Game for Counter {
     }
 }
 fn sim() -> Sim<Counter> {
-    let mut s = Sim::new(&[Value::Bool(false)]).unwrap();
+    let mut s = Sim::new(CounterArgs::default()).unwrap();
     s.advance(0.0, Clock::Seekable);
     s
 }
@@ -128,17 +128,18 @@ fn exact_event_boundary_tap_repeat_alias_and_blur() {
 }
 #[test]
 fn epoch_pause_live_gap_and_backwards_clock() {
-    let mut s = Sim::<Counter>::new(&[Value::Bool(false)]).unwrap();
+    let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
     assert_eq!(s.advance(5000.0, Clock::Seekable), 0);
     key(&mut s, "KeyE", true, 5100.0);
     assert_eq!(s.advance(6000.0, Clock::Live), 15);
     assert_eq!(s.advance(5500.0, Clock::Seekable), 0);
     assert_eq!(s.advance(6000.0, Clock::Seekable), 0);
-    s.bind(&[Value::Bool(true)], None).unwrap();
+    s.bind(&CounterArgs { paused: true }.values(), None)
+        .unwrap();
     key(&mut s, "KeyE", false, 6500.0);
     s.advance(7000.0, Clock::Seekable);
     assert_eq!(s.world().tick(), 15);
-    s.bind(&[Value::Bool(false)], None).unwrap();
+    s.bind(&CounterArgs::default().values(), None).unwrap();
     s.advance(7100.0, Clock::Seekable);
     let c = s.world().resource::<Counts>();
     assert_eq!(c.released, 0);
@@ -228,8 +229,11 @@ fn publication_drain_is_full_and_journal_is_an_indexed_ring() {
 }
 #[test]
 fn named_refusals_and_reads_do_not_change_the_hash() {
-    assert!(Sim::<Counter>::new(&[]).err().unwrap().contains("paused"));
-    assert!(Sim::<Counter>::new(&[Value::Number(1.0)])
+    assert!(Sim::<Counter>::from_values(&[])
+        .err()
+        .unwrap()
+        .contains("paused"));
+    assert!(Sim::<Counter>::from_values(&[Value::Number(1.0)])
         .err()
         .unwrap()
         .contains("paused"));

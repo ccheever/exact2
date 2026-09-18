@@ -92,7 +92,7 @@ impl<G: Game> Surface for WorldSurface<G> {
                 self.perf = Perf::default();
             }
         } else {
-            self.sim = Some(Sim::new(values).map_err(SurfaceError)?);
+            self.sim = Some(Sim::from_values(values).map_err(SurfaceError)?);
         }
         self.dirty = true;
         Ok(())

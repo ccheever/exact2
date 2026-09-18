@@ -13,7 +13,7 @@ impl Game for Scene {
 }
 #[test]
 fn hierarchy_preorder_under_and_cap() {
-    let mut s = Sim::<Scene>::new(&[]).unwrap();
+    let mut s = Sim::<Scene>::new(()).unwrap();
     assert_eq!(
         s.agent(r#"{"op":"tree","under":"root"}"#),
         r#"{"tick":0,"entities":[{"id":1,"name":"root","parent":null,"depth":0,"components":["Transform"],"tags":[]},{"id":0,"name":"child","parent":1,"depth":1,"components":["Parent","Transform"],"tags":[]}],"truncated":false}"#
@@ -34,7 +34,7 @@ fn hierarchy_preorder_under_and_cap() {
 }
 #[test]
 fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
-    let mut s = Sim::<Scene>::new(&[]).unwrap();
+    let mut s = Sim::<Scene>::new(()).unwrap();
     s.viewport(800.0, 600.0);
     let e = s
         .world_mut()
@@ -70,7 +70,7 @@ fn pick_uses_oriented_boxes_and_exact_spheres_and_capsules() {
 }
 #[test]
 fn projection_refusals_and_lossless_state_are_read_only() {
-    let mut s = Sim::<Scene>::new(&[]).unwrap();
+    let mut s = Sim::<Scene>::new(()).unwrap();
     let e = s.world().named("child").unwrap();
     s.world_mut()
         .teleport(e, Transform::at(0.1234567, 0.0, 0.0));
@@ -105,7 +105,7 @@ fn projection_refusals_and_lossless_state_are_read_only() {
 
 #[test]
 fn capsule_pick_from_inside_ignores_internal_cap_surfaces() {
-    let mut s = Sim::<Scene>::new(&[]).unwrap();
+    let mut s = Sim::<Scene>::new(()).unwrap();
     s.viewport(800.0, 600.0);
     let camera = s.world().named("camera").unwrap();
     s.world_mut()

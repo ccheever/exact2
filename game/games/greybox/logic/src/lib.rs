@@ -39,15 +39,7 @@ impl Game for Greybox {
         Actions::new()
             .button("act", &["KeyE", "Enter"])
             .button("jump", &["Space"])
-            .stick(
-                "move",
-                Stick::keys("KeyW", "KeyS", "KeyA", "KeyD").or_keys(
-                    "ArrowUp",
-                    "ArrowDown",
-                    "ArrowLeft",
-                    "ArrowRight",
-                ),
-            )
+            .stick("move", Stick::wasd().or_arrows())
     }
     fn setup(world: &mut World, args: &Self::Args) {
         world.reseed(args.seed);
@@ -59,7 +51,7 @@ impl Game for Greybox {
                 Material::rgb(0.25, 0.27, 0.3),
             ),
         );
-        world.spawn_named(
+        let player = world.spawn_named(
             "player",
             (
                 Transform::at(0.0, 0.9, 0.0),
@@ -71,9 +63,9 @@ impl Game for Greybox {
         world.spawn_named(
             "camera",
             (
-                Transform::at(0.0, 5.9, 8.0).looking_at(Vec3::new(0.0, 0.9, 0.0), Vec3::Y),
+                Transform::default(),
                 Camera::default(),
-                Follow::new("player").offset(0.0, 5.0, 8.0).lag(0.0),
+                Follow::new(player).offset(0.0, 5.0, 8.0).lag(0.0),
             ),
         );
         world.spawn_named(
@@ -103,6 +95,7 @@ impl Game for Greybox {
             ),
         );
         world.publish("beacons", 0);
+        scene::follow(world);
     }
     fn paused(args: &Self::Args) -> bool {
         args.paused
@@ -110,10 +103,9 @@ impl Game for Greybox {
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
         let now = world.now();
-        let direction = input.stick("move");
-        let desired = Vec3::new(direction.x, 0.0, -direction.y) * 4.0;
+        let desired = input.stick_xz("move") * 4.0;
         let mut position = Vec3::ZERO;
-        if let Some((_, (player, pose))) = world.query::<(&mut Player, &mut Transform)>().one() {
+        if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
             player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
             player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
@@ -131,9 +123,8 @@ impl Game for Greybox {
             }
             position = pose.position;
         }
-        for (_, (beacon, pose, material)) in world
-            .query::<(&mut Beacon, &Transform, &mut Material)>()
-            .iter()
+        for (mut beacon, pose, mut material) in
+            world.query::<(&mut Beacon, &Transform, &mut Material)>()
         {
             if !beacon.lit
                 && input.pressed("act")

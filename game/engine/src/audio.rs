@@ -346,21 +346,9 @@ pub struct Voices {
 }
 impl crate::Resource for Voices {
     const NAME: &'static str = "Voices";
+    const AMBIENT: bool = true;
 }
 impl Data for Voices {
-    fn moving(&self, now: crate::Now) -> bool {
-        self.voices.iter().any(|v| v.ends > now.tick)
-    }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        Some(
-            self.voices
-                .iter()
-                .map(|v| v.ends)
-                .max()
-                .unwrap_or(now.tick)
-                .max(now.tick),
-        )
-    }
     fn write(&self, w: &mut dyn crate::Writer) {
         w.begin_struct();
         w.field("voices");

@@ -94,7 +94,7 @@ impl Game for Scene {
 }
 pub fn scene(name: &str) -> Sim<Scene> {
     {
-        let mut s = Sim::new(&[exact_game::Value::str(name)]).unwrap();
+        let mut s = Sim::from_values(&[exact_game::Value::str(name)]).unwrap();
         s.advance(0.0, exact_game::Clock::Seekable);
         s
     }

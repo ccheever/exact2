@@ -11,6 +11,7 @@ struct Request {
     entity: Option<String>,
     under: Option<String>,
     summary: bool,
+    settle: bool,
     now: Option<f64>,
     width: Option<f32>,
     height: Option<f32>,
@@ -28,6 +29,7 @@ impl Request {
                 "op" => q.op.read(&mut r)?,
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
+                "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
                 "now" => {
                     let mut n = 0.0f64;
@@ -172,8 +174,8 @@ impl<G: Game> Sim<G> {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
                 Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
             }
-            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"restored\":{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), self.restored, crate::args::json::<G::Args>(&self.values), w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
+            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
                 self.layout(e)
@@ -186,8 +188,8 @@ impl<G: Game> Sim<G> {
             }
             "clock" => {
                 let quiescent = self.quiescent();
-                let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at()) };
-                let changing = encode(&w.changing)?;
+                let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at(q.settle)) };
+                let changing = encode(&self.changing())?;
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
             "logs" => {
@@ -203,7 +205,11 @@ impl<G: Game> Sim<G> {
         let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
         let (scale, rotation, position) = pose.to_scale_rotation_translation();
         let mesh = w.get::<Mesh>(e);
-        let corners = spatial::corners(pose, spatial::extent(mesh.as_deref()));
+        let corners = spatial::corners(
+            pose,
+            spatial::extent(mesh.as_deref()),
+            spatial::center(mesh.as_deref()),
+        );
         let lo = corners
             .iter()
             .copied()

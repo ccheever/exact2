@@ -5,7 +5,28 @@ import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
+import { appleArtifacts } from '../host/apple/build.mjs';
+import { resolveApp } from '../scripts/app.mjs';
 
+export function artifactDigest(host, dist, artifacts) {
+  try {
+    if (host === 'web') return createHash('sha256').update(readFileSync(resolve(dist, 'exact.json'))).digest('hex');
+    if (!existsSync(artifacts.bundle)) return null;
+    const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
+    const hash = createHash('sha256').update(readFileSync(executable));
+    if (artifacts.binary) hash.update(createHash('sha256').update(readFileSync(artifacts.binary)).digest());
+    return hash.digest('hex');
+  } catch { return null; }
+}
+export async function closeSessions(monitor, record, sessions, check) {
+  clearInterval(monitor);
+  try { try { record(); } catch { /* Inventory is best-effort. */ } }
+  finally {
+    for (const session of sessions) {
+      try { await session.close(); } catch (e) { check('session cleanup', false, e.message); }
+    }
+  }
+}
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -26,14 +47,14 @@ export async function proof(meta, script) {
   const recorded = new Map();
   const inventory = () => {
     const result = spawnSync('ps', ['-axo', 'pid=,ppid=,lstart='], {encoding:'utf8'});
-    if (result.status !== 0) throw new Error('cannot inventory proof children');
+    if (result.status !== 0) return null;
     return result.stdout.trim().split('\n').map(line => {
       const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
       return m && {pid:Number(m[1]), parent:Number(m[2]), stamp:m[3]};
     }).filter(Boolean);
   };
   const record = () => {
-    const rows = inventory(), owned = new Set([process.pid]);
+    const rows = inventory() ?? [], owned = new Set([process.pid]);
     for (let changed = true; changed;) {
       changed = false;
       for (const row of rows) if (owned.has(row.parent) && !owned.has(row.pid)) {
@@ -41,12 +62,13 @@ export async function proof(meta, script) {
       }
     }
   };
-  const monitor = setInterval(record, 100);
+  const sample = () => { try { record(); } catch {} };
+  const monitor = setInterval(sample, 100);
   const open = async (options = {}) => {
     const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, ...options});
-    record();
+    sample();
     let closed = false;
-    const close = async () => { if (!closed) { record(); await raw.close(); closed = true; } };
+    const close = async () => { if (!closed) { try { sample(); } finally { await raw.close(); closed = true; } } };
     sessions.add({close});
     const id = sessions.size;
     return new Proxy(raw, {get(target, method) {
@@ -59,7 +81,7 @@ export async function proof(meta, script) {
           say(`${method} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n${render(method,reply)}`);
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, error:error.message}); throw error;
+          replies.push({session:id, method, args, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});
@@ -81,27 +103,29 @@ export async function proof(meta, script) {
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
     const digest = hash.digest('hex'), receipt = resolve(out, `build-${host}.sha256`);
-    const output = host === 'web' ? resolve(dist, 'exact.json') : resolve(out, `built-${host}`);
-    if (!existsSync(output) || !existsSync(receipt) || readFileSync(receipt,'utf8') !== digest) {
+    const artifacts = host === 'web' ? null : appleArtifacts(resolveApp(name), {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
+    let artifact = artifactDigest(host, dist, artifacts);
+    const stamp = () => JSON.stringify({inputs:digest, artifact});
+    if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
-      const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
-      record();
+      const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+      sample();
       const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
       if (code !== 0) throw new Error(`app build exited ${code}`);
-      if (host !== 'web') writeFileSync(output,'');
-      writeFileSync(receipt,digest);
+      artifact = artifactDigest(host, dist, artifacts);
+      if (!artifact) throw new Error('build produced no complete proof artifact');
+      writeFileSync(receipt,stamp());
     } else say(`BUILD cached ${name} ${host}`);
     await script({open, check, equal, out, host, say});
   } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
   finally {
-    record(); clearInterval(monitor);
-    for (const session of sessions) {
-      try { await session.close(); } catch (e) { check('session cleanup', false, e.message); }
-    }
+    await closeSessions(monitor, sample, sessions, check);
     // The carriers await their leaders; also await every recorded descendant.
     let remaining = [];
     for (let round = 0; round < 40; round++) {
-      remaining = inventory().filter(row => recorded.get(row.pid) === row.stamp);
+      const rows = inventory();
+      if (!rows) { check("cleanup inventory available", false); break; }
+      remaining = rows.filter(row => recorded.get(row.pid) === row.stamp);
       if (!remaining.length) break;
       if (round === 10) for (const row of remaining) { try { process.kill(row.pid, 'SIGKILL'); } catch {} }
       await new Promise(ok => setTimeout(ok,50));

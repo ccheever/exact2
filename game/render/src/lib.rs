@@ -1,7 +1,7 @@
 //! Slot-indexed, opaque PBR rendering over plain buffers; no simulation ownership.
 //!
 //! Transforms are ten floats (position xyz, quaternion xyzw, scale xyz), materials
-//! twelve (linear base rgba, metallic, roughness, linear emissive rgb, reserved xyz).
+//! twelve (linear base rgba, metallic, roughness, linear emissive rgb, primitive dimensions xyz).
 //! Rotations must be unit quaternions. New slots must be initialized in both ticks.
 //! Matrices use WebGPU's 0–1 depth range, with near at zero (for example
 //! [`glam::camera::rh::proj::directx::perspective`]). All lights and environment colours are linear.
@@ -92,7 +92,7 @@ pub struct Vertex {
     pub position: [f32; 3],
     /// Local unit normal.
     pub normal: [f32; 3],
-    /// Texture coordinates, reserved for textured materials.
+    /// Primitive deformation: capsule cap sign and capsule flag; zero for other meshes.
     pub uv: [f32; 2],
 }
 

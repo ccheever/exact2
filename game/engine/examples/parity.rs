@@ -3,9 +3,9 @@
 mod beacons;
 #[path = "../../games/greybox/logic/src/lib.rs"]
 mod greybox;
-use exact_game::{Clock, Game, InputEvent, Sim, Value};
-fn card<G: Game>(values: &[Value]) {
-    let mut s = Sim::<G>::new(values).unwrap();
+use exact_game::{Game, Sim};
+fn card<G: Game>(args: G::Args) {
+    let mut s = Sim::<G>::new(args).unwrap();
     println!("{} setup=0x{:016x}", G::ID, s.world().hash());
     for (name, request) in [
         ("tree", r#"{"op":"tree","world":true}"#),
@@ -18,17 +18,18 @@ fn card<G: Game>(values: &[Value]) {
     ] {
         println!("{} {name}={}", G::ID, s.agent(request));
     }
-    s.advance(0.0, Clock::Seekable);
-    s.input(InputEvent::Key {
-        code: "KeyW".into(),
-        down: true,
-        at_ms: 0.0,
-    });
-    s.advance(1500.0, Clock::Seekable);
+    s.key_down("KeyW");
+    s.run(1500.0);
     println!("{} W1500=0x{:016x}", G::ID, s.world().hash());
 }
 fn main() {
     println!("{} {}", std::env::consts::ARCH, std::env::consts::OS);
-    card::<greybox::Greybox>(&[Value::Number(7.0), Value::Bool(false)]);
-    card::<beacons::Beacons>(&[Value::Number(7.0), Value::Number(0.0), Value::Bool(false)]);
+    card::<greybox::Greybox>(greybox::GreyboxArgs {
+        seed: 7,
+        paused: false,
+    });
+    card::<beacons::Beacons>(beacons::BeaconsArgs {
+        seed: 7,
+        ..Default::default()
+    });
 }

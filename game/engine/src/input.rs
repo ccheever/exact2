@@ -37,6 +37,15 @@ pub struct Stick {
     touch: Vec<Region>,
 }
 impl Stick {
+    /// W/S/A/D directional controls.
+    pub fn wasd() -> Self {
+        Self::keys("KeyW", "KeyS", "KeyA", "KeyD")
+    }
+    /// Add arrow-key directional controls.
+    pub fn or_arrows(self) -> Self {
+        self.or_keys("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight")
+    }
+
     /// Bind up, down, left, right KeyboardEvent.code spellings.
     pub fn keys(up: &str, down: &str, left: &str, right: &str) -> Self {
         Self::default().or_keys(up, down, left, right)
@@ -299,6 +308,11 @@ impl Input {
         self.released.iter().any(|n| n == name)
     }
     /// Direction, unit-clamped, with positive Y forward/up.
+    pub fn stick_xz(&self, name: &str) -> crate::Vec3 {
+        let v = self.stick(name);
+        crate::Vec3::new(v.x, 0.0, -v.y)
+    }
+    /// Read a directional action in its two-dimensional input plane.
     pub fn stick(&self, name: &str) -> Vec2 {
         self.action(name)
             .and_then(|a| a.stick.as_ref())

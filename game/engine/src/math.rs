@@ -85,9 +85,17 @@ pub trait Ease: Copy {
     /// Approach using a computed fraction and snap within 0.1 mm (or 1e-4 scalar units).
     fn approach(self, target: Self, fraction: f32) -> Self;
 }
+fn approach_value(current: f32, target: f32, fraction: f32) -> f32 {
+    let delta = target - current;
+    if delta.is_finite() {
+        current + delta * fraction
+    } else {
+        (current as f64 + (target as f64 - current as f64) * fraction as f64) as f32
+    }
+}
 impl Ease for f32 {
     fn approach(self, target: Self, fraction: f32) -> Self {
-        let next = self + (target - self) * fraction;
+        let next = approach_value(self, target, fraction);
         if (target - next).abs() <= 1e-4 {
             target
         } else {
@@ -97,7 +105,11 @@ impl Ease for f32 {
 }
 impl Ease for crate::Vec3 {
     fn approach(self, target: Self, fraction: f32) -> Self {
-        let next = self + (target - self) * fraction;
+        let next = crate::Vec3::new(
+            approach_value(self.x, target.x, fraction),
+            approach_value(self.y, target.y, fraction),
+            approach_value(self.z, target.z, fraction),
+        );
         if (target - next).length_squared() <= 1e-8 {
             target
         } else {

@@ -29,6 +29,15 @@ impl Game for Probe {
     const ID: &'static str = "a4-probe";
     type Args = ProbeArgs;
 
+    fn validate(args: &Self::Args) -> Result<(), String> {
+        if !(0.0..=2.0).contains(&args.volume) {
+            return Err("volume must be in 0..=2".into());
+        }
+        if args.seed == 99 {
+            return Err("seed 99 is refused".into());
+        }
+        Ok(())
+    }
     fn setup(w: &mut World, args: &Self::Args) {
         w.reseed(args.seed);
         w.insert_resource(Observed::default());
@@ -63,7 +72,12 @@ fn args(seed: f64, run: f64, paused: bool, volume: f64) -> [Value; 4] {
     ]
 }
 fn sim() -> Sim<Probe> {
-    let mut s = Sim::new(&args(7.0, 0.0, false, 1.0)).unwrap();
+    let mut s = Sim::new(ProbeArgs {
+        seed: 7,
+        volume: 1.0,
+        ..Default::default()
+    })
+    .unwrap();
     s.advance(0.0, Clock::Seekable);
     s
 }
@@ -132,7 +146,7 @@ fn a4_1_host_loop_reaches_the_spring_deadline_without_the_world_running_ahead() 
             w.busy("forever");
         }
     }
-    let mut never = Sim::<Busy>::new(&[]).unwrap();
+    let mut never = Sim::<Busy>::new(()).unwrap();
     never.advance(0.0, Clock::Seekable);
     let mut host = 0.0;
     for round in 0..16 {
@@ -261,7 +275,12 @@ fn a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_
         "old args up to the bind"
     );
     let before = one.save();
-    for bad in [args(7.0, -1.0, false, 1.0), args(-1.0, 0.0, false, 1.0)] {
+    for bad in [
+        args(7.0, -1.0, false, 1.0),
+        args(-1.0, 0.0, false, 1.0),
+        args(7.0, 0.0, false, -1.0),
+        args(99.0, 0.0, false, 1.0),
+    ] {
         assert!(one.bind(&bad, Some(2000.0)).is_err());
         assert_eq!(
             one.save(),
@@ -319,7 +338,7 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
         fn setup(_: &mut World, _: &Self::Args) {}
         fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
     }
-    let mut other = Sim::<Other>::new(&[]).unwrap();
+    let mut other = Sim::<Other>::new(()).unwrap();
     let error = other.restore(&save).unwrap_err().to_string();
     assert!(error.contains("a4-probe") && error.contains("other"));
     struct Updated;
@@ -338,7 +357,12 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
             w.resource_mut::<Observed>().volume = from as f64 + 100.0;
         }
     }
-    let mut updated = Sim::<Updated>::new(&args(7.0, 0.0, false, 1.0)).unwrap();
+    let mut updated = Sim::<Updated>::new(ProbeArgs {
+        seed: 7,
+        volume: 1.0,
+        ..Default::default()
+    })
+    .unwrap();
     updated.restore(&save).unwrap();
     assert_eq!(updated.world().resource::<Observed>().volume, 101.0);
     let state = updated.agent(r#"{"op":"state"}"#);
@@ -383,7 +407,7 @@ fn a4_6_names_schema_journal_and_cylinder_hits_follow_the_declared_contract() {
     assert!(s.agent(r#"{"op":"tree"}"#).contains("\"tags\":[]"));
     let state = s.agent(r#"{"op":"state"}"#);
     assert!(state.contains("\"audio\":{\"voices\":[],\"sources\":[]}"));
-    assert!(state.contains("\"args\":{\"seed\":7,\"run\":0,\"paused\":false,\"volume\":1}"));
+    assert!(state.contains("\"args\":{\"seed\":7,\"run\":0,\"paused\":false,\"volume\":1.0}"));
     s.advance(1500.0, Clock::Seekable);
     s.world().log("test event");
     assert!(s

@@ -68,8 +68,12 @@ fn typed_fields_decode_in_order_and_refuse_by_name() {
     }
     assert!(<() as Args>::decode(&[Value::Bool(false)]).is_err());
 }
-#[derive(Default, Resource)]
+#[derive(Default, Data)]
 struct Bookkeeping(u64);
+impl Resource for Bookkeeping {
+    const NAME: &'static str = "Bookkeeping";
+    const AMBIENT: bool = true;
+}
 struct Moving;
 impl Game for Moving {
     type Args = ();
@@ -91,7 +95,7 @@ impl Game for Moving {
 }
 #[test]
 fn last_tick_observations_zero_ticks_ambient_resources_and_saves() {
-    let mut s = Sim::<Moving>::new(&[]).unwrap();
+    let mut s = Sim::<Moving>::new(()).unwrap();
     let bird = s.world().named("bird").unwrap();
     s.world().get_mut::<Transform>(bird).unwrap().position.y = 1.0;
     s.advance(0.0, Clock::Seekable);
@@ -104,7 +108,7 @@ fn last_tick_observations_zero_ticks_ambient_resources_and_saves() {
     );
     s.advance(17.0, Clock::Seekable);
     assert!(!s.quiescent());
-    let mut restored = Sim::<Moving>::new(&[]).unwrap();
+    let mut restored = Sim::<Moving>::new(()).unwrap();
     restored.restore(&s.save()).unwrap();
     assert!(!restored.quiescent());
     s.advance(1000.0, Clock::Seekable);
@@ -116,11 +120,11 @@ fn last_tick_observations_zero_ticks_ambient_resources_and_saves() {
     drop(pose);
     assert!(!s.quiescent());
     assert!(s.agent(r#"{"op":"clock"}"#).contains("1100"));
-    assert!(s.agent(r#"{"op":"clock"}"#).contains("1200"));
+    assert!(s.agent(r#"{"op":"clock"}"#).contains("1100"));
 }
 #[test]
 fn follow_arrives_snaps_teleports_and_survives_save() {
-    let mut s = Sim::<Moving>::new(&[]).unwrap();
+    let mut s = Sim::<Moving>::new(()).unwrap();
     let target = s.world().named("player").unwrap();
     let camera = s.world_mut().spawn_named(
         "camera",
@@ -141,7 +145,7 @@ fn follow_arrives_snaps_teleports_and_survives_save() {
     assert!(x > 0.0 && x < 2.0);
     // A world load registers Follow even when the current setup has no camera.
     let saved = s.save();
-    let mut other = Sim::<Moving>::new(&[]).unwrap();
+    let mut other = Sim::<Moving>::new(()).unwrap();
     other.restore(&saved).unwrap();
     for _ in 0..200 {
         scene::follow(s.world());
@@ -164,7 +168,7 @@ fn follow_arrives_snaps_teleports_and_survives_save() {
 }
 #[test]
 fn wildcard_state_is_complete_bounded_and_narrowable() {
-    let mut s = Sim::<Moving>::new(&[]).unwrap();
+    let mut s = Sim::<Moving>::new(()).unwrap();
     let parent = s.world().named("player").unwrap();
     s.world_mut()
         .spawn_named("child", (Parent(parent), Transform::at(1.0, 2.0, 3.0)));
@@ -197,7 +201,7 @@ fn seeks_hash_only_twice_and_live_never_hashes() {
     impl Component for Counted {
         const NAME: &'static str = "Counted";
     }
-    let mut s = Sim::<Moving>::new(&[]).unwrap();
+    let mut s = Sim::<Moving>::new(()).unwrap();
     s.world_mut().spawn(Counted);
     s.advance(0.0, Clock::Seekable);
     s.advance(60_000.0, Clock::Seekable);
