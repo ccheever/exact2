@@ -2907,3 +2907,55 @@ The next native experiment combines this change with shared and compacted
 layouts under the unchanged 1 MiB/4 MiB workloads, retained painted A and
 2.5 GiB address-space cap. The earlier 4 MiB novel-width SIGABRT remains a
 failure; reduced span capacity alone does not prove that concurrent A+B fits.
+
+### 8.39 Repeated browser key-reuse measurements, 2026-09-17
+
+Three fresh Before/After pairs pass in AB, BA, AB order on Apple M4 macOS ARM64
+with Chrome 153.0.8010.48. Both arms use ReusableMessagesStress and supply all
+10,000 windowed records, with 32 changed rows. The frozen 70668a3 composites
+share the plan, generated factory, assets and diagnostic stage hooks; After
+adds the Runner key-reuse change. Optimized Wasm identities are
+`f18b940a5b1700cf31668cacd1bf002e08e06255a691fb5fd781cee55ab8a90c`
+and `834d4993bb37fb821af4e213f3f2a04be17883ae1571646115277b11a1260bbe`.
+
+Each cell retains fixed two-second idle, loaded and recovery windows, ordinary
+clock progress, typing, wheel offers and viewport changes. Every pair has equal
+boundary revision progress and the required observed exports. Each loaded
+window contains eight key-bearing records whose entire parent call is inside
+the window; no key-bearing parent crosses its boundary.
+
+| Pair | Before parent median | After parent median | Before key median | After key median |
+| --- | ---: | ---: | ---: | ---: |
+| 1, AB | 14.20 ms | 3.55 ms | 8.85 ms | 0.15 ms |
+| 2, BA | 14.05 ms | 3.90 ms | 8.80 ms | 0.20 ms |
+| 3, AB | 14.35 ms | 4.05 ms | 8.90 ms | 0.20 ms |
+
+All 24 Before records evaluate 10,000 keys; all 24 After records evaluate 32.
+Each visits 109 nodes. Index replacement runs once per Before record and never
+in the selected After records: an absent call is not a measured zero-cost call.
+Quantized zero durations remain in the data. All Before parent calls exceed
+8.33 ms; the largest selected After parent is 4.70 ms. Parent time includes
+the stage intervals and surrounding work, so their totals must not be added.
+O(N) positional scanning, list copies and Value shape validation remain.
+
+Parent export mixes differ: advance/resize counts are 8/0 versus 7/1 in pair1,
+6/2 versus 6/2 in pair2, and 5/3 versus 8/0 in pair3. These repeated workload
+observations are not an identical per-export comparison or end-to-end latency.
+Observed export coverage excludes other JavaScript, DOM, painting and physical
+presentation. Generic scroll movement is present, but wheel causality remains
+unestablished under the retained oracle. The six cells do not prove 120 Hz.
+
+The original attempt stopped before After's scored windows because two clock
+calibration brackets were disjoint by 1.334 microseconds. That failure remains.
+A separately frozen correction uses conservative fixed 0.2 ms uncertainty per
+sample, derived from pinned Chromium clock quantization, with outward bounds
+and refusal of unknown browser versions. It changes no workload, export hook,
+cadence or product. Its behavioral failures and 18 passing checks are retained.
+The corrected cohort contains no retries or rebuilds, and all owned processes
+and listeners terminate.
+
+Exact raw cells and per-export/window records are linked from
+`target/collection-key-reuse-stage-706/clock-three-pairs-v1/`, manifest
+`0bcee4f96da032960b8dfce0c96a43ab485cf870a7278865128eb58bd63d73e9`.
+Native Messages measurements still use older d6 sources; fresh matched native
+builds are next. Shipped Messages factory defaults remain unchanged.
