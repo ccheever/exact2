@@ -3,7 +3,11 @@
 
 use contract::DataSource;
 
+#[path = "../factory.rs"]
+mod factory;
+
 fn main() {
+    let source_factory = factory::Source::selected();
     println!("cargo:rerun-if-changed=../app.contract");
     println!("cargo:rerun-if-changed=build.rs");
     let plan = match contract::compile_path(std::path::Path::new("../app.contract")) {
@@ -36,12 +40,9 @@ fn main() {
         out_dir.join("entry.rs"),
         format!(
             "{}\nfn main() {{ std::process::exit({host}::run::<AppData>(PLAN, COMPAT)); }}\n",
-            contract::rust_entry(
-                "messages_stress_data::MessagesStress",
-                "messages_stress_data::MessagesStress",
-                compat.inputs["rustMode"].as_str().unwrap()
-            )
-            .unwrap()
+            source_factory
+                .entry(compat.inputs["rustMode"].as_str().unwrap())
+                .unwrap()
         ),
     )
     .unwrap();

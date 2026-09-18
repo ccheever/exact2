@@ -4369,3 +4369,39 @@ speedup/120Hz result. Source and evidence are archived at
 `target/apple-region-shape-stages-validation/run-1/`:93 artifacts/5,283,884B,
 manifest `d559ff375d551200fb6449f69b58b795e8141b9f299b256f1cbb0c3fb0ae2d8e`,
 report `dd6137da3127cfd6e43f2b2f154bec24e66d60f36431fc6b91f4a9ac67b6d36e`.
+
+### 8.69 Messages runtime entries use immutable row reuse by default, 2026-09-18
+
+The Web, Apple and Linux Messages stress entries now select the already tested
+`ReusableMessagesStress`. The app-local build selector
+`EXACT_MESSAGES_SOURCE=reuse|stateless` preserves the original stateless control;
+unset selects reuse. Empty, unknown and non-Unicode values fail before Contract
+compilation or bake. Web dev consumes the same compile-selected factory and does
+not consult the selector at runtime. Switching a reused Web dist still requires
+rebuilding its Wasm with the same selector, as documented in the app README.
+
+The embedded default-page bake and grants remain stateless. Actual generated
+products in both modes have identical plan, compatibility and artifact records
+on each checked target/platform; only their runtime factory changes. The full
+10,000-row/32-change canonical values agree, with9,968 unchanged record owners
+shared by reuse and none shared by the control. Cardinalities, Contract, finite
+producer cadence, eager/windowed controls and Exact Live are unchanged. This
+activates the previously compared composition; it does not remove O(N) handle
+copying or positional traversal, add a worker, or establish a new timing gain.
+
+The final default data/Web suite passes35 unique tests with one existing opt-in
+timing ignore, including nine new tests. The stateless factory/dev repeat passes
+three tests separately. Actual old-default selection fails the new expectation;
+three old-script malformed-selector cases write plans, while all nine final
+platform/case combinations refuse before outputs. An earlier missing-Cargo-PATH
+setup failure remains separately recorded. The built dev executable also writes
+the same baked plan under an invalid runtime selector in each compiled mode.
+
+Both modes pass scoped all-targets Rust checks/strict Clippy and Web wasm32 checks.
+Apple/Linux entry checks here run on the Mac host; there is no new full native
+build, iOS/Linux OS run, GUI, performance comparison or physical120Hz claim.
+The exact nine app paths and143 artifacts/1,539,074B are archived at
+`target/messages-runtime-activation-validation/freeze-v1/`, source manifest
+`e2e7e6210ba92e13fb98c613bf2f6aeb9008f6a62df07259e091477791598636`,
+patch `6904f5dc8c8b53ce81a798b35c769d84b1cd712bd3a186e928af23e4f6a76725`,
+artifact manifest `28647b960fe3081c9540054476c6563b6de071bb811f4f8b7943c29ae12ea22d`.

@@ -27,6 +27,25 @@ host/web/dev.mjs --app messages-stress --port 8771 --loopback` instead.
 The ordinary native wrapper is available with
 `bun host/apple/build.mjs messages-stress-apple --run` (or `--ios --run`).
 
+All three runtime entries default to `ReusableMessagesStress`. The app-local
+build selector `EXACT_MESSAGES_SOURCE=reuse|stateless` selects that source or
+the original stateless control; unset means `reuse`. Empty, unknown and
+non-Unicode values fail before Contract compilation or bake. For example:
+
+```sh
+EXACT_MESSAGES_SOURCE=stateless EXACT_WEB_DIST=target/messages-control bun host/web/build.mjs messages-stress-web
+EXACT_MESSAGES_SOURCE=reuse EXACT_WEB_DIST=target/messages-reuse bun host/web/build.mjs messages-stress-web
+```
+
+Cargo tracks this selector, and Web dev includes the same generated factory as
+its Wasm. Set the selector when building or starting the dev command; changing
+the environment of an already built executable does not change its source.
+When switching modes for Web dev, first rebuild its Wasm with the same selector
+and output directory; the existing dev launcher can reuse a previously built dist.
+The embedded default-page bake and compatibility grants always use the
+stateless source. Both runtime choices produce identical canonical values;
+the Contract, cardinalities, batches and producer cadence are unchanged.
+
 ## What to try
 
 1. Type in the composer and check the exact live text below it. `stress-input`
@@ -70,22 +89,23 @@ keys stay stable across streaming revisions and history sizes.
 - UTF-8 body bytes: a sum of returned message bodies, not heap/RSS, record
   metadata, DOM cost, or decoded images. There are no image attachments.
 
-The default source reconstructs its supplied list synchronously on each revision.
-Eager data and UI are O(N); windowing bounds UI lifetime, not record generation
-or key validation after a changed list. There is no worker placement or
+Both sources answer synchronously. The stateless control reconstructs its
+supplied list on each revision; the default reuses immutable rows as described
+below. Eager data and UI remain O(N); windowing bounds UI lifetime, not the
+complete input list or its positional scan. There is no worker placement or
 preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
 
-The data crate also exports opt-in `ReusableMessagesStress` for comparing
-allocation costs. It keeps one latest immutable result and reuses unchanged row
+The default `ReusableMessagesStress` keeps one latest immutable result and reuses unchanged row
 records: a 10,000-row update changing 32 bodies retains the other 9,968 records.
 It uses the original generator for a temporary 100-row tail page, copies O(N)
 row handles, and still incurs fresh-answer validation and positional scanning.
 The Runner reuses keys for unchanged immutable records: the tested 10,000-row,
 32-change update evaluates 32 keys, while the stateless control evaluates all
-10,000. This stress app's shipped entries and bake still use that control;
-Exact Live opts into row reuse.
+10,000. `MessagesStress` remains exported for explicit pathological comparisons
+and all embedded bakes. Exact Live already uses row reuse independently of this
+stress app's selector.
 
 Three native comparison pairs observed lower loaded advance/decode medians
 with row reuse. Timer tails still exceed 8.33 ms, resize and input results are
@@ -124,10 +144,15 @@ bounded mounted rows, an active offscreen row retained until release, exact
 typing, reply identity and the preserved eager/manual controls.
 `data/tests/reuse.rs` compares complete canonical values and bytes with the
 stateless source, checks immutable sharing and last-owner release, and runs the
-real Contract through typing, width changes and ticks. The integrated data suite
-has 26 passing tests and one ignored opt-in timing test; strict all-targets
-Clippy passes. The original source produces nine behavioral failures in the
+real Contract through typing, width changes and ticks. The original reuse
+checkpoint had 26 passing data tests and one ignored opt-in timing test, with
+strict all-targets Clippy passing. The original source produces nine behavioral failures in the
 13-test reuse suite, retained under `target/messages-row-reuse-validation/`.
+`data/tests/factory.rs` checks strict build selection; `web/tests/factory.rs`
+checks actual generated factories and full 10,000-row/32-change canonical
+values and sharing in both modes, including the factory consumed by Web dev.
+Historical comparisons below retain their original factories and dates; this
+activation does not establish a whole-frame or physical 120 Hz result.
 
 The final browser drive (`target/messages-windowed-web-final/`) passes five
 endpoint round trips from 10,000 supplied records, exact typing, a streaming

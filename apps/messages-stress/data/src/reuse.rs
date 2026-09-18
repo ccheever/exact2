@@ -1,4 +1,4 @@
-//! Explicit synchronous allocation discriminator; native entries do not select it.
+//! Default synchronous runtime source; the stateless generator remains the control.
 //! Keep one latest immutable result, not a cache of revisions or visited pages.
 
 use std::rc::Rc;
@@ -12,12 +12,12 @@ use crate::{
     MessagesStress,
 };
 
-/// Opt-in source with exactly the stateless control's history values.
+/// Runtime source with exactly the stateless control's history values.
 ///
 /// Cold/range/count replacement uses the original generator. Same-range updates
 /// copy O(N) row handles and replace only changed records. Fresh answer shape,
 /// key/index reconciliation and layout remain Runner work; this is not O(batch)
-/// total work or a native runtime activation.
+/// total work or a frame-time guarantee.
 #[derive(Default)]
 pub struct ReusableMessagesStress {
     control: MessagesStress,
