@@ -38,9 +38,14 @@ function lowerBound(rows:StoredMessage[],order:number) {
   while(low<high){const mid=Math.floor((low+high)/2);if(rows[mid].order<order)low=mid+1;else high=mid;}
   return low;
 }
+const compareMessages=(a:StoredMessage,b:StoredMessage)=>a.order-b.order || (a.id<b.id?-1:a.id>b.id?1:0);
 function insertSorted(rows:StoredMessage[],row:StoredMessage) {
-  if(!rows.length || rows[rows.length-1].order<=row.order)rows.push(row);
-  else rows.splice(lowerBound(rows,row.order),0,row);
+  if(!rows.length || compareMessages(rows[rows.length-1],row)<0)rows.push(row);
+  else {
+    let low=0,high=rows.length;
+    while(low<high){const mid=Math.floor((low+high)/2);if(compareMessages(rows[mid],row)<0)low=mid+1;else high=mid;}
+    rows.splice(low,0,row);
+  }
 }
 // All membership changes pass through these helpers. The durable rows retain
 // exactly their old shape; these indexes are rebuilt, never persisted.
@@ -53,9 +58,9 @@ function insertMessage(id:string,row:StoredMessage) {
   insertSorted(replies,row);index.replies.set(row.replyRoot,replies);
   if(row.id!==row.replyRoot)index.replyCounts.set(row.replyRoot,(index.replyCounts.get(row.replyRoot)||0)+1);
   if(row.outgoing){
-    if(!index.lastOutgoing || index.lastOutgoing.order<=row.order)index.lastOutgoing=row;
+    if(!index.lastOutgoing || compareMessages(index.lastOutgoing,row)<0)index.lastOutgoing=row;
     const previous=index.replyOutgoing.get(row.replyRoot);
-    if(!previous || previous.order<=row.order)index.replyOutgoing.set(row.replyRoot,row);
+    if(!previous || compareMessages(previous,row)<0)index.replyOutgoing.set(row.replyRoot,row);
   }
 }
 function replaceThread(id:string,rows:StoredMessage[]) {
@@ -203,7 +208,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const index=indexes.get(person.id)||emptyIndex();
   if(cursor!=='' && (!/^[0-9]+$/.test(cursor) || !Number.isSafeInteger(Number(cursor))))throw new Error('Invalid conversation cursor');
   const anchor=cursor===''?rows.length-1:Math.min(lowerBound(rows,Number(cursor)),rows.length-1);
-  const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,Math.min(anchor-windowSize/2,rows.length-windowSize));
+  const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,anchor-windowSize/2);
   const end=Math.min(rows.length,start+windowSize);
   const selectedRows=[...new Set(selection.split('|'))].flatMap(id=>{const row=index.byId.get(id);return row?[row]:[];});
   const selected=new Set(selectedRows.map(m=>m.id));
@@ -230,7 +235,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const messages=decorate(rows.slice(start,end),rows[start-1],rows[end],index.lastOutgoing);
   const activity=pending.get(person.id);
   const typing=!!activity && ticks>=activity.start;
-  return {selectedText:selectedRows.sort((a,b)=>a.order-b.order).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
+  return {selectedText:selectedRows.sort(compareMessages).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
     typingAvatar:typing && groups.has(person.id)?responder(person.id)!.initials:'',typingRoot:typing?activity!.reply:'',
     id:person.id,name:person.name,initials:person.initials,color:person.color,reactions,
     muted:muted.has(person.id),blocked:blocked.has(person.id),knownContact:!person.id.startsWith('address:') || localContacts.has(person.id),
@@ -417,7 +422,7 @@ function restore(records:Records):void {
     if(row.muted)muted.add(id);if(row.blocked)blocked.add(id);if(row.deleted)deleted.add(id);
     if(row.draft)drafts.set(id,row.draft);if(row.group)groups.set(id,row.group);if(row.contact)localContacts.set(id,row.contact);
   }
-  for(const row of messages.sort((a,b)=>a.message.order-b.message.order || a.message.id.localeCompare(b.message.id))){
+  for(const row of messages.sort((a,b)=>compareMessages(a.message,b.message))){
     if(row.expires!==null){const rows=recoverable.get(row.conversation)||[];rows.push({message:row.message,expires:row.expires});recoverable.set(row.conversation,rows);}
     else insertMessage(row.conversation,row.message);
     messageOrder=Math.max(messageOrder,row.message.order+1);

@@ -11,7 +11,8 @@ Conversation answers contain at most 200 messages, centered on an order cursor
 (empty means latest). Long histories show explicit **Show earlier messages** /
 **Show later messages** rows and **Show latest messages**. Each shift starts at
 the top of its new window; latest and sending return to the end. History does
-not follow arrivals. The eager transcript retains up to 200 mounted messages,
+not follow arrivals: non-empty cursors keep their start as arrivals append,
+even in a partial window near the tail. The eager transcript retains up to 200 mounted messages,
 without preserving position across shifts; its scrollbar spans that window.
 Short fixture threads keep their existing presentation. The scroll policy passes
 on web; the headless Linux drive still ignores the authored end request

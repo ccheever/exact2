@@ -4,7 +4,11 @@ use exact_js_value::{to_json, Shape};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Event, Runner, Store};
 use serde_json::Value as Json;
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 const K: usize = 200;
 
@@ -16,10 +20,16 @@ struct Model {
 }
 impl Model {
     fn new() -> Self {
+        Self::with_module(Module::new(
+            super::BYTECODE.to_vec(),
+            super::APP,
+            super::GRANTS,
+        ))
+    }
+    fn with_module(mut module: Module) -> Self {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
-        // Wall time is diagnostic here, not a gate on a shared machine. Keep
-        // the production executor budget unchanged outside this test harness.
+        // Compare warm answer minima separately from the production per-call
+        // deadline, which is not a stable gate on a shared test machine.
         module.set_budget_ms(f64::INFINITY);
         module.bind(&plan);
         module.activate().unwrap();
@@ -42,7 +52,7 @@ impl Model {
     }
     fn try_call(&mut self, name: &str, args: Vec<Value>) -> Result<Json, DataError> {
         let Answer::Now(value) = self.module.answer(&mut self.store, name, &args)? else {
-            panic!("{name} requested external work in the no-storage host");
+            panic!("{name} requested external work");
         };
         Ok(to_json(&value, &self.shapes[name]).unwrap())
     }
@@ -164,7 +174,10 @@ fn traverse(model: &mut Model, id: &str, n: usize) -> HashMap<String, Json> {
         steps += 1;
         assert!(steps < n);
     }
-    assert_eq!(rows(&current), rows(&tail));
+    assert_eq!(
+        rows(&current),
+        &rows(&tail)[rows(&tail).len() - rows(&current).len()..]
+    );
     assert_eq!(seen.len(), n);
     seen
 }
@@ -224,49 +237,60 @@ fn bounded_bytecode_answers_round_trip_and_keep_decoration_at_25_1000_25000() {
             .unwrap()
             .iter()
             .all(|r| r["replyRoot"] == "weekend-1"));
-        if n >= 1_000 {
-            // Diagnostic only: the same process, module, source and 200 rows.
-            // Measure answer/typed crossing separately from Rust JSON rendering.
-            // Module exposes no VM allocation/instruction counter. These host
-            // observations cannot detect decorating every row before slicing:
-            // in-memory row visits do not cross the Store/request/log seams.
-            model.module.take_logs();
-            let reads = model.store.reads();
-            let overruns = model.module.overruns();
-            let mut timings = Vec::new();
-            let mut bytes = 0;
-            for _ in 0..9 {
-                let began = Instant::now();
-                let Answer::Now(value) = model
-                    .module
-                    .answer(
-                        &mut model.store,
-                        "conversation",
-                        &chat_args("weekend", "", "", ""),
-                    )
-                    .unwrap()
-                else {
-                    panic!("unexpected async answer");
-                };
-                timings.push(began.elapsed());
-                let json = to_json(&value, &model.shapes["conversation"]).unwrap();
-                assert_eq!(rows(&json).len(), K);
-                bytes = serde_json::to_vec(&json).unwrap().len();
-            }
-            timings.sort();
-            eprintln!(
-                "conversation N={n}: answer median={:?}, JSON bytes={bytes}, rows={K}",
-                timings[4]
-            );
-            eprintln!(
-                "host observations N={n}, 9 answers: reads={}, overruns={}, in_flight={}, logs={}",
-                model.store.reads() - reads,
-                model.module.overruns() - overruns,
-                model.module.in_flight(),
-                model.module.take_logs().len()
-            );
-        }
     }
+}
+
+fn timed_answer(model: &mut Model) -> (Duration, usize) {
+    let args = chat_args("weekend", "", "", "");
+    let began = Instant::now();
+    let Answer::Now(value) = model
+        .module
+        .answer(&mut model.store, "conversation", &args)
+        .unwrap()
+    else {
+        panic!("unexpected async answer");
+    };
+    let elapsed = began.elapsed();
+    let json = to_json(&value, &model.shapes["conversation"]).unwrap();
+    assert_eq!(rows(&json).len(), K);
+    (elapsed, serde_json::to_vec(&json).unwrap().len())
+}
+
+#[test]
+fn answer_work_stays_bounded_at_1000_and_25000() {
+    let mut small = Model::new();
+    let mut large = Model::new();
+    small.grow("weekend", 5, 1_000);
+    large.grow("weekend", 5, 25_000);
+    // Warm both live engines, then interleave to expose each to the same load.
+    // Measure the typed crossing; JSON rendering is outside the timed region.
+    for _ in 0..3 {
+        timed_answer(&mut small);
+        timed_answer(&mut large);
+    }
+    let mut small_times = Vec::new();
+    let mut large_times = Vec::new();
+    let (mut small_bytes, mut large_bytes) = (0, 0);
+    for _ in 0..9 {
+        let (elapsed, bytes) = timed_answer(&mut small);
+        small_times.push(elapsed);
+        small_bytes = bytes;
+        let (elapsed, bytes) = timed_answer(&mut large);
+        large_times.push(elapsed);
+        large_bytes = bytes;
+    }
+    let small_min = *small_times.iter().min().unwrap();
+    let large_min = *large_times.iter().min().unwrap();
+    eprintln!("conversation N=1000: minimum={small_min:?}, JSON bytes={small_bytes}, samples={small_times:?}");
+    eprintln!("conversation N=25000: minimum={large_min:?}, JSON bytes={large_bytes}, samples={large_times:?}");
+    eprintln!(
+        "warm answer minimum ratio 25000/1000: {:.3}",
+        large_min.as_secs_f64() / small_min.as_secs_f64()
+    );
+    assert!(
+        large_min < small_min * 3,
+        "answer work grew with the thread: {large_min:?} >= 3 * {small_min:?}"
+    );
 }
 
 #[test]
@@ -284,7 +308,7 @@ fn deleted_cursors_selection_recovery_and_reply_indexes_use_surviving_rows() {
     assert!(!rows(&resolved).iter().any(|m| m["id"] == deleted));
     assert_eq!(
         rows(&model.chat("weekend", "9007199254740991", "", "")),
-        rows(&tail)
+        &rows(&tail)[K - (K / 2 + 1)..]
     );
     for invalid in [
         "bad",
@@ -399,20 +423,32 @@ fn contract_shifts_keep_history_and_send_open_and_links_reset_to_latest() {
     runner
         .act("shiftWindow", vec![Value::str(text(&tail, "earlier"))])
         .unwrap();
+    assert_eq!(runner_chat(&runner)["hasLater"], true);
+    // Return toward the tail without choosing latest. This partial window
+    // must append the pending arrival, never drop a row from its beginning.
+    for _ in 0..2 {
+        let current = runner_chat(&runner);
+        runner
+            .act("shiftWindow", vec![Value::str(text(&current, "later"))])
+            .unwrap();
+    }
     let history = runner_chat(&runner);
-    assert_eq!(history["hasLater"], true);
-    assert!(rows(&history).len() <= K);
-    assert_ne!(runner.slot("cursor"), Some(&Value::str("")));
+    assert_eq!(history["hasLater"], false);
+    assert!(rows(&history).len() < K);
+    let cursor = runner.slot("cursor").unwrap().clone();
+    assert_ne!(cursor, Value::str(""));
     for _ in 0..20 {
         runner.act("tick", vec![]).unwrap();
     }
-    assert_eq!(runner_chat(&runner)["earlier"], history["earlier"]);
-    assert_eq!(runner_chat(&runner)["later"], history["later"]);
+    let arrived = runner_chat(&runner);
+    assert_eq!(arrived["earlier"], history["earlier"]);
+    assert_eq!(rows(&arrived).len(), rows(&history).len() + 1);
+    for (position, previous) in rows(&history).iter().enumerate() {
+        assert_eq!(rows(&arrived)[position]["id"], previous["id"]);
+    }
+    assert!(text(rows(&arrived).last().unwrap(), "id").starts_with("received-"));
     assert_eq!(runner.derive("pendingReplies"), Some(&Value::Bool(false)));
-    assert_eq!(
-        runner.slot("cursor"),
-        Some(&Value::str(text(&tail, "earlier")))
-    );
+    assert_eq!(runner.slot("cursor"), Some(&cursor));
     runner
         .act("write", vec![Value::str("Sent while reading history")])
         .unwrap();
@@ -455,4 +491,129 @@ fn contract_shifts_keep_history_and_send_open_and_links_reset_to_latest() {
         .unwrap();
     assert_eq!(runner.slot("cursor"), Some(&Value::str("")));
     assert_eq!(runner_chat(&runner)["id"], "maya");
+}
+
+#[test]
+fn equal_orders_survive_restore_delete_recover_with_consistent_reply_receipts() {
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fn open(root: &Directory) -> Model {
+        let mut module = super::native::module(super::BYTECODE, super::APP, super::GRANTS);
+        module
+            .configure_storage(
+                root.0.join("data"),
+                root.0.join("cache"),
+                root.0.join("tmp"),
+            )
+            .unwrap();
+        Model::with_module(module)
+    }
+    fn inspect(model: &mut Model, expected: &[&str]) {
+        let chat = model.chat("maya", "", "m9", "tie-z|tie-a");
+        let tied = |rows: &[Json]| {
+            rows.iter()
+                .filter_map(|row| {
+                    let id = text(row, "id");
+                    matches!(id, "tie-a" | "tie-z").then_some(id.to_owned())
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(tied(rows(&chat)), expected);
+        assert_eq!(tied(chat["replies"].as_array().unwrap()), expected);
+        let last = *expected.last().unwrap();
+        for transcript in [rows(&chat), chat["replies"].as_array().unwrap()] {
+            let receipts: Vec<_> = transcript.iter().filter(|m| m["delivery"] != "").collect();
+            assert_eq!(receipts.len(), 1);
+            assert_eq!(receipts[0]["id"], last);
+            assert_eq!(receipts[0]["delivery"], "Delivered");
+        }
+        let bodies: Vec<_> = expected.iter().map(|id| format!("Body {id}")).collect();
+        assert_eq!(chat["selectedText"], bodies.join("\n"));
+        assert_eq!(
+            chat["selectionCount"].as_f64().unwrap(),
+            expected.len() as f64
+        );
+        assert_eq!(rows(&chat).last().unwrap()["id"], "later-incoming");
+    }
+    let root = Directory(
+        std::env::temp_dir().join(format!("messages-window-order-{}", std::process::id())),
+    );
+    std::fs::create_dir(&root.0).unwrap();
+    let mut model = open(&root);
+    model.chat("maya", "", "", "");
+    drop(model);
+    // Write offline-device-shaped records through the real native replica,
+    // then reopen the shipped bytecode so its normal restore builds indexes.
+    let mut core = exact_snapback4::Module::new(super::APP, super::GRANTS).unwrap();
+    core.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("tmp"),
+    )
+    .unwrap();
+    let path = super::GRANTS
+        .lines()
+        .find_map(|line| line.strip_prefix("sqlite.open "))
+        .unwrap();
+    core.call(&serde_json::json!({"op":"open", "path":path,
+        "origin":"http://127.0.0.1:4400", "viewer":"dev:alice"}))
+        .unwrap();
+    let stored = core
+        .call(&serde_json::json!({"op":"query", "name":"records",
+        "viewer":"dev:alice", "args":{"c":null}, "now":0}))
+        .unwrap();
+    let template = stored["ok"]["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["payload"]["kind"] == "message" && row["payload"]["conversation"] == "maya")
+        .unwrap()["payload"]
+        .clone();
+    let ids = ["tie-z", "later-incoming", "tie-a"];
+    let payloads: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            let mut row = template.clone();
+            let outgoing = *id != "later-incoming";
+            row["message"]["id"] = (*id).into();
+            row["message"]["body"] = format!("Body {id}").into();
+            row["message"]["order"] = if outgoing { 200 } else { 201 }.into();
+            row["message"]["outgoing"] = outgoing.into();
+            row["message"]["sender"] = if outgoing { "me" } else { "maya" }.into();
+            row["message"]["delivery"] = if outgoing { "Delivered" } else { "" }.into();
+            row["message"]["replyRoot"] = if outgoing { "m9" } else { id }.into();
+            row["expires"] = Json::Null;
+            row
+        })
+        .collect();
+    let result = core
+        .call(&serde_json::json!({"op":"predict", "name":"putRecords",
+        "viewer":"dev:alice", "now":0, "newIds":[], "entropy":1,
+        "args":{
+            "recordIds":ids.map(|id| format!("dev:alice:message%3Amaya%3A{id}")),
+            "keys":ids.map(|id| format!("message:maya:{id}")),
+            "payloads":payloads
+        }}))
+        .unwrap();
+    assert!(result.get("denied").is_none(), "{result}");
+    assert!(result["ok"].get("denied").is_none(), "{result}");
+    drop(core);
+    let mut model = open(&root);
+    inspect(&mut model, &["tie-a", "tie-z"]);
+    // Recover the earlier tie after its sibling: the main thread inserts it
+    // before that sibling, and the root index and receipt must agree.
+    model.delete("maya", "tie-a");
+    inspect(&mut model, &["tie-z"]);
+    model.recover("maya");
+    inspect(&mut model, &["tie-a", "tie-z"]);
+    model.delete("maya", "tie-z");
+    inspect(&mut model, &["tie-a"]);
+    model.recover("maya");
+    inspect(&mut model, &["tie-a", "tie-z"]);
+    drop(model);
+    inspect(&mut open(&root), &["tie-a", "tie-z"]);
 }
