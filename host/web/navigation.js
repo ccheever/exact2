@@ -246,6 +246,12 @@ export function collectionBytes(facts) {
   return bytes;
 }
 
+// Apply committed geometry before interpreting the collection call's outcome.
+export function applyCollectionFeedback(batch, applyBatch) {
+  applyBatch(batch);
+  return batch.accepted === true;
+}
+
 export function collectionController({ root, views, report,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id) }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
@@ -307,7 +313,7 @@ export function collectionController({ root, views, report,
   function flush(beforePaint = false) {
     if (!beforePaint) { frame = null; reportsLeft = 4; }
     // One queued frame, at most four reports/frame and two dependent passes
-    // per external stimulus. Retire session pins before acquiring replacements,
+    // per external stimulus or new measurement epoch. Retire pins before replacements,
     // including when focus/interaction swap owners in the same turn.
     const attempted = new Set();
     for (let pass = 0; pass < 4 && reportsLeft > 0; pass++) {
@@ -353,8 +359,9 @@ export function collectionController({ root, views, report,
       delivering = true;
       let accepted;
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
-      // The synchronous Rust call consumes the current revision/epochs. An
-      // error must retain the old reservation, blocking replacement pins.
+      // The synchronous Rust call consumes the current revision/epochs. A
+      // rejected report retains the reservation; an edge-action refusal after
+      // accepted geometry must release it, despite the surfaced action error.
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
         if (releases.includes(s)) for (const held of waiting) enqueue(held);
@@ -434,6 +441,11 @@ export function collectionController({ root, views, report,
           port.addEventListener('scroll', s.scrolled, { passive: true });
           states.set(snapshot.view, s);
         }
+        // A new wrapper/epoch is new measurement work, including membership
+        // committed by an edge action during delivery. Give it a bounded pass
+        // on the next callback; revision/height-only refinements keep their cap.
+        const epochs = new Map(s.rows.map(row => [row.view, row.epoch]));
+        const freshRows = snapshot.rows.some(row => epochs.get(row.view) !== row.epoch);
         s.snapshot = snapshot;
         s.sequence = s.sequence > BigInt(snapshot.scrollSequence) ? s.sequence : BigInt(snapshot.scrollSequence);
         for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
@@ -456,9 +468,14 @@ export function collectionController({ root, views, report,
           s.scrollTop = port.scrollTop; // consume the programmatic scroll echo
         }
         observe(s);
-        enqueue(s, !delivering);
+        enqueue(s, !delivering || freshRows);
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
+    },
+    dataReady() {
+      // A refused pre-activation action stays armed. Retry unchanged geometry
+      // once after activation, retaining pin reservations until acceptance.
+      for (const s of states.values()) { s.signature = null; enqueue(s, true); }
     },
     reset() {
       for (const s of states.values()) detach(s);

@@ -106,6 +106,9 @@ impl<D: DataSource> Runner<D> {
                         receipt,
                     }),
                     Err(error) => {
+                        if let Some(tree) = self.tree.as_mut() {
+                            tree.rearm_collection_edge(view, event);
+                        }
                         result.error = Some(error);
                         break;
                     }

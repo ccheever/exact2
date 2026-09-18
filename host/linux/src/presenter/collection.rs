@@ -50,6 +50,13 @@ impl State {
     pub(super) fn pending(&self) -> bool {
         !self.queue.is_empty()
     }
+    pub(super) fn data_ready(&mut self) {
+        // Activation is one stimulus for edges refused before the executor was
+        // ready, including collections whose geometry and rows did not change.
+        for cursor in self.cursors.values_mut() {
+            cursor.sent = None;
+        }
+    }
     pub(super) fn advance_all(&mut self) {
         for cursor in self.cursors.values_mut() {
             cursor.advance();

@@ -608,7 +608,7 @@ list handlers dispatched by the runner after accepted host geometry commits.
 They qualify only on nonempty virtualized collections whose geometric window
 (scrollport plus one viewport of overscan) contains the first/last supplied row;
 bootstrap rows and pins alone never qualify. Each edge starts armed, disarms on
-dispatch (including a refused action), and re-arms when its endpoint leaves that
+successful dispatch, and re-arms when its endpoint leaves that
 window or its supplied key changes. Each edge fires at most once per feedback
 call. When both qualify, `reachstart` runs first; after it succeeds, `reachend`
 runs in the same call only if the collection's keyed membership is unchanged.
@@ -618,7 +618,12 @@ The ordinary action transaction runs after feedback; committed receipts survive 
 refusal and reach hosts alongside its error. Hosts attach no edge listeners.
 Offset-only feedback without a qualifying handler still performs no source query
 or key evaluation. Messages stress now also exercises bounded 200-record answers;
-its scrollbar spans the resident window, not the complete history.
+its scrollbar spans the resident window, not the complete history. A refused
+handler stays armed for the next accepted feedback call; hosts request one new
+report after deferred data activation. New row measurement epochs replenish the
+web controller's bounded callback allowance, so membership shifts can continue
+without another scroll. Geometry acceptance is independent of a later edge-action
+error, including when recording pin releases.
 
 ### 6.6 Paired runner evidence, 2026-09-16
 

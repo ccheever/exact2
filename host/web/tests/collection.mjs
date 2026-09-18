@@ -104,7 +104,21 @@ try {
   await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
   await until('globalThis.exact?.root?.dataset.moduleReady === "true"');
   if (!gallery) await until('collectionSmoke.calls >= 1');
-  if (gallery) {
+  if (process.env.EXACT_COLLECTION_EDGES === '1') {
+    await until(`document.querySelector('[data-testid="steps"]').textContent === '6'
+      && document.querySelector('[data-testid="ends"]').textContent === '1'
+      && collectionSmoke.snapshots[0].rows.every(r=>r.measured)`);
+    const result = await evaluate(`(() => {const p=document.querySelector('[data-testid="list"]');
+      return {feedbackCalls:collectionSmoke.calls,maxRows:collectionSmoke.maxRows,
+        scrollable:p.scrollHeight>p.clientHeight,steps:+document.querySelector('[data-testid="steps"]').textContent,
+        ends:+document.querySelector('[data-testid="ends"]').textContent};})()`);
+    assert.equal(result.scrollable,false); assert.equal(result.maxRows,2);
+    assert(result.feedbackCalls>=7 && result.feedbackCalls<=12,JSON.stringify(result));
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await evaluate('collectionSmoke.calls'),result.feedbackCalls,'settled edges become idle');
+    writeFileSync(dir+'/result.json',JSON.stringify(result,null,2));
+    console.log(JSON.stringify({passed:true,...result}));
+  } else if (gallery) {
     await evaluate(`document.querySelector('[data-testid="count-25000"]').click(); document.querySelector('[data-testid="mode-sheet"]').click()`);
     await until('collectionSmoke.snapshots.some(s=>s.count===25000)');
     await resizeCoverage(call, evaluate, until, cdp, sessionId, true);
@@ -139,7 +153,12 @@ try {
   await evaluate(`const list=document.querySelector('[data-testid="list"]'); list.scrollTop=list.scrollHeight`);
   await until('collectionSmoke.snapshots[0]?.rows.some(r => r.index === 999)');
   await until('collectionSmoke.snapshots[0]?.rows.every(r => r.measured)');
+  // Confirmed heights can still leave a geometry callback queued (for example
+  // an anchor acknowledgement). Drain the bounded callbacks before asserting idle.
+  const measured = await evaluate('({calls:collectionSmoke.calls,correction:collectionSmoke.snapshots[0].correction})');
+  await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const end = await evaluate('collectionSmoke.calls');
+  console.log(JSON.stringify({measured,settledFeedbackCalls:end}));
   await new Promise(r => setTimeout(r, 150));
   assert.equal(await evaluate('collectionSmoke.calls'), end, 'settled geometry must become idle');
   await evaluate(`document.querySelector('[data-testid="hide"]').click()`);

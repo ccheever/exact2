@@ -8,11 +8,14 @@ impl exact_runner::DataSource for NoData {
     fn query(
         &mut self,
         source: &str,
-        _: &[exact_runner::Value],
+        args: &[exact_runner::Value],
     ) -> Result<exact_runner::Value, exact_runner::DataError> {
         if source == "rows" {
             Ok(exact_runner::Value::list(
-                (0..1_000)
+                (0..args
+                    .first()
+                    .and_then(exact_runner::Value::as_number)
+                    .unwrap_or(1000.) as usize)
                     .map(|i| {
                         exact_runner::Value::record(vec![exact_runner::Value::Number(i as f64)])
                     })
@@ -115,6 +118,7 @@ fn stale_and_malformed_feedback_do_not_emit_mutations_or_advance_the_clock() {
     assert!(stale.contains("\"ops\":[]"), "{stale}");
     let bad = host.collection_feedback(&bytes[..bytes.len() - 1]);
     assert!(bad.contains("malformed collection feedback"), "{bad}");
+    assert!(!bad.contains("\"accepted\":true"), "{bad}");
     assert!(bad.contains("\"ops\":[]"), "{bad}");
     assert_eq!(host.runner().collections(), before);
     assert_eq!(host.runner().now_ms(), 0.0);
@@ -198,6 +202,7 @@ component App
             }
         }
         assert!(batch.contains("\"op\":\"collections\""));
+        assert!(batch.contains("\"accepted\":true"), "{batch}");
         assert_eq!(batch.contains("edge refused"), refuse);
         assert_eq!(
             host.runner().slot("reached"),
@@ -211,7 +216,8 @@ component App
         repeat.scroll_sequence = 2;
         repeat.scroll_top = feedback.scroll_top;
         let batch = host.collection_feedback(&repeat.encode().unwrap());
-        assert!(batch.contains("\"error\":null"), "{batch}");
+        assert_eq!(batch.contains("edge refused"), refuse, "{batch}");
+        assert!(batch.contains("\"accepted\":true"), "{batch}");
     }
 }
 
@@ -229,6 +235,51 @@ fn real_browser_collection_feedback_and_navigation() {
     let output = Command::new("bun")
         .arg("host/web/tests/collection.mjs")
         .env("EXACT_COLLECTION_TEST", &dir)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
+fn real_browser_edge_membership_progresses_without_scroll() {
+    use std::{path::Path, process::Command};
+    let source = r#"shape Row
+  index: number
+component App
+  state first = 0
+  state ended = 0
+  resource rows = rows(2) as shape list<Row>
+  action start writes first
+    if first < 6
+      first = first + 1
+  action end writes ended
+    ended = ended + 1
+  view
+    column
+      text `${first}` testId="steps"
+      text `${ended}` testId="ends"
+      list virtualized=true height=180 width=320 reachstart=start reachend=end testId="list"
+        each x in rows key=x.index + first * 2
+          text `${x.index + first * 2}` height=1
+"#;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = std::env::temp_dir().join(format!("exact-collection-edges-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let baked = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
+    let output = Command::new("bun")
+        .arg("host/web/tests/collection.mjs")
+        .env("EXACT_COLLECTION_TEST", &dir)
+        .env("EXACT_COLLECTION_EDGES", "1")
         .current_dir(root)
         .output()
         .unwrap();

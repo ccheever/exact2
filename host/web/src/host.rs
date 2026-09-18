@@ -403,7 +403,9 @@ impl<D: DataSource> Host<D> {
                     timed.at_ms = self.now_ms;
                 }
                 let error = result.error.map(|e| format!("collection: {e:?}"));
-                self.batch_for(&result.receipts, error.as_deref())
+                let mut batch = Batch::new();
+                batch.accept_collection();
+                self.batch_from(batch, &result.receipts, error.as_deref())
             }
             Err(error) => Batch::new().finish(
                 self.runner.has_timers(),

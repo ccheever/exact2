@@ -122,6 +122,18 @@ impl Tree {
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
+    /// A refused action did not consume its edge. Retry only on later accepted
+    /// host feedback, never by redispatching inside the current call.
+    pub(crate) fn rearm_collection_edge(&mut self, view: ViewId, event: EventKind) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            let index = match event {
+                EventKind::Reachstart => 0,
+                EventKind::Reachend => 1,
+                _ => unreachable!("collection edge"),
+            };
+            collection.edge_armed[index] = true;
+        }
+    }
     /// Consume the second candidate only if the first action left this exact
     /// keyed membership alive. No query, key evaluation or new edge discovery.
     pub(crate) fn take_collection_end(&mut self, view: ViewId, membership: &Rc<()>) -> bool {

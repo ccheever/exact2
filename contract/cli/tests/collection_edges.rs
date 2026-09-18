@@ -6,10 +6,19 @@ use exact_runner::{Advanced, CollectionFeedback, DataError, DataSource, Runner};
 #[derive(Default)]
 struct Rows {
     queries: usize,
+    deferred: bool,
 }
 impl DataSource for Rows {
+    fn ready(&self) -> bool {
+        !self.deferred
+    }
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         self.queries += 1;
+        if self.deferred {
+            return Err(DataError::BadArguments(
+                "data executor not activated".into(),
+            ));
+        }
         let [Value::Number(start), Value::Number(count), Value::Number(revision), Value::Bool(refused)] =
             args
         else {
@@ -337,9 +346,75 @@ fn refused_edge_action_returns_committed_feedback_and_rolls_back_action_only() {
     assert_eq!(hits(&r), (0., 0.));
     assert_eq!(r.slot("refused"), Some(&Value::Bool(false)));
     assert!(!r.is_poisoned());
-    // The attempted edge is disarmed even when the action refuses.
-    send(&mut r, 0.);
+    // Each later host report retries once; a refusal never loops in one call.
+    for _ in 0..3 {
+        let queries = r.data_ref().queries;
+        let result = r.collection_feedback(facts(&r, 0.)).unwrap();
+        assert!(result.error.is_some());
+        assert_eq!(r.data_ref().queries, queries + 1);
+    }
     assert_eq!(hits(&r), (0., 0.));
+}
+
+#[test]
+fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
+    let source = SOURCE
+        .replace("refused = fail", "refused = false")
+        .replace(
+            "action onEnd writes ends",
+            "action onEnd writes ends, refused",
+        )
+        .replace("ends = ends + 1", "ends = ends + 1\n    refused = fail")
+        .replace("fail = true", "fail = not fail");
+    let mut r = boot(&source);
+    r.act("change", vec![Value::Number(0.), Value::Number(2.)])
+        .unwrap();
+    r.act("armFailure", vec![]).unwrap();
+    for _ in 0..3 {
+        let queries = r.data_ref().queries;
+        let result = r.collection_feedback(facts(&r, 0.)).unwrap();
+        assert!(result.error.is_some());
+        assert_eq!(r.data_ref().queries, queries + 1);
+        assert_eq!(hits(&r), (1., 0.));
+    }
+    r.act("armFailure", vec![]).unwrap();
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 1.));
+}
+
+#[test]
+fn refused_before_activation_stays_armed_with_unchanged_endpoints() {
+    let source = SOURCE
+        .replace("starts, refused", "starts, refused, revision")
+        .replace(
+            "starts = starts + 1",
+            "starts = starts + 1\n    revision = revision + 1",
+        );
+    let plan = contract::bake(contract::compile(&source).unwrap(), Rows::default()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Rows {
+            deferred: true,
+            ..Default::default()
+        },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let initial = r.collections()[0].count;
+    let result = r.collection_feedback(facts(&r, 0.)).unwrap();
+    assert!(result.error.is_some());
+    assert_eq!(hits(&r), (0., 0.));
+    r.data().deferred = false;
+    r.data_ready().unwrap();
+    assert_eq!(r.collections()[0].count, initial);
+    send(&mut r, 0.);
+    assert_eq!(
+        hits(&r),
+        (1., 0.),
+        "activation must not lose the refused edge"
+    );
 }
 
 #[test]
