@@ -4529,3 +4529,36 @@ The owner runtime freeze records310 files/125,064,209B, manifest
 report `6cf2b15e3140510a4666aeda50b8943a1cb29d66d78fc9eb406d6b5fdea5d13f`.
 A retained offline summary-script parse failure was corrected without changing
 the diagnostic reader, oracle, source or native runs.
+
+### 8.72 Reuse captured line metrics when building the Apple paint index, 2026-09-18
+
+RegionPaintIndex now reads the immutable line ink bounds, ascent, descent and
+leading already captured during shaping. Its span closure previously queried
+the same CTLine again. Operand order, null-ink handling, nonnegative leading,
+rounded baseline, row origin, two-point padding and global paragraph/line
+ordinals remain unchanged. No array, cache, worker or publication policy is added.
+
+Two tests were authored before changing production. The baseline executes14
+assertions and reaches two meaningful failures:36 indexed lines make36 redundant
+glyph-bound calls and36 typographic calls where zero are expected. The candidate
+records zero at both index callsites. Validation-only wrappers instrument the
+original calls; counters reset after shaping and independent reference work.
+Neither the wrappers nor counters are in production.
+
+The exact old CoreText formula matches every candidate span and all endpoint,
+adjacent-representable, interval and whole-range overlap queries, preserving
+paint order. Controls include zero-height/coincident spans, empty/intrinsic
+boundaries, fractional phases, clamp, bidi, emoji and combining text. Existing
+selection, bitmap, reuse, viewport capacity and lifetime controls remain green.
+Strict Swift6 optimized compilation and33 standalone methods/28,260 assertions
+pass using the existing assertion shim, including the conditional work-counter
+method. This is not a fullhost, full XCTest or native timing result.
+
+The exact two source/test paths and69 artifacts/2,358,280B are archived under
+`target/apple-region-index-numeric-validation/freeze-v1/`, manifest
+`cb255a1f19f27f5c2e47e780660b2cf9b5f06cb07ce94d00b5970af3508aad9f`,
+complete patch `f21071157eff482da030e2e950fd1f9af82d7f56e11c4c2b93c565ca67a86b85`.
+This change was made after the immutable native products in§8.71. Their measured
+76–77ms index spans do not measure this change: traversal, index allocation,
+construction and sorting remain. No native speedup or120Hz result is inferred
+from removing the duplicate calls.

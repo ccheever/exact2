@@ -5,6 +5,29 @@ import CoreText
 @testable import ExactKit
 
 @MainActor final class RegionWorkerTests: XCTestCase {
+    func testNumericPaintIndexMatchesOriginalCoreTextSpansAndEveryBoundary() {
+        let evidence = numericIndexEvidence()
+        XCTAssertEqual(evidence.error, "")
+        XCTAssertGreaterThan(evidence.actual.count, 20)
+        XCTAssertEqual(evidence.actual, evidence.expected, "every ordinal retains exact rounded-baseline and two-point ink padding")
+        XCTAssertEqual(evidence.queries, evidence.expectedQueries, "closed-overlap queries retain ordinal paint order")
+        XCTAssertGreaterThan(evidence.queries.count, evidence.actual.count)
+        XCTAssertGreaterThan(evidence.zeroHeightLines, 2)
+        XCTAssertGreaterThan(evidence.coincidentSpans, 1)
+        XCTAssertEqual(evidence.intrinsicLineCount, 0)
+        XCTAssertEqual(evidence.intrinsicMetadataCount, 0)
+        XCTAssertEqual(evidence.intrinsicIndexCount, 0)
+    }
+    #if EXACT_INDEX_QUERY_PROBE
+    func testNumericPaintIndexDoesNotRepeatCapturedCoreTextQueries() {
+        let evidence = numericIndexEvidence()
+        XCTAssertEqual(evidence.error, "")
+        XCTAssertGreaterThan(evidence.actual.count, 20, "real multi-line index, not an empty fast path")
+        XCTAssertEqual(evidence.inkCalls, 0, "index must reuse previously captured glyph-path bounds")
+        XCTAssertEqual(evidence.metricCalls, 0, "index must reuse previously captured typographic metrics")
+        print("index-work lines=\(evidence.actual.count) ink=\(evidence.inkCalls) metrics=\(evidence.metricCalls)")
+    }
+    #endif
     func testShapeDoesNotEagerlyExpandEveryCaret() {
         let run = Run(text: String(repeating: "ffi אבג words ", count: 40), size: 16,
             weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)
@@ -345,4 +368,97 @@ private func denseRegionReference(_ layout: RegionWorkerLayout) -> RegionParagra
     let p = layout.metadata
     return RegionParagraph(source: p.source,lines: layout.lines,baselines: p.baselines,
         width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
+}
+
+// All CTLine and index introspection stays on the worker. Only numeric evidence
+// crosses the semaphore; no production getter or second index storage is added.
+private final class NumericIndexEvidence: @unchecked Sendable {
+    var error = ""
+    var actual: [[Double]] = [], expected: [[Double]] = []
+    var queries: [[Int32]] = [], expectedQueries: [[Int32]] = []
+    var zeroHeightLines = 0, coincidentSpans = 0
+    var intrinsicLineCount = -1, intrinsicMetadataCount = -1, intrinsicIndexCount = -1
+    var inkCalls = -1, metricCalls = -1
+}
+@MainActor private func numericIndexEvidence() -> NumericIndexEvidence {
+    let engine = TextEngine(resolve: { _ in nil })
+    func source(_ text: String, height: CGFloat, clamp: Int = 0) -> RegionTextSource {
+        let a = Run(text: text,size: 16,weight: 400,family: 0,italic: true,
+            lineHeight: height,letterSpacing: 0,decoration: "underline")
+        return RegionTextSource.capture(Spec(runs: [a],align: 2,lineClamp: clamp,
+            color: [0,0,0,255],strut: a),engine: engine)
+    }
+    let samples = [source("",height: 0),
+        source(String(repeating: "ffi e\u{301} אבג 👩🏽‍🚀 words\n",count: 8),height: 26.25),
+        source("",height: 0),
+        source(String(repeating: "zero overlapping words\n",count: 6),height: 0),
+        source(String(repeating: "clamped fallback 👨‍👩‍👧‍👦 words ",count: 5),height: 29.75,clamp: 2)]
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let profile = NativeProfile.capture(original: space,data: space.copyICCData(),account: NativeProfileAccount()).owner!
+    let box = NumericIndexEvidence(), done = DispatchSemaphore(value: 0)
+    DispatchQueue(label: "numeric-paint-index-test").async {
+        defer { done.signal() }
+        do {
+            let layouts = samples.map { RegionWorkerLayout.shape($0,width: 103.25) }
+            let origins: [CGFloat] = [10,7.375,10,-8.625,3.125]
+            let rows = layouts.enumerated().map { i,l in
+                RegionPaintRow(artifact: UInt64(i+1),box: CGRect(x: 2.5,y: origins[i],width: 103.25,height: l.metadata.height))
+            }
+            let request = RegionRasterRequest(serial: 1,publication: 1,generation: 1,rows: rows,
+                scroll: .zero,size: CGSize(width: 160,height: 100),scale: 1,profile: profile,
+                format: CGImageAlphaInfo.premultipliedLast.rawValue,background: [1,1,1,1],selectionColor: [0,0,0,0])
+            // Independent original CoreText formula, including exact operand order.
+            for (p,l) in layouts.enumerated() {
+                for (i,line) in l.lines.enumerated() {
+                    let ink = CTLineGetBoundsWithOptions(line,.useGlyphPathBounds)
+                    var a: CGFloat = 0, d: CGFloat = 0, leading: CGFloat = 0
+                    _ = CTLineGetTypographicBounds(line,&a,&d,&leading)
+                    let above = max(a + max(leading,0),ink.isNull ? 0 : ink.maxY)
+                    let below = max(d + max(leading,0),ink.isNull ? 0 : -ink.minY)
+                    let y = rows[p].box.minY + l.baselines[i].rounded()
+                    box.expected.append([Double(y - above - 2),Double(y + below + 2)])
+                }
+            }
+            box.zeroHeightLines = layouts[3].metadata.height == 0 ? layouts[3].lines.count : 0
+            #if EXACT_INDEX_QUERY_PROBE
+            NumericIndexCTProbe.reset()
+            #endif
+            let paint = try RegionPaintIndex(request: request,lookup: { id in
+                id > 0 && id <= UInt64(layouts.count) ? layouts[Int(id)-1] : nil
+            },account: InkAccount())
+            #if EXACT_INDEX_QUERY_PROBE
+            box.inkCalls = NumericIndexCTProbe.inkCalls
+            box.metricCalls = NumericIndexCTProbe.metricCalls
+            #endif
+            guard let index = Mirror(reflecting: paint).children.first(where: { $0.label == "index" })?.value as? WorkerInkIndex,
+                  let spans = Mirror(reflecting: index).children.first(where: { $0.label == "spans" })?.value as? UnsafeMutablePointer<InkSpan> else {
+                box.error = "test-only private numeric index inspection unavailable"; return
+            }
+            box.actual = (0..<index.count).map { [spans[$0].top,spans[$0].bottom] }
+            box.coincidentSpans = box.actual.count - Set(box.actual.map { "\($0[0])/\($0[1])" }).count
+            // Every endpoint, its immediate neighbors, and gaps/whole-range query.
+            let points = Array(Set(box.expected.flatMap { $0.flatMap { [$0.nextDown,$0,$0.nextUp] } })).sorted()
+            var ranges = points.map { [$0,$0] }
+            for i in 1..<points.count { ranges.append([points[i-1],points[i]]) }
+            ranges.append([-10000,100000])
+            for range in ranges {
+                index.query(top: range[0],bottom: range[1]) { ids,_ in box.queries.append(Array(ids)) }
+                box.expectedQueries.append(box.expected.enumerated().compactMap { i,s in
+                    s[0] <= range[1] && s[1] >= range[0] ? Int32(i) : nil
+                })
+            }
+            let intrinsic = RegionWorkerLayout.shape(samples[1],width: .infinity,retainHits: false)
+            box.intrinsicLineCount = intrinsic.lines.count
+            box.intrinsicMetadataCount = intrinsic.metadata.lines.count
+            let emptyRequest = RegionRasterRequest(serial: 2,publication: 2,generation: 1,
+                rows: [RegionPaintRow(artifact: 9,box: CGRect(x: 0,y: 0,width: .infinity,height: intrinsic.metadata.height))],
+                scroll: .zero,size: CGSize(width: 160,height: 100),scale: 1,profile: profile,
+                format: CGImageAlphaInfo.premultipliedLast.rawValue,background: [1,1,1,1],selectionColor: [0,0,0,0])
+            let emptyPaint = try RegionPaintIndex(request: emptyRequest,lookup: { _ in intrinsic },account: InkAccount())
+            box.intrinsicIndexCount = (Mirror(reflecting: emptyPaint).children.first(where: { $0.label == "index" })?.value as? WorkerInkIndex)?.count ?? -1
+            withExtendedLifetime([paint,emptyPaint]) {}
+        } catch { box.error = String(describing: error) }
+    }
+    done.wait()
+    return box
 }

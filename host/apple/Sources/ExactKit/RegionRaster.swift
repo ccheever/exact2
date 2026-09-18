@@ -160,10 +160,9 @@ final class RegionPaintIndex {
         self.layouts = layouts; self.starts = starts
         index = try WorkerInkIndex(count: count, account: account) { slot in
             let p = Self.paragraph(slot, starts: starts), i = slot - starts[p]
-            let line = layouts[p].lines[i]
-            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-            var a: CGFloat = 0, d: CGFloat = 0, l: CGFloat = 0
-            _ = CTLineGetTypographicBounds(line, &a, &d, &l)
+            let line = layouts[p].metadata.lines[i]
+            let ink = line.ink
+            let a = line.ascent, d = line.descent, l = line.leading
             let above = max(a + max(l, 0), ink.isNull ? 0 : ink.maxY)
             let below = max(d + max(l, 0), ink.isNull ? 0 : -ink.minY)
             let y = rows[p].box.minY + layouts[p].baselines[i].rounded()
