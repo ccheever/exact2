@@ -1,0 +1,395 @@
+{
+  "instrumentVersion": 3,
+  "task": "a",
+  "engine": "exact2-linux",
+  "recordedAt": "2026-09-18T18:32:42.508Z",
+  "cases": [
+    {
+      "name": "original twelve and positions preserved",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "thirteenth position and total",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "displayed total is 13",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "cannot light remotely",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "new raised platform reachable and solid with ordinary jump",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "save/load retains thirteenth",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "original twelve still reachable",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "twelve no longer wins",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "all thirteen wins by ordinary route",
+      "status": "pass",
+      "passed": true
+    },
+    {
+      "name": "actual rendered game output",
+      "status": "unsupported",
+      "passed": false,
+      "reason": "Linux renders Contract UI with flat world canvas; no world pixels"
+    }
+  ],
+  "trace": [
+    {
+      "stage": "platform",
+      "state": {
+        "phase": "playing",
+        "ticks": 240,
+        "elapsed": 4,
+        "remaining": 176,
+        "player": {
+          "x": -7.9500265,
+          "vx": 0,
+          "y": 1.2099948999999999,
+          "vy": 0,
+          "z": 7.0230045,
+          "vz": 0,
+          "grounded": true,
+          "animation": "Survey"
+        },
+        "crate": {
+          "x": 6.0000033,
+          "vx": 0,
+          "y": 0.5999159,
+          "vy": 0,
+          "z": 8.000013,
+          "vz": 0
+        },
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "x": -12,
+            "y": 0,
+            "z": 10,
+            "lit": false
+          },
+          {
+            "id": "lantern-2",
+            "x": -10,
+            "y": 0,
+            "z": 2,
+            "lit": false
+          },
+          {
+            "id": "lantern-3",
+            "x": -12,
+            "y": 0,
+            "z": -8,
+            "lit": false
+          },
+          {
+            "id": "lantern-4",
+            "x": -6,
+            "y": 0,
+            "z": -12,
+            "lit": false
+          },
+          {
+            "id": "lantern-5",
+            "x": 0,
+            "y": 0,
+            "z": -10,
+            "lit": false
+          },
+          {
+            "id": "lantern-6",
+            "x": 6,
+            "y": 0,
+            "z": -12,
+            "lit": false
+          },
+          {
+            "id": "lantern-7",
+            "x": 12,
+            "y": 0,
+            "z": -8,
+            "lit": false
+          },
+          {
+            "id": "lantern-8",
+            "x": 12,
+            "y": 0,
+            "z": 0,
+            "lit": false
+          },
+          {
+            "id": "lantern-9",
+            "x": 5,
+            "y": 0,
+            "z": 2,
+            "lit": false
+          },
+          {
+            "id": "lantern-10",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "lit": false
+          },
+          {
+            "id": "lantern-11",
+            "x": 0,
+            "y": 0,
+            "z": 7,
+            "lit": false
+          },
+          {
+            "id": "lantern-12",
+            "x": 10,
+            "y": 2.4,
+            "z": 8,
+            "lit": false
+          },
+          {
+            "id": "lantern-13",
+            "x": -8,
+            "y": 1.2,
+            "z": 7,
+            "lit": true
+          }
+        ],
+        "count": 1,
+        "total": 13,
+        "events": [
+          {
+            "type": "jump",
+            "tick": 143
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 239,
+            "id": "lantern-13"
+          }
+        ],
+        "assetReady": true
+      }
+    },
+    {
+      "stage": "twelve",
+      "state": {
+        "phase": "playing",
+        "ticks": 1559,
+        "elapsed": 25.983333333333334,
+        "remaining": 155,
+        "player": {
+          "x": 9.929975,
+          "vx": 0,
+          "y": 2.409938,
+          "vy": 0,
+          "z": 8.05611,
+          "vz": 0,
+          "grounded": true,
+          "animation": "Survey"
+        },
+        "crate": {
+          "x": 7.377941,
+          "vx": 0,
+          "y": 0.59991604,
+          "vy": 0,
+          "z": 8.1106615,
+          "vz": 0
+        },
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "x": -12,
+            "y": 0,
+            "z": 10,
+            "lit": true
+          },
+          {
+            "id": "lantern-2",
+            "x": -10,
+            "y": 0,
+            "z": 2,
+            "lit": true
+          },
+          {
+            "id": "lantern-3",
+            "x": -12,
+            "y": 0,
+            "z": -8,
+            "lit": true
+          },
+          {
+            "id": "lantern-4",
+            "x": -6,
+            "y": 0,
+            "z": -12,
+            "lit": true
+          },
+          {
+            "id": "lantern-5",
+            "x": 0,
+            "y": 0,
+            "z": -10,
+            "lit": true
+          },
+          {
+            "id": "lantern-6",
+            "x": 6,
+            "y": 0,
+            "z": -12,
+            "lit": true
+          },
+          {
+            "id": "lantern-7",
+            "x": 12,
+            "y": 0,
+            "z": -8,
+            "lit": true
+          },
+          {
+            "id": "lantern-8",
+            "x": 12,
+            "y": 0,
+            "z": 0,
+            "lit": true
+          },
+          {
+            "id": "lantern-9",
+            "x": 5,
+            "y": 0,
+            "z": 2,
+            "lit": true
+          },
+          {
+            "id": "lantern-10",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "lit": true
+          },
+          {
+            "id": "lantern-11",
+            "x": 0,
+            "y": 0,
+            "z": 7,
+            "lit": true
+          },
+          {
+            "id": "lantern-12",
+            "x": 10,
+            "y": 2.4,
+            "z": 8,
+            "lit": true
+          },
+          {
+            "id": "lantern-13",
+            "x": -8,
+            "y": 1.2,
+            "z": 7,
+            "lit": false
+          }
+        ],
+        "count": 12,
+        "total": 13,
+        "events": [
+          {
+            "type": "lantern-lit",
+            "tick": 174,
+            "id": "lantern-1"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 294,
+            "id": "lantern-2"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 440,
+            "id": "lantern-3"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 543,
+            "id": "lantern-4"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 636,
+            "id": "lantern-5"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 729,
+            "id": "lantern-6"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 833,
+            "id": "lantern-7"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 940,
+            "id": "lantern-8"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 1045,
+            "id": "lantern-9"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 1124,
+            "id": "lantern-10"
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 1220,
+            "id": "lantern-11"
+          },
+          {
+            "type": "jump",
+            "tick": 1376
+          },
+          {
+            "type": "jump",
+            "tick": 1456
+          },
+          {
+            "type": "lantern-lit",
+            "tick": 1558,
+            "id": "lantern-12"
+          }
+        ],
+        "assetReady": true
+      }
+    }
+  ],
+  "unavailable": [],
+  "limitations": [
+    "analog input quantized to nearest eight keyboard directions; Linux held pointer unsupported",
+    "world pixels unavailable"
+  ],
+  "functionalPassed": true,
+  "passed": false
+}

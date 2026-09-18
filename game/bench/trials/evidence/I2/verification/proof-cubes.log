@@ -1,0 +1,219 @@
+Command: ['bun', 'game/bench/cubes/proof.mjs', 'linux']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1570512480 147939432      92% /
+
+BUILD cubes linux
+   Compiling bench-cubes-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/bench/cubes/logic)
+   Compiling bench-cubes-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-gpu)
+    Finished `release` profile [optimized] target(s) in 5.23s
+   Compiling bench-cubes-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-linux)
+    Finished `release` profile [optimized] target(s) in 13.65s
+clock 17
+{"clock":17,"world":[{"canvas":1,"changing":["#0.Transform","#1.Transform","#2.Transform","#3.Transform","#4.Transform","#5.Transform","#6.Transform","#7.Transform"],"hash":"0xa98c1cf4c4691258","ownership":{"clock":"controlled","contamination":0,"handoff":"clock owner human/agent","inputSource":"unavailable","owner":"agent"},"quiescent":false,"settleAt":117,"tick":1}],"epoch":1,"incarnation":1}
+state world {"world":true}
+{
+  "tick": 1,
+  "world": {
+    "args": {
+      "n": 100000
+    },
+    "assets": [],
+    "audio": {
+      "sources": [],
+      "voices": []
+    },
+    "canvas": 1,
+    "capture": null,
+    "clockState": {
+      "hostMicros": 17000,
+      "worldMicros": 17000
+    },
+    "device": false,
+    "entities": 100002,
+    "gpu": {
+      "afterReady": {
+        "bindGroupLayouts": 0,
+        "bufferReallocations": 0,
+        "computePipelines": 0,
+        "declaredExceptions": {
+          "counts": {
+            "bindGroupLayouts": 0,
+            "bufferReallocations": 0,
+            "computePipelines": 0,
+            "indexBuffers": 0,
+            "meshBytesUploaded": 0,
+            "renderPipelines": 0,
+            "shaderModules": 0,
+            "slotCapacityGrowth": 0,
+            "textureBytesUploaded": 0,
+            "textures": 0,
+            "vertexBuffers": 0
+          },
+          "events": 0,
+          "last": null
+        },
+        "indexBuffers": 0,
+        "meshBytesUploaded": 0,
+        "renderPipelines": 0,
+        "shaderModules": 0,
+        "slotCapacityGrowth": 0,
+        "streamingVertexBytes": 0,
+        "textureBytesUploaded": 0,
+        "textures": 0,
+        "vertexBuffers": 0,
+        "violations": 0
+      },
+      "beforeReady": {
+        "bindGroupLayouts": 0,
+        "bufferReallocations": 4,
+        "computePipelines": 0,
+        "indexBuffers": 1,
+        "meshBytesUploaded": 1104,
+        "renderPipelines": 0,
+        "shaderModules": 0,
+        "slotCapacityGrowth": 2,
+        "streamingVertexBytes": 0,
+        "textureBytesUploaded": 0,
+        "textures": 0,
+        "vertexBuffers": 1
+      },
+      "device": false,
+      "lastAfterReady": null,
+      "restoreUploads": {
+        "counts": {
+          "bindGroupLayouts": 0,
+          "bufferReallocations": 0,
+          "computePipelines": 0,
+          "indexBuffers": 0,
+          "meshBytesUploaded": 0,
+          "renderPipelines": 0,
+          "shaderModules": 0,
+          "slotCapacityGrowth": 0,
+          "textureBytesUploaded": 0,
+          "textures": 0,
+          "vertexBuffers": 0
+        },
+        "events": 0,
+        "last": null
+      }
+    },
+    "hash": "0xa98c1cf4c4691258",
+    "hz": 60,
+    "input": {
+      "actions": {},
+      "forwarded": [],
+      "held": []
+    },
+    "loading": [],
+    "name": "world",
+    "ownership": {
+      "clock": "controlled",
+      "contamination": 0,
+      "handoff": "clock owner human/agent",
+      "inputSource": "unavailable",
+      "owner": "agent"
+    },
+    "paused": false,
+    "perf": {
+      "draws": 0,
+      "encodeMs": {
+        "count": 0,
+        "max": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "feedMs": {
+        "count": 0,
+        "max": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "frameMs": {
+        "count": 0,
+        "max": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "instances": 0,
+      "pixels": [
+        0,
+        0
+      ],
+      "tickMs": {
+        "count": 0,
+        "max": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "ticksPerFrame": {
+        "count": 0,
+        "max": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "triangles": 0,
+      "wallClock": true
+    },
+    "published": {},
+    "ready": true,
+    "readyReasons": [],
+    "reload": {
+      "added": [],
+      "applied": [],
+      "kept": [],
+      "omitted": 0,
+      "removed": [],
+      "unmatched": []
+    },
+    "resources": {
+      "Environment": {
+        "ambient": 1,
+        "background": [
+          [
+            0.05,
+            0.06,
+            0.09
+          ]
+        ],
+        "bloom": [],
+        "exposure": 1,
+        "fog": [],
+        "ground": [
+          0.35,
+          0.38,
+          0.45
+        ],
+        "horizon": [
+          0.35,
+          0.38,
+          0.45
+        ],
+        "sun_disc": 0,
+        "zenith": [
+          0.35,
+          0.38,
+          0.45
+        ]
+      }
+    },
+    "restored": false,
+    "seed": 0,
+    "tick": 1
+  },
+  "epoch": 1,
+  "incarnation": 1
+}
+PASS bench completes a headless tick: 1
+PASS bench has moving cube entities: 100002
+PASS all recorded children exited: []
+PROOF PASS cubes linux: 0 failures; 20.981 s

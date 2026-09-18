@@ -1,0 +1,46 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_12",
+        "item_13"
+      ]
+    },
+    {
+      "name": "return route and terminal capture",
+      "repairs": 2,
+      "items": [
+        "item_15",
+        "item_18",
+        "item_22"
+      ]
+    }
+  ],
+  "verificationCommandCorrections": 1,
+  "maximumRepairsInOneLoop": 2,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": true,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": true,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "facilities": {
+    "kinds": "new finish_if_home uses saved Hero ID and world.row(hero); adapts existing edit_resource closure",
+    "layout": "not used for navigation; manual x/z detour around sign",
+    "place": "not used",
+    "paranoid": "existing pin tests run; --paranoid not invoked; terminal capture removed instead of diagnosing with paranoid mode",
+    "reloadReport": "existing regression runs; report not consulted"
+  },
+  "otherTimeSinks": [
+    "Numeric phase compatibility reconsideration before final verification",
+    "Browser adapter pause/step checks extended after final review",
+    "bun --check executed the browser adapter and failed on location; corrected verification command without a source fix"
+  ],
+  "coverageCaveat": "Exact corrupt checkpoint: semantic state/hash differs recurs in item_18; item_20 calls terminal recapture redundant and removes it. Do not treat final passing self-tests as repairing that defect.",
+  "saveCompatibilityCaveat": "Keeps lost=3 but reuses old won=2 for returning and moves won to 4 without bumping SAVE_VERSION; old won-save semantics are not tested by this trial."
+}

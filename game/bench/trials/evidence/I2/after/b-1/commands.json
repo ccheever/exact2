@@ -1,0 +1,16 @@
+[
+  "/bin/bash -lc \"pwd && rg --files game | sed -n '1,240p'\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/README.md && sed -n '1,300p' game/games/lanterns/README.md && sed -n '1,340p' game/games/lanterns/logic/src/lib.rs\"",
+  "/bin/bash -lc \"sed -n '341,760p' game/games/lanterns/logic/src/lib.rs && sed -n '1,340p' game/games/lanterns/logic/tests/timing.rs && sed -n '1,360p' game/games/lanterns/proof.mjs && sed -n '1,320p' game/games/lanterns/app.contract\"",
+  "/bin/bash -lc \"rg -n \\\"phase|all lanterns|won|victory|return|SPAWN|light_nearest\\\" game/games/lanterns --glob '\"'!assets/Fox.glb'\"' && sed -n '1,260p' game/games/lanterns/logic/tests/capture.rs && sed -n '1,300p' game/games/lanterns/logic/tests/difficult_moment.rs && sed -n '1,260p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,220p' game/games/lanterns/app.json\"",
+  "/bin/bash -lc \"git status --short && sed -n '1,250p' game/games/lanterns/logic/src/kind_tests.rs && sed -n '1,260p' game/games/lanterns/assets/lanterns-adapter.mjs && sed -n '1,240p' game/games/lanterns/run.sh && cat game/games/lanterns/logic/Cargo.toml\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && git diff --check && git diff -- game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/README.md'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && git diff --check && git status --short'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture'",
+  "/bin/bash -lc \"rg -n '\\\"Collider\\\"|\\\"id\\\"|position|size' game/games/lanterns/scene.json | sed -n '1,260p' && sed -n '1,280p' game/games/lanterns/scene.json\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'git status --short && git diff --stat && git diff --check && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs && git diff -- game/games/lanterns/README.md game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs'"
+]

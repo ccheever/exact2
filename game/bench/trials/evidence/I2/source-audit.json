@@ -1,0 +1,50 @@
+[
+  {
+    "cohort": "after",
+    "attempt": "a-1",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 13,
+    "noBuildOutputCreated": true
+  },
+  {
+    "cohort": "baseline",
+    "attempt": "a-3",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 7,
+    "noBuildOutputCreated": true
+  },
+  {
+    "cohort": "after",
+    "attempt": "b-1",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 5,
+    "noBuildOutputCreated": true
+  },
+  {
+    "cohort": "baseline",
+    "attempt": "b-3",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 5,
+    "noBuildOutputCreated": true
+  },
+  {
+    "cohort": "after",
+    "attempt": "a-2",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 13,
+    "noBuildOutputCreated": true
+  },
+  {
+    "cohort": "after",
+    "attempt": "b-2",
+    "diffAppliesToPinnedRef": true,
+    "sourceHashesMatch": true,
+    "filesChecked": 5,
+    "noBuildOutputCreated": true
+  }
+]

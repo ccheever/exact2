@@ -1,0 +1,36 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "capture route",
+      "repairs": 2,
+      "items": [
+        "item_8",
+        "item_10",
+        "item_13"
+      ]
+    },
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_24",
+        "item_27"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 2,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "signpostRouting": false,
+    "missingLanternsSimTestDiscovery": false
+  },
+  "notes": [
+    "One route obstruction at new platform, not baseline signpost.",
+    "No DNS, permission, Git or rg faults observed.",
+    "Invocation counts preserve the original runner command-record method; one fmt && cargo test record stops at fmt before executing cargo test."
+  ]
+}

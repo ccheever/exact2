@@ -1,0 +1,207 @@
+diff --git a/game/games/lanterns/README.md b/game/games/lanterns/README.md
+index 98f1be5..e055890 100644
+--- a/game/games/lanterns/README.md
++++ b/game/games/lanterns/README.md
+@@ -3,7 +3,8 @@
+ A three-minute third-person game built on Exact's game add-on. Move the animated
+ Fox with WASD, arrows, or the left side of a touch screen. Jump with Space or the
+ purple button and press E or LIGHT within 1.5 metres of a lantern. Push the crate
+-to reach the twelfth lantern on the ledge.
++to reach the twelfth lantern on the ledge, then return to the original spawn
++before night to win.
+ 
+ From the repository root:
+ 
+diff --git a/game/games/lanterns/app.contract b/game/games/lanterns/app.contract
+index 8f0bde0..818f4b9 100644
+--- a/game/games/lanterns/app.contract
++++ b/game/games/lanterns/app.contract
+@@ -68,7 +68,10 @@ component Lanterns
+             when checkpointStatus != ""
+               text checkpointStatus aria-live="polite" testId="save-status" padding=10 border-radius=9 background-color="#1b1730" color="#ffd27a" font-size=14
+           text "Move: WASD / arrows / left thumb" position="absolute" bottom=22 left=22 padding=12 border-radius=10 background-color="#1b1730" color="#d6cdec" font-size=15
+-          text "Push the crate beside the high ledge. Jump onto it, then jump again." testId="sign-instruction" position="absolute" bottom=76 left=22 right=22 padding=12 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=14
++          when hud.phase == "returning"
++            text "All twelve lanterns are lit — return home before night!" aria-live="assertive" testId="return-home" position="absolute" bottom=76 left=22 right=22 padding=14 border-radius=10 background-color="#ffd27a" color="#241531" font-size=18 font-weight=700 text-align="center"
++          when hud.phase != "returning"
++            text "Push the crate beside the high ledge. Jump onto it, then jump again." testId="sign-instruction" position="absolute" bottom=76 left=22 right=22 padding=12 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=14
+           row position="absolute" bottom=22 right=22 gap=14 align-items="flex-end"
+             button press=light testId="light" width=92 height=92 display="flex" border-radius=46 background-color="#ffb43b" justify-content="center" align-items="center"
+               text "LIGHT" width="100%" text-align="center" color="#241531" font-size=17 font-weight=700
+@@ -83,7 +86,7 @@ component Lanterns
+           when hud.phase == "won"
+             column testId="victory" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "The island is glowing" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text "All twelve lanterns are lit." font-size=18 color="#fff4d6"
++              text "All twelve lanterns are lit, and the fox made it home." font-size=18 color="#fff4d6"
+               button press=restart testId="again" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Play again" font-size=19 color="#241531"
+           when hud.phase == "lost"
+@@ -95,7 +98,7 @@ component Lanterns
+         else
+           column testId="title" position="absolute" top=0 left=0 width="100%" height="100%" align-items="center" justify-content="center" gap=24 background-color="#130f24"
+             text "LANTERNS" font-size=64 font-weight=700 color="#ffd27a"
+-            text "Light twelve lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
++            text "Light twelve lanterns and return home before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
+             text "Push the crate to reach the lantern on the stone ledge." font-size=17 color="#d6cdec"
+             text "WASD or arrows · Space to jump · E to light" font-size=15 color="#a99fc1"
+             row gap=12
+diff --git a/game/games/lanterns/assets/lanterns-adapter.mjs b/game/games/lanterns/assets/lanterns-adapter.mjs
+index 6b6ed63..b09a250 100644
+--- a/game/games/lanterns/assets/lanterns-adapter.mjs
++++ b/game/games/lanterns/assets/lanterns-adapter.mjs
+@@ -86,7 +86,7 @@ if (ENABLED) {
+       if (/\bjump$/.test(line)) return [{type: 'jump'}];
+       const lit = /\b(lantern-\d+) lit$/.exec(line);
+       if (lit) return [{type: 'lantern-lit', id: lit[1]}];
+-      if (/\ball lanterns lit$/.test(line)) return [{type: 'win'}];
++      if (/\breturned home$/.test(line)) return [{type: 'win'}];
+       if (/\bnight fell$/.test(line)) return [{type: 'lose'}];
+       return [];
+     });
+@@ -114,7 +114,7 @@ if (ENABLED) {
+     });
+     let phase = published.phase ?? 'title';
+     if (phase === 'title' && args.started === true) phase = 'playing';
+-    if (world.paused && args.started === true && phase === 'playing') phase = 'paused';
++    if (world.paused && args.started === true && ['playing', 'returning'].includes(phase)) phase = 'paused';
+     return {
+       phase,
+       ticks: world.tick,
+@@ -187,7 +187,7 @@ if (ENABLED) {
+   }
+   async function pause() {
+     const current = await state();
+-    if (!['playing', 'paused'].includes(current.phase)) return current;
++    if (!['playing', 'returning', 'paused'].includes(current.phase)) return current;
+     const button = await viewByTestId(current.phase === 'paused' ? 'resume' : 'pause');
+     if (!button) throw new Error('Pause action is unavailable');
+     button.click();
+@@ -209,7 +209,7 @@ if (ENABLED) {
+         case 'step': {
+           const ticks = Math.max(0, Math.trunc(Number(request.ticks) || 0));
+           const before = await state();
+-          if (ticks && before.phase === 'playing') {
++          if (ticks && ['playing', 'returning'].includes(before.phase)) {
+             const {view} = await waitReady();
+             surface(view, {op: 'clock', ticks});
+           }
+diff --git a/game/games/lanterns/logic/src/lib.rs b/game/games/lanterns/logic/src/lib.rs
+index 4d7e920..cc0552f 100644
+--- a/game/games/lanterns/logic/src/lib.rs
++++ b/game/games/lanterns/logic/src/lib.rs
+@@ -61,7 +61,7 @@ pub struct Lantern {
+ pub struct Session {
+     /// Active fixed ticks; pause and terminal states do not add to this.
+     pub elapsed: u32,
+-    /// 0 title, 1 playing, 2 won, 3 lost.
++    /// 0 title, 1 active (lighting or returning), 2 won, 3 lost.
+     pub phase: u32,
+     /// Last Contract Jump counter consumed.
+     pub jump_press: u32,
+@@ -250,6 +250,9 @@ impl Game for Lanterns {
+             if args.sound {
+                 world.play("night").start();
+             }
++        } else if all_lanterns_lit(world) && player_is_home(world) {
++            world.resource_mut::<Session>().phase = 2;
++            world.log("returned home");
+         }
+         update_sun(world);
+         scene::follow(world);
+@@ -471,17 +474,27 @@ fn light_nearest(world: &mut World, sound: bool) {
+     if sound {
+         world.play("chime").at(entity).start();
+     }
+-    let count = world
+-        .query::<&Lantern>()
+-        .iter()
+-        .filter(|(_, l)| l.lit)
+-        .count();
+-    if count == world.query::<&Lantern>().iter().count() {
+-        world.resource_mut::<Session>().phase = 2;
++    if all_lanterns_lit(world) {
+         world.log("all lanterns lit");
+     }
+ }
+ 
++fn all_lanterns_lit(world: &World) -> bool {
++    let mut found = false;
++    for (_, lantern) in world.query::<&Lantern>().iter() {
++        found = true;
++        if !lantern.lit {
++            return false;
++        }
++    }
++    found
++}
++
++fn player_is_home(world: &World) -> bool {
++    let at = world.get::<Transform>("player").unwrap().position;
++    Vec2::new(at.x - SPAWN.x, at.z - SPAWN.z).length_squared() <= 2.0 * 2.0
++}
++
+ fn update_lanterns(world: &mut World) {
+     let now = world.now();
+     let rows: Vec<_> = world
+@@ -514,6 +527,7 @@ fn publish(world: &mut World) {
+     let remaining = DURATION_TICKS.saturating_sub(session.elapsed).div_ceil(60);
+     let phase = match session.phase {
+         0 => "title",
++        1 if count == world.query::<&Lantern>().iter().count() as u32 => "returning",
+         1 => "playing",
+         2 => "won",
+         _ => "lost",
+diff --git a/game/games/lanterns/logic/tests/capture.rs b/game/games/lanterns/logic/tests/capture.rs
+index 7f55422..634f732 100644
+--- a/game/games/lanterns/logic/tests/capture.rs
++++ b/game/games/lanterns/logic/tests/capture.rs
+@@ -69,7 +69,7 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
+     panic!("landing failed at {:?}", sim.position("player"));
+ }
+ #[test]
+-fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
++fn crate_checkpoint_requires_return_home_and_restores_both_states() {
+     let mut sim = Sim::<Lanterns>::new(Options {
+         seed: 1_041_003,
+         started: true,
+@@ -129,7 +129,7 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+     steer(&mut sim, 10.0, 8.0, 0.18);
+     press(&mut sim, "light_press");
+     ticks(&mut sim, 2);
+-    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    assert_eq!(sim.world().resource::<Session>().phase, 1);
+     assert_eq!(
+         sim.world()
+             .query::<&Lantern>()
+@@ -138,6 +138,30 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             .count(),
+         12
+     );
++    assert_eq!(
++        sim.world().published("phase").unwrap().as_str(),
++        Some("returning")
++    );
++    let returning_hash = sim.world().hash();
++    let returning_elapsed = sim.world().resource::<Session>().elapsed;
++    let returning_save = sim.save();
++    let returning = Sim::<Lanterns>::from_save(&returning_save).unwrap();
++    assert_eq!(returning.world().hash(), returning_hash);
++    assert_eq!(
++        returning.world().resource::<Session>().elapsed,
++        returning_elapsed
++    );
++    assert_eq!(returning.world().resource::<Session>().phase, 1);
++
++    let mut timed_out = returning;
++    ticks(&mut timed_out, 180 * 60 - returning_elapsed);
++    assert_eq!(timed_out.world().resource::<Session>().phase, 3);
++
++    steer(&mut sim, 0.0, 9.8, 0.15);
++    hold(&mut sim, "KeyS", 4);
++    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    let home = sim.position("player").unwrap();
++    assert!(home.x.hypot(home.z - 12.0) <= 2.0, "{home:?}");
+     let hash = sim.world().hash();
+     let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+     for _ in 0..2 {

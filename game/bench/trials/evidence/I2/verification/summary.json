@@ -1,0 +1,115 @@
+{
+  "rust": {
+    "passed": 553,
+    "failed": 0,
+    "ignored": 24
+  },
+  "linuxProofAssertions": {
+    "beacons": 57,
+    "greybox": 68,
+    "lanterns": 9,
+    "asset-fixture": 9,
+    "cubes": 3
+  },
+  "linuxProofFailures": 0,
+  "gameClippy": true,
+  "gameFmt": true,
+  "rootFmt": true,
+  "bun": {
+    "passed": 55,
+    "failed": 2,
+    "assertions": 994,
+    "causes": [
+      "Chrome/CDP startup unavailable",
+      "missing prebuilt feel web artifacts"
+    ]
+  },
+  "rootCargo": {
+    "build": false,
+    "test": false,
+    "clippy": false,
+    "cause": "TypeScript bake requires the lean Hermes executor on this producer"
+  },
+  "adapterSmoke": true,
+  "negativeControls": [
+    {
+      "attempt": "baseline/a-3",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "baseline/a-3",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "baseline/b-3",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "baseline/b-3",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/a-1",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/a-1",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/b-1",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/b-1",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/a-2",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/a-2",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/b-2",
+      "task": "a",
+      "negativeControlFailsOnBehavior": true
+    },
+    {
+      "attempt": "after/b-2",
+      "task": "b",
+      "negativeControlFailsOnBehavior": true
+    }
+  ],
+  "allSixBelowCeilingAndCleaned": true,
+  "rootWorkspaceExcludesGame": true,
+  "onlyHarnessResultsAndQueueTrackedChanges": true,
+  "staleAssetRepair": {
+    "rounds": 1,
+    "preserved": "/home/ccheever/lanes/gamenext/scratch/I2/stale-assets/crate.model",
+    "oldBytes": 3904,
+    "newBytes": 2190,
+    "oldSha256": "427ddce26403e5eb64a7ed0086445a2d1a044213cd8918e7216da63a47797da9"
+  },
+  "sourceReconstructionAudit": "../source-audit.json",
+  "unverified": [
+    "GPU pixels/pipelines",
+    "browser runtime",
+    "Apple runtime",
+    "continuous analog parity",
+    "physical audio/presentation",
+    "900-second timeout kill branch"
+  ]
+}

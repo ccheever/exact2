@@ -1,0 +1,23 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && find game/games/lanterns -maxdepth 3 -type f -print | sort\"",
+  "/bin/bash -lc \"git status --short -- game/games/lanterns && wc -l game/games/lanterns/README.md game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/proof.mjs game/games/lanterns/scene.json game/games/lanterns/app.contract game/games/lanterns/app.json && sed -n '1,260p' game/games/lanterns/README.md && sed -n '1,320p' game/games/lanterns/logic/src/lib.rs\"",
+  "/bin/bash -lc \"sed -n '321,760p' game/games/lanterns/logic/src/lib.rs && sed -n '1,280p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,240p' game/games/lanterns/logic/tests/capture.rs && sed -n '1,220p' game/games/lanterns/proof.mjs\"",
+  "/bin/bash -lc \"sed -n '1,380p' game/games/lanterns/scene.json && sed -n '1,180p' game/games/lanterns/lantern.fragment.json && sed -n '1,180p' game/games/lanterns/app.contract && sed -n '1,120p' game/games/lanterns/app.json && sed -n '1,160p' game/games/lanterns/run.sh && sed -n '1,120p' game/games/lanterns/logic/Cargo.toml\"",
+  "/bin/bash -lc \"rg -n \\\"\\\\.world\\\\('world'\\\\)\\\\.(tap|key|hold)|\\\\.tap\\\\('Space'|keyDown|key_down\\\" game/games -g 'proof.mjs' -g '*.rs' | head -120 && rg -n 'surface.*total|hud\\\\.total|of 12|twelve|12 lantern' game/games/lanterns\"",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture -- --nocapture'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture -- --nocapture'",
+  "/bin/bash -lc \"sed -n '1,320p' game/proof.mjs && rg -n \\\"class .*World|async (tap|hold)|hold\\\\(code|world\\\\(surface\\\" game -g '*.mjs' | head -100\"",
+  "/bin/bash -lc \"rg -n \\\"world\\\\(.*\\\\).*\\\\{|hold\\\\(|tap\\\\(|class World|position\\\\(\\\" scripts/agent.mjs scripts -g '*.mjs' | head -180\"",
+  "/bin/bash -lc \"sed -n '700,790p' scripts/agent.mjs && sed -n '790,850p' scripts/agent.mjs && sed -n '850,940p' scripts/agent.mjs\"",
+  "/bin/bash -lc \"rg -n \\\"scene-only|reuse-baker\\\" game/dev.mjs game -g '*.mjs' | head -80 && git diff -- game/games/lanterns\"",
+  "/bin/bash -lc \"sed -n '1,40p' game/dev.mjs && find game/games/lanterns/artifacts -maxdepth 1 -type f -print 2>/dev/null | sort && if [ -f game/games/lanterns/artifacts/replies.json ]; then rg -n 'hud-lanterns|published|lantern-13' game/games/lanterns/artifacts/replies.json | head -40; fi\"",
+  "/bin/bash -lc \"rg -n \\\"node\\\\([\"'^'\"\\\\n]+\\\\)\\\\?\\\\.(text|props)|props\\\\?\\\\.text|hud-.*includes|LANTERNS .* /\\\" game -g 'proof.mjs' scripts/smoke.mjs | head -100\"",
+  "/bin/bash -lc 'bun game/dev.mjs lanterns --scene-only --reuse-baker'",
+  "/bin/bash -lc 'git status --short -- game/games/lanterns && git diff --stat -- game/games/lanterns && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/proof.mjs game/games/lanterns/scene.json game/games/lanterns/app.contract'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'git diff --check -- game/games/lanterns && git status --short -- game/games/lanterns && tail -n 30 game/games/lanterns/artifacts/proof.txt && git diff --numstat -- game/games/lanterns'",
+  "/bin/bash -lc \"rg '\"'^PASS|''^FAIL|''^PROOF'\"' game/games/lanterns/artifacts/proof.txt\""
+]

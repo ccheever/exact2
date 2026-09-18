@@ -1,0 +1,11 @@
+Command: ['bun', 'install', '--frozen-lockfile']
+Filesystem     1024-blocks       Used Available Capacity Mounted on
+/dev/nvme0n1p4  1810493656 1567857920 150593992      92% /
+
+bun install v1.3.14 (0d9b296a)
+
++ @sqlite.org/sqlite-wasm@3.53.0-build1
++ rolldown@1.2.7
++ typescript@7.0.2
+
+8 packages installed [11.00ms]

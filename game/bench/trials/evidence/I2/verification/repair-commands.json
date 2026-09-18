@@ -1,0 +1,47 @@
+[
+  {
+    "name": "proof-asset-fixture-round2",
+    "command": [
+      "bun",
+      "game/games/asset-fixture/proof.mjs",
+      "linux"
+    ],
+    "exit": 0,
+    "seconds": 18.935859420336783,
+    "startedAt": "2026-09-18T19:20:17.543391+00:00",
+    "freeKiBBefore": 142851960
+  },
+  {
+    "name": "game-test-round2",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "exit": 0,
+    "seconds": 81.95191634399816,
+    "startedAt": "2026-09-18T19:20:36.481989+00:00",
+    "freeKiBBefore": 142813892
+  },
+  {
+    "name": "game-clippy-round2",
+    "command": [
+      "cargo",
+      "clippy",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 11.712883990257978,
+    "startedAt": "2026-09-18T19:21:58.436105+00:00",
+    "freeKiBBefore": 142094780
+  }
+]
