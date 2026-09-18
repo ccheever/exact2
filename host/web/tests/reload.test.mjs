@@ -2,9 +2,9 @@ import {test} from 'bun:test';
 import assert from 'node:assert/strict';
 import {fixture} from './surface-record.test.mjs';
 import {reloadInputs, verifyReloadInputs, gpuArtifact, sha256} from '../reload-build.mjs';
-import {mkdtempSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, renameSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 
 for (const [kind, nextGpu] of [
   ['restore', {gpu_restore:()=>false}],
@@ -265,4 +265,29 @@ test('controlled creation declares ownership before restoring intentional checkp
   f.exact.worldCarry=new Uint8Array([1]);const host=f.create(1);
   assert.deepEqual(order,['owner','restore']);
   host.listeners.keyup({target:host,code:'Space',timeStamp:0});assert.equal(f.events.at(-1).code,'Space');
+});
+
+test('scene content publishes a fresh plan with the cached compiler and retains the accepted generation on refusal',()=>{
+  const driver=readFileSync(new URL('../dev.mjs',import.meta.url),'utf8');
+  const functions=driver.slice(driver.indexOf('function sceneContractInput('),driver.indexOf('// Optional typed scene content'));
+  const dir=mkdtempSync(join(tmpdir(),'scene-plan-reload-'));
+  const app={dir,target:dir,workspace:dir,manifest:{game:{}}},source=join(dir,'app.contract'),plan=join(dir,'app.plan'),planCompiler=join(dir,'exact-dev');
+  mkdirSync(join(dir,'.scene'));writeFileSync(source,'use sceneContent');writeFileSync(plan,'accepted');writeFileSync(planCompiler,'cached executable');writeFileSync(join(dir,'.scene/scene.contract'),'scene bytes');
+  const published=[],pushed=[],calls=[],pending=new Map();let failure=false,stale=false;
+  const inputs=()=>reloadInputs([source]);
+  const run=new Function('env',`const {app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,spawnSync,source,buildEnv,verifyReloadInputs,readFileSync,captureGeneration,renameSync,plan,pending,push,announcement,console,rmSync}=env;let seq=3;${functions};return {publishScenePlan,sceneContractInput};`)({
+    app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,source,buildEnv:{},verifyReloadInputs,readFileSync,renameSync,plan,pending,rmSync,
+    spawnSync(command,args){calls.push([command,args]);assert.equal(command,planCompiler);assert.deepEqual([args[0],args[2]],[source,'--once']);writeFileSync(args[1],'new scene plan');if(stale)writeFileSync(source,'edited during compiler');return {status:failure?1:0,stderr:'compile failed'};},
+    captureGeneration(reuse,bytes){assert.equal(reuse,true);published.push(bytes.toString());},push:message=>pushed.push(message),announcement:()=>({generation:'new'}),console:{log(){}},
+  });
+  try{
+    assert.equal(run.sceneContractInput(join(dir,'.scene/scene.contract')),true);
+    for(const path of [source,join(dir,'logic/src/lib.rs'),join(dir,'other/scene.contract')])assert.equal(run.sceneContractInput(path),false);
+    run.publishScenePlan(Date.now(),inputs(),inputs);
+    assert.deepEqual(published,['new scene plan']);assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');
+    failure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/scene plan refused/);
+    failure=false;stale=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/inputs changed/);
+    assert.equal(published.length,1);assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');assert.equal(calls.length,3);
+    assert.match(driver,/if \(sceneContractInput\(path\)\) return/);
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
