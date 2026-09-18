@@ -123,7 +123,10 @@ try {
 } catch(error) {report.error=String(error);report.finishedAt=now();}
 finally {
   // Logs, diff and JSON survive. Auth, sources and all compilation outputs do not.
-  rmSync(work,{recursive:true,force:true});for(const dep of ['ibex','snapback-sb4'])rmSync(resolve(out,dep),{force:true});report.buildOutputDeleted=!existsSync(work);save();
+  rmSync(work,{recursive:true,force:true});for(const dep of ['ibex','snapback-sb4'])rmSync(resolve(out,dep),{force:true});report.buildOutputDeleted=!existsSync(work);
+  report.removedRenderFiles=[];
+  function removeRenders(dir){for(const e of readdirSync(dir,{withFileTypes:true})){const p=resolve(dir,e.name);if(e.isDirectory())removeRenders(p);else if(/\.png$/.test(e.name)){report.removedRenderFiles.push(p.slice(out.length+1));rmSync(p);}}}
+  removeRenders(out);save();
 }
 console.log(JSON.stringify(report));
 if(!report.passed)process.exitCode=1;
