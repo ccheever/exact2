@@ -273,21 +273,24 @@ test('scene content publishes a fresh plan with the cached compiler and retains 
   const dir=mkdtempSync(join(tmpdir(),'scene-plan-reload-'));
   const app={dir,target:dir,workspace:dir,manifest:{game:{}}},source=join(dir,'app.contract'),plan=join(dir,'app.plan'),planCompiler=join(dir,'exact-dev');
   mkdirSync(join(dir,'.scene'));writeFileSync(source,'use sceneContent');writeFileSync(plan,'accepted');writeFileSync(planCompiler,'cached executable');writeFileSync(join(dir,'.scene/scene.contract'),'scene bytes');
-  const published=[],pushed=[],calls=[],pending=new Map();let failure=false,stale=false;
+  const published=[],pushed=[],calls=[],pending=new Map();let failure=false,stale=false,publicationFailure=false,renameFailure=false;
   const inputs=()=>reloadInputs([source]);
-  const run=new Function('env',`const {app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,spawnSync,source,buildEnv,verifyReloadInputs,readFileSync,captureGeneration,renameSync,plan,pending,push,announcement,console,rmSync}=env;let seq=3;${functions};return {publishScenePlan,sceneContractInput};`)({
-    app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,source,buildEnv:{},verifyReloadInputs,readFileSync,renameSync,plan,pending,rmSync,
+  const run=new Function('env',`const {app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,spawnSync,source,buildEnv,verifyReloadInputs,readFileSync,renameSync,plan,pending,push,announcement,console,rmSync}=env;let seq=3,current={generation:'accepted'};function captureGeneration(reuse,bytes){current={generation:'candidate'};env.captureGeneration(reuse,bytes);}${functions};return {publishScenePlan,sceneContractInput,state:()=>({current,seq})};`)({
+    app,resolve,planCompiler,existsSync,mkdtempSync,reloadInputs,source,buildEnv:{},verifyReloadInputs,readFileSync,renameSync:(...args)=>{if(renameFailure)throw new Error('rename failed');return renameSync(...args);},plan,pending,rmSync,
     spawnSync(command,args){calls.push([command,args]);assert.equal(command,planCompiler);assert.deepEqual([args[0],args[2]],[source,'--once']);writeFileSync(args[1],'new scene plan');if(stale)writeFileSync(source,'edited during compiler');return {status:failure?1:0,stderr:'compile failed'};},
-    captureGeneration(reuse,bytes){assert.equal(reuse,true);published.push(bytes.toString());},push:message=>pushed.push(message),announcement:()=>({generation:'new'}),console:{log(){}},
+    captureGeneration(reuse,bytes){assert.equal(reuse,true);if(publicationFailure)throw new Error('publication failed');published.push(bytes.toString());},push:message=>pushed.push(message),announcement:()=>({generation:'new'}),console:{log(){}},
   });
   try{
     assert.equal(run.sceneContractInput(join(dir,'.scene/scene.contract')),true);
     for(const path of [source,join(dir,'logic/src/lib.rs'),join(dir,'other/scene.contract')])assert.equal(run.sceneContractInput(path),false);
     run.publishScenePlan(Date.now(),inputs(),inputs);
     assert.deepEqual(published,['new scene plan']);assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');
+    const accepted=run.state();
     failure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/scene plan refused/);
     failure=false;stale=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/inputs changed/);
-    assert.equal(published.length,1);assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');assert.equal(calls.length,3);
+    stale=false;publicationFailure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/publication failed/);assert.deepEqual(run.state(),accepted);
+    publicationFailure=false;renameFailure=true;assert.throws(()=>run.publishScenePlan(Date.now(),inputs(),inputs),/rename failed/);assert.deepEqual(run.state(),accepted);
+    assert.equal(pushed.length,1);assert.equal(readFileSync(plan,'utf8'),'new scene plan');assert.equal(calls.length,5);
     assert.match(driver,/if \(sceneContractInput\(path\)\) return/);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });

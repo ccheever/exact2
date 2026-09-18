@@ -566,6 +566,8 @@ function sceneContractInput(path) {
 function publishScenePlan(saved, snapshot, inputs) {
   if (!planCompiler || !existsSync(planCompiler)) throw new Error('scene plan compiler is not ready');
   const stage = mkdtempSync(resolve(app.target, 'scene-plan-'));
+  const previous = {current, seq};
+  let committed = false;
   try {
     const candidate = resolve(stage, 'app.plan');
     const generated = () => reloadInputs([resolve(app.dir, '.scene/scene.contract')]);
@@ -580,10 +582,14 @@ function publishScenePlan(saved, snapshot, inputs) {
     seq++;
     captureGeneration(true, bytes);
     renameSync(candidate, plan);
+    committed = true;
     const ready = Date.now();
     pending.set(seq, {saved, ready});
     push({...announcement(), bytes:bytes.length});
     console.log(`scene → candidate plan ready in ${ready-saved} ms; existing behavior module retained`);
+  } catch (error) {
+    if (!committed) { current = previous.current; seq = previous.seq; }
+    throw error;
   } finally { rmSync(stage, {recursive:true, force:true}); }
 }
 // Optional typed scene content follows the Contract producer, never Rust rebuild.
@@ -885,6 +891,12 @@ async function produceGpu(files) {
   try {
     console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
     await run('cargo', ['build','-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
+    // Rust scene types belong to the behavior build. Pure content saves reuse
+    // this refreshed native baker and never enter Cargo themselves.
+    if (app.manifest.game && existsSync(resolve(app.dir, 'scene.json'))) {
+      const logic = app.manifest.game.crate;
+      await run('cargo', ['build','--offline','-p',logic,'--bin',logic.replace(/-logic$/, '-scene')]);
+    }
     const compiled = Date.now();
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
     const compiledInputs = new Set(gpuInputs);
