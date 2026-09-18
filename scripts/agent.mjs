@@ -732,9 +732,9 @@ export function worldView(session, name) {
     },
     settle: async () => (await session.clock('settle')).settled === true,
     ticks: count => exactTicks(session, name, count),
-    capture: (command, options = {}) => session.state(name, { ...options, capture: command }),
+    capture: (command, options = {}) => session.state(name, { ...options, world:true, capture: command }),
     async source(entity) {
-      const state = await session.state(name), digest = state.world?.resources?.SceneIdentity?.digest;
+      const state = await session.state(name, {world:true}), digest = state.world?.resources?.SceneIdentity?.digest;
       if (!digest) return {unavailable:'world has no authored scene identity'};
       const detail = await session.state(`${name}:${entity}`), generated = detail.entity?.components?.GeneratedBy;
       if (generated) return {generated};
@@ -762,7 +762,7 @@ export function worldView(session, name) {
 export async function exactTicks(session, name, count) {
   if (!Number.isSafeInteger(count) || count < 0 || count > 216000) throw new Error('ticks: expected an integer from 0 to 216000');
   if (session.controlled === false) throw new Error('ticks: controlled clock required; explicitly hand off before stepping');
-  const before = await session.state(name), world = before.world;
+  const before = await session.state(name, {world:true}), world = before.world;
   if (!world || !Number.isSafeInteger(world.tick) || !Number.isSafeInteger(world.hz) || world.hz < 1 || world.hz > 1000)
     throw new Error(`ticks ${name}: fixed-step world clock is unavailable or unsupported`);
   if (world.paused && count) throw new Error(`ticks ${name}: world paused at tick ${world.tick}; resume its live binding first`);
@@ -771,7 +771,7 @@ export async function exactTicks(session, name, count) {
   const start = world.tick, target = start + count;
   const to = Math.ceil((hostUs + Math.max(0, Math.ceil(target * 1000000 / world.hz) - us)) / 1000);
   const reply = count ? await session.clock(to) : null;
-  const after = await session.state(name), actual = after.world?.tick;
+  const after = await session.state(name, {world:true}), actual = after.world?.tick;
   const result = {world:name, requested:count, startTick:start, requestedTick:target, actualTick:actual, clock:reply?.clock ?? before.clock, hash:after.world?.hash};
   if (actual !== target) throw Object.assign(new Error(`ticks ${name}: requested ${start} → ${target}, observed ${actual}; no retry or extra frame performed`), {result});
   return result;

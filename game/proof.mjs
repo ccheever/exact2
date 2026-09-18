@@ -58,7 +58,7 @@ export function captureTools({open, identity, host}) {
         async finish(path) {
           if (current().digest !== receipt.digest) throw new Error('capture: artifacts changed during recording; exact capture refused');
           const reply = await session.world(target).capture('stop');
-          const state = await session.state(target), logs = await session.logs();
+          const state = await session.state(target, {world:true}), logs = await session.logs();
           const bundle = {format:'exact-game-capture-1', scope:'world-only', reproduction:'simulation', target,
             artifacts:receipt, metadata:{host, input:session.input?.delivery('key') ?? 'unavailable', clock:session.controlled ? 'controlled' : 'live', uiState:'omitted', externalResults:'unsupported', scene:state.world?.resources?.SceneIdentity?.digest ?? 'unavailable'},
             script:String(script).slice(0,16384), operations:session.captureOperations?.() ?? {unavailable:true}, observedFailure:String(failure).slice(0,16384),

@@ -275,7 +275,7 @@ test('queue no longer lists the repaired Beacons designed-defaults fixture', () 
 test('exact tick helper uses restored epochs and never silently retries a mismatch', async () => {
   const {exactTicks} = await import('../scripts/agent.mjs');
   let tick=301, host=81234, us=5016670, calls=0;
-  const session={controlled:true, state:async()=>({clock:host,world:{tick,hz:60,paused:false,clockState:{hostMicros:host*1000,worldMicros:us}}}),
+  const session={controlled:true, state:async(target,options)=>{expect(target).toBe('world');expect(options).toEqual({world:true});return {clock:host,world:{tick,hz:60,paused:false,clockState:{hostMicros:host*1000,worldMicros:us}}};},
     clock:async to=>{calls++;us+=(to-host)*1000;host=to;tick=Math.floor(us*60/1000000);return {clock:to};}};
   for(let i=0;i<120;i++) expect((await exactTicks(session,'world',1)).actualTick).toBe(302+i);
   expect(calls).toBe(120);
@@ -292,14 +292,21 @@ test('capture replay validates actual artifacts and never executes imported scri
   const dir=mkdtempSync(resolve(tmpdir(),'capture-proof-')), file=resolve(dir,'capture.json');
   const identity={digest:'sha256:actual',files:[['game.wasm','code'],['app.plan','plan']]};
   let opened=0,closed=0;
+  const requests=[];
   const fake={loadedArtifact:identity.digest,controlled:true,input:{delivery:()=> 'platform'},
-    world:()=>({capture:async(command,options)=> command==='replay' ? {isolated:true,replay:{world:{hash:'hash',tick:4}}} : {capture:{complete:true,records:2,lastReliableTick:4,hash:'hash'},data:'aabb'}}),
-    state:async()=>({world:{hash:'hash',tick:4}}),logs:async()=>({lines:[]}),close:async()=>closed++};
+    world(name){return worldView(this,name);},
+    state:async(target,options)=>{requests.push({op:'state',target,...options});expect(target).toBe('world');expect(options.world).toBe(true);
+      if(options.capture==='replay')return {isolated:true,replay:{world:{hash:'hash',tick:4}}};
+      if(options.capture)return {capture:{complete:true,records:2,lastReliableTick:4,hash:'hash'},data:'aabb'};
+      return {world:{hash:'hash',tick:4,resources:{SceneIdentity:{digest:'loaded-scene'}}}};},
+    logs:async()=>({lines:[]}),close:async()=>closed++};
   const kit=captureTools({identity:()=>identity,host:'web',open:async()=>{opened++;return fake;}});
   try {
     const capture=await kit.capture(fake,'world',{script:'throw new Error("must never execute")',failure:'crate stuck'});
     await capture.finish(file);
+    expect(JSON.parse(readFileSync(file,'utf8')).metadata.scene).toBe('loaded-scene');
     expect((await kit.replay(file)).isolated).toBe(true);
+    expect(requests.map(request=>request.capture??'inspect')).toEqual(['start','stop','inspect','replay']);
     expect(opened).toBe(1);expect(closed).toBe(1);
     const bundle=JSON.parse(readFileSync(file,'utf8'));bundle.artifacts.digest='other';writeFileSync(file,JSON.stringify(bundle));
     await expect(kit.replay(file)).rejects.toThrow('actual local artifact');
@@ -310,8 +317,8 @@ test('capture replay validates actual artifacts and never executes imported scri
 
 test('world source navigation reports procedural metadata without inventing a line', async () => {
   const calls=[];
-  const session={state:async target=>{calls.push(target);return target==='world' ? {world:{resources:{SceneIdentity:{digest:'sha'}}}} : {entity:{components:{GeneratedBy:{generator:'trees',parameters:{seed:'7'}}}}};}};
+  const session={state:async(target,options)=>{calls.push([target,options]);return target==='world' ? {world:{resources:{SceneIdentity:{digest:'sha'}}}} : {entity:{components:{GeneratedBy:{generator:'trees',parameters:{seed:'7'}}}}};}};
   expect(await worldView(session,'world').source('tree-4')).toEqual({generated:{generator:'trees',parameters:{seed:'7'}}});
-  expect(calls).toEqual(['world','world:tree-4']);
+  expect(calls).toEqual([['world',{world:true}],['world:tree-4',undefined]]);
   expect(await worldView({state:async()=>({world:{resources:{}}})},'world').source('crate')).toEqual({unavailable:'world has no authored scene identity'});
 });
