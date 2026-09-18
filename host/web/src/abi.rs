@@ -23,6 +23,7 @@ pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
     retained_host: Option<Host<D>>,
     boot_transaction: bool,
+    surface_transaction: bool,
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
     /// in through `exact_store` before boot and taken by the next boot.
     snapshot: Vec<(String, String)>,
@@ -41,6 +42,7 @@ impl<D: DataSource> Bridge<D> {
             host: None,
             retained_host: None,
             boot_transaction: false,
+            surface_transaction: false,
             snapshot: Vec::new(),
             compat: None,
             input: Vec::new(),
@@ -250,6 +252,11 @@ impl<D: DataSource> Bridge<D> {
     }
     /// Commit the prepared runner, or restore its predecessor after staging failed.
     pub fn finish_boot(&mut self, commit: bool) {
+        if commit && self.surface_transaction {
+            if let (Some(host), Some(previous)) = (&mut self.host, &mut self.retained_host) {
+                std::mem::swap(host.runner_mut().data(), previous.runner_mut().data());
+            }
+        }
         if !commit {
             if let Some(host) = self.retained_host.take() {
                 self.host = Some(host);
@@ -257,6 +264,33 @@ impl<D: DataSource> Bridge<D> {
         }
         self.retained_host = None;
         self.boot_transaction = false;
+        self.surface_transaction = false;
+    }
+
+    /// Stage GPU publications against an isolated copy of the CURRENT host.
+    /// begin_boot alone reserves a transaction; it does not create this copy.
+    pub fn begin_surface_boot(&mut self, data: D) -> u32 {
+        if !self.begin_boot() {
+            return self.emit(exact_runner::agent::error(
+                "surface staging requires a settled host with no active transaction",
+            ));
+        }
+        let candidate = self
+            .host
+            .as_ref()
+            .ok_or("surface staging requires a booted host")
+            .and_then(|host| host.fork_surface_records(data));
+        match candidate {
+            Ok((host, batch)) => {
+                self.retained_host = self.host.replace(host);
+                self.surface_transaction = true;
+                self.emit(batch)
+            }
+            Err(error) => {
+                self.finish_boot(false);
+                self.emit(exact_runner::agent::error(error))
+            }
+        }
     }
 
     /// Boot from the input buffer's first `len` bytes — the dev loop's
@@ -548,6 +582,11 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_begin_boot() -> u32 {
             EXACT_BRIDGE.with(|b| u32::from(b.borrow_mut().begin_boot()))
+        }
+        /// Copy current UI state for synchronous GPU publication staging.
+        #[no_mangle]
+        pub extern "C" fn exact_begin_surface_boot() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().begin_surface_boot(($new)()))
         }
         /// Commit or roll back the synchronous presenter transaction.
         #[no_mangle]

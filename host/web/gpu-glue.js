@@ -624,7 +624,7 @@ function rebaseStage(module, entries) {
     if (!reply?.reload || reply.error) throw new Error(`surface ${entry.name}: final clock rebase refused`);
   }
 }
-function validatePublications(batch, staged, module, at) {
+function validatePublications(batch, staged, module, at, mount = true) {
   const published = new Map(), ops = [...batch.ops];
   for (let round = 0; round < 16; round++) {
     const bindings = new Map();
@@ -659,7 +659,7 @@ function validatePublications(batch, staged, module, at) {
       // Present only the final bindings; intermediate ones were already applied
       // privately. The HUD deltas join the initial boot in one outer batch.
       batch.ops = ops.filter(op => op.op !== "surface");
-      for (const entry of staged.values()) batch.ops.push({op:"surface",id:entry.view,name:entry.name,values:entry.requestedValues ?? entry.values});
+      if (mount) for (const entry of staged.values()) batch.ops.push({op:"surface",id:entry.view,name:entry.name,values:entry.requestedValues ?? entry.values});
       return;
     }
   }
@@ -727,7 +727,7 @@ async function swap(version, options) {
   await ready;
   if (!current()) return {ms:0,errors:[],stale:true};
   const start = performance.now(), staged = [];
-  let next;
+  let next, hostStage, hostCommitted = false;
   const assertCurrent = () => { if (!current()) throw Object.assign(new Error("obsolete reload candidate"), {stale:true}); };
   try {
     reload.phase = "loading";
@@ -759,10 +759,16 @@ async function swap(version, options) {
       if (intent === "continue" && carry === undefined) restorePending(entry, next, carrier);
       validateStage(entry, next, at);
     }
+    if (staged.some(([,entry])=>entry.stateful || entry.stagedPublication !== undefined)) {
+      if (new Set(staged.map(([,entry])=>entry.name)).size !== staged.length) throw new Error("ambiguous duplicate surface identity; restart required");
+      hostStage = exact.stageCurrent();
+      validatePublications(hostStage.batch, new Map(staged.map(([,entry])=>[entry.view,entry])), next, at, false);
+    }
     assertCurrent();
     rebaseStage(next, staged.map(([,entry])=>entry));
     reload.phase = "ready";
     // The only commitment point. No awaited operation from capture to here.
+    hostStage?.commit(); hostCommitted = true;
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     const oldModule = gpu;
     for (const [old, entry] of staged) {
@@ -777,11 +783,12 @@ async function swap(version, options) {
     oldModule?.gpu_unload();
     if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
     const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
-    try { for (const [,entry] of staged) { watchCheckpoints(entry); attach(entry); } }
+    try { hostStage?.present(); for (const [,entry] of staged) { watchCheckpoints(entry); attach(entry); } }
     finally { exact.applyDepth = depth; drainRecords(); }
     successfulSwap(start, exact.gpuArtifacts?.get(version) ?? options.artifact ?? {version}, staged.map(([,e])=>e), intent, options.timing);
     return { ms:performance.now()-start, errors:[], ...diagnostics() };
   } catch (error) {
+    if (hostStage && !hostCommitted) hostStage.abort();
     if (next && next !== gpu) disposeStage(next, staged.map(([,e])=>e), true);
     if (error.stale) { reload.stale++; return {ms:performance.now()-start,errors:[],stale:true}; }
     if (current()) { reload.phase = "failed"; reload.error = String(error); reload.failures++;

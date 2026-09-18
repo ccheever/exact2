@@ -323,13 +323,14 @@ test('scene content publishes a fresh plan with the cached compiler and retains 
 
 // The Rust integration test supplies a live Bridge over inherited stdio. This
 // avoids substituting a JSON-object check for Contract's actual type checker.
-test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host refuses shapes/bindings atomically and commits the complete HUD', async()=>{
-  function bridge(op,payload='') {
+function candidateHost(op,payload='') {
     writeSync(1,`@exact ${op} ${payload}\n`);
     const byte=Buffer.alloc(1),bytes=[];
     while(readSync(0,byte,0,1,null) && byte[0]!==10) bytes.push(byte[0]);
     return JSON.parse(Buffer.from(bytes).toString());
-  }
+}
+test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host refuses shapes/bindings atomically and commits the complete HUD', async()=>{
+  const bridge=candidateHost;
   const glue=readFileSync(new URL('../glue.js',import.meta.url),'utf8');
   const bootSource=glue.slice(glue.indexOf('async function bootNow('),glue.indexOf('\nlet ready;',glue.indexOf('async function bootNow(')));
   for(const failure of ['shape','binding',null]) {
@@ -385,6 +386,72 @@ test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host refus
       assert.deepEqual(bound.filter(([id])=>id>2).map(([id,values])=>[worlds.get(id).name,values]),[['world',[0]],['other',[0]],['other',[5]],['world',[3]]]);
       const state=bridge('agent','{"op":"state"}');assert.equal(state.clock,1234);assert.equal(state.resources.a.count,2);assert.equal(state.resources.b.count,3);
       assert.equal(f.stagedRecords.length,0);assert.equal(f.records.length,2,'accepted publications were replayed after commit');
+    }
+  }
+});
+
+test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host stages GPU-only Continue/Restart/Restore and preserves current UI identities',async()=>{
+  const bridge=candidateHost,glue=readFileSync(new URL('../glue.js',import.meta.url),'utf8');
+  const stageSource=glue.slice(glue.indexOf('  stageCurrent() {'),glue.indexOf('\n  get ready()',glue.indexOf('  stageCurrent() {')));
+  for(const intent of ['continue','restart','restore']) for(const failure of ['shape','binding','rebase',null]) {
+    const initial=bridge('initial','3');bridge('advance','1234');
+    const rowBatch=bridge('record','rows\0{"items":["row"]}');
+    const row=rowBatch.ops.find(op=>op.op==='create'&&op.props?.['data-testid']==='row').id;
+    bridge('press',`${row} 1234`);bridge('press',`${row} 1234`);
+    const state=()=>bridge('agent','{"op":"state"}'),tree=()=>bridge('agent','{"op":"tree"}');
+    const rowCount=()=>tree().nodes.find(node=>node.props.testId==='row-count').props.text;
+    assert.equal(rowCount(),'2');
+    // A fork's row-slot Rc must be private; boot+carry and a shallow clone both
+    // fail this proof (or the successful-swap row/timer checks below).
+    const beforeFork=tree();assert.equal(bridge('surface-begin').error,null);
+    bridge('press',`${row} 1234`);assert.equal(rowCount(),'3');bridge('finish','0');assert.deepEqual(tree(),beforeFork);
+    let next=0,commits=0,aborts=0;const worlds=new Map(),publications=new Map(),destroyed=[],bound=[],presented=[],rebases=new Map();
+    const module={
+      gpu_create(name){const id=++next;worlds.set(id,{name,values:[],tick:id<=2?42:0,input:[]});return id;},
+      gpu_bind_at(id,json){const world=worlds.get(id),values=JSON.parse(json);bound.push([id,values]);if(id>2&&failure==='binding'&&world.name==='world'&&values[0]===13)return false;world.values=values;
+        publications.set(id,JSON.stringify({count:id<=2?(world.name==='world'?2:3):(world.name==='world'?8:failure==='shape'?'incompatible':13)}));return true;},
+      gpu_published(id){const text=publications.get(id);publications.delete(id);return text;},
+      gpu_carry:id=>new TextEncoder().encode(JSON.stringify(worlds.get(id))),
+      gpu_restore(id,bytes){const saved=JSON.parse(new TextDecoder().decode(bytes));Object.assign(worlds.get(id),{tick:saved.tick,input:saved.input});return true;},
+      gpu_agent(id,text){const q=JSON.parse(text),world=worlds.get(id);if(q.reload){rebases.set(id,(rebases.get(id)??0)+1);if(failure==='rebase'&&id>2&&q.releaseInput===false)return '{"error":"rebase refused"}';if(q.releaseInput)world.input=[];return JSON.stringify({reload:{values:world.values,setupIndices:[],rebased:true,releasedInput:q.releaseInput}});}return JSON.stringify({world:{...world,input:{forwarded:world.input}}});},
+      gpu_input(id,text){const q=JSON.parse(text),world=worlds.get(id);if(q.t==='key')world.input=q.down?[q.code]:[];return true;},
+      gpu_destroy(id){destroyed.push(id);worlds.delete(id);},
+    };
+    const f=await fixture({input:true,now:()=>1234,gpu:module,nextGpu:module});
+    const elements=[];
+    for(const op of initial.ops.filter(op=>op.op==='surface')) {
+      const host=f.create(op.id,op.name,op.values);elements.push(host);
+      host.listeners.keydown({target:host,code:'KeyW',timeStamp:1234});
+    }
+    for(const [name,count] of [['world',2],['other',3]]) {
+      const batch=bridge('record',`${name}\0${JSON.stringify({count})}`);
+      for(const op of batch.ops.filter(op=>op.op==='surface'))f.exact.gpu.surface(op.id,op.name,op.values);
+    }
+    const old=structuredClone([...worlds]),before=state(),beforeTree=tree(),beforeLogs=bridge('agent','{"op":"logs"}'),recordCount=f.records.length;
+    const canvases=elements.map(el=>el.canvas),listeners=elements.map(el=>el.listeners.keyup);
+    const wasm={exact_begin_surface_boot:()=>JSON.stringify(bridge('surface-begin')),exact_finish_boot(commit){commit?commits++:aborts++;bridge('finish',String(commit));}};
+    f.exact.stageCurrent=new Function('wasm','readOut','applyBatch',`return ({${stageSource}}).stageCurrent;`)(wasm,x=>x,batch=>{presented.push(batch);assert.equal(commits,1,'batch escaped before commitment');});
+    f.exact.stageSurfaceRecord=(name,json)=>{assert.equal(commits,0);assert.equal(destroyed.length,0);return bridge('stage',`${name}\0${json}`);};
+    const checkpoints=new Map(initial.ops.filter(op=>op.op==='surface').map(op=>[op.id,new TextEncoder().encode(JSON.stringify({...old.find(([,w])=>w.name===op.name)[1],tick:99,input:['Space']}))]));
+    if(failure) {
+      await assert.rejects(f.exact.gpu.swap(1,{intent,checkpoints}),failure==='shape'?/publication.*count.*Number/:failure==='binding'?/publication bind/:/rebase refused/);
+      assert.equal(commits,0);assert.equal(aborts,1);assert.deepEqual(presented,[]);
+      assert.deepEqual([...worlds],old);assert.deepEqual(state(),before);assert.deepEqual(tree(),beforeTree);assert.deepEqual(bridge('agent','{"op":"logs"}'),beforeLogs);
+      assert.deepEqual(elements.map(el=>el.canvas),canvases);assert.deepEqual(elements.map(el=>el.listeners.keyup),listeners);
+      assert.ok(destroyed.every(id=>id>2));assert.equal(f.exact.gpu.version,0);assert.ok(!f.order.includes('old unload'));
+      elements[0].listeners.keyup({target:elements[0],code:'KeyW',timeStamp:1234});assert.deepEqual(worlds.get(1).input,[],'old held input could not be released after refusal');
+    } else {
+      await f.exact.gpu.swap(1,{intent,checkpoints});
+      assert.equal(commits,1);assert.equal(aborts,0);assert.equal(presented.length,1);assert.deepEqual(destroyed,[1,2]);
+      assert.deepEqual([...worlds.values()].map(w=>w.values),[[13],[21]],'resulting cross-world bindings did not settle');
+      assert.ok([...worlds.values()].every(w=>w.tick===(intent==='restart'?0:intent==='restore'?99:42)&&w.input.length===0));
+      assert.ok(presented[0].ops.some(op=>op.op==='props'&&op.set?.text==='new 8/13'));
+      assert.ok(!presented[0].ops.some(op=>['create','destroy','surface','roots'].includes(op.op)),'swap rebuilt UI or replayed already-applied bindings');
+      assert.equal(state().clock,1234);assert.deepEqual(state().slots,before.slots);assert.equal(rowCount(),'2');
+      assert.deepEqual(tree().nodes.map(node=>node.id),beforeTree.nodes.map(node=>node.id));
+      bridge('advance','1999');assert.deepEqual(state().slots,before.slots);bridge('advance','2000');assert.equal(state().slots.n,before.slots.n+1,'timer deadline was restarted');
+      bridge('press',`${row} 2000`);assert.equal(rowCount(),'3','committed row frame lost its own slot storage');
+      assert.equal(f.records.length,recordCount,'validated publications escaped after commit');
     }
   }
 });
