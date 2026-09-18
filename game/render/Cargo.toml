@@ -16,6 +16,7 @@ serde_json = "1"
 web-sys = { version = "0.3", features = ["Window", "Performance"] }
 
 [dev-dependencies]
+exact-game-physics = { path = "../physics" }
 lanterns-logic = { path = "../games/lanterns/logic" }
 exact-game-scene = { path = "../scene" }
 exact-game-audio = { path = "../audio" }

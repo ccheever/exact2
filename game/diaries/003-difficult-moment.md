@@ -197,11 +197,11 @@ cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test difficult_mo
 cargo test --manifest-path game/Cargo.toml -p exact-game-render difficult_moment_cost -- --ignored --nocapture
 ```
 
-Set `EXACT_I3_OUT` to a directory to retain full observations; fixture changes
-require the explicit `EXACT_I3_RECORD=1` mode. The ordinary deterministic test
-never rewrites pins. The original game proof hashes and unedited continuation pins are unchanged.
-Only the explicitly edited I3 rows and versioned save fixtures are regenerated;
-the root workspace gains no game dependency.
+Set `EXACT_I3_OUT` to a directory to retain full observations. E1 freezes the
+source, scene and fixtures under `game/verification/lanterns` and removes the
+former `EXACT_I3_RECORD` writer. The deterministic test still compares every
+recorded byte and continuation. Current-game changes use
+`bun game/proof.mjs lanterns --repin`; the historical evidence stays unchanged.
 
 
 ## Original I3 verification (before T2)

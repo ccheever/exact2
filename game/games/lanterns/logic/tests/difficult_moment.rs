@@ -3,7 +3,7 @@
 #![allow(clippy::duplicate_mod)]
 use exact_game::{Args, Game, InputEvent, Sim};
 #[allow(dead_code)]
-#[path = "../../../../verification/lanterns/game.rs"]
+#[path = "../../../../verification/lanterns/mod.rs"]
 mod historical;
 use historical::{Lanterns, Options};
 use serde_json::{json, Value};

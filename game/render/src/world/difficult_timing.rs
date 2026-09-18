@@ -1,5 +1,8 @@
 use super::*;
-use lanterns_logic::{Lanterns, Options};
+#[allow(dead_code)]
+#[path = "../../../verification/lanterns/game.rs"]
+mod historical;
+use historical::{Lanterns, Options};
 use std::{path::PathBuf, time::Instant};
 
 // Measures the real feed algorithm with CPU copies at its Writes seam. Sampling
@@ -7,12 +10,12 @@ use std::{path::PathBuf, time::Instant};
 #[test]
 #[ignore = "I3 120-tick CPU simulation / animation / feed medians, no GPU"]
 fn difficult_moment_cost() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games/lanterns");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../verification/lanterns");
     let bytes = std::fs::read(root.join("fixtures/difficult-moment.sim")).unwrap();
     let mut sim = Sim::<Lanterns>::new(Options {
         scene: exact_game_scene::bake::compile(
             root.join("scene.json"),
-            &lanterns_logic::scene_types(),
+            &historical::scene_types(),
             Lanterns::assets(),
         )
         .unwrap()
@@ -91,13 +94,13 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
             Lanterns::tick(w, input, args);
         }
     }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../games/lanterns");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../verification/lanterns");
     let bytes = std::fs::read(root.join("fixtures/difficult-moment.sim")).unwrap();
     let mut old = Sim::<Lanterns>::from_save(&bytes).unwrap();
     let mut sim = Sim::<Edited>::new(Options {
         scene: exact_game_scene::bake::compile(
             root.join("scene.json"),
-            &lanterns_logic::scene_types(),
+            &historical::scene_types(),
             Lanterns::assets(),
         )
         .unwrap()
@@ -125,12 +128,12 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
     old.agent(r#"{"op":"clock","ticks":1}"#);
     assert_eq!(
         old.world()
-            .get::<lanterns_logic::Lantern>("lantern-12")
+            .get::<historical::Lantern>("lantern-12")
             .unwrap()
             .glow
             .value(old.world().now()),
         sim.world()
-            .get::<lanterns_logic::Lantern>("lantern-12")
+            .get::<historical::Lantern>("lantern-12")
             .unwrap()
             .glow
             .value(sim.world().now())

@@ -1258,8 +1258,9 @@ nonzero linear and angular velocity, with the same four edits.
 Run the deterministic probe with
 `cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test difficult_moment`.
 `EXACT_I3_OUT=<directory>` additionally writes full fresh/restored/continued state
-and journals. `EXACT_I3_RECORD=1` deliberately regenerates these new diagnostic
-fixtures; normal tests only compare them. Existing game proof pins are unchanged.
+and journals. E1 freezes these historical engine fixtures and their source in
+`verification/lanterns`; the former `EXACT_I3_RECORD` writer is removed. Current
+Lanterns pins use `bun game/proof.mjs lanterns --repin`.
 CPU timing is opt-in:
 `cargo test --manifest-path game/Cargo.toml -p exact-game-render difficult_moment_cost -- --ignored --nocapture`.
 It uses the existing recording feed backend, times actual CPU animation sampling
