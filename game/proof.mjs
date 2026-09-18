@@ -10,10 +10,6 @@ import { resolveApp } from '../scripts/app.mjs';
 
 export function artifactDigest(host, dist, artifacts) {
   try {
-    if (host === 'web') return createHash('sha256').update(readFileSync(resolve(dist, 'exact.json'))).digest('hex');
-    if (!existsSync(artifacts.bundle)) return null;
-    const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
-    if (!existsSync(executable)) return null;
     const manifest = [];
     const walk = (dir, prefix) => {
       for (const name of readdirSync(dir).sort()) {
@@ -22,11 +18,18 @@ export function artifactDigest(host, dist, artifacts) {
         else manifest.push([key, createHash('sha256').update(readFileSync(path)).digest('hex')]);
       }
     };
-    walk(artifacts.bundle, 'bundle');
-    // The driver launches the standalone product on macOS, loading its adjacent dylibs/assets.
-    if (artifacts.binary) {
-      readFileSync(artifacts.binary); // A missing actual carrier always invalidates the receipt.
-      walk(artifacts.products ?? resolve(artifacts.binary, '..'), 'product');
+    if (host === 'web') {
+      readFileSync(resolve(dist, 'exact.json'));
+      walk(dist, 'dist');
+    } else {
+      const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
+      readFileSync(executable);
+      walk(artifacts.bundle, 'bundle');
+      // The driver launches the standalone product on macOS, loading its adjacent dylibs/assets.
+      if (artifacts.binary) {
+        readFileSync(artifacts.binary); // A missing actual carrier always invalidates the receipt.
+        walk(artifacts.products ?? resolve(artifacts.binary, '..'), 'product');
+      }
     }
     return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
   } catch { return null; }

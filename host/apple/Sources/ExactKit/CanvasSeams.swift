@@ -120,7 +120,14 @@ extension Canvases {
     func input(_ view: NodeView, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
         guard let e = live(view.id), e.view === view, e.wantsInput,
               event["t"] as? String == "blur" || (!view.disabled && !view.inert),
-              let s = session, let m = module, let send = m.input else { return false }
+              let m = module else { return false }
+        return input(e, m, event, timestamp: timestamp)
+    }
+
+    /// Already-owned surface/device identity, including a held key's final release.
+    @discardableResult
+    func input(_ e: Entry, _ m: GpuModule, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
+        guard let s = session, let send = m.input else { return false }
         var value = event
         value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now()
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
@@ -242,6 +249,13 @@ extension Agent {
         return reply
     }
 
+    /// A held key releases its original surface without resolving or focusing a view.
+    func releaseCanvasKey(_ request: [String: Any]) -> [String: Any]? {
+        guard request["phase"] as? String == "up", let token = request["releaseKey"] as? String else { return nil }
+        // A failed down may never have installed its closure; release is still safe.
+        return keyReleases.removeValue(forKey: token)?() ?? ["phase": "up", "delivery": "recognized"]
+    }
+
     func canvasType(_ view: NodeView, _ request: [String: Any]) -> [String: Any] {
         guard let e = session.canvases.live(view.id), e.view === view else { return ["error": "view \(view.id) has no world"] }
         guard e.wantsInput else { return ["error": "view \(view.id)'s surface does not take input"] }
@@ -249,6 +263,19 @@ extension Agent {
         let phase = request["phase"] as? String
         guard phase == nil || phase == "down" || phase == "up" else { return ["error": "key: not a phase: \(phase!)"] }
         guard view.focusCanvas() else { return ["error": "view \(view.id) could not take focus"] }
+        if phase == "down", let token = request["releaseKey"] as? String, let module = session.canvases.module {
+            let surface = e.id
+            keyReleases[token] = { [weak self, weak e] in
+                let reply: [String: Any] = ["typed": view.id, "key": key, "phase": "up", "delivery": "recognized"]
+                // Destruction removes the held device state too. Never send to a replacement.
+                guard let self, let e, self.session.canvases.entries[view.id] === e,
+                      e.id == surface else { return reply }
+                guard self.session.canvases.input(e, module, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) else {
+                    return ["error": "view \(view.id)'s surface refused key release"]
+                }
+                return reply
+            }
+        }
         for step in phase.map({ [$0] }) ?? ["down", "up"] {
             guard session.canvases.input(view, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else {
                 return ["error": "view \(view.id)'s surface refused input"]

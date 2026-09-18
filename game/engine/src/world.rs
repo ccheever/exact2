@@ -49,11 +49,17 @@ impl Target for &str {
 }
 
 /// A named kind of per-entity data. Names must be unique within a world.
+/// Semantic state has no interior mutability; derives introduce none. A manual
+/// implementation that mutates semantic state through a shared reference is outside
+/// the [`Data`] contract: quiescence and the hash cache are undefined for it.
 pub trait Component: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
 }
 /// World-owned singleton data, named by the Resource derive.
+/// Semantic state has no interior mutability; derives introduce none. A manual
+/// implementation that mutates semantic state through a shared reference is outside
+/// the [`Data`] contract: quiescence and the hash cache are undefined for it.
 ///
 /// ```compile_fail
 /// use exact_game::{World, Transform};
@@ -533,6 +539,8 @@ impl World {
         self.rng().pick(items)
     }
     /// Append an event to the bounded 4,096-line journal.
+    /// The journal is telemetry: a record outside the world hash and observation,
+    /// so a read that logs must not change the world's course or mutation epoch.
     pub fn log(&self, line: impl std::fmt::Display) {
         let mut j = self.journal.borrow_mut();
         if j.len() == 4096 {

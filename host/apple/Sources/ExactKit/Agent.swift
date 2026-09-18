@@ -27,6 +27,7 @@ public final class Agent {
     /// cannot hold one and says so.
     var contact: CGPoint? = nil
     weak var canvasContact: NodeView?
+    var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
@@ -105,7 +106,7 @@ public final class Agent {
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
         case "tap": let r = tap(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
-        case "type": let r = type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "clock": Agent.reply(tagged(clock(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         case "logs":

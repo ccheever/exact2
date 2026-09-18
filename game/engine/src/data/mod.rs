@@ -11,6 +11,16 @@ pub mod json;
 
 /// State that can survive a save, level load, or code reload.
 ///
+/// Semantic state has no interior mutability; derives introduce none. A manual
+/// implementation that changes semantic state through a shared reference is outside
+/// this contract: quiescence and the hash cache are undefined for it.
+///
+/// ```compile_fail
+/// use exact_game::Data;
+/// #[derive(Default, Data)]
+/// struct Mutable { value: std::cell::Cell<u32> }
+/// ```
+///
 /// Records keep fields the input lacks; sequences, maps and options are replaced whole.
 ///
 /// Array implementations require the array itself to implement Default. Rust

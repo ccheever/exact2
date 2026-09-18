@@ -113,6 +113,12 @@ bit. What that costs, and the only rules a game author must remember:
 3. No `HashMap` iteration in a tick, no threads in a tick.
 4. State lives in components and resources, nowhere else.
 
+The journal is telemetry: a record outside the world hash and observation, so a
+read that logs (such as a malformed agent request) must not change the world's course.
+Semantic `Data` has no interior mutability: derives introduce none; a manual
+implementation that changes semantic state through a shared reference is outside
+this contract, and quiescence and the hash cache are undefined for it.
+
 Pixels are held to a band; simulation state is held exactly. The two game proofs
 and saved physics pile demonstrate this on arm64 macOS, x86-64 Linux and Chrome
 wasm; unexercised engine APIs do not inherit a measured parity claim.

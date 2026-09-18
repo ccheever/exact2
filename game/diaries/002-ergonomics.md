@@ -519,3 +519,37 @@ review's approximate 90°. The host bound is sixteen rounds, but only fifteen
 world follow-ups after the initial read. The requested cases are repaired; the
 publication counterexample prevents claiming quiescence complete, and the clock
 measurements prevent claiming a performance improvement.
+
+# G1d — closing the remaining quiescence edges
+
+2026-09-17, `lane/game`. One agent, no clones, stash or commit. The mutation
+sample rule is unchanged. The remaining changes and their tests are:
+
+| Change | Regression |
+|---|---|
+| Document the journal as telemetry, outside observation, hash and mutation epoch. | `g1d::logging_refusal_preserves_rest_and_hash`: a malformed agent read adds a journal line while preserving epoch, rest and hash. This behavior already passed before the documentation change. |
+| Document semantic Data's prohibition on interior mutability on Data, Component, Resource and in the README; manual implementations violating it have undefined quiescence/hash-cache behavior. No enforcement added. | Data's new compile-fail doctest shows that deriving a semantic `Cell<u32>` field is already refused. |
+| Apply the Ambient presence mask to erased moving, moving-reason and deadline scans; resources receive no entity mask. | Three `g1d::ambient_*` tests: a live ten-second Tween neither blocks rest, appears in changing, nor selects settleAt. All three failed before and pass after. |
+| Report both paused and queued input. | `g1d::paused_queued_input_explains_why_it_is_not_quiescent`: queue a future key before pausing; failed before, passes after. Input delivered while already paused intentionally updates held state directly. |
+| Await asynchronous step tags and retain the native carrier's release closure. Swift stores the original surface/module identity; release bypasses view resolution and focus, and cannot deliver to a replacement. | `proof.test.mjs`: asynchronous tags survive JSON serialization on success and clock failure; native canvas-removal carrier fixtures fail before and pass after. Browser canvas-removal coverage now includes both successful and failed clocks. These carrier fixtures exercise the actual JS key functions with device/host seams supplied by the fixture; the macOS proof also exercises the real Swift held-key path. |
+| Hash all web dist paths/content in sorted order. | `proof.test.mjs`: asset changes, additions, deletion/rename and creation-order independence. Failed before, passes after. The new standalone-game-dylib receipt test also verifies cache misses with unchanged source inputs; native whole-bundle/product hashing was already correct. |
+
+Validation, with `EXACT_UPDATE_TRUST=development`, all local:
+
+- Game workspace build; `cargo test --workspace --no-fail-fast`: **272 passed,
+  zero failed, six ignored diagnostics**, including 19 exact-game doctests.
+- Workspace clippy, all targets with warnings denied; fmt check.
+- `bun test game/proof.test.mjs`: **13 passed, 52 assertions**; existing driver
+  transcript fixture matches. Both held-key step receipts contain resolved tags.
+- Greybox web **13.872 s**, Beacons web **15.437 s**, greybox macOS **56.954 s**:
+  zero failures, no recorded children remaining. Existing hash pins unchanged;
+  browser proofs continue whole saves byte-for-byte. macOS retains its existing
+  screenshot-permission and browser-metrics skips.
+- Staged caps and boot pass; staged whitespace check passes. Swift used a temporary
+  wrapper adding `--build-system native` only to `swift build`; it was removed.
+  No native Cargo step wedged, so the Linux builder was not needed.
+
+Logs are in `game/target/g1d/`. An additional, non-required attempt to run the broad
+`scripts/caps.test.mjs` harness under `bun test` produced empty-output fixture
+failures and was stopped, including its recorded child; it is not a passing
+result. The direct required caps check passed. No unrelated process was stopped.

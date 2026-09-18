@@ -581,7 +581,11 @@ impl<G: Game> Sim<G> {
     }
     pub(crate) fn changing(&self, quiescent: bool) -> Vec<String> {
         if G::paused(&self.args) {
-            return vec!["paused".into()];
+            return if self.queue.is_empty() {
+                vec!["paused".into()]
+            } else {
+                vec!["paused".into(), "input queued".into()]
+            };
         }
         if quiescent {
             return vec![];

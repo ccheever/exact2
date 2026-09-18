@@ -3,7 +3,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {artifactDigest, closeSessions} from './proof.mjs';
-import {typeArguments, typeFor, browserKey, render} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -69,16 +69,20 @@ test('inventory failure clears the timer before unconditional session cleanup', 
   expect(calls).toEqual(['first','session cleanup','second']);
 });
 
-test('held key release survives removal of its canvas', async () => {
+for (const fails of [false, true]) test(`browser held key release survives canvas removal (clock failure=${fails})`, async () => {
   let canvas = true, down = false;
   const carrier = {input: async (id, _, opts) => browserKey({id, opts,
     evaluate: async () => { if (!canvas) throw new Error('canvas removed'); return true; },
     ask: async () => { if (!canvas) throw new Error('canvas removed'); return {ok:true}; },
     call: async (_, event) => { down=event.type==='keyDown'; }, frame: async () => {},
   })};
-  await typeFor({node:{id:17},target:'world',options:{key:'KeyW',for:10},carrier,
-    clock:async () => {canvas=false; return {};},tagged:r=>r});
+  let failure;
+  try { await typeFor({node:{id:17},target:'world',options:{key:'KeyW',for:10},carrier,
+    clock:async () => {canvas=false; if (fails) throw new Error('clock failed'); return {};},tagged:async r=>r}); }
+  catch(error) {failure=error;}
   expect(down).toBe(false);
+  if (fails) expect(failure.message).toBe('clock failed');
+  else expect(failure).toBeUndefined();
 });
 
 test('native receipt changes with game dylibs and embedded plan/assets', () => {
@@ -91,5 +95,93 @@ test('native receipt changes with game dylibs and embedded plan/assets', () => {
       writeFileSync(resolve(bundle,file),'before'); const before=artifactDigest('macos',dir,{bundle});
       writeFileSync(resolve(bundle,file),'after'); expect(artifactDigest('macos',dir,{bundle})).not.toBe(before);
     }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('held key receipts await asynchronous tags on success and failure', async () => {
+  for (const fails of [false, true]) {
+    const carrier = {input: async (_, __, {phase}) => ({phase, delivery:'recognized'})};
+    const tagged = async reply => { await Promise.resolve(); return {...reply, epoch:7}; };
+    let result;
+    try {
+      result = await typeFor({node:{id:17},target:'world',options:{key:'KeyW',for:10},carrier,tagged,
+        clock:async () => {if (fails) throw new Error('clock failed'); return {now:10};}});
+    } catch (error) { result = error; }
+    const steps = JSON.parse(JSON.stringify(result.steps));
+    expect(steps[0].reply).toMatchObject({epoch:7,phase:'down',delivery:'recognized'});
+    expect(steps[2].reply).toMatchObject({epoch:7,phase:'up',delivery:'recognized'});
+    if (!fails) expect(result.delivery).toBe('recognized');
+  }
+});
+test('web receipts bind every dist path and byte in deterministic order', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'g1d-web-'));
+  try {
+    writeFileSync(resolve(dir,'exact.json'),'manifest');
+    mkdirSync(resolve(dir,'assets'));
+    writeFileSync(resolve(dir,'assets/texture.bin'),'one');
+    const original=artifactDigest('web',dir);
+    rmSync(resolve(dir,'exact.json'));
+    writeFileSync(resolve(dir,'exact.json'),'manifest'); // Opposite creation order, identical manifest.
+    expect(artifactDigest('web',dir)).toBe(original);
+    writeFileSync(resolve(dir,'assets/texture.bin'),'two');
+    expect(artifactDigest('web',dir)).not.toBe(original);
+    writeFileSync(resolve(dir,'assets/texture.bin'),'one');
+    expect(artifactDigest('web',dir)).toBe(original);
+    writeFileSync(resolve(dir,'gpu_bg.wasm'),'module');
+    expect(artifactDigest('web',dir)).not.toBe(original);
+    rmSync(resolve(dir,'gpu_bg.wasm'));
+    expect(artifactDigest('web',dir)).toBe(original);
+    rmSync(resolve(dir,'assets/texture.bin'));
+    writeFileSync(resolve(dir,'assets/renamed.bin'),'one');
+    expect(artifactDigest('web',dir)).not.toBe(original);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+for (const fails of [false, true]) test(`native held key owns release after canvas removal (clock failure=${fails})`, async () => {
+  let canvas=true, down=false, focused=0;
+  const releases=new Map();
+  const ask=async request => {
+    if (request.releaseKey && request.phase === 'up') {
+      const release=releases.get(request.releaseKey);
+      expect(release).toBeDefined();
+      releases.delete(request.releaseKey);
+      release();
+      return {phase:'up',delivery:'recognized'};
+    }
+    if (!canvas) return {error:'canvas removed'};
+    focused++;
+    down=request.phase === 'down';
+    if (request.releaseKey) releases.set(request.releaseKey, () => {down=false;});
+    return {phase:request.phase,delivery:'recognized'};
+  };
+  const carrier={input:async (id, _, opts) => nativeKey({id,opts,ask})};
+  let failure;
+  try { await typeFor({node:{id:17},target:'world',options:{key:'KeyW',for:10},carrier,tagged:async r=>r,
+    clock:async () => {canvas=false; if (fails) throw new Error('clock failed'); return {};}}); }
+  catch(error) {failure=error;}
+  expect(down).toBe(false);
+  expect(focused).toBe(1);
+  expect(releases.size).toBe(0);
+  if (fails) expect(failure.message).toBe('clock failed');
+  else expect(failure).toBeUndefined();
+});
+
+test('native receipt cache misses when only the standalone game dylib changes', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'g1d-native-')), bundle=resolve(dir,'Game.app'), products=resolve(dir,'products');
+  try {
+    mkdirSync(resolve(bundle,'Contents/MacOS'),{recursive:true});
+    mkdirSync(products);
+    writeFileSync(resolve(bundle,'Contents/MacOS/ExactMac'),'bundled executable');
+    const binary=resolve(products,'ExactMac'), dylib=resolve(products,'libgreybox_gpu.dylib');
+    writeFileSync(binary,'standalone executable');
+    writeFileSync(dylib,'game before');
+    const artifacts={bundle,binary,products};
+    const stamp=() => JSON.stringify({inputs:'unchanged sources',artifact:artifactDigest('macos',dir,artifacts)});
+    const cached=stamp();
+    expect(stamp()).toBe(cached);
+    writeFileSync(dylib,'game after');
+    expect(stamp()).not.toBe(cached);
+    rmSync(dylib);
+    expect(stamp()).not.toBe(cached);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });

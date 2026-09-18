@@ -255,9 +255,14 @@ pub(crate) trait Erased {
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
     );
-    fn moving(&self, now: crate::Now) -> bool;
-    fn visit_moving(&self, now: crate::Now, visit: &mut dyn FnMut(usize) -> bool);
-    fn settle_tick(&self, now: crate::Now) -> Option<u64>;
+    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool;
+    fn visit_moving(
+        &self,
+        now: crate::Now,
+        skip: Option<&Storage<crate::Ambient>>,
+        visit: &mut dyn FnMut(usize) -> bool,
+    );
+    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
@@ -321,10 +326,10 @@ impl<C: Data> Erased for Storage<C> {
     fn has(&self, index: usize) -> bool {
         self.has(index)
     }
-    fn moving(&self, now: crate::Now) -> bool {
+    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         let _lease = self.lease(false);
         self.mask.iter().enumerate().any(|(word, &bits)| {
-            let mut bits = bits;
+            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
             while bits != 0 {
                 let i = word * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
@@ -336,10 +341,15 @@ impl<C: Data> Erased for Storage<C> {
             false
         })
     }
-    fn visit_moving(&self, now: crate::Now, visit: &mut dyn FnMut(usize) -> bool) {
+    fn visit_moving(
+        &self,
+        now: crate::Now,
+        skip: Option<&Storage<crate::Ambient>>,
+        visit: &mut dyn FnMut(usize) -> bool,
+    ) {
         let _lease = self.lease(false);
         for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
+            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
             while bits != 0 {
                 let i = word * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
@@ -350,11 +360,11 @@ impl<C: Data> Erased for Storage<C> {
             }
         }
     }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
+    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64> {
         let _lease = self.lease(false);
         let mut at = now.tick;
         for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
+            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
             while bits != 0 {
                 let i = word * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;

@@ -454,8 +454,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    const ask = async (req) => {
-      const reply = lines.ask(state.session ? { ...req, session: state.session } : req);
+    const ask = async (req, session = state.session) => {
+      const reply = lines.ask(session ? { ...req, session } : req);
       if (!device) return reply;
       let timer;
       try {
@@ -471,9 +471,13 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
       async input(id, kind, opts) {
+        if (kind === 'key') {
+          const session = state.session;
+          return nativeKey({id, opts: linux ? {...opts, ownedRelease:false} : opts, ask: req => ask(req, session)});
+        }
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
-        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -555,7 +559,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
-    const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
+    const ask = (req, session = state.session) => lines.ask(session ? { ...req, session } : req);
     // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
     // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
     // mouse on the Mac's desktop, posted into the Simulator's window by
@@ -677,6 +681,10 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       pointer: true,
       ask,
       async input(id, kind, opts) {
+        if (kind === 'key') {
+          const session = state.session;
+          return nativeKey({id, opts, ask: req => ask(req, session)});
+        }
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
           if (kind === 'down' || canvasContact) {
@@ -689,7 +697,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
           }
           return phaseSim(kind, id, opts);
         }
-        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -940,6 +948,22 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
 }
 
+/** Native key carrier shared by stdio, phone and simulator. */
+export async function nativeKey({id, opts, ask}) {
+  const releaseKey = opts.phase === 'down' && opts.ownedRelease ? randomBytes(16).toString('hex') : undefined;
+  const {ownedRelease, ...input} = opts;
+  const release = async () => {
+    const r = await ask({op:'type', releaseKey, phase:'up'});
+    if (r.error) throw new Error(r.error);
+    return r;
+  };
+  try {
+    const r = await ask({op:'type', id, ...input, ...(releaseKey ? {releaseKey} : {})});
+    if (r.error) throw new Error(r.error);
+    return {...r, ...(releaseKey ? {release} : {})};
+  } catch (error) { if (releaseKey) error.release = release; throw error; }
+}
+
 /** Held-key form: one resolved carrier, including release after a failed clock. */
 export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
   const {for: duration, ...held} = options, key = String(held.key), steps = [];
@@ -947,10 +971,10 @@ export async function typeFor({node, target, options, carrier, clock, tagged, de
   const send = async phase => {
     const args = [target, {...held, phase}];
     try {
-      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase});
+      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase, ownedRelease:true});
       const {release: ownedRelease, ...r} = result;
       if (phase === 'down') release = ownedRelease;
-      const reply = tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
+      const reply = await tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
       steps.push({op:'type', args, reply});
     } catch (error) { release ??= error.release; steps.push({op:'type', args, error:error.message}); throw error; }
   };

@@ -42,13 +42,14 @@ impl World {
             && !self
                 .components
                 .values()
+                .map(|s| (s, self.storage::<crate::Ambient>()))
                 .chain(
                     self.resources
                         .iter()
                         .filter(|(name, _)| !self.registry[*name].ambient)
-                        .map(|(_, s)| s),
+                        .map(|(_, s)| (s, None)),
                 )
-                .any(|s| s.moving(self.now()))
+                .any(|(s, skip)| s.moving(self.now(), skip))
     }
     pub(crate) fn unobserve(&mut self) {
         self.observation = ObservationState::Unknown;
@@ -64,7 +65,7 @@ impl World {
             if reasons.len() == 8 {
                 break;
             }
-            storage.visit_moving(self.now(), &mut |index| {
+            storage.visit_moving(self.now(), self.storage::<crate::Ambient>(), &mut |index| {
                 let e = self.entity_at(index);
                 let reason = format!(
                     "{}.{}",
@@ -83,7 +84,7 @@ impl World {
             if reasons.len() == 8 {
                 break;
             }
-            if !self.registry[name].ambient && storage.moving(self.now()) {
+            if !self.registry[name].ambient && storage.moving(self.now(), None) {
                 let reason = format!("resource.{name}");
                 if !reasons.contains(&reason) {
                     reasons.push(reason);
@@ -110,14 +111,15 @@ impl World {
         }
         self.components
             .values()
+            .map(|s| (s, self.storage::<crate::Ambient>()))
             .chain(
                 self.resources
                     .iter()
                     .filter(|(name, _)| !self.registry[*name].ambient)
-                    .map(|(_, s)| s),
+                    .map(|(_, s)| (s, None)),
             )
-            .try_fold(self.tick(), |at, s| {
-                Some(at.max(s.settle_tick(self.now())?))
+            .try_fold(self.tick(), |at, (s, skip)| {
+                Some(at.max(s.settle_tick(self.now(), skip)?))
             })
     }
     pub(crate) fn begin_tick(&mut self) {
