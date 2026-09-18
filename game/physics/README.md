@@ -5,9 +5,11 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
-  Synchronization visits bodies and changed 1,024-slot static pages. A bodyless
-  collider's own page and all ancestor Transform/Parent pages determine dirtiness;
-  component membership, world identity and load invalidate the derived page cache.
+  Synchronization visits bodies and changed static rows. Page generations gate
+  comparisons of cached local Transform/Parent values; ancestors are keyed by entity,
+  including ancestors without a Transform. A body writing on an ancestor's page
+  does not dirty its descendants. Body/Collider membership, world identity and
+  presentation generation reset the cache; unrelated entity churn does not.
   Dirty rows still merge in entity order before Rapier insertion or mutation.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
@@ -22,63 +24,159 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
   query scene retained in the world's physics executor, outside Data and hashes.
   Drop the scope before structural edits or `step`; the next scope reuses it.
   Body/Collider/Transform/Parent write revisions gate page-generation checks, so
-  same-tick edits are visible on the next operation. Bodyless colliders retain a
-  separate static BVH; only their membership, collider data or global poses rebuild
-  it. Bodies (including explicit static/kinematic bodies) use the dynamic partition.
-  A moving body sharing a page with scenery does not rebuild unchanged static shapes.
-  Raycasts, overlaps and sweeps visit both BVHs with the same entity-order ties.
+  same-tick edits are visible on the next operation. One retained collider/body set
+  now serves all queries, including characters. Static shapes survive body motion;
+  Geometry keeps a collider page generation, pose and handle, not source mesh or
+  heightfield vectors. A changed Collider page conservatively refreshes its shapes.
+  Raycasts and sweeps keep entity-order ties; overlaps sort and deduplicate.
   The free query functions are thin one-shot calls through this same cache.
   `move_character` uses the shared scene. Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
   the character's rigid collider is a sensor.
 
-P1 query/sync measurements, 2026-09-17, release, 2,000-box pour: median of three
-run summaries. Entries with two numbers are p50 / p95 ms. Each row carries its
-three load1 readings. The ray batch includes the first lazy scene build; character
-timing is `move_character` per 60 Hz movement tick against the settled pile,
-without a solver step between movements. The pile timings separately include
-`physics::step` through active and sleeping ticks.
+## Retained queries and performance (T1b2)
 
-| Host / work | Before ms | Before load1 | After ms | After load1 |
-|---|---:|---|---:|---|
-| Mac, 1,000 rays | 652.038 | 21.58/21.58/20.73 | 1.417 | 19.15/19.15/18.10 |
-| Mac, character | 1.108 / 1.330 | 21.58/21.58/20.73 | 0.971 / 1.164 | 19.15/19.15/18.10 |
-| Mac, pile active | 4.463 / 5.868 | 21.58/21.58/20.73 | 3.400 / 3.936 | 19.15/19.15/18.10 |
-| Mac, pile asleep | 0.023 / 0.048 | 21.58/21.58/20.73 | 0.020 / 0.029 | 19.15/19.15/18.10 |
-| Linux, 1,000 rays | 1914.686 | 3.32/3.37/3.18 | 3.991 | 1.85/1.78/1.78 |
-| Linux, character | 2.820 / 2.871 | 3.32/3.37/3.18 | 2.039 / 2.442 | 1.85/1.78/1.78 |
-| Linux, pile active | 7.978 / 8.367 | 3.32/3.37/3.18 | 7.830 / 8.166 | 1.85/1.78/1.78 |
-| Linux, pile asleep | 0.046 / 0.050 | 3.32/3.37/3.18 | 0.045 / 0.048 | 1.85/1.78/1.78 |
+Public signatures are unchanged: `move_character(&mut World, Entity, Vec3)`,
+`step(&mut World)`, `queries(&World) -> Queries<'_>`, and the existing raycast,
+overlap and sweep methods/free functions. Saved Rapier set order and EXPHYS bytes
+are unchanged. Query caches, bounds and partition certificates are derived only.
 
-Rapier's character controller requires a single concrete query pipeline. Its
-combined view is assembled lazily from retained shapes, with the original ordered
-handles and binned BVH to preserve traversal ties and pinned crate pushes. This
-controller-only assembly remains O(n) after relevant geometry changes; ordinary
-ray/overlap/sweep calls do not assemble it.
-A view cannot ignore same-tick edits merely to enforce one rebuild per tick.
-Repeated unchanged scopes/ticks reuse the scene. These reads do not serialize
-or advance the saved solver. `pile -- 2000 --queries` reproduces the timings.
+Rapier's controller needs one concrete pipeline. It now uses the retained query
+set directly; there is no combined copy. Refresh restores only body controls and
+updates changed poses/shapes. Finding the character handle is a map lookup;
+push eligibility and writeback visit bodies, not all colliders.
 
-The ignored `tests/timing.rs` diagnostic measures 600 moving ticks after 20 warmup
-ticks for (static boxes, dynamic bodies) = (100,10), (2,000,10), (20,000,100).
-It reports median step, 1,000-ray and 1,000-overlap batch times separately; the ray
-batch includes the first scene refresh after each step. Run from `game/` with
-`cargo test -p exact-game-physics --release --test timing -- --ignored --nocapture --test-threads=1`.
+A partial BVH refit is used only after certifying that Parry 0.30.2's canonical
+binned build would retain the same partitions and leaf order. Static bin summaries
+are cached; verification visits branches containing bodies. This preserves
+traversal-dependent equal-TOI hits, support and impulses. A changed partition
+rebuilds the canonical BVH from retained bounds. Static edits also rebuild the
+BVH. The certificate deliberately mirrors the pinned Parry splitting algorithm;
+its traversal oracle must keep passing when that dependency changes.
 
-T1b, 2026-09-18, shared x86-64 Linux host, release; each cell is **before → after**
-in microseconds, from that same diagnostic (query batches include both partitions):
+**This is not a worst-case O(changes) guarantee.** Repartitioning still costs O(n),
+and the eight-character timing below exposes the tail. A changed bin grid reuses
+static summaries when their center ranges certify unchanged bins; otherwise it
+rebins that branch's statics. Fully interleaved Body writes still compare local
+values across all dirty pages, although unchanged statics no longer reach solver
+reflection or hierarchy walks. Physics membership changes rebuild ordered query
+sets. These are remaining limits after three controller fix rounds.
 
-| Static / dynamic | Step | 1,000 rays | 1,000 overlaps |
+The following are paired single-run diagnostics on shared x86-64 Linux,
+2026-09-18, release (`opt-level=3`, thin LTO, one codegen unit). **Before** is the
+T1b code at `7de8975`; **after** is T1b2. Both run the same checked `tests/timing.rs`
+fixtures. Timings are not gates. Run from `game/`:
+
+```sh
+cargo test -p exact-game-physics --release --test timing -- --ignored --nocapture --test-threads=1
+# RSS needs a fresh process; results after other fixtures include allocator reuse.
+cargo test -p exact-game-physics --release --test timing retained_terrain -- --ignored --nocapture
+```
+
+**Consecutive movement only:** 20,000 unit static boxes, spaced 3 m on a 100-column
+grid; one/eight characters moving +X at 1 m/s, no solver or intervening queries.
+120 measured batches after 20 warmups; each subsequent call must observe the
+previous character's Transform write. Values are whole-batch **median / p95 µs**.
+Ray/overlap checks bracket the run and every character must advance.
+
+| Characters | Before µs | After µs |
+|---|---:|---:|
+| 1 | 7,931.894 / 8,084.918 | 19.059 / 45.879 |
+| 8 | 64,296.899 / 64,816.382 | 405.498 / 36,400.410 |
+
+The eight-character p95 remains **36.4 ms** because sequential moves can each
+change a canonical partition. The common refit path is much cheaper, but this
+case does not meet a 60 Hz frame budget. Removing that rebuild without changing
+hit order remains work; median improvement is not a claim that this tail is fixed.
+
+**Whole ticks:** the same 20,000 statics, zero gravity, 120 measured ticks after
+20 warmups. Each tick performs the character batch, `step`, then a checked ray
+and overlap. The final query pays refresh for the last character, so the movement
+column alone is not the tick cost. Each cell is **before → after, median µs**.
+Churn spawns/despawns one empty entity before movement. Interleaved allocation
+puts a moving body on every 1,024-slot page; the level root is spawned immediately
+after the first body and all statics are its children.
+
+| Scenario | Character batch | Step | Ray + overlap with refresh |
 |---|---:|---:|---:|
-| 100 / 10 | 16.885 → 17.827 | 265.253 → 278.462 | 463.670 → 491.126 |
-| 2,000 / 10 | 189.729 → 108.838 | 1,132.437 → 528.216 | 618.537 → 632.323 |
-| 20,000 / 100 | 2,399.926 → 133.330 | 8,040.879 → 656.344 | 675.241 → 705.503 |
+| 1 character, statics first | 7,584.438 → 1.202 | 73.630 → 20.962 | 254.947 → 21.216 |
+| 8 characters, statics first | 62,709.589 → 386.720 | 122.544 → 39.188 | 268.873 → 25.448 |
+| 1 character + unrelated churn | 10,569.186 → 1.152 | 3,566.351 → 21.111 | 304.517 → 21.342 |
+| 1 character + interleaved bodies/root | 7,877.253 → 2.354 | 6,445.056 → 753.484 | 5,501.742 → 759.323 |
 
 The extra query partition has a small fixed cost; the large-world savings are
 reflection and scene reconstruction. Cached Lanterns Linux proof wall time was
 0.613 → 0.618 s (single runs, builds excluded); no measured proof speedup.
 The EXPHYS v2 saved-pile tick-600 hash is `0x129ba6d92f9ac217`; static edits, ancestor
 edits, membership/recycling, cache identity/load and query ties have regression tests.
+
+**Moving extrema:** one character outside the same scenery, 120 consecutive
+movement calls after 20 warmups. Continuous movement starts at X=1,000 m; the
+teleport case alternates X=−1,000/+1,000 before each move and forces repartitioning.
+Values are **median / p95 µs**; no solver or intervening queries.
+
+| Scenario | Before µs | After µs |
+|---|---:|---:|
+| Continuous movement beyond scenery | 6,915.586 / 6,982.095 | 17.917 / 18.137 |
+| Teleport across scenery every call | 7,206.407 / 7,463.337 | 4,653.044 / 4,928.197 |
+
+**One static edit:** 1,000 single-static teleports in the 20,000-box world, each
+followed by an asserted ray hit and exact overlap result. Pose-only edits retain
+shapes, but the canonical BVH rebuild remains **O(n) per edit**, as allowed for
+this slice: **9,750.967 → 3,855.286 ms total**, **9,736.008 → 3,832.610 µs median**.
+This is still an unfavorable workload, not an incremental static-tree result.
+
+**Frozen scenery with moving bodies:** statics allocated first, then dynamic boxes
+moving +X at 1 m/s with zero gravity. 600 measured ticks after 20 warmups. The
+1,000-ray batch includes refresh after `step`; the 1,000-overlap batch follows.
+Every ray must hit; every overlap must equal its expected static entity. Each cell
+is **before → after, median µs**.
+
+| Static / dynamic boxes | Step | 1,000 rays | 1,000 overlaps |
+|---|---:|---:|---:|
+| 100 / 10 | 17.651 → 12.489 | 286.579 → 244.317 | 500.530 → 463.790 |
+| 2,000 / 10 | 107.381 → 35.833 | 553.285 → 427.410 | 645.462 → 597.490 |
+| 20,000 / 100 | 135.503 → 89.419 | 672.173 → 573.865 | 719.524 → 668.987 |
+
+**Terrain retention and first use:** isolated processes, one flat 1,024×1,024
+heightfield with 1,000 m X/Z extent, followed by its first ray and first character
+move. Linux RSS is allocator/zero-page dependent, not an allocation census.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| RSS: ECS only, KiB | 3,996 | 3,968 |
+| RSS: after first ray, KiB | 14,304 | 10,224 |
+| RSS: after first character, KiB | 14,832 | 10,560 |
+| First ray, µs | 10,586.257 | 8,433.851 |
+| First character, µs | 555.643 | 7,883.727 |
+
+The query's retained source-vector clone is gone (about 4 MiB less RSS here).
+The first-character latency **regresses**: installing its Body/Collider changes
+membership after the terrain query was built, reconstructing the ordered set;
+the old split retained its static shape through that insertion. Warm movement
+shares the same terrain shape, proved by a shape-identity regression. Query
+Geometry no longer owns any `Collider` or `Body` clone; the saved solver's existing
+last-write state is unchanged.
+
+Behavioral parity runs one/eight characters with carry, support casts, coincident
+equal-TOI static/dynamic obstacles in both insertion orders, overlapping AABBs,
+masks, sensors, pushed bodies and restored controls. It compares ordered hit
+traces, support hits and complete resulting world bytes against a fresh canonical
+single-scene build. This controller oracle does not step its deliberately
+coincident rigid bodies; existing solver snapshot/continuation tests cover step.
+Churn, mixed-page ancestors, static edits, membership/recycling, world identity
+and load have separate regressions. The saved-pile tick-600 pin is now
+`0x129ba6d92f9ac217` from EXPHYS v2; the static-physics changes do not alter it.
+
+Validation on this Linux host: **413 workspace Rust tests passed**, plus all
+**6 release timing diagnostics**. Game workspace clippy (`-D warnings`), formatting,
+root caps and boot pass. Linux proofs pass **54 Beacons, 62 Greybox, 8 Lanterns,
+6 asset-fixture assertions** (130 total). Bun is **38 passed / 2 environmental
+failures**: absent Chrome for the generated-game web proof and missing prebuilt
+60/120 Hz feel artifacts. GPU pixels, browser execution and Apple runtimes were
+not verified here. No public signature, pinned position or hash was changed.
+
+## Saved solver and historical measurements
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.

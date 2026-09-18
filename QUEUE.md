@@ -531,6 +531,16 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - M1 live capture/F2c clock contract: a capture started after live frames at 0/20/40 ms and continued at 60/80/100 ms refuses replay with `captured clock does not match recorded tick boundary`; the seekable version replays at tick 6. F2c retains live frame precision/lookahead outside EXSIM, while DX replay starts a seekable epoch and retains only integer-microsecond advances. Decide how captures preserve or normalize that scheduling input without changing deterministic world/save pins. M2 rechecked with an explicit 60 Hz display period: live replay now refuses earlier with `corrupt checkpoint: semantic state/hash differs`, because save catches the clock up to the tick deadline while capture hashes the pre-catch-up clock; the display period is also absent from replay. Reproducers: `~/lanes/gamenext/scratch/M1/live-capture.rs` and `~/lanes/gamenext/scratch/M2/live-capture.rs`; controlled captures and all four Linux proofs pass.
 - GPU-compressed game textures (after S3a-b): separate `.tex` assets now fit the 64 MiB carrier, with RGBA8 inputs capped at 2048×2048. Bake BC7/ASTC variants selected by host next, retaining named texture deduplication, bounded carrier files and no runtime image decoder.
+- Baked model delivery sizes (S3a): DamagedHelmet's RGBA8 mip chains produce a 112,733,848-byte `.model`, above PlanURL's existing 64 MiB per-asset limit. The GPU fixture renders it, but a native URL generation cannot carry that file. Choose a GPU-ready compression/chunking policy without introducing a runtime image decoder; evidence in `game/artifacts/s3a/report.md`.
+- Physics canonical repartition (T1b2): warm characters retain geometry and certify refits,
+  but partition changes still rebuild O(n). Eight characters/20k statics measure 36.4 ms
+  p95; remove that tail without changing canonical hit order. Static edits remain 3.83 ms/edit.
+- Physics first-character membership (T1b2): installing Body/Collider after a terrain query
+  reconstructs the ordered query set; 1024² heightfield first-move latency rose 0.556 → 7.884 ms.
+  Preserve existing shapes across membership changes without restoring source-vector clones.
+- Rapier coincident-body fixture (T1b2): stepping the initial character parity fixture hit
+  `touching pair (edge 0) not linked in the persistent islands`. Minimize the solver case;
+  the shipped controller oracle compares movement and resulting state without stepping it.
 - Game verification (T1b, Linux): render's world test omits `Beacons::Options.scene`; assets.rs trips clippy type-complexity and engine/render formatting is red. Two surface library fixtures also fail with baseline physics (clock ownership leaves tick zero; restored run binding stays zero). Bun's feel test imports missing `games/beacons/feel.mjs`.
 - Linux proof fixtures (T1b): Beacons has five failures (movement hash, glow and continuation); Greybox has three queued-input/continuation failures, while its setup and movement hash pins pass. Neither game links physics; repair the input/clock and scene expectations without re-pinning to conceal a regression.
 
