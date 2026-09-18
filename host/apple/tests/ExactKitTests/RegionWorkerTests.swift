@@ -5,6 +5,22 @@ import CoreText
 @testable import ExactKit
 
 @MainActor final class RegionWorkerTests: XCTestCase {
+    func testShapeDoesNotEagerlyExpandEveryCaret() {
+        let run = Run(text: String(repeating: "ffi אבג words ", count: 40), size: 16,
+            weight: 400, family: 0, italic: false, lineHeight: 26, letterSpacing: 0)
+        let source = RegionTextSource.capture(Spec(runs: [run], align: 0, lineClamp: 0,
+            color: [0,0,0,255], strut: run), engine: TextEngine(resolve: { _ in nil }))
+        let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+        DispatchQueue(label: "region-lean-shape-test").async {
+            box.value = RegionWorkerLayout.shape(source, width: 120).metadata
+            done.signal()
+        }
+        done.wait()
+        XCTAssertGreaterThan(box.value!.lines.count, 10)
+        XCTAssertTrue(box.value!.lines.allSatisfy { $0.carets.isEmpty },
+            "shape must preserve full lines/extents without eagerly expanding all UTF16 carets")
+        XCTAssertEqual(box.value!.copy(NSRange(location: 0,length: source.utf16Count)), source.text)
+    }
     func testWorkerMetricsAndOwnedHitsMatchOrdinary() {
         let engine = TextEngine(resolve: { _ in nil })
         let values = ["", "Latin e\u{301} العربية אבג 👨‍👩‍👧‍👦 ffi\nnext", String(repeating: "ordinary glyphs ", count: 120)]
@@ -18,7 +34,7 @@ import CoreText
                 let box = RegionTestBox()
                 let done = DispatchSemaphore(value: 0)
                 DispatchQueue(label: "region-test").async {
-                    box.value = RegionWorkerLayout.shape(source, width: width).metadata
+                    box.value = denseRegionReference(RegionWorkerLayout.shape(source, width: width))
                     done.signal()
                 }
                 done.wait()
@@ -66,7 +82,7 @@ import CoreText
                     do {
                         let layout = RegionWorkerLayout.shape(source, width: 320)
                         let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
-                        box.raster = try index.render(request, account: RegionPixelAccount())
+                        box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
                     } catch { box.error = String(describing: error) }
                     done.signal()
                 }
@@ -196,7 +212,7 @@ import CoreText
                 let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
                 DispatchQueue(label: "region-range-parity").async {
                     let layout = RegionWorkerLayout.shape(source, width: width)
-                    box.value = layout.metadata
+                    box.value = denseRegionReference(layout)
                     box.glyphs = layout.lines.map(RegionGlyphEvidence.init)
                     done.signal()
                 }
@@ -262,7 +278,7 @@ import CoreText
                     do {
                         let layout = RegionWorkerLayout.shape(source, width: 163.25)
                         let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
-                        box.raster = try index.render(request, account: RegionPixelAccount())
+                        box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
                     } catch { box.error = String(describing: error) }
                     done.signal()
                 }
@@ -321,4 +337,12 @@ private final class RegionTestGate: @unchecked Sendable {
         started.signal()
         if first { release.wait() }
     }
+}
+
+// Preserve the original exhaustive owned-metadata oracle on the worker. The
+// production shape now intentionally publishes only scalar line geometry.
+private func denseRegionReference(_ layout: RegionWorkerLayout) -> RegionParagraph {
+    let p = layout.metadata
+    return RegionParagraph(source: p.source,lines: layout.lines,baselines: p.baselines,
+        width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
 }

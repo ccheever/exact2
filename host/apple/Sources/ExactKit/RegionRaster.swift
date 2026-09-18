@@ -21,6 +21,7 @@ struct RegionRasterRequest: Sendable {
     let format: UInt32
     let background: [CGFloat]
     let selectionColor: [CGFloat]
+    var interaction: RegionPointRequest? = nil
     // A continuing selection gesture may outlive replacement highlight pixels,
     // but never a source/geometry/palette change. New hits still require all pixels.
     func sameInkAndGeometry(as other: RegionRasterRequest) -> Bool {
@@ -33,6 +34,16 @@ struct RegionRasterRequest: Sendable {
     // Serial is delivery identity; the remaining fields describe exact pixels.
     func samePixels(as other: RegionRasterRequest) -> Bool {
         sameInkAndGeometry(as: other) && rows == other.rows
+    }
+    func sameOutput(as other: RegionRasterRequest) -> Bool {
+        samePixels(as: other) && interaction == other.interaction
+    }
+    func selecting(_ range: NSRange?, artifact: UInt64) -> RegionRasterRequest {
+        var rows = self.rows
+        if let range, let i = rows.firstIndex(where: { $0.artifact == artifact }) { rows[i].selection = range }
+        return RegionRasterRequest(serial: serial,publication: publication,generation: generation,rows: rows,
+            scroll: scroll,size: size,scale: scale,profile: profile,format: format,
+            background: background,selectionColor: selectionColor,interaction: interaction)
     }
     var width: Int { Int(size.width * CGFloat(scale)) }
     var height: Int { Int(size.height * CGFloat(scale)) }
@@ -103,7 +114,14 @@ final class RegionPixels: @unchecked Sendable {
 final class RegionRaster: Sendable {
     let request: RegionRasterRequest
     let pixels: RegionPixels
-    init(_ request: RegionRasterRequest, _ pixels: RegionPixels) { self.request = request; self.pixels = pixels }
+    let hits: RegionViewportHits
+    let intent: RegionRasterRequest
+    let interaction: RegionPointReply?
+    init(_ request: RegionRasterRequest, _ pixels: RegionPixels, hits: RegionViewportHits,
+         intent: RegionRasterRequest, interaction: RegionPointReply?) {
+        self.request = request; self.pixels = pixels; self.hits = hits
+        self.intent = intent; self.interaction = interaction
+    }
     /// Certifies the supplied payload, never an unknown destination CGContext.
     @MainActor func accepts(_ image: CGImage, size: CGSize, scale: Int, profile: NativeProfile) -> Bool {
         guard request.size == size, request.scale == scale, request.profile == profile,
@@ -160,8 +178,29 @@ final class RegionPaintIndex {
         }
         return max(0, lo - 1)
     }
-    func render(_ request: RegionRasterRequest, account: RegionPixelAccount) throws -> RegionRaster {
+    func render(_ intent: RegionRasterRequest, account: RegionPixelAccount,
+                hits accountHits: RegionHitAccount) throws -> RegionRaster {
         precondition(!Thread.isMainThread)
+        guard intent.publication == publication, intent.rows.count == rows.count,
+              zip(intent.rows,rows).allSatisfy({ $0.artifact == $1.artifact && $0.box == $1.box }) else {
+            throw RegionRasterRefusal.missingArtifact
+        }
+        let interaction: RegionPointReply?
+        if let query = intent.interaction {
+            guard let i = intent.rows.firstIndex(where: { $0.artifact == query.artifact }),
+                  query.point.x.isFinite, query.point.y.isFinite,
+                  query.begin.map({ $0.x.isFinite && $0.y.isFinite }) != false,
+                  query.anchor != nil || query.begin != nil else { throw RegionRasterRefusal.invalid }
+            let layout = layouts[i], box = intent.rows[i].box
+            let anchor = query.anchor ?? layout.exactIndex(at: query.begin!,in: box)
+            guard anchor >= 0, anchor <= layout.source.utf16Count else { throw RegionRasterRefusal.invalid }
+            let index = layout.exactIndex(at: query.point,in: box)
+            let selection: NSRange? = query.selectAll ? NSRange(location: 0,length: layout.source.utf16Count)
+                : query.dragged ? NSRange(location: min(anchor,index),length: abs(index-anchor)) : nil
+            interaction = RegionPointReply(query: query,anchor: anchor,index: index,
+                link: layout.metadata.link(at: query.point,in: box,exactIndex: index),selection: selection)
+        } else { interaction = nil }
+        let request = interaction.map { intent.selecting($0.selection,artifact: $0.query.artifact) } ?? intent
         guard request.publication == publication, request.rows.count == rows.count,
               let count = request.bytes else { throw RegionRasterRefusal.invalid }
         guard let charge = account.reserve(count) else { throw RegionRasterRefusal.capacity }
@@ -201,7 +240,11 @@ final class RegionPaintIndex {
             }
             ctx.flush(); return true
         }
-        return RegionRaster(request, pixels)
+        let hits = RegionViewportHits(request: request,lookup: { id in
+            guard let i = request.rows.firstIndex(where: { $0.artifact == id }) else { return nil }
+            return self.layouts[i]
+        },account: accountHits)
+        return RegionRaster(request,pixels,hits: hits,intent: intent,interaction: interaction)
     }
 }
 

@@ -51,6 +51,7 @@ final class RegionService: @unchecked Sendable {
     private var paint: RegionPaintIndex?
     let pixels = RegionPixelAccount()
     let ink = InkAccount()
+    let hits = RegionHitAccount()
 
     init(beforeShape: @escaping @Sendable () -> Void = {},
          beforeLayoutConstruction: @escaping @Sendable () -> Void = {},
@@ -152,7 +153,7 @@ final class RegionService: @unchecked Sendable {
                         paint = try RegionPaintIndex(request: request, lookup: { self.layouts[$0]?.layout }, account: ink)
                     }
                     guard let paint else { return .refused(job, "missing accepted worker paint") }
-                    return .raster(try paint.render(request, account: pixels))
+                    return .raster(try paint.render(request, account: pixels, hits: hits))
                 }
             } catch { return .refused(job, "region worker: \(error)") }
         }

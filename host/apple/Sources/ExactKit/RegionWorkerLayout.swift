@@ -121,8 +121,18 @@ final class RegionWorkerLayout {
         // their rounding also changes wrapping and the established host parity.
         let metadata = RegionParagraph(source: source, lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),
-                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits)
+                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false)
         return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [], metadata: metadata)
+    }
+
+    func exactIndex(at point: CGPoint, in bounds: CGRect) -> Int {
+        precondition(!Thread.isMainThread)
+        if point.y < bounds.minY { return 0 }
+        if point.y > bounds.maxY { return source.utf16Count }
+        guard let i = metadata.lineIndex(at: point.y - bounds.minY) else { return 0 }
+        let value = CTLineGetStringIndexForPosition(lines[i],CGPoint(
+            x: point.x - bounds.minX - metadata.lines[i].flushOffset,y: 0))
+        return value == kCFNotFound ? source.utf16Count : min(max(0,value),source.utf16Count)
     }
 
     static func minimumWidth(_ source: RegionTextSource) -> CGFloat {

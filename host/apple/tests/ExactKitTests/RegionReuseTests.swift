@@ -89,8 +89,20 @@ import XCTest
         let box = CGRect(x: 0,y: 0,width: 320,height: b.metadata.height)
         let point = CGPoint(x: 2,y: b.metadata.firstBaseline)
         XCTAssertEqual(b.metadata.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
-        XCTAssertEqual(b.metadata.link(at: point, in: box), s.link(at: b.metadata.index(at: point,in: box)))
-        XCTAssertFalse(b.metadata.selectionRects(NSRange(location: 0,length: 12), in: box, dirty: box).isEmpty)
+        let cached = b.metadata.cachedIndex(at: point,in: box,artifact: b.id,hits: after.hits)
+        XCTAssertNotNil(cached)
+        XCTAssertEqual(b.metadata.link(at: point,in: box,exactIndex: cached!),s.link(at: cached!))
+        XCTAssertEqual(after.request.rows.first?.selection,NSRange(location: 0,length: 0))
+        let reference = ReuseSelectionReference(), completed = DispatchSemaphore(value: 0)
+        DispatchQueue(label: "reuse-selection-reference").async {
+            let layout = RegionWorkerLayout.shape(s,width: 320), p = layout.metadata
+            let dense = RegionParagraph(source: s,lines: layout.lines,baselines: p.baselines,
+                width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
+            reference.rectangles = dense.selectionRects(NSRange(location: 0,length: 12),in: box,dirty: box)
+            completed.signal()
+        }
+        completed.wait()
+        XCTAssertFalse(reference.rectangles.isEmpty, "original exact worker selection-rectangle oracle remains")
         XCTAssertEqual(h.service.pixels.stats.owners, 2)
         withExtendedLifetime([before,after]) {}
     }
@@ -242,3 +254,5 @@ private final class RegionReuseGate: @unchecked Sendable {
         return value
     }
 }
+
+private final class ReuseSelectionReference: @unchecked Sendable { var rectangles: [CGRect] = [] }

@@ -32,7 +32,10 @@ final class RegionSurfaceMac: NSView {
     private var image: CGImage?
     private var presentation: RegionPresentation?
     private var selections: [UInt64: NSRange] = [:]
-    private var anchor: (artifact: UInt64, index: Int, phase: RegionRasterRequest)?
+    private var contact: RegionContact?
+    private var contactPhase: RegionRasterRequest?
+    private var gestureSerial: UInt64 = 0
+    private var pendingLink: (gesture: UInt64, phase: RegionRasterRequest, href: String)?
     private var dragged = false
     private var visible: RegionVisibleWitness?
     private let pendingLabel = NSTextField(labelWithString: "Preparing viewport…")
@@ -87,7 +90,8 @@ final class RegionSurfaceMac: NSView {
     func publish(_ raster: RegionRaster, image: CGImage, presentation: RegionPresentation) {
         let sourceChanged = self.presentation?.snapshot.publication != presentation.snapshot.publication
         self.raster = raster; self.image = image; self.presentation = presentation
-        if sourceChanged { selections.removeAll(); anchor = nil }
+        if sourceChanged { selections.removeAll(); cancelContact() }
+        if let answer = raster.interaction { acceptInteraction(answer,phase: raster.request) }
         // Only accepted pixels can change the extent used by actual scrolling.
         document.frame = CGRect(origin: .zero, size: CGSize(
             width: max(ink.bounds.width, presentation.extent.width),
@@ -121,17 +125,18 @@ final class RegionSurfaceMac: NSView {
     /// A terminal refusal clears both the display and every input owner now,
     /// rather than waiting for a display pass which may never be scheduled.
     func suspend() {
-        anchor = nil
+        cancelContact()
         clearVisible()
         raster = nil; image = nil; presentation = nil
-        selections.removeAll(); anchor = nil
+        selections.removeAll(); cancelContact()
         ink.needsDisplay = true
     }
     private func clearVisible() {
         visible = nil
         // Hiding stale selection pixels does not cancel their ongoing owner.
         // Every other phase/identity change still retires that owner immediately.
-        if !selectionAnchorIsCurrent { anchor = nil }
+        if !selectionAnchorIsCurrent { contact = nil; contactPhase = nil }
+        if let pendingLink, !phaseIsCurrent(pendingLink.phase) { self.pendingLink = nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         ink.layer?.contents = nil
         CATransaction.commit()
@@ -153,7 +158,7 @@ final class RegionSurfaceMac: NSView {
         CATransaction.commit()
         controller.requestRaster(size: current.size, scale: current.scale, profile: current.profile,
             format: current.format, background: current.background, selectionColor: current.selectionColor,
-            scroll: current.scroll, selections: selections)
+            scroll: current.scroll, selections: selections, interaction: current.interaction)
         // Also match current selection/background when retaining a cached image.
         // An older publication may remain readable while a new width is pending,
         // but an image hidden by the current phase must never supply hits.
@@ -167,6 +172,7 @@ final class RegionSurfaceMac: NSView {
             visible = RegionVisibleWitness(publication: raster.request.publication, size: raster.request.size,
                 scroll: raster.request.scroll, profile: shown.profile.bytes, scale: raster.request.scale)
             pendingLabel.isHidden = true
+            finishPendingLink()
         } else {
             clearVisible(); pendingLabel.stringValue = controller.failure ?? "Preparing viewport…"
         }
@@ -175,7 +181,7 @@ final class RegionSurfaceMac: NSView {
     /// updateLayer. No last-drawn witness is a certificate for a new publication.
     func accepts(_ request: RegionRasterRequest) -> Bool {
         guard let candidate = controller?.candidate, let current = currentRequest(for: candidate) else { return false }
-        return request.samePixels(as: current)
+        return request.sameOutput(as: current)
     }
     private func currentRequest(for presentation: RegionPresentation) -> RegionRasterRequest? {
         guard let controller, controller.validateAppearance(), let layer = ink.layer, let window else { return nil }
@@ -210,7 +216,7 @@ final class RegionSurfaceMac: NSView {
         return RegionRasterRequest(serial: 0, publication: presentation.snapshot.publication,
             generation: controller.currentGeneration,
             rows: rows, scroll: desired, size: ink.bounds.size, scale: Int(scale), profile: profile,
-            format: CGImageAlphaInfo.premultipliedLast.rawValue, background: background, selectionColor: selectionColor)
+            format: CGImageAlphaInfo.premultipliedLast.rawValue, background: background, selectionColor: selectionColor, interaction: contact?.query)
     }
     /// Window ICC is the explicit worker/output profile. This says nothing
     /// about the window server's private backing format or unknown font AA.
@@ -238,53 +244,95 @@ final class RegionSurfaceMac: NSView {
          "lastWheel": lastWheel,
          "visiblePublication": String(displayable ? visible?.publication ?? 0 : 0)]
     }
-    private func hit(_ event: NSEvent) -> (artifact: RegionArtifact, index: Int, frame: RegionFrame, point: CGPoint)? {
+    private func target(_ event: NSEvent) -> (RegionArtifact, RegionFrame, CGPoint)? {
         guard displayable, let presentation else { return nil }
         let local = ink.convert(event.locationInWindow, from: nil)
         let point = CGPoint(x: local.x + scrollOffset.x, y: local.y + scrollOffset.y)
         let frames = presentation.snapshot.frames.filter { $0.artifact != 0 }
-        guard let frame = frames.min(by: { $0.hitDistance(point) < $1.hitDistance(point) }),
+        guard point.x.isFinite, point.y.isFinite,
+              let frame = frames.min(by: { $0.hitDistance(point) < $1.hitDistance(point) }),
               let artifact = presentation.artifacts[frame.artifact] else { return nil }
-        return (artifact, artifact.metadata.index(at: point, in: frame.box), frame, point)
+        return (artifact,frame,point)
+    }
+    private func phaseIsCurrent(_ phase: RegionRasterRequest) -> Bool {
+        guard let presentation, let controller,
+              controller.currentGeneration == phase.generation,
+              controller.candidate?.snapshot.publication == phase.publication,
+              presentation.snapshot.publication == phase.publication,
+              let current = currentRequest(for: presentation) else { return false }
+        return phase.sameInkAndGeometry(as: current)
     }
     private var selectionAnchorIsCurrent: Bool {
-        guard let anchor, let presentation, let controller,
-              controller.currentGeneration == anchor.phase.generation,
-              controller.candidate?.snapshot.publication == anchor.phase.publication,
-              presentation.snapshot.publication == anchor.phase.publication,
-              presentation.artifacts[anchor.artifact]?.generation == anchor.phase.generation,
-              let current = currentRequest(for: presentation) else { return false }
-        return anchor.phase.sameInkAndGeometry(as: current)
+        guard let contact, let phase = contactPhase, let presentation,
+              presentation.artifacts[contact.artifact]?.generation == phase.generation else { return false }
+        return phaseIsCurrent(phase)
+    }
+    private func cancelContact() {
+        contact = nil; contactPhase = nil; pendingLink = nil
+    }
+    private func acceptInteraction(_ reply: RegionPointReply, phase: RegionRasterRequest) {
+        guard selectionAnchorIsCurrent, var contact, contact.accept(reply) else { return }
+        if let selection = reply.selection { selections[reply.query.artifact] = selection }
+        if reply.query.terminal {
+            let nearest = presentation?.snapshot.frames.filter { $0.artifact != 0 }
+                .min(by: { $0.hitDistance(reply.query.point) < $1.hitDistance(reply.query.point) })
+            if !reply.query.dragged, !reply.query.selectAll, nearest?.artifact == reply.query.artifact,
+               let href = reply.link { pendingLink = (contact.gesture,phase,href) }
+            self.contact = nil; contactPhase = nil
+        } else { self.contact = contact }
+    }
+    private func resolveCached(_ artifact: RegionArtifact, frame: RegionFrame, point: CGPoint) {
+        guard let query = contact?.query, let phase = contactPhase, let raster,
+              let index = artifact.metadata.cachedIndex(at: point,in: frame.box,artifact: artifact.id,hits: raster.hits) else { return }
+        // A new down and a resolved anchor's next point are local. If down is
+        // still unresolved, never replace it with the latest point's index.
+        let anchor: Int
+        if let known = query.anchor { anchor = known }
+        else if let begin = query.begin,
+                let first = artifact.metadata.cachedIndex(at: begin,in: frame.box,artifact: artifact.id,hits: raster.hits) { anchor = first }
+        else { return }
+        let selection: NSRange? = query.selectAll ? NSRange(location: 0,length: artifact.metadata.source.utf16Count)
+            : query.dragged ? NSRange(location: min(anchor,index),length: abs(index-anchor)) : nil
+        let reply = RegionPointReply(query: query,anchor: anchor,index: index,
+            link: artifact.metadata.link(at: point,in: frame.box,exactIndex: index),selection: selection)
+        acceptInteraction(reply,phase: phase)
     }
     fileprivate func select(_ event: NSEvent, begin: Bool) {
         if begin {
-            anchor = nil
-            guard let (artifact, index, _, _) = hit(event), let phase = raster?.request,
-                  controller?.candidate?.snapshot.publication == phase.publication else { return }
-            anchor = (artifact.id, index, phase); dragged = false; selections.removeAll()
-            if event.clickCount >= 3 { selections[artifact.id] = NSRange(location: 0, length: artifact.metadata.source.utf16Count); dragged = true }
-        } else {
-            // This is continuation of one already admitted owner, not a fresh
-            // hit on invisible pixels. Its exact accepted source/phase must live.
-            guard let anchor, selectionAnchorIsCurrent, let presentation,
-                  let artifact = presentation.artifacts[anchor.artifact],
-                  let frame = presentation.snapshot.frames.first(where: { $0.artifact == anchor.artifact }) else {
-                self.anchor = nil; return
-            }
-            let local = ink.convert(event.locationInWindow, from: nil)
-            let point = CGPoint(x: local.x + scrollOffset.x, y: local.y + scrollOffset.y)
-            let index = artifact.metadata.index(at: point, in: frame.box)
-            dragged = true; selections[artifact.id] = NSRange(location: min(index, anchor.index), length: abs(index - anchor.index))
-        }
-        invalidatePhase()
+            cancelContact()
+            guard let (artifact,frame,point) = target(event), let phase = raster?.request,
+                  controller?.candidate?.snapshot.publication == phase.publication,
+                  gestureSerial < UInt64.max else { return }
+            gestureSerial += 1
+            contact = RegionContact(gesture: gestureSerial,artifact: artifact.id,point: point,selectAll: event.clickCount >= 3)
+            contactPhase = phase; dragged = false; selections.removeAll()
+            resolveCached(artifact,frame: frame,point: point)
+            invalidatePhase()
+        } else { continueContact(event,terminal: false) }
     }
-    fileprivate func followLink(_ event: NSEvent) {
-        defer { anchor = nil }
-        guard let anchor, selectionAnchorIsCurrent, !dragged, let hit = hit(event),
-              hit.artifact.id == anchor.artifact,
-              let href = hit.artifact.metadata.link(at: hit.point, in: hit.frame.box),
-              let owner = superview as? NodeView, let session = owner.presenter?.session else { return }
-        session.delegate?.exactSession(session, command: "openURL", args: [href])
+    private func continueContact(_ event: NSEvent, terminal: Bool) {
+        guard selectionAnchorIsCurrent, var contact, let presentation,
+              let artifact = presentation.artifacts[contact.artifact],
+              let frame = presentation.snapshot.frames.first(where: { $0.artifact == contact.artifact }) else {
+            cancelContact(); return
+        }
+        let local = ink.convert(event.locationInWindow,from: nil)
+        let point = CGPoint(x: local.x + scrollOffset.x,y: local.y + scrollOffset.y)
+        if !terminal { dragged = true }
+        guard contact.update(point: point,dragged: dragged,terminal: terminal) else { return }
+        self.contact = contact
+        resolveCached(artifact,frame: frame,point: point)
+        invalidatePhase()
+        finishPendingLink()
+    }
+    fileprivate func followLink(_ event: NSEvent) { continueContact(event,terminal: true) }
+    private func finishPendingLink() {
+        guard let link = pendingLink else { return }
+        guard link.gesture == gestureSerial, phaseIsCurrent(link.phase) else { pendingLink = nil; return }
+        guard displayable, let owner = superview as? NodeView,
+              let session = owner.presenter?.session, !session.isApplyingPresentation else { return }
+        pendingLink = nil
+        session.delegate?.exactSession(session,command: "openURL",args: [link.href])
     }
     fileprivate func copySelection() {
         guard displayable, let presentation else { return }

@@ -161,7 +161,7 @@ final class RegionController {
                   value.request.generation == generation else { schedule(); return }
             // Bounds notifications need not have reached updateInk yet. Sample
             // actual geometry/palette/selection again at the delivery boundary.
-            guard surface?.accepts(value.request) == true else {
+            guard surface?.accepts(value.intent) == true else {
                 if desiredRaster?.serial == value.request.serial { desiredRaster = nil }
                 surface?.invalidatePhase(); schedule(); return
             }
@@ -188,18 +188,18 @@ final class RegionController {
     /// Geometry/profile/selection are sampled by the actual stationary view.
     func requestRaster(size: CGSize, scale: Int, profile: NativeProfile, format: UInt32,
                        background: [CGFloat], selectionColor: [CGFloat], scroll: CGPoint,
-                       selections: [UInt64: NSRange]) {
+                       selections: [UInt64: NSRange], interaction: RegionPointRequest? = nil) {
         guard let candidate, validateAppearance() else { return }
         var rows = candidate.rows
         for i in rows.indices { rows[i].selection = selections[rows[i].artifact] ?? NSRange(location: 0, length: 0) }
         if let old = desiredRaster, old.publication == candidate.snapshot.publication,
            old.rows == rows, old.scroll == scroll, old.size == size, old.scale == scale,
            old.profile == profile, old.format == format, old.background == background,
-           old.selectionColor == selectionColor { return }
+           old.selectionColor == selectionColor, old.interaction == interaction { return }
         if let old = surface?.raster?.request, old.publication == candidate.snapshot.publication,
            old.rows == rows, old.scroll == scroll, old.size == size, old.scale == scale,
            old.profile == profile, old.format == format, old.background == background,
-           old.selectionColor == selectionColor {
+           old.selectionColor == selectionColor, interaction == nil {
             // A cache hit is still a new latest intent. It supersedes any B
             // already occupying the serial worker; do not release that slot.
             desiredRaster = nil
@@ -209,7 +209,7 @@ final class RegionController {
         serial += 1
         let next = RegionRasterRequest(serial: serial, publication: candidate.snapshot.publication, generation: generation,
             rows: rows, scroll: scroll, size: size, scale: scale, profile: profile, format: format,
-            background: background, selectionColor: selectionColor)
+            background: background, selectionColor: selectionColor, interaction: interaction)
         guard next.bytes != nil else { refuse("region surface pixel admission refused"); return }
         desiredRaster = next
         schedule()

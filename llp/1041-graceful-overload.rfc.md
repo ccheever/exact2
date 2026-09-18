@@ -4405,3 +4405,61 @@ The exact nine app paths and143 artifacts/1,539,074B are archived at
 `e2e7e6210ba92e13fb98c613bf2f6aeb9008f6a62df07259e091477791598636`,
 patch `6904f5dc8c8b53ce81a798b35c769d84b1cd712bd3a186e928af23e4f6a76725`,
 artifact manifest `28647b960fe3081c9540054476c6563b6de071bb811f4f8b7943c29ae12ea22d`.
+
+### 8.70 Apple worker hit metadata follows the viewport, 2026-09-18
+
+The worker now retains complete source, CoreText lines and numeric line geometry
+without eagerly constructing every UTF16 caret table. Each raster may carry an
+immutable viewport hit slab; an uncovered point is answered exactly by the same
+serial worker. Missing coverage or admission refusal does not invent an index or
+reject otherwise valid pixels. Full layout, source copy, wrap and extent remain
+intact, including the single unwrapped1MiB line control.
+
+Each slab reserves4MiB before allocation, with at most two owners/8MiB per service
+lifetime. Last backing ownership, including aliases, releases the charge. The
+directory, endpoint/answer arrays and enumeration/sort storage fit inside that
+slab; admission considers at most512 logical hit-selected lines and8192 UTF16
+caret units. Oversized lines bypass dense construction. Independent review found
+that the first version's Swift buffer sort allocated temporary arrays outside
+the slab. The final version uses in-place heapsort/deduplication with scalar
+scratch. Platform/CoreText internals, full source/line heaps, pixel and index
+accounts remain separate; this is not a process-memory or allocation-peak bound.
+
+Pixels, hit coverage and any point reply form one qualified output. Contacts keep
+their initial and latest/terminal points until an anchor resolves, then one
+latest point. Quick down/drag/up while the worker is blocked completes once;
+stale or replaced gestures cannot adopt its answer. Fresh hits require current
+displayable pixels. Selection-only pending pixels preserve their qualified
+contact, while phase, size, palette, publication, refusal and reset retire it.
+No additional worker, queue or application state channel is introduced.
+
+The original production baseline reaches the eager-expansion regression and
+fails one of three assertions. Final strict Swift6 optimized helper compilation
+and31 methods/28,246 assertions pass, including existing exact geometry, caret,
+selection and bitmap references, sparse/out-of-view lookup, ownership limits and
+98,339-element sorting controls. A test-only synchronous reference initially ran
+on the main thread and trapped; its async correction and original failure remain
+recorded. Final ExactKit typecheck passes with70 captured sources. These helpers
+use an assertion shim, not the full XCTest runner or an iOS SDK build.
+
+A separately compiled AppKit fixture passes110 assertions through actual
+RegionInkView NSEvent handlers, a window, controller and worker. It covers cached
+multi-move selection, beginning over selection, blocked sparse terminal input,
+out-of-view continuation, gesture ABA and seven cancellation conditions. Runtime,
+Presenter and session boundaries are doubles; there is no OS input injection or
+full-app/physical-pixel claim. That binary predates only the final sort correction
+and is retained as such, rather than attributed to the final source. The final
+helper suite rechecks hit/pixel equivalence after the sort change.
+
+Exact seven production and three test paths match the frozen compiled inputs.
+Evidence is `target/apple-viewport-hits-validation/freeze-v2/`,448 artifacts/
+9,124,106B, manifest
+`01e1d7676154e579e35e39f182ed621eda6e11a196b0f28b522e847b0aac0f40`,
+production patch `706e099efee0bcd43f81eae761e31656ae83207eb0b023ab61d01aedf5e64a3c`,
+complete patch `72b30a649ed2b339d44373554091c81e965bd6b481a6d9e724d7b8b113e7e84f`.
+The original freeze and sort-review correction are preserved. Long-line exact
+CoreText calls and full shaping remain indivisible worker work, and a point can
+wait behind shaping. Existing resize visibility restrictions still apply. Native
+speedup, in-edge layer publication and120Hz remain unmeasured for this change;
+the next comparison admits both fresh cells only after actual starting geometry
+and source identity match.
