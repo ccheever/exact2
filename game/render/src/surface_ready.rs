@@ -292,8 +292,10 @@ mod tests {
     #[test]
     fn restore_upload_subset_is_reported_without_hiding_total_violations() {
         for mode in [exact_game::Paranoid::Save, exact_game::Paranoid::FreshGame] {
-            let mut s = WorldSurface::<Fox>::default();
-            s.sim = Some(Sim::new(()).unwrap().paranoid(mode));
+            let mut s = WorldSurface::<Fox> {
+                sim: Some(Sim::new(()).unwrap().paranoid(mode)),
+                ..Default::default()
+            };
             s.headless_feed();
             assert_eq!(state(&mut s)["ready"], true);
             s.agent(r#"{"op":"clock","now":0}"#);
