@@ -18,7 +18,7 @@ Transform records are ten floats (position, quaternion, scale); materials are tw
 (linear base RGBA, metallic, roughness, emissive RGB, primitive dimensions XYZ).
 The forward shader is opaque (alpha 1). Negative uploaded base alpha encodes positive grid spacing; WorldSurface clamps authored alpha to nonnegative when the grid is off. Quaternions should be unit
 length; zero draws as identity. Scale is positive; negative inputs use absolute
-values. Mirroring awaits double-sided materials. WebGPU depth is 0–1, near zero;
+values. Model node determinant parity selects the matching front face in forward and shadow passes. WebGPU depth is 0–1, near zero;
 reverse-Z is unsupported. Capsule height is tip-to-tip.
 
 `max_slots()` is an exclusive limit from granted storage binding/buffer limits and
@@ -62,9 +62,12 @@ slot (negative spacing). Uploads stay twelve floats per instance and there is no
 extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
 bench explicitly disables fog/bloom to retain its effects-off fast path.
 
-Twenty-nine pipeline variants compile on first world render, including effect-free
-entry points. Optional loading after app first pixel does not remove this Play
-latency. Disabling effects skips their passes and releases their attachments.
+Eleven primitive/effect variants compile when the renderer is constructed. The
+model family is lazy: two shared shader modules and three shared pipeline layouts,
+with only the material/winding variants needed by arrived models. All four
+shadow/fog combinations for each used forward variant are prepared during asset
+delivery; changing effects during play never compiles a model pipeline. Declared
+models remain pending until this work and texture uploads finish. Disabling effects skips their passes and releases their attachments.
 HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
 Viewports and post-pass UVs respect logical size. Discarded 4× MSAA colour/depth
 attachments request transient storage (a no-op where unsupported). ACES-fitted
@@ -74,7 +77,7 @@ tonemapping applies sRGB transfer once. HDR reads sanitize NaN and clamp to
 ## WorldSurface and feed
 
 A game's GPU shell is `exact_game_render::module!(MyGame)`. Bind constructs Sim;
-first render constructs Renderer. Feed setup and only the last two completed ticks
+the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work.
 
@@ -102,11 +105,14 @@ in the existing slot lists: transform/material = slot, geometry = batch, offset 
 identity. A primitive world binds no model group and samples no material texture.
 
 Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
-with opaque/mask/blend and culled/double-sided variants created at construction.
+with opaque/mask/blend, culled/double-sided and mirrored variants prepared before
+the asset becomes Loaded.
 Five texture slots (base colour, normal, metallic-roughness, emission, occlusion)
-have 1x1 defaults. Colour/emission textures use sRGB texture formats; data maps are
-linear. Mips arrive baked, with trilinear and 4x anisotropic sampling and authored
-wrap modes. Normal mapping derives a cotangent frame from screen-space world/UV
+share three 1×1 default views and cached samplers. Named textures are shared across
+materials and models, uploaded once per renderer, and released from CPU memory. Colour/emission textures use sRGB texture formats; data maps are
+linear. Mips arrive baked with authored nearest/linear filters and wrap modes; fully linear
+samplers use 4× anisotropy. Colour filtering is premultiplied; MASK mip coverage is
+retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
 derivatives (including models without tangents); baked tangents are retained for
 S3b, not uploaded. Material UV transforms apply separately to every texture.
 
@@ -172,13 +178,11 @@ cleared before timing; the initial diagnostic that failed to clear it was discar
 | 500,000, 1% moving | 1.1081 / 1.1204 | 1.20/1.33/1.52 | 0.0287 / 0.0291 | 1.72/1.66/1.88 |
 | 500,000, camera only | 1.0985 / 1.1067 | 1.20/1.33/1.52 | 0.0091 / 0.0091 | 1.72/1.66/1.88 |
 
-Latest paired renderer diagnostics: 200k cubes, effects off, 1280×720, CPU encode
-0.2429 ms, tick upload 1.4430 ms, GPU-completed frame 2.8317 ms. Shadowed Beacons
-GPU frame 0.5214 ms, CPU encode 0.2570 ms. These are medians of three run summaries;
-shared-machine variance precludes a tight speedup claim. Optional GPU timestamp
-intervals overlap on Metal: **do not sum them**. `GPU_PASS_NAMES` maps sixteen
-query pairs; disabled passes leave theirs unwritten. Resolve after completion;
-invalid/reversed pairs are NaN.
+The tables above are historical diagnostics with their stated revisions and sizes.
+They do not establish asset-change performance. S3a's commit-message cube numbers
+used a different run and are not a comparison against these tables. Optional GPU
+timestamp intervals overlap on Metal: **do not sum them**. `GPU_PASS_NAMES` maps
+sixteen query pairs; disabled passes leave theirs unwritten.
 
 ## U1 UI/default-look measurements (2026-09-17)
 
@@ -202,6 +206,38 @@ asserts saved grid spacing survives restore, and compares it against the same
 scene without the grid. Before/after inspection: the grid gives scale and depth;
 fog softens distant crates and the ground into the horizon; bloom is restrained.
 The victory overlay is a full-canvas centred Contract column.
+
+## S3a-b asset measurements (2026-09-18)
+
+DamagedHelmet's pinned input now produces an 885,161-byte model and five
+22,369,762-byte textures (each below the 64 MiB carrier limit). Raw RGBA8 still
+uses about 112 MB in total; splitting changes delivery and CPU lifetime, not GPU
+compression. BC7/ASTC is queued.
+
+Three fresh web sessions per revision, 1280×720, local delivery: Play through a
+completed screenshot of the loaded helmet took 774–873 ms before (median 817 ms)
+and 266–415 ms after (median 301 ms), a 515 ms / 63% median reduction. This is an
+end-to-end wall-clock diagnostic, including the screenshot; it is not scanout.
+Before/after screenshots were byte-identical. The old first-frame field counted the loading frame, so comparing that field
+would give a false result. It now waits for declarations to become ready.
+Primitive-only worlds create zero model pipelines, shader modules, layouts,
+instance buffers or textures; the GPU peer test checks that allocation boundary.
+
+Paired 200,000-cube release executables, alternating order, three runs per side,
+60 warmup + 240 measured frames, 2560×1440, effects off. Medians of run p50s:
+
+| Motion | Feed before / after ms | Encode before / after ms |
+|---|---|---|
+| All | 1.0363 / 1.0130 | 0.0842 / 0.0778 |
+| 1% | 0.0765 / 0.0597 | 0.0892 / 0.0578 |
+| Still | 0.0893 / 0.0882 | 0.1535 / 0.1502 |
+
+No regression exceeds observed run variation. The 1% feed ranges were
+0.0493–0.1128 before and 0.0560–0.0931 after; these are shared-machine diagnostics,
+not a general speedup claim. The workspace also contains concurrent live-clock
+work; this diagnostic uses seekable ticks. Raw run logs are
+`/tmp/s3ab-cubes-{before,after}-{all,one-percent,still}-{0,1,2}.log` and
+`/tmp/s3ab-play-{before,after}.log`.
 
 ## Reproduce
 

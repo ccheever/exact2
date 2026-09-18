@@ -526,6 +526,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         scale: 1.,
         now_ms: 23.,
         seekable: true,
+        period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
     };
@@ -561,7 +562,7 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
                 "tables/lookup.bin".into(),
                 "../escape".into(),
                 "/absolute".into(),
-                "bad%20name".into(),
+                "a//b".into(),
                 "x/../y".into(),
                 "雪".into(),
             ];
@@ -572,6 +573,7 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
         }
         fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
             self.delivered.push(format!("{name}:{bytes:?}"));
+            self.wanted.push(name.into());
             if name == "tables/lookup.bin" {
                 self.wanted.push("next.bin".into());
             }
@@ -679,4 +681,27 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     let id = exact_gpu::native::create_headless("probe");
     assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
     exact_gpu::native::unload();
+}
+
+#[test]
+fn asset_names_use_the_portable_bounded_ascii_path_grammar() {
+    for name in [
+        "a",
+        "a/b.tex",
+        "space name",
+        "x:y",
+        "x%20y",
+        "x?y#z",
+        "..foo",
+        "a_-.tex",
+    ] {
+        assert!(exact_gpu::asset_name(name), "rejected {name:?}");
+    }
+    for name in [
+        "", "/a", "a/", "a//b", ".", "..", "a/./b", "a/../b", "a\\b", "雪", "a\n", "a\u{7f}",
+    ] {
+        assert!(!exact_gpu::asset_name(name), "accepted {name:?}");
+    }
+    assert!(exact_gpu::asset_name(&"a".repeat(128)));
+    assert!(!exact_gpu::asset_name(&"a".repeat(129)));
 }

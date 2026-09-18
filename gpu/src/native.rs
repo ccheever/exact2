@@ -30,6 +30,11 @@ pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
     with(|m| m.asset(id, name, bytes)).unwrap_or(false)
 }
 
+/// Deliver a terminal transport failure.
+pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
+    with(|m| m.asset_failed(id, name, reason)).unwrap_or(false)
+}
+
 /// Record a refusal made by the ABI itself, before the module was reached.
 pub fn refuse(why: &str) {
     ERROR.with(|s| *s.borrow_mut() = why.to_string());
@@ -224,6 +229,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         now_ms,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
@@ -316,6 +322,7 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         now_ms,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: 0,
     };
     match with(|m| m.readback(id, &frame)).flatten() {
@@ -386,6 +393,11 @@ pub fn lifecycle(id: u32, code: u32) {
 /// Set the host's clock ownership.
 pub fn seekable(on: bool) {
     with(|m| m.set_seekable(on));
+}
+
+/// The display's frame period in milliseconds (0 = unknown), for every frame after.
+pub fn period(period_ms: f64) {
+    with(|m| m.set_period(period_ms));
 }
 
 /// Whether a canvas has inputs it has not rendered.
@@ -635,6 +647,16 @@ macro_rules! module {
             };
             $crate::native::asset(id, name, bytes)
         }
+        /// # Safety
+        /// Both strings must be readable UTF-8 byte slices for this call.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn gpu_asset_failed(id: u32, name: *const u8, name_len: usize, reason: *const u8, reason_len: usize) -> bool {
+            let Some(name) = (unsafe { $crate::native::bytes("asset name", name, name_len) }) else { return false };
+            let Some(reason) = (unsafe { $crate::native::bytes("asset reason", reason, reason_len) }) else { return false };
+            let (Ok(name), Ok(reason)) = (::std::str::from_utf8(name), ::std::str::from_utf8(reason)) else { return false };
+            $crate::native::asset_failed(id, name, reason)
+        }
+
 
         /// Carry in the output buffer; u32::MAX means nothing, zero is an empty carry.
         #[no_mangle]
@@ -695,6 +717,10 @@ macro_rules! module {
         /// Set the host clock ownership.
         #[no_mangle]
         pub extern "C" fn gpu_seekable(on: bool) { $crate::native::seekable(on); }
+
+        /// The display's frame period in milliseconds, 0 while unknown.
+        #[no_mangle]
+        pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
 
         /// Output address, valid until the next carry, published, agent, messages or error call.
         #[no_mangle]

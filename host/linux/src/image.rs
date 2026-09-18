@@ -10,6 +10,8 @@
 //! is gone, is dropped. The old picture and its size stay until the new one
 //! has loaded, as a browser keeps showing the old `src`.
 
+#[path = "../../../gpu/src/asset_name.rs"]
+mod asset_names;
 use exact_kernel::{Kernel, NodeType, PropId, ViewId};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -77,14 +79,7 @@ impl Assets {
     }
 
     fn relative(name: &str) -> bool {
-        !name.is_empty()
-            && !name.starts_with('/')
-            && !name.starts_with('\\')
-            && !name.contains('\\')
-            && !name.contains(':')
-            && name
-                .split('/')
-                .all(|part| !part.is_empty() && part != "." && part != "..")
+        asset_names::asset_name(name.strip_prefix("assets/").unwrap_or(name))
     }
 
     /// Immutable bytes for one relative asset name. A selected generation's

@@ -823,6 +823,8 @@ final class Frames: NSObject {
         #endif
         // Motion keeps its existing sampling clock; canvas frames target presentation.
         let frameNow = s.time(atWall: (link.targetTimestamp - ExactEnv.t0) * 1000)
+        // The display's refresh interval: a world schedules its ticks against it.
+        s.canvases.period(link.duration * 1000)
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }

@@ -5,10 +5,17 @@ pub fn materials(
     doc: &gltf::Document,
     images: &[gltf::image::Data],
     out: &mut Model,
-) -> Result<(), String> {
+    stem: &str,
+    used: &std::collections::BTreeSet<usize>,
+) -> Result<BTreeMap<String, TextureData>, String> {
     let json = serde_json::to_value(doc.as_json()).map_err(|e| e.to_string())?;
     let mut cache = BTreeMap::new();
+    let mut payloads = BTreeMap::new();
     for material in doc.materials() {
+        if !used.contains(&material.index().unwrap()) {
+            out.materials.push(MaterialData::default());
+            continue;
+        }
         let pbr = material.pbr_metallic_roughness();
         let mut m = MaterialData {
             base_color: pbr.base_color_factor(),
@@ -59,7 +66,7 @@ pub fn materials(
             let scale = [0, 1].map(|i| ext["scale"][i].as_f64().unwrap_or(1.) as f32);
             let offset = [0, 1].map(|i| ext["offset"][i].as_f64().unwrap_or(0.) as f32);
             let angle = ext["rotation"].as_f64().unwrap_or(0.) as f32;
-            let (s, c) = angle.sin_cos();
+            let (s, c) = (exact_game::math::sin(angle), exact_game::math::cos(angle));
             m.uv_transforms[slot] = [
                 c * scale[0],
                 s * scale[0],
@@ -69,11 +76,28 @@ pub fn materials(
                 offset[1],
             ];
             let srgb = slot == 0 || slot == 3;
-            let key = (texture.index(), srgb);
+            let cutoff = (slot == 0 && m.alpha_mode == AlphaMode::Mask)
+                .then_some(m.alpha_cutoff / m.base_color[3].max(f32::MIN_POSITIVE));
+            let key = (texture.index(), srgb, cutoff.map(f32::to_bits));
             let index = if let Some(&i) = cache.get(&key) {
                 i
             } else {
                 let image = &images[texture.source().index()];
+                let name = format!(
+                    "{stem}/{}-{}{}.tex",
+                    texture.index(),
+                    if srgb { "srgb" } else { "linear" },
+                    cutoff.map_or(String::new(), |c| format!("-mask{:08x}", c.to_bits()))
+                );
+                if !asset_name(&name) {
+                    return Err(format!("texture `{name}`: invalid asset name"));
+                }
+                if image.width > 2048 || image.height > 2048 {
+                    return Err(format!(
+                        "texture `{name}`: {}x{} exceeds 2048x2048",
+                        image.width, image.height
+                    ));
+                }
                 let rgba = rgba(image)?;
                 let sampler = texture.sampler();
                 let wrap = |mode| match mode {
@@ -82,14 +106,47 @@ pub fn materials(
                     _ => Wrap::Repeat,
                 };
                 let index = out.textures.len() as u32;
-                out.textures.push(TextureData {
+                let data = TextureData {
                     width: image.width,
                     height: image.height,
-                    mips: mips(image.width, image.height, rgba, srgb),
+                    mips: mips(image.width, image.height, rgba, srgb, cutoff),
                     srgb,
                     wrap: [wrap(sampler.wrap_s()), wrap(sampler.wrap_t())],
-                    filter: Filter::Linear,
-                });
+                    filter: [
+                        if sampler.mag_filter() == Some(gltf::texture::MagFilter::Nearest) {
+                            Filter::Nearest
+                        } else {
+                            Filter::Linear
+                        },
+                        if matches!(
+                            sampler.min_filter(),
+                            Some(
+                                gltf::texture::MinFilter::Nearest
+                                    | gltf::texture::MinFilter::NearestMipmapNearest
+                                    | gltf::texture::MinFilter::NearestMipmapLinear
+                            )
+                        ) {
+                            Filter::Nearest
+                        } else {
+                            Filter::Linear
+                        },
+                        if matches!(
+                            sampler.min_filter(),
+                            Some(
+                                gltf::texture::MinFilter::NearestMipmapNearest
+                                    | gltf::texture::MinFilter::LinearMipmapNearest
+                            )
+                        ) {
+                            Filter::Nearest
+                        } else {
+                            Filter::Linear
+                        },
+                    ],
+                };
+                data.validate()
+                    .map_err(|e| format!("texture `{name}`: {e}"))?;
+                out.textures.push(name.clone());
+                payloads.insert(name, data);
                 cache.insert(key, index);
                 index
             };
@@ -104,7 +161,7 @@ pub fn materials(
         out.materials.push(m);
     }
     out.materials.push(MaterialData::default());
-    Ok(())
+    Ok(payloads)
 }
 fn rgba(data: &gltf::image::Data) -> Result<Vec<u8>, String> {
     use gltf::image::Format;
@@ -136,18 +193,30 @@ fn linear(v: f32) -> f32 {
     if v <= 0.04045 {
         v / 12.92
     } else {
-        ((v + 0.055) / 1.055).powf(2.4)
+        exact_game::math::powf((v + 0.055) / 1.055, 2.4)
     }
 }
 fn srgb(v: f32) -> f32 {
     if v <= 0.0031308 {
         v * 12.92
     } else {
-        1.055 * v.powf(1. / 2.4) - 0.055
+        1.055 * exact_game::math::powf(v, 1. / 2.4) - 0.055
     }
 }
 /// Box mip chain with linear-light colour filtering; alpha and data channels are linear.
-pub fn mips(mut w: u32, mut h: u32, rgba: Vec<u8>, color: bool) -> Vec<Vec<u8>> {
+pub fn mips(
+    mut w: u32,
+    mut h: u32,
+    rgba: Vec<u8>,
+    color: bool,
+    cutoff: Option<f32>,
+) -> Vec<Vec<u8>> {
+    let coverage = cutoff.map(|c| {
+        rgba.chunks_exact(4)
+            .filter(|p| p[3] as f32 / 255. >= c)
+            .count() as f32
+            / (w * h) as f32
+    });
     let mut out = vec![rgba];
     while w > 1 || h > 1 {
         let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
@@ -159,18 +228,46 @@ pub fn mips(mut w: u32, mut h: u32, rgba: Vec<u8>, color: bool) -> Vec<Vec<u8>> 
                     let (x0, x1, y0, y1) =
                         (x * w / nw, (x + 1) * w / nw, y * h / nh, (y + 1) * h / nh);
                     let mut sum = 0.;
+                    let mut weight = 0.;
                     for sy in y0..y1 {
                         for sx in x0..x1 {
                             let v = previous[((sy * w + sx) * 4 + c) as usize] as f32 / 255.;
-                            sum += if color && c < 3 { linear(v) } else { v };
+                            let alpha = previous[((sy * w + sx) * 4 + 3) as usize] as f32 / 255.;
+                            if color && c < 3 {
+                                sum += linear(v) * alpha;
+                                weight += alpha;
+                            } else {
+                                sum += v;
+                                weight += 1.;
+                            }
                         }
                     }
-                    let v = sum / ((x1 - x0) * (y1 - y0)) as f32;
+                    let v = if weight > 0. { sum / weight } else { 0. };
                     next[((y * nw + x) * 4 + c) as usize] =
                         ((if color && c < 3 { srgb(v) } else { v }) * 255.)
                             .round()
                             .clamp(0., 255.) as u8;
                 }
+            }
+        }
+        if let (Some(cutoff), Some(coverage)) = (cutoff, coverage) {
+            // Preserve coverage to the nearest representable texel count. Uniform
+            // scaling retains alpha order; ties use row order at the threshold.
+            let count = (coverage * (nw * nh) as f32).round() as usize;
+            let threshold = (cutoff * 255.).ceil().clamp(1., 255.) as u8;
+            let mut order: Vec<_> = (0..(nw * nh) as usize).collect();
+            order.sort_by_key(|&i| std::cmp::Reverse(next[i * 4 + 3]));
+            let boundary = order
+                .get(count.saturating_sub(1))
+                .map_or(255, |&i| next[i * 4 + 3]);
+            let scale = threshold as f32 / f32::from(boundary.max(1));
+            for (rank, &i) in order.iter().enumerate() {
+                let a = (next[i * 4 + 3] as f32 * scale).round().clamp(0., 255.) as u8;
+                next[i * 4 + 3] = if rank < count {
+                    a.max(threshold)
+                } else {
+                    a.min(threshold - 1)
+                };
             }
         }
         out.push(next);
@@ -185,18 +282,40 @@ mod tests {
     fn color_box_is_linear_light_and_odd_edges_are_included() {
         let pixels = vec![0, 0, 0, 255, 255, 255, 255, 255];
         assert_eq!(
-            super::mips(2, 1, pixels.clone(), true)[1],
+            super::mips(2, 1, pixels.clone(), true, None)[1],
             [188, 188, 188, 255]
         );
-        assert_eq!(super::mips(2, 1, pixels, false)[1], [128, 128, 128, 255]);
+        assert_eq!(
+            super::mips(2, 1, pixels, false, None)[1],
+            [128, 128, 128, 255]
+        );
         assert_eq!(
             super::mips(
                 3,
                 1,
                 vec![0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255],
-                false
+                false,
+                None
             )[1],
             [85, 85, 85, 85]
         );
+    }
+}
+
+#[cfg(test)]
+mod alpha_tests {
+    #[test]
+    fn transparent_colour_cannot_bleed_and_mask_coverage_survives() {
+        let mip = super::mips(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 0], true, None);
+        assert_eq!(mip[1], [255, 0, 0, 128]);
+        let mut pixels = Vec::new();
+        for a in [200, 100, 100, 100, 200, 100, 100, 100] {
+            pixels.extend([255, 255, 255, a]);
+        }
+        let mips = super::mips(8, 1, pixels, true, Some(0.5));
+        for mip in &mips[..3] {
+            let covered = mip.chunks_exact(4).filter(|p| p[3] >= 128).count();
+            assert_eq!(covered, (mip.len() as f32 / 4. * 0.25).round() as usize);
+        }
     }
 }

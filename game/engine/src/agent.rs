@@ -304,8 +304,8 @@ impl<G: Game> Sim<G> {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
                 Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
             }
-            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"ownership\":{},\"clockState\":{{\"hostMicros\":{},\"worldMicros\":{}}},\"capture\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.loading().map(str::to_owned).collect::<Vec<_>>())?, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.ownership_json(), self.last_us.map_or("null".into(), |n| n.to_string()), self.world_us, self.capture().map_or("null".into(), |c| c.status()), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
+            "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"ownership\":{},\"clockState\":{{\"hostMicros\":{},\"worldMicros\":{}}},\"capture\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, state)| **state == crate::asset::AssetState::Pending).map(|(name, _)| name.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.ownership_json(), self.last_us.map_or("null".into(), |n| n.to_string()), self.world_us, self.capture().map_or("null".into(), |c| c.status()), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
                 self.layout(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
@@ -315,6 +315,9 @@ impl<G: Game> Sim<G> {
                 let view = spatial::View::new(w,viewport).ok_or("layout unavailable: needs an active camera and viewport")?;
                 let hit = spatial::pick(w,&view,point).map(|(e,d,p)| Ok::<_,String>(format!("{{{},\"distance\":{},\"point\":{}}}", identity(w,e),encode(&d)?,encode(&p)?))).transpose()?.unwrap_or_else(||"null".into());
                 Ok(format!("{{\"tick\":{tick},\"hit\":{hit}}}"))
+            }
+            "clock" if self.is_loading() => {
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":false,\"changing\":[\"loading\"],\"error\":\"declared assets are not ready\",\"assets\":{}}}", w.hash(), w.assets.state_json()))
             }
             "clock" => {
                 if q.reload {
@@ -343,7 +346,8 @@ impl<G: Game> Sim<G> {
         let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
         let (scale, rotation, position) = pose.to_scale_rotation_translation();
         let mesh = w.get::<Mesh>(e);
-        let (half, center) = spatial::bounds(w, mesh.as_deref());
+        let unbounded = spatial::unbounded(w, e, mesh.as_deref());
+        let (half, center) = spatial::bounds(w, e, mesh.as_deref());
         let corners = spatial::corners(pose, half, center);
         let lo = corners
             .iter()
@@ -390,7 +394,7 @@ impl<G: Game> Sim<G> {
                 encode(&delta.length())?
             ));
         }
-        let (screen, depth, visible) = if let Some(view) = view {
+        let (screen, depth, visible) = if let Some(view) = view.filter(|_| !unbounded) {
             let screen = view
                 .screen(&corners)
                 .map(|[x, y, width, height]| {
@@ -431,6 +435,11 @@ impl<G: Game> Sim<G> {
                 "{\"unavailable\":true}".into(),
             )
         };
-        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{{\"min\":{},\"max\":{}}},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?,encode(&lo)?,encode(&hi)?))
+        let bounds = if unbounded {
+            "null".into()
+        } else {
+            format!("{{\"min\":{},\"max\":{}}}", encode(&lo)?, encode(&hi)?)
+        };
+        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?))
     }
 }

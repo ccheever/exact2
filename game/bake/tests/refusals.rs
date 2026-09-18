@@ -39,5 +39,37 @@ fn permitted_extensions_are_baked_per_texture() {
     let m = bake(v).unwrap();
     assert_eq!(m.materials[0].emissive, [0.8, 1.2, 1.6]);
     assert_eq!(m.materials[0].uv_transforms[0], [2., 0., 0., 3., 0.25, 0.5]);
-    assert!(m.textures[0].srgb);
+    assert!(m.textures[0].ends_with("-srgb.tex"));
+}
+
+#[test]
+fn scene_selection_and_textured_uvs_are_not_silent() {
+    let mut failures = Vec::new();
+    let mut v = source();
+    v["scenes"] = json!([{ "nodes": [0] }, { "nodes": [0] }]);
+    if bake(v).is_ok() {
+        failures.push("multiple scenes");
+    }
+    let mut v = source();
+    v.as_object_mut().unwrap().remove("scene");
+    if bake(v).is_ok() {
+        failures.push("no default scene");
+    }
+    let mut v = source();
+    v["meshes"][0]["primitives"][0]["attributes"]
+        .as_object_mut()
+        .unwrap()
+        .remove("TEXCOORD_0");
+    if bake(v).is_ok() {
+        failures.push("textured mesh without UVs");
+    }
+    let mut v = source();
+    v["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"mesh":0,"translation":[100,0,0]}));
+    if bake(v).unwrap().bounds[3] > 10. {
+        failures.push("orphan rendered");
+    }
+    assert!(failures.is_empty(), "accepted: {failures:?}");
 }

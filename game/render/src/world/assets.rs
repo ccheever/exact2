@@ -1,12 +1,10 @@
 use super::*;
 use crate::{DrawInstance, MaterialId, RENDER_SLOT_BASE};
-use glam::Mat4;
 #[derive(Default)]
 pub(super) struct Assets {
-    loaded: BTreeMap<String, Vec<(MeshId, MaterialId, Mat4)>>,
     pub records: Vec<DrawInstance>,
     pub entities: Vec<exact_game::Entity>,
-    groups: BTreeMap<(MeshId, MaterialId), Vec<u32>>,
+    groups: BTreeMap<(MeshId, MaterialId, bool), Vec<u32>>,
 }
 impl Assets {
     pub fn batches(
@@ -23,30 +21,11 @@ impl Assets {
         }
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
-            let Some(model) = w.model(name) else { continue };
+            let Some(nodes) = r.model(name) else { continue };
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;
             }
-            if !self.loaded.contains_key(name) {
-                let (meshes, materials) = r.model(model)?;
-                let offsets = model.offsets().map_err(RenderError::scene)?;
-                let nodes = model
-                    .nodes
-                    .iter()
-                    .zip(offsets)
-                    .filter_map(|(n, local)| {
-                        n.mesh.map(|m| {
-                            (
-                                meshes[m as usize],
-                                materials[model.meshes[m as usize].material as usize],
-                                local,
-                            )
-                        })
-                    })
-                    .collect();
-                self.loaded.insert(name.clone(), nodes);
-            }
-            for &(geometry, material, local) in &self.loaded[name] {
+            for &(geometry, material, local) in nodes {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
                 self.entities.push(entity);
                 self.records.push(DrawInstance {
@@ -56,13 +35,13 @@ impl Assets {
                     local,
                 });
                 self.groups
-                    .entry((geometry, material))
+                    .entry((geometry, material, local.determinant() < 0.))
                     .or_default()
                     .push(slot);
             }
         }
         r.instances(&self.records)?;
-        for (&(mesh, _), list) in &self.groups {
+        for (&(mesh, _, _), list) in &self.groups {
             if list.is_empty() {
                 continue;
             }
