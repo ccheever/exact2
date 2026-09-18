@@ -2266,6 +2266,8 @@ Live in Off/Save/FreshGame, checks nonempty records, the initial checkpoint, for
 tick progress, frozen terminal gameplay, final hash and complete save equality.
 The three-minute setup runs Off; reconstruction is enabled at terminal boundaries.
 Disabling edge normalization makes this regression fail at checkpoint replay too.
+Independently disabling exact-boundary clock hashing fails its Live case; the
+12 ms frame deliberately executes a tick ahead of the save deadline.
 The existing full-route win regression remains intact.
 
 Work remains bounded by capture's existing 8 MiB / 16,384-record / 216,000-tick

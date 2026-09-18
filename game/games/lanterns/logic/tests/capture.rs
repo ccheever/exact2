@@ -182,7 +182,7 @@ fn live_terminal_recapture_preserves_input_and_fractional_clock() {
             let mut at = 1_234_567_895.123_456;
             sim.advance(at, clock);
             sim.key_down("KeyE");
-            at += 20.0;
+            at += 12.0; // Live lookahead executes a tick before its saved deadline.
             sim.advance(at, clock);
             let before = (sim.world().tick(), sim.world().hash());
             let elapsed = sim.world().resource::<Session>().elapsed;
