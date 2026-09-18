@@ -397,7 +397,8 @@ an allocator-counting regression. Saved pose histories survive restore, while th
 presentation buffers prime current/current on restore, carry, teleport and model or
 batch arrival. Initial feeds propagate the same reset signal to skinning and entity
 histories. The Fox pixel regression compares birth, restore, carry and model arrival
-with an explicit current/current oracle within 0.1% of the affected rectangle; its
+with an explicit current/current oracle at zero changed pixels per event in the
+affected rectangle (channel differences up to 2 are ignored); its
 injected bind-history control detects a flash without diluting it in the background.
 The packing test checks exact local arrays and confirms priming does not mutate saves.
 
@@ -429,3 +430,8 @@ resolved regression and is not an FPS claim. No isolated same-app skinning size
 measurement is available, so there is no skinning engine-growth claim here.
 The earlier comparison used different games and has been removed. Historical
 logs: `/tmp/s3b-resume-*`; paired baseline artifacts: `/tmp/s3b-before-*`.
+
+R3 adds an in-place same-name model replacement regression: changed content
+rebuilds GPU hierarchy/inverse binds, geometry/material handles and both sharing
+entities' batches with primed history. Equal content reuses the prepared model.
+This exercises the digest-based replacement already present at 4b40b165.

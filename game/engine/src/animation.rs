@@ -68,7 +68,8 @@ impl Default for Animation {
     fn default() -> Self {
         Self {
             clip: String::new(),
-            time: 0.,
+            // Negative zero marks an unsampled controller without adding saved state.
+            time: -0.,
             speed: 1.,
             looping: true,
             markers: vec![],
@@ -350,7 +351,7 @@ impl Animator {
             .states
             .get(self.current as usize)
             .ok_or("animator current state out of range")?;
-        if pose.stepped.is_none() && !state.looping && state.speed < 0. {
+        if self.since == 0. && !state.looping && state.speed < 0. {
             pose.phase = 1.;
         }
         let finished = if state.speed < 0. {
@@ -1043,6 +1044,7 @@ pub fn step(w: &mut World) {
     });
     runtime.entities.sort_unstable();
     runtime.entities.dedup();
+    let mut redelivered_models = std::collections::BTreeSet::new();
     for &e in &runtime.entities {
         let result = (|| {
             let mesh = w.get::<Mesh>(e).ok_or("animation needs a mesh")?;
@@ -1065,29 +1067,37 @@ pub fn step(w: &mut World) {
                 .rigs
                 .entry(name.clone())
                 .or_insert_with(|| Rig::new(&model));
-            let redelivered = rig.model.as_ptr() != std::sync::Arc::as_ptr(&model);
-            if redelivered {
+            if !rig
+                .model
+                .upgrade()
+                .is_some_and(|old| std::sync::Arc::ptr_eq(&old, &model))
+            {
                 *rig = Rig::new(&model);
+                redelivered_models.insert(name.clone());
             }
+            let redelivered = redelivered_models.contains(name);
             if !redelivered
                 && w.get::<Pose>(e)
                     .is_some_and(|p| p.stepped == Some(w.tick()))
             {
                 return Ok(());
             }
-            if w.get::<Pose>(e).is_some_and(|p| {
-                p.local.len() != rig.rest.len() || p.previous.len() != rig.rest.len()
-            }) {
+            if !redelivered
+                && w.get::<Pose>(e).is_some_and(|p| {
+                    p.local.len() != rig.rest.len() || p.previous.len() != rig.rest.len()
+                })
+            {
                 return Err(format!("saved pose does not match model `{name}`"));
             }
             drop(mesh);
-            if !w.has::<Pose>(e) {
+            if !w.has::<Pose>(e) || redelivered {
                 w.insert(
                     e,
                     Pose {
                         previous: rig.rest.clone(),
                         local: rig.rest.clone(),
                         bounds: rig.bounds,
+                        phase: w.get::<Pose>(e).map_or(0., |p| p.phase),
                         ..Pose::default()
                     },
                 );
@@ -1133,7 +1143,8 @@ pub fn step(w: &mut World) {
                 let c = clip(&model, &a.clip)?;
                 let root = a.playback.root(&model)?;
                 let duration = c.duration();
-                let old = if pose.stepped.is_none() && !a.looping && a.speed < 0. && a.time == 0. {
+                let old = if !a.looping && a.speed < 0. && a.time == 0. && a.time.is_sign_negative()
+                {
                     duration
                 } else {
                     a.time
@@ -1321,7 +1332,11 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
         bind = bind_pose(model);
         &bind
     };
-    if local.len() != model.nodes.len() * 10 {
+    if local.len() != model.nodes.len() * 10
+        || pose
+            .as_ref()
+            .is_some_and(|p| p.previous.len() != local.len())
+    {
         return Err(format!("saved pose does not match model `{name}`"));
     }
     let global = Mat4::from(w.current_global(e).unwrap_or(crate::Affine3A::IDENTITY));

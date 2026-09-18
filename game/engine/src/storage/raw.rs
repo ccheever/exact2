@@ -494,6 +494,43 @@ mod tests {
         assert_eq!(DROPS.get(), 4);
     }
 
+    // An actual ZST cannot store an identity. This companion locks OLD-vs-NEW
+    // ownership; the ZST test above separately locks zero-size layout/lifetimes.
+    #[test]
+    fn constructor_ids_identify_replaced_removed_and_loaded_owners() {
+        thread_local! { static DROPPED: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
+        #[derive(Default, Component)]
+        struct Owner {
+            id: u32,
+        }
+        impl Owner {
+            fn new(id: u32) -> Self {
+                Self { id }
+            }
+        }
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                DROPPED.with_borrow_mut(|ids| ids.push(self.id));
+            }
+        }
+        DROPPED.with_borrow_mut(Vec::clear);
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Owner::new(1));
+        w.insert(e, Owner::new(2));
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
+        let owner = w.remove::<Owner>(e).unwrap();
+        assert_eq!(owner.id, 2);
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
+        drop(owner);
+        w.insert(e, Owner::new(3));
+        let bytes = w.save();
+        w.load(&bytes).unwrap();
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3]));
+        assert_eq!(w.get::<Owner>(e).unwrap().id, 3);
+        drop(w);
+        DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3, 3]));
+    }
+
     #[test]
     fn over_aligned_owned_values_survive_pages_and_decode_scratch() {
         #[repr(align(128))]

@@ -707,3 +707,89 @@ fn duplicate_motion_roots_choose_first_parent_first_match() {
         Some(1)
     );
 }
+
+#[test]
+fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
+    for extra_node in [false, true] {
+        let mut w = world();
+        let entities: Vec<_> = (0..2)
+            .map(|_| w.spawn((Mesh::asset("rig.model"), Socket("".into()))))
+            .collect();
+        w.step_clock();
+        let old = std::sync::Arc::downgrade(w.assets.models.get("rig.model").unwrap());
+        let mut m = w.model("rig.model").unwrap().clone();
+        m.nodes[0].transform = Mat4::from_translation(Vec3::Y * 3.).to_cols_array();
+        if extra_node {
+            m.nodes.push(Node::default());
+        }
+        let expected = bind_pose(&m);
+        w.assets
+            .models
+            .insert("rig.model".into(), std::sync::Arc::new(m));
+        assert!(old.upgrade().is_none());
+        // Redelivery between samples in the same tick must reach both entities.
+        step(&mut w);
+        for e in entities {
+            let p = w.get::<Pose>(e).unwrap();
+            assert_eq!(p.local, expected);
+            assert_eq!(p.previous, expected);
+            assert_eq!(w.get::<SocketPose>(e).unwrap().0.position, Vec3::Y * 3.);
+        }
+    }
+}
+#[test]
+fn r3_reverse_controllers_start_on_existing_socket_pose() {
+    for animator in [false, true] {
+        let mut w = world();
+        let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+        w.step_clock();
+        if animator {
+            let mut a = Animator::new([
+                State::new("reverse", Play::Clip("slow".into()))
+                    .once()
+                    .speed(-1.)
+                    .to("done", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+                State::new("done", Play::Clip("fast".into())),
+            ]);
+            a.set("go", true);
+            w.insert(e, a);
+        } else {
+            w.insert(e, Animation::play("slow").once().speed(-1.));
+        }
+        w.step_clock();
+        if animator {
+            assert_eq!(w.get::<Animator>(e).unwrap().state(), "reverse");
+            assert!((w.get::<Pose>(e).unwrap().phase - (1. - 1. / 60.)).abs() < 1e-6);
+        } else {
+            assert!((w.get::<Animation>(e).unwrap().time - (1. - 1. / 60.)).abs() < 1e-6);
+        }
+        // The initialization survives restore; reaching zero must not restart it.
+        let bytes = w.save();
+        w.load(&bytes).unwrap();
+        for _ in 0..65 {
+            w.step_clock();
+        }
+        if animator {
+            assert_eq!(w.get::<Animator>(e).unwrap().state(), "done");
+        } else {
+            assert_eq!(w.get::<Animation>(e).unwrap().time, 0.);
+        }
+    }
+}
+#[test]
+fn r3_inspection_and_sampling_refuse_either_corrupt_history() {
+    for previous in [false, true] {
+        let mut w = world();
+        let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+        w.step_clock();
+        if previous {
+            w.get_mut::<Pose>(e).unwrap().previous.clear();
+        } else {
+            w.get_mut::<Pose>(e).unwrap().local.clear();
+        }
+        let expected = "saved pose does not match model `rig.model`";
+        assert_eq!(pose_json(&w, e).unwrap_err(), expected);
+        w.step_clock();
+        assert!(w.journal().iter().any(|line| line.line.contains(expected)));
+    }
+}

@@ -403,8 +403,8 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
         }
         println!("{event}: Fox rectangle {x0},{y0}..{x1},{y1}: changes {changed}/{area}, bind flash {bind_changes}");
         assert!(
-            changed <= area / 1000,
-            "{event} must match current/current within 0.1% of the Fox rectangle"
+            changed == 0,
+            "{event} must match current/current: zero changed Fox-rectangle pixels"
         );
     }
 }

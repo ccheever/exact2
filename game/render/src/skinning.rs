@@ -285,6 +285,71 @@ mod tests {
         bytes
     }
     #[test]
+    fn same_name_redelivery_rebuilds_gpu_rig_and_all_instance_batches() {
+        let gpu = exact_gpu::fixture::device().expect("GPU fixture");
+        let mut model: Model = exact_game::bin::from_slice(include_bytes!(
+            "../../games/skinned-fixture/assets/fox.model"
+        ))
+        .unwrap();
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("fox.model", &model).unwrap();
+        let revision = renderer.models.revision;
+        let before = renderer.models.loaded["fox.model"].nodes.clone();
+        renderer.prepare_model("fox.model", &model.clone()).unwrap();
+        assert_eq!(
+            renderer.models.revision, revision,
+            "equal content is reused"
+        );
+        let mut w = World::new(60, 0);
+        w.register_scene();
+        let mut pose = Pose::default();
+        pose.local = animation::bind_pose(&model);
+        pose.previous = pose.local.clone();
+        pose.previous[0] -= 10.; // A visible old history must not survive batch replacement.
+        for _ in 0..2 {
+            w.spawn((Transform::default(), Mesh::asset("fox.model"), pose.clone()));
+        }
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut renderer).unwrap();
+        let old_skin = before.iter().find_map(|n| n.3).unwrap();
+        model.skins[0].inverse_binds[12] += 3.;
+        model.nodes[0].transform[13] += 2.;
+        model.materials[0].base_color[0] *= 0.5;
+        renderer.prepare_model("fox.model", &model).unwrap();
+        assert_eq!(renderer.models.revision, revision + 1);
+        let after = &renderer.models.loaded["fox.model"].nodes;
+        let new_skin = after.iter().find_map(|n| n.3).unwrap();
+        assert_ne!(old_skin, new_skin);
+        assert_ne!(before[0].0, after[0].0, "new geometry handles");
+        assert_ne!(before[0].1, after[0].1, "new material handles");
+        feed.feed(&w, &mut renderer).unwrap();
+        assert_eq!(renderer.models.records.len(), before.len() * 2);
+        assert!(renderer
+            .models
+            .records
+            .iter()
+            .filter_map(|r| r.skin)
+            .all(|s| s == new_skin));
+        let skin = renderer.models.skinning.as_ref().unwrap();
+        let template = &skin.templates[new_skin as usize];
+        assert_eq!(template.rest, animation::bind_pose(&model));
+        let start =
+            template.meta as usize + 4 + model.nodes.len() * 2 + model.skins[0].joints.len();
+        assert_eq!(
+            &skin.metadata[start..start + model.skins[0].inverse_binds.len()],
+            model.skins[0]
+                .inverse_binds
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>()
+        );
+        for pair in skin.pose_words.chunks_exact(pose.local.len() * 2) {
+            assert_eq!(&pair[..pose.local.len()], &pair[pose.local.len()..]);
+        }
+    }
+
+    #[test]
     fn interpolate_locals_before_composing_and_inverse_bind() {
         let Ok(gpu) = exact_gpu::fixture::device() else {
             return;

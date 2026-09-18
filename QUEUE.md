@@ -541,3 +541,24 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   Re-run after resolving the local bake/process stall; game workspace checks pass.
 
 - Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Autofocus is processed once per document on web/Linux; dynamically mounted victory controls need deliberate focus support.
+
+- R3 physics closing pin remains owed: three kinematic fixture attempts in
+  `game/physics/src/state.rs::tests::kinematic_collision_pass_survives_every_tick_restore`
+  did not leave deferred optimization pending. The diagnostic is ignored; replace
+  it with a non-initial moved-kinematic save boundary whose flag is demonstrably
+  true and whose next Off/Save/FreshGame snapshots match, with a false-flag negative
+  control. Do not call the physics review fully closed or claim a new kinematic pin.
+- R3 storage: run the padded/ZST tests under Miri when available (not installed on
+  this Mac). The ID-bearing companion checks old/new ownership but is not a ZST;
+  aggregate ZST drops do not prove typed moves. A true ZST has no per-instance ID.
+- R3 review findings outside the closing implementation: redelivery between two
+  explicit animation steps in one tick can advance a controller twice; preserve
+  the once-per-tick rule. Paranoid reconstruction also resets `asset_mesh_revision`,
+  causing another asset-root scan each tick; evaluate preserving that driver cache.
+
+- R3 skinned-fixture web proof reaches unchanged tick-60/120 pins, then fails
+  `asset-fixture/residency.mjs::checkResidency` during KeyC: the injected probe
+  reports `TypeError: Cannot read properties of undefined (reading 'length')`.
+  Save mode additionally reports changed GPU residency counters during steady
+  ticks. Diagnose the fixture/save-pending interaction in the asset-residency
+  slice; do not report the complete web proof green. Linux proofs pass all modes.

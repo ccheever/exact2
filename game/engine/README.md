@@ -129,8 +129,18 @@ through the existing argument-binding path.
 Erased component pages own values through typed descriptor operations: `read`/
 `write` moves, `replace` swaps, and `drop_in_place`, instantiated for the component
 at registration. Allocation and masks remain erased. Padded owned components and
-zero-sized components with destructors cover insert, replacement, removal and
-load; the existing panic-on-drop test protects occupied-slot ownership. Loading
+zero-sized components with destructors exercise insert, replacement, removal and
+load; these ordinary tests do not lock typed moves against byte-copy regressions
+without Miri. A constructor-ID companion checks that replacement drops the old
+instance and removal transfers the new one. That companion is intentionally not
+a ZST: an actual ZST cannot carry an instance ID, and an external ID queue would
+merely assume the move ordering it claimed to test; the existing panic-on-drop test protects occupied-slot ownership. Loading
 an opposite-kind registration names the registered kind and the setup declaration
 required to load it. The storage tests are suitable for Miri; neither installed
 nightly on the R2 machine includes Miri, so that run remains owed.
+
+Reverse one-shot initialization belongs to the controller: standalone Animation
+uses the sign of its initial zero clock (negative zero before sampling, positive
+zero at completion); Animator uses its own elapsed clock. Installing either on an
+existing socket pose starts at the end. Both clocks are saved, so restore does not
+restart a completed controller. Pose inspection validates both history lengths.

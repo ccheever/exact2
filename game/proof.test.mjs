@@ -2,7 +2,7 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {artifactDigest, closeSessions, equal} from './proof.mjs';
+import {artifactDigest, closeSessions, equal, paranoidRuns} from './proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
@@ -270,4 +270,17 @@ test('author examples and documentation describe current motion, placement and p
 
 test('queue no longer lists the repaired Beacons designed-defaults fixture', () => {
   expect(readFileSync(resolve(import.meta.dir, '../QUEUE.md'), 'utf8')).not.toContain('`render/tests/world.rs::beacons_designed_defaults` still expects');
+});
+
+for (const failure of [undefined, '1', 'fresh-game']) test(`paranoid leaves an Off artifact even after ${failure ?? 'success'}`, async () => {
+  let artifactMode;
+  const modes = [];
+  const failed = await paranoidRuns(async mode => {
+    modes.push(mode);
+    artifactMode = mode; // Web compile-time mode and its receipt move together.
+    return mode === failure ? 1 : 0;
+  });
+  expect(failed).toBe(failure !== undefined);
+  expect(modes.slice(0, 3)).toEqual(['0', '1', 'fresh-game']);
+  expect(artifactMode).toBe('0');
 });

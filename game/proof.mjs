@@ -57,6 +57,16 @@ export function equal(a, b) {
     && keys.every((key, i) => key === other[i] && equal(a[key], b[key]));
 }
 
+export async function paranoidRuns(run) {
+  let failed = false;
+  // Finish with Off, including its web build receipt, for the next ordinary run.
+  for (const mode of ['0', '1', 'fresh-game', '0']) {
+    try { failed = (await run(mode)) !== 0 || failed; }
+    catch (error) { console.error(error); failed = true; }
+  }
+  return failed;
+}
+
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -69,16 +79,15 @@ export async function proof(meta, script) {
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
     if (!['web', 'linux'].includes(host)) throw new Error('--paranoid supports web and linux');
-    let failed = false;
-    for (const mode of ['0', '1', 'fresh-game']) {
+    const failed = await paranoidRuns(async mode => {
       const started = performance.now();
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
-      failed ||= code !== 0;
-    }
+      return code;
+    });
     process.exit(failed ? 1 : 0);
   }
   const finalWorlds = [];
@@ -204,9 +213,6 @@ export async function proof(meta, script) {
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
-      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
-      say(disk.stdout.trim());
-      if (disk.status !== 0) throw new Error('disk check failed before build');
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
         buildBake(appInfo, 'linux', linuxTarget);

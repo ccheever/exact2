@@ -713,7 +713,11 @@ compact arrays, never entities.
 
 Declare one `Socket("b_Head_05".into())` per owner; `SocketFollow::new("fox")` drives
 an attachment. Socket names resolve once per loaded rig. Replacing the loaded model
-rebuilds the cached bind pose, bounds and socket resolutions at the next sample.
+rebuilds the cached bind pose, bounds and socket resolutions for every sharing
+entity at the next sample, accepting changed node counts and priming both pose
+histories. Identity uses an upgraded `Weak` and `Arc::ptr_eq`. The renderer also
+replaces geometry, materials, hierarchy and inverse binds when the content digest
+changes, rebuilding every affected instance batch.
 Removing or failing a socket invalidates `SocketPose`; locomotion continues and
 followers restore their captured authored Transform. Sampling, socket and follower
 errors have separate once-only lifetimes, reset by recovery/removal or a changed error.
@@ -752,14 +756,16 @@ history semantics changed.
 Run `bun game/games/skinned-fixture/proof.mjs web` (or `linux`) from the root.
 The S3b-b web/headless Linux proof run on this arm64 Mac passed in
 22.276/33.022 s. R2's web proof passes with both tick hashes asserted; the R2
-Linux rerun and wider host sweep remain owed after shared-tree build interruptions
-and stalled process inventory/optimizer children (see the ergonomics diary).
+Linux rerun is now covered by R3 in all modes. R3 web retains both hash pins but
+fails later in the out-of-scope residency probe; the complete web proof and wider
+host sweep remain owed (see QUEUE and the ergonomics diary).
 The proof saves at tick 45 during the fade and resumes in a fresh host through 120;
 its final save must be byte-identical. Both hosts produce the same 15,084 bytes,
 SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The native paranoid test repeats restore into
 a new Sim every tick and compares bytes as well as hashes and local poses. A GPU
 pixel test compares birth, restore, carry and model arrival against a current/current
-oracle within 0.1% of the Fox rectangle. Deliberately injecting bind history supplies
+oracle with zero changed pixels per event in the Fox rectangle (channel differences
+of at most 2 are ignored). Deliberately injecting bind history supplies
 the negative control. Both advertised tick hashes are asserted by the native test.
 The pre-review macOS screenshot showed a white Fox while web was textured; that
 native asset delivery gap remains outside this slice. No new x86-64 run or macOS
@@ -818,13 +824,18 @@ hash/tick/publications/journal. Physics pile tick 600 changes
 FreshGame. Greybox setup/forward pins (`7df5e5a89b4d0207` / `0f14b8b231091d12`),
 asset tick 60 (`8f6d518f39634478`), skinned ticks 60/120
 (`b863e854ca85b74e` / `409341e24939d7c2`) are unchanged. Beacons' proof endpoint
-is `331c074e0f135059` at tick 907 in all modes.
+was `331c074e0f135059` at tick 907 for PX1. HEAD's standalone Character already
+changed it to `7dde46ef4bc4bdb6`; the proof now asserts that tick/hash before reset.
 
 | Native script | Off ms | Save ms | FreshGame ms |
 |---|---:|---:|---:|
 | Physics stack, 120 ticks | 1.244 | 41.256 | 44.109 |
 | Beacons, movement/jump | 0.311 | 21.381 | 22.329 |
 | Greybox, movement/action | 0.342 | 26.830 | 25.092 |
+
+The physics row is a headless `Sim` script total, approximately
+`0.010 / 0.34 / 0.37 ms per tick` for Off / Save / FreshGame; it is not a live-host
+measurement. Paranoid proofs finish with another Off run and Off web build receipt.
 
 Skinned-fixture's 120 pairs of continuous/reconstructed ticks took 33.576 ms
 (Save) and 52.041 ms (FreshGame), including both runs in each pair. These are
