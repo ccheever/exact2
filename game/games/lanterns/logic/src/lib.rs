@@ -5,11 +5,13 @@
 use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
 use exact_game::{
     scene, Actions, Animation, Asset, Bloom, Camera, Component, DirectionalLight, Environment, Fog,
-    Follow, Game, Input, Material, Mesh, Parent, PointLight, Quat, Region, Resource, Spring, Stick,
-    Transform, Vec2, Vec3, World,
+    Follow, Game, Id, Input, Kind, Material, Mesh, Parent, PointLight, Quat, Region, Resource,
+    Spring, Stick, Transform, Vec2, Vec3, World,
 };
 use exact_game_physics::{self as physics, Body, Character, Collider, Physics};
 
+mod kinds;
+use kinds::*;
 const FOX_BYTES: &[u8] = include_bytes!("../../assets/Fox.glb");
 const DURATION_TICKS: u32 = 180 * 60;
 const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 12.0);
@@ -54,6 +56,8 @@ pub struct Lantern {
     pub lit: bool,
     /// Deterministic light-on envelope.
     pub glow: Spring,
+    #[data(skip)]
+    bulb: Id<Bulb>,
 }
 
 /// Saved round state independent of presentation.
@@ -67,6 +71,8 @@ pub struct Session {
     pub jump_press: u32,
     /// Last Contract Light counter consumed.
     pub light_press: u32,
+    #[data(skip)]
+    actors: Option<Actors>,
 }
 
 /// The complete Lanterns game behind `surface=world(...)`.
@@ -134,20 +140,15 @@ impl Game for Lanterns {
             .expect("validated scene")
             .instantiate(world)
             .expect("fresh scene identities");
-        let player = world.spawn_named(
-            "player",
-            (
-                Transform::at(SPAWN.x, SPAWN.y + 0.65, SPAWN.z),
-                Character {
-                    radius: 0.35,
-                    height: 1.3,
-                    step: 0.32,
-                    mass: 80.0,
-                    ..Character::default()
-                },
-                Player::default(),
-            ),
-        );
+        let character = Character {
+            radius: 0.35,
+            height: 1.3,
+            step: 0.32,
+            mass: 80.0,
+            ..Character::default()
+        };
+        let at = Transform::at(SPAWN.x, SPAWN.y + 0.65, SPAWN.z);
+        let player = world.spawn_named("player", (at, character, Player::default()));
         world.spawn_named(
             "fox",
             (
@@ -158,38 +159,32 @@ impl Game for Lanterns {
                 Animation::looping("Survey"),
             ),
         );
+        let camera = Camera {
+            fov_y_degrees: 45.0,
+            near: 0.08,
+            far: 100.0,
+            active: true,
+        };
+        let wind = AudioSource {
+            sound: "wind".into(),
+            gain: 0.22,
+            playing: true,
+        };
+        let follow = Follow::new(player).offset(10.0, 8.5, 14.0).lag(0.12);
         world.spawn_named(
             "camera",
-            (
-                Transform::default(),
-                Camera {
-                    fov_y_degrees: 45.0,
-                    near: 0.08,
-                    far: 100.0,
-                    active: true,
-                },
-                AudioListener,
-                AudioSource {
-                    sound: "wind".into(),
-                    gain: 0.22,
-                    playing: true,
-                },
-                Follow::new(player).offset(10.0, 8.5, 14.0).lag(0.12),
-            ),
+            (Transform::default(), camera, AudioListener, wind, follow),
         );
-        world.spawn_named(
-            "sun",
-            (
-                Transform::at(16.0, 25.0, -18.0).looking_at(Vec3::ZERO, Vec3::Y),
-                DirectionalLight {
-                    color: [1.0, 0.52, 0.24],
-                    illuminance: 3.4,
-                    shadows: true,
-                },
-            ),
-        );
+        let sunlight = DirectionalLight {
+            color: [1.0, 0.52, 0.24],
+            illuminance: 3.4,
+            shadows: true,
+        };
+        let sun = Transform::at(16.0, 25.0, -18.0).looking_at(Vec3::ZERO, Vec3::Y);
+        world.spawn_named("sun", (sun, sunlight));
         spawn_sign(world);
         spawn_decor(world, args.seed);
+        actors(world);
         publish(world);
     }
 
@@ -198,8 +193,8 @@ impl Game for Lanterns {
     }
 
     fn tick(world: &mut World, input: &Input, args: &Options) {
-        let (terminal, jump_button, light_button) = {
-            let mut session = world.resource_mut::<Session>();
+        let ids = actors(world);
+        let (terminal, jump_button, light_button) = world.edit_resource::<Session, _>(|session| {
             if session.phase == 0 && args.started {
                 session.phase = 1;
             }
@@ -208,7 +203,7 @@ impl Game for Lanterns {
             session.jump_press = args.jump_press;
             session.light_press = args.light_press;
             (session.phase >= 2, jump, light)
-        };
+        });
         if terminal {
             publish(world);
             audio::step(world);
@@ -216,29 +211,28 @@ impl Game for Lanterns {
         }
         world.resource_mut::<Session>().elapsed += 1;
         let dt = world.dt();
-        let player = world.named("player").unwrap();
         let jump = jump_button || input.pressed("jump");
         let direction = input.stick_xz("move");
-        let mut jumped = false;
-        {
-            let mut character = world.get_mut::<Character>(player).unwrap();
+        let jumped = world.edit(ids.hero, |hero| {
+            let character = &mut hero.character;
             if jump && character.grounded {
                 character.velocity.y = 6.4;
                 character.grounded = false;
-                jumped = true;
+                true
             } else {
                 character.velocity.y = (character.velocity.y - 12.0 * dt).max(-30.0);
+                false
             }
-        }
-        physics::move_character(world, player, direction * 4.5);
+        });
+        physics::move_character(world, ids.hero.entity(), direction * 4.5);
         physics::step(world);
         if jumped {
             world.log("jump");
             if args.sound {
-                world.play("jump").at(player).start();
+                world.play("jump").at(ids.hero.entity()).start();
             }
         }
-        update_player(world, direction, args.sound);
+        update_player(world, ids, direction, args.sound);
         if light_button || input.pressed("light") {
             light_nearest(world, args.sound);
         }
@@ -251,7 +245,7 @@ impl Game for Lanterns {
                 world.play("night").start();
             }
         }
-        update_sun(world);
+        update_sun(world, ids.sun);
         scene::follow(world);
         audio::step(world);
         publish(world);
@@ -259,81 +253,36 @@ impl Game for Lanterns {
 }
 
 fn define_sounds(world: &mut World) {
-    world
-        .resource_mut::<Sounds>()
-        .add(
-            "footstep",
-            Synth::noise()
-                .seconds(0.08)
-                .attack(0.002)
-                .release(0.07)
-                .lowpass_hz(720.0)
-                .gain(0.24),
-        )
-        .add(
-            "jump",
-            Synth::sine(280.0)
-                .seconds(0.12)
-                .attack(0.005)
-                .release(0.1)
-                .gain(0.18),
-        )
-        .add(
-            "chime",
-            Synth::sine(660.0)
-                .seconds(0.7)
-                .attack(0.005)
-                .release(0.6)
-                .gain(0.28)
-                .layer(Synth::sine(990.0).seconds(0.5).release(0.42).gain(0.14)),
-        )
-        .add(
-            "night",
-            Synth::sine(160.0)
-                .seconds(1.2)
-                .attack(0.04)
-                .release(1.0)
-                .gain(0.24),
-        )
-        .add(
-            "wind",
-            Synth::noise()
-                .seconds(2.0)
-                .sustain(1.0)
-                .lowpass_hz(420.0)
-                .gain(0.1)
-                .looped(),
-        );
+    let mut sounds = world.resource_mut::<Sounds>();
+    let foot = Synth::noise().seconds(0.08).attack(0.002).release(0.07);
+    sounds.add("footstep", foot.lowpass_hz(720.0).gain(0.24));
+    let jump = Synth::sine(280.0).seconds(0.12).attack(0.005).release(0.1);
+    sounds.add("jump", jump.gain(0.18));
+    let chime = Synth::sine(660.0).seconds(0.7).attack(0.005).release(0.6);
+    let overtone = Synth::sine(990.0).seconds(0.5).release(0.42).gain(0.14);
+    sounds.add("chime", chime.gain(0.28).layer(overtone));
+    let night = Synth::sine(160.0).seconds(1.2).attack(0.04).release(1.0);
+    sounds.add("night", night.gain(0.24));
+    let wind = Synth::noise().seconds(2.0).sustain(1.0).lowpass_hz(420.0);
+    sounds.add("wind", wind.gain(0.1).looped());
 }
 
 fn spawn_static_box(world: &mut World, name: &str, at: Vec3, size: Vec3, material: Material) {
     let mesh = Mesh::cuboid(size);
-    world.spawn_named(
-        name,
-        (
-            Transform::at(at.x, at.y, at.z),
-            mesh.clone(),
-            material,
-            Collider::of(&mesh),
-        ),
-    );
+    let pose = Transform::at(at.x, at.y, at.z);
+    let collider = Collider::of(&mesh);
+    world.spawn_named(name, (pose, mesh, material, collider));
 }
 
 fn spawn_sign(world: &mut World) {
-    spawn_static_box(
-        world,
-        "sign-post",
-        Vec3::new(3.0, 0.85, 10.0),
-        Vec3::new(0.18, 1.7, 0.18),
-        Material::rgb(0.32, 0.18, 0.08),
-    );
-    spawn_static_box(
-        world,
-        "sign-board",
-        Vec3::new(3.0, 1.55, 10.0),
-        Vec3::new(2.5, 0.9, 0.14),
-        Material::rgb(0.36, 0.21, 0.1),
-    );
+    for (name, y, size, color) in [
+        ("sign-post", 0.85, [0.18, 1.7, 0.18], [0.32, 0.18, 0.08]),
+        ("sign-board", 1.55, [2.5, 0.9, 0.14], [0.36, 0.21, 0.1]),
+    ] {
+        let at = Vec3::new(3.0, y, 10.0);
+        let material = Material::rgb(color[0], color[1], color[2]);
+        spawn_static_box(world, name, at, size.into(), material);
+    }
 }
 
 fn spawn_decor(world: &mut World, seed: u64) {
@@ -394,12 +343,10 @@ fn spawn_decor(world: &mut World, seed: u64) {
     }
 }
 
-fn update_player(world: &mut World, direction: Vec3, sound: bool) {
-    let player = world.named("player").unwrap();
-    let (grounded, velocity) = {
-        let character = world.get::<Character>(player).unwrap();
-        (character.grounded, character.velocity)
-    };
+fn update_player(world: &mut World, ids: Actors, direction: Vec3, sound: bool) {
+    let (grounded, velocity, mut pose) = world.with_row(ids.hero, |h| {
+        (h.character.grounded, h.character.velocity, *h.transform)
+    });
     let speed = Vec2::new(velocity.x, velocity.z).length();
     let clip = if !grounded || speed >= 2.8 {
         "Run"
@@ -408,75 +355,68 @@ fn update_player(world: &mut World, direction: Vec3, sound: bool) {
     } else {
         "Survey"
     };
-    let fox = world.named("fox").unwrap();
-    {
-        let mut animation = world.get_mut::<Animation>(fox).unwrap();
-        animation.play(clip);
-        animation.advance(world.dt());
-    }
+    world.edit(ids.fox, |fox| {
+        fox.animation.play(clip);
+        fox.animation.advance(world.dt());
+    });
     if direction.length_squared() > 0.0025 {
         let yaw = direction.x.atan2(-direction.z);
-        world.get_mut::<Transform>(fox).unwrap().rotation = Quat::from_rotation_y(yaw);
+        world.edit(ids.fox_pose, |fox| {
+            fox.transform.rotation = Quat::from_rotation_y(yaw)
+        });
     }
     if grounded && speed > 0.08 {
-        let mut footsteps = 0;
-        {
-            let mut state = world.get_mut::<Player>(player).unwrap();
-            state.stride += speed * world.dt();
-            while state.stride >= 0.7 {
-                state.stride -= 0.7;
+        let footsteps = world.edit(ids.stride, |row| {
+            let mut footsteps = 0;
+            row.player.stride += speed * world.dt();
+            while row.player.stride >= 0.7 {
+                row.player.stride -= 0.7;
                 footsteps += 1;
             }
-        }
+            footsteps
+        });
         if sound {
             for _ in 0..footsteps {
-                world.play("footstep").at(player).start();
+                world.play("footstep").at(ids.hero.entity()).start();
             }
         }
     }
-    let feet = world.get::<Transform>(player).unwrap().position.y - 0.65;
-    if feet < -6.0 {
-        let mut pose = *world.get::<Transform>(player).unwrap();
+    if pose.position.y - 0.65 < -6.0 {
         pose.position = SPAWN + Vec3::Y * 0.65;
-        world.teleport(player, pose);
-        let mut c = world.get_mut::<Character>(player).unwrap();
-        c.velocity = Vec3::ZERO;
-        c.grounded = false;
+        world.teleport(ids.hero.entity(), pose);
+        world.edit(ids.hero, |h| {
+            h.character.velocity = Vec3::ZERO;
+            h.character.grounded = false;
+        });
         world.log("fall reset");
     }
 }
 
 fn light_nearest(world: &mut World, sound: bool) {
-    let center = world.get::<Transform>("player").unwrap().position - Vec3::Y * 0.65;
+    let center = world.with_row(actors(world).hero, |h| h.transform.position) - Vec3::Y * 0.65;
     let mut nearest = None;
     let mut distance = 1.5f32;
-    for (entity, (pose, lantern)) in world.query::<(&Transform, &Lantern)>().iter() {
-        if lantern.lit {
+    for row in world.rows::<Lamp>() {
+        if row.lantern.lit {
             continue;
         }
-        let d = pose.position.distance(center);
+        let d = row.transform.position.distance(center);
         if d <= distance {
             distance = d;
-            nearest = Some(entity);
+            nearest = Some(row.id);
         }
     }
     let Some(entity) = nearest else { return };
-    {
-        let mut lantern = world.get_mut::<Lantern>(entity).unwrap();
-        lantern.lit = true;
-        lantern.glow.set_target(world.now(), 1.0);
-    }
-    let name = world.name(entity).unwrap().to_owned();
+    world.edit(entity, |row| {
+        row.lantern.lit = true;
+        row.lantern.glow.set_target(world.now(), 1.0);
+    });
+    let name = world.name(entity.entity()).unwrap_or_default();
     world.log(format_args!("{name} lit"));
     if sound {
-        world.play("chime").at(entity).start();
+        world.play("chime").at(entity.entity()).start();
     }
-    let count = world
-        .query::<&Lantern>()
-        .iter()
-        .filter(|(_, l)| l.lit)
-        .count();
-    if count == world.query::<&Lantern>().iter().count() {
+    if world.rows::<Lamp>().all(|row| row.lantern.lit) {
         world.resource_mut::<Session>().phase = 2;
         world.log("all lanterns lit");
     }
@@ -484,43 +424,39 @@ fn light_nearest(world: &mut World, sound: bool) {
 
 fn update_lanterns(world: &mut World) {
     let now = world.now();
-    let rows: Vec<_> = world
-        .query::<&Lantern>()
-        .iter()
-        .map(|(e, l)| (world.name(e).unwrap().to_owned(), l.glow.value(now)))
-        .collect();
-    for (name, glow) in rows {
-        let bulb = world.named(&format!("{name}/bulb")).unwrap();
-        world.get_mut::<Material>(bulb).unwrap().emissive = [glow * 4.0, glow * 1.65, glow * 0.32];
-        world.get_mut::<PointLight>(bulb).unwrap().intensity = glow * 5.0;
+    for row in world.rows::<Lamp>() {
+        let bulb = row.lantern.bulb;
+        let glow = row.lantern.glow.value(now);
+        world.edit(bulb, |b| {
+            b.material.emissive = [glow * 4.0, glow * 1.65, glow * 0.32];
+            b.light.intensity = glow * 5.0;
+        });
     }
 }
 
-fn update_sun(world: &mut World) {
+fn update_sun(world: &mut World, sun: Id<Pose>) {
     let progress = world.resource::<Session>().elapsed as f32 / DURATION_TICKS as f32;
     let angle = 0.22 - progress * 0.52;
     let position = Vec3::new(24.0 * angle.cos(), 24.0 * angle.sin() + 4.0, -18.0);
-    *world.get_mut::<Transform>("sun").unwrap() =
-        Transform::at(position.x, position.y, position.z).looking_at(Vec3::ZERO, Vec3::Y);
+    world.edit(sun, |row| {
+        *row.transform =
+            Transform::at(position.x, position.y, position.z).looking_at(Vec3::ZERO, Vec3::Y)
+    });
 }
 
 fn publish(world: &mut World) {
-    let count = world
-        .query::<&Lantern>()
-        .iter()
-        .filter(|(_, l)| l.lit)
-        .count() as u32;
-    let session = world.resource::<Session>();
-    let remaining = DURATION_TICKS.saturating_sub(session.elapsed).div_ceil(60);
-    let phase = match session.phase {
+    let count = world.rows::<Lamp>().filter(|row| row.lantern.lit).count() as u32;
+    let remaining = DURATION_TICKS
+        .saturating_sub(world.resource::<Session>().elapsed)
+        .div_ceil(60);
+    let phase = match world.resource::<Session>().phase {
         0 => "title",
         1 => "playing",
         2 => "won",
         _ => "lost",
     };
-    drop(session);
     world.publish("count", count);
-    world.publish("total", world.query::<&Lantern>().iter().count() as u32);
+    world.publish("total", world.rows::<Lamp>().count() as u32);
     world.publish("remaining", remaining);
     world.publish("phase", phase);
     world.publish("assetReady", true);
@@ -546,7 +482,7 @@ mod tests {
     fn level_has_matching_player_crate_obstacles_and_twelve_targets() {
         let sim = game();
         let world = sim.world();
-        assert_eq!(world.query::<&Lantern>().iter().count(), 12);
+        assert_eq!(world.rows::<Lamp>().count(), 12);
         assert_eq!(
             world.get::<Transform>("crate").unwrap().position,
             Vec3::new(6.0, 0.6, 8.0)

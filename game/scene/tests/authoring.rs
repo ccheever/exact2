@@ -1,4 +1,6 @@
-use exact_game::{bin, json, Component, Data, Material, Mesh, Parent, Transform, Vec3, World};
+use exact_game::{
+    bin, json, Component, Data, Kind, Material, Mesh, Parent, Transform, Vec3, World,
+};
 use exact_game_scene::{bake, digest_bytes, SceneIdentity, Types};
 use serde_json::{json as value, Value};
 use std::{
@@ -35,6 +37,36 @@ impl Drop for Files {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+#[test]
+fn scene_entities_bind_to_checked_kinds_without_changing_the_world() {
+    #[derive(Kind)]
+    struct Prop {
+        transform: Transform,
+        mesh: Mesh,
+        material: Option<Material>,
+    }
+    let files = Files::new();
+    let path = files.scene(value!([
+        {"id":"prop","components":{"Transform":{},"Mesh":{"Sphere":{"radius":0.5}}}},
+        {"id":"incomplete","components":{"Transform":{}}}
+    ]));
+    let types = Types::standard();
+    let baked = bake::compile(path, &types, &[]).unwrap();
+    let mut world = World::new(60, 0);
+    types.register(&mut world);
+    types
+        .prepare(&baked.content, &[])
+        .unwrap()
+        .instantiate(&mut world)
+        .unwrap();
+    let before = (world.save(), world.hash(), world.mutation_epoch());
+    let prop = world.bind::<Prop>("prop").unwrap();
+    assert!(world.row(prop).unwrap().material.is_none());
+    let error = world.bind::<Prop>("incomplete").unwrap_err().to_string();
+    assert!(error.contains("Prop") && error.contains("Mesh"), "{error}");
+    assert_eq!(before, (world.save(), world.hash(), world.mutation_epoch()));
 }
 
 #[test]

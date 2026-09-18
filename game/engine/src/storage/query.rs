@@ -364,10 +364,18 @@ impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
 impl<'w, Q: Query> Iterator for QueryRows<'w, Q> {
     type Item = Q::Owned<'w>;
     fn next(&mut self) -> Option<Self::Item> {
+        self.next_entity().map(|(_, row)| row)
+    }
+}
+impl<'w, Q: Query> QueryRows<'w, Q> {
+    /// Next guarded row together with its entity, in the same storage scan.
+    pub fn next_entity(&mut self) -> Option<(Entity, Q::Owned<'w>)> {
         let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
         // Each returned guard splits the lease, so dropping this iterator is safe.
-        Some(unsafe { Q::owned(&self.query.state, index) })
+        Some((self.query.world.entity_at(index), unsafe {
+            Q::owned(&self.query.state, index)
+        }))
     }
 }
 #[inline]

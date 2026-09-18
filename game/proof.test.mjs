@@ -243,12 +243,14 @@ test('world convenience keeps simulation fields only and dispatches the existing
 test('author examples and documentation describe current motion, placement and parity pins', () => {
   const read = path => readFileSync(resolve(import.meta.dir, path), 'utf8');
   const main = read('README.md'), engine = read('engine/README.md'), greybox = read('games/greybox/README.md');
-  for (const source of [main, read('new/logic/src/lib.rs')]) {
+  const template = read('new/logic/src/lib.rs');
+  for (const source of [main, template]) {
     const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
     expect(setup).not.toContain('scene::follow');
     expect(source).toContain('Character');
-    expect(source).toContain('near_xz::<Beacon>');
   }
+  expect(template).toContain('near_xz::<Beacon>');
+  expect(main.indexOf('derive(Kind)')).toBeLessThan(main.indexOf('world.get::<Transform>'));
   expect(main).not.toContain('Call it at the\nend of `setup`');
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');
   expect(greybox).not.toContain('math::ease');
