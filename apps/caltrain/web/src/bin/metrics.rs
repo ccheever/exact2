@@ -630,7 +630,7 @@ impl CollectionDriver {
                     0,
                     "scroll must not key the input list"
                 );
-                if receipt.is_none() {
+                if receipt.receipts.is_empty() {
                     break;
                 }
                 layout_ms += collection_layout(runner);

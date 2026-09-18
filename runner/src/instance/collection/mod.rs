@@ -12,6 +12,7 @@ mod views;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
+use exact_plan::EventKind;
 use index::{HeightIndex, MeasurementToken};
 use memo::KeyMemo;
 pub use reorder_api::*;
@@ -49,6 +50,8 @@ pub(crate) struct Collection {
     geometry: Option<CollectionFeedback>,
     correction: Option<AnchorCorrection>,
     follow_end: bool,
+    edge_handlers: [bool; 2],
+    edge_armed: [bool; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -159,6 +162,13 @@ impl Collection {
             geometry: None,
             correction: None,
             follow_end,
+            edge_handlers: [EventKind::Reachstart, EventKind::Reachend].map(|event| {
+                descriptor
+                    .handlers
+                    .iter()
+                    .any(|h| plan.handler(h).event == event)
+            }),
+            edge_armed: [true; 2],
         });
         this.update_data(u, frames)?;
         Ok(Some(this))
@@ -209,11 +219,18 @@ impl Collection {
             self.index.replace_keys(text_keys).map_err(index_error)?;
             self.items = items;
             self.string_keys = keys.iter().all(|key| key.as_str().is_some());
+            if self.keys.first() != keys.first() {
+                self.edge_armed[0] = true;
+            }
+            if self.keys.last() != keys.last() {
+                self.edge_armed[1] = true;
+            }
             self.keys = keys;
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
         self.invalidate_height_estimates()?;
         self.restore(anchor)?;
+        self.geometric_edges()?;
         self.realize_window(u, frames, true)?;
         advance(&mut self.revision)?;
         if let Some(m) = &mut self.key_memo {
@@ -275,6 +292,25 @@ impl Collection {
                     })
             })
             .and_then(|row| key_text(&row.row.key))
+    }
+    /// Pins never qualify an edge. Also re-arm when a data/geometry change
+    /// removes the endpoint from the geometric window, even between reports.
+    fn geometric_edges(&mut self) -> Result<[bool; 2], InstanceError> {
+        let mut reached = [false; 2];
+        if let Some(g) = &self.geometry {
+            if self.index.len() > 0 {
+                let window = self
+                    .index
+                    .window(g.scroll_top, g.port_height, [None, None])
+                    .map_err(index_error)?;
+                reached = [0, self.index.len() - 1]
+                    .map(|i| window.segments.iter().any(|range| range.contains(&i)));
+            }
+        }
+        for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
+            *armed |= !reached;
+        }
+        Ok(reached)
     }
     fn realize_window(
         &mut self,
@@ -453,7 +489,7 @@ impl Collection {
         frames: &[Frame],
         mut feedback: CollectionFeedback,
         by_view: &BTreeMap<ViewId, usize>,
-    ) -> Result<bool, InstanceError> {
+    ) -> Result<(bool, Option<EventKind>), InstanceError> {
         let changed_width = self
             .geometry
             .as_ref()
@@ -517,7 +553,14 @@ impl Collection {
         if changed {
             advance(&mut self.revision)?;
         }
-        Ok(changed)
+        let reached = self.geometric_edges()?;
+        // Start wins a tie; the other edge stays armed for the next report.
+        let edge = (0..2).find(|&i| reached[i] && self.edge_armed[i] && self.edge_handlers[i]);
+        let event = edge.map(|i| {
+            self.edge_armed[i] = false;
+            [EventKind::Reachstart, EventKind::Reachend][i]
+        });
+        Ok((changed, event))
     }
     fn release_pins(
         &mut self,

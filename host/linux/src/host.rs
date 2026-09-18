@@ -270,16 +270,20 @@ impl<D: DataSource> Host<D> {
         feedback: exact_runner::CollectionFeedback,
     ) -> Result<bool, String> {
         match self.runner.collection_feedback(feedback) {
-            Ok(Some(receipt)) => self
-                .commit(
-                    &[Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }],
-                    None,
+            Ok(mut result) => {
+                let changed = !result.receipts.is_empty();
+                if !changed && result.error.is_none() {
+                    return Ok(false);
+                }
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                self.commit(
+                    &result.receipts,
+                    result.error.map(|e| format!("collection feedback: {e:?}")),
                 )
-                .map_or(Ok(true), Err),
-            Ok(None) => Ok(false),
+                .map_or(Ok(changed), Err)
+            }
             Err(error) => Err(format!("collection feedback: {error:?}")),
         }
     }

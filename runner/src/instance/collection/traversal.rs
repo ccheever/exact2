@@ -81,26 +81,27 @@ impl Tree {
         out
     }
     /// Targeted geometry update. Never evaluates collection data or key expressions,
-    /// settles resources, or traverses unmounted rows. False means stale/no change.
+    /// settles resources, or traverses unmounted rows. An edge is returned only
+    /// for accepted geometry; the runner dispatches it after committing the ops.
     pub fn update_collection(
         &mut self,
         u: &mut Update<'_>,
         feedback: CollectionFeedback,
-    ) -> Result<bool, InstanceError> {
+    ) -> Result<(bool, Option<EventKind>), InstanceError> {
         if !self.has_collections {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         }
         feedback
             .validate()
             .map_err(|_| invalid("invalid collection feedback"))?;
         let Some(target) = find_collection(&self.children, feedback.view) else {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         };
         let Some(by_view) = target.prepare_feedback(&feedback)? else {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         };
         let categories = [
             feedback.focus_view.is_some(),
@@ -111,16 +112,15 @@ impl Tree {
         } else {
             false
         };
-        let changed = feedback_walk(&mut self.children, u, &[], &feedback, &by_view)?
-            .unwrap_or(false)
-            || released;
+        let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view)?
+            .unwrap_or((false, None));
         let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
             .into_iter()
             .partition(|op| !matches!(op, Op::DestroyView { .. }));
         live.extend(gone);
         u.ops = live;
         self.last_work = u.work;
-        Ok(changed)
+        Ok((changed || released, edge))
     }
 }
 fn feedback_walk(
@@ -129,7 +129,7 @@ fn feedback_walk(
     frames: &[Frame],
     feedback: &CollectionFeedback,
     by_view: &BTreeMap<ViewId, usize>,
-) -> Result<Option<bool>, InstanceError> {
+) -> Result<Option<(bool, Option<EventKind>)>, InstanceError> {
     for child in children {
         let found = match child {
             Child::Node(node) => {

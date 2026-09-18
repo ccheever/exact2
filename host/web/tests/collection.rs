@@ -139,6 +139,83 @@ fn bridge_rejects_oversized_input_and_uses_the_common_le_decoder() {
 }
 
 #[test]
+fn edge_action_receipts_and_refusal_keep_committed_feedback_in_the_host_batch() {
+    struct RefusingData;
+    impl exact_runner::DataSource for RefusingData {
+        fn query(
+            &mut self,
+            source: &str,
+            args: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            if args == [exact_runner::Value::Bool(true)] {
+                return Err(exact_runner::DataError::BadArguments("edge refused".into()));
+            }
+            NoData.query(source, args)
+        }
+    }
+    for refuse in [false, true] {
+        let source = format!(
+            r#"shape Row
+  index: number
+component App
+  state refused = false
+  state reached = false
+  resource rows = rows(refused) as shape list<Row>
+  action end writes refused, reached
+    refused = {refuse}
+    reached = true
+  view
+    column
+      text (reached ? "edge committed" : "before") testId="status"
+      list virtualized=true height=180 width=320 reachend=end
+        each x in rows key=x.index
+          text `${{x.index}}` height=32
+"#
+        );
+        let (mut host, boot) = Host::boot(
+            &contract::compile(&source).unwrap().encode(),
+            RefusingData,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert!(
+            !boot.contains("reachend"),
+            "runner edge must not attach a listener"
+        );
+        let before = host.runner().collections().remove(0);
+        let mut feedback = facts(&before);
+        feedback.scroll_top = before.total_extent - 180.;
+        let batch = host.collection_feedback(&feedback.encode().unwrap());
+        let after = host.runner().collections().remove(0);
+        assert_eq!(after.rows.last().unwrap().index, 999);
+        for row in &after.rows {
+            for id in [row.view, row.root] {
+                assert!(
+                    batch.contains(&format!("\"op\":\"create\",\"id\":{id},")),
+                    "feedback create missing after edge action: {batch}"
+                );
+            }
+        }
+        assert!(batch.contains("\"op\":\"collections\""));
+        assert_eq!(batch.contains("edge refused"), refuse);
+        assert_eq!(
+            host.runner().slot("reached"),
+            Some(&exact_runner::Value::Bool(!refuse))
+        );
+        assert!(!host.runner().is_poisoned());
+        if !refuse {
+            assert!(batch.contains("edge committed"));
+        }
+        let mut repeat = facts(&after);
+        repeat.scroll_sequence = 2;
+        repeat.scroll_top = feedback.scroll_top;
+        let batch = host.collection_feedback(&repeat.encode().unwrap());
+        assert!(batch.contains("\"error\":null"), "{batch}");
+    }
+}
+
+#[test]
 #[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
 fn real_browser_collection_feedback_and_navigation() {
     use std::{path::Path, process::Command};

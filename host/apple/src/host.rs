@@ -528,17 +528,16 @@ impl<D: DataSource> Host<D> {
             );
         }
         match self.runner.collection_feedback_bytes(bytes) {
-            Ok(Some(receipt)) => {
+            Ok(mut result) => {
+                if result.receipts.is_empty() && result.error.is_none() {
+                    return self.finish(Batch::new(), None);
+                }
                 self.now_ms = self.now_ms.max(now_ms);
-                self.commit(
-                    &[Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    }],
-                    None,
-                )
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                self.commit(&result.receipts, result.error.map(|e| format!("{e:?}")))
             }
-            Ok(None) => self.finish(Batch::new(), None),
             Err(error) => self.finish(Batch::new(), Some(format!("{error:?}"))),
         }
     }
@@ -900,25 +899,28 @@ impl<D: DataSource> Host<D> {
             .runner
             .handlers_of(id)
             .into_iter()
-            .map(|e| match e {
-                EventKind::Press => "press",
-                EventKind::Change => "change",
-                EventKind::Hover => "hover",
-                EventKind::Focus => "focus",
-                EventKind::Blur => "blur",
-                EventKind::Key => "key",
-                EventKind::Submit => "submit",
-                EventKind::Load => "load",
-                EventKind::Message => "message",
-                EventKind::Contextmenu => "contextmenu",
-                EventKind::Dblclick => "dblclick",
-                EventKind::Swiperight => "swiperight",
-                EventKind::Scroll => "scroll",
-                EventKind::Navigate => "navigate",
-                EventKind::Heightrelease => "heightrelease",
-                EventKind::Transformgeometry => "transformgeometry",
-                EventKind::Transformrelease => "transformrelease",
-                EventKind::Reorderdrop => "reorderdrop",
+            .filter_map(|e| {
+                Some(match e {
+                    EventKind::Press => "press",
+                    EventKind::Change => "change",
+                    EventKind::Hover => "hover",
+                    EventKind::Focus => "focus",
+                    EventKind::Blur => "blur",
+                    EventKind::Key => "key",
+                    EventKind::Submit => "submit",
+                    EventKind::Load => "load",
+                    EventKind::Message => "message",
+                    EventKind::Contextmenu => "contextmenu",
+                    EventKind::Dblclick => "dblclick",
+                    EventKind::Swiperight => "swiperight",
+                    EventKind::Scroll => "scroll",
+                    EventKind::Navigate => "navigate",
+                    EventKind::Heightrelease => "heightrelease",
+                    EventKind::Transformgeometry => "transformgeometry",
+                    EventKind::Transformrelease => "transformrelease",
+                    EventKind::Reorderdrop => "reorderdrop",
+                    EventKind::Reachstart | EventKind::Reachend => return None,
+                })
             })
             .collect();
         if handlers.contains(&"heightrelease") {

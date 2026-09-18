@@ -48,7 +48,7 @@ pub struct Timed {
     pub receipt: CommitReceipt,
 }
 
-/// What one `advance_timed` did: the commits in order, each at its due
+/// What one `advance_timed` or collection feedback call did: the commits in order, each at its due
 /// time; the clock afterwards — the requested time, or the last time reached
 /// before a refusal; and that refusal, if any. Commits before a refusal are
 /// kept: they are in the kernel, and a host must show them.
@@ -58,7 +58,7 @@ pub struct Advanced {
     pub receipts: Vec<Timed>,
     /// The clock after the call, milliseconds.
     pub now_ms: f64,
-    /// The refusal that stopped the advance, if one did.
+    /// The refusal that stopped the advance or the collection edge action.
     pub error: Option<RunnerError>,
 }
 

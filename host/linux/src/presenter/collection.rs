@@ -308,7 +308,12 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(false) => {}
                 Err(why) => {
+                    // An edge action can refuse after geometry committed. Run
+                    // the same post-commit synchronization as timer refusals.
+                    let after = self.sync_commit();
                     error = error.or(Some(why));
+                    error = error.or(after);
+                    self.collection.schedule(&self.host.collections());
                 }
             }
         }
