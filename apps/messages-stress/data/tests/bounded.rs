@@ -80,7 +80,10 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
         .skip(journal - r.journal_start())
         .filter(|line| line.contains("reachstart view") || line.contains("reachend view"))
         .count();
-    assert!(events <= 1, "at most one edge dispatch per feedback call");
+    assert!(
+        events <= 1,
+        "this 200-row window crosses only one edge per feedback call"
+    );
     let c = r.collections().remove(0);
     assert_eq!(c.count, rows(r).len());
     assert!(c.count <= WINDOW_SIZE + 1);

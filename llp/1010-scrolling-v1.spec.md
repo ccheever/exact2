@@ -609,9 +609,12 @@ They qualify only on nonempty virtualized collections whose geometric window
 (scrollport plus one viewport of overscan) contains the first/last supplied row;
 bootstrap rows and pins alone never qualify. Each edge starts armed, disarms on
 dispatch (including a refused action), and re-arms when its endpoint leaves that
-window or its supplied key changes. At most one fires per feedback call:
-`reachstart` wins a tie and leaves `reachend` armed for the next call. The ordinary
-action transaction runs after feedback; committed receipts survive an action
+window or its supplied key changes. Each edge fires at most once per feedback
+call. When both qualify, `reachstart` runs first; after it succeeds, `reachend`
+runs in the same call only if the collection's keyed membership is unchanged.
+A membership change leaves `reachend` armed for fresh host feedback, so even tiny
+rows load at most one window per call. An action refusal stops the sequence.
+The ordinary action transaction runs after feedback; committed receipts survive an action
 refusal and reach hosts alongside its error. Hosts attach no edge listeners.
 Offset-only feedback without a qualifying handler still performs no source query
 or key evaluation. Messages stress now also exercises bounded 200-record answers;

@@ -123,7 +123,7 @@ fn handbuilt_plan_roundtrips_exports_and_runs_both_synchronous_actions() {
     let view = r.roots()[0];
     assert_eq!(EventKind::Transformgeometry as u8, 15);
     assert_eq!(EventKind::Transformrelease as u8, 16);
-    assert_eq!(EventKind::from_wire(18), None);
+    assert_eq!(EventKind::from_wire(u8::MAX), None);
     r.dispatch(view, geometry([800.0, 400.0, 600.0, 300.0]))
         .unwrap();
     assert_eq!(r.slot("a"), Some(&Value::Number(800.0)));

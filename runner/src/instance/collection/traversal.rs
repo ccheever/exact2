@@ -83,11 +83,11 @@ impl Tree {
     /// Targeted geometry update. Never evaluates collection data or key expressions,
     /// settles resources, or traverses unmounted rows. An edge is returned only
     /// for accepted geometry; the runner dispatches it after committing the ops.
-    pub fn update_collection(
+    pub(crate) fn update_collection(
         &mut self,
         u: &mut Update<'_>,
         feedback: CollectionFeedback,
-    ) -> Result<(bool, Option<EventKind>), InstanceError> {
+    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         if !self.has_collections {
             self.last_work = u.work;
             return Ok((false, None));
@@ -122,6 +122,18 @@ impl Tree {
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
+    /// Consume the second candidate only if the first action left this exact
+    /// keyed membership alive. No query, key evaluation or new edge discovery.
+    pub(crate) fn take_collection_end(&mut self, view: ViewId, membership: &Rc<()>) -> bool {
+        let Some(collection) = find_collection_mut(&mut self.children, view) else {
+            return false;
+        };
+        if !Rc::ptr_eq(&collection.membership, membership) || !collection.edge_armed[1] {
+            return false;
+        }
+        collection.edge_armed[1] = false;
+        true
+    }
 }
 fn feedback_walk(
     children: &mut [Child],
@@ -129,7 +141,7 @@ fn feedback_walk(
     frames: &[Frame],
     feedback: &CollectionFeedback,
     by_view: &BTreeMap<ViewId, usize>,
-) -> Result<Option<(bool, Option<EventKind>)>, InstanceError> {
+) -> Result<Option<(bool, Option<CollectionEdges>)>, InstanceError> {
     for child in children {
         let found = match child {
             Child::Node(node) => {
@@ -196,6 +208,32 @@ fn find_collection(children: &[Child], view: ViewId) -> Option<&Collection> {
                 Active::Rows { rows } => {
                     for row in rows {
                         stack.extend(row.roots.iter());
+                    }
+                }
+            },
+        }
+    }
+    None
+}
+
+fn find_collection_mut(children: &mut [Child], view: ViewId) -> Option<&mut Collection> {
+    let mut stack: Vec<_> = children.iter_mut().collect();
+    while let Some(child) = stack.pop() {
+        match child {
+            Child::Node(node) => {
+                if let Some(collection) = &mut node.collection {
+                    if collection.view == view {
+                        return Some(collection);
+                    }
+                    // Virtual row descendants cannot contain another collection.
+                }
+                stack.extend(node.children.iter_mut());
+            }
+            Child::Region(region) => match &mut region.active {
+                Active::Arm { roots, .. } => stack.extend(roots.iter_mut()),
+                Active::Rows { rows } => {
+                    for row in rows {
+                        stack.extend(row.roots.iter_mut());
                     }
                 }
             },

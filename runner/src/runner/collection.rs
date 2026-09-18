@@ -24,8 +24,9 @@ impl<D: DataSource> Runner<D> {
         self.collection_feedback(feedback)
     }
     /// Update the addressed window and release transferred focus/interaction pins
-    /// in other collections in the same commit, then dispatch at most one edge
-    /// action. Pre-commit errors return Err; an edge refusal accompanies the
+    /// in other collections in the same commit, then dispatch each edge at most
+    /// once. Start precedes end; a membership change defers end to fresh feedback.
+    /// Pre-commit errors return Err; an edge refusal accompanies the
     /// committed receipts in Advanced.error. Hosts must consume both. No timers
     /// advance. Without an edge handler, no resources or keys are evaluated.
     pub fn collection_feedback(
@@ -87,13 +88,28 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        if let Some(edge) = edge {
-            match self.dispatch_edge(view, edge) {
-                Ok(receipt) => result.receipts.push(Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }),
-                Err(error) => result.error = Some(error),
+        if let Some(edges) = edge {
+            for (position, event) in [edges.first, EventKind::Reachend].into_iter().enumerate() {
+                if position == 1
+                    && !edges.end_if_unchanged.as_ref().is_some_and(|membership| {
+                        self.tree
+                            .as_mut()
+                            .expect("booted")
+                            .take_collection_end(view, membership)
+                    })
+                {
+                    break;
+                }
+                match self.dispatch_edge(view, event) {
+                    Ok(receipt) => result.receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(error) => {
+                        result.error = Some(error);
+                        break;
+                    }
+                }
             }
         }
         Ok(result)
