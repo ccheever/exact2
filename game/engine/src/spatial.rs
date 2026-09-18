@@ -115,7 +115,7 @@ pub(crate) fn extent(mesh: Option<&Mesh>) -> Vec3 {
         Some(Mesh::Plane { width, depth }) => Vec3::new(width * 0.5, 0.005, depth * 0.5),
         Some(Mesh::Cylinder { radius, height }) => Vec3::new(*radius, height * 0.5, *radius),
         Some(Mesh::Box { size }) => *size * 0.5,
-        Some(Mesh::Asset(_)) => Vec3::ZERO,
+        Some(Mesh::Asset(_)) => Vec3::splat(0.5),
         None => Vec3::ZERO,
     }
 }
@@ -247,28 +247,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
     let (origin, direction) = view.ray(point);
     let mut hit = None;
     for (e, mesh) in w.query::<&Mesh>().iter() {
-        if w.get::<Visible>(e).is_some_and(|v| !v.0) {
-            continue;
-        }
-        let Some(pose) = w.global(e) else {
-            continue;
-        };
-        if pose.matrix3.determinant().abs() < 1e-12 {
-            continue;
-        }
-        let inv = pose.inverse();
-        let o = inv.transform_point3(origin);
-        let d = inv.transform_vector3(direction);
-        let t = match mesh {
-            Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
-            Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
-            Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
-            Mesh::Asset(name) if w.model(name).is_none() => None,
-            _ => {
-                let (half, center) = bounds(w, Some(mesh));
-                slab(o - center, d, half)
-            }
-        };
+        let t = ray_hit(w, e, mesh, origin, direction);
         if let Some(t) = t {
             let p = origin + direction * t;
             let depth = -view.pose.inverse().transform_point3(p).z;
@@ -281,4 +260,103 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         }
     }
     hit
+}
+
+fn ray_hit(w: &World, e: Entity, mesh: &Mesh, origin: Vec3, direction: Vec3) -> Option<f32> {
+    if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+        return None;
+    }
+    let pose = w.global(e)?;
+    if pose.matrix3.determinant().abs() < 1e-12 {
+        return None;
+    }
+    let inv = pose.inverse();
+    let o = inv.transform_point3(origin);
+    let d = inv.transform_vector3(direction);
+    match mesh {
+        Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
+        Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
+        Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
+
+        _ => {
+            let (half, center) = bounds(w, Some(mesh));
+            slab(o - center, d, half)
+        }
+    }
+}
+
+/// All intersections on the open segment; endpoint entities never obstruct it.
+pub(crate) fn blockers(w: &World, from: Vec3, to: Vec3, exclude: &[Entity]) -> Vec<(Entity, f32)> {
+    let delta = to - from;
+    let distance = delta.length();
+    if distance <= 1e-5 {
+        return Vec::new();
+    }
+    let direction = delta / distance;
+    let mut hits: Vec<_> = w
+        .query::<&Mesh>()
+        .iter()
+        .filter_map(|(e, mesh)| {
+            if exclude.iter().any(|&root| {
+                let mut current = Some(e);
+                for _ in 0..=w.len() {
+                    let Some(entity) = current else {
+                        return false;
+                    };
+                    if entity == root {
+                        return true;
+                    }
+                    current = w.get::<crate::Parent>(entity).map(|p| p.0);
+                }
+                false
+            }) {
+                return None;
+            }
+            let t = ray_hit(w, e, mesh, from, direction)?;
+            (t > 1e-5 && t < distance - 1e-5).then_some((e, t))
+        })
+        .collect();
+    hits.sort_by(|(a, x), (b, y)| x.total_cmp(y).then_with(|| a.index().cmp(&b.index())));
+    hits
+}
+
+/// Eight corners, six face centres, and centre of the oriented bounds.
+pub(crate) fn occlusion(
+    w: &World,
+    e: Entity,
+    origin: Vec3,
+    corners: &[Vec3; 8],
+) -> (f32, Vec<Entity>) {
+    let center = (corners[0] + corners[7]) * 0.5;
+    let mut samples = corners.to_vec();
+    for bit in [1, 2, 4] {
+        for side in [0, bit] {
+            samples.push(
+                (0..8)
+                    .filter(|i| i & bit == side)
+                    .map(|i| corners[i])
+                    .sum::<Vec3>()
+                    * 0.25,
+            );
+        }
+    }
+    samples.push(center);
+    let mut hidden = 0;
+    let mut occluders = std::collections::BTreeMap::<Entity, f32>::new();
+    for sample in samples {
+        let hits = blockers(w, origin, sample, &[e]);
+        hidden += usize::from(!hits.is_empty());
+        for (entity, distance) in hits {
+            occluders
+                .entry(entity)
+                .and_modify(|d| *d = d.min(distance))
+                .or_insert(distance);
+        }
+    }
+    let mut occluders: Vec<_> = occluders.into_iter().collect();
+    occluders.sort_by(|(a, x), (b, y)| x.total_cmp(y).then_with(|| a.index().cmp(&b.index())));
+    (
+        hidden as f32 / 15.0,
+        occluders.into_iter().take(4).map(|(e, _)| e).collect(),
+    )
 }

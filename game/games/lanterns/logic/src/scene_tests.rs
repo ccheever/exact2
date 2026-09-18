@@ -234,3 +234,51 @@ fn procedural_entities_report_named_generator_with_seed() {
     assert_eq!(provenance.generator, "lanterns::spawn_decor");
     assert_eq!(provenance.parameters["seed"], "41");
 }
+
+#[test]
+fn walking_fox_behind_wall_changes_geometric_eyes_headlessly() {
+    let mut sim = Sim::<Lanterns>::new(Options {
+        scene: bake_scene().content,
+        started: true,
+        seed: 1_041_003,
+        ..Default::default()
+    })
+    .unwrap();
+    sim.viewport(800.0, 600.0);
+    let player = sim.world().named("player").unwrap();
+    let camera = sim.world().named("camera").unwrap();
+    sim.world_mut().remove::<Follow>(camera);
+    sim.world_mut().teleport(
+        camera,
+        Transform::at(-10.0, 1.0, 5.0).looking_at(Vec3::new(-2.0, 0.0, 5.0), Vec3::Y),
+    );
+    sim.world_mut()
+        .teleport(player, Transform::at(-2.0, 0.65, 1.0));
+    sim.world_mut().propagate();
+    let request = r#"{"op":"layout","entity":"fox","to":"lantern-2"}"#;
+    let before = sim.agent(request);
+    sim.hold("KeyS", 900.0);
+    let epoch = sim.world().mutation_epoch();
+    let after = sim.agent(request);
+    assert_eq!(sim.world().mutation_epoch(), epoch);
+    eprintln!("fox before: {before}\nfox after: {after}");
+    #[derive(Default, exact_game::Data)]
+    struct Visibility {
+        occluded: f32,
+    }
+    // Parse only the sampled fraction; exact wire names are also checked below.
+    #[derive(Default, exact_game::Data)]
+    struct EntityEyes {
+        visible: Visibility,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        entity: EntityEyes,
+    }
+    let a: Reply = exact_game::json::from_str(&before).unwrap();
+    let b: Reply = exact_game::json::from_str(&after).unwrap();
+    assert!(b.entity.visible.occluded > a.entity.visible.occluded);
+    assert!(before.contains("\"lineOfSight\":true"), "{before}");
+    assert!(after.contains("\"lineOfSight\":false"), "{after}");
+    assert!(after.contains("\"wall\""), "{after}");
+}

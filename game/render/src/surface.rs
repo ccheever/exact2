@@ -443,7 +443,9 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 0,
             ),
         );
-        // Engine world-state replies have this fixed suffix. Parse the reply using
+        // Only engine world-state replies have the spliceable world suffix.
+        // Layout has nested world/facing fields inside entity; leave its tail intact.
+        // Parse the reply using
         // its own Data decoder to distinguish state from tree/error/entity replies.
         let state = world_state(&reply);
         if state {

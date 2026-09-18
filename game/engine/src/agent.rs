@@ -10,6 +10,7 @@ struct Request {
     op: String,
     entity: Option<String>,
     under: Option<String>,
+    to: Option<String>,
     summary: bool,
     settle: bool,
     now: Option<f64>,
@@ -52,6 +53,7 @@ impl Request {
                 "external" => q.external.read(&mut r)?,
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
+                "to" => q.to = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
                 "now" => {
@@ -306,7 +308,7 @@ impl<G: Game> Sim<G> {
                 quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.loading().map(str::to_owned).collect::<Vec<_>>())?, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.ownership_json(), self.last_us.map_or("null".into(), |n| n.to_string()), self.world_us, self.capture().map_or("null".into(), |c| c.status()), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
-                self.layout(e, viewport)
+                self.layout(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
             }
             "layout" => {
                 let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
@@ -336,7 +338,7 @@ impl<G: Game> Sim<G> {
     fn ownership_json(&self) -> String {
         format!("{{\"owner\":{},\"clock\":{},\"contamination\":{},\"inputSource\":{},\"handoff\":\"clock owner human/agent\"}}", quote(if self.agent_owned { "agent" } else { "human" }), quote(if self.agent_owned { "controlled" } else { "live" }), self.contamination, quote(if self.source_tagged { "attested" } else { "unavailable" }))
     }
-    fn layout(&self, e: Entity, viewport: Vec2) -> Result<String, String> {
+    fn layout(&self, e: Entity, viewport: Vec2, to: Option<Entity>) -> Result<String, String> {
         let w = &self.world;
         let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
         let (scale, rotation, position) = pose.to_scale_rotation_translation();
@@ -351,7 +353,44 @@ impl<G: Game> Sim<G> {
             .iter()
             .copied()
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-        let (screen, depth, visible) = if let Some(view) = spatial::View::new(w, viewport) {
+        let forward = pose.transform_vector3(Vec3::NEG_Z).normalize_or_zero();
+        let view = spatial::View::new(w, viewport);
+        let toward = view
+            .as_ref()
+            .map(|v| forward.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()));
+        let mut facing = format!(
+            "\"forward\":{},\"towardCamera\":{}",
+            encode(&forward)?,
+            toward
+                .map(|n| encode(&n))
+                .transpose()?
+                .unwrap_or_else(|| "null".into())
+        );
+        if let Some(to) = to {
+            let target = w
+                .global(to)
+                .unwrap_or(crate::Affine3A::IDENTITY)
+                .translation
+                .into();
+            let delta: Vec3 = target - position;
+            let bearing =
+                if (forward.x == 0.0 && forward.z == 0.0) || (delta.x == 0.0 && delta.z == 0.0) {
+                    0.0
+                } else {
+                    crate::math::atan2(
+                        forward.z * delta.x - forward.x * delta.z,
+                        forward.x * delta.x + forward.z * delta.z,
+                    )
+                    .to_degrees()
+                };
+            let clear = spatial::blockers(w, position, target, &[e, to]).is_empty();
+            facing.push_str(&format!(
+                ",\"bearingTo\":{},\"distanceTo\":{},\"lineOfSight\":{clear}",
+                encode(&bearing)?,
+                encode(&delta.length())?
+            ));
+        }
+        let (screen, depth, visible) = if let Some(view) = view {
             let screen = view
                 .screen(&corners)
                 .map(|[x, y, width, height]| {
@@ -366,13 +405,23 @@ impl<G: Game> Sim<G> {
                 .transpose()?
                 .unwrap_or_else(|| "{\"unavailable\":true}".into());
             let (inside, behind, distance, depth) = view.visibility(&corners, position);
+            let (occluded, occluders) =
+                spatial::occlusion(w, e, view.pose.translation.into(), &corners);
+            let names: Vec<_> = occluders
+                .into_iter()
+                .map(|e| {
+                    w.name(e)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("#{}", e.index()))
+                })
+                .collect();
             (
                 screen,
                 encode(&depth)?,
                 format!(
-                    "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{}}}",
+                    "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{},\"occluded\":{},\"occluders\":{}}}",
                     inside && w.get::<Visible>(e).is_none_or(|v| v.0),
-                    encode(&distance)?
+                    encode(&distance)?, encode(&occluded)?, encode(&names)?
                 ),
             )
         } else {
@@ -382,6 +431,6 @@ impl<G: Game> Sim<G> {
                 "{\"unavailable\":true}".into(),
             )
         };
-        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{{\"min\":{},\"max\":{}}},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?,encode(&lo)?,encode(&hi)?))
+        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{{\"min\":{},\"max\":{}}},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?,encode(&lo)?,encode(&hi)?))
     }
 }
