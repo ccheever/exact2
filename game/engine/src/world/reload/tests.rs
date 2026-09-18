@@ -278,9 +278,9 @@ fn over_budget_initializer_refuses_explicitly() {
         .slots
         .resize_with(MAX_ENTITIES + 1, Slot::default);
     let error = world.initializer().unwrap_err();
-    assert!(error.message.contains("250000"));
+    assert!(error.message.contains("1000000"));
     let mut work = Work::default();
-    work.charge(256 * 1024 * 1024 + 1);
+    work.charge(512 * 1024 * 1024 + 1);
     assert!(work.check().unwrap_err().message.contains("work limit"));
 }
 

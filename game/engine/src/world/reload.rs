@@ -4,7 +4,7 @@ use super::*;
 mod value;
 use value::{Collect, Node, Work};
 
-const MAX_ENTITIES: usize = 250_000;
+const MAX_ENTITIES: usize = 1_000_000;
 const MAX_BASE_BYTES: usize = 128 * 1024 * 1024;
 #[derive(Default, Data)]
 struct Row {
@@ -62,35 +62,52 @@ impl World {
             || self.components.len() + self.resources.len() > 256
         {
             return Err(DataError::new(
-                "reload initializer exceeds 250000 slots / 256 storage types",
+                "reload initializer exceeds 1000000 slots / 256 storage types",
             ));
         }
         let mut work = Work::default();
-        let mut initial = Initial::default();
-        for entity in self.entities() {
-            let mut row = Row {
-                entity,
-                ..Default::default()
-            };
+        // Keep only one component's projection alive while writing the compact
+        // base. Sorting identity keys preserves the same deterministic map order.
+        let mut entities: Vec<_> = self.entities().map(|e| (key(self, e), e)).collect();
+        entities.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let mut out = bin::Encoder::default();
+        out.begin_struct();
+        out.field("entities");
+        out.begin_struct();
+        for (name, entity) in entities {
+            work.charge(128 + name.len());
+            work.check()?;
+            out.key(&name);
+            out.begin_struct();
+            out.field("entity");
+            entity.write(&mut out);
+            out.field("components");
+            out.begin_struct();
             for (name, storage) in &self.components {
                 work.charge(0);
                 if storage.has(entity.index as usize) {
                     let mut w = Collect::new(self, &mut work);
                     storage.write_one(entity.index as usize, &mut w);
-                    row.components.insert((*name).into(), w.finish()?);
+                    out.key(name);
+                    w.finish()?.write(&mut out);
                 }
             }
-            let name = key(self, entity);
-            work.charge(128 + name.len());
-            work.check()?;
-            initial.entities.insert(name, row);
+            out.end_struct();
+            out.end_struct();
         }
+        out.end_struct();
+        out.field("resources");
+        out.begin_struct();
         for (name, storage) in &self.resources {
             let mut w = Collect::new(self, &mut work);
             storage.write_one(0, &mut w);
-            initial.resources.insert((*name).into(), w.finish()?);
+            out.key(name);
+            w.finish()?.write(&mut out);
         }
-        let bytes = bin::to_vec(&initial);
+        out.end_struct();
+        out.end_struct();
+        work.check()?;
+        let bytes = out.finish();
         if bytes.len() > MAX_BASE_BYTES {
             return Err(DataError::new("reload initializer exceeds 128 MiB"));
         }
@@ -113,7 +130,7 @@ impl World {
         let base: Initial = bin::from_slice_in(base, budget)?;
         let theirs: Initial = bin::from_slice_in(theirs, budget)?;
         if base.entities.len().max(theirs.entities.len()) > MAX_ENTITIES {
-            return Err(DataError::new("reload initializer exceeds 250000 slots"));
+            return Err(DataError::new("reload initializer exceeds 1000000 slots"));
         }
         let mut report = Report::default();
         let mut work = Work::default();

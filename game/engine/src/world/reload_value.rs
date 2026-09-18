@@ -123,13 +123,13 @@ impl Work {
     pub fn charge(&mut self, bytes: usize) -> bool {
         self.units = self.units.saturating_add(1);
         self.bytes = self.bytes.saturating_add(bytes);
-        self.failed |= self.units > 16_000_000 || self.bytes > 256 * 1024 * 1024;
+        self.failed |= self.units > 16_000_000 || self.bytes > 512 * 1024 * 1024;
         !self.failed
     }
     pub fn check(&self) -> Result<(), DataError> {
         if self.failed {
             Err(DataError::new(
-                "reload projection exceeds work limit (16M visits / 256 MiB)",
+                "reload projection exceeds work limit (16M visits / 512 MiB)",
             ))
         } else {
             Ok(())

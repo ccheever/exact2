@@ -620,8 +620,8 @@ Entity wire/hash record; reload overrides it to resolve names. `Reader::patching
 defaults to false; derived and container readers preserve existing skipped members
 when applying a reload patch.
 
-Initializer projection is bounded to 250,000 slots (including dead slots), 256
-storage types, 16 million visits, depth 64 and 256 MiB of accounted projection
+Initializer projection is bounded to 1,000,000 slots (including dead slots), 256
+storage types, 16 million visits, depth 64 and 512 MiB of accounted projection
 storage; encoded bases are at most 128 MiB. Changed-build decoding shares a 1 GiB
 allowance, or an importer's tighter `LoadBudget`. Overflow refuses with `DataError`
 before replacing the live simulation. Work is linear in visited Data plus ordered
