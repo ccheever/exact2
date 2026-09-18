@@ -30,6 +30,7 @@ impl Entry {
     }
 }
 pub(crate) struct Live {
+    pub changes: crate::changes::Changes,
     pub rapier: PhysicsWorld,
     pub entries: BTreeMap<Entity, Entry>,
     pub reverse: BTreeMap<[u32; 2], Entity>,
@@ -44,6 +45,7 @@ impl Default for Live {
             rapier,
             entries: BTreeMap::new(),
             reverse: BTreeMap::new(),
+            changes: Default::default(),
         }
     }
 }
@@ -75,6 +77,7 @@ impl Saved {
             .deserialize(payload)
             .map_err(|e| DataError::new(format!("physics: invalid snapshot: {e}")))?;
         self.live = Some(Live {
+            changes: Default::default(),
             rapier,
             entries: self
                 .entries
@@ -124,6 +127,7 @@ impl Clone for Executor {
                 bytes: s.bytes.clone(),
                 entries: s.entries.clone(),
                 live: s.live.as_ref().map(|live| Live {
+                    changes: Default::default(),
                     rapier: PhysicsWorld {
                         gravity: live.rapier.gravity,
                         integration_parameters: live.rapier.integration_parameters,
