@@ -562,3 +562,44 @@ Lanterns **1 / 1** (cleanup passes; the proof is interrupted), and asset-fixture
 and Linux proof. No merge-only failure was demonstrated. Parent scratch worktrees
 were removed; cold rebuilds retained `CARGO_PROFILE_DEV_DEBUG=0`,
 `CARGO_PROFILE_TEST_DEBUG=0`, and `CARGO_INCREMENTAL=0` after disk cleanup.
+
+## Controlled restore verification (T0d, 2026-09-18)
+
+The merged static-physics, geometric-layout and typed-kind lanes (`59947e1`)
+passed **403 Rust tests, 0 failed, 11 ignored** before changes. Linux proofs
+reproduced Beacons **51/3** and Greybox **57/3**; Lanterns **8/0** and
+asset-fixture **6/0** passed. Lanterns' merged web-only adapter guard lets its
+Linux proof complete without `dist/index.html`; it revealed no further failure.
+
+Restore constructed a fresh `Sim` and discarded the destination host epoch even
+though the agent already owned the clock. The next advance therefore established
+an epoch instead of executing the requested ticks. `restore(&mut self, &[u8])`
+and `restore_bound(&mut self, &[u8])` keep their `Result<(), DataError>` signatures
+and now explicitly rebase controlled restores to the established destination
+clock, including future input offsets. Live restores retain the next-sample
+rebase that excludes paused wall time. Web creation supplies `now` alongside
+ownership, matching Linux and Apple; inspections remain read-only.
+
+The regression restores tick 30 at host time 9000 ms and advances to 9500 ms:
+**30 ticks execute, reaching tick 60**, with the same complete save as uninterrupted
+execution. Both restore methods are covered, including held and future input,
+refusal atomicity, and live mode: the first sample at 900000 ms executes no paused
+time, then 100 ms executes six ticks. The headless module also covers deferred
+asset delivery. Greybox's actual Linux driver checks the first +500 ms in both
+the original and restored sessions; restored `hostMicros` is now 0, not null.
+
+Final verification: **406 Rust tests passed, 0 failed, 11 ignored**; game workspace
+clippy with `-D warnings`, formatting, root caps and boot pass. The vertex sample
+return type has a private alias; remaining lint-file edits are formatting only.
+Linux proofs pass **54/0 Beacons, 62/0 Greybox, 8/0 Lanterns, 6/0 asset-fixture**
+(130 assertions; respectively 30.893, 20.814, 39.608 and 18.552 seconds including
+builds). Existing assertions and deterministic pins are unchanged. Web glue's
+fixture suite passes **45/0**. `cd game && bun test` remains **38/2**, exclusively
+the absent Chrome and feel-bake prerequisites documented above; the generated
+game itself builds for web and passes its three Rust tests.
+
+GPU pixels, real browser execution and Apple runtime behavior remain unverified
+here. The Linux stdio driver supports controlled launches only, so live restore
+is verified at the Sim level. Separately, the Linux host still replaces T5's
+CPU occlusion result with `unavailable`; that existing behavior and assertion
+are unchanged and the follow-up is recorded in `QUEUE.md`.

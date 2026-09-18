@@ -10,18 +10,12 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
-- **Linux world continuation** (2026-09-18, T0c): DX parent `7b34fc5` and trunk lose
-  the first post-restore clock advance; Beacons and Greybox each fail three continuation
-  assertions. Engine parent `01f4c48` passes. Establish the restored host epoch explicitly.
-- **Lanterns Linux proof** (2026-09-18, T0c): DX parent `7b34fc5` already calls the
-  web adapter unconditionally and fails on absent `dist/index.html`; engine has no Lanterns.
-  Keep the headless proof independent of web artifacts.
+- **Linux geometric occlusion** (2026-09-18, T0d): `host/linux/src/surfaces.rs`
+  overwrites the engine's CPU occlusion result with `unavailable`; Greybox still
+  asserts that old behavior. Expose and prove the merged T5 result through the host.
 - **Game test prerequisites** (2026-09-18, T0c): the generated-game test launches web
   on both parents and requires Chrome; engine's feel `--no-build` test requires existing
   60/120 Hz web bakes. Both remain environmental failures on this headless box.
-- **Game lint baseline** (2026-09-18, T0c): DX parent `7b34fc5` already fails clippy's
-  `type_complexity` at `render/src/assets.rs:239`, and rustfmt in that file and
-  `engine/tests/capture.rs`; these failures persist on trunk. Engine parent passes both.
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
@@ -532,5 +526,3 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Physics character queries: Rapier's controller still needs an O(n) combined BVH after geometry edits. T1b retains static shapes and splits ordinary query BVHs; remove the controller assembly only while preserving its traversal ties and pinned crate-push positions.
 - Game verification (T1b, Linux): render's world test omits `Beacons::Options.scene`; assets.rs trips clippy type-complexity and engine/render formatting is red. Two surface library fixtures also fail with baseline physics (clock ownership leaves tick zero; restored run binding stays zero). Bun's feel test imports missing `games/beacons/feel.mjs`.
 - Linux proof fixtures (T1b): Beacons has five failures (movement hash, glow and continuation); Greybox has three queued-input/continuation failures, while its setup and movement hash pins pass. Neither game links physics; repair the input/clock and scene expectations without re-pinning to conceal a regression.
-
-- Game workspace lint baseline (T5): clippy rejects the return type at `game/render/src/assets.rs:239` (`type_complexity`); rustfmt also reports that file and `game/engine/tests/capture.rs`. Unchanged by geometric layout work.
