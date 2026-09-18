@@ -43,9 +43,10 @@ export function resolveApp(nameOrCrate) {
   dir = realpathSync(dir);
   let workspace = ROOT;
   if (outside) {
+    // An app inside an enclosing workspace (a game under game/games) builds with that
+    // workspace's root; one with no manifest above it is its own workspace, as before.
     const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
-    if (located.status !== 0 || !located.stdout?.trim()) throw new Error(`cannot locate Cargo workspace for ${dir}: ${located.stderr || located.error?.message}`);
-    workspace = realpathSync(dirname(located.stdout.trim()));
+    workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
   const manifest = readManifest(dir, name);
@@ -430,6 +431,7 @@ export function buildBake(app, platform, target, options = {}) {
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
+  delete env.EXACT_GPU_PRODUCT;
   const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);
@@ -448,6 +450,13 @@ export function buildBake(app, platform, target, options = {}) {
     const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name,dep});
     for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);
+    if (pkg.id === graph.surface?.id && platform !== 'web') {
+      const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
+        .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
+      if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
+      options.prepareGpu?.(product);
+      env.EXACT_GPU_PRODUCT = product;
+    }
   }
   const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
