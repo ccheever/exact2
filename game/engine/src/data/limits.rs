@@ -14,6 +14,16 @@ impl Default for Budget {
     }
 }
 impl Budget {
+    pub(crate) fn new(bytes: usize) -> Self {
+        Self(bytes)
+    }
+    pub(crate) fn check(&self, bytes: usize) -> Result<(), DataError> {
+        if bytes > self.0 {
+            Err(DataError::new("decoded size exceeds load budget"))
+        } else {
+            Ok(())
+        }
+    }
     pub fn text(&mut self, s: &str) -> Result<String, DataError> {
         if s.len() > MAX_LOAD_STRING {
             return Err(DataError::new("string exceeds load limit"));
@@ -78,6 +88,12 @@ pub(crate) fn read_vec<T: Data>(
     if r.sequence_len().is_some_and(|n| n > limit) {
         return Err(DataError::new("sequence count exceeds load limit"));
     }
+    if let Some(n) = r.sequence_len() {
+        r.check_allocation(
+            n.checked_mul(std::mem::size_of::<T>())
+                .ok_or_else(|| DataError::new("allocation size overflow"))?,
+        )?;
+    }
     v.clear();
     while r.item()? {
         if v.len() == limit {
@@ -107,5 +123,45 @@ mod tests {
         // The remaining budget cannot hold this destination allocation.
         assert!(reserve(&mut r, &mut values, 1024).is_err());
         assert_eq!(values.capacity(), 0);
+    }
+    #[test]
+    fn declared_nested_collection_storage_is_checked_before_any_element() {
+        use crate::{bin, Value, Writer};
+        // A compact, malformed sequence whose first element must never be read.
+        let mut w = bin::Encoder::default();
+        w.begin_seq(1024);
+        let mut bytes = w.finish();
+        bytes.extend(std::iter::repeat_n(255, 1024));
+        let mut r = bin::Decoder::with_budget(&bytes, 4096);
+        let mut values = Vec::<Value>::new();
+        assert!(values.read(&mut r).unwrap_err().message.contains("budget"));
+        assert_eq!(values.capacity(), 0);
+
+        // The outer vector fits; the nested vector is checked before its first
+        // element's read/default/reservation, not after traversing the payload.
+        let mut w = bin::Encoder::default();
+        w.begin_seq(1);
+        let mut nested = w.finish();
+        nested.extend_from_slice(&bytes);
+        let mut r = bin::Decoder::with_budget(&nested, 4096);
+        let mut values = Vec::<Vec<Value>>::new();
+        let error = values.read(&mut r).unwrap_err();
+        assert!(error.message.contains("budget"), "{error}");
+        assert_eq!(error.path, "0");
+        assert!(values.is_empty());
+
+        // Choosing a local budget does not constrain ordinary save decoding.
+        let original = vec![Value::Unit; 1024];
+        let bytes = bin::to_vec(&original);
+        assert_eq!(bin::from_slice::<Vec<Value>>(&bytes).unwrap().len(), 1024);
+
+        // Normal saves may reuse existing destination capacity; only the scoped
+        // importing decoder adds the conservative declared-storage preflight.
+        let mut original = vec![0u64; 1024];
+        let bytes = bin::to_vec(&original);
+        let mut r = bin::Decoder::new(&bytes);
+        r.claim(MAX_LOAD_BYTES - 4096).unwrap();
+        original.read(&mut r).unwrap();
+        r.finish().unwrap();
     }
 }
