@@ -263,7 +263,7 @@ impl<D: DataSource> Host<D> {
         self.runner.collections()
     }
 
-    /// Commit one viewport/measurement update without re-answering resources.
+    /// Commit viewport geometry and any edge action, retaining commits on refusal.
     /// `false` means stale or unchanged feedback, requiring no layout.
     pub fn collection_feedback(
         &mut self,

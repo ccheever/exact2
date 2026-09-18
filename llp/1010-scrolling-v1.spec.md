@@ -600,8 +600,22 @@ Measured zero-height runs are skipped by the height tree rather than flattened
 from a potentially huge endpoint hull. Typography invalidation restores estimates,
 the reading anchor and actual emitted rows/spacers. Individually valid heights
 whose sum would overflow native geometry are rejected without poisoning the
-runner. End-follow allows only bounded f32 geometry rounding: tolerance is
-`clamp(max(extent, viewport) * f32::EPSILON, 1/1024, 0.5)` logical units.
+runner. End-follow tolerates at most 0.5 logical units of host geometry rounding,
+including the browser's integer scroll range for fractional CSS row extents.
+
+**2026-09-18 (LLP 1027.004 S1):** `reachstart` and `reachend` are argument-free
+list handlers dispatched by the runner after accepted host geometry commits.
+They qualify only on nonempty virtualized collections whose geometric window
+(scrollport plus one viewport of overscan) contains the first/last supplied row;
+bootstrap rows and pins alone never qualify. Each edge starts armed, disarms on
+dispatch (including a refused action), and re-arms when its endpoint leaves that
+window or its supplied key changes. At most one fires per feedback call:
+`reachstart` wins a tie and leaves `reachend` armed for the next call. The ordinary
+action transaction runs after feedback; committed receipts survive an action
+refusal and reach hosts alongside its error. Hosts attach no edge listeners.
+Offset-only feedback without a qualifying handler still performs no source query
+or key evaluation. Messages stress now also exercises bounded 200-record answers;
+its scrollbar spans the resident window, not the complete history.
 
 ### 6.6 Paired runner evidence, 2026-09-16
 

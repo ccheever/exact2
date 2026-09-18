@@ -39,10 +39,10 @@ pub struct Command {
     pub args: Vec<Value>,
 }
 
-/// One timer's commit and the clock it fired at (`Runner::advance_timed`).
+/// A timer or collection-feedback commit and the runner clock it happened at.
 #[derive(Debug, Clone)]
 pub struct Timed {
-    /// The runner's clock when the timer ran, milliseconds.
+    /// The runner's clock when the receipt committed, milliseconds.
     pub at_ms: f64,
     /// The commit.
     pub receipt: CommitReceipt,

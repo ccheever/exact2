@@ -395,7 +395,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Actual nested scrollport and mounted row geometry, in the shared LE wire
-    /// format. Geometry does not advance timers or settle data/resources.
+    /// format. Edge actions may settle resources; geometry never advances timers.
     pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
         match self.runner.collection_feedback_bytes(bytes) {
             Ok(mut result) => {

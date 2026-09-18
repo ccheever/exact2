@@ -517,7 +517,7 @@ impl<D: DataSource> Host<D> {
         self.commit(&receipts, error)
     }
 
-    /// Strict common LE viewport feedback, with no event/resource/timer dispatch.
+    /// Strict common LE viewport feedback followed by any runner edge action.
     /// Stale or malformed facts leave layout and the motion clock untouched.
     /// Only a runner receipt enters the ordinary native view commit path.
     pub fn collection_feedback(&mut self, bytes: &[u8], now_ms: f64) -> String {

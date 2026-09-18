@@ -457,16 +457,25 @@ fn end_follow_accepts_native_document_rounding() {
 }
 
 #[test]
-fn end_follow_rounding_tolerance_has_a_floor_scale_and_half_pixel_ceiling() {
-    // Exact binary scales exercise the floor, relative f32 roundoff, and cap.
-    for (height, viewport, tolerance) in [
-        (100.0, 20.0, 1.0 / 1024.0),
-        (1_048_576.0, 512.0, 0.125),
-        (268_435_456.0, 512.0, 0.5),
-    ] {
+fn end_follow_accepts_browser_integer_scroll_range_rounding() {
+    // Observed in Messages stress: CSS rows sum to a fractional extent, while
+    // Chrome clamps an authored scrollTop to its integer scroll range.
+    let mut index = index(&[10_497.109_375]);
+    let anchor = index.capture_anchor(10_023.0, 474.0, true).unwrap();
+    assert!(anchor.follows_end);
+    index.replace_keys(keys(2)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, 474.0).unwrap(),
+        index.max_offset(474.0)
+    );
+}
+
+#[test]
+fn end_follow_rounding_tolerance_never_exceeds_half_a_pixel() {
+    for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {
         let mut index = index(&[height]);
         let maximum = index.max_offset(viewport);
-        let boundary = maximum - tolerance;
+        let boundary = maximum - 0.5;
         let outside = boundary - 0.000_001;
         let following = index.capture_anchor(boundary, viewport, true).unwrap();
         let reading = index.capture_anchor(outside, viewport, true).unwrap();

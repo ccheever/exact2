@@ -47,7 +47,13 @@ The ordinary native wrapper is available with
    and up to two focus/interaction pins. Scrolling covers the whole history;
    the record data and compact key/height index still grow with history size.
    Swipe a bubble right or use its Reply button; Cancel clears the reply target.
-6. Local echo puts the draft in the transcript and clears the composer. Only
+6. **Bounded virtualized** supplies at most **200 records plus the local echo**
+   and mounts nearby rows. Scrolling near either resident edge automatically
+   requests an overlapping window. **The scrollbar spans the resident window,
+   not the whole history.** Use Latest to return to the tail and resume following
+   it. Changing history size or mode also resets the cursor. Sending a local echo
+   returns to the tail; older bounded windows omit that tail-only echo.
+7. Local echo puts the draft in the transcript and clears the composer. Only
    one local echo is retained; the next replaces it. Nothing is sent anywhere.
 
 Drafts are limited to 512 Unicode scalar values. Oversized edits are refused
@@ -59,8 +65,8 @@ keys stay stable across streaming revisions and history sizes.
 ## What the numbers mean
 
 - Logical history: requested synthetic cardinality, **not resident records** in
-  manual-page mode. The page generator allocates only that page. Eager and
-  windowed modes both supply the complete selected history.
+  manual-page and bounded virtualized modes. Each generates only its requested
+  slice. Eager and full-history virtualized modes supply the complete history.
 - Supplied records: exact `DataSource` list length, including the optional
   local echo. This is not a measured DOM/native-view count.
 - Revision: the returned resource's applied revision, not an arrival rate.
@@ -71,11 +77,23 @@ keys stay stable across streaming revisions and history sizes.
   metadata, DOM cost, or decoded images. There are no image attachments.
 
 The source reconstructs its supplied list synchronously on each revision.
-Eager data and UI are O(N); windowing bounds UI lifetime, not record generation
-or key validation after a changed list. There is no worker placement or
+Eager data and UI are O(N); full-history virtualization bounds UI lifetime, not
+record generation or key validation after a changed list. Bounded virtualization
+also bounds generation and key validation to K = 200 (+ one tail echo), independent
+of history size. There is no worker placement or
 preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
+
+The existing `history` source accepts an optional `option<string>` cursor as its
+seventh argument. Omitted/`none` preserves the six-argument manual/eager controls;
+`some("")` selects the bounded tail. A decimal synthetic index recenters a clamped
+200-row window; a position at/past the end resolves to the last row, and malformed
+cursors are refused. Answers append `earlier`, `later`, `hasEarlier`, `hasLater` to
+the existing statistics. Extending this source keeps one resource active and
+avoids generating an unused second history. `reachstart`/`reachend` move the cursor
+only when the corresponding flag is true. Latest also issues a scroll offset
+request, since changing a cursor alone does not move an existing scrollport.
 
 Use the existing optional browser diagnostic, once the server is ready:
 
@@ -106,6 +124,21 @@ Virtual-clock assertions are correctness checks, not performance evidence.
 `data/tests/windowed.rs` also covers the actual 10,000-record Contract's
 bounded mounted rows, an active offscreen row retained until release, exact
 typing, reply identity and the preserved eager/manual controls.
+`data/tests/bounded.rs` drives the same compiled/baked Contract at 1,000, 10,000
+and 100,000 rows: complete feedback-only traversal in both directions, every
+shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior
+feedback, cursor validation, and Latest followed by a local echo. Counts are
+printed with `cargo test -p messages-stress-data --test bounded -- --nocapture`.
+
+Bounded validation, 2026-09-18: the runner traversed 100,000 records with 200
+supplied/keyed rows per shift, zero source queries/key evaluations for interior
+feedback, and at most 31 mounted rows. Web and Linux headless CPU drives on macOS
+reached the first message and returned to Latest, checked six exact Unicode echoes
+during streaming and the sent echo. They observed at most 45 and 10 mounted
+message rows respectively (including transient measurement windows), with 200
+supplied records or 201 with the tail echo. Evidence, failed attempts and raw
+counts are under `target/bounded-answers/s1/`. These are counts, not frame-rate
+measurements; macOS/AppKit and iOS were not driven for this slice.
 
 The final browser drive (`target/messages-windowed-web-final/`) passes five
 endpoint round trips from 10,000 supplied records, exact typing, a streaming

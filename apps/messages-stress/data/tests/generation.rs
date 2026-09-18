@@ -112,3 +112,21 @@ fn manual_pages_cover_the_logical_history_without_claiming_windowing() {
     assert_eq!(large.len(), 100);
     assert_eq!(large[99].id, "m-099999");
 }
+
+#[test]
+fn cursor_windows_match_the_full_generator_and_keep_echo_at_the_tail() {
+    let controls = Controls::new(1_000, 2, 8).unwrap();
+    let full = history(controls, "echo").unwrap();
+    for cursor in ["0", "300", "799", "999", "100000", ""] {
+        let answer = model::window(controls, "echo", cursor).unwrap();
+        let start: usize = answer.earlier.parse().unwrap();
+        let end = answer.later.parse::<usize>().unwrap() + 1;
+        assert_eq!(end - start, model::WINDOW_SIZE);
+        assert_eq!(answer.has_earlier, start > 0);
+        assert_eq!(answer.has_later, end < controls.count);
+        let with_echo = end + usize::from(!answer.has_later);
+        assert_eq!(answer.rows, full[start..with_echo]);
+    }
+    assert!(model::window(controls, "", "-1").is_err());
+    assert!(model::window(controls, &"x".repeat(MAX_DRAFT_CHARS + 1), "").is_err());
+}
