@@ -311,6 +311,7 @@ impl<G: Game> Sim<G> {
                 self.layout(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
             }
             "layout" => {
+                spatial::index::check_size(w)?;
                 let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
                 let view = spatial::View::new(w,viewport).ok_or("layout unavailable: needs an active camera and viewport")?;
                 let hit = spatial::pick(w,&view,point).map(|(e,d,p)| Ok::<_,String>(format!("{{{},\"distance\":{},\"point\":{}}}", identity(w,e),encode(&d)?,encode(&p)?))).transpose()?.unwrap_or_else(||"null".into());
@@ -343,8 +344,24 @@ impl<G: Game> Sim<G> {
     }
     fn layout(&self, e: Entity, viewport: Vec2, to: Option<Entity>) -> Result<String, String> {
         let w = &self.world;
-        let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
-        let (scale, rotation, position) = pose.to_scale_rotation_translation();
+        spatial::index::check_size(w)?;
+        let Some(pose) = w.global(e).filter(|p| p.is_finite()) else {
+            return Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":null,\"bounds\":null,\"screen\":{{\"unavailable\":true}},\"depth\":null,\"visible\":{{\"unavailable\":true,\"reason\":\"missing global pose\"}},\"facing\":{{\"forward\":null,\"towardCamera\":null,\"bearingTo\":null,\"distanceTo\":null,\"lineOfSight\":null}}}}}}", w.tick(), identity(w, e)));
+        };
+        let position: Vec3 = pose.translation.into();
+        let (scale, rotation) = if pose.matrix3.determinant().abs() < 1e-12 {
+            (
+                Vec3::new(
+                    pose.matrix3.x_axis.length(),
+                    pose.matrix3.y_axis.length(),
+                    pose.matrix3.z_axis.length(),
+                ),
+                "null".into(),
+            )
+        } else {
+            let (scale, rotation, _) = pose.to_scale_rotation_translation();
+            (scale, encode(&rotation)?)
+        };
         let mesh = w.get::<Mesh>(e);
         let unbounded = spatial::unbounded(w, e, mesh.as_deref());
         let (half, center) = spatial::bounds(w, e, mesh.as_deref());
@@ -357,43 +374,58 @@ impl<G: Game> Sim<G> {
             .iter()
             .copied()
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-        let forward = pose.transform_vector3(Vec3::NEG_Z).normalize_or_zero();
+        let forward = pose.transform_vector3(Vec3::NEG_Z).try_normalize();
         let view = spatial::View::new(w, viewport);
         let mut sight = spatial::index::Sight::new(w, e, to, view.as_ref().map(|v| v.entity))?;
-        let toward = view
-            .as_ref()
-            .map(|v| forward.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()));
+        let toward = view.as_ref().and_then(|v| {
+            forward.map(|f| f.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()))
+        });
         let mut facing = format!(
             "\"forward\":{},\"towardCamera\":{}",
-            encode(&forward)?,
+            forward
+                .as_ref()
+                .map(encode)
+                .transpose()?
+                .unwrap_or_else(|| "null".into()),
             toward
                 .map(|n| encode(&n))
                 .transpose()?
                 .unwrap_or_else(|| "null".into())
         );
         if let Some(to) = to {
-            let target = w
-                .global(to)
-                .unwrap_or(crate::Affine3A::IDENTITY)
-                .translation
-                .into();
-            let delta: Vec3 = target - position;
-            let bearing =
-                if (forward.x == 0.0 && forward.z == 0.0) || (delta.x == 0.0 && delta.z == 0.0) {
-                    0.0
-                } else {
-                    crate::math::atan2(
-                        forward.z * delta.x - forward.x * delta.z,
-                        forward.x * delta.x + forward.z * delta.z,
-                    )
-                    .to_degrees()
-                };
-            let clear = !sight.segment(position, target, 1, |_, _| true)?;
-            facing.push_str(&format!(
-                ",\"bearingTo\":{},\"distanceTo\":{},\"lineOfSight\":{clear}",
-                encode(&bearing)?,
-                encode(&delta.length())?
-            ));
+            if let Some(target) = w.global(to).filter(|p| p.is_finite()) {
+                let delta: Vec3 = Vec3::from(target.translation) - position;
+                let bearing = forward.map(|forward| {
+                    if (forward.x == 0.0 && forward.z == 0.0) || (delta.x == 0.0 && delta.z == 0.0)
+                    {
+                        0.0
+                    } else {
+                        let degrees = crate::math::atan2(
+                            forward.z * delta.x - forward.x * delta.z,
+                            forward.x * delta.x + forward.z * delta.z,
+                        )
+                        .to_degrees();
+                        let degrees = (degrees * 10000.0).round() / 10000.0;
+                        if degrees == -180.0 {
+                            180.0
+                        } else {
+                            degrees
+                        }
+                    }
+                });
+                let clear = !sight.segment(position, target.translation.into(), 1, |_, _| true)?;
+                facing.push_str(&format!(
+                    ",\"bearingTo\":{},\"distanceTo\":{},\"lineOfSight\":{clear}",
+                    bearing
+                        .as_ref()
+                        .map(encode)
+                        .transpose()?
+                        .unwrap_or_else(|| "null".into()),
+                    encode(&delta.length())?
+                ));
+            } else {
+                facing.push_str(",\"bearingTo\":null,\"distanceTo\":null,\"lineOfSight\":null,\"reason\":\"target global pose unavailable\"");
+            }
         }
         let (screen, depth, visible) = if let Some(view) = view.filter(|_| !unbounded) {
             let screen = view
@@ -410,8 +442,23 @@ impl<G: Game> Sim<G> {
                 .transpose()?
                 .unwrap_or_else(|| "{\"unavailable\":true}".into());
             let (inside, behind, distance, depth) = view.visibility(&corners, position);
-            let (occluded, occluders) =
-                spatial::occlusion(&mut sight, view.pose.translation.into(), &corners)?;
+            let reason = if behind {
+                Some("behind camera")
+            } else if !inside {
+                Some("outside frustum")
+            } else if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+                Some("hidden")
+            } else {
+                None
+            };
+            let (occluded, occluders) = if reason.is_none() {
+                let (fraction, names) =
+                    spatial::occlusion(&mut sight, view.pose.translation.into(), &corners)?;
+                (Some(fraction), names)
+            } else {
+                (None, Vec::new())
+            };
+            let reason = reason.map_or(String::new(), |r| format!(",\"reason\":{}", quote(r)));
             let names: Vec<_> = occluders
                 .into_iter()
                 .map(|e| {
@@ -424,9 +471,9 @@ impl<G: Game> Sim<G> {
                 screen,
                 encode(&depth)?,
                 format!(
-                    "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{},\"occluded\":{},\"occluders\":{}}}",
+                    "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{},\"occluded\":{},\"occluders\":{}{reason}}}",
                     inside && w.get::<Visible>(e).is_none_or(|v| v.0),
-                    encode(&distance)?, encode(&occluded)?, encode(&names)?
+                    encode(&distance)?, occluded.as_ref().map(encode).transpose()?.unwrap_or_else(|| "null".into()), encode(&names)?
                 ),
             )
         } else {
@@ -441,6 +488,6 @@ impl<G: Game> Sim<G> {
         } else {
             format!("{{\"min\":{},\"max\":{}}}", encode(&lo)?, encode(&hi)?)
         };
-        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?))
+        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),encode(&position)?,rotation,encode(&scale)?))
     }
 }

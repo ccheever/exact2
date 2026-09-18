@@ -108,7 +108,7 @@ impl View {
         });
         (
             !outside,
-            c.z >= 0.0,
+            corners.iter().all(|p| inv.transform_point3(*p).z >= 0.0),
             center.distance(self.pose.translation.into()),
             -c.z,
         )
@@ -148,6 +148,11 @@ pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, V
     (extent(mesh), center(mesh))
 }
 pub(crate) fn unbounded(w: &World, e: Entity, mesh: Option<&Mesh>) -> bool {
+    if w.get::<crate::asset::ModelBounds>(e)
+        .is_some_and(|b| !crate::asset::valid_bounds(&b.0))
+    {
+        return true;
+    }
     matches!(mesh, Some(Mesh::Asset(name)) if w.model(name).is_none() && w.get::<crate::asset::ModelBounds>(e).is_none())
 }
 pub(crate) fn corners(pose: Affine3A, half: Vec3, center: Vec3) -> [Vec3; 8] {
@@ -291,6 +296,9 @@ fn ray_hit(w: &World, e: Entity, mesh: &Mesh, origin: Vec3, direction: Vec3) -> 
     shape_hit(mesh, o, d, half, center)
 }
 fn shape_hit(mesh: &Mesh, o: Vec3, d: Vec3, half: Vec3, center: Vec3) -> Option<f32> {
+    if half.max_element() <= 0.0 {
+        return None;
+    }
     match mesh {
         Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
         Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
@@ -358,5 +366,24 @@ pub(crate) fn occlusion(
     ))
 }
 fn distance_order(a: Entity, x: f32, b: Entity, y: f32) -> std::cmp::Ordering {
-    x.total_cmp(&y).then_with(|| a.index().cmp(&b.index()))
+    distance_key(x)
+        .cmp(&distance_key(y))
+        .then_with(|| a.index().cmp(&b.index()))
+}
+
+fn distance_key(distance: f32) -> u64 {
+    (f64::from(distance) * 10_000.0).round() as u64
+}
+fn contains_origin(mesh: &Mesh, o: Vec3, half: Vec3, center: Vec3) -> bool {
+    match mesh {
+        Mesh::Sphere { radius } => o.length_squared() <= radius * radius,
+        Mesh::Capsule { radius, height } => {
+            let stem = (height * 0.5 - radius).max(0.0);
+            (o - Vec3::Y * o.y.clamp(-stem, stem)).length_squared() <= radius * radius
+        }
+        Mesh::Cylinder { radius, height } => {
+            o.x * o.x + o.z * o.z <= radius * radius && o.y.abs() <= height * 0.5
+        }
+        _ => (o - center).abs().cmple(half).all(),
+    }
 }

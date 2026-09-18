@@ -43,12 +43,19 @@ fn spend(remaining: &mut usize) -> Result<(), String> {
         .ok_or("layout visibility work budget exceeded (1000000 visits)")?;
     Ok(())
 }
+pub(crate) fn check_size(w: &World) -> Result<(), String> {
+    if w.alive_mask.len() * 64 > SLOT_LIMIT {
+        return Err(
+            "layout visibility index limit exceeded (262144 entity slots, including dead slots)"
+                .into(),
+        );
+    }
+    Ok(())
+}
 impl Cache {
     fn index<'a>(&'a self, w: &World) -> Result<Ref<'a, Index>, String> {
         let slots = w.alive_mask.len() * 64;
-        if slots > SLOT_LIMIT {
-            return Err("layout visibility index limit exceeded (262144 entity slots, including dead slots)".into());
-        }
+        check_size(w)?;
         // Check leases even on a cache hit, as the physics queries do.
         let _leases = w.query::<(
             Option<&Mesh>,
@@ -103,6 +110,13 @@ impl Index {
                 continue;
             }
             let (half, center) = bounds(w, entity, Some(mesh));
+            if !half.is_finite()
+                || !center.is_finite()
+                || half.min_element() < 0.0
+                || half.max_element() <= 0.0
+            {
+                continue;
+            }
             let points = corners(pose, half, center);
             let lo = points
                 .into_iter()
@@ -192,6 +206,9 @@ impl Index {
             return Ok(false);
         }
         let o = e.inverse.transform_point3(from);
+        if contains_origin(&e.mesh, o, e.half, e.center) {
+            return Ok(false);
+        }
         let d = e.inverse.transform_vector3(delta / distance);
         if let Some(t) = shape_hit(&e.mesh, o, d, e.half, e.center) {
             if t > 1e-5 && t < distance - 1e-5 {

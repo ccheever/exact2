@@ -323,18 +323,27 @@ clock, publications, saves and CPU point picks work; canvas pixels report unavai
 Entity layout requests also accept an optional target:
 `{"op":"layout","entity":"fox","to":"lantern-2","width":800,"height":600}`.
 The reply adds `entity.visible.occluded` (0–1) and `occluders` (at most four
-names, nearest ray intersection first, entity index breaking ties; unnamed
+names, nearest ray intersection first after rounding distances to 0.0001 m,
+entity index breaking quantized ties; unnamed
 entities use `#index`). Occlusion counts the eight oriented-bound corners,
 six face centres and centre equally. It is a geometric estimate, independent
-of frustum status, material opacity and rendered pixels. Hidden entities and
-singular transforms do not obstruct. Rays use the same primitive intersections
+of material opacity and rendered pixels. Behind-camera or out-of-frustum bounds
+report `occluded: null` and a `reason`; `behindCamera` means all eight corners
+are behind the eye. Hidden subjects also report null occlusion. Cameras are
+perspective-only. Hidden entities, fully degenerate bounds and
+singular transforms do not obstruct. Visibility rays count entry surfaces only:
+a shape containing the ray origin (including its boundary) is ignored, so a
+room containing the camera cannot hide its interior. Picking still returns exits. Rays use the same primitive intersections
 and declared model boxes as picking. Undeclared models without authored
 `ModelBounds` have null bounds and unavailable screen/visibility reads; they
 never block a pick or occlusion ray, even after their presentation bytes arrive.
 Authored bounds remain usable before and after cosmetic delivery.
-`entity.facing.forward` is normalized world −Z, `towardCamera` its dot with
+A missing global pose reports `world: null` and unavailable geometry with a
+reason, never an identity pose. `entity.facing.forward` is normalized world −Z
+(null for a collapsed axis), `towardCamera` its dot with
 the normalized direction to the active camera (null without camera/viewport).
-With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180),
+With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180,
+with the boundary canonicalized to +180),
 `distanceTo` (world-origin distance) and `lineOfSight` (open origin-to-origin
 segment). Each endpoint and its ancestors and descendants are one object for
 this read: their meshes are excluded. Camera occlusion applies the same rule to
@@ -342,7 +351,9 @@ the subject and active camera; LOS applies it to subject and target. Siblings
 remain separate objects, even under a common scene root. Exclusion crosses every
 Parent edge (there is no separate rigid attachment edge). Coincident origins have distance
 and bearing zero and clear sight; zero horizontal directions have bearing zero.
-Visibility retains `{"unavailable":true}` without camera/viewport.
+A missing target pose makes distance, bearing and LOS null with a reason;
+a collapsed forward axis makes bearing null. Rounded JSON canonicalizes signed
+zero to 0. Visibility retains `{"unavailable":true}` without camera/viewport.
 These queries take only shared world reads and preserve the mutation epoch.
 Visibility uses a separate, retained mesh-bounds BVH (physics indexes colliders).
 The cache is world-owned derived data, excluded from saves, hashes and observation.

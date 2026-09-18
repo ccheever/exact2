@@ -214,7 +214,7 @@ fn facing_uses_parent_pose_and_segment_blocks_only_between_endpoints() {
         .spawn_named("block", (Transform::at(0.0, 0.0, -5.0), Mesh::cube(1.0)));
     s.world_mut().propagate();
     let reply = s.agent(r#"{"op":"layout","entity":"subject","to":"target"}"#);
-    assert!(reply.contains(r#""forward":[-1,0,-0]"#), "{reply}");
+    assert!(reply.contains(r#""forward":[-1,0,0]"#), "{reply}");
     assert!(
         reply.contains(r#""bearingTo":-90,"distanceTo":10,"lineOfSight":false"#),
         "{reply}"
@@ -369,4 +369,198 @@ fn sight_excludes_camera_and_both_endpoint_ancestors_and_descendants_but_not_sib
     assert!(s
         .agent(r#"{"op":"layout","entity":"subject"}"#)
         .contains(r#""occluded":0,"occluders":[]"#));
+}
+
+#[test]
+fn unavailable_poses_collapsed_forward_and_outside_frustum_are_explicit() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800., 600.);
+    let subject = s.world().named("subject").unwrap();
+    let target = s.world().named("target").unwrap();
+    s.world_mut().remove::<Transform>(subject);
+    let request = r#"{"op":"layout","entity":"subject","to":"target"}"#;
+    let reply = s.agent(request);
+    assert!(
+        reply.contains(r#""world":null"#) && reply.contains("missing global pose"),
+        "{reply}"
+    );
+    s.world_mut().insert(subject, Transform::default());
+    s.world_mut().remove::<Transform>(target);
+    let reply = s.agent(request);
+    assert!(
+        reply.contains(
+            r#""distanceTo":null,"lineOfSight":null,"reason":"target global pose unavailable"#
+        ),
+        "{reply}"
+    );
+    s.world_mut().teleport(
+        subject,
+        Transform::default().with_scale(Vec3::new(1., 1., 0.)),
+    );
+    let reply = s.agent(request);
+    assert!(
+        reply.contains(r#""forward":null,"towardCamera":null"#),
+        "{reply}"
+    );
+    for (position, reason) in [
+        (Vec3::new(0., 0., 20.), "behind camera"),
+        (Vec3::new(100., 0., 0.), "outside frustum"),
+    ] {
+        s.world_mut().teleport(
+            subject,
+            Transform {
+                position,
+                ..Default::default()
+            },
+        );
+        let reply = s.agent(request);
+        assert!(
+            reply.contains(r#""occluded":null,"occluders":[]"#) && reply.contains(reason),
+            "{reply}"
+        );
+    }
+    // Bounds straddling the eye are not wholly behind, regardless of their origin.
+    s.world_mut().teleport(subject, Transform::at(0., 0., 10.));
+    assert!(s.agent(request).contains(r#""behindCamera":false"#));
+    // A parented pose that has never been propagated is unavailable too.
+    let unpropagated = s
+        .world_mut()
+        .spawn_named("unpropagated", (Transform::default(), Parent(subject)));
+    let reply = s.agent(&format!(
+        r##"{{"op":"layout","entity":"#{}"}}"##,
+        unpropagated.index()
+    ));
+    assert!(reply.contains("missing global pose"), "{reply}");
+}
+
+#[test]
+fn room_shell_entry_only_and_fully_degenerate_bounds_never_block() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800., 600.);
+    let room = s
+        .world_mut()
+        .spawn_named("room", (Transform::at(0., 0., 5.), Mesh::cube(40.)));
+    let request = r#"{"op":"layout","entity":"subject","to":"target"}"#;
+    let reply = s.agent(request);
+    assert!(reply.contains(r#""occluded":0,"occluders":[]"#), "{reply}");
+    assert!(reply.contains(r#""lineOfSight":true"#), "{reply}");
+    // Even the room's exit surface is ignored; pick deliberately still sees exits.
+    let target = s.world().named("target").unwrap();
+    s.world_mut().teleport(target, Transform::at(0., 0., -50.));
+    assert!(s.agent(request).contains(r#""lineOfSight":true"#));
+    s.world_mut().despawn(room);
+    let point = s.world_mut().spawn_named(
+        "point",
+        (
+            Transform::at(0., 0., 5.),
+            Mesh::asset("empty.model"),
+            asset::ModelBounds([0.; 6]),
+        ),
+    );
+    assert!(s.agent(request).contains(r#""occluded":0,"occluders":[]"#));
+    s.world_mut()
+        .insert(point, asset::ModelBounds([-2., -2., -2., 2., 2., 2.]));
+    assert!(s
+        .agent(request)
+        .contains(r#""occluded":1,"occluders":["point"]"#));
+    s.world_mut()
+        .insert(point, asset::ModelBounds([1., 1., 1., -1., -1., -1.]));
+    assert!(s.agent(request).contains(r#""occluded":0,"occluders":[]"#));
+}
+
+#[test]
+fn rotated_scaled_parented_blocker_uses_its_oriented_geometry_and_cache_invalidation() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800., 600.);
+    let parent = s.world_mut().spawn(Transform {
+        position: Vec3::new(0., 0., 5.),
+        rotation: Quat::from_rotation_y(0.2),
+        scale: Vec3::new(2., 3., 0.5),
+    });
+    let wall = s.world_mut().spawn_named(
+        "affine-wall",
+        (
+            Parent(parent),
+            Transform {
+                rotation: Quat::from_rotation_z(0.7),
+                scale: Vec3::new(2., 1., 1.),
+                ..Default::default()
+            },
+            Mesh::cuboid(Vec3::new(4., 4., 0.1)),
+        ),
+    );
+    s.world_mut().propagate();
+    let request = r#"{"op":"layout","entity":"subject"}"#;
+    assert!(s
+        .agent(request)
+        .contains(r#""occluded":1,"occluders":["affine-wall"]"#));
+    // Parent motion, same-tick component writes, visibility, and slot reuse all invalidate.
+    s.world_mut()
+        .get_mut::<Transform>(parent)
+        .unwrap()
+        .position
+        .x = 100.;
+    s.world_mut().propagate();
+    assert!(s.agent(request).contains(r#""occluded":0,"occluders":[]"#));
+    s.world_mut().teleport(parent, Transform::at(0., 0., 5.));
+    assert!(s.agent(request).contains(r#""occluded":1"#));
+    s.world_mut().insert(wall, Visible(false));
+    assert!(s.agent(request).contains(r#""occluded":0"#));
+    s.world_mut().insert(wall, Visible(true));
+    s.world_mut().insert(wall, Mesh::cube(0.01));
+    assert!(!s.agent(request).contains(r#""occluded":1,"#));
+    s.world_mut().despawn(wall);
+    let replacement = s
+        .world_mut()
+        .spawn_named("replacement", (Transform::at(0., 0., 5.), Mesh::cube(4.)));
+    assert_eq!(replacement.index(), wall.index());
+    assert!(s
+        .agent(request)
+        .contains(r#""occluded":1,"occluders":["replacement"]"#));
+}
+
+#[test]
+fn quantized_occluder_ties_use_entity_index_and_json_canonicalizes_angles_and_zero() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800., 600.);
+    // The lower entity index is slightly farther, but both lie in the same 0.1mm bin.
+    s.world_mut()
+        .spawn_named("first", (Transform::at(0., 0., 5.), Mesh::cube(4.)));
+    s.world_mut()
+        .spawn_named("second", (Transform::at(0., 0., 5.000001), Mesh::cube(4.)));
+    let request = r#"{"op":"layout","entity":"subject","to":"camera"}"#;
+    let reply = s.agent(request);
+    assert!(
+        reply.contains(r#""occluded":1,"occluders":["first","second"]"#),
+        "{reply}"
+    );
+    assert!(reply.contains(r#""bearingTo":180"#), "{reply}");
+    let before = (s.save(), s.world().hash(), s.world().mutation_epoch());
+    assert_eq!(s.agent(request), reply);
+    assert_eq!(
+        (s.save(), s.world().hash(), s.world().mutation_epoch()),
+        before
+    );
+    let mut json = json::Encoder::rounded();
+    [-0.0f32, -0.00000001].write(&mut json);
+    assert_eq!(json.finish().unwrap(), "[0,0]");
+}
+
+#[test]
+fn inverted_model_bounds_are_rejected_at_asset_load() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    for bounds in [
+        [1., 0., 0., -1., 1., 1.],
+        [0., 1., 0., 1., -1., 1.],
+        [0., 0., 1., 1., 1., -1.],
+    ] {
+        let bytes = bin::to_vec(&asset::Model {
+            bounds,
+            ..Default::default()
+        });
+        assert!(s
+            .asset("bad.model", Some(&bytes))
+            .unwrap_err()
+            .contains("invalid bounds"));
+    }
 }

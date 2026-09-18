@@ -607,7 +607,7 @@ fn layout_facing_snapshot_survives_surface_splicing_without_device() {
     let mut s = surface();
     let request = r##"{"op":"layout","entity":"#0","to":"#1"}"##;
     let epoch = s.sim().unwrap().world().mutation_epoch();
-    let expected = r#"{"tick":0,"entity":{"id":0,"name":null,"world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-0.5,-0.5,-0.5],"max":[0.5,0.5,0.5]},"screen":{"unavailable":true},"depth":null,"visible":{"unavailable":true},"facing":{"forward":[0,0,-1],"towardCamera":null,"bearingTo":-180,"distanceTo":8,"lineOfSight":true}}}"#;
+    let expected = r#"{"tick":0,"entity":{"id":0,"name":null,"world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-0.5,-0.5,-0.5],"max":[0.5,0.5,0.5]},"screen":{"unavailable":true},"depth":null,"visible":{"unavailable":true},"facing":{"forward":[0,0,-1],"towardCamera":null,"bearingTo":180,"distanceTo":8,"lineOfSight":true}}}"#;
     assert_eq!(s.agent(request).unwrap(), expected);
     assert!(!world_state(expected));
     for device in [true, false] {
