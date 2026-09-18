@@ -215,7 +215,9 @@ cold AppKit background paragraph path is opt-in for Markdown Stress, not
 this reader. The integration is committed as `0d32840c` in
 `exact2-wt-markdown-origin`; the current measured binary is `d222c8b0…` from
 `8b69fa64`, the origin-only baseline `245d3466…`, and the retained pre-merge
-binary `e98722ab…`. The combined Mac Release build, 227 core unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
+binary `e98722ab…`. During measurement, the shared `origin/main` ref advanced
+to `f61ff1c4` with later collection/Messages changes; those are not part of the
+frozen build reported here. The combined Mac Release build, 227 core unit tests, targeted parser/kernel/collection/selection/media/refusal/compiler
 tests, strict host/compiler Clippy, formatting, caps and boot passed.
 Native launch and the agent's full-corpus open now run successfully; an
 intermittent launch stall was observed before Swift main, separately from
