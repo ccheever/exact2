@@ -5260,3 +5260,73 @@ The raw validation and preserved failure logs are under
 `target/responsiveness-main-integration-validation/`. These are scoped merge
 checks, not a whole-workspace, Linux GUI, Wayland or120Hz result. Earlier frozen
 runtime archives retain their original source identities and limitations.
+
+### 8.87 Current-source Markdown cells with unmatched initial clips, 2026-09-18
+
+Two fresh optimized builds use the merged dafa9d6 base and the full1MiB
+NativeMarkdownStress paragraph. The control reverses only the five prepared-source
+and worker-digest production paths; treatment keeps current production. Both
+retain the same seven observer hunks and current Session, collection, ABI and
+Runner behavior. The complete source and actual build receipts differ only at
+those five paths. Generated entry, plan, compatibility data, header, toolchain
+and configuration match. The earlier8410/42bad products are not timed controls.
+
+Both single cells exit0 with18 actual resize changes, six typing inputs and six
+signed40px wheel inputs. They have equal outer window geometry and the same full
+paragraph:1,048,499UTF8 bytes and999,569UTF16 units, reflowing940→856px. However,
+independent Cocoa admission records a980×400 initial clip for control and963×400
+for treatment: overlay versus legacy scroller policy, already different at boot.
+Both match their actual Cocoa sizing; the policy transition's cause is not
+observed. The initial accepted raster serials also differ. These are
+individual functional observations, not a geometry-matched A/B speedup.
+
+| Recorded endpoint | Control | Treatment |
+|---|---:|---:|
+| Native resize interval | 1797.039ms | 1808.895ms |
+| Whole resize-call median / maximum,18 calls | 0.791 /1.507ms | 0.795 /3.624ms |
+| Typing ACK maximum,6 offers | 5.098ms | 3.613ms |
+| Wheel ACK maximum,6 offers | 4.165ms | 0.433ms |
+| Recorded UI interval union inside resize | 23.240ms | 26.454ms |
+| Recorded worker interval union inside resize | 1670.009ms | 1586.093ms |
+| First final-width layer assignment after resize ends | 180.055ms | 157.509ms |
+
+All recorded resize calls and input ACKs in these cells are below8.33ms. This
+does not bound every UI operation, input-to-photon delay or presentation frame.
+UI/worker unions are overlapping diagnostic wall intervals, not additive CPU
+costs. Both fresh-width publication-inside-resize endpoints remain not
+established; faster ACKs alone do not establish visible120Hz progress.
+
+Control frame/source941/942 joins acceptance958 and first layer966,
+2.997499ms after acceptance. Layer987 is a later repeat,1003.136792ms after
+resize ends. Treatment1031/1032 joins1047 and first/latest1053,
+12.283458ms after acceptance. Treatment is already ready in its first post-edge
+snapshot; no subsequent `final-full` snapshot is required by the runtime.
+The original paired analyzer assumes that filename and fails. A separate
+descriptive reader preserves that failure and validates the already-ready
+snapshot against the unchanged publication join. Its first attempt also rejects
+control's legitimately pending first-after snapshot; that setup failure remains
+saved. The corrected offline description keeps the geometry mismatch and uses
+pending snapshots only for source-content comparisons. No runtime is repeated.
+
+Frozen retention attribution is also not established. Control records25 A
+placements,24 inside resize; its clear occurs179.728ms after resize ends,
+following B acceptance, with the next model-layer assignment about0.326ms later.
+That transition is not proof of an onscreen blank. Treatment's reader collects21
+A placements then refuses the preceding assignment identity for intermediate
+B publication62/raster24. Source and raw records show three B placements through
+the retained-image path, two inside resize, without a prior exact-current
+stage18 assignment. The reader requires that prior assignment and cannot join
+this lineage. These display-only placements do not establish fresh-current
+output or hit eligibility. Both original refusals remain unchanged.
+
+Next work is an offline acceptance-to-retained-placement lineage check and a
+source-level examination of the replacement clear. A future causal pair must
+match measured scroller policy and geometry; neither an allowlist nor forcing a
+preferred result can repair this pair. Continuous coverage remains unproved.
+
+All eight recorded processes and four groups retire, with both owned external
+pointers released and no cleanup signals, retry or third cell. Passive-mode
+classification remains not established and the display remains60Hz. No physical
+120fps or repeated performance gain is claimed. Raw cells and separate capture
+receipts are under `target/apple-current-region-pair-execution-v1/`; the lead's
+independent per-cell reconstruction is `lead-independent-per-cell.json` there.
