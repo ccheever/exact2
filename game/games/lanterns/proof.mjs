@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { proof } from '../../proof.mjs';
 import { installAdapter } from './inject-adapter.mjs';
 
-await proof(import.meta, async ({open, check, equal, out}) => {
-  installAdapter(resolve(import.meta.dirname, 'dist'));
+await proof(import.meta, async ({open, check, equal, out, host}) => {
+  if (host === 'web') installAdapter(resolve(import.meta.dirname, 'dist'));
   const node = (tree, id) => tree.nodes.find(item => item.props?.testId === id);
   const s = await open();
   const title = await s.tree();
