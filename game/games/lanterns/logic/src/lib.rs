@@ -4,30 +4,15 @@
 
 use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
 use exact_game::{
-    scene, Actions, Animation, Asset, Bloom, Camera, Component, DirectionalLight, Environment,
-    Fog, Follow, Game, Input, Material, Mesh, Parent, PointLight, Quat, Region, Resource, Spring,
-    Stick, Transform, Vec2, Vec3, World,
+    scene, Actions, Animation, Asset, Bloom, Camera, Component, DirectionalLight, Environment, Fog,
+    Follow, Game, Input, Material, Mesh, Parent, PointLight, Quat, Region, Resource, Spring, Stick,
+    Transform, Vec2, Vec3, World,
 };
-use exact_game_physics::{self as physics, Body, BodyKind, Character, Collider, Physics};
+use exact_game_physics::{self as physics, Body, Character, Collider, Physics};
 
 const FOX_BYTES: &[u8] = include_bytes!("../../assets/Fox.glb");
 const DURATION_TICKS: u32 = 180 * 60;
 const SPAWN: Vec3 = Vec3::new(0.0, 0.0, 12.0);
-const LANTERNS: [(&str, Vec3); 12] = [
-    ("lantern-1", Vec3::new(-12.0, 0.0, 10.0)),
-    ("lantern-2", Vec3::new(-10.0, 0.0, 2.0)),
-    ("lantern-3", Vec3::new(-12.0, 0.0, -8.0)),
-    ("lantern-4", Vec3::new(-6.0, 0.0, -12.0)),
-    ("lantern-5", Vec3::new(0.0, 0.0, -10.0)),
-    ("lantern-6", Vec3::new(6.0, 0.0, -12.0)),
-    ("lantern-7", Vec3::new(12.0, 0.0, -8.0)),
-    ("lantern-8", Vec3::new(12.0, 0.0, 0.0)),
-    ("lantern-9", Vec3::new(5.0, 0.0, 2.0)),
-    ("lantern-10", Vec3::new(0.0, 0.0, 0.0)),
-    ("lantern-11", Vec3::new(0.0, 0.0, 7.0)),
-    ("lantern-12", Vec3::new(10.0, 2.4, 8.0)),
-];
-
 /// Canvas inputs. Action counters let Contract overlay buttons feed distinct
 /// touch presses while the left thumb remains on the raw movement stick.
 #[derive(Default, exact_game::Args)]
@@ -51,6 +36,8 @@ pub struct Options {
     /// Whether new synthesized sounds may start.
     #[live]
     pub sound: bool,
+    /// Baked typed initial conditions; a construction argument, never a live edit.
+    pub scene: String,
 }
 
 /// Player-only saved state.
@@ -96,12 +83,15 @@ impl Game for Lanterns {
 
     fn actions() -> Actions {
         Actions::new()
-            .stick(
-                "move",
-                Stick::wasd().or_arrows().or_touch(Region::Left),
-            )
+            .stick("move", Stick::wasd().or_arrows().or_touch(Region::Left))
             .button("jump", &["Space"])
             .button("light", &["KeyE"])
+    }
+
+    fn validate(args: &Options) -> Result<(), String> {
+        scene_types()
+            .prepare(&args.scene, Self::assets())
+            .map(|_| ())
     }
 
     fn setup(world: &mut World, args: &Options) {
@@ -135,44 +125,13 @@ impl Game for Lanterns {
                 radius: 1.0,
             }),
         });
-        spawn_static_box(
-            world,
-            "ground",
-            Vec3::new(0.0, -0.5, 0.0),
-            Vec3::new(36.0, 1.0, 36.0),
-            Material::rgb(0.07, 0.18, 0.11).rough(0.92),
-        );
-        spawn_static_box(
-            world,
-            "ledge",
-            Vec3::new(10.0, 1.2, 8.0),
-            Vec3::new(4.0, 2.4, 4.0),
-            Material::rgb(0.28, 0.27, 0.32).rough(0.85),
-        );
-        spawn_static_box(
-            world,
-            "wall",
-            Vec3::new(-4.0, 1.0, 5.0),
-            Vec3::new(1.0, 2.0, 5.0),
-            Material::rgb(0.31, 0.29, 0.34).rough(0.88),
-        );
-        let crate_mesh = Mesh::cube(1.2);
-        world.spawn_named(
-            "crate",
-            (
-                Transform::at(6.0, 0.6, 8.0),
-                crate_mesh.clone(),
-                Material::rgb(0.45, 0.24, 0.09).rough(0.78),
-                Collider::of(&crate_mesh),
-                Body {
-                    kind: BodyKind::Dynamic,
-                    mass: 3.0,
-                    damping: 0.45,
-                    spin_damping: 8.0,
-                    ..Body::default()
-                },
-            ),
-        );
+        let types = scene_types();
+        types.register(world);
+        types
+            .prepare(&args.scene, Self::assets())
+            .expect("validated scene")
+            .instantiate(world)
+            .expect("fresh scene identities");
         let player = world.spawn_named(
             "player",
             (
@@ -228,10 +187,7 @@ impl Game for Lanterns {
             ),
         );
         spawn_sign(world);
-        for (name, position) in LANTERNS {
-            spawn_lantern(world, name, position);
-        }
-        spawn_decor(world);
+        spawn_decor(world, args.seed);
         publish(world);
     }
 
@@ -378,43 +334,9 @@ fn spawn_sign(world: &mut World) {
     );
 }
 
-fn spawn_lantern(world: &mut World, name: &str, at: Vec3) {
-    let root = world.spawn_named(name, (Transform::at(at.x, at.y, at.z), Lantern::default()));
-    world.spawn_named(
-        format!("{name}-post"),
-        (
-            Transform::at(0.0, 0.675, 0.0),
-            Parent(root),
-            Mesh::cylinder(0.06, 1.35),
-            Material::rgb(0.12, 0.08, 0.06).metallic(0.35).rough(0.7),
-        ),
-    );
-    world.spawn_named(
-        format!("{name}-cap"),
-        (
-            Transform::at(0.0, 1.42, 0.0),
-            Parent(root),
-            Mesh::cylinder(0.24, 0.12),
-            Material::rgb(0.12, 0.08, 0.06).metallic(0.35).rough(0.7),
-        ),
-    );
-    world.spawn_named(
-        format!("{name}-bulb"),
-        (
-            Transform::at(0.0, 1.16, 0.0),
-            Parent(root),
-            Mesh::sphere(0.19),
-            Material::rgb(0.18, 0.16, 0.14),
-            PointLight {
-                color: [1.0, 0.42, 0.08],
-                intensity: 0.0,
-                range: 7.0,
-            },
-        ),
-    );
-}
-
-fn spawn_decor(world: &mut World) {
+fn spawn_decor(world: &mut World, seed: u64) {
+    world.reseed(seed);
+    let before: Vec<_> = world.entities().collect();
     for i in 0..18 {
         let angle = world.rand(0.0..std::f32::consts::TAU);
         let radius = world.rand(13.0..16.5);
@@ -441,11 +363,31 @@ fn spawn_decor(world: &mut World) {
         world.spawn_named(
             format!("rock-{i}"),
             (
-                Transform::at(angle.cos() * radius, 0.2, angle.sin() * radius)
-                    .with_scale(Vec3::new(world.rand(0.4..1.0), world.rand(0.2..0.6), world.rand(0.4..1.0))),
+                Transform::at(angle.cos() * radius, 0.2, angle.sin() * radius).with_scale(
+                    Vec3::new(
+                        world.rand(0.4..1.0),
+                        world.rand(0.2..0.6),
+                        world.rand(0.4..1.0),
+                    ),
+                ),
                 Mesh::sphere(0.5),
                 Material::rgb(0.24, 0.25, 0.3).rough(0.95),
             ),
+        );
+    }
+    let generated: Vec<_> = world.entities().filter(|e| !before.contains(e)).collect();
+    for entity in generated {
+        world.insert(
+            entity,
+            exact_game_scene::GeneratedBy {
+                generator: "lanterns::spawn_decor".into(),
+                parameters: [
+                    ("seed".into(), seed.to_string()),
+                    ("trees".into(), "18".into()),
+                    ("rocks".into(), "22".into()),
+                ]
+                .into(),
+            },
         );
     }
 }
@@ -527,8 +469,12 @@ fn light_nearest(world: &mut World, sound: bool) {
     if sound {
         world.play("chime").at(entity).start();
     }
-    let count = world.query::<&Lantern>().iter().filter(|(_, l)| l.lit).count();
-    if count == LANTERNS.len() {
+    let count = world
+        .query::<&Lantern>()
+        .iter()
+        .filter(|(_, l)| l.lit)
+        .count();
+    if count == world.query::<&Lantern>().iter().count() {
         world.resource_mut::<Session>().phase = 2;
         world.log("all lanterns lit");
     }
@@ -542,7 +488,7 @@ fn update_lanterns(world: &mut World) {
         .map(|(e, l)| (world.name(e).unwrap().to_owned(), l.glow.value(now)))
         .collect();
     for (name, glow) in rows {
-        let bulb = world.named(&format!("{name}-bulb")).unwrap();
+        let bulb = world.named(&format!("{name}/bulb")).unwrap();
         world.get_mut::<Material>(bulb).unwrap().emissive = [glow * 4.0, glow * 1.65, glow * 0.32];
         world.get_mut::<PointLight>(bulb).unwrap().intensity = glow * 5.0;
     }
@@ -557,7 +503,11 @@ fn update_sun(world: &mut World) {
 }
 
 fn publish(world: &mut World) {
-    let count = world.query::<&Lantern>().iter().filter(|(_, l)| l.lit).count() as u32;
+    let count = world
+        .query::<&Lantern>()
+        .iter()
+        .filter(|(_, l)| l.lit)
+        .count() as u32;
     let session = world.resource::<Session>();
     let remaining = DURATION_TICKS.saturating_sub(session.elapsed).div_ceil(60);
     let phase = match session.phase {
@@ -568,7 +518,7 @@ fn publish(world: &mut World) {
     };
     drop(session);
     world.publish("count", count);
-    world.publish("total", LANTERNS.len() as u32);
+    world.publish("total", world.query::<&Lantern>().iter().count() as u32);
     world.publish("remaining", remaining);
     world.publish("phase", phase);
     world.publish("assetReady", true);
@@ -581,6 +531,7 @@ mod tests {
 
     fn game() -> Sim<Lanterns> {
         Sim::new(Options {
+            scene: bake_scene().content,
             seed: 1_041_003,
             started: true,
             sound: true,
@@ -594,8 +545,14 @@ mod tests {
         let sim = game();
         let world = sim.world();
         assert_eq!(world.query::<&Lantern>().iter().count(), 12);
-        assert_eq!(world.get::<Transform>("crate").unwrap().position, Vec3::new(6.0, 0.6, 8.0));
-        assert_eq!(world.get::<Transform>("lantern-12").unwrap().position, Vec3::new(10.0, 2.4, 8.0));
+        assert_eq!(
+            world.get::<Transform>("crate").unwrap().position,
+            Vec3::new(6.0, 0.6, 8.0)
+        );
+        assert_eq!(
+            world.get::<Transform>("lantern-12").unwrap().position,
+            Vec3::new(10.0, 2.4, 8.0)
+        );
         assert!(world.has::<Animation>(world.named("fox").unwrap()));
     }
 
@@ -606,7 +563,11 @@ mod tests {
         sim.run(1000.0);
         sim.key_up("KeyW");
         let pose = sim.world().get::<Transform>("player").unwrap();
-        assert!((pose.position.z - 7.5).abs() < 0.08, "z={}", pose.position.z);
+        assert!(
+            (pose.position.z - 7.5).abs() < 0.08,
+            "z={}",
+            pose.position.z
+        );
         assert_eq!(sim.world().get::<Animation>("fox").unwrap().clip, "Run");
     }
 
@@ -620,7 +581,10 @@ mod tests {
         restored.restore(&bytes).unwrap();
         assert_eq!(restored.world().hash(), hash);
         assert_eq!(restored.world().resource::<Session>().elapsed, 6);
-        assert_eq!(restored.world().get::<Animation>("fox").unwrap().clip, "Survey");
+        assert_eq!(
+            restored.world().get::<Animation>("fox").unwrap().clip,
+            "Survey"
+        );
     }
 
     #[test]
@@ -631,3 +595,25 @@ mod tests {
         assert_eq!(sim.world().resource::<Session>().elapsed, DURATION_TICKS);
     }
 }
+
+/// Scene type selection; every field/default/variant comes from these Rust declarations.
+pub fn scene_types() -> exact_game_scene::Types {
+    let mut types = exact_game_scene::Types::standard();
+    types
+        .component::<Lantern>()
+        .component::<Collider>()
+        .component::<Body>();
+    types
+}
+
+#[cfg(test)]
+fn bake_scene() -> exact_game_scene::bake::Baked {
+    exact_game_scene::bake::compile(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scene.json"),
+        &scene_types(),
+        Lanterns::assets(),
+    )
+    .unwrap()
+}
+#[cfg(test)]
+mod scene_tests;

@@ -1,3 +1,5 @@
+use sceneContent from "./.scene/scene.contract"
+
 shape Hud
   count: number
   total: number
@@ -49,7 +51,7 @@ component Lanterns
 
   view
     main width="100%" height="100%" background-color="#130f24" color="#fff4d6"
-      canvas surface=world(seed, started, paused, round, jumpPress, lightPress, sound) surface-save=saveRequest surface-load=loadRequest message=checkpoint testId="world" width="100%" height="100%" position="relative" overflow="hidden"
+      canvas surface=world(seed, started, paused, round, jumpPress, lightPress, sound, sceneContent()) surface-save=saveRequest surface-load=loadRequest message=checkpoint testId="world" width="100%" height="100%" position="relative" overflow="hidden"
         when started
           row position="absolute" top=18 left=18 right=18 justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
             text `LANTERNS ${hud.count} / ${hud.total}` aria-live="polite" testId="hud-lanterns" padding=13 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=20 font-weight=700

@@ -3,14 +3,7 @@
 const PARAMS = new URLSearchParams(location.search);
 const ENABLED = PARAMS.get('agent') === '1';
 const STORAGE_KEY = 'lanterns-exact-world-v1';
-const LANTERNS = [
-  ['lantern-1', -12, 0, 10], ['lantern-2', -10, 0, 2],
-  ['lantern-3', -12, 0, -8], ['lantern-4', -6, 0, -12],
-  ['lantern-5', 0, 0, -10], ['lantern-6', 6, 0, -12],
-  ['lantern-7', 12, 0, -8], ['lantern-8', 12, 0, 0],
-  ['lantern-9', 5, 0, 2], ['lantern-10', 0, 0, 0],
-  ['lantern-11', 0, 0, 7], ['lantern-12', 10, 2.4, 8],
-];
+
 
 if (ENABLED) {
   let moveDown = false;
@@ -111,9 +104,14 @@ if (ENABLED) {
     const playerVelocity = player?.Character?.velocity ?? [0, 0, 0];
     const crateAt = crate?.Transform?.position ?? [6, .6, 8];
     const crateVelocity = crate?.Body?.velocity ?? [0, 0, 0];
-    const lanterns = LANTERNS.map(([id, x, y, z]) => ({
-      id, x, y, z, lit: entity(view, id)?.Lantern?.lit === true,
-    }));
+    const roster = surface(view, {op:'state', entity:'*'});
+    if (!roster?.entities || roster.truncated) throw new Error('Lantern roster inspection unavailable or truncated');
+    const lanterns = roster.entities.filter(row => row.components?.Lantern).map(row => {
+      const position = row.components.Transform?.position;
+      if (!row.name || !position) throw new Error('A runtime lantern is missing its authored identity or Transform');
+      const [x, y, z] = position;
+      return {id:row.name, x, y, z, lit:row.components.Lantern.lit === true};
+    });
     let phase = published.phase ?? 'title';
     if (phase === 'title' && args.started === true) phase = 'playing';
     if (world.paused && args.started === true && phase === 'playing') phase = 'paused';
@@ -175,11 +173,12 @@ if (ENABLED) {
     const {view, result: world} = await waitReady();
     await releaseInput();
     const args = world.args ?? {};
+    if (typeof args.scene !== 'string' || !args.scene) throw new Error('Load needs the retained baked scene construction argument');
     exact().worldCarry = decode(encoded);
     exact().gpu.destroy(view);
     exact().gpu.surface(view, 'world', [
       args.seed ?? 1041003, true, false, args.round ?? 0,
-      args.jump_press ?? 0, args.light_press ?? 0, args.sound ?? true,
+      args.jump_press ?? 0, args.light_press ?? 0, args.sound ?? true, args.scene,
     ]);
     await waitReady();
     const loaded = await state();

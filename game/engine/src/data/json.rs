@@ -18,6 +18,18 @@ pub fn from_str<T: Data>(text: &str) -> Result<T, DataError> {
     read_into(text, &mut value)?;
     Ok(value)
 }
+/// Parse authored data using Rust defaults, refusing unknown fields and wrong arity.
+pub fn from_str_strict<T: Data>(text: &str) -> Result<T, DataError> {
+    if text.len() > MAX_LOAD_BYTES {
+        return Err(DataError::new("input exceeds load size limit"));
+    }
+    let mut value = T::default();
+    let mut r = Decoder::new(text);
+    r.strict = true;
+    value.read(&mut r)?;
+    r.finish()?;
+    Ok(value)
+}
 /// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(text: &str, value: &mut T) -> Result<(), DataError> {
     if text.len() > MAX_LOAD_BYTES {
@@ -188,11 +200,13 @@ pub struct Decoder<'a> {
     pos: usize,
     frames: Vec<ReadFrame>,
     budget: Budget,
+    strict: bool,
 }
 struct ReadFrame {
     end: u8,
     first: bool,
     names: BTreeSet<String>,
+    current_field: Option<String>,
 }
 impl<'a> Decoder<'a> {
     /// Start at the first JSON value.
@@ -202,6 +216,7 @@ impl<'a> Decoder<'a> {
             pos: 0,
             frames: vec![],
             budget: Budget::default(),
+            strict: false,
         }
     }
     /// Reject trailing input or an unfinished container.
@@ -252,6 +267,7 @@ impl<'a> Decoder<'a> {
             end,
             first: true,
             names: BTreeSet::new(),
+            current_field: None,
         });
         Ok(())
     }
@@ -301,7 +317,15 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn strict(&self) -> bool {
+        self.strict
+    }
     fn bytes(&mut self, _kind: BulkKind) -> Result<Vec<u8>, DataError> {
+        if self.strict {
+            return Err(DataError::new(
+                "opaque bulk data requires a typed scene constructor",
+            ));
+        }
         self.skip()?;
         Err(DataError::new(
             "JSON bulk summaries are inspection-only; arrays are refused too; restore from binary",
@@ -472,6 +496,9 @@ impl Reader for Decoder<'_> {
         }
         self.budget.claim(64)?;
         seen.insert(self.budget.text(&name)?);
+        if self.strict {
+            self.frames.last_mut().unwrap().current_field = Some(self.budget.text(&name)?);
+        }
         Ok(Some(name))
     }
     fn variant(&mut self) -> Result<String, DataError> {
@@ -504,6 +531,16 @@ impl Reader for Decoder<'_> {
         }
     }
     fn skip(&mut self) -> Result<(), DataError> {
+        // Handwritten Data implementations also skip unknown fields. Authoring
+        // must never silently discard them, even without a generated unknown().
+        if self.strict {
+            let error = DataError::new("unknown field or unsupported opaque value");
+            return Err(self
+                .frames
+                .last()
+                .and_then(|f| f.current_field.as_deref())
+                .map_or_else(|| error.clone(), |field| error.clone().at(field)));
+        }
         self.ws();
         match self.peek() {
             Some(b'{') => {

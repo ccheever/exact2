@@ -239,6 +239,18 @@ pub trait Reader {
     fn option(&mut self) -> Result<bool, DataError>;
     /// Consume the option end.
     fn end_option(&mut self) -> Result<(), DataError>;
+    /// Whether authoring requires exact fields and tuple/array lengths.
+    fn strict(&self) -> bool {
+        false
+    }
+    /// An unknown record field or tuple element; saves skip it, authoring refuses it.
+    fn unknown(&mut self) -> Result<(), DataError> {
+        if self.strict() {
+            Err(DataError::new("unknown field or excess element"))
+        } else {
+            self.skip()
+        }
+    }
     /// Discard one complete value, including names interned within it.
     fn skip(&mut self) -> Result<(), DataError>;
 }

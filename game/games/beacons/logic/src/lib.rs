@@ -8,6 +8,7 @@ pub struct Options {
     #[live]
     pub paused: bool,
     pub round: u32,
+    pub scene: String,
 }
 #[derive(Default, Component)]
 pub struct Player {
@@ -28,16 +29,20 @@ impl Game for Beacons {
             .button("light", &["KeyE"])
             .button("jump", &["Space"])
     }
+    fn validate(args: &Options) -> Result<(), String> {
+        scene_types()
+            .prepare(&args.scene, Self::assets())
+            .map(|_| ())
+    }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.spawn_named(
-            "ground",
-            (
-                Transform::default(),
-                Mesh::plane(40.0, 40.0),
-                Material::rgb(0.12, 0.22, 0.24),
-            ),
-        );
+        let types = scene_types();
+        types.register(w);
+        types
+            .prepare(&args.scene, Self::assets())
+            .expect("validated scene")
+            .instantiate(w)
+            .expect("fresh scene identities");
         let player = w.spawn_named(
             "player",
             (
@@ -71,30 +76,7 @@ impl Game for Beacons {
                 DirectionalLight::default(),
             ),
         );
-        for i in 1..=6 {
-            w.spawn_named(
-                format!("crate-{i}"),
-                (
-                    Transform::at(w.rand(-16.0..16.0), 0.5, w.rand(-16.0..16.0)),
-                    Mesh::cube(1.0),
-                    Material::rgb(0.44, 0.34, 0.25),
-                ),
-            );
-        }
-        for (i, (x, z)) in [(8.0, 0.0), (-6.0, 7.0), (3.0, -9.0)]
-            .into_iter()
-            .enumerate()
-        {
-            w.spawn_named(
-                format!("beacon-{}", i + 1),
-                (
-                    Transform::at(x, 1.0, z),
-                    Mesh::sphere(0.5),
-                    Material::rgb(0.18, 0.73, 0.79),
-                    Beacon::default(),
-                ),
-            );
-        }
+        spawn_crates(w, args.seed, 6);
         w.publish("beacons", 0);
     }
     fn paused(args: &Options) -> bool {
@@ -126,5 +108,36 @@ impl Game for Beacons {
         }
         w.publish("beacons", count);
         scene::follow(w);
+    }
+}
+
+pub fn scene_types() -> exact_game_scene::Types {
+    let mut types = exact_game_scene::Types::standard();
+    types.component::<Beacon>();
+    types
+}
+
+fn spawn_crates(w: &mut World, seed: u64, count: u32) {
+    w.reseed(seed);
+    for i in 1..=count {
+        let entity = w.spawn_named(
+            format!("crate-{i}"),
+            (
+                Transform::at(w.rand(-16.0..16.0), 0.5, w.rand(-16.0..16.0)),
+                Mesh::cube(1.0),
+                Material::rgb(0.44, 0.34, 0.25),
+            ),
+        );
+        w.insert(
+            entity,
+            exact_game_scene::GeneratedBy {
+                generator: "beacons::spawn_crates".into(),
+                parameters: [
+                    ("seed".into(), seed.to_string()),
+                    ("count".into(), count.to_string()),
+                ]
+                .into(),
+            },
+        );
     }
 }

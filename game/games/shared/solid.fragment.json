@@ -1,0 +1,26 @@
+{
+  "units": "metres-y-up",
+  "parameters": [
+    "position",
+    "mesh",
+    "material"
+  ],
+  "entities": [
+    {
+      "id": "",
+      "components": {
+        "Transform": {
+          "position": {
+            "$param": "position"
+          }
+        },
+        "Mesh": {
+          "$param": "mesh"
+        },
+        "Material": {
+          "$param": "material"
+        }
+      }
+    }
+  ]
+}

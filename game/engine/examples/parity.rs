@@ -34,6 +34,13 @@ fn main() {
         paused: false,
     });
     card::<beacons::Beacons>(beacons::Options {
+        scene: exact_game_scene::bake::compile(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games/beacons/scene.json"),
+            &beacons::scene_types(),
+            &[],
+        )
+        .unwrap()
+        .content,
         seed: 7,
         ..Default::default()
     });

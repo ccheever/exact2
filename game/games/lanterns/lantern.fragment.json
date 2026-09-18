@@ -1,0 +1,112 @@
+{
+  "units": "metres-y-up",
+  "parameters": [
+    "position"
+  ],
+  "entities": [
+    {
+      "id": "",
+      "components": {
+        "Transform": {
+          "position": {
+            "$param": "position"
+          }
+        },
+        "Lantern": {}
+      }
+    },
+    {
+      "id": "post",
+      "parent": "$root",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            0.675,
+            0
+          ]
+        },
+        "Mesh": {
+          "Cylinder": {
+            "radius": 0.06,
+            "height": 1.35
+          }
+        },
+        "Material": {
+          "color": [
+            0.12,
+            0.08,
+            0.06,
+            1
+          ],
+          "metallic": 0.35,
+          "roughness": 0.7
+        }
+      }
+    },
+    {
+      "id": "cap",
+      "parent": "$root",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            1.42,
+            0
+          ]
+        },
+        "Mesh": {
+          "Cylinder": {
+            "radius": 0.24,
+            "height": 0.12
+          }
+        },
+        "Material": {
+          "color": [
+            0.12,
+            0.08,
+            0.06,
+            1
+          ],
+          "metallic": 0.35,
+          "roughness": 0.7
+        }
+      }
+    },
+    {
+      "id": "bulb",
+      "parent": "$root",
+      "components": {
+        "Transform": {
+          "position": [
+            0,
+            1.16,
+            0
+          ]
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.19
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.16,
+            0.14,
+            1
+          ]
+        },
+        "PointLight": {
+          "color": [
+            1,
+            0.42,
+            0.08
+          ],
+          "intensity": 0,
+          "range": 7
+        }
+      }
+    }
+  ]
+}

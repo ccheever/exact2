@@ -24,3 +24,10 @@ timer, lanterns, and current animation clip are all included in Exact world save
 used by the independent comparison harness. It is inert unless the URL contains
 `?agent=1`; the adapter sends platform input into the real Exact surface, advances
 Exact's owned clock, and persists the surface's public save carrier in localStorage.
+
+Initial terrain and the twelve-lantern roster live in `scene.json`; repeated lantern
+parts live in `lantern.fragment.json`. Run `bun game/dev.mjs lanterns --scene-only`
+after content edits, or add `--reuse-baker` to skip Cargo completely once the typed
+baker exists. Rust behavior remains unchanged. Restart uses the new content;
+Continue/Restore keeps saved progress. See [typed scene usage](../../scene/README.md)
+for parameters, overrides, asset validation and digest-bound development source links.
