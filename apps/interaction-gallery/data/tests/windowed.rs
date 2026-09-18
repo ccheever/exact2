@@ -96,7 +96,7 @@ fn settle_at(
             focus_view: None,
             interaction_view: None,
         };
-        if r.collection_feedback(facts).unwrap().is_none() {
+        if r.collection_feedback(facts).unwrap().receipts.is_empty() {
             let visible: Vec<_> = c
                 .rows
                 .iter()

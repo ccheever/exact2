@@ -81,6 +81,10 @@ impl Crew {
             Value::Number(0.),
             Value::Number(0.),
             Value::Number((self.body_bytes + echo.len()) as f64),
+            Value::str(""),
+            Value::str(""),
+            Value::Bool(false),
+            Value::Bool(false),
         ]);
         self.latest = Some((echo.clone(), value.clone()));
         Ok(value)

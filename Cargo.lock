@@ -756,6 +756,7 @@ name = "exact-js-value"
 version = "0.1.0"
 dependencies = [
  "exact-plan",
+ "serde",
  "serde_json",
 ]
 

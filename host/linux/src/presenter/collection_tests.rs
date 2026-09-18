@@ -4,7 +4,13 @@ use exact_runner::{DataError, Value};
 #[derive(Default)]
 struct Rows;
 impl DataSource for Rows {
-    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+    fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+        if let [Value::Number(first)] = args {
+            return Ok(Value::list(vec![
+                Value::Number(*first),
+                Value::Number(first + 1.),
+            ]));
+        }
         Ok(Value::list(
             (0..25_000).map(|n| Value::Number(n as f64)).collect(),
         ))
@@ -37,7 +43,7 @@ fn boot_source(source: &str) -> Presenter<Rows> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn settle(p: &mut Presenter<Rows>) {
+fn settle<D: DataSource>(p: &mut Presenter<D>) {
     for _ in 0..16 {
         assert!(p.pump(p.host.now()).is_none());
         if p.dirty() {
@@ -71,6 +77,147 @@ fn collection_boot_measures_wrappers_in_nested_port_and_scroll_rewindows() {
     assert!(after.rows.len() < 40);
     assert!(p.scroll_of(after.view).1 > 10_000.);
     assert!(p.host.kernel().find_by_test_id("port").len() == 1);
+}
+
+#[test]
+fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
+    let mut p = boot_source(
+        r#"component App
+  state first = 0
+  resource rows = rows(first) as shape list<number>
+  action start writes first
+    if first > 0
+      first = 0
+  action end writes first
+    if first < 12
+      first = 12
+  view
+    list virtualized=true height=180 width=320 reachstart=start reachend=end
+      each x in rows key=x
+        text `${x}` height=1
+"#,
+    );
+    // Drive only the presenter's normal pending-work loop, with no wheel or
+    // manually supplied runner feedback to rescue membership after pass two.
+    settle(&mut p);
+    assert_eq!(p.host.runner().slot("first"), Some(&Value::Number(12.)));
+    let snapshot = &p.host.collections()[0];
+    assert!(snapshot.rows.iter().all(|row| row.measured));
+    assert!(!p.collection.pending());
+    let epoch = p.host.kernel().epoch();
+    settle(&mut p);
+    assert_eq!(
+        p.host.kernel().epoch(),
+        epoch,
+        "no callback or dispatch storm"
+    );
+    assert!(!p.collection.pending());
+}
+
+#[test]
+fn activation_retries_a_refused_edge_with_unchanged_endpoints() {
+    struct Deferred(bool);
+    impl DataSource for Deferred {
+        fn ready(&self) -> bool {
+            self.0
+        }
+        fn activate(&mut self) -> Result<(), DataError> {
+            self.0 = true;
+            Ok(())
+        }
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            if source == "rows" {
+                return Ok(Value::list(vec![Value::Number(0.), Value::Number(1.)]));
+            }
+            if self.0 {
+                Ok(args[0].clone())
+            } else {
+                Err(DataError::Unavailable("executor not activated".into()))
+            }
+        }
+    }
+    let source = r#"component App
+  state next = 0
+  resource answer = answer(next) as shape number
+  resource rows = rows() as shape list<number>
+  action start writes next
+    next = next + 1
+  view
+    column
+      text `${answer}`
+      list virtualized=true height=180 width=320 reachstart=start
+        each x in rows key=x
+          text `${x}` height=24
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), Deferred(true)).unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        Deferred(false),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    // Paint and measure before activation, exactly as the host can at boot.
+    for _ in 0..4 {
+        let _ = p.pump(p.host.now());
+        if p.dirty() {
+            let _ = p.frame();
+        }
+    }
+    assert_eq!(p.host.runner().slot("next"), Some(&Value::Number(0.)));
+    let before = p.host.collections()[0].count;
+    p.first_pixel();
+    settle(&mut p);
+    assert_eq!(p.host.runner().slot("next"), Some(&Value::Number(1.)));
+    assert_eq!(
+        p.host.collections()[0].count,
+        before,
+        "activation did not change the supplied rows"
+    );
+}
+
+#[test]
+fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
+    let mut p = boot_source(
+        r#"component App
+  state requested = 1000000
+  resource rows = rows() as shape list<number>
+  action latest writes requested
+    requested = requested + 1000
+  view
+    column
+      button press=latest testId="latest"
+        text "Latest"
+      list virtualized=true scrollFollowEnd=true scrollTop=requested height=180 width=400
+        each x in rows key=x
+          text `${x}` height=24
+"#,
+    );
+    settle(&mut p);
+    let c = p.host.collections().remove(0);
+    assert_eq!(
+        c.rows.last().unwrap().index,
+        24_999,
+        "initial authored offset"
+    );
+    p.wheel(c.view, 0., -10_000_000.).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        p.scroll_of(c.view).1,
+        0.,
+        "unchanged prop must not override reader"
+    );
+    let button = p.host.kernel().find_by_test_id("latest")[0];
+    let button = p.host.kernel().node_by_key(button).unwrap().id;
+    p.tap(button).unwrap();
+    settle(&mut p);
+    assert_eq!(
+        p.host.collections()[0].rows.last().unwrap().index,
+        24_999,
+        "Latest offset request"
+    );
 }
 
 #[test]

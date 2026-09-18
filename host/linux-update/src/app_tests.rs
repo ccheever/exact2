@@ -86,6 +86,7 @@ fn checked(
 
 fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
     let mut config = Config {
+        content_region: None,
         launch: "/".into(),
         plan: baked.to_vec(),
         fallback_plan: None,
@@ -146,6 +147,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     foreign.app_id = "com.exact.foreign".into();
     let baked = contract::compile(source).unwrap().encode();
     let mut config = Config {
+        content_region: None,
         launch: "/".into(),
         plan: foreign.encode(),
         fallback_plan: Some(baked),
@@ -214,6 +216,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let record = client.dir().join("record.json");
     let updates = Updates::from_client(client).unwrap();
     let mut config = Config {
+        content_region: None,
         launch: "/".into(),
         plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
         fallback_plan: Some(baked.clone()),

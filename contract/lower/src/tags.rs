@@ -193,6 +193,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "message" => AttrTarget::Handler("message"),
         "contextmenu" => AttrTarget::Handler("contextmenu"),
         "dblclick" => AttrTarget::Handler("dblclick"),
+        "reachstart" => AttrTarget::Handler("reachstart"),
+        "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
         "navigate" => AttrTarget::Handler("navigate"),

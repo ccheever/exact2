@@ -8,7 +8,7 @@ pub use reuse::ReusableMessagesStress;
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
-use model::{page, Controls};
+use model::{page, window, Controls};
 
 /// Pure, stateless, binary-bound source. It has no grants or external dependencies.
 #[derive(Default)]
@@ -34,16 +34,48 @@ impl DataSource for MessagesStress {
         if source != "history" {
             return Err(DataError::UnknownSource(source.into()));
         }
-        let [count, revision, batch, Value::Str(echo), offset, Value::Bool(eager)] = args else {
+        let [count, revision, batch, Value::Str(echo), offset, Value::Bool(eager), selection @ ..] =
+            args
+        else {
             return Err(DataError::BadArguments(
-                "history(count, revision, batch, echo, offset, eager)".into(),
+                "history(count, revision, batch, echo, offset, eager[, cursor: option<string>])"
+                    .into(),
             ));
         };
         let controls = Controls::new(integer(count)?, integer(revision)?, integer(batch)?)
             .map_err(|e| DataError::BadArguments(e.into()))?;
         let offset = integer(offset)?;
-        let rows =
-            page(controls, echo, offset, *eager).map_err(|e| DataError::BadArguments(e.into()))?;
+        // An omitted/none cursor keeps the original manual/eager source controls.
+        // Some("") explicitly selects the bounded tail window.
+        let cursor = match selection {
+            [] | [Value::Option(None)] => None,
+            [Value::Option(Some(value))] if value.as_str().is_some() => value.as_str(),
+            _ => {
+                return Err(DataError::BadArguments(
+                    "expected an optional string cursor".into(),
+                ))
+            }
+        };
+        let (rows, earlier, later, has_earlier, has_later) = if let Some(cursor) = cursor {
+            let answer =
+                window(controls, echo, cursor).map_err(|e| DataError::BadArguments(e.into()))?;
+            (
+                answer.rows,
+                answer.earlier,
+                answer.later,
+                answer.has_earlier,
+                answer.has_later,
+            )
+        } else {
+            (
+                page(controls, echo, offset, *eager)
+                    .map_err(|e| DataError::BadArguments(e.into()))?,
+                String::new(),
+                String::new(),
+                false,
+                false,
+            )
+        };
         let row_count = rows.len();
         let body_bytes: usize = rows.iter().map(|r| r.body.len()).sum();
         let changed = if controls.revision == 0 {
@@ -71,6 +103,10 @@ impl DataSource for MessagesStress {
             Value::Number(controls.revision as f64),
             Value::Number(changed as f64),
             Value::Number(body_bytes as f64),
+            Value::str(&earlier),
+            Value::str(&later),
+            Value::Bool(has_earlier),
+            Value::Bool(has_later),
         ]))
     }
 }

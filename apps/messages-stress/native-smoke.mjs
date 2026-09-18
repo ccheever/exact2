@@ -107,7 +107,7 @@ for (const profile of ['idle100', 'eager1000']) {
     assert.equal((await deadline(session.find('stress-echo'))).props.text, '');
     assert.ok(await deadline(session.find('message-local-echo')));
     await deadline(session.tap('reset'));
-    assert.match((await deadline(session.find('stats'))).props.text, /100 logical · 100 materialized rows · revision 0\/120/);
+    assert.match((await deadline(session.find('stats'))).props.text, /100 logical · 100 supplied records · revision 0\/120/);
     row.input_ack_ms = summarize(row.samples.map(x => x.input_ack_ms));
     row.echo_tree_ack_ms = summarize(row.samples.map(x => x.echo_tree_ack_ms));
     row.update_ack_ms = summarize(row.samples.map(x => x.update_ack_ms).filter(x => x !== null));

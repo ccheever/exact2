@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 #[derive(Debug, Default)]
 pub struct Batch {
     ops: Vec<String>,
+    collection_accepted: bool,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -91,6 +92,11 @@ impl Batch {
         frame: &str,
     ) {
         self.ops.push(format!("{{\"op\":\"reorder-state\",\"runtime\":\"{runtime}\",\"token\":\"{token}\",\"terminal\":{terminal},\"released\":{released},\"frame\":{frame}}}"));
+    }
+
+    /// Geometry committed, even if its subsequent edge action refused.
+    pub(crate) fn accept_collection(&mut self) {
+        self.collection_accepted = true;
     }
 
     pub(crate) fn transform_drag(
@@ -437,6 +443,9 @@ impl Batch {
         let mut s = String::from("{\"ops\":[");
         s.push_str(&self.ops.join(","));
         s.push(']');
+        if self.collection_accepted {
+            s.push_str(",\"accepted\":true");
+        }
         let _ = write!(s, ",\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
         match error {
             Some(e) => quote(e, &mut s),

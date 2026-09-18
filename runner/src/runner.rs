@@ -39,16 +39,16 @@ pub struct Command {
     pub args: Vec<Value>,
 }
 
-/// One timer's commit and the clock it fired at (`Runner::advance_timed`).
+/// A timer or collection-feedback commit and the runner clock it happened at.
 #[derive(Debug, Clone)]
 pub struct Timed {
-    /// The runner's clock when the timer ran, milliseconds.
+    /// The runner's clock when the receipt committed, milliseconds.
     pub at_ms: f64,
     /// The commit.
     pub receipt: CommitReceipt,
 }
 
-/// What one `advance_timed` did: the commits in order, each at its due
+/// What one `advance_timed` or collection feedback call did: the commits in order, each at its due
 /// time; the clock afterwards — the requested time, or the last time reached
 /// before a refusal; and that refusal, if any. Commits before a refusal are
 /// kept: they are in the kernel, and a host must show them.
@@ -58,7 +58,7 @@ pub struct Advanced {
     pub receipts: Vec<Timed>,
     /// The clock after the call, milliseconds.
     pub now_ms: f64,
-    /// The refusal that stopped the advance, if one did.
+    /// The refusal that stopped the advance or the collection edge action.
     pub error: Option<RunnerError>,
 }
 
@@ -215,6 +215,8 @@ pub struct Runner<D: DataSource> {
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
     next_ticket: u64,
+    /// Second edges waiting for the first action's async targets to settle.
+    deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle.
@@ -444,6 +446,7 @@ impl<D: DataSource> Runner<D> {
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
             next_ticket: 1,
+            deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             store,
@@ -1089,6 +1092,10 @@ impl<D: DataSource> Runner<D> {
                 return Err(e.into());
             }
         };
+        if let Err(error) = self.wake_deferred_edges() {
+            self.poison();
+            return Err(error);
+        }
         match self.apply(ops) {
             Ok(receipt) => {
                 self.surfaces.extend(surfaces);

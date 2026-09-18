@@ -491,6 +491,20 @@ fn end_follow_accepts_integer_dom_scroll_height_rounding() {
 }
 
 #[test]
+fn end_follow_accepts_browser_integer_scroll_range_rounding() {
+    // Observed in Messages stress: CSS rows sum to a fractional extent, while
+    // Chrome clamps an authored scrollTop to its integer scroll range.
+    let mut index = index(&[10_497.109_375]);
+    let anchor = index.capture_anchor(10_023.0, 474.0, true).unwrap();
+    assert!(anchor.follows_end);
+    index.replace_keys(keys(2)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, 474.0).unwrap(),
+        index.max_offset(474.0)
+    );
+}
+
+#[test]
 fn end_follow_rounding_tolerance_is_half_a_logical_pixel_on_every_host() {
     // The .5 boundary is inclusive at small, medium and large extents alike.
     for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {

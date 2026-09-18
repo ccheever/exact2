@@ -60,7 +60,7 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
                 interaction_view: None,
             })
             .unwrap();
-        if receipt.is_none() {
+        if receipt.receipts.is_empty() {
             let visible: Vec<_> = snapshot
                 .rows
                 .iter()

@@ -395,3 +395,127 @@ fn actual_contract_typing_and_width_do_zero_queries_and_ticks_key_only_changed_r
         assert!(!cached.is_poisoned());
     }
 }
+
+#[test]
+fn explicit_none_keeps_full_10k_reuse_and_all_nine_canonical_fields() {
+    let mut source = Candidate::default();
+    let mut request = args(10_000, 0, 32, "", 9900, true);
+    request.push(Value::Option(None));
+    let before = canonical(&mut source, &request);
+    assert_eq!(record(&before).len(), 9);
+    request[1] = Value::Number(1.);
+    let after = canonical(&mut source, &request);
+    assert_eq!(rows(&after).len(), 10_000);
+    assert_eq!(shared_rows(&before, &after), 9968);
+    assert_eq!(&record(&after)[5..], &record(&before)[5..]);
+    assert!(shared_record(&after, &canonical(&mut source, &request)));
+
+    request.pop();
+    let omitted = canonical(&mut source, &request);
+    assert_eq!(omitted, after);
+    assert!(shared_record(&omitted, &after), "omitted cursor is none");
+    assert_eq!(shared_rows(&omitted, &after), 10_000);
+    request[5] = Value::Bool(false);
+    assert_eq!(rows(&canonical(&mut source, &request)).len(), 100);
+}
+
+#[test]
+fn bounded_cursors_ticks_echo_and_ignored_page_controls_equal_the_canonical_source() {
+    let mut source = Candidate::default();
+    for count in [100, 1000, 10_000, 100_000] {
+        for cursor in ["", "0", "300", "999", "999999999999999999999999999999999"] {
+            for (revision, batch, echo) in [(0, 32, ""), (8, 32, "🦀"), (8, 1, "é"), (0, 1, "")]
+            {
+                // Bounded selection ignores page alignment/range and eager;
+                // integer validation still applies, exactly as in the control.
+                let mut request = args(count, revision, batch, echo, 99_999, true);
+                request.push(Value::some(Value::str(cursor)));
+                let value = canonical(&mut source, &request);
+                assert_eq!(record(&value).len(), 9);
+                assert!(rows(&value).len() <= 201);
+                assert!(shared_record(&value, &canonical(&mut source, &request)));
+            }
+        }
+    }
+}
+
+#[test]
+fn bounded_refusals_preserve_latest_and_mode_changes_release_only_unowned_outputs() {
+    let mut source = Candidate::default();
+    let mut request = args(10_000, 8, 32, "accepted 🦀", 99_999, true);
+    request.push(Value::some(Value::str("")));
+    let accepted = canonical(&mut source, &request);
+    let bytes = accepted.to_bytes();
+    let weak = Rc::downgrade(record(&accepted));
+    for selection in [
+        Value::some(Value::str("-1")),
+        Value::some(Value::str(" 1")),
+        Value::some(Value::str("١")),
+        Value::some(Value::Number(1.)),
+        Value::str(""),
+        Value::Option(None), // Invalid manual page offset once cursor is absent.
+    ] {
+        let mut invalid = request.clone();
+        invalid[6] = selection;
+        assert!(source.query("history", &invalid).is_err());
+        assert!(MessagesStress.query("history", &invalid).is_err());
+        assert!(shared_record(&accepted, &query(&mut source, &request)));
+    }
+    let mut extra = request.clone();
+    extra.push(Value::Option(None));
+    assert!(source.query("history", &extra).is_err());
+    let mut too_long = request.clone();
+    too_long[3] = Value::str(&"🦀".repeat(513));
+    assert!(source.query("history", &too_long).is_err());
+    assert!(shared_record(&accepted, &query(&mut source, &request)));
+
+    let full = canonical(&mut source, &args(10_000, 8, 32, "full", 9900, true));
+    assert_eq!(rows(&full).len(), 10_001);
+    assert_eq!(
+        accepted.to_bytes(),
+        bytes,
+        "accepted old result is immutable"
+    );
+    drop(accepted);
+    assert!(weak.upgrade().is_none(), "no bounded output history");
+    let full_weak = Rc::downgrade(record(&full));
+    let bounded = canonical(&mut source, &request);
+    drop(full);
+    assert!(full_weak.upgrade().is_none(), "no full output history");
+    drop(source);
+    assert_eq!(bounded.to_bytes(), bytes, "accepted result outlives source");
+}
+
+#[test]
+fn actual_contract_reusable_bounded_mode_preserves_controls_and_zero_query_typing() {
+    let (mut cached, calls) = runner(Candidate::default());
+    let (mut control, _) = runner(MessagesStress);
+    for action in [
+        "toggleBounded",
+        "step",
+        "reachEarlier",
+        "step",
+        "reachLater",
+        "latest",
+    ] {
+        cached.act(action, vec![]).unwrap();
+        control.act(action, vec![]).unwrap();
+        assert_eq!(cached.resource("history"), control.resource("history"));
+        assert!(rows(cached.resource("history").unwrap()).len() <= 200);
+        assert!(cached.last_instance_work().rows_keyed <= 200);
+        assert!(!cached.is_poisoned());
+    }
+    let queries = calls.get();
+    cached
+        .act("editDraft", vec![Value::str("bounded 🦀")])
+        .unwrap();
+    cached.set_viewport(520., 900.).unwrap();
+    assert_eq!(calls.get(), queries, "typing/width do not query history");
+    cached.act("sendDraft", vec![]).unwrap();
+    assert_eq!(rows(cached.resource("history").unwrap()).len(), 201);
+    cached.act("toggleWindowed", vec![]).unwrap();
+    assert_eq!(rows(cached.resource("history").unwrap()).len(), 10_001);
+    cached.act("reset", vec![]).unwrap();
+    assert_eq!(rows(cached.resource("history").unwrap()).len(), 100);
+    assert_eq!(cached.slot("bounded"), Some(&Value::Bool(false)));
+}

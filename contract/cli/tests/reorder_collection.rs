@@ -368,7 +368,7 @@ fn live_bad_sample_is_atomic_and_new_window_receives_absolute_targets_without_fe
     }
     let f = feedback(&r, Some(h), 80.);
     assert!(
-        r.collection_feedback(f).unwrap().is_none(),
+        r.collection_feedback(f).unwrap().receipts.is_empty(),
         "equal feedback does not emit unchanged wrapper styles"
     );
 }

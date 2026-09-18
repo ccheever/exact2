@@ -70,6 +70,10 @@ shape History
   revision: number
   changed: number
   bodyBytes: number
+  earlier: string
+  later: string
+  hasEarlier: bool
+  hasLater: bool
 shape Run
   id: string
   text: string

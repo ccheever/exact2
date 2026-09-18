@@ -19,7 +19,7 @@ for (const name of ['glue.js', 'navigation.js']) cpSync(resolve(javascript,name)
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 writeFileSync(dir + '/identity.json', JSON.stringify({carrier: resolve(process.env.EXACT_COLLECTION_DIST), javascript,
   files: Object.fromEntries(['app.wasm','app.plan','glue.js','navigation.js'].map(name => [name, {carrier: hash(resolve(process.env.EXACT_COLLECTION_DIST,name)), tested: hash(dist+'/'+name)}]))}, null, 2));
-function fixture(plan) {
+function fixture(plan, trackFrames) {
   const instantiate = WebAssembly.instantiateStreaming, RO = ResizeObserver;
   globalThis.ResizeObserver = class extends RO {
     constructor(callback) { super((entries, observer) => {
@@ -29,6 +29,15 @@ function fixture(plan) {
     }); }
   };
   globalThis.collectionSmoke = { calls: 0, snapshots: [], maxRows: 0, delayed: 0, postFeedback: [] };
+  if (trackFrames) {
+    const request = requestAnimationFrame.bind(window), cancel = cancelAnimationFrame.bind(window), pending = new Set();
+    collectionSmoke.pendingFrames = 0;
+    globalThis.requestAnimationFrame = fn => {
+      const id = request(time => { pending.delete(id); collectionSmoke.pendingFrames = pending.size; fn(time); });
+      pending.add(id); collectionSmoke.pendingFrames = pending.size; return id;
+    };
+    globalThis.cancelAnimationFrame = id => { pending.delete(id); collectionSmoke.pendingFrames = pending.size; cancel(id); };
+  }
   WebAssembly.instantiateStreaming = async (...args) => {
     const result = await instantiate(...args), w = result.instance.exports;
     let input;
@@ -61,7 +70,7 @@ function fixture(plan) {
   };
 }
 const html = readFileSync(dist + '/index.html', 'utf8').replace('<script type="module" src="./glue.js"></script>',
-  `<script>(${fixture})(${JSON.stringify(gallery ? null : [...readFileSync(dir + '/app.plan')])})</script><script type="module" src="./glue.js"></script>`);
+  `<script>(${fixture})(${JSON.stringify(gallery ? null : [...readFileSync(dir + '/app.plan')])},${!!process.env.EXACT_COLLECTION_EDGES})</script><script type="module" src="./glue.js"></script>`);
 writeFileSync(dist + '/index.html', html);
 const server = createServer((req, res) => {
   // Identified local carrier; no filesystem-helper build needed for this test.
@@ -104,7 +113,27 @@ try {
   await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
   await until('globalThis.exact?.root?.dataset.moduleReady === "true"');
   if (!gallery) await until('collectionSmoke.calls >= 1');
-  if (gallery) {
+  if (process.env.EXACT_COLLECTION_EDGES) {
+    const expected = process.env.EXACT_COLLECTION_EDGES === 'state' ? 1 : 6;
+    await until(`document.querySelector('[data-testid="steps"]').textContent === '${expected}'
+      && document.querySelector('[data-testid="ends"]').textContent === '1'
+      && collectionSmoke.snapshots[0].rows.every(r=>r.measured)`);
+    // A state-only action can finish before its one queued measurement runs.
+    // Drain that bounded follow-up before checking that the controller is idle.
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const result = await evaluate(`(() => {const p=document.querySelector('[data-testid="list"]');
+      return {feedbackCalls:collectionSmoke.calls,maxRows:collectionSmoke.maxRows,
+        scrollable:p.scrollHeight>p.clientHeight,steps:+document.querySelector('[data-testid="steps"]').textContent,
+        ends:+document.querySelector('[data-testid="ends"]').textContent};})()`);
+    assert.equal(result.scrollable,false); assert.equal(result.maxRows,2);
+    assert(result.feedbackCalls>=2 && result.feedbackCalls<=6,JSON.stringify(result));
+    await new Promise(r=>setTimeout(r,150));
+    assert.equal(await evaluate('collectionSmoke.calls'),result.feedbackCalls,'settled edges become idle');
+    result.pendingCallbacks = await evaluate('collectionSmoke.pendingFrames');
+    assert.equal(result.pendingCallbacks,0,'no pending callbacks after the final edge');
+    writeFileSync(dir+'/result.json',JSON.stringify(result,null,2));
+    console.log(JSON.stringify({passed:true,case:process.env.EXACT_COLLECTION_EDGES,...result}));
+  } else if (gallery) {
     await evaluate(`document.querySelector('[data-testid="count-25000"]').click(); document.querySelector('[data-testid="mode-sheet"]').click()`);
     await until('collectionSmoke.snapshots.some(s=>s.count===25000)');
     await resizeCoverage(call, evaluate, until, cdp, sessionId, true);
@@ -139,7 +168,12 @@ try {
   await evaluate(`const list=document.querySelector('[data-testid="list"]'); list.scrollTop=list.scrollHeight`);
   await until('collectionSmoke.snapshots[0]?.rows.some(r => r.index === 999)');
   await until('collectionSmoke.snapshots[0]?.rows.every(r => r.measured)');
+  // Confirmed heights can still leave a geometry callback queued (for example
+  // an anchor acknowledgement). Drain the bounded callbacks before asserting idle.
+  const measured = await evaluate('({calls:collectionSmoke.calls,correction:collectionSmoke.snapshots[0].correction})');
+  await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const end = await evaluate('collectionSmoke.calls');
+  console.log(JSON.stringify({measured,settledFeedbackCalls:end}));
   await new Promise(r => setTimeout(r, 150));
   assert.equal(await evaluate('collectionSmoke.calls'), end, 'settled geometry must become idle');
   await evaluate(`document.querySelector('[data-testid="hide"]').click()`);

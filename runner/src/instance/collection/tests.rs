@@ -166,7 +166,7 @@ impl Harness {
             surfaces: vec![],
             work: Default::default(),
         };
-        let changed = self.tree.update_collection(&mut u, feedback).unwrap();
+        let changed = self.tree.update_collection(&mut u, feedback).unwrap().0;
         self.batch += 1;
         self.kernel.apply(0, self.batch, &u.ops).unwrap();
         assert_eq!(u.work.rows_keyed, 0, "geometry never keys records");

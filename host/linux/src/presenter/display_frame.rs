@@ -271,6 +271,7 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn activate_first_pixel(&mut self) {
         self.painted = true;
+        let activating = self.host.data_pending();
         match self.host.activate_data() {
             Ok(true) => {
                 if let Some(error) = self.after_commit() {
@@ -286,6 +287,10 @@ impl<D: DataSource> Presenter<D> {
             }
             Ok(false) if self.host.data_pending() => return,
             Ok(false) => {}
+        }
+        if activating && !self.host.data_pending() {
+            self.collection.data_ready();
+            self.queue_collections();
         }
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();

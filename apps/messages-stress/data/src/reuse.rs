@@ -18,6 +18,8 @@ use crate::{
 /// copy O(N) row handles and replace only changed records. Fresh answer shape,
 /// key/index reconciliation and layout remain Runner work; this is not O(batch)
 /// total work or a frame-time guarantee.
+/// Cursor-selected windows use the same bounded generator as the control;
+/// both modes share one latest result and the nine-field History shape.
 #[derive(Default)]
 pub struct ReusableMessagesStress {
     control: MessagesStress,
@@ -25,7 +27,8 @@ pub struct ReusableMessagesStress {
 }
 
 struct Latest {
-    args: Args,
+    input: Vec<Value>,
+    args: Option<Args>,
     value: Value,
 }
 
@@ -113,7 +116,10 @@ impl ReusableMessagesStress {
         let Some(old) = self.latest.as_ref() else {
             return self.control.query("history", original);
         };
-        if old.args.count != args.count || old.args.range() != args.range() {
+        let Some(old_args) = &old.args else {
+            return self.control.query("history", original);
+        };
+        if old_args.count != args.count || old_args.range() != args.range() {
             return self.control.query("history", original);
         }
 
@@ -123,11 +129,11 @@ impl ReusableMessagesStress {
         };
         let (start, end) = args.range();
         let base_count = end - start;
-        let suffix_start = args.count - args.batch.max(old.args.batch);
-        let bodies_change = (old.args.revision != args.revision || old.args.batch != args.batch)
-            && (old.args.revision > 0 || args.revision > 0)
+        let suffix_start = args.count - args.batch.max(old_args.batch);
+        let bodies_change = (old_args.revision != args.revision || old_args.batch != args.batch)
+            && (old_args.revision > 0 || args.revision > 0)
             && end > suffix_start;
-        let new_echo = !args.echo.is_empty() && args.echo != old.args.echo;
+        let new_echo = !args.echo.is_empty() && args.echo != old_args.echo;
 
         // Reuse the canonical generator instead of duplicating body formatting.
         // At most one 100-row tail page (+ echo) is temporary scratch. This is
@@ -155,7 +161,7 @@ impl ReusableMessagesStress {
                 }
             }
         }
-        body_bytes = body_bytes - old.args.echo.len() + args.echo.len();
+        body_bytes = body_bytes - old_args.echo.len() + args.echo.len();
         if !args.echo.is_empty() {
             rows.push(if new_echo {
                 encode_row(generated.last().expect("canonical echo follows the page"))
@@ -175,6 +181,10 @@ impl ReusableMessagesStress {
             Value::Number(args.revision as f64),
             Value::Number(changed as f64),
             Value::Number(body_bytes as f64),
+            old_fields[5].clone(),
+            old_fields[6].clone(),
+            old_fields[7].clone(),
+            old_fields[8].clone(),
         ]))
     }
 }
@@ -188,16 +198,29 @@ impl DataSource for ReusableMessagesStress {
         if source != "history" {
             return Err(DataError::UnknownSource(source.into()));
         }
-        let args = Args::parse(values)?;
+        // Keep the explicit manual/full controls on the existing reuse path.
+        // Cursor validation and bounded generation remain canonical, including
+        // their deliberately ignored page offset/eager controls.
+        let args = match values {
+            [_, _, _, _, _, _] => Some(Args::parse(values)?),
+            [_, _, _, _, _, _, Value::Option(None)] => Some(Args::parse(&values[..6])?),
+            _ => None,
+        };
         if let Some(old) = &self.latest {
-            if old.args == args {
+            let same_page = matches!((&old.args, &args), (Some(old), Some(new)) if old == new);
+            if same_page || old.input.as_slice() == values {
                 return Ok(old.value.clone());
             }
         }
-        let value = self.changed_value(&args, values)?;
+        let value = if let Some(args) = &args {
+            self.changed_value(args, values)?
+        } else {
+            self.control.query(source, values)?
+        };
         // All validation/construction precedes publication. Old accepted Rc
         // owners remain immutable and outlive either this cache or the source.
         self.latest = Some(Latest {
+            input: values.to_vec(),
             args,
             value: value.clone(),
         });

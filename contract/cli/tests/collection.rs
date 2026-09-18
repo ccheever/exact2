@@ -244,5 +244,5 @@ fn inherited_typography_changes_measurement_epochs_without_rekeying() {
             height: 500.0,
         })
         .collect();
-    assert!(r.collection_feedback(old).unwrap().is_none());
+    assert!(r.collection_feedback(old).unwrap().receipts.is_empty());
 }

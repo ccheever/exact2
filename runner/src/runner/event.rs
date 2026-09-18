@@ -183,6 +183,45 @@ fn valid_height_release(height: f64, velocity: f64) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Runner-only collection events use the same action transaction and journal
+    /// as host events. They have no payload or authored arguments.
+    pub(super) fn dispatch_edge(
+        &mut self,
+        view: ViewId,
+        kind: EventKind,
+    ) -> Result<(CommitReceipt, bool), RunnerError> {
+        let name = match kind {
+            EventKind::Reachstart => "reachstart",
+            EventKind::Reachend => "reachend",
+            _ => unreachable!("collection edge"),
+        };
+        let mut what = format!("{name} view {view}");
+        let was_poisoned = self.poisoned;
+        let mut changed = false;
+        let result = (|| {
+            let (node, frames) = self
+                .tree
+                .as_ref()
+                .and_then(|t| t.find(view))
+                .ok_or(RunnerError::UnknownView(view))?;
+            let handler = self
+                .plan
+                .node(node)
+                .handlers
+                .iter()
+                .map(|h| self.plan.handler(h))
+                .find(|h| h.event == kind)
+                .ok_or(RunnerError::NoHandler { view, event: name })?;
+            let action = handler.action;
+            let _ = write!(what, " ({})", self.plan.str(self.plan.action(action).name));
+            let before = super::collection::EdgeState::capture(self, &frames);
+            let receipt = self.run_action(action, Vec::new(), &frames)?;
+            changed = before.changed(self);
+            Ok(receipt)
+        })();
+        self.log_outcome(&what, &result, was_poisoned);
+        result.map(|receipt| (receipt, changed))
+    }
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {

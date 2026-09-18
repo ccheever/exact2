@@ -5219,3 +5219,44 @@ The raw report is
 SHA `a0e2c376467b6e53b4347dc1594f2625fb88cfa2fabb95574801e6e0956de618`.
 Its separate retention evidence identifies the first assignment; the summary's
 `geometry.after` field identifies the latest assignment. Both must be retained.
+
+### 8.86 Reconciliation with bounded answers and current main, 2026-09-18
+
+The responsiveness branch at569f966 is reconciled with main atf61ff1c in an
+isolated checkout. Main's bounded Messages answers and collection edge delivery
+remain alongside immutable full-history row reuse, Arrange ownership, height
+index reuse and half-unit end following. Host feedback still applies committed
+work when an edge action refuses; first data activation refreshes collections.
+Linux keeps its presented-picture and pending-flip guards.
+
+Reusable Messages accepts the optional cursor and returns the canonical
+nine-field History in both modes. Manual/full requests retain row sharing,
+including equivalence between an omitted cursor and explicit none. Cursor
+requests use the existing bounded generator; both modes share one latest result,
+validate before publishing and preserve accepted old answers. Four new tests
+cover canonical fields, cursor controls, invalid-input atomicity, old-owner
+release and real Runner mode transitions. The full10k/batch32 stress control
+remains available; no historical full-history timing is relabeled as bounded
+answer performance.
+
+Exact Live's curated and synthetic answers now use the same nine-field shape.
+The existing producer/navigation test first fails with `Shape { resource:
+"history" }` when entering full load, then passes after this correction. An
+earlier curated-only boot probe passed and was insufficient to expose the
+transition; its saved log is not behavioral RED evidence.
+
+Scoped verification passes529 Rust tests:83 Runner library,334 across Apple,
+Linux and Web host libraries,69 Messages/Exact Live data and43 Contract
+collection/edge/reorder tests. Two existing tests remain ignored: the Linux GPU
+case and the opt-in timing probe. Web collection DOM tests pass77 tests with274
+assertions. Strict all-targets Clippy passes for these seven packages; scoped
+formatting passes after a test-only array-format correction. All70 current
+ExactKit Swift sources typecheck with warnings as errors against the merged
+header and module map. UIKit branches, native relinking, physical interaction
+and new performance measurements are not covered by that typecheck.
+
+Staged caps pass706 source files and boot remains two modules,155,453 bytes.
+The raw validation and preserved failure logs are under
+`target/responsiveness-main-integration-validation/`. These are scoped merge
+checks, not a whole-workspace, Linux GUI, Wayland or120Hz result. Earlier frozen
+runtime archives retain their original source identities and limitations.

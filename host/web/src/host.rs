@@ -400,17 +400,18 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Actual nested scrollport and mounted row geometry, in the shared LE wire
-    /// format. Geometry does not advance timers or settle data/resources.
+    /// format. Edge actions may settle resources; geometry never advances timers.
     pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
         match self.runner.collection_feedback_bytes(bytes) {
-            Ok(Some(receipt)) => self.batch_for(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None),
+            Ok(mut result) => {
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                let error = result.error.map(|e| format!("collection: {e:?}"));
+                let mut batch = Batch::new();
+                batch.accept_collection();
+                self.batch_from(batch, &result.receipts, error.as_deref())
+            }
             Err(error) => Batch::new().finish(
                 self.runner.has_timers(),
                 self.runner.now_ms(),
@@ -752,25 +753,28 @@ impl<D: DataSource> Host<D> {
         let css = host_css(&node, css);
         let handlers: Vec<&str> = kinds
             .iter()
-            .map(|e| match e {
-                EventKind::Press => "press",
-                EventKind::Change => "change",
-                EventKind::Hover => "hover",
-                EventKind::Focus => "focus",
-                EventKind::Blur => "blur",
-                EventKind::Key => "key",
-                EventKind::Submit => "submit",
-                EventKind::Load => "load",
-                EventKind::Message => "message",
-                EventKind::Contextmenu => "contextmenu",
-                EventKind::Dblclick => "dblclick",
-                EventKind::Swiperight => "swiperight",
-                EventKind::Scroll => "scroll",
-                EventKind::Navigate => "navigate",
-                EventKind::Heightrelease => "heightrelease",
-                EventKind::Transformgeometry => "transformgeometry",
-                EventKind::Transformrelease => "transformrelease",
-                EventKind::Reorderdrop => "reorderdrop",
+            .filter_map(|e| {
+                Some(match e {
+                    EventKind::Press => "press",
+                    EventKind::Change => "change",
+                    EventKind::Hover => "hover",
+                    EventKind::Focus => "focus",
+                    EventKind::Blur => "blur",
+                    EventKind::Key => "key",
+                    EventKind::Submit => "submit",
+                    EventKind::Load => "load",
+                    EventKind::Message => "message",
+                    EventKind::Contextmenu => "contextmenu",
+                    EventKind::Dblclick => "dblclick",
+                    EventKind::Swiperight => "swiperight",
+                    EventKind::Scroll => "scroll",
+                    EventKind::Navigate => "navigate",
+                    EventKind::Heightrelease => "heightrelease",
+                    EventKind::Transformgeometry => "transformgeometry",
+                    EventKind::Transformrelease => "transformrelease",
+                    EventKind::Reorderdrop => "reorderdrop",
+                    EventKind::Reachstart | EventKind::Reachend => return None,
+                })
             })
             .collect();
         let pairs: Vec<(&str, String)> =

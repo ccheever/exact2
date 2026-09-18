@@ -43,8 +43,9 @@ the environment of an already built executable does not change its source.
 When switching modes for Web dev, first rebuild its Wasm with the same selector
 and output directory; the existing dev launcher can reuse a previously built dist.
 The embedded default-page bake and compatibility grants always use the
-stateless source. Both runtime choices produce identical canonical values;
-the Contract, cardinalities, batches and producer cadence are unchanged.
+stateless source. Both runtime choices produce identical canonical values for
+the same request; the selector does not change the Contract, cardinalities,
+batches or producer cadence.
 
 ## What to try
 
@@ -66,8 +67,20 @@ the Contract, cardinalities, batches and producer cadence are unchanged.
    and up to two focus/interaction pins. Scrolling covers the whole history;
    the record data and compact key/height index still grow with history size.
    Swipe a bubble right or use its Reply button; Cancel clears the reply target.
-6. Local echo puts the draft in the transcript and clears the composer. Only
+6. **Bounded virtualized** supplies at most **200 records plus the local echo**
+   and mounts nearby rows. Scrolling near either resident edge automatically
+   requests an overlapping window. **The scrollbar spans the resident window,
+   not the whole history.** Use Latest to return to the tail and resume following
+   it. Changing history size or mode also resets the cursor. Sending a local echo
+   returns to the tail; older bounded windows omit that tail-only echo.
+7. Local echo puts the draft in the transcript and clears the composer. Only
    one local echo is retained; the next replaces it. Nothing is sent anywhere.
+
+For the full **10,000-record / 32-change** stress control, select 10,000,
+Virtualized transcript and batch 32, leaving Bounded virtualized off. Build
+with `EXACT_MESSAGES_SOURCE=stateless` for the reconstructing source control.
+Both source choices still supply all 10,000 records in this mode; bounded-window
+results are a different workload and do not replace its historical evidence.
 
 Drafts are limited to 512 Unicode scalar values. Oversized edits are refused
 and the previous draft remains. Histories only accept the four presets,
@@ -78,8 +91,8 @@ keys stay stable across streaming revisions and history sizes.
 ## What the numbers mean
 
 - Logical history: requested synthetic cardinality, **not resident records** in
-  manual-page mode. The page generator allocates only that page. Eager and
-  windowed modes both supply the complete selected history.
+  manual-page and bounded virtualized modes. Each generates only its requested
+  slice. Eager and full-history virtualized modes supply the complete history.
 - Supplied records: exact `DataSource` list length, including the optional
   local echo. This is not a measured DOM/native-view count.
 - Revision: the returned resource's applied revision, not an arrival rate.
@@ -90,15 +103,22 @@ keys stay stable across streaming revisions and history sizes.
   metadata, DOM cost, or decoded images. There are no image attachments.
 
 Both sources answer synchronously. The stateless control reconstructs its
-supplied list on each revision; the default reuses immutable rows as described
-below. Eager data and UI remain O(N); windowing bounds UI lifetime, not the
-complete input list or its positional scan. There is no worker placement or
+supplied list on each revision; the default reuses immutable rows for manual
+pages and full-history requests as described below. Cursor-selected windows use
+the canonical bounded generator in both sources. Eager data and UI are O(N);
+full-history virtualization bounds UI lifetime, not the supplied list or its
+positional scan. Bounded virtualization
+also bounds generation and key validation to K = 200 (+ one tail echo), independent
+of history size. There is no worker placement or
 preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
 
-The default `ReusableMessagesStress` keeps one latest immutable result and reuses unchanged row
-records: a 10,000-row update changing 32 bodies retains the other 9,968 records.
+The default `ReusableMessagesStress` keeps one latest immutable result across
+manual, full-history and bounded modes. Repeated identical arguments reuse that
+result; invalid requests leave it intact, and switching modes retains no visited
+window history. For manual/full-history requests it reuses unchanged row records:
+a 10,000-row update changing 32 bodies retains the other 9,968 records.
 It uses the original generator for a temporary 100-row tail page, copies O(N)
 row handles, and still incurs fresh-answer validation and positional scanning.
 The Runner reuses keys for unchanged immutable records: the tested 10,000-row,
@@ -112,6 +132,20 @@ with row reuse. Timer tails still exceed 8.33 ms, resize and input results are
 mixed, and the repeat pairs have different timed revision cohorts. See
 [LLP 1041 §8.42](../../llp/1041-graceful-overload.rfc.md#842-two-alternating-native-messages-repeat-pairs-2026-09-17)
 for the measurements and limits; they do not establish physical 120 Hz.
+
+The existing `history` source accepts an optional `option<string>` cursor as its
+seventh argument. Omitted/`none` preserves the six-argument manual/eager controls;
+`some("")` selects the latest 200 rows. A decimal synthetic index starts its window
+100 rows before that position (never before the first row) and returns up to 200
+rows. Near the tail the window is shorter; its start is not pulled back from the
+tail. A position at/past the end resolves to the last row, and malformed cursors
+are refused. Both sources return nine-field answers, appending `earlier`, `later`,
+`hasEarlier`, `hasLater` to the existing statistics even for six-argument calls;
+manual/full-history answers use empty cursors and false edge flags. Extending
+this source keeps one resource active and
+avoids generating an unused second history. `reachstart`/`reachend` move the cursor
+only when the corresponding flag is true. Latest also issues a scroll offset
+request, since changing a cursor alone does not move an existing scrollport.
 
 Use the existing optional browser diagnostic, once the server is ready:
 
@@ -144,7 +178,9 @@ bounded mounted rows, an active offscreen row retained until release, exact
 typing, reply identity and the preserved eager/manual controls.
 `data/tests/reuse.rs` compares complete canonical values and bytes with the
 stateless source, checks immutable sharing and last-owner release, and runs the
-real Contract through typing, width changes and ticks. The original reuse
+real Contract through typing, width changes and ticks. Its merge regressions
+also cover explicit `none`, bounded cursors, nine-field canonical answers,
+invalid-request preservation and mode-change lifetimes. The original reuse
 checkpoint had 26 passing data tests and one ignored opt-in timing test, with
 strict all-targets Clippy passing. The original source produces nine behavioral failures in the
 13-test reuse suite, retained under `target/messages-row-reuse-validation/`.
@@ -153,6 +189,22 @@ checks actual generated factories and full 10,000-row/32-change canonical
 values and sharing in both modes, including the factory consumed by Web dev.
 Historical comparisons below retain their original factories and dates; this
 activation does not establish a whole-frame or physical 120 Hz result.
+
+`data/tests/bounded.rs` drives the same compiled/baked Contract at 1,000, 10,000
+and 100,000 rows: complete feedback-only traversal in both directions, every
+shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior
+feedback, cursor validation, and Latest followed by a local echo. Counts are
+printed with `cargo test -p messages-stress-data --test bounded -- --nocapture`.
+
+Bounded validation, 2026-09-18: the runner traversed 100,000 records with at most 200
+supplied/keyed rows per shift, zero source queries/key evaluations for interior
+feedback, and at most 31 mounted rows. Web and Linux headless CPU drives on macOS
+reached the first message and returned to Latest, checked six exact Unicode echoes
+during streaming and the sent echo. They observed at most 45 and 10 mounted
+message rows respectively (including transient measurement windows), with 200
+supplied records or 201 with the tail echo. Evidence, failed attempts and raw
+counts are under `target/bounded-answers/s1/`. These are counts, not frame-rate
+measurements; macOS/AppKit and iOS were not driven for this slice.
 
 The final browser drive (`target/messages-windowed-web-final/`) passes five
 endpoint round trips from 10,000 supplied records, exact typing, a streaming

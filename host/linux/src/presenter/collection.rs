@@ -20,6 +20,7 @@ struct Cursor {
     dimensions: Option<(f64, f64, f64, f64)>,
     sent: Option<CollectionFeedback>,
     queued: bool,
+    requested_top: Option<f64>,
 }
 impl Cursor {
     fn advance(&mut self) {
@@ -48,6 +49,13 @@ impl Cursor {
 impl State {
     pub(super) fn pending(&self) -> bool {
         !self.queue.is_empty()
+    }
+    pub(super) fn data_ready(&mut self) {
+        // Activation is one stimulus for edges refused before the executor was
+        // ready, including collections whose geometry and rows did not change.
+        for cursor in self.cursors.values_mut() {
+            cursor.sent = None;
+        }
     }
     pub(super) fn advance_all(&mut self) {
         for cursor in self.cursors.values_mut() {
@@ -324,6 +332,28 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             };
             cursor.geometry((g.width, g.height, g.row_width, g.padding_top));
+            // Match the browser's post-layout scrollTop prop write. Consume
+            // each changed request once; an unchanged binding never owns the
+            // reader's offset. Advance the sequence so old anchor corrections
+            // cannot override an explicit Latest/jump request.
+            let requested = self
+                .host
+                .kernel()
+                .node(view)
+                .and_then(|node| {
+                    node.props
+                        .get(exact_kernel::PropId::ScrollTop)
+                        .and_then(exact_kernel::PropValue::as_float)
+                })
+                .filter(|top| top.is_finite());
+            if requested != cursor.requested_top {
+                cursor.requested_top = requested;
+                if let Some(top) = requested {
+                    cursor.advance();
+                    self.scroll.entry(view).or_default().1 = top.clamp(0., g.max_top as f64) as f32;
+                    self.dirty = true;
+                }
+            }
             if let Some(top) = cursor.correction(snapshot) {
                 let off = self.scroll.entry(view).or_default();
                 off.1 = ((top + g.padding_top) as f32).clamp(0., g.max_top);
@@ -377,7 +407,12 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(false) => {}
                 Err(why) => {
+                    // An edge action can refuse after geometry committed. Run
+                    // the same post-commit synchronization as timer refusals.
+                    let after = self.sync_commit();
                     error = error.or(Some(why));
+                    error = error.or(after);
+                    self.collection.schedule(&self.host.collections());
                 }
             }
         }
