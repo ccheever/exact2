@@ -32,6 +32,12 @@ pub(crate) struct Index {
     child: Vec<usize>,
     next: Vec<usize>,
 }
+struct Ray {
+    from: Vec3,
+    delta: Vec3,
+    direction: Vec3,
+    distance: f32,
+}
 pub(crate) struct Sight<'a> {
     index: Ref<'a, Index>,
     excluded: Vec<u8>,
@@ -127,7 +133,10 @@ impl Index {
             index.entries.push(Entry {
                 entity,
                 inverse: pose.inverse(),
-                mesh: mesh.clone(),
+                mesh: match mesh {
+                    Mesh::Asset(_) => Mesh::Box { size: half * 2.0 },
+                    _ => mesh.clone(),
+                },
                 half,
                 center,
                 lo,
@@ -179,8 +188,7 @@ impl Index {
     fn visit(
         &self,
         at: usize,
-        from: Vec3,
-        delta: Vec3,
+        ray: &Ray,
         excluded: &[u8],
         mask: u8,
         remaining: &mut usize,
@@ -188,30 +196,24 @@ impl Index {
     ) -> Result<bool, String> {
         spend(remaining)?;
         let node = &self.nodes[at];
-        if !segment_box(from, delta, node.lo, node.hi) {
+        if !segment_box(ray.from, ray.delta, node.lo, node.hi) {
             return Ok(false);
         }
         if node.right != NONE {
-            return Ok(
-                self.visit(node.left, from, delta, excluded, mask, remaining, hit)?
-                    || self.visit(node.right, from, delta, excluded, mask, remaining, hit)?,
-            );
+            return Ok(self.visit(node.left, ray, excluded, mask, remaining, hit)?
+                || self.visit(node.right, ray, excluded, mask, remaining, hit)?);
         }
         let e = &self.entries[node.left];
         if excluded[e.entity.index() as usize] & mask != 0 {
             return Ok(false);
         }
-        let distance = delta.length();
-        if distance <= 1e-5 {
-            return Ok(false);
-        }
-        let o = e.inverse.transform_point3(from);
+        let o = e.inverse.transform_point3(ray.from);
         if contains_origin(&e.mesh, o, e.half, e.center) {
             return Ok(false);
         }
-        let d = e.inverse.transform_vector3(delta / distance);
+        let d = e.inverse.transform_vector3(ray.direction);
         if let Some(t) = shape_hit(&e.mesh, o, d, e.half, e.center) {
-            if t > 1e-5 && t < distance - 1e-5 {
+            if t > 1e-5 && t < ray.distance - 1e-5 {
                 return Ok(hit(e.entity, t));
             }
         }
@@ -299,14 +301,21 @@ impl<'a> Sight<'a> {
         if self.index.nodes.is_empty() {
             return Ok(false);
         }
-        self.index.visit(
-            0,
+        let delta = to - from;
+        let distance = delta.length();
+        if distance <= 1e-5 {
+            return Ok(false);
+        }
+        let ray = Ray {
             from,
-            to - from,
-            &self.excluded,
-            mask,
-            &mut self.remaining,
-            &mut hit,
-        )
+            delta,
+            distance,
+            direction: delta / distance,
+        };
+        self.index
+            .visit(0, &ray, &self.excluded, mask, &mut self.remaining, &mut hit)
     }
 }
+
+#[cfg(test)]
+mod tests;

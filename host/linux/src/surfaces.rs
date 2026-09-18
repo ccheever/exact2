@@ -534,12 +534,6 @@ impl<D: DataSource> Presenter<D> {
                 world.insert("restoreError".into(), e.clone().into());
             }
         }
-        if let Some(visible) = r
-            .pointer_mut("/entity/visible")
-            .and_then(Value::as_object_mut)
-        {
-            visible.insert("occluded".into(), json!({"unavailable":true}));
-        }
         if let Some((x, y, _, _)) = rect {
             if let Some(b) = r
                 .pointer_mut("/entity/screen")

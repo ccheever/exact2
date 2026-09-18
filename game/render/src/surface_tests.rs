@@ -743,3 +743,28 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         .instances
         .is_none());
 }
+
+#[test]
+fn viewport_occlusion_crosses_world_surface_without_a_device() {
+    struct Eyes;
+    impl Game for Eyes {
+        type Args = ();
+        const ID: &'static str = "surface-eyes";
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("subject", (Transform::default(), Mesh::cube(2.)));
+            w.spawn_named("camera", (Transform::at(0., 0., 10.), Camera::default()));
+            w.spawn_named("first", (Transform::at(0., 0., 5.), Mesh::cube(4.)));
+            w.spawn_named("second", (Transform::at(0., 0., 5.000001), Mesh::cube(4.)));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut s = WorldSurface::<Eyes>::default();
+    s.bind(&[]).unwrap();
+    let request = r#"{"op":"layout","entity":"subject","to":"camera","width":800,"height":600}"#;
+    let expected = r#"{"tick":0,"entity":{"id":0,"name":"subject","world":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"bounds":{"min":[-1,-1,-1],"max":[1,1,1]},"screen":{"x":342.265,"y":242.265,"w":115.47,"h":115.47},"depth":10,"visible":{"inFrustum":true,"behindCamera":false,"distance":10,"occluded":1,"occluders":["first","second"]},"facing":{"forward":[0,0,-1],"towardCamera":-1,"bearingTo":180,"distanceTo":10,"lineOfSight":false}}}"#;
+    for device in [false, true] {
+        s.device = device;
+        assert_eq!(s.agent(request).unwrap(), expected);
+        assert!(!world_state(expected));
+    }
+}

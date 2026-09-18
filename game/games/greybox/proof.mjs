@@ -28,6 +28,12 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   for (const name of ['ground', 'player', 'camera', 'sun', 'crate-1', 'crate-2', 'crate-3', 'beacon-1']) {
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
+  const golden = JSON.parse(readFileSync(new URL('./logic/tests/snapshots/layout.json', import.meta.url), 'utf8'));
+  const eyes = await s.layout('world:player');
+  // Screen coordinates depend on the host viewport; all geometric snapshot fields do not.
+  delete eyes.entity.screen;
+  delete golden.entity.screen;
+  check('geometric layout snapshot is identical on the host', equal(eyes, golden), eyes);
   const initial = await s.state();
   check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7df5e5a89b4d0207', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
@@ -51,7 +57,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   if (host === 'linux') {
     check('headless world reports device false', initial.world[0].device === false);
     check('headless CPU pick answers without a device', 'hit' in (await s.layout('world', [1,1])));
-    check('headless occlusion is explicitly unavailable', layout.entity.visible.occluded.unavailable === true);
+    check('headless preserves geometric occlusion', typeof layout.entity.visible.occluded === 'number' && Array.isArray(layout.entity.visible.occluders));
     check('headless canvas capture is explicitly unavailable', (await s.screenshot(resolve(out,'unavailable.png'),'world')).unavailable === true);
 
   }

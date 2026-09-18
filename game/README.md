@@ -369,6 +369,27 @@ returns `layout visibility work budget exceeded`, never a partial fraction.
 Exclusions are built once, line-of-sight exits on the first blocker, and rays
 allocate and sort no hit lists. Occlusion retains only four distinct nearest hits.
 
+T5b diagnostic (`cargo test --manifest-path game/Cargo.toml -p exact-game --lib
+mesh_bvh_200k -- --nocapture`), optimized test profile, shared x86-64 Linux:
+200,000 meshes, a 99,999-deep chain, interleaved/reversed spatial order, recycled
+slots, a Character component, a loading cosmetic model and a subject 10 km from
+the camera. The complete layout request (15 samples plus `to`, including JSON)
+measured **84.679 ms cold**, **1.972 ms warm median / 1.998 ms maximum** over nine
+warm reads, with **300,737 visits**. Construction of the world is excluded;
+cold includes building the index and warm includes rebuilding endpoint exclusions.
+The successful answer must name the real wall and change when it is removed.
+The genuinely unprunable case, 200,000 overlapping on-ray meshes, explicitly
+refuses at **1,000,000 visits**, **102.424 ms cold / 35.775 ms warm**; the same
+scene's boolean LOS stops in fewer than 64 visits. These are diagnostic timings,
+not a frame-time guarantee. The slot-limit test includes despawned slots.
+
+A temporary negative control returning zero occlusion and no occluders failed
+three engine tests and the viewport-bearing WorldSurface snapshot test; restoring
+the implementation passes those tests. Linux preserves the engine's geometric
+visibility reply even without a GPU; Greybox compares the same native snapshot's
+geometry fields (screen coordinates depend on the host viewport).
+
+
 
 The native bake binds the GPU product digest to the app and cohort before loading.
 `EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.
