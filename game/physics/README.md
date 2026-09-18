@@ -77,7 +77,7 @@ in microseconds, from that same diagnostic (query batches include both partition
 The extra query partition has a small fixed cost; the large-world savings are
 reflection and scene reconstruction. Cached Lanterns Linux proof wall time was
 0.613 → 0.618 s (single runs, builds excluded); no measured proof speedup.
-The saved-pile tick-600 hash remains `0x5ba7691abdc98058`; static edits, ancestor
+The EXPHYS v2 saved-pile tick-600 hash is `0x129ba6d92f9ac217`; static edits, ancestor
 edits, membership/recycling, cache identity/load and query ties have regression tests.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
@@ -125,11 +125,15 @@ ray distance ≤3 mm; curved sweeps ≤5 mm per 3 m (measured 2.955 mm; Parry st
 Rolling contact drift is bounded at 0.1 m/s and acceleration within 3% of (5/7)g sin θ.
 Physics, engine and audio tests pass on arm64 macOS and x86-64 Linux.
 Pile resume hashes are checked every tick through 600, mid-bounce through 240.
-D1b typed-bulk cards agree on **arm64 macOS, x86-64 Linux and Chrome 153 wasm**:
-pile tick 600 `0x5ba7691abdc98058`, two-body `simulate(120)`
-`0x9960c10fadbb9c4b`. The browser pile card saves at tick 90, restores and checks
-exact continuation every tick through 600. `minimal.wasm` exports `pile_hash()`
-and `simulate(ticks)` for direct `WebAssembly.instantiate` calls.
+The original D1b EXPHYS v1 cards agreed on arm64 macOS, x86-64 Linux and
+Chrome 153 wasm: pile `0x5ba7691abdc98058`, two-body `0x9960c10fadbb9c4b`.
+The corrected EXPHYS v2 cards are pile tick 600 `0x129ba6d92f9ac217` and
+two-body `simulate(120)` `0x5608994347e54d28`, verified on x86-64 Linux in
+continuous and every-step save/load runs. Apple and browser rechecks are pending.
+`minimal.wasm` exports `pile_hash()` and `simulate(ticks)` for direct
+`WebAssembly.instantiate` calls; the pile card restores at tick 90 and compares
+continuation through tick 600. `pile --verify` also checks `simulate(120)` against
+a world reconstructed after every physics step.
 Enhanced determinism, glam scalar-math/libm; no parallel, simd8 or fast-math features.
 Parry still uses four-lane `wide`. These executed cards establish fixture parity,
 not a claim of whole-engine determinism for every physics query and character API.
@@ -148,3 +152,9 @@ cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown 
 
 `Collider::of(&mesh)` matches each dimensioned primitive. A plane makes a static
 1 cm slab with its top face at Y=0; assets require authored collision geometry.
+
+EXPHYS v2 includes Rapier's deferred BVH optimization bit. V1 cannot recover this
+missing state and is refused (including inside EXSIM/captures); start a new world.
+The physics crate depends on vendored Rapier 0.35.3 by path; no shared Cargo
+cache edits or root workspace dependency are needed. T4 pin evidence is recorded
+in `game/README.md`.

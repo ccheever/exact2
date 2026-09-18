@@ -714,6 +714,202 @@ simulation fields only. These helpers dispatch the existing eight agent operatio
 The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
 
+## Proving that state is saved
+
+**Paranoid execution is THE way to show a new component/resource is saved
+correctly.** Run its scripted simulation normally, then with every-tick
+reconstruction; compare final world hash, tick, published record and journal.
+A round-trip hash alone cannot detect a skipped field that affects the *next* tick.
+The consumer tests in `paranoid-test.rs` compare complete EXSIM saves as well.
+They include physics, input, clock remainder, publications and journal cursors.
+
+`Sim::paranoid(self, mode: Paranoid) -> Self` overrides the driver environment.
+`Paranoid::{Off, Save, FreshGame}` default to `Off`; `EXACT_GAME_PARANOID=1`
+selects `Save`, and `EXACT_GAME_PARANOID=fresh-game` selects `FreshGame` for
+native simulations, including tests and Linux proof modules. The instrument itself
+changes no save format or pin; the EXPHYS correction below versions physics data.
+
+```rust
+# use exact_game::*;
+# struct Example;
+# impl Game for Example {
+# const ID: &'static str = "paranoid-example";
+# type Args = ();
+# fn setup(w: &mut World, _: &()) { w.spawn(Transform::default()); }
+# fn tick(_: &mut World, _: &Input, _: &()) {}
+# }
+let mut sim = Sim::<Example>::new(())?.paranoid(Paranoid::FreshGame);
+sim.run(1000.0); // Every completed tick saves, rebuilds and asserts its world hash.
+# Ok::<(), String>(())
+```
+
+```sh
+EXACT_GAME_PARANOID=1 cargo test --manifest-path game/Cargo.toml -p greybox-logic
+EXACT_GAME_PARANOID=fresh-game cargo test --manifest-path game/Cargo.toml -p lanterns-logic
+bun game/games/greybox/proof.mjs linux --paranoid
+# Likewise beacons, lanterns, asset-fixture, and game/bench/cubes/proof.mjs.
+```
+
+`--paranoid` runs the actual proof once normally, once in each paranoid mode,
+and compares every session's final hash, tick, publications and complete retained
+world journal. Ordinary proof assertions run in all three modes. The flag requires
+Linux: browser Wasm cannot read a native process environment. Direct environment
+runs exercise reconstruction but do not themselves supply a normal-run comparison.
+
+Both modes use the production `restore` path: freshly decoded arguments, actions,
+setup/registration, component/resource values (including skipped fields), hierarchy,
+spatial/hash caches, and physics executor reconstructed from its saved snapshot.
+`Game` is a type with static functions, not an owned instance; there is no `G` value
+to clone or retain. FreshGame additionally drops the old world *before* setup and
+re-encodes/decodes immutable model assets instead of sharing their Arcs.
+Statics are deliberately outside this instrument.
+
+The surrounding driver retains the seek horizon and host epoch, capture recorder,
+ownership/contamination, undelivered messages/publication notification, asset I/O
+request bookkeeping, and observation samples/backoff. These are transport outputs
+or the test observer, not inputs available to `Game::tick`; the observation result
+is recomputed on the rebuilt world. The checkpoint uses the completed tick boundary,
+then restores the seek horizon, so large seeks and future input remain meaningful.
+Restore intentionally clears consumed input edges; the next tick clears them in a
+normal run too. Comparisons at script completion include held/future input.
+
+Static audit (`rg "static |thread_local|OnceLock|lazy" game/`, 2026-09-18):
+`'static` lifetimes, comments about static geometry/lazy evaluation and archived
+`artifacts/d7/d7.patch` are not storage declarations. No OnceLock/lazy singleton was
+found. Every actual declaration is accounted for below; none supplies hidden
+simulation state in shipped games.
+
+| Declaration (under game/) | Verdict |
+| --- | --- |
+| `games/lanterns/logic/src/lib.rs`: `ASSETS` | Harmless immutable asset table. |
+| `render/src/lib.rs`: generated `REGISTRY`; `render/src/surface_tests.rs`: both `REGISTRY` fixtures | Harmless immutable surface factory tables. |
+| `render/src/perf.rs`: `PERFORMANCE` | Harmless browser timer handle cache; presentation timing only. |
+| `render/src/perf.rs`: `CLOCK_READS` | Harmless test instrumentation counter. |
+| `engine/src/capture.rs`: `EXECUTED_TICKS` | Harmless test instrumentation counter. |
+| `engine/src/world/tests.rs`: `MADE` | Harmless test-only allocation/laziness observation. |
+| `engine/tests/g1c.rs`: `MOVES`, `WRITES`; `engine/tests/ergonomics.rs`: `WRITES` | Harmless test-only serialization/cost counters. |
+| `engine/tests/ecs.rs`: `DROPS` | Harmless test-only destructor counter. |
+| `engine/examples/memory.rs`: `BYTES`, `ALLOCATOR` | Harmless memory measurement instrumentation. |
+| `render/src/world/tests.rs`: `COUNT`, `ALLOCATOR` | Harmless test-only allocation instrumentation. |
+| `audio/src/surface.rs`: `ATTEMPTS`, `FAIL`, `UNLOCKS` | Test-only executor counters/failure injection; hidden test fixture state, not shipped simulation state. |
+| `scene/tests/authoring.rs`: `SERIAL` | Harmless test scratch-name allocator. |
+| `render/tests/timing/mod.rs`: `REPORTED` | Harmless one-time test diagnostic flag. |
+
+The initial T4 sweep found an engine defect: Lanterns diverged at tick 2
+inside `Physics.executor`'s Rapier snapshot. `BroadPhaseBvh::deferred_optimize_pending`
+was skipped by Rapier's serde implementation; the engine's post-kinematic
+`CollisionPipeline::step` can leave it set at a save boundary. The next normal
+broad-phase update executes the deferred optimization; the restored one loses it.
+The dynamic-stack fixture does not take that extra collision pass and agrees.
+
+Decision (owner, T4 follow-up, 2026-09-18): a world restored from its save must
+continue exactly like uninterrupted execution; this outranks old hash pins.
+Rapier 0.35.3 is now vendored with `deferred_optimize_pending` serialized, and the
+physics crate’s path dependency makes that fix reproducible for external consumers
+too. The physics envelope is
+**EXPHYS v2**. Nonempty v1/unversioned physics snapshots are refused explicitly
+(`expected EXPHYS v2 ... snapshots incomplete; start a new world`), atomically.
+There is no migration: v1 omitted the bit, so a correct continuation cannot be
+recovered reliably. Worlds without a populated physics snapshot are unaffected;
+EXGAME v3 and EXSIM v5 do not change. No new engine unsafe code is introduced.
+
+Only the physics-dependent pins below changed. The assertions themselves now
+compare uninterrupted execution with every-tick reconstruction before accepting
+a pin; tick zero and all nonphysics game pins remain unchanged. Paths are relative
+to `game/`, with current source lines.
+
+| Pin location | EXPHYS v1 → v2 | Executed parity evidence |
+| --- | --- | --- |
+| `games/lanterns/logic/tests/timing.rs:50` | `0x99071d4692d75e6f` → `0x99dd217d6f058a61` | Tick 60: Off, Save, FreshGame hashes and complete Sim saves equal. |
+| `games/lanterns/logic/tests/timing.rs:51` | `0xbb79c1986b61792a` → `0x432af075dec92c9b` | Tick 180: same three-way hash/tick/complete-save equality. |
+| `physics/tests/scenes.rs:101` | `0x5ba7691abdc98058` → `0x129ba6d92f9ac217` | Pile: Off/Save/FreshGame hashes agree every tick through 600, final complete saves equal; ordinary tick-90 restore also agrees. |
+| `physics/examples/minimal.rs:46` | `0x5ba7691abdc98058` → `0x129ba6d92f9ac217` | Same `common::scene("pile")` fixture; `pile --verify` checks restored continuation. |
+| `physics/examples/pile.rs:61` | `0x9960c10fadbb9c4b` → `0x5608994347e54d28` | `simulate(120)` equals `simulate_with_restore(120, true)`; the latter saves/loads the world after each raw physics step and checks the immediate hash. |
+
+`physics/README.md:80` updates the current pile description to the same v2 value;
+its original v1 cross-platform measurements remain labelled historical. No other
+executable pins were changed. There are **no committed EXPHYS v1 saves/captures
+in this clone** to regenerate; the existing JSON snapshots belong to Greybox,
+which does not use Rapier. The Linux proofs regenerate their own ignored outputs.
+The I3 difficult-moment fixtures are absent here and were not touched: on trunk,
+regenerate their saved worlds/capture checkpoints containing Physics, plus their
+expected hashes and artifact receipts, through the I3 fixture scripts. Any v1
+physics capture checkpoint will now refuse; filenames/scripts unavailable in this
+clone were not guessed or reconstructed by hand.
+
+The newly exercised child-respawn scenario finds a **game-side** hidden cache:
+`Lantern.bulb` (`games/lanterns/logic/src/lib.rs:60`) is skipped by Data, while
+`Session.actors` (line 75) makes `kinds::actors` return early and prevents rebinding.
+After tick 1, the test despawns `lantern-1/bulb` and respawns it with the same name,
+parent and rendering components but a new entity generation. Continuous execution
+panics on the stale Bulb ID on tick 2; Save and FreshGame both reach tick 7 with
+hash `0xf0d40911add2cd8b` and identical full saves. The explicit regression
+`respawned_cached_child_matches_continuous_and_every_tick_restore` remains red;
+game logic is unchanged, as requested. This is not an engine stale-ID bug: the
+engine correctly refuses the invalid cached handle. Game caches need structural
+invalidation or revalidation, not just initialization after load.
+
+Follow-up verification after the EXPHYS correction (2026-09-18): **417 Rust
+workspace tests passed, 1 failed, 11 ignored**. Only the new cached-child regression
+fails; the original continuation comparison and every corrected pin pass.
+Each of the three consumer-suite runs (environment `0`, `1`, `fresh-game`) reports
+**29 passed, 1 failed, 1 ignored**, with that same game-side failure. The physics
+suite reports **35 passed, 0 failed, 1 ignored**. `pile --verify` passes in all
+three environments, including the two-body every-step reconstruction comparison.
+
+| Linux proof, after correction | Normal | Save | FreshGame |
+| --- | --- | --- | --- |
+| Greybox | 62/0 | 63/0 | 63/0 |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Lanterns | 8/0 | 9/0 | 9/0 |
+| Asset fixture | 6/0 | 7/0 | 7/0 |
+| Cubes | 3/0 | 4/0 | 4/0 |
+
+All **15 proof runs / 409 assertions** pass. The proof scripts regenerated their
+ignored artifacts; no committed physics checkpoint exists in this clone. Clippy
+`--workspace --all-targets -- -D warnings`, formatting, caps and boot pass.
+`cd game && bun test` remains **38 passed / 2 environmental failures** (Chrome and
+60/120 Hz feel bakes unavailable). GPU pixels, browser and Apple execution are
+unverified here. No further engine divergence surfaced after the Rapier fix.
+Root Cargo metadata confirms that no game or Rapier package entered its workspace.
+All vendored Rust files also meet the 1,500-line task cap, independently of caps'
+vendor exemption. The only upstream Rust changes are the serialization fix and
+three same-module file splits; no dependency-cache source was modified.
+
+Initial T4 verification, before EXPHYS v2 (2026-09-18): the game workspace reported **415 passed, 1 failed,
+11 ignored**. The failure is the newly added Lanterns normal/paranoid comparison;
+all pre-existing pins still pass normally. Consumer suites report **28/1** with
+normal defaults and **27/2** with each paranoid environment setting (one ignored
+in each): the second failure is Lanterns' existing pinned-hash test. Clippy with
+`-D warnings` and formatting pass. `cd game && bun test` reports **38/2**, the same
+missing Chrome and missing 60/120 Hz feel-bake prerequisites documented below.
+
+| Linux proof assertions | Normal | Save | FreshGame |
+| --- | --- | --- | --- |
+| Greybox | 62/0 | 63/0 | 63/0 |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Lanterns | 8/0 | 8/1 | 8/1 |
+| Asset fixture | 6/0 | 7/0 | 7/0 |
+| Cubes | 3/0 | 4/0 | 4/0 |
+
+Counts are pass/fail; paranoid adds the final comparison. Cubes' new Linux branch
+executes one tick with the existing 100,000-cube manifest; its simulation test
+uses 100 cubes and 120 ticks. No GPU, browser or Apple runtime was verified.
+
+Initial T4 median wall time over three scripted simulation runs, optimized dev/test profile,
+excluding construction and compilation (shared CPU; these are diagnostic numbers):
+
+| Script | Normal ms | Save ms / slowdown | FreshGame ms / slowdown |
+| --- | ---: | ---: | ---: |
+| Greybox, 120 ticks | 0.298 | 28.578 / 95.9× | 27.766 / 93.2× |
+| Beacons, 120 ticks | 0.254 | 73.124 / 287.9× | 78.754 / 310.1× |
+| Lanterns, 120 ticks (diverges) | 5.935 | 503.717 / 84.9× | 506.211 / 85.3× |
+| Asset fixture, 60 ticks | 0.060 | 5.417 / 90.3× | 7.868 / 131.1× |
+| Cubes, 120 ticks | 1.980 | 110.037 / 55.6× | 109.738 / 55.4× |
+| Dynamic physics stack, 120 ticks | 1.428 | 52.801 / 37.0× | 51.952 / 36.4× |
+
+This intentionally expensive mode is a test instrument, never the default.
+
 ## Linux proof baseline (T0c, 2026-09-18)
 
 The original converged trunk (`8189f90`) was compared by running both merge parents:

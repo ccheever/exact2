@@ -1,3 +1,4 @@
+mod paranoid;
 use crate::data::limits::LoadBudget;
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
 use crate::{Args, ArgumentKind, PointerPhase};
@@ -95,6 +96,26 @@ struct LiveTime {
     period_ms: f64,
     slew_left: Option<f64>,
 }
+/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Paranoid {
+    /// Normal execution.
+    #[default]
+    Off,
+    /// Rebuild through the production restore path after every tick.
+    Save,
+    /// Also discard and decode immutable assets before reconstructing the world.
+    FreshGame,
+}
+impl Paranoid {
+    fn environment() -> Self {
+        match std::env::var("EXACT_GAME_PARANOID").as_deref() {
+            Ok("1") => Self::Save,
+            Ok("fresh-game") => Self::FreshGame,
+            _ => Self::Off,
+        }
+    }
+}
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
@@ -129,6 +150,7 @@ pub struct Sim<G: Game> {
     paused_clock: bool,
     // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
     lookahead_us_hz: i128,
+    paranoid: Paranoid,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -136,6 +158,11 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
+    /// Override the test driver's EXACT_GAME_PARANOID setting for this simulation.
+    pub fn paranoid(mut self, mode: Paranoid) -> Self {
+        self.paranoid = mode;
+        self
+    }
     fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
@@ -380,6 +407,7 @@ impl<G: Game> Sim<G> {
             period_ms: 0.0,
             paused_clock: false,
             lookahead_us_hz: 0,
+            paranoid: Paranoid::environment(),
             game: PhantomData,
         })
     }
@@ -907,6 +935,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            self.paranoid_rebuild();
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
                 if left == 1 {
@@ -1369,6 +1398,7 @@ impl<G: Game> Sim<G> {
         }
         self.capture_fail("world restored during recording; start a new capture window");
         next.recorder = self.recorder.take();
+        next.paranoid = self.paranoid;
         next.agent_owned = self.agent_owned;
         next.contamination = self.contamination;
         next.source_tagged = self.source_tagged;

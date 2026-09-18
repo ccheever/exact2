@@ -14,3 +14,19 @@ fn one_seek_and_sixty_ticks_agree() {
     }
     assert_eq!(jump.world().hash(), steps.world().hash());
 }
+
+#[path = "../../../../paranoid-test.rs"]
+mod paranoid;
+#[test]
+fn every_tick_save_matches_normal_script() {
+    paranoid::compare(
+        || Sim::<Cubes>::from_values(&[Value::Number(100.0)]).unwrap(),
+        |sim| {
+            sim.hold("KeyW", 713.123);
+            sim.tap("Space");
+            sim.run(286.877);
+            sim.tap("KeyE");
+            sim.run(1000.0);
+        },
+    );
+}

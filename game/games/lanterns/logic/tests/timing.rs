@@ -40,21 +40,103 @@ fn tick_10k_median() {
 }
 
 #[test]
-fn typed_facade_preserves_original_world_bytes() {
-    let mut sim = game();
+fn physics_v2_pins_match_continuous_and_every_tick_restore() {
+    use exact_game::Paranoid;
+    let mut sims = [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame]
+        .map(|mode| (mode, game().paranoid(mode)));
+    let mut mismatches = Vec::new();
     for (ms, expected) in [
         (0.0, 0xaa5115299d8598d3),
-        (1000.0, 0x99071d4692d75e6f),
-        (2000.0, 0xbb79c1986b61792a),
+        (1000.0, 0x99dd217d6f058a61),
+        (2000.0, 0x432af075dec92c9b),
     ] {
-        sim.key_down("KeyW");
-        sim.run(ms);
-        assert_eq!(sim.world().hash(), expected);
-        // Optional local byte comparison against the pre-facade capture.
-        if let Ok(dir) = std::env::var("EXACT_KIND_BASELINE") {
-            let bytes =
-                std::fs::read(format!("{dir}/lanterns-{}.world", sim.world().tick())).unwrap();
-            assert_eq!(sim.world().save(), bytes);
+        let mut continuous = None;
+        for (mode, sim) in &mut sims {
+            sim.key_down("KeyW");
+            sim.run(ms);
+            let hash = sim.world().hash();
+            println!(
+                "LANTERNS_PIN {mode:?} tick={} hash=0x{hash:016x}",
+                sim.world().tick()
+            );
+            let observation = (hash, sim.world().tick(), sim.save());
+            if let Some(continuous) = &continuous {
+                assert!(
+                    continuous == &observation,
+                    "{mode:?} differs from continuous at {}",
+                    sim.world().tick()
+                );
+            } else {
+                continuous = Some(observation);
+            }
+            if hash != expected {
+                mismatches.push(format!(
+                    "{mode:?} tick {}: 0x{expected:016x} -> 0x{hash:016x}",
+                    sim.world().tick()
+                ));
+            }
         }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+#[path = "../../../../paranoid-test.rs"]
+mod paranoid;
+#[test]
+fn every_tick_save_matches_normal_script() {
+    paranoid::compare(game, |sim| {
+        sim.hold("KeyW", 713.123);
+        sim.tap("Space");
+        sim.run(286.877);
+        sim.tap("KeyE");
+        sim.run(1000.0);
+    });
+}
+
+#[test]
+fn respawned_cached_child_matches_continuous_and_every_tick_restore() {
+    use exact_game::{Material, Mesh, Paranoid, Parent, PointLight, Transform};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let mut outcomes = Vec::new();
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = game().paranoid(mode);
+        sim.run(17.0); // Populate Session.actors and each Lantern.bulb cache.
+        let world = sim.world_mut();
+        let old = world.named("lantern-1/bulb").unwrap();
+        let replacement = (
+            *world.get::<Transform>(old).unwrap(),
+            world.get::<Mesh>(old).unwrap().clone(),
+            *world.get::<Material>(old).unwrap(),
+            *world.get::<PointLight>(old).unwrap(),
+            *world.get::<Parent>(old).unwrap(),
+        );
+        assert!(world.despawn(old));
+        let new = world.spawn_named("lantern-1/bulb", replacement);
+        assert_ne!(old, new, "the cached entity generation must become stale");
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            sim.run(100.0);
+            (sim.world().hash(), sim.world().tick(), sim.save())
+        }))
+        .map_err(|payload| {
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                .unwrap_or_else(|| "unknown panic".into())
+        });
+        println!(
+            "CHILD_RESPAWN {mode:?}: {:?}",
+            result.as_ref().map(|(h, t, _)| (format!("0x{h:016x}"), t))
+        );
+        outcomes.push(result);
+    }
+    assert!(
+        outcomes[1].is_ok() && outcomes[1] == outcomes[2],
+        "both reconstructed runs must agree"
+    );
+    assert!(
+        outcomes[0] == outcomes[1],
+        "Lantern.bulb is stale after respawn; Session.actors prevents rebuilding it: {:?}",
+        outcomes[0].as_ref().err()
+    );
 }
