@@ -4768,3 +4768,35 @@ AppKit arm. All12 recorded processes/groups are absent before lane release.
 The numeric-index timing products do not contain this change. Continuous fresh
 reflow, retained coverage during the giant workload and physical120Hz still need
 their own evidence.
+
+### 8.77 Reversed index comparison stops at control geometry, 2026-09-18
+
+The reversed numeric-index comparison is **FAILED/INCOMPLETE**. Candidate3f8f5741
+completes once; the following control579581d8 refuses before poster creation with
+`canonical region clipSize differs`. Its actual clip is980×400 rather than the
+sealed963×400. Outer980×852/content980×820, backing1, the940-wide/8155-line
+paragraph, full source, document extent and scroll0 match the other three starts.
+Only three cells have completed resize edges. The discrepancy's cause and any
+product defect remain unestablished. No retry, replacement control, relaxed
+geometry check or paired reverse-order speedup is claimed.
+
+The completed candidate records initial/final full-publication index scopes of
+0.721583/0.746125ms, plus a0.003125ms short attempt. Shape scopes still reach
+127.198708ms. All18 actual resize dimensions match §8.75. The qualified final
+frame625/source626/acceptance640→layer646 join puts first layer assignment
+265.053375ms after the edge and12.120584ms after acceptance; layer673 is a later
+repeat at1150.151042ms after the edge. Both in-edge/new-width publication remain
+NOTESTABLISHED. Neither a sub-millisecond index nor all18 resize envelopes below
+8.333ms proves fresh frames during the edge. Typing ACK maximum10.945ms and
+passive-mode omissions remain; the output is60Hz.
+
+The new archive `target/apple-giant-viewport-index-reverse-execution-v1/` contains
+75files/16,473,352B, manifest
+`775f3513e94ea694bba754db73d70bbe2e696833f4c2b395c8e937b8affae851`.
+Independent raw reconstruction verifies the index scopes, complete first/current
+publication join,18 resize chains, clipped unions and four starting geometries.
+The previous209-file first-pair archive remains unchanged. Two native apps but
+only one external resize edge ran; eight recorded PIDs/three groups are absent
+with one owned mouse-up and no control poster. The next discriminator separates
+remaining full-shape costs using the current compact metadata; it does not
+replace this failed comparison. These products omit §8.74/8.76's later fixes.
