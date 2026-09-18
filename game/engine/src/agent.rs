@@ -329,8 +329,11 @@ impl<G: Game> Sim<G> {
                 let mut result = self.layout_json(e, viewport, target)?;
                 let toward = q.toward.or_else(|| target.and_then(|e| w.global(e).map(|p| p.translation.into())));
                 if let Some(toward) = toward {
-                    let from = q.from.or_else(|| w.global(e).map(|p| p.translation.into())).ok_or("route: subject pose unavailable")?;
-                    let route = self.route_json(e, target, from, toward)?;
+                    let from = q.from.or_else(|| w.global(e).map(|p| p.translation.into()));
+                    let route = match from {
+                        Some(from) => self.route_json(e, target, from, toward)?,
+                        None => r#"{"unavailable":"subject global pose unavailable"}"#.into(),
+                    };
                     result.pop();
                     result.push_str(&format!(",\"route\":{route}}}"));
                 }
