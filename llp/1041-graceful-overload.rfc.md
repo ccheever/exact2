@@ -3845,3 +3845,46 @@ manifest `dd38c02be40113a301cdbc4ee700e89373ce73da3cbc4c66d3723fcb515ae6ed`;
 `target/pending-flip-span-budget-runtime-reverse-after-1m-v1/`, manifest
 `03eb94b89b3f49b4ee21ef3ef9a0922c6b2a92e0795d7740700d81cfd60d4bf1`;
 paired summary manifest `94e2f44c534c3d1f40923f3cfdd4549f75b3959f3b67603609c0108fe4c027d4`.
+
+### 8.58 Pending-flip 4MiB correctness and retained-cap confirmation, 2026-09-18
+
+One current Linux treatment run extends §8.57 to4MiB. It reuses the same
+candidate and oracle binaries, with no rebuild or receiver change. Two fresh
+600/984-width references and one cold candidate pass under the unchanged
+2.5GiB address-space cap,60s process limits and220s outer limit. The binding
+selects only4MiB and explicitly checks the sealed successful1MiB prerequisite;
+it neither copies a substitute result into the new output nor reruns1MiB.
+
+All26 reference fields match at both widths, including complete4,194,149-byte
+canonical coverage. Each accepted viewport crop matches1,228,800 RGB bytes;
+both532,224-byte40px interior overlap checks pass. These checks cover the
+accepted crops and specified overlaps, not every displayed pixel at every
+input. Four distinct jobs share one shape and two layouts/indexes with two
+cache hits. Giant UI construction remains zero; retained-A interaction,
+autonomous B publication, coexistence and A retirement pass.
+
+Independent raw reconstruction reproduces1,132 events,190 turns and4,733 spans,
+below the unchanged8,192-span limit, with no recorder failures. All38 submitted
+pictures reach matching publication;37 acknowledgments cross UI turns. Nine
+inputs occur during pending flips: input1 during picture2,31–37 during
+picture25, and45 during picture37. Final picture38/input48 joins turn189/seq1132
+with no later pending C. Trailing trace-flush cost remains censored.
+
+Sampled AS peaks at2,408,984KiB and RSS at1,771,596KiB, leaving212,456KiB observed
+AS headroom. Accessible deduplicated payload capacity peaks at1,382,011,614
+bytes; in-progress work, fonts and allocator overhead are excluded. These
+numbers establish fit for this fixture/run, not a strict peak or memory saving.
+
+Blocking KMS waits remain absent; the37 readiness handlers total0.113ms and
+remain counted UI work. Whole turns still include34.431ms startup and9.830ms
+on the next turn:2/190 exceed8.333ms. This single treatment cell is correctness
+and cap evidence, not an A/B speed comparison. Instrumentation remains
+`nonquiet:true`; the fixed60Hz VKMS display and authored content-width change
+do not establish physical120Hz or continuous physical-resize performance.
+Both references and the outer wrapper exit0; the display's SIGTERM follows
+completed observations. All recorded runtime and copy owners retire, with no
+watchdog action or retry. Earlier failures and both1MiB pairs remain unchanged.
+
+Evidence: `target/pending-flip-span-budget-runtime-after-4m-v1/`, manifest
+`1b46d9e363667c87b2f0a1a669b79f46569d86e0282cf83a2dea7ef09f1840c9`;
+report `aeaf30fa44f6cc20fb3de5ee6dd32c3ab3d2524e323c424ad607cdff30d8fb99`.
