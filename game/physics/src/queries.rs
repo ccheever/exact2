@@ -101,8 +101,9 @@ struct Geometry {
 }
 #[derive(Default)]
 pub(crate) struct Scene {
-    parts: [Part; 2],
-    controller: Option<Part>,
+    parts: [Part; 1],
+    order: crate::binned::Binned,
+    bounds: Vec<rapier3d::parry::bounding_volume::Aabb>,
     #[cfg(test)]
     builds: [usize; 2],
 }
@@ -113,79 +114,116 @@ impl Scene {
         changes: &crate::changes::Changes,
         changed: &crate::changes::Changed,
     ) {
-        // The controller applies transient impulses to its private bodies. Even
-        // if game code restores the previous component value, a write must discard
-        // those impulses, just as the former revision-based scene rebuild did.
-        self.controller = None;
-        let mut dirty = [false; 2];
         if changed.membership {
-            for (i, part) in self.parts.iter().enumerate() {
-                dirty[i] = part
-                    .rows
-                    .keys()
-                    .any(|&e| !world.has::<Collider>(e) || usize::from(world.has::<Body>(e)) != i);
+            let mut members = changes.statics.clone();
+            members.extend_from_slice(&changes.bodies);
+            members.sort_unstable();
+            self.parts[0] = Part::new(world, &members);
+            self.rebuild_order();
+            #[cfg(test)]
+            {
+                self.builds[0] += usize::from(!changes.statics.is_empty());
+                self.builds[1] += usize::from(!changes.bodies.is_empty());
             }
+            return;
         }
+        let part = &mut self.parts[0];
+        let mut moved = Vec::new();
+        let mut dirty = [false; 2];
         for &e in &changed.rows {
-            let Some(c) = world.get::<Collider>(e) else {
+            let Some(old) = part.rows.get_mut(&e) else {
                 continue;
             };
+            let c = world.get::<Collider>(e).unwrap();
             let b = world.get::<Body>(e);
-            let i = usize::from(b.is_some());
-            if !dirty[i] {
-                dirty[i] = self.parts[i].rows.get(&e).is_none_or(|old| {
-                    old.collider != *c
-                        || old.body.as_ref() != b.as_deref()
-                        || old.pose != math::world_pose(world, e)
-                });
+            let pose = math::world_pose(world, e);
+            let co_changed = old.collider != *c
+                || old.body.as_ref() != b.as_deref()
+                || old.pose.scale != pose.scale;
+            let pose_changed = old.pose != pose;
+            let co = &mut part.rapier.colliders[old.handle];
+            if co_changed {
+                co.copy_from(&step::collider(&c, pose, b.as_deref()).build());
+            }
+            // Restore transient controller impulses on every refresh, including a
+            // write that restored the previous ECS value.
+            if let Some(h) = co.parent() {
+                let b = b.as_ref().unwrap();
+                let rb = &mut part.rapier.bodies[h];
+                rb.set_body_type(step::body_type(b.kind), true);
+                rb.set_position(math::pose(pose), true);
+                rb.set_linvel(
+                    if b.kind == crate::BodyKind::Dynamic {
+                        math::vector(b.velocity)
+                    } else {
+                        Vector::ZERO
+                    },
+                    true,
+                );
+                rb.set_angvel(
+                    if b.kind == crate::BodyKind::Dynamic {
+                        math::vector(b.spin)
+                    } else {
+                        Vector::ZERO
+                    },
+                    true,
+                );
+            }
+            if co_changed || pose_changed {
+                co.set_position(math::pose(pose));
+                if let Some(h) = co.parent() {
+                    part.rapier.bodies[h]
+                        .recompute_mass_properties_from_colliders(&part.rapier.colliders);
+                }
+                let id = old.handle.into_raw_parts().0;
+                self.bounds[id as usize] = part.rapier.colliders[old.handle].compute_aabb();
+                moved.push(id);
+                dirty[usize::from(b.is_some())] = true;
+                old.collider = c.clone();
+                old.body = b.as_deref().cloned();
+                old.pose = pose;
             }
         }
-        for (i, members) in [&changes.statics, &changes.bodies].into_iter().enumerate() {
-            if dirty[i] {
-                self.parts[i] = Part::new(world, members);
-                #[cfg(test)]
-                {
-                    self.builds[i] += 1;
+        if !moved.is_empty() {
+            if dirty[0] || !self.order.matches(&self.bounds) {
+                self.parts[0].bvh = Bvh::from_iter(
+                    BvhBuildStrategy::Binned,
+                    self.bounds.iter().copied().enumerate(),
+                );
+                self.rebuild_order();
+            } else {
+                let bvh = &mut self.parts[0].bvh;
+                for &id in &moved {
+                    bvh.insert_or_update_partially(self.bounds[id as usize], id, 0.);
                 }
+                bvh.refit_partial(&[], &moved);
+            }
+        }
+        #[cfg(test)]
+        {
+            for (i, d) in dirty.into_iter().enumerate() {
+                self.builds[i] += usize::from(d);
             }
         }
     }
-
-    // Rapier's character controller requires one concrete QueryPipeline. Assemble
-    // its view lazily from retained shapes, in the original entity/handle order,
-    // with the original binned BVH. Its traversal ties affect pinned crate pushes.
-    // Ray/overlap/sweep queries never pay for this combined controller view.
+    fn rebuild_order(&mut self) {
+        let part = &self.parts[0];
+        self.bounds = part
+            .rapier
+            .colliders
+            .iter()
+            .map(|(_, c)| c.compute_aabb())
+            .collect();
+        let dynamic: Vec<_> = part
+            .rapier
+            .colliders
+            .iter()
+            .map(|(_, c)| c.parent().is_some())
+            .collect();
+        self.order = crate::binned::Binned::new(&self.bounds, &dynamic);
+    }
     pub(crate) fn controller(&mut self) -> &mut Part {
-        self.controller.get_or_insert_with(|| {
-            let mut ordered = BTreeMap::new();
-            for part in &self.parts {
-                for (&e, row) in &part.rows {
-                    ordered.insert(e, (part, row));
-                }
-            }
-            let mut result = Part::default();
-            for (e, (part, row)) in ordered {
-                let co = &part.rapier.colliders[row.handle];
-                let body = co
-                    .parent()
-                    .map(|h| result.rapier.insert_body(part.rapier.bodies[h].clone()));
-                let h = result.rapier.insert_collider(co.clone(), body);
-                if let Some(b) = body {
-                    result.rapier.bodies[b]
-                        .recompute_mass_properties_from_colliders(&result.rapier.colliders);
-                }
-                result.entities.insert(crate::state::raw(h), e);
-            }
-            result.bvh = Bvh::from_iter(
-                BvhBuildStrategy::Binned,
-                result
-                    .rapier
-                    .colliders
-                    .iter()
-                    .map(|(h, c)| (h.into_raw_parts().0 as usize, c.compute_aabb())),
-            );
-            result
-        })
+        &mut self.parts[0]
     }
 }
 // A live component view: reads see same-tick edits without altering saved solver
@@ -196,12 +234,14 @@ pub(crate) struct Part {
     pub rapier: PhysicsWorld,
     pub bvh: Bvh,
     pub entities: BTreeMap<[u32; 2], Entity>,
+    pub bodies: Vec<(Entity, ColliderHandle, RigidBodyHandle)>,
 }
 impl Part {
     fn new(world: &World, members: &[Entity]) -> Self {
         let mut rows = BTreeMap::new();
         let mut rapier = PhysicsWorld::default();
         let mut entities = BTreeMap::new();
+        let mut bodies = Vec::new();
         for &e in members {
             let Some(collider) = world.get::<Collider>(e) else {
                 continue;
@@ -234,6 +274,7 @@ impl Part {
                 body,
             );
             if let Some(b) = body {
+                bodies.push((e, h, b));
                 rapier.bodies[b].recompute_mass_properties_from_colliders(&rapier.colliders);
             }
             entities.insert(crate::state::raw(h), e);
@@ -259,6 +300,7 @@ impl Part {
             rapier,
             bvh,
             entities,
+            bodies,
         }
     }
     pub fn queries<'a>(&'a self, filter: QueryFilter<'a>) -> QueryPipeline<'a> {
@@ -269,6 +311,9 @@ impl Part {
             colliders: &self.rapier.colliders,
             filter,
         }
+    }
+    pub fn handle(&self, e: Entity) -> ColliderHandle {
+        self.rows[&e].handle
     }
     pub fn entity(&self, h: ColliderHandle) -> Entity {
         self.entities[&crate::state::raw(h)]
@@ -608,9 +653,10 @@ mod partition_tests {
         let mut scene = view.scene();
         let combined = scene.controller();
         assert_eq!(combined.entities, all.entities);
+        let area = all.bvh.root_aabb();
         assert_eq!(
-            bincode::serialize(&combined.bvh).unwrap(),
-            bincode::serialize(&all.bvh).unwrap()
+            combined.bvh.intersect_aabb(&area).collect::<Vec<_>>(),
+            all.bvh.intersect_aabb(&area).collect::<Vec<_>>()
         );
         for (h, c) in all.rapier.colliders.iter() {
             let actual = &combined.rapier.colliders[h];

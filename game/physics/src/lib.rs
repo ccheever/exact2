@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+mod binned;
 mod changes;
 mod character;
 mod math;
