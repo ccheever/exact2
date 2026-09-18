@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {PassThrough} from 'node:stream';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {artifactDigest, closeSessions, equal} from './proof.mjs';
+import {artifactDigest, closeSessions, equal, agreePins} from './proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, nativeControl, detachNativeTransport, jsonLines} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
@@ -511,3 +511,39 @@ test('ordinary native close still ends the isolated app, including a missing det
     expect(rows.some(r=>r.event==='eof' && r.detached===(mode==='missing-ack'))).toBe(true);
   }
 }),10000);
+
+test('repin refuses missing, extra, oversized and divergent three-mode evidence', () => {
+  const root = mkdtempSync(resolve(tmpdir(),'exact-repin-test-'));
+  try {
+    const dirs = ['off','save','fresh'].map(mode => {const dir=resolve(root,mode);mkdirSync(dir);return dir;});
+    for (const dir of dirs) {
+      writeFileSync(resolve(dir,'pins.json'),JSON.stringify(['0x0000000000000001','0x0000000000000002','0x0000000000000003']));
+      for (const tick of [0,60,180]) writeFileSync(resolve(dir,`tick-${tick}.sim`),`bytes at ${tick}`);
+    }
+    expect(JSON.parse(agreePins(dirs))).toHaveLength(3);
+    writeFileSync(resolve(dirs[2],'tick-180.sim'),'divergent');
+    expect(() => agreePins(dirs)).toThrow('differ');
+    writeFileSync(resolve(dirs[2],'tick-180.sim'),'bytes at 180');
+    writeFileSync(resolve(dirs[2],'extra'),'');
+    expect(() => agreePins(dirs)).toThrow('inventory');
+    rmSync(resolve(dirs[2],'extra'));
+    writeFileSync(resolve(dirs[2],'tick-180.sim'),Buffer.alloc(16*1024*1024+1));
+    expect(() => agreePins(dirs)).toThrow('16 MiB');
+    rmSync(resolve(dirs[2],'tick-180.sim'));
+    expect(() => agreePins(dirs)).toThrow('inventory');
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('moveTo has a bounded stall, forwards layout evidence and releases input', async () => {
+  const calls=[], view=worldView({
+    state:async target => target.includes(':') ? {entity:{components:{Transform:{position:[0,.65,12]}}}} : {world:{hz:60}},
+    type:async (_,op) => calls.push(op.phase),
+    target:async () => ({id:1,entity:'player'}),
+    op:async request => {expect(request.op).toBe('layout');expect(request.toward).toEqual([4.8,1.3,8]);return {route:{blocker:{name:'sign-board',position:[3,1.55,10],bounds:{min:[1.75,1.1,9.93],max:[4.25,2,10.07]}},nearestClearSide:{side:'minX',position:[1.35,1.3,10.47]}}};},
+  },'world');
+  let ticks=0; view.ticks=async n => {ticks+=n;};
+  await expect(view.moveTo('player',[4.8,8])).rejects.toThrow('sign-board');
+  expect(ticks).toBeLessThanOrEqual(1760);expect(calls).toHaveLength(320);
+  expect(calls.at(-1)).toBe('up');
+  await expect(view.moveTo('player',[4.8,8],{tolerance:0})).rejects.toThrow('positive');
+});
