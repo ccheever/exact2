@@ -46,7 +46,7 @@ impl<K: Kind> fmt::Debug for Id<K> {
     }
 }
 impl<K: Kind> Target for Id<K> {
-    fn entity(self, world: &World) -> Option<Entity> {
+    fn entity(&self, world: &World) -> Option<Entity> {
         self.entity.entity(world)
     }
     fn describe(&self, world: &World) -> String {
@@ -249,6 +249,22 @@ impl<'w, K: Kind> Iterator for KindRowsMut<'w, K> {
 }
 
 // Active closure operations are diagnostic context only, never simulation state.
+pub(crate) struct Context {
+    kind: &'static str,
+    entity: Option<Entity>,
+    operation: &'static str,
+}
+impl Context {
+    fn describe(&self, world: &World) -> String {
+        format!(
+            "{} {} {}",
+            self.operation,
+            self.kind,
+            self.entity
+                .map_or_else(|| "entity-ordered rows".into(), |e| e.describe(world))
+        )
+    }
+}
 struct Operation<'w>(&'w World);
 impl Drop for Operation<'_> {
     fn drop(&mut self) {
@@ -257,12 +273,18 @@ impl Drop for Operation<'_> {
 }
 
 impl World {
-    fn kind_operation<K: Kind>(&self, entity: Option<Entity>, operation: &str) -> Operation<'_> {
-        self.kind_operations.borrow_mut().push(format!(
-            "{operation} {} {}",
-            std::any::type_name::<K>(),
-            entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self))
-        ));
+    fn kind_operation<K: Kind>(
+        &self,
+        entity: Option<Entity>,
+        operation: &'static str,
+    ) -> Operation<'_> {
+        let mut stack = self.kind_operations.borrow_mut();
+        assert!(stack.len() < 32, "kind edit nesting exceeds 32 operations");
+        stack.push(Context {
+            kind: std::any::type_name::<K>(),
+            entity,
+            operation,
+        });
         Operation(self)
     }
     /// Preflight a generated field's column without taking a lease.
@@ -274,14 +296,14 @@ impl World {
         mutable: bool,
     ) -> Result<(), KindError> {
         if let Some(conflict) = self.storage::<C>().and_then(|s| s.lease_conflict(mutable)) {
-            return Err(KindError(format!("{operation} {} {}: component {} is already borrowed {conflict}; inside [{}]; drop the row before another overlapping operation", std::any::type_name::<K>(), entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self)), C::NAME, self.kind_operations.borrow().join(" -> "))));
+            return Err(KindError(format!("{operation} {} {}: component {} is already borrowed {conflict}; inside [{}]; drop the row before another overlapping operation", std::any::type_name::<K>(), entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self)), C::NAME, self.kind_operations.borrow().iter().map(|context| context.describe(self)).collect::<Vec<_>>().join(" -> "))));
         }
         Ok(())
     }
     fn checked<K: Kind>(&self, target: impl Target, operation: &str) -> Result<Id<K>, KindError> {
         K::preflight()?;
-        let label = target.describe(self);
         let e = target.entity(self).ok_or_else(|| {
+            let label = target.describe(self);
             KindError(format!(
                 "{operation} {} {label}: entity is absent or stale (generation check); components {}",
                 std::any::type_name::<K>(), K::COMPONENTS
@@ -289,6 +311,44 @@ impl World {
         })?;
         K::check(self, e, operation)?;
         Ok(Id::new(e))
+    }
+    // Derived proof cache, excluded from saves and hashes. Successful bound-ID
+    // validation is a generation comparison, never a column-set recheck.
+    fn validated<K: Kind>(&self, id: Id<K>, operation: &str) -> Result<Id<K>, KindError> {
+        let e = id.entity;
+        if !self.contains(e) {
+            return self.checked::<K>(id, operation);
+        }
+        let key = std::any::TypeId::of::<K>();
+        let generation = u64::from(e.generation()) + 1;
+        if self
+            .kind_validated
+            .borrow()
+            .get(&key)
+            .and_then(|slots| slots.get(e.index() as usize))
+            == Some(&generation)
+        {
+            return Ok(id);
+        }
+        self.kind_work_bound(operation);
+        let id = self.checked::<K>(id, operation)?;
+        self.remember(id);
+        Ok(id)
+    }
+    fn remember<K: Kind>(&self, id: Id<K>) {
+        self.kind_work_bound("bind");
+        let mut cache = self.kind_validated.borrow_mut();
+        let key = std::any::TypeId::of::<K>();
+        assert!(
+            cache.len() < 64 || cache.contains_key(&key),
+            "kind binding limit is 64 kinds per world"
+        );
+        let slots = cache.entry(key).or_default();
+        let index = id.entity.index() as usize;
+        if slots.len() <= index {
+            slots.resize(index + 1, 0);
+        }
+        slots[index] = u64::from(id.entity.generation()) + 1;
     }
     /// Spawn ordinary component columns, then initialize declared saved bindings.
     /// Duplicate types are rejected before creation; an invalid binding rolls back the entity.
@@ -313,18 +373,21 @@ impl World {
         let id = self.checked::<K>(target, "bind")?;
         K::leases(self, Some(id.entity), "bind", false)?;
         K::bindings(self, id.entity, true, "bind")?;
+        self.remember(id);
         Ok(id)
     }
     /// Resolve a direct named child at setup. Persist the returned ID as state.
     pub fn child<K: Kind>(&self, parent: impl Target, name: &str) -> Result<Id<K>, KindError> {
-        let label = parent.describe(self);
-        let parent = parent.entity(self).ok_or_else(|| {
+        let target = parent;
+        let parent = target.entity(self).ok_or_else(|| {
+            let label = target.describe(self);
             KindError(format!(
                 "child {} {label}: parent is absent or stale",
                 std::any::type_name::<K>()
             ))
         })?;
         let prefix = self.name(parent).ok_or_else(|| {
+            let label = target.describe(self);
             KindError(format!(
                 "child {}: parent {label} is unnamed",
                 std::any::type_name::<K>()
@@ -338,9 +401,11 @@ impl World {
             return Err(KindError(format!(
                 "child {} {}: component Parent must reference {label}",
                 std::any::type_name::<K>(),
-                child.describe(self)
+                child.describe(self),
+                label = target.describe(self)
             )));
         }
+        self.remember(child);
         Ok(child)
     }
     /// Resolve an unparented, already spawned child before creating its parent.
@@ -371,7 +436,7 @@ impl World {
         let result = if initialize && saved == Id::default() {
             self.child::<C>(entity, name)
         } else {
-            self.checked::<C>(saved, operation).and_then(|id| {
+            self.validated::<C>(saved, operation).and_then(|id| {
                 if self.get::<crate::Parent>(id).is_none_or(|p| p.0 != entity) {
                     Err(KindError(format!(
                         "component Parent for {} must reference {}",
@@ -393,7 +458,7 @@ impl World {
     }
     /// Shared row access; validates saved bindings without rebuilding or dirtying state.
     pub fn row<K: Kind>(&self, id: Id<K>) -> Result<K::Ref<'_>, KindError> {
-        self.checked::<K>(id, "row")?;
+        self.validated::<K>(id, "row")?;
         K::leases(self, Some(id.entity), "row", false)?;
         K::bindings(self, id.entity, false, "row")?;
         K::row(self, id, "row")
@@ -401,7 +466,7 @@ impl World {
     /// Edit an established game invariant. Failures name the operation, kind,
     /// entity and column; all validation precedes mutable leases.
     pub fn edit<K: Kind, R>(&self, id: Id<K>, f: impl FnOnce(&mut K::Mut<'_>) -> R) -> R {
-        self.checked::<K>(id, "edit").expect("edit validation");
+        self.validated::<K>(id, "edit").expect("edit validation");
         K::leases(self, Some(id.entity), "edit", true).expect("edit lease preflight");
         K::bindings(self, id.entity, false, "edit").expect("edit binding validation");
         let _operation = self.kind_operation::<K>(Some(id.entity), "edit");
@@ -418,10 +483,8 @@ impl World {
         if !K::HAS_BINDINGS {
             return;
         }
-        for entity in self.entities() {
-            if K::check(self, entity, operation).is_ok() {
-                K::bindings(self, entity, false, operation).expect("kind binding validation");
-            }
+        for (entity, _) in self.query::<K::Read>().iter() {
+            K::bindings(self, entity, false, operation).expect("kind binding validation");
         }
     }
     /// Shared entity-ordered rows. Saved child bindings are validated before leases.
@@ -440,10 +503,7 @@ impl World {
         self.kind_work_bound("the");
         let mut found = None;
         let mut count = 0;
-        for e in self
-            .entities()
-            .filter(|&e| K::check(self, e, "the").is_ok())
-        {
+        for (e, _) in self.query::<K::Read>().iter() {
             found = Some(Id::new(e));
             count += 1;
         }

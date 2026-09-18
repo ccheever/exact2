@@ -97,7 +97,10 @@ world.edit(bulb, |b| b.light.intensity = 5.0);
 
 For an instantiated scene, `bind::<Lamp>("lantern-7")` fills a default child ID
 and validates its Parent edge. An existing saved ID is never retargeted by name.
-Every row access validates generation, required child components and Parent;
+Every row access validates generation and Parent; required component membership
+is checked once per kind/entity generation and cached in the owning world. Removing
+a component invalidates that slot’s proofs; despawn changes its generation; load
+starts with empty proofs. Decoded or cross-world IDs therefore check on first use;
 a stale ID fails identically live and restored, naming the owning field. Tick
 paths never resolve or rebuild child bindings. Actor IDs are likewise saved in
 Session and resolved during setup. `Id<K>: Data` has exactly Entity's encoding.
@@ -107,10 +110,17 @@ Work bounds: at most eight components and eight direct child checks per row;
 child checks do not recursively traverse bindings. A single bind uses indexed
 name lookup. Iteration and singleton search scan at most 200,000 entity slots,
 including dead slots, and explicitly refuse larger worlds before acquiring
-leases. Child-bearing iterators validate the matching rows before mutable leases;
-ordinary kinds need no extra entity scan. TypeId uniqueness takes at most 28
+leases. Bound-ID proofs have the same 200,000-slot bound and at most 64 kind
+types per world; exceeding either refuses explicitly. Edit nesting is bounded
+to 32 operations, with an explicit refusal before acquiring editing leases. Child-bearing iterators validate the matching rows before mutable leases;
+both passes use the existing query presence-mask intersection, visiting only
+members in ascending entity order. Successful iteration and warmed ID access
+allocate nothing; diagnostic text is produced only on failure. TypeId uniqueness takes at most 28
 comparisons. The 200k interleaved/churn regression checks every returned row and
 the over-limit error; it cannot pass with an empty iterator.
+
+`Target::entity(&self, world: &World) -> Option<Entity>` borrows its target so
+failed typed boundaries can describe it lazily, without formatting on success.
 
 Engine-level component access (`get`, `get_mut`, `query`) is for engine modules:
 
