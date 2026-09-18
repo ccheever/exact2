@@ -310,6 +310,27 @@ have no `gpu/shaders` directory.
 the untouched game, then removes it. `bun scripts/caps.mjs` from the repository
 root still holds every source file to 1,500 lines.
 
+The ignored Lanterns timing test runs five fresh simulations for 10,000 ticks
+each and prints the median nanoseconds per tick. It includes clock advancement,
+physics, follow, audio and observation, with W held and sound enabled:
+
+```sh
+cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test timing tick_10k_median -- --ignored --nocapture
+```
+
+The T3b Linux comparison in the same dev/test profile measured 38.409 µs before
+and 38.565 µs after (+0.4%; shared-machine timing, no demonstrated speedup).
+These paired samples preceded the builder's switch to zero debug information
+and disabled incremental compilation. Lanterns' `src/lib.rs` went from 621 to
+557 lines and 28 to 9 `unwrap()` calls; its new 63-line kind/binding module makes
+620 lines combined. Beacons stayed at 145 lines and went from 1 to 0 `unwrap()`
+calls. Both tick paths have zero `unwrap()`/`expect`, lease-scoping blocks, or
+repeated entity-name lookups; Lanterns rebuilds cached bindings once after load.
+The new 60-line timing/regression test is separate from those source counts.
+The regression test pins the original Lanterns hashes at ticks 0, 60 and 180;
+`EXACT_KIND_BASELINE=<directory>` additionally compares complete world saves
+against `lanterns-<tick>.world` captures from the original implementation.
+
 A world's observation starts `Unknown`, also after rebuilding, restoring, live
 advancement, queued input, or live argument changes; every mutable storage lease invalidates the sample. Unknown is not quiescent.
 A paused world with no queued input is quiescent because time is stopped, reports `changing: ["paused"]`, and becomes Unknown on unpause.
