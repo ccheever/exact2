@@ -13,7 +13,7 @@ use std::cell::RefMut;
 use std::collections::BTreeMap;
 
 #[derive(PartialEq, Eq)]
-struct Revisions([u64; 6]);
+struct Revisions([u64; 5]);
 impl Revisions {
     fn of(w: &World) -> Self {
         Self([
@@ -22,7 +22,6 @@ impl Revisions {
             w.revision::<Transform>(),
             w.revision::<Parent>(),
             w.presentation_generation(),
-            w.entities_revision(),
         ])
     }
 }
@@ -70,7 +69,7 @@ impl Queries<'_> {
             let builds = cache.as_ref().map_or(0, |c| c.builds);
             *cache = Some(Cached {
                 world: self.world.id(),
-                revisions: Revisions([u64::MAX; 6]),
+                revisions: Revisions([u64::MAX; 5]),
                 scene: Scene::default(),
                 changes: Default::default(),
                 #[cfg(test)]
@@ -445,6 +444,26 @@ pub fn sweep(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unrelated_churn_keeps_the_query_and_character_scene() {
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        let e = w.spawn((Transform::default(), Collider::default()));
+        let hit = || raycast(&w, Vec3::Y * 2., -Vec3::Y, 3., 1).unwrap().entity;
+        assert_eq!(hit(), e);
+        for _ in 0..10 {
+            let dummy = w.spawn(());
+            assert_eq!(
+                raycast(&w, Vec3::Y * 2., -Vec3::Y, 3., 1).unwrap().entity,
+                e
+            );
+            w.despawn(dummy);
+            let view = queries(&w);
+            assert_eq!(view.scene().controller().entities.len(), 1);
+            assert_eq!(view.physics.executor.1.borrow().as_ref().unwrap().builds, 1);
+        }
+    }
+
     #[test]
     fn retained_queries_follow_physics_into_an_equal_revision_world() {
         let mut a = World::new(60, 0);

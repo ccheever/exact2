@@ -15,7 +15,7 @@ struct PageRows {
 #[derive(Default)]
 pub(crate) struct Changes {
     identity: Option<(WorldId, u64)>,
-    membership: [u64; 3],
+    membership: [u64; 2],
     pages: Vec<PageRows>,
     generations: Vec<[u64; 4]>,
     pub bodies: Vec<Entity>,
@@ -39,11 +39,7 @@ fn generations<C: Component>(world: &World, column: usize, result: &mut Vec<[u64
 impl Changes {
     pub fn refresh(&mut self, world: &World) -> Changed {
         let identity = (world.id(), world.presentation_generation());
-        let membership = [
-            world.membership::<Body>(),
-            world.membership::<Collider>(),
-            world.entities_revision(),
-        ];
+        let membership = [world.membership::<Body>(), world.membership::<Collider>()];
         let reset = self.identity.as_ref() != Some(&identity) || self.membership != membership;
         if reset {
             self.pages.clear();
@@ -145,5 +141,28 @@ mod tests {
         w.get_mut::<Transform>(b).unwrap().position.x = 1.;
         assert_eq!(changes.refresh(&w).rows, [b]);
         assert_eq!(changes.refresh(&w).rows, [b]);
+    }
+}
+
+#[cfg(test)]
+mod churn_tests {
+    use super::*;
+    #[test]
+    fn unrelated_recycling_does_not_reset_physics_membership() {
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        for _ in 0..2 * PAGE {
+            w.spawn((Transform::default(), Collider::default()));
+        }
+        let mut changes = Changes::default();
+        assert!(changes.refresh(&w).membership);
+        for _ in 0..10 {
+            let e = w.spawn(());
+            let c = changes.refresh(&w);
+            assert!(!c.membership && c.rows.is_empty());
+            w.despawn(e);
+            let c = changes.refresh(&w);
+            assert!(!c.membership && c.rows.is_empty());
+        }
     }
 }
