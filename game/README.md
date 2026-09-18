@@ -438,7 +438,8 @@ advance after every tick; immediate comparisons cover world bytes, and following
 ticks compare complete Sim saves (restore clears consumed input edges).
 
 T3b2 verification on the merged `9bd587bffaa3a74a6293153593fc1df78f5d351f`
-trunk: **493 Rust tests pass, 1 fails, 15 ignored**. Do not ship this lane yet.
+trunk, before M3: **493 Rust tests pass, 1 fails, 15 ignored**. This
+was the lane's shipping blocker; M3 resolves it with EXPHYS v2 below.
 The active Lanterns restore-every-tick test diverges on its first continuation
 (loop index 1): live world hash `f2e496b15441b4e5`, restored
 `b981f5010ceaad9d`; complete world bytes also differ. Three fix rounds stopped,
@@ -562,7 +563,7 @@ become named failures. Destruction/recreation cancels flights. `settled()` retur
 remaining flight names when its sixteen rounds or deadline expire.
 
 The runtime decodes only `bin` Data. No glTF or image decoder enters the module.
-EXGAME v3 and EXSIM v5 remain unchanged for existing games. The baker refuses
+Asset declarations keep EXGAME v3; simulation saves now use T2's EXSIM v6. The baker refuses
 textures above 2048×2048 and files above the 64 MiB carrier limit. It traverses
 only the single default scene and refuses multi-scene/no-default inputs, sparse
 accessors, morph targets, non-triangle primitives, missing UVs on textured meshes,
@@ -786,7 +787,9 @@ simulation state in shipped games.
 | `scene/tests/authoring.rs`: `SERIAL` | Harmless test scratch-name allocator. |
 | `render/tests/timing/mod.rs`: `REPORTED` | Harmless one-time test diagnostic flag. |
 
-The initial T4 sweep found an engine defect: Lanterns diverged at tick 2
+The following T4 evidence predates M3 and its I3 fixture regeneration and saved
+child bindings; the M3 section below supersedes the open failures and Lanterns
+pins. The initial T4 sweep found an engine defect: Lanterns diverged at tick 2
 inside `Physics.executor`'s Rapier snapshot. `BroadPhaseBvh::deferred_optimize_pending`
 was skipped by Rapier's serde implementation; the engine's post-kinematic
 `CollisionPipeline::step` can leave it set at a save boundary. The next normal
@@ -802,7 +805,8 @@ too. The physics envelope is
 (`expected EXPHYS v2 ... snapshots incomplete; start a new world`), atomically.
 There is no migration: v1 omitted the bit, so a correct continuation cannot be
 recovered reliably. Worlds without a populated physics snapshot are unaffected;
-EXGAME v3 and EXSIM v5 do not change. No new engine unsafe code is introduced.
+EXGAME v3 is unchanged; T2 independently advances EXSIM to v6. No new engine
+unsafe code is introduced.
 
 Only the physics-dependent pins below changed. The assertions themselves now
 compare uninterrupted execution with every-tick reconstruction before accepting
@@ -819,10 +823,11 @@ to `game/`, with current source lines.
 
 `physics/README.md:80` updates the current pile description to the same v2 value;
 its original v1 cross-platform measurements remain labelled historical. No other
-executable pins were changed. There are **no committed EXPHYS v1 saves/captures
-in this clone** to regenerate; the existing JSON snapshots belong to Greybox,
+executable pins were changed. There were **no committed EXPHYS v1 saves/captures
+in the T4 clone** to regenerate; the existing JSON snapshots belong to Greybox,
 which does not use Rapier. The Linux proofs regenerate their own ignored outputs.
-The I3 difficult-moment fixtures are absent here and were not touched: on trunk,
+The I3 difficult-moment fixtures were absent in T4 and were not touched there; M3
+regenerated them as recorded below. T4's integration instruction was to
 regenerate their saved worlds/capture checkpoints containing Physics, plus their
 expected hashes and artifact receipts, through the I3 fixture scripts. Any v1
 physics capture checkpoint will now refuse; filenames/scripts unavailable in this
@@ -1276,7 +1281,7 @@ GLB/declared-model preparation test is retained for a device-equipped host.
 
 ## Five-lane integration (M3, 2026-09-18)
 
-T2, T4, T1b2 and T3b2 now coexist. The unchanged Lanterns 180-tick restore
+T2, T4, T1b2, T3b2 and I1 now coexist. The unchanged Lanterns 180-tick restore
 regression passes with EXPHYS v2, confirming the incomplete Rapier snapshot
 hypothesis without a typed-kind workaround. Paranoid reconstruction preserves
 the live phase, display period, batch horizon and T2 reload report; I3 asserts
@@ -1316,3 +1321,50 @@ in updating and publishing each tick. This probe changed neither observation
 nor the game's shared/mutable row choices. It is attribution, not a shipped
 optimization; the remaining 21.3 µs above the pre-merge sample is not separately
 attributed. The performance follow-up is recorded in `QUEUE.md`.
+
+
+A one-bit negative control confirms causality: temporarily restoring Rapier's
+`serde(skip)` on `deferred_optimize_pending` makes the unchanged Lanterns test
+fail at loop index 1 (tick 2); restoring only serialization makes it pass again.
+The temporary edit is reverted. EXPHYS v1 refusal remains active.
+
+Final verification: **524 game Rust tests pass, 0 fail, 21 ignored diagnostics**;
+the affected core (`exact-web`, `exact-gpu`, `exact-runner`, `exact-motion`,
+`exact-linux`, `exact-apple`) builds and passes **261/0, 1 ignored**. Game and
+affected-core Clippy pass with `-D warnings`; both workspaces pass formatting.
+Standalone web fixtures pass **68/0**, with two real-Bridge cases additionally
+run through `exact-web`. Game Bun is **55 passed, 2 environmental failures**:
+no Chrome for generated-game web launch and no prebuilt feel artifacts. The
+generated game builds and its three Rust tests pass. One extra Bun failure was
+the audio test's source extractor missing T4's parenthesized benchmark-aware
+filter; the updated test executes that condition and retains both exclusion
+assertions, adding own-benchmark-source inclusion and probe-exclusion controls.
+
+| Linux proof | Off | Save | FreshGame |
+| --- | ---: | ---: | ---: |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Greybox | 62/0 | 63/0 | 63/0 |
+| Lanterns | 8/0 | 9/0 | 9/0 |
+| Asset fixture | 7/0 | 8/0 | 8/0 |
+
+All **12 runs / 401 assertions pass**. Each paranoid proof also compares every
+session's final hash, tick, publications and retained journal with Off.
+I3 separately passes its complete fixture comparison in all three modes.
+The inherited 200k interleaved/churn kind test passes in the workspace suite.
+The additional ignored T2 200k reversed-order/churn reload diagnostic passes
+every entity assertion: **3.288 s merge**, **1,008,756 KiB peak RSS**, optimized
+test profile (a diagnostic, not a constant-work or 60 Hz claim).
+
+I1's seven JavaScript modules parse, and its real Linux adapter passes eight
+additional smoke assertions for input, exact save/load, held-key release,
+explicit 216,000-tick/unknown-operation refusals and unavailable world pixels.
+Only the scratch-root literal was redirected into M3's allowed directory; no
+trial models or full candidate evaluations were launched.
+
+Caps and boot pass; boot remains **two JavaScript modules and one Wasm reference**.
+Full root build/test/Clippy were attempted and remain blocked by TypeScript
+app bakes requiring the absent lean Hermes executor. GPU pixels, browser
+execution, physical audio and Apple SDK/runtime behavior remain unverified;
+device-dependent tests can return early. The game remains a separate workspace.
+All commands, regeneration/diagnostic probes and logs are retained under
+`~/lanes/gamenext/scratch/M3/`. No pushes or remote commands were used.
