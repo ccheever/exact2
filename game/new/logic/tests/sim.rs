@@ -8,6 +8,19 @@ fn movement_and_light() {
         ..Options::default()
     })
     .unwrap();
+    // A new game has no verified pins until its first three-mode proof.
+    let pins = include_str!("../../pins.json");
+    #[derive(Default, exact_game::Data)]
+    struct Pins {
+        ticks: std::collections::BTreeMap<String, String>,
+    }
+    if exact_game::json::from_str::<Pins>(pins)
+        .unwrap()
+        .ticks
+        .contains_key("0")
+    {
+        exact_game::World::assert_pin(pins, "small-game", 0, game.world().hash());
+    }
     game.viewport(800., 600.);
     let hit = game
         .pick(game.layout("player").unwrap().screen.center())
@@ -17,7 +30,7 @@ fn movement_and_light() {
     game.restore(&saved).unwrap();
     game.hold("KeyD", 500.0);
     game.settle();
-    let position = game.position("player").unwrap();
+    let position = game.global_position("player").unwrap();
     game.tap("KeyE");
     game.run(100.0);
     let beacon = game.get::<Beacon>("beacon-1").unwrap();
@@ -38,28 +51,29 @@ fn acceleration_braking_and_ballistic_jump() {
     .unwrap();
     game.hold("KeyW", 100.0);
     assert!(
-        game.position("player").unwrap().z < 0.0 && game.position("player").unwrap().z > -0.35,
+        game.global_position("player").unwrap().z < 0.0
+            && game.global_position("player").unwrap().z > -0.35,
         "movement accelerates toward four metres per second"
     );
-    let released = game.position("player").unwrap().z;
+    let released = game.global_position("player").unwrap().z;
     game.run(100.0);
     assert!(
-        game.position("player").unwrap().z < released,
+        game.global_position("player").unwrap().z < released,
         "movement brakes after release"
     );
     assert!(game.settle());
-    let stopped = game.position("player").unwrap();
+    let stopped = game.global_position("player").unwrap();
     game.run(100.0);
-    assert_eq!(game.position("player").unwrap(), stopped);
+    assert_eq!(game.global_position("player").unwrap(), stopped);
     game.tap("Space");
     game.run(400.0);
     assert!(
-        game.position("player").unwrap().y > 1.8,
+        game.global_position("player").unwrap().y > 1.8,
         "jump rises toward 1.2 metres above the floor"
     );
     game.run(1000.0);
     assert_eq!(
-        game.position("player").unwrap().y,
+        game.global_position("player").unwrap().y,
         0.9,
         "gravity lands on the floor"
     );
@@ -107,14 +121,14 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     assert_eq!(game.world().published("near").unwrap().as_str(), Some(""));
     game.hold("KeyD", 10000.0);
     game.settle();
-    assert_eq!(game.position("player").unwrap().x, 19.6);
+    assert_eq!(game.global_position("player").unwrap().x, 19.6);
     game.bind(
         &[Value::Number(7.0), Value::Bool(false), Value::Bool(true)],
         None,
     )
     .unwrap();
     assert_eq!(
-        game.position("player").unwrap(),
+        game.global_position("player").unwrap(),
         exact_game::Vec3::new(0.0, 0.9, 0.0)
     );
     assert_eq!(

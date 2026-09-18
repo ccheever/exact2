@@ -5,6 +5,7 @@ use crate::asset::{Node, Skin};
 fn first_sample_is_current_current() {
     let mut w = world();
     let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    step(&mut w);
     w.step_clock();
     assert_eq!(
         w.get::<Pose>(e).unwrap().previous,
@@ -15,10 +16,13 @@ fn first_sample_is_current_current() {
 fn failed_sample_preserves_history() {
     let mut w = world();
     let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    step(&mut w);
     w.step_clock();
+    step(&mut w);
     w.step_clock();
     let before = w.get::<Pose>(e).unwrap().clone();
     w.get_mut::<Animation>(e).unwrap().clip = "missing".into();
+    step(&mut w);
     w.step_clock();
     let after = w.get::<Pose>(e).unwrap();
     assert_eq!(before.previous, after.previous);
@@ -33,6 +37,7 @@ fn extracted_walk_never_doubles_or_snaps() {
         Animation::play("slow").motion_root(""),
     ));
     for _ in 0..125 {
+        step(&mut w);
         w.step_clock();
         let delta = w.get::<Animation>(e).unwrap().root_motion();
         assert!((delta.x - 1. / 60.).abs() < 1e-6);
@@ -53,40 +58,33 @@ fn only_contributing_blend_markers_and_motion() {
     let mut b = Blend::across([(0., "slow"), (1., "fast")]).motion_root("");
     b.axis = 1.;
     let e = w.spawn((Mesh::asset("rig.model"), b));
+    step(&mut w);
     w.step_clock();
     let p = w.get::<Pose>(e).unwrap();
     assert_eq!(p.crossed, ["active"]);
     assert!(p.root_motion.x > 0.);
 }
 #[test]
-fn missing_and_removed_sockets_invalidate_and_log_once() {
+fn sockets_are_named_queries_and_followers_do_not_write_simulation() {
     let mut w = world();
-    let e = w.spawn((
-        Transform::default(),
-        Mesh::asset("rig.model"),
-        Socket("".into()),
-    ));
-    w.step_clock();
-    assert!(w.has::<SocketPose>(e));
-    w.remove::<Socket>(e);
-    assert!(!w.has::<SocketPose>(e));
-    w.insert(e, Socket("missing".into()));
-    let f = w.spawn((Transform::at(9., 8., 7.), SocketFollow::new(e)));
+    let e = w.spawn((Transform::default(), Mesh::asset("rig.model")));
+    let f = w.spawn((Transform::at(9., 8., 7.), SocketFollow::new(e, "missing")));
+    assert_eq!(socket(&w, e, "").unwrap().position, Vec3::ZERO);
+    assert_eq!(
+        socket(&w, e, "missing").unwrap_err(),
+        "unknown socket `missing`"
+    );
     for _ in 0..3 {
+        step(&mut w);
         w.step_clock();
     }
-    assert!(!w.has::<SocketPose>(e));
     assert_eq!(
         w.get::<Transform>(f).unwrap().position,
         Vec3::new(9., 8., 7.)
     );
-    assert_eq!(
-        w.journal()
-            .iter()
-            .filter(|e| e.line.contains("unknown socket"))
-            .count(),
-        1
-    );
+    assert!(socket(&w, "absent", "head")
+        .unwrap_err()
+        .contains("target does not exist"));
 }
 #[test]
 fn standalone_ik_evaluates_bind_pose() {
@@ -122,6 +120,7 @@ fn standalone_ik_evaluates_bind_pose() {
             weight: 1.,
         },
     ));
+    step(&mut w);
     w.step_clock();
     let pose = w
         .get::<Pose>(e)
@@ -217,6 +216,7 @@ fn clock_rounding_markers_loop_and_root_contribution_are_saved() {
     );
     let mut events = 0;
     for _ in 0..60 {
+        step(&mut w);
         w.step_clock();
         events += u32::from(w.get::<Animation>(e).unwrap().crossed("step"));
     }
@@ -234,6 +234,7 @@ fn clock_rounding_markers_loop_and_root_contribution_are_saved() {
     let hash = w.hash();
     w.load(&before).unwrap();
     assert_eq!(hash, w.hash());
+    step(&mut w);
     w.step_clock();
     assert!((w.get::<Animation>(e).unwrap().root_motion().x - 1. / 60.).abs() < 1e-6);
     assert!(!w.insert(e, Blend::across([(0., "slow")])));
@@ -244,6 +245,7 @@ fn blend_uses_normalized_phase_and_once_stops() {
     let mut blend = Blend::across([(0., "slow"), (1., "fast")]);
     blend.axis = 0.5;
     let e = w.spawn((Mesh::asset("rig.model"), blend));
+    step(&mut w);
     w.step_clock();
     let p = w.get::<Pose>(e).unwrap();
     assert!((p.phase - (1. / 60.) / 0.75).abs() < 1e-7);
@@ -254,9 +256,11 @@ fn blend_uses_normalized_phase_and_once_stops() {
         Animation::play("fast").once().marker(0.5, "end"),
     ));
     for _ in 0..30 {
+        step(&mut w);
         w.step_clock();
     }
     assert!(w.get::<Animation>(a).unwrap().crossed("end"));
+    step(&mut w);
     w.step_clock();
     let a = w.get::<Animation>(a).unwrap();
     assert_eq!(a.time, 0.5);
@@ -316,11 +320,13 @@ fn animator_parameter_fade_markers_and_weighted_root_motion() {
     ])
     .motion_root("");
     let e = w.spawn((Transform::default(), Mesh::asset("rig.model"), a));
+    step(&mut w);
     w.step_clock();
     assert!(w.get::<Animator>(e).unwrap().crossed("step"));
     w.get_mut::<Animator>(e).unwrap().set("go", true);
     w.get_mut::<Animator>(e).unwrap().set("speed", 1.);
     for i in 1..=4 {
+        step(&mut w);
         w.step_clock();
         let a = w.get::<Animator>(e).unwrap();
         let expected = (1. + i as f32 / 4.) / 60.;
@@ -344,6 +350,7 @@ fn animator_parameter_fade_markers_and_weighted_root_motion() {
         .blend_mut("travel")
         .is_some());
     for _ in 0..70 {
+        step(&mut w);
         w.step_clock();
     }
     assert!(w.get::<Transform>(e).unwrap().position == Vec3::ZERO);
@@ -363,6 +370,7 @@ fn one_shot_speed_pause_and_end_transition() {
     .motion_root("");
     a.set("done", true);
     let e = w.spawn((Mesh::asset("rig.model"), a));
+    step(&mut w);
     w.step_clock();
     assert_eq!(w.get::<Animator>(e).unwrap().state(), "attack");
     assert_eq!(w.get::<Animator>(e).unwrap().root_motion(), Vec3::ZERO);
@@ -373,11 +381,13 @@ fn one_shot_speed_pause_and_end_transition() {
         .unwrap()
         .paused = false;
     for _ in 0..30 {
+        step(&mut w);
         w.step_clock();
         assert_eq!(w.get::<Animator>(e).unwrap().state(), "attack");
     }
     // Floating phase reaches the clamped endpoint on the 30th tick at 2x.
     assert_eq!(w.get::<Pose>(e).unwrap().phase, 1.);
+    step(&mut w);
     w.step_clock();
     assert_eq!(w.get::<Animator>(e).unwrap().state(), "done");
     assert!(w.get::<Pose>(e).unwrap().phase < 0.1);
@@ -398,41 +408,41 @@ fn explicit_motion_root_is_not_first_skin_joint_and_wraps_backwards() {
         Mesh::asset("rig.model"),
         Animation::play("slow").motion_root("motion").speed(-130.),
     ));
+    step(&mut w);
     w.step_clock();
     assert!((w.get::<Animation>(e).unwrap().root_motion().x + 130. / 60.).abs() < 1e-6);
     assert_eq!(w.get::<Pose>(e).unwrap().local[10], 0.);
 }
 #[test]
-fn invalidated_socket_restores_authored_follower() {
+fn independent_attachment_joints_and_query_after_movement() {
     let mut w = world();
-    let e = w.spawn((
-        Transform::at(1., 2., 3.),
-        Mesh::asset("rig.model"),
-        Socket("".into()),
-    ));
-    let f = w.spawn((Transform::at(9., 8., 7.), SocketFollow::new(e)));
-    w.step_clock();
+    let mut model = w.model("rig.model").unwrap().clone();
+    model.nodes[0].name = "head".into();
+    model.nodes.push(Node {
+        name: "hand".into(),
+        transform: Mat4::from_translation(Vec3::X).to_cols_array(),
+        ..Default::default()
+    });
+    w.assets
+        .models
+        .insert("rig.model".into(), std::sync::Arc::new(model));
+    let e = w.spawn((Transform::at(1., 2., 3.), Mesh::asset("rig.model")));
+    w.spawn((Transform::default(), SocketFollow::new(e, "head")));
+    w.spawn((Transform::default(), SocketFollow::new(e, "hand")));
     assert_eq!(
-        w.get::<Transform>(f).unwrap().position,
+        socket(&w, e, "head").unwrap().position,
         Vec3::new(1., 2., 3.)
     );
-    w.get_mut::<Socket>(e).unwrap().0 = "missing".into();
-    w.step_clock();
-    w.step_clock();
-    assert!(!w.has::<SocketPose>(e));
     assert_eq!(
-        w.get::<Transform>(f).unwrap().position,
-        Vec3::new(9., 8., 7.)
+        socket(&w, e, "hand").unwrap().position,
+        Vec3::new(2., 2., 3.)
     );
+    w.get_mut::<Transform>(e).unwrap().position += Vec3::Z;
     assert_eq!(
-        w.journal()
-            .iter()
-            .filter(|e| e.line.contains("unknown socket"))
-            .count(),
-        1
+        socket(&w, e, "hand").unwrap().position,
+        Vec3::new(2., 2., 4.)
     );
 }
-
 #[test]
 fn blend_and_animator_walk_smoothly_across_loops_through_common_reads() {
     for animator in [false, true] {
@@ -449,6 +459,7 @@ fn blend_and_animator_walk_smoothly_across_loops_through_common_reads() {
             w.insert(e, blend.motion_root(""));
         }
         for _ in 0..125 {
+            step(&mut w);
             w.step_clock();
             let read = |p: &Playback| {
                 assert!(!p.crossed("missing"));
@@ -500,6 +511,7 @@ fn reversed_one_shot_starts_at_end_and_does_not_transition_early() {
     .motion_root("");
     a.set("go", true);
     let e = w.spawn((Mesh::asset("rig.model"), a));
+    step(&mut w);
     w.step_clock();
     assert_eq!(w.get::<Animator>(e).unwrap().state(), "reverse");
     assert!((w.get::<Pose>(e).unwrap().phase - (1. - 2. / 60.)).abs() < 1e-6);
@@ -512,9 +524,11 @@ fn failed_playback_contributes_no_stale_motion_or_events() {
         Mesh::asset("rig.model"),
         Animation::play("slow").motion_root("").marker(0.01, "step"),
     ));
+    step(&mut w);
     w.step_clock();
     assert!(w.get::<Animation>(e).unwrap().crossed("step"));
     w.get_mut::<Animation>(e).unwrap().clip = "missing".into();
+    step(&mut w);
     w.step_clock();
     assert_eq!(w.get::<Animation>(e).unwrap().root_motion(), Vec3::ZERO);
     assert!(!w.get::<Animation>(e).unwrap().crossed("step"));
@@ -536,12 +550,14 @@ fn standalone_reverse_once_starts_at_end() {
         Mesh::asset("rig.model"),
         Animation::play("slow").once().speed(-1.).motion_root(""),
     ));
+    step(&mut w);
     w.step_clock();
     let a = w.get::<Animation>(e).unwrap();
     assert!((a.time - (1. - 1. / 60.)).abs() < 1e-6);
     assert!((a.root_motion().x + 1. / 60.).abs() < 1e-6);
     drop(a);
     for _ in 0..65 {
+        step(&mut w);
         w.step_clock();
     }
     assert_eq!(w.get::<Animation>(e).unwrap().time, 0.);
@@ -574,6 +590,7 @@ fn zero_length_and_zero_speed_once_finish_but_pause_waits() {
         ]);
         a.set("go", true);
         let e = w.spawn((Mesh::asset("rig.model"), a));
+        step(&mut w);
         w.step_clock();
         assert_eq!(w.get::<Animator>(e).unwrap().state(), "once");
         w.get_mut::<Animator>(e)
@@ -581,8 +598,10 @@ fn zero_length_and_zero_speed_once_finish_but_pause_waits() {
             .state_mut("once")
             .unwrap()
             .paused = false;
+        step(&mut w);
         w.step_clock();
         assert_eq!(w.get::<Animator>(e).unwrap().state(), "once");
+        step(&mut w);
         w.step_clock();
         assert_eq!(
             w.get::<Animator>(e).unwrap().state(),
@@ -592,36 +611,50 @@ fn zero_length_and_zero_speed_once_finish_but_pause_waits() {
     }
 }
 #[test]
-fn bad_socket_does_not_stop_locomotion_and_each_error_source_logs_once() {
+fn explicit_step_returns_owned_motion_without_a_registration_schedule() {
     let mut w = world();
-    let e = w.spawn((
-        Transform::default(),
-        Mesh::asset("rig.model"),
-        Animator::new([State::new("walk", Play::Clip("slow".into()))]).motion_root(""),
-        Socket("missing".into()),
-        SocketFollow::new("absent"),
-    ));
-    for _ in 0..3 {
-        w.step_clock();
-        assert!(w.get::<Animator>(e).unwrap().root_motion().x > 0.);
-        assert!(!w.has::<SocketPose>(e));
-    }
-    let count = |w: &World, s: &str| w.journal().iter().filter(|e| e.line.contains(s)).count();
-    assert_eq!(count(&w, "unknown socket"), 1);
-    assert_eq!(count(&w, "socket follower"), 1);
-    // Successful controller processing must not clear a follower's error.
-    w.remove::<Socket>(e);
-    for _ in 0..3 {
-        w.step_clock();
-    }
-    assert_eq!(count(&w, "socket follower"), 1);
-    w.insert(e, Socket("missing".into()));
-    w.step_clock();
-    assert_eq!(
-        count(&w, "unknown socket"),
-        2,
-        "removal ends the first error episode"
+    let e = w.spawn_named(
+        "walker",
+        (
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root(""),
+        ),
     );
+    w.step_clock();
+    assert!(!w.has::<Pose>(e));
+    let output = step(&mut w);
+    assert!(output.root_motion("walker").x > 0.);
+    let epoch = w.mutation_epoch();
+    let again = step(&mut w);
+    assert_eq!(
+        w.mutation_epoch(),
+        epoch,
+        "the early guard takes no write leases"
+    );
+    assert_eq!(output.root_motion("walker"), again.root_motion(e));
+    w.get_mut::<Transform>(e)
+        .unwrap()
+        .translate_local(output.root_motion(e));
+    assert!(socket(&w, e, "missing").is_err());
+    assert!(w.get::<Animation>(e).unwrap().root_motion().x > 0.);
+}
+#[test]
+fn first_model_arrival_retries_a_failed_sample_in_the_same_tick() {
+    let mut w = world();
+    let model = w.assets.models.get("rig.model").unwrap().clone();
+    w.assets.models.remove("rig.model");
+    let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    step(&mut w);
+    assert!(!w.has::<Pose>(e));
+    assert!(!w.get::<Animation>(e).unwrap().sampled);
+    w.assets.models.insert("rig.model".into(), model);
+    step(&mut w);
+    assert!(w.has::<Pose>(e));
+    assert!(w.get::<Animation>(e).unwrap().sampled);
+    let time = w.get::<Animation>(e).unwrap().time;
+    step(&mut w);
+    assert_eq!(w.get::<Animation>(e).unwrap().time, time);
 }
 #[test]
 fn failed_ik_does_not_commit_animator_transition_or_clock() {
@@ -632,6 +665,7 @@ fn failed_ik_does_not_commit_animator_transition_or_clock() {
         State::new("run", Play::Clip("fast".into())).fade(0.1),
     ]);
     let e = w.spawn((Mesh::asset("rig.model"), a));
+    step(&mut w);
     w.step_clock();
     w.get_mut::<Animator>(e).unwrap().set("go", true);
     let before = crate::bin::to_vec(&*w.get::<Animator>(e).unwrap());
@@ -644,17 +678,24 @@ fn failed_ik_does_not_commit_animator_transition_or_clock() {
             ..Default::default()
         },
     );
+    step(&mut w);
     w.step_clock();
     assert_eq!(crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()), before);
     assert_eq!(crate::bin::to_vec(&*w.get::<Pose>(e).unwrap()), pose);
     w.remove::<Ik>(e);
+    step(&mut w);
     w.step_clock();
     assert_eq!(w.get::<Animator>(e).unwrap().state(), "run");
 }
 #[test]
 fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     let mut w = world();
-    let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+    let e = w.spawn((
+        Transform::default(),
+        Mesh::asset("rig.model"),
+        Ik::default(),
+    ));
+    step(&mut w);
     w.step_clock();
     let mut m = w.model("rig.model").unwrap().clone();
     m.nodes[0].name = "renamed".into();
@@ -663,18 +704,20 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     w.assets
         .models
         .insert("rig.model".into(), std::sync::Arc::new(m));
+    step(&mut w);
     w.step_clock();
-    assert!(!w.has::<SocketPose>(e));
+    assert!(socket(&w, e, "").is_err());
     assert_eq!(w.get::<Pose>(e).unwrap().local, expected.rest);
     assert_eq!(w.animation.rigs["rig.model"].bounds, expected.bounds);
-    w.insert(e, Socket("renamed".into()));
+    step(&mut w);
     w.step_clock();
-    assert_eq!(w.get::<SocketPose>(e).unwrap().0.position, Vec3::Y * 3.);
+    assert_eq!(socket(&w, e, "renamed").unwrap().position, Vec3::Y * 3.);
 }
 #[test]
 fn pose_inspection_refuses_model_length_mismatch_by_name() {
     let mut w = world();
     let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    step(&mut w);
     w.step_clock();
     w.get_mut::<Pose>(e).unwrap().local.clear();
     assert_eq!(
@@ -713,8 +756,15 @@ fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
     for extra_node in [false, true] {
         let mut w = world();
         let entities: Vec<_> = (0..2)
-            .map(|_| w.spawn((Mesh::asset("rig.model"), Socket("".into()))))
+            .map(|_| {
+                w.spawn((
+                    Transform::default(),
+                    Mesh::asset("rig.model"),
+                    Ik::default(),
+                ))
+            })
             .collect();
+        step(&mut w);
         w.step_clock();
         let old = std::sync::Arc::downgrade(w.assets.models.get("rig.model").unwrap());
         let mut m = w.model("rig.model").unwrap().clone();
@@ -733,7 +783,7 @@ fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
             let p = w.get::<Pose>(e).unwrap();
             assert_eq!(p.local, expected);
             assert_eq!(p.previous, expected);
-            assert_eq!(w.get::<SocketPose>(e).unwrap().0.position, Vec3::Y * 3.);
+            assert_eq!(socket(&w, e, "").unwrap().position, Vec3::Y * 3.);
         }
     }
 }
@@ -741,7 +791,12 @@ fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
 fn r3_reverse_controllers_start_on_existing_socket_pose() {
     for animator in [false, true] {
         let mut w = world();
-        let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+        let e = w.spawn((
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Ik::default(),
+        ));
+        step(&mut w);
         w.step_clock();
         if animator {
             let mut a = Animator::new([
@@ -756,6 +811,7 @@ fn r3_reverse_controllers_start_on_existing_socket_pose() {
         } else {
             w.insert(e, Animation::play("slow").once().speed(-1.));
         }
+        step(&mut w);
         w.step_clock();
         if animator {
             assert_eq!(w.get::<Animator>(e).unwrap().state(), "reverse");
@@ -767,6 +823,7 @@ fn r3_reverse_controllers_start_on_existing_socket_pose() {
         let bytes = w.save();
         w.load(&bytes).unwrap();
         for _ in 0..65 {
+            step(&mut w);
             w.step_clock();
         }
         if animator {
@@ -781,6 +838,7 @@ fn r3_inspection_and_sampling_refuse_either_corrupt_history() {
     for previous in [false, true] {
         let mut w = world();
         let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+        step(&mut w);
         w.step_clock();
         if previous {
             w.get_mut::<Pose>(e).unwrap().previous.clear();
@@ -789,6 +847,7 @@ fn r3_inspection_and_sampling_refuse_either_corrupt_history() {
         }
         let expected = "saved pose does not match model `rig.model`";
         assert_eq!(pose_json(&w, e).unwrap_err(), expected);
+        step(&mut w);
         w.step_clock();
         assert!(w.journal().iter().any(|line| line.line.contains(expected)));
     }
@@ -805,7 +864,11 @@ fn same_tick_redelivery_resamples_without_advancing_any_controller() {
             .insert("rig.model".into(), std::sync::Arc::new(model));
         let entities: Vec<_> = (0..2)
             .map(|_| {
-                let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+                let e = w.spawn((
+                    Transform::default(),
+                    Mesh::asset("rig.model"),
+                    Ik::default(),
+                ));
                 match controller {
                     0 => w.insert(e, Animation::play("slow").motion_root("")),
                     1 => w.insert(
@@ -887,6 +950,7 @@ fn topology_change_during_fade_completes_and_allows_later_edge() {
     ));
     step(&mut w);
     w.get_mut::<Animator>(e).unwrap().set("go", true);
+    step(&mut w);
     w.step_clock();
     step(&mut w);
     assert_eq!(w.get::<Animator>(e).unwrap().current, 1);
@@ -897,6 +961,7 @@ fn topology_change_during_fade_completes_and_allows_later_edge() {
         .insert("rig.model".into(), std::sync::Arc::new(model));
     step(&mut w);
     for _ in 0..10 {
+        step(&mut w);
         w.step_clock();
         step(&mut w);
     }
@@ -904,7 +969,23 @@ fn topology_change_during_fade_completes_and_allows_later_edge() {
     assert_eq!(a.fade_time, a.fade_duration);
     drop(a);
     w.get_mut::<Animator>(e).unwrap().set("go", false);
+    step(&mut w);
     w.step_clock();
     step(&mut w);
     assert_eq!(w.get::<Animator>(e).unwrap().current, 0);
+}
+
+#[test]
+fn tick_end_is_the_boundary_written_by_motion_springs_and_publications() {
+    let mut w = world();
+    let now = w.now();
+    let end = w.tick_end();
+    assert_eq!(end.tick, now.tick + 1);
+    assert_eq!(end.seconds(), w.dt());
+    let mut spring = crate::Spring::default();
+    spring.set_target(end, 1.);
+    w.publish("time", crate::Value::Number(end.seconds() as f64));
+    w.step_clock();
+    assert_eq!(w.now(), end);
+    assert_eq!(spring.value(w.now()), spring.value(end));
 }

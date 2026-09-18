@@ -50,9 +50,9 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 const WORLD_LIMIT = 256 * 1024 * 1024;
 function worldFile(path) {
-  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit');
+  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   const bytes = readFileSync(path);
-  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit');
+  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   return bytes;
 }
 import { connect, createServer as createTCPServer } from 'node:net';
@@ -120,7 +120,7 @@ export class Cdp {
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export function assertWebDistApp(dist, app) {
-  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run bun host/web/build.mjs ${app.crate('web')}`);
+  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${JSON.stringify(app.dir)} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
 async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess }) {
@@ -138,17 +138,29 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
   const port = server.address().port;
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
-  const child = spawn(chrome, [
+  let child;
+  try {
+    child = spawn(chrome, [
     '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
     '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
     '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
     '--no-default-browser-check', 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
+    await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
+  } catch (error) {
+    server.close();
+    rmSync(profile, {recursive:true, force:true});
+    throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
+  }
   onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l); });
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
+  const exited = new Promise((r) => {
+    child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); });
+    child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`); r(); });
+  });
   const close = async () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
     await exited;
@@ -251,7 +263,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
           // real time so its velocity is real too.
           if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 }); touch = true; }
           if (kind === 'down') {
-            if (contact) throw new Error('a contact is already down; up it first');
+            if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
             await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }] });
             contact = { x: px, y: py };
@@ -630,7 +642,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       const p = await helper();
       const unsupported = (reason) => ({ phase: kind, delivery: 'unsupported', reason });
       if (kind === 'down') {
-        if (contact) throw new Error('a contact is already down; up it first');
+        if (contact) throw new Error('a contact is already down; use `tap up` first');
         const trusted = await p.ask({ op: 'trusted' });
         if (!trusted.trusted) return unsupported('the desktop pointer needs Accessibility permission for this terminal (System Settings › Privacy & Security › Accessibility)');
         await p.ask({ op: 'activate' });
@@ -738,12 +750,19 @@ export function worldView(session, name) {
     tap: code => session.type(name, {key:code}),
     key_down: code => session.type(name, {key:code, phase:'down'}),
     key_up: code => session.type(name, {key:code, phase:'up'}),
-    async position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async global_position(entity) {
+      try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }
+      catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
     async get(entity, component) {
       try {
         return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
       } catch (error) {
-        if (error.reply?.error === `no entity named \`${entity}\``) return undefined;
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
         throw error;
       }
     },
@@ -751,12 +770,32 @@ export function worldView(session, name) {
   };
 }
 
+/** Explain a refused placed-child tap using the world's own visibility. */
+export async function tapRefusal(session, target, error) {
+  try {
+    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
+      const canvasName = canvas.props?.testId ?? canvas.id;
+      const outline = await session.tree(canvasName);
+      if (!outline.entities?.some(entity => entity.name === target)) continue;
+      const owner = `${canvasName}:${target}`;
+      const state = await session.state(owner).catch(() => null);
+      if (!state?.entity?.placed?.hidden) continue;
+      const box = await session.layout(owner);
+      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
+      error.message = `${target} is ${reason}: layout ${owner} shows the placed box; layout ${target} shows the child when mounted`;
+      return error;
+    }
+  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
+  error.message += `; layout ${target} shows the placed box and visibility; tree lists mounted targets`;
+  return error;
+}
+
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
 export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
   if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
-  if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit');
+  if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
@@ -798,7 +837,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** Simulation conveniences use this receiver so proof proxies record every operation. */
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false) => s.op({ op: 'state', ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -821,14 +860,14 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}`);
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets; layout world:${target} shows a placed owner box`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target, required = true) {
       const t = await s.tree();
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
-      if (!node && required) throw new Error(`no view matches ${target}`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets; layout world:${target} shows a placed owner box`);
       return node;
     },
     /**
@@ -848,17 +887,19 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
-      const node = await s.target(target);
+      let node;
+      try { node = await s.target(target); }
+      catch (error) { throw await tapRefusal(s, target, error); }
       if (node.entity !== undefined) {
         const { entity } = await s.op({ op: 'layout', ...node });
-        if (entity?.visible?.inFrustum === false || entity?.visible?.behindCamera === true) throw new Error(`${target} is off screen`);
+        if (entity?.visible?.inFrustum === false || entity?.visible?.behindCamera === true) throw new Error(`${target} is ${entity.visible.behindCamera ? 'hidden (behind the camera)' : 'off screen'}: layout ${target} shows the placed box`);
         const b = entity?.screen;
-        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error(`${target} has no screen box`);
+        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error(`${target} has no screen box; layout ${target} shows visibility; state world:* shows camera/components`);
         const x = b.x + b.w / 2, y = b.y + b.h / 2;
         const { hit } = await s.op({ op: 'layout', id: node.id, world: true, x, y });
-        if (!hit) throw new Error(`${target} is not hit at ${x},${y}`);
-        if (hit.id !== entity.id) throw new Error(`${target} is behind ${hit.name ?? hit.id} at ${x},${y}`);
-        if (s.contact) throw new Error('a contact is already down; up or cancel it first');
+        if (!hit) throw new Error(`${target} is not hit at ${x},${y}; layout ${target} shows its box; layout ${String(target).split(':')[0]} at ${x} ${y} shows the pick`);
+        if (hit.id !== entity.id) throw new Error(`${target} is behind ${hit.name ?? hit.id} at ${x},${y}; layout ${target} shows its box and layout ${String(target).split(':')[0]}:${hit.name ?? hit.id} shows the blocker`);
+        if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
         const down = await carrier.input(node.id, 'down', { x, y });
         const { phase, ...r } = down.delivery === 'unsupported' ? down : await carrier.input(null, 'up', {});
         return s.tagged({ ...r, tapped: node.id, target, entity: node.entity, at: [x, y], delivery: r.delivery ?? s.input.delivery('down'), carrier: host, mode: timing });
@@ -873,10 +914,13 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       const kind = opts.history !== undefined ? 'history' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
-      if (kind === 'down' && s.contact) throw new Error('a contact is already down; up or cancel it first');
+      if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
-      const r = await carrier.input(node.id, kind, { ...opts, ...at });
+      let r;
+      try { r = await carrier.input(node.id, kind, { ...opts, ...at }); }
+      catch (error) { throw await tapRefusal(s, target, error); }
+      if (r.error) r.error = (await tapRefusal(s, target, new Error(r.error))).message;
       if (kind === 'down' && r.delivery !== 'unsupported') s.contact = { x: r.at[0], y: r.at[1] };
       return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: timing });
     },
@@ -916,9 +960,10 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
-      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}`);
+      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
       const r = await s.op(req);
       s.now = r.clock;
+      if (req.settle && r.settled === false) r.diagnostic = `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
@@ -927,10 +972,10 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
         if (!['web','macos','ios','linux'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
         const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
         const {data, ...metadata} = reply;
-        if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes`);
-        if (reply.bytes > WORLD_LIMIT || data.length > 4 * Math.ceil(WORLD_LIMIT / 3)) throw new Error('world carrier exceeds 256 MiB limit');
+        if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes; inspect state and state ${target}:* for the refusal reason`);
+        if (reply.bytes > WORLD_LIMIT || data.length > 4 * Math.ceil(WORLD_LIMIT / 3)) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
         const bytes = Buffer.from(data, 'base64');
-        if (bytes.length !== reply.bytes) throw new Error(`canvas ${target} returned a truncated save`);
+        if (bytes.length !== reply.bytes) throw new Error(`canvas ${target} returned a truncated save; inspect state and logs; retry screenshot checkpoint.world ${target} save`);
         writeFileSync(resolve(path), bytes);
         return s.tagged({...metadata, screenshot:resolve(path)});
       }
@@ -1235,7 +1280,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose'); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]); break;

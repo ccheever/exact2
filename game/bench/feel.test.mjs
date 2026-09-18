@@ -321,11 +321,13 @@ test('Exact recorder joins host draws causally and ignores intervening callbacks
   const target = {exact:{}, requestAnimationFrame: cb => cb(999)};
   const recorder = callbackRecorder(target);
   recorder.begin(10);
-  target.exact.drawCallback(100, 99);
+  target.exact.drawCallback(100, 99, 1);
+  target.exact.drawCallback(100, 99, 1); // resize, same callback generation
+  target.exact.drawCallback(100.3, 99, 2);
   target.requestAnimationFrame(() => {});
-  target.exact.drawCallback(110, 109);
-  const result = recorder.end([99,103,0,0,0,0,0,0, 99,112,0,0,0,0,0,0, 109,113,0,0,0,0,0,0]);
-  expect(result).toEqual({raw_callback_ms:[100,100,110], overflow:false});
+  target.exact.drawCallback(110, 109, 3);
+  const result = recorder.end([99,103,0,0,0,0,0,0, 99,112,0,0,0,0,0,0, 99,112.5,0,0,0,0,0,0, 109,113,0,0,0,0,0,0]);
+  expect(result).toEqual({raw_callback_ms:[100,100,100.3,110], callback_generation:[1,1,2,3], overflow:false});
 });
 
 test('Exact recorder overflow skips the join and is refused by analysis', async () => {
@@ -394,4 +396,22 @@ test('reanalyze retains focus, trial, edge and provisional rules from saved evid
     save({events:raw.events.slice(4)});
     expect(reanalyze([path])[0].error).toContain('Expected 50 delivered events');
   } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('callback generations discard resize rows but retain distinct same-paced callbacks',()=>{
+  const {raw,plan}=fixture();
+  const n=raw.frames.length/8;
+  raw.exact_trace={};
+  raw.raw_callback_ms=Array.from({length:n},(_,i)=>raw.frames[i*8]);
+  raw.callback_generation=Array.from({length:n},(_,i)=>i+1);
+  raw.drawn_clock_ms=[...raw.raw_callback_ms];
+  const original=analyze(raw,plan).frames;
+  // Insert a resize from callback 11, then callback 12 draws that same slot.
+  const at=11;
+  raw.frames.splice(at*8,0,...raw.frames.slice((at-1)*8,at*8));
+  raw.raw_callback_ms.splice(at,0,raw.raw_callback_ms[at-1]);
+  raw.callback_generation.splice(at,0,raw.callback_generation[at-1]);
+  raw.drawn_clock_ms.splice(at,0,raw.drawn_clock_ms[at-1]);
+  raw.drawn_clock_ms[at+1]=raw.drawn_clock_ms[at];
+  expect(analyze(raw,plan).frames).toBe(original);
 });

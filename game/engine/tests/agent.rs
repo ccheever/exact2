@@ -20,7 +20,7 @@ fn hierarchy_preorder_under_and_cap() {
     );
     assert!(s
         .agent(r#"{"op":"layout","entity":"child"}"#)
-        .contains("\"position\":[2,1,0]"));
+        .contains("\"position\":[2.0,1.0,0.0]"));
     for _ in 0..520 {
         s.world_mut().spawn(());
     }
@@ -29,7 +29,7 @@ fn hierarchy_preorder_under_and_cap() {
     assert!(tree.ends_with("\"truncated\":true}"));
     assert_eq!(
         s.agent(r#"{"op":"tree","under":"bad"}"#),
-        r#"{"tick":0,"error":"no entity named `bad`"}"#
+        r#"{"tick":0,"error":"no entity named `bad`; `tree world` lists names; add `w.spawn_named(\"bad\", (Transform::default(),));` in setup if intended"}"#
     );
 }
 #[test]
@@ -78,9 +78,11 @@ fn projection_refusals_and_lossless_state_are_read_only() {
     assert!(s
         .agent(r#"{"op":"state","entity":"child"}"#)
         .contains("0.1234567"));
+    let position = json::to_string(&s.global_position("child").unwrap()).unwrap();
     assert!(s
         .agent(r#"{"op":"layout","entity":"child"}"#)
-        .contains("\"position\":[2.1235,0,0]"));
+        .contains(&format!("\"position\":{position}")));
+    assert!(position.contains("2.1234567"), "{position}");
     assert!(s
         .agent(r#"{"op":"layout","x":0,"y":0}"#)
         .contains("needs an active camera and viewport"));

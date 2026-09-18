@@ -28,7 +28,6 @@ fn pinned_pose_and_hash() {
     let pose = s.agent(r#"{"op":"state","entity":"fox","pose":true}"#);
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
-    assert_eq!(hash, 0x749639d3ffa1be59);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
     if std::env::var_os("EXACT_PIN_POSE").is_some() {
         std::fs::write(&path, &pose).unwrap();
@@ -37,7 +36,13 @@ fn pinned_pose_and_hash() {
     s.run(1000.);
     println!("tick120 0x{:016x}", s.world().hash());
     assert_eq!(s.world().tick(), 120);
-    assert_eq!(s.world().hash(), 0x0960f8999dd20662);
+    exact_game::World::assert_pin(include_str!("../../pins.json"), "skinned-fixture", 60, hash);
+    exact_game::World::assert_pin(
+        include_str!("../../pins.json"),
+        "skinned-fixture",
+        120,
+        s.world().hash(),
+    );
 }
 #[test]
 fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
@@ -120,8 +125,44 @@ fn fox_leg_ik_and_socket() {
         .truncate();
     assert!((tip - a).normalize().distance(Vec3::X) < 1e-4);
     assert!(((tip - a).length() - (a.distance(b) + b.distance(c))).abs() < 1e-4);
-    let charm = s.position("charm").unwrap();
-    assert!(charm.is_finite() && charm.y > 0.5);
+    let socket = animation::socket(s.world(), "fox", "b_Head_05").unwrap();
+    let head = animation::socket_node(s.world(), "fox", "b_Head_05").unwrap();
+    let fox = *s.get::<Transform>("fox").unwrap();
+    let local = s.get::<Pose>("fox").unwrap();
+    let expected =
+        exact_game::Mat4::from_scale_rotation_translation(fox.scale, fox.rotation, fox.position)
+            * animation::joint_matrix(model, &local.local, head);
+    assert!(socket.position.distance(expected.w_axis.truncate()) < 1e-4);
+    // Displayed charm uses the local chain, not its simulation fallback Transform.
+    let gpu = exact_game_render::exact_gpu::fixture::device().unwrap();
+    let mut renderer = exact_game_render::Renderer::new(
+        &gpu.device,
+        &gpu.queue,
+        exact_game_render::exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    renderer.prepare_model("fox.model", model).unwrap();
+    let mut feed = exact_game_render::Feed::default();
+    feed.feed(s.world(), &mut renderer).unwrap();
+    let frame = feed.frame(s.world(), 1., 16. / 9.);
+    let charm = frame
+        .attachments
+        .iter()
+        .find(|a| a.entity == s.world().named("charm").unwrap())
+        .unwrap()
+        .pose;
+    let offset = s.get::<SocketFollow>("charm").unwrap().offset;
+    let expected = (expected
+        * exact_game::Mat4::from_scale_rotation_translation(
+            offset.scale,
+            offset.rotation,
+            offset.position,
+        ))
+    .w_axis
+    .truncate();
+    assert!(
+        charm.position.distance(expected) < 1e-4,
+        "{charm:?}, expected {expected:?}"
+    );
 }
 #[test]
 #[ignore = "release diagnostic: 100 skinned foxes"]
@@ -413,7 +454,7 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
 fn root_motion_walks_the_fox_forward_and_emits_steps() {
     let mut s = sim();
     for tick in 1..=120 {
-        let before = s.position("fox").unwrap();
+        let before = s.global_position("fox").unwrap();
         s.run(1000. / 60. + 0.0001);
         let transform = s.get::<Transform>("fox").unwrap();
         let delta = transform.position - before;

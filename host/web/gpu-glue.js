@@ -172,6 +172,7 @@ async function settled() {
         }
         if (!drew) break;
       }
+      if (exact.gpu.recovery?.status === "recovered") exact.gpu.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
       return [];
     }
     const left = deadline - performance.now();
@@ -200,7 +201,8 @@ const clockFor = (frameNow) => exact.now?.() ?? frameNow;
 let hidden = document.hidden;
 function lifecycle(code) {
   if (code === 0 || code === 1) hidden = code === 0;
-  for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code);
+  const deliver = () => { for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code); };
+  if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   if (hidden && !exact.now && raf !== null) { cancelAnimationFrame(raf); raf = null; }
   if (!hidden) schedule();
 }
@@ -222,6 +224,10 @@ function restoreChild(row) {
 function supplyChildren(entry, module = gpu, staging = false) {
   if (!module.gpu_wants_children_each?.(entry.id)) {
     if (!staging) for (const row of entry.children ?? []) restoreChild(row);
+    if (entry.children) {
+      module.gpu_children_count(entry.id, 0);
+      if (!staging) entry.el.style.zIndex = "-1";
+    }
     entry.children = undefined; return;
   }
   const previous = entry.children ?? [];
@@ -230,6 +236,7 @@ function supplyChildren(entry, module = gpu, staging = false) {
   for (const [i, row] of rows.entries()) {
     const old = previous.find(old => old.el === row.el);
     row.original = old?.original;
+    row.hidden = old?.hidden;
     if (staging || previous[i]?.el !== row.el || row.frame.some((n, j) => n !== previous[i].frame[j]))
       module.gpu_child(entry.id, i, ...row.frame);
   }
@@ -237,9 +244,11 @@ function supplyChildren(entry, module = gpu, staging = false) {
   entry.children = rows;
 }
 function placeChildren(entry) {
+  if (!entry.children) return;
   const h = new Float32Array(10), placed = [];
   for (const [i, row] of (entry.children ?? []).entries()) {
     const outcome = gpu.gpu_placement(entry.id, i, h), el = row.el;
+    row.hidden = outcome === 2;
     if (outcome === 0) { restoreChild(row); continue; }
     row.original ??= {style:Object.fromEntries(["transform","transformOrigin","zIndex","visibility","position"].map(k => [k, el.style[k]])), inert:el.inert};
     el.style.visibility = outcome === 2 ? "hidden" : row.original.style.visibility;
@@ -255,28 +264,58 @@ function placeChildren(entry) {
   // Integer CSS ranks preserve the full float ordering. At equal depth the later
   // Contract child draws/hits last, on native and web alike.
   placed.sort((a,b) => a.depth-b.depth || a.index-b.index);
-  placed.forEach((row,i) => { row.el.style.zIndex = String(i+1); });
+  entry.el.style.zIndex = String(-placed.length-1);
+  placed.forEach((row,i) => { row.el.style.zIndex = String(i-placed.length); });
+}
+
+// Both code replacement and device recovery replace the presentation context.
+const replacementCanvas = entry => entry.el.cloneNode(false);
+function installCanvas(old, entry) {
+  cancelAssets(old); old.observer?.disconnect(); old.unlisten?.();
+  old.el.replaceWith(entry.el);
+  if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
+}
+function recoverDevice() {
+  if (recoveringDevice || !loaded) return recoveringDevice;
+  const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
+  const staged = entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
+  for (const entry of entries) cancelAssets(entry);
+  recoveringDevice = (async () => {
+    const outcome = JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
+    if (gpu !== module) return;
+    if (outcome.status !== "recovered") throw new Error(JSON.stringify(outcome));
+    for (const [old, entry] of staged) {
+      if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
+      entry.values = old.values;
+      installCanvas(old, entry);
+      surfaces.set(entry.view, entry);
+      if (publishers.get(old.name) === old) publishers.set(old.name, entry);
+      entry.wants = true; delete entry.renderedAt;
+      attach(entry); assets(entry);
+    }
+    exact.gpu.recovery = outcome;
+    schedule();
+  })().catch(error => {
+    exact.gpu.recovery = {status:"failed", error:String(error)};
+    exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
+  }).finally(() => { recoveringDevice = null; });
+  return recoveringDevice;
 }
 
 function render(entry, now) {
-  if (hidden && !exact.now) return;
+  if ((hidden && !exact.now) || recoveringDevice) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
-  if (r < 2) { placeChildren(entry); entry.renderedAt = clockFor(now); }
+  if (r < 2) {
+    exact.drawCallback?.(frameRaw, clockFor(now), frameGeneration, entry.view);
+    placeChildren(entry); entry.renderedAt = clockFor(now);
+  }
   if (r === 3) {
     entry.wants = false;
-    if (!recoveringDevice) {
-      for (const current of surfaces.values()) cancelAssets(current);
-      const module = gpu;
-      recoveringDevice = module.gpu_load().then(() => {
-        if (gpu !== module) return;
-        for (const current of surfaces.values()) { assets(current); current.wants = true; }
-        schedule();
-      }).catch(error => console.error("exact gpu recovery:", error)).finally(() => { recoveringDevice = null; });
-    }
+    recoverDevice();
     return;
   }
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
@@ -297,12 +336,12 @@ function render(entry, now) {
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
 let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
-let sentPeriod = 0;
+let sentPeriod = 0, frameGeneration = 0, frameRaw = 0;
 function frame(now) {
   raf = null;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
-  exact.drawCallback?.(now, at); // Optional bench observer: only this callback draws.
+  frameRaw = now; frameGeneration++;
   // Bootstrap and subsequent stable fits reach the module once per real change.
   const period = pace.period_ms;
   if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
@@ -360,6 +399,7 @@ function restorePending(entry, module = gpu, carrier = exact) {
 
 function ensure(entry) {
   if (entry.id || !loaded) return;
+  if (recoveringDevice) { recoveringDevice.then(() => { if (surfaces.get(entry.view) === entry) ensure(entry); }); return; }
   try {
     create(entry, gpu, entry.carry);
     if (!entry.restoreError && !entry.pendingRestore) delete entry.carry;
@@ -425,9 +465,14 @@ function listen(entry) {
     if (live(entry.view) !== entry) return;
     // Preserve device ordering. Sim clamps queued live stamps to the paced frame
     // at advance; an already delivered event is never future to that callback.
-    if (!gpu.gpu_input(entry.id, JSON.stringify({ ...value, at: exact.now?.() ?? event.timeStamp }))) console.error("exact gpu:", gpu.gpu_error());
-    messages(entry);
-    schedule();
+    const id = entry.id, json = JSON.stringify({ ...value, at: exact.now?.() ?? event.timeStamp });
+    const deliver = () => {
+      const current = live(entry.view);
+      if (current?.id !== id) return;
+      if (!gpu.gpu_input(id, json)) console.error("exact gpu:", gpu.gpu_error());
+      messages(current); schedule();
+    };
+    if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   };
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
@@ -442,7 +487,7 @@ function listen(entry) {
     send(event, { t: "wheel", dx: event.deltaX, dy: event.deltaY, ...point(event) });
   }, { passive: false });
   // A restored keydown (including a queued one) still owns its future keyup.
-  const held = new Set();
+  const held = entry.heldKeys ??= new Set();
   entry.resampleHeld = () => {
     if (!entry.restoredCarry) return;
     const world = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
@@ -518,6 +563,7 @@ function worlds(request) {
 }
 
 exact.gpu = {
+  deviceLost() { queueMicrotask(() => recoverDevice()); },
   drainRecords,
   agent,
   settled,
@@ -602,7 +648,15 @@ exact.gpu = {
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
       ensure(entry); return; }
     entry.values = values;
-    if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
+    if (entry.id) {
+      const id = entry.id, at = exact.now?.();
+      const bind = () => {
+        const current = live(view); if (current?.id !== id) return;
+        if (!gpu.gpu_bind_at(id, JSON.stringify(values), at)) console.error("exact gpu:", gpu.gpu_error());
+        current.values = values; messages(current); schedule();
+      };
+      if (recoveringDevice) recoveringDevice.then(bind); else bind();
+    }
   },
   destroy(view) {
     const entry = surfaces.get(view);
@@ -655,7 +709,21 @@ exact.gpu = {
       replaceShaders(rows, module);
     };
   },
-  layout() { for (const entry of surfaces.values()) if (entry.id) { supplyChildren(entry); } schedule(); },
+  placementHidden(el) {
+    for (const entry of surfaces.values()) for (const row of entry.children ?? [])
+      if (row.hidden && (row.el === el || row.el.contains(el))) return true;
+    return false;
+  },
+  beforeStyle(el) {
+    for (const entry of surfaces.values()) for (const row of entry.children ?? [])
+      if (row.el === el) restoreChild(row);
+  },
+  afterStyle(el) {
+    for (const entry of surfaces.values()) if (entry.children?.some(row => row.el === el)) {
+      supplyChildren(entry); placeChildren(entry);
+    }
+  },
+  layout() { for (const entry of surfaces.values()) if (entry.id) { supplyChildren(entry); placeChildren(entry); } schedule(); },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
@@ -695,6 +763,7 @@ async function loadModule(version) {
 }
 async function swap(version) {
   await ready;
+  await recoveringDevice;
   if (loaded && version === exact.gpu.version) return { ms: 0, errors: [] };
   const start = performance.now(), next = await loadModule(version), staged = [];
   const carrier = { worldCarry: exact.worldCarry };
@@ -709,7 +778,7 @@ async function swap(version) {
     // canvases; the old canvases and their worlds remain untouched until commit.
     // No await from carry through cutover; input cannot arrive between them.
     for (const old of surfaces.values()) {
-      const entry = { ...old, el: old.el.cloneNode(false), id: 0, observer: null, unlisten: null };
+      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, unlisten: null };
       delete entry.restoreError; delete entry.attemptedCarry;
       delete entry.pendingRestore; delete entry.restoreReported;
       staged.push([old, entry]);
@@ -731,8 +800,7 @@ async function swap(version) {
   if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
   const oldModule = gpu;
   for (const [old, entry] of staged) {
-    cancelAssets(old); old.observer?.disconnect(); old.unlisten?.();
-    old.el.replaceWith(entry.el);
+    installCanvas(old, entry);
     if (publishers.get(old.name) === old) publishers.set(old.name, entry);
     surfaces.set(entry.view, entry);
     if (old.id) oldModule.gpu_destroy(old.id);

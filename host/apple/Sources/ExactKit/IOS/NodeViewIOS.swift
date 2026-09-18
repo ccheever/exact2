@@ -713,16 +713,17 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+        // Ordinary HUD paints above the captured children, so it hits first.
+        let inOverlay = overlay.convert(point, from: self)
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+            if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
+        }
         // Nearest first: what is seen on top is what a tap reaches.
         for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
             let p = NodeView.map(inv, point)
             guard child.bounds.contains(p) else { continue }
             if let hit = child.hitTest(p, with: event) { return hit }
-        }
-        let inOverlay = overlay.convert(point, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
-            if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
         }
         return self
     }

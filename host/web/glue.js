@@ -678,7 +678,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) el.style.cssText = op.css;
+        if (el) { exact.gpu?.beforeStyle(el); el.style.cssText = op.css; exact.gpu?.afterStyle(el); }
         break;
       }
       case "children": {
@@ -1014,7 +1014,7 @@ function nodeDetail(id) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const rect = (r) => ({ x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) });
   const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
-  const r = el.getBoundingClientRect();
+  const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
   node.space = {
     viewport: rect(r),
     local: { w: r2(el.clientWidth), h: r2(el.clientHeight) },
@@ -1217,7 +1217,7 @@ function agentReply(request) {
         const nodes = [];
         for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
           if (!el.isConnected) continue;
-          const r = el.getBoundingClientRect();
+          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
           const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
           if (el instanceof HTMLIFrameElement) {
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);

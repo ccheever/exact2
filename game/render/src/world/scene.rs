@@ -67,6 +67,7 @@ struct Light {
 #[derive(Default)]
 pub(super) struct Scene {
     versions: Option<[u64; 3]>,
+    attachments: Attachments,
     camera: Option<(History, Camera)>,
     sun: Option<(History, DirectionalLight)>,
     lights: Vec<Light>,
@@ -93,6 +94,7 @@ impl Scene {
     }
     pub fn reset(&mut self) {
         self.versions = None;
+        self.attachments = Attachments::default();
         self.camera = None;
         self.sun = None;
         self.lights.clear();
@@ -105,7 +107,15 @@ impl Scene {
         moved: bool,
         structure: bool,
         parent_changed: bool,
+        assets_changed: bool,
     ) {
+        self.attachments.feed(
+            w,
+            self.versions.is_none(),
+            next_tick,
+            parent_changed,
+            assets_changed,
+        );
         let versions = [
             w.revision::<Camera>(),
             w.revision::<DirectionalLight>(),
@@ -173,11 +183,20 @@ impl Scene {
         }
         if next_tick || moved || structure || old != Some(versions) {
             self.count = 0;
-            let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| h.curr.position);
+            self.attachments.frame(1.);
+            let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| {
+                displayed(&self.attachments.output, h.entity, h.curr).position
+            });
             let mut distances = [f32::INFINITY; 16];
             for (i, light) in self.lights.iter_mut().enumerate() {
                 light.history.update(w, next_tick, parent_changed);
-                let distance = light.history.curr.position.distance_squared(camera);
+                let distance = displayed(
+                    &self.attachments.output,
+                    light.history.entity,
+                    light.history.curr,
+                )
+                .position
+                .distance_squared(camera);
                 // Selected lights keep membership until a challenger is >10% nearer.
                 // Entity order breaks exact ties; this scan happens only at feed time.
                 let score = if light.selected {
@@ -197,9 +216,8 @@ impl Scene {
             }
             self.selected[..self.count].sort_unstable_by(|a, b| {
                 let distance = |i: usize| {
-                    self.lights[i]
-                        .history
-                        .curr
+                    let h = self.lights[i].history;
+                    displayed(&self.attachments.output, h.entity, h.curr)
                         .position
                         .distance_squared(camera)
                 };
@@ -219,11 +237,15 @@ impl Scene {
         pixels: bool,
     ) -> FrameInput<'_> {
         let alpha = alpha.clamp(0.0, 1.0);
-        let (camera_pose, mut camera) = self
-            .camera
-            .map_or((Transform::default(), Camera::default()), |(h, c)| {
-                (h.at(alpha), c)
-            });
+        self.attachments.frame(alpha);
+        let (camera_pose, mut camera) =
+            self.camera
+                .map_or((Transform::default(), Camera::default()), |(h, c)| {
+                    (
+                        displayed(&self.attachments.output, h.entity, h.at(alpha)),
+                        c,
+                    )
+                });
         if !pixels {
             if let exact_game::Projection::Orthographic { integer_scale, .. } =
                 &mut camera.projection
@@ -235,7 +257,12 @@ impl Scene {
         for i in 0..self.count {
             let l = &self.lights[self.selected[i]];
             let point = PointLightInput {
-                position: l.history.at(alpha).position,
+                position: displayed(
+                    &self.attachments.output,
+                    l.history.entity,
+                    l.history.at(alpha),
+                )
+                .position,
                 color: l.light.color.into(),
                 intensity: l.light.intensity,
                 range: l.light.range,
@@ -243,7 +270,9 @@ impl Scene {
             self.output[i] = point;
         }
         let sun = self.sun.map(|(h, s)| Sun {
-            direction: (h.at(alpha).rotation * -Vec3::Z).normalize_or(-Vec3::Y),
+            direction: (displayed(&self.attachments.output, h.entity, h.at(alpha)).rotation
+                * -Vec3::Z)
+                .normalize_or(-Vec3::Y),
             color: s.color.into(),
             // 10,000 lux maps to the renderer's default key radiance of 3.
             illuminance: s.illuminance * 0.0003,
@@ -268,6 +297,7 @@ impl Scene {
             points: &self.output[..self.count],
             environment: e,
             timestamps: None,
+            attachments: &self.attachments.output,
         }
     }
 }
@@ -288,4 +318,187 @@ pub(crate) fn interpolate([a, b]: [Transform; 2], alpha: f32) -> Transform {
         scale: a.scale.lerp(b.scale, t),
         rotation: glam::Quat::from_vec4(q.try_normalize().unwrap_or(glam::Vec4::W)),
     }
+}
+
+/// One displayed attachment plus the ordinary histories restored after submission.
+#[derive(Clone, Copy)]
+pub struct DisplayedAttachment {
+    /// Entity whose drawing, lights and placed children use this pose.
+    pub entity: Entity,
+    /// World pose composed from interpolated local joints.
+    pub pose: Transform,
+    pub(crate) history: [Transform; 2],
+}
+struct Attachment {
+    history: History,
+    owner: History,
+    chain: Vec<[Transform; 2]>,
+    offset: Transform,
+    model_digest: u64,
+}
+#[derive(Default)]
+pub(crate) struct Attachments {
+    owners: std::collections::BTreeMap<Entity, History>,
+    items: Vec<Attachment>,
+    pub output: Vec<DisplayedAttachment>,
+}
+impl Attachments {
+    pub fn feed(
+        &mut self,
+        w: &World,
+        initial: bool,
+        next_tick: bool,
+        parent_changed: bool,
+        models_changed: bool,
+    ) {
+        if initial {
+            self.owners.clear();
+        }
+        self.owners.retain(|e, _| w.contains(*e));
+        for owner in self.owners.values_mut() {
+            owner.update(w, next_tick, parent_changed);
+        }
+        // Retain animated owners before attachments are spawned so a new charm
+        // inherits the owner's displayed history, rather than snapping its bones.
+        for (e, _) in w.query::<&exact_game::Pose>().iter() {
+            if let Some(t) = pose(w, e) {
+                self.owners.entry(e).or_insert_with(|| History::new(e, t));
+            }
+        }
+        let mut at = 0;
+        for (e, follow) in w.query::<&exact_game::SocketFollow>().iter() {
+            let target = match &follow.target {
+                exact_game::FollowTarget::Entity(e) => Some(*e),
+                exact_game::FollowTarget::Name(n) => w.named(n),
+            };
+            let Some(target) = target else { continue };
+            let (Some(home), Some(owner)) = (pose(w, e), pose(w, target)) else {
+                continue;
+            };
+            let Ok(node) = exact_game::animation::socket_node(w, target, &follow.joint) else {
+                continue;
+            };
+            let Some(mesh) = w.get::<exact_game::Mesh>(target) else {
+                continue;
+            };
+            let exact_game::Mesh::Asset(name) = &*mesh else {
+                continue;
+            };
+            let Some(model) = w.model(name) else { continue };
+            while at < self.items.len() && self.items[at].history.entity.index() < e.index() {
+                self.items.remove(at);
+            }
+            let fresh = initial
+                || !self
+                    .items
+                    .get(at)
+                    .is_some_and(|v| v.history.entity == e && v.owner.entity == target);
+            if fresh {
+                if self.items.get(at).is_some_and(|v| v.history.entity == e) {
+                    self.items.remove(at);
+                }
+                self.items.insert(
+                    at,
+                    Attachment {
+                        history: History::new(e, home),
+                        owner: History::new(target, owner),
+                        chain: vec![],
+                        offset: follow.offset,
+                        model_digest: exact_game::hash::of(model),
+                    },
+                );
+            }
+            let item = &mut self.items[at];
+            item.history.update(w, next_tick, parent_changed);
+            item.owner = *self
+                .owners
+                .entry(target)
+                .or_insert_with(|| History::new(target, owner));
+            let model_changed = if models_changed {
+                let digest = exact_game::hash::of(model);
+                let changed = item.model_digest != digest;
+                item.model_digest = digest;
+                changed
+            } else {
+                false
+            };
+            item.offset = follow.offset;
+            item.chain.clear();
+            let sampled = w.get::<exact_game::Pose>(target);
+            let rest;
+            let (prev, curr) = if let Some(p) = sampled.as_ref().filter(|p| {
+                p.local.len() == model.nodes.len() * 10 && p.previous.len() == p.local.len()
+            }) {
+                (&p.previous[..], &p.local[..])
+            } else {
+                rest = exact_game::animation::bind_pose(model);
+                (&rest[..], &rest[..])
+            };
+            let snap = initial || model_changed || snap(w, target, parent_changed);
+            let mut node = Some(node);
+            while let Some(i) = node {
+                let start = i as usize * 10;
+                let read = |p: &[f32]| Transform {
+                    position: Vec3::from_slice(&p[start..]),
+                    rotation: glam::Quat::from_slice(&p[start + 3..]).normalize(),
+                    scale: Vec3::from_slice(&p[start + 7..]),
+                };
+                item.chain
+                    .push([read(if snap { curr } else { prev }), read(curr)]);
+                node = model.nodes[i as usize].parent;
+            }
+            item.chain.reverse();
+            at += 1;
+        }
+        self.items.truncate(at);
+        self.output.clear();
+        self.output.reserve(self.items.len());
+    }
+    fn matrix(&self, index: usize, alpha: f32, remaining: usize) -> Mat4 {
+        let item = &self.items[index];
+        if remaining == 0 {
+            return matrix(item.history.at(alpha));
+        }
+        let owner = self
+            .items
+            .iter()
+            .position(|v| v.history.entity == item.owner.entity)
+            .map_or_else(
+                || matrix(item.owner.at(alpha)),
+                |i| self.matrix(i, alpha, remaining - 1),
+            );
+        item.chain.iter().fold(owner, |m, pair| {
+            m * crate::skinning::interpolated_local(*pair, alpha)
+        }) * matrix(item.offset)
+    }
+    pub fn frame(&mut self, alpha: f32) {
+        self.output.clear();
+        for (i, item) in self.items.iter().enumerate() {
+            let (scale, rotation, position) = self
+                .matrix(i, alpha, self.items.len())
+                .to_scale_rotation_translation();
+            self.output.push(DisplayedAttachment {
+                entity: item.history.entity,
+                pose: Transform {
+                    scale,
+                    rotation,
+                    position,
+                },
+                history: [item.history.prev, item.history.curr],
+            });
+        }
+    }
+}
+fn matrix(t: Transform) -> Mat4 {
+    Mat4::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+}
+pub(crate) fn displayed(
+    attachments: &[DisplayedAttachment],
+    entity: Entity,
+    fallback: Transform,
+) -> Transform {
+    attachments
+        .iter()
+        .find(|v| v.entity == entity)
+        .map_or(fallback, |v| v.pose)
 }

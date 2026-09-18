@@ -78,6 +78,7 @@ pub(super) fn frame() -> FrameInput<'static> {
             bloom: None,
         },
         timestamps: None,
+        attachments: &[],
     }
 }
 

@@ -34,15 +34,23 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
+    /// Name or slot for a setup error.
+    fn label(&self) -> String;
     /// Resolve a live entity, without reviving a stale handle.
     fn entity(self, world: &World) -> Option<Entity>;
 }
 impl Target for Entity {
+    fn label(&self) -> String {
+        format!("#{}", self.index())
+    }
     fn entity(self, world: &World) -> Option<Entity> {
         world.contains(self).then_some(self)
     }
 }
 impl Target for &str {
+    fn label(&self) -> String {
+        (*self).into()
+    }
     fn entity(self, world: &World) -> Option<Entity> {
         world.resolve(self)
     }
@@ -175,7 +183,6 @@ pub struct World {
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     pub(crate) animation: crate::animation::Runtime,
-    pub(crate) animation_tick: Option<fn(&mut World)>,
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
@@ -221,7 +228,6 @@ impl World {
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             animation: Default::default(),
-            animation_tick: None,
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
@@ -465,9 +471,6 @@ impl World {
         {
             self.remove::<crate::Pose>(e);
         }
-        if removed.is_some() && TypeId::of::<C>() == TypeId::of::<crate::Socket>() {
-            self.remove::<crate::animation::SocketPose>(e);
-        }
         removed
     }
     /// Test membership without borrowing the component's values.
@@ -496,6 +499,10 @@ impl World {
         QueryBorrow::new(self)
     }
     /// Current global position, including ancestor transforms; None if missing.
+    pub fn local_position(&self, target: impl Target) -> Option<crate::Vec3> {
+        self.get::<crate::Transform>(target).map(|t| t.position)
+    }
+    /// Current global position, including parents.
     pub fn global_position(&self, target: impl Target) -> Option<crate::Vec3> {
         self.current_global(target.entity(self)?)
             .map(|pose| pose.translation.into())
@@ -649,6 +656,13 @@ impl World {
     pub fn hz(&self) -> u32 {
         self.state.hz
     }
+    /// End of the step being authored, in the same units as `now()`.
+    pub fn tick_end(&self) -> crate::Now {
+        crate::Now {
+            tick: self.tick().checked_add(1).expect("world clock exhausted"),
+            hz: self.hz(),
+        }
+    }
     /// One fixed step, in seconds.
     pub fn dt(&self) -> f32 {
         1.0 / self.hz() as f32
@@ -732,9 +746,6 @@ impl World {
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
-        if let Some(step) = self.animation_tick {
-            step(self);
-        }
         self.mutated();
         self.in_tick = false;
         self.state.tick = self
@@ -828,7 +839,6 @@ impl World {
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
         next.assets = self.assets.clone();
-        next.animation_tick = self.animation_tick;
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;

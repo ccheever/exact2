@@ -36,7 +36,12 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         Vec3::new(0.0, 0.9, -5.3666644)
     );
-    assert_eq!(one.world().hash(), 0x71f43e51a13cc49f);
+    exact_game::World::assert_pin(
+        include_str!("../../pins.json"),
+        "greybox",
+        90,
+        one.world().hash(),
+    );
 }
 #[test]
 fn beacon_messages_journal_and_settle() {
@@ -124,18 +129,29 @@ fn agent_snapshots_and_pick() {
     ];
     for (name, expected, request) in forms {
         let got = s.agent(request);
-        assert_eq!(got, expected.trim(), "{name}");
+        if name == "state" {
+            exact_game::World::assert_pin(
+                include_str!("../../pins.json"),
+                "greybox",
+                0,
+                s.world().hash(),
+            );
+        }
+        let expected = expected
+            .trim()
+            .replace("{pin:0}", &format!("0x{:016x}", s.world().hash()));
+        assert_eq!(got, expected, "{name}");
     }
     let screen = s.layout("player").unwrap().screen;
     let hit = s.pick(screen.center()).unwrap();
     assert_eq!(s.world().name(hit.entity), Some("player"));
     assert_eq!(
         s.agent(r#"{"op":"state","entity":"missing"}"#),
-        r#"{"tick":0,"error":"no entity named `missing`"}"#
+        r#"{"tick":0,"error":"no entity named `missing`; `tree world` lists names; add `w.spawn_named(\"missing\", (Transform::default(),));` in setup if intended"}"#
     );
     assert_eq!(
         s.agent(r#"{"op":"wat"}"#),
-        r#"{"tick":0,"error":"unknown op `wat`"}"#
+        r#"{"tick":0,"error":"unknown op `wat`; use tree, screenshot, tap, type, state, layout, logs or clock"}"#
     );
     assert!(s
         .agent(r#"{"op":"layout","entity":"player","now":1000}"#)

@@ -12,7 +12,7 @@ use exact_linux::paint::PaintedBox;
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
@@ -430,24 +430,25 @@ fn an_embedded_image_is_not_opened_on_the_boot_thread() {
         .unwrap();
     let mut images = Images::new(dir.clone());
     let writer_path = fifo.clone();
+    let (release, barrier) = std::sync::mpsc::channel();
     let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(250));
+        // A timeout only breaks a regressed synchronous reader out of its deadlock.
+        let scheduled_first = barrier.recv_timeout(Duration::from_secs(5)).is_ok();
         use std::io::Write as _;
         let mut writer = std::fs::OpenOptions::new()
             .write(true)
             .open(writer_path)
             .unwrap();
         writer.write_all(b"not a png").unwrap();
+        scheduled_first
     });
-    let started = Instant::now();
     let reports = images.sync(&kernel, &kernel.roots());
-    let elapsed = started.elapsed();
-    assert!(reports.is_empty(), "the worker owns the first image report");
+    let _ = release.send(());
     assert!(
-        elapsed < Duration::from_millis(100),
-        "image scheduling waited {elapsed:?} for the FIFO reader"
+        writer.join().unwrap(),
+        "sync waited for the worker's FIFO read"
     );
-    writer.join().unwrap();
+    assert!(reports.is_empty(), "the worker owns the first image report");
     images.wait(Duration::from_secs(2));
     let _ = std::fs::remove_dir_all(fifo.parent().unwrap());
 }

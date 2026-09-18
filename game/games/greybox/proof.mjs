@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { proof } from '../../proof.mjs';
 import { audioProof } from '../../bench/probes/audio.mjs';
 
-await proof(import.meta, async ({open, check, equal, out, host, say}) => {
+await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
 const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   let session = await open();
   const s = session;
@@ -29,18 +29,17 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
   const initial = await s.state();
-  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x9a871d8582d905e7', initial?.world?.[0]?.hash);
+  pin(0, initial.world[0]);
   const down = await s.world('world').key_down('KeyW');
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.world('world').run(1500);
   const player = await s.world('world').get('player', 'Mesh');
-  const position = await s.world('world').position('player');
+  const position = await s.world('world').global_position('player');
   check('player has the exact authored capsule', equal(player,
     {Capsule:{height:1.8, radius:0.4}}), player);
   check('W for 1500 ms equals the native pinned position', equal(position, [0, 0.9, -5.3666644]), position);
   const forward = await s.state();
-  const hash = forward?.world?.[0]?.hash;
-  check('W for 1500 ms equals the current native hash', hash === '0x71f43e51a13cc49f', hash);
+  pin(90, forward.world[0]);
   check('1500 ms advances exactly 90 ticks', forward?.world?.[0]?.tick === 90, forward?.world?.[0]?.tick);
   const layout = await s.layout('world:player');
   const box = layout?.entity?.screen;
@@ -112,11 +111,11 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   // Key events from HUD descendants fall through, except the control's own keys.
   {
     await s.tap('pause');
-    const beforeKeys = await s.world('world').position('player');
+    const beforeKeys = await s.world('world').global_position('player');
     await s.type('pause', {key:'KeyW',phase:'down'});
     await s.world('world').run(500);
     await s.type('pause', {key:'KeyW',phase:'up'});
-    const afterKeys = await s.world('world').position('player');
+    const afterKeys = await s.world('world').global_position('player');
     check('W bubbles from the focused Resume button and moves the world', afterKeys?.[2] < beforeKeys?.[2]);
     await s.world('world').key_down('Space');
     await s.tap('pause');
@@ -126,7 +125,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     await s.type('pause', {key:'Space'});
     check('Space activates the focused button', (await s.state()).world[0].paused);
     await s.tap('pause'); await s.world('world').run(100);
-    const afterSpace = await s.world('world').position('player');
+    const afterSpace = await s.world('world').global_position('player');
     check('button Space never queues a world jump', afterSpace?.[1] === 0.9, afterSpace);
     await s.tap('pause');
   }
@@ -134,7 +133,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await s.tap('pause');
   await s.world('world').key_down('KeyW');
   await s.world('world').run(100);
-  const resumed = await s.world('world').position('player');
+  const resumed = await s.world('world').global_position('player');
   check('Resume continues the existing world', resumed?.[2] < paused.entities.find(e => e.name === 'player').components.Transform.position[2]);
   await s.world('world').key_up('KeyW');
 
@@ -150,7 +149,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const saved = await session.world('world').save(worldFile);
   const continueWorld = async () => {
     await session.world('world').run(500);
-    const jumped = await session.world('world').position('player');
+    const jumped = await session.world('world').global_position('player');
     check('saved queued jump executes after capture', jumped?.[1] > 0.9, jumped);
     await session.world('world').key_up('Space');
     await session.world('world').run(1000);
@@ -159,6 +158,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   };
   const uninterrupted = await continueWorld();
   await session.world('world').save(originalFile);
+  pinSave("continuation", originalFile);
   await session.close(); session = null; say('CLOSED original browser/process before restoring');
   session = await open({world:worldFile});
   check('save waits behind Play', !node(await session.tree(), 'world'));

@@ -1,5 +1,5 @@
-use crate::{math, queries::queries, Body, BodyKind, Character, Collider, Shape};
-use exact_game::{Entity, Transform, Vec3, World};
+use crate::{math, queries::queries, Body, BodyKind, CapsuleController, Collider, Shape};
+use exact_game::{Entity, Target, Transform, Vec3, World};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::{
     control::{CharacterAutostep, CharacterLength, KinematicCharacterController},
@@ -7,17 +7,18 @@ use rapier3d::{
 };
 
 /// Move an upright capsule through Rapier's character controller, then apply its
-/// documented collision impulses to bodies within Character.mass's push budget.
-/// Horizontal input is m/s; the game owns Character.velocity.y (gravity/jumps).
+/// documented collision impulses to bodies within CapsuleController.mass's push budget.
+/// Horizontal input is m/s; the game owns CapsuleController.velocity.y (gravity/jumps).
 /// Installs a kinematic sensor Body/Collider. Call before physics::step.
-pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
+fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> CapsuleStep {
     let mut c = world
-        .get::<Character>(e)
-        .expect("physics: entity needs Character")
+        .get::<CapsuleController>(e)
+        .expect("physics: entity needs CapsuleController")
         .clone();
     let mut pose = *world
         .get::<Transform>(e)
         .expect("physics: character needs Transform");
+    let before = pose.position;
     assert!(
         pose.rotation == exact_game::Quat::IDENTITY && pose.scale == Vec3::ONE,
         "physics: characters must be upright with unit scale"
@@ -30,7 +31,7 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
             && c.step.is_finite()
             && c.step >= 0.0
             && (0.0..90.0).contains(&c.slope_degrees),
-        "physics: invalid Character"
+        "physics: invalid CapsuleController"
     );
     if !world.has::<Body>(e) {
         world.insert(
@@ -180,6 +181,47 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     }
     drop(scene_guard);
     drop(view);
+    let result = CapsuleStep {
+        displacement: pose.position - before,
+        grounded: c.grounded,
+    };
     world.insert(e, pose);
     world.insert(e, c);
+    result
+}
+
+/// Actual collision-constrained movement, including support/platform carry.
+#[derive(Clone, Copy, Debug)]
+pub struct CapsuleStep {
+    /// World displacement applied this step.
+    pub displacement: Vec3,
+    /// Ground contact at the end of this step.
+    pub grounded: bool,
+}
+/// Named collision controller; its step releases all world/component leases.
+pub struct CapsuleHandle<'a> {
+    world: &'a mut World,
+    entity: Entity,
+}
+/// Address a CapsuleController + Transform by name or handle.
+pub fn capsule(world: &mut World, target: impl Target) -> CapsuleHandle<'_> {
+    let label = target.label();
+    let entity = target
+        .entity(world)
+        .unwrap_or_else(|| panic!("capsule target `{label}` does not exist"));
+    assert!(
+        world.has::<CapsuleController>(entity),
+        "capsule target `{label}` has no CapsuleController"
+    );
+    assert!(
+        world.has::<Transform>(entity),
+        "capsule target `{label}` has no Transform"
+    );
+    CapsuleHandle { world, entity }
+}
+impl CapsuleHandle<'_> {
+    /// Move using horizontal metres/second and the controller's saved vertical velocity.
+    pub fn step(self, velocity: Vec3) -> CapsuleStep {
+        move_capsule(self.world, self.entity, velocity)
+    }
 }

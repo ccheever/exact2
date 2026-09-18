@@ -82,10 +82,17 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
 }
 /** Explicit Swift scratch directory; no shared publication path. */
 // SwiftPM's native build system nests products under the triple; the classic
-// one (Xcode's toolchain) writes them straight into `release/`.
-const productPath = (product, triple, buildRoot) => {
-  const nested = resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
-  return existsSync(nested) ? nested : resolve(buildRoot, 'release', product);
+// one (Xcode's toolchain) writes them straight into `release/`. Both candidates
+// are removed before every build and exactly one must exist after it, so a
+// toolchain switch can never hand over a stale executable from the other layout.
+export const productCandidates = (product, triple, buildRoot) => [
+  resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product),
+  resolve(buildRoot, 'release', product),
+];
+export const builtProduct = (product, triple, buildRoot) => {
+  const built = productCandidates(product, triple, buildRoot).filter((path) => existsSync(path));
+  if (built.length !== 1) throw new Error(`swift build left ${built.length} copies of ${product} (${productCandidates(product, triple, buildRoot).join(', ')}); expected exactly one`);
+  return built[0];
 };
 
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
@@ -532,7 +539,7 @@ function main(args) {
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
-  for (const p of products) rmSync(productPath(p, triple, swiftBuildRoot), { force: true });
+  for (const p of products) for (const path of productCandidates(p, triple, swiftBuildRoot)) rmSync(path, { force: true });
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
@@ -555,7 +562,7 @@ function main(args) {
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
-    copyFileSync(productPath(p, triple, swiftBuildRoot), executable);
+    copyFileSync(builtProduct(p, triple, swiftBuildRoot), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.

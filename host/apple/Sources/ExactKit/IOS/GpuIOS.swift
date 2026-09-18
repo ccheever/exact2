@@ -141,6 +141,7 @@ final class Canvases {
     /// canvas exists.
     /// The smoke's line: loaded (with the load time and counts) or why not.
     var status: String {
+        if let failed { return "failed: \(failed)" }
         if module != nil { return "module loaded in \(String(format: "%.1f", loadedMs ?? 0)) ms; \(entries.count) canvases; \(rendered) renders" }
         return "not loaded: \(failed ?? (entries.isEmpty ? "no canvas" : "not requested"))"
     }
@@ -155,6 +156,7 @@ final class Canvases {
             FileHandle.standardError.write(Data("exact gpu: \(e.message)\n".utf8))
         case .success(let m):
             module = m
+            m.canvases.add(self)
             loadedMs = (CACurrentMediaTime() - t) * 1000
             // The shaders as files (LLP 1030 D8), from the app's asset root
             // (LLP 1031 D1): the app's directory in dev, the bundle in a
@@ -207,6 +209,11 @@ final class Canvases {
         let t0 = CACurrentMediaTime()
         defer { windowCaptures += 1; windowCaptureSeconds += CACurrentMediaTime() - t0 }
         for (i, child) in children.enumerated() {
+            if child.frame.width <= 0 || child.frame.height <= 0 || (child.style["display"] as? String) == "none" {
+                let r = m.child(e.id, UInt32(i), 0, 0, 0, 0, 0, 0, nil, 0)
+                if r != 0 { return false }
+                continue
+            }
             let hidden = child.isHidden
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
@@ -238,6 +245,9 @@ final class Canvases {
             child.alpha = outcome == 0 ? 1 : 0
             if changed { child.placementChanged() }
         }
+        // Alpha suppresses duplicate composition only. VoiceOver traverses the
+        // explicitly supplied children; hidden placements are excluded.
+        overlay.accessibilityElements = overlay.subviews.compactMap { $0 as? NodeView }.filter { !$0.placementHidden && !$0.isHidden }
     }
 
     /// Every canvas whose children changed since its last capture is painted
@@ -282,8 +292,8 @@ final class Canvases {
         // The texture about to be drawn into may be the one the module is
         // reading (its last frame; its copy into the previous children):
         // its work first.
-        if !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
-        if !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
+        if !m.recovered, !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
+        if !m.recovered, !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
             // Zero-copy (LLP 1008 §9): the module samples the texture the
             // renderer drew, as it is.
             guard live(e.view.id) === e else { return }
@@ -321,10 +331,12 @@ final class Canvases {
             e.each = each
             e.through = each || m.wantsChildren(e.id) != 0
             e.view.needsCapture = e.through
+            if !each { _ = m.childrenCount(e.id, 0) }
             if !each, let overlay = e.view.overlay {
                 for case let child as NodeView in overlay.subviews {
                     child.placement = nil; child.placementHidden = false; child.alpha = 1
                 }
+                overlay.accessibilityElements = nil
                 overlay.alpha = e.through ? 0 : 1
             }
         }
@@ -362,7 +374,7 @@ final class Canvases {
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data.assumingMemoryBound(to: UInt8.self), w * h * 4)
         defer { messages(e) }
         e.readAt = at
-        if r == 3 { e.rendered(3); return nil }
+        if r == 3 { rendered(e, 3); return nil }
         if r == 1 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return nil
@@ -446,7 +458,7 @@ final class Canvases {
             windowRenders += 1
             windowRenderSeconds += CACurrentMediaTime() - t0
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
-            e.rendered(r)
+            rendered(e, r)
             rendered += 1
             more = more || e.wants
             readPlacements(m, e)

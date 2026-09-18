@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 import { residencyProbe, checkResidency, checkSteadyResidency } from '../asset-fixture/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
-await proof(import.meta, async ({open, check, equal, out, say, host}) => {
+await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
   const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex');
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
     const reply = await probe.fetch(request); if(reply) return reply;
@@ -19,6 +20,7 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   const start = async world => { const s = await open({...server && {url:`http://127.0.0.1:${server.port}/`},...world && {world}}); await s.tap('play'); return s; };
   const s = await start();
   const ready = (await s.state()).world[0];
+  say(`module asset states: ${JSON.stringify(ready.assets)}`);
   await s.world('world').run(750);
   const at45 = await s.world('world').snapshot();
   check('save is mid-transition at tick 45', at45.tick === 45 && at45.entities.find(e=>e.name==='fox').components.Animator.since > 0);
@@ -29,21 +31,33 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   writeFileSync(resolve(out,`pose-60-${host}.json`), JSON.stringify(pose.pose));
   const pinned = JSON.parse(readFileSync(resolve(import.meta.dir,'logic/tests/tick60.json'),'utf8'));
   check('all 24 joint world transforms match the native tick-60 pin', pose.tick===60 && equal(pose.pose,pinned.pose));
-  check('tick-60 cross-host hash', (await s.world('world').snapshot()).hash==='0x749639d3ffa1be59');
+  pin(60, await s.world('world').snapshot());
   const layout = await s.layout('world:fox');
   check('animated bounds are available through layout', !!layout.entity?.bounds, layout.entity?.bounds);
-  if(host !== 'linux') await s.screenshot(resolve(out,`fox-mid-stride-${host}.png`));
+  if(host !== 'linux') {
+    const path = resolve(out,`fox-mid-stride-${host}.png`);
+    await s.screenshot(path);
+    const image = decodePng(readFileSync(path));
+    let orange = 0, sample;
+    // Fox fur is orange. The white fallback, blue ground and yellow marker
+    // cannot pass this red/green/blue separation in the model's central region.
+    for(let y=Math.floor(image.height*.35);y<image.height*.7;y++) for(let x=Math.floor(image.width*.35);x<image.width*.7;x++) {
+      const i=(y*image.width+x)*4, [r,g,b]=image.data.subarray(i,i+3);
+      if(r>g*1.35 && g>b*1.2 && r>70 && g>20) { orange++; sample ??= {x,y,rgb:[r,g,b]}; }
+    }
+    check('Fox screenshot has textured orange fur', orange>100, {orange,sample});
+  }
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();
-  check('tick-120 cross-host hash', at120.tick===120 && at120.hash==='0x0960f8999dd20662',at120.hash);
-  const referenceSave=resolve(out,`fox-120-reference-${host}.world`);await s.world('world').save(referenceSave);
+  pin(120, at120);
+  const referenceSave=resolve(out,`fox-120-reference-${host}.world`);await s.world('world').save(referenceSave); pinSave('continuation',referenceSave);
   const log=await s.logs();
   check('fixture consumes step markers', JSON.stringify(log).includes('fox footstep'));
   check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
   const afterTicks = (await s.state()).world[0];
   checkSteadyResidency(afterTicks, check, say, host);
   if(host==='web') await checkResidency(probe,s,check,say);
-  else say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
+  else if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
   await s.close();
   const restored = await start(save);
   check('fresh process restores mid-transition exactly',equal(await restored.world('world').snapshot(),at45));

@@ -5,6 +5,9 @@
 import Foundation
 import CryptoKit
 import CExact
+#if os(macOS)
+import Metal
+#endif
 
 /// Why the module could not be loaded.
 struct GpuLoadError: Error { let message: String }
@@ -96,6 +99,24 @@ final class GpuModule {
     let agent: BindFn?
     private let outPtr: ErrorPtrFn?
 
+    var recover: LoadFn?
+    let canvases = NSHashTable<Canvases>.weakObjects()
+    private var recovering = false
+    private(set) var recovered = false
+    private var deviceObserver: NSObjectProtocol?
+
+    func recoverDevice() {
+        guard !recovering else { return }
+        recovering = true
+        defer { recovering = false }
+        let data = recover.flatMap { output($0()) }
+        let outcome = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let ok = outcome?["status"] as? String == "recovered"
+        recovered = ok
+        let reason = ok ? nil : "device recovery: \(error()) \(outcome ?? [:])"
+        for owner in canvases.allObjects { owner.recoveredDevice(ok, error: reason) }
+    }
+
     let create: CreateFn
     let bind: BindFn
     let render: RenderFn
@@ -147,6 +168,15 @@ final class GpuModule {
         }
         let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), published: sym("gpu_published", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
+        module.recover = sym("gpu_recover", LoadFn.self)
+        #if os(macOS)
+        let devices = MTLCopyAllDevicesWithObserver { [weak module] _, name in
+            if name == .wasRemoved || name == .removalRequested {
+                DispatchQueue.main.async { module?.recoverDevice() }
+            }
+        }
+        module.deviceObserver = devices.observer
+        #endif
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)

@@ -13,6 +13,7 @@ fn slerp_skin(a:vec4<f32>,v:vec4<f32>,t:f32)->vec4<f32> {
     if d>0.9995 {return rotation(mix(a,b,t));}
     let angle=acos(d); return rotation((sin((1.0-t)*angle)*a+sin(t*angle)*b)/sin(angle));
 }
+// Attachments use this same interpolate-local-then-compose rule (skinning.rs).
 fn local_pose(p:u32,c:u32)->mat4x4<f32> {
     let a=frame.camera_alpha.w;
     let t=mix(vec3(poses[p],poses[p+1u],poses[p+2u]),vec3(poses[c],poses[c+1u],poses[c+2u]),a);

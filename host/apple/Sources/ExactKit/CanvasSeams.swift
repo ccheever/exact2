@@ -52,6 +52,22 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    func recoveredDevice(_ ok: Bool, error: String?) {
+        failed = error
+        if let error { fputs("exact gpu: \(error)\n", stderr); restoreJournal.append(["lines": [error]]) }
+        for entry in entries.values {
+            entry.presentable = ok; entry.wants = ok
+            entry.uploaded = false; entry.readAt = -1
+            entry.view.needsCapture = true
+            if ok { messages(entry) }
+        }
+        session?.frames.requestCanvas()
+    }
+    func rendered(_ entry: Entry, _ result: UInt32) {
+        if result == 3 { module?.recoverDevice() }
+        else { entry.rendered(result) }
+    }
+
     func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
         guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
         let now = session?.now() ?? 0
@@ -153,8 +169,10 @@ extension Canvases {
 
     func messages(_ e: Entry) {
         if live(e.view.id) === e, let m = module, let take = m.assets, let deliver = m.asset {
+            var delivered = false
             for _ in 0..<16 {
                 guard let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty else { break }
+                delivered = true
                 for name in names {
                     let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }
                     let chars = Array(name.utf8)
@@ -176,6 +194,12 @@ extension Canvases {
                     if let error { fputs("exact gpu: \(error)\n", stderr) }
                     finishRestore(m, e, refusal: error)
                 }
+            }
+            // Establish the ready world's epoch at delivery, even when occlusion
+            // prevents its first presentation. Recovery never moves that clock.
+            if delivered, let ask = m.agent,
+               let data = try? JSONSerialization.data(withJSONObject: ["op": "clock", "now": session?.now() ?? 0]) {
+                data.withUnsafeBytes { _ = ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
             }
         }
         if let m = module { finishRestore(m, e) }

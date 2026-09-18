@@ -44,6 +44,11 @@ impl Abi {
         unsafe {
             for name in [
                 "gpu_load_headless",
+                "gpu_recover",
+                "gpu_child",
+                "gpu_children_count",
+                "gpu_wants_children_each",
+                "gpu_placement",
                 "gpu_unload",
                 "gpu_create_headless",
                 "gpu_bind_at",
@@ -240,7 +245,17 @@ impl Surfaces {
         if !updates.is_empty() && !self.attempted {
             self.attempted = true;
             match Abi::open(&serde_json::from_str(compat).unwrap_or(Value::Null)) {
-                Ok(abi) => self.abi = Some(abi),
+                Ok(abi) => {
+                    let length =
+                        unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
+                    let report = abi
+                        .bytes(length)
+                        .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                    if report.as_ref().is_none_or(|r| r["status"] != "no device") {
+                        self.error = Some("headless recovery did not report no device".into());
+                    }
+                    self.abi = Some(abi);
+                }
                 Err(e) => host.log(format!("surface module unavailable: {e}")),
             }
         }
@@ -432,6 +447,91 @@ impl Surfaces {
         }
         changed
     }
+    pub(crate) fn placements<D: DataSource>(
+        &self,
+        host: &Host<D>,
+    ) -> BTreeMap<u32, crate::placement::Placement> {
+        use crate::placement::Placement;
+        let mut result = BTreeMap::new();
+        let Some(abi) = &self.abi else {
+            return result;
+        };
+        for (&view, canvas) in &self.canvases {
+            let Some(node) = host.kernel().node(view) else {
+                continue;
+            };
+            if unsafe { abi.symbol::<Read>(b"gpu_wants_children_each")(canvas.id) } == 0 {
+                continue;
+            }
+            let children = node.children();
+            for (i, id) in children.iter().enumerate() {
+                let Some(child) = host.kernel().node(*id) else {
+                    continue;
+                };
+                let f = child.frame;
+                unsafe {
+                    abi.symbol::<unsafe extern "C" fn(
+                        u32,
+                        u32,
+                        f32,
+                        f32,
+                        f32,
+                        f32,
+                        u32,
+                        u32,
+                        *const u8,
+                        usize,
+                    ) -> u32>(b"gpu_child")(
+                        canvas.id,
+                        i as u32,
+                        f.x - node.frame.x,
+                        f.y - node.frame.y,
+                        f.width,
+                        f.height,
+                        0,
+                        0,
+                        std::ptr::null(),
+                        0,
+                    );
+                }
+            }
+            unsafe {
+                abi.symbol::<unsafe extern "C" fn(u32, u32) -> u32>(b"gpu_children_count")(
+                    canvas.id,
+                    children.len() as u32,
+                );
+            }
+            // The no-device executor computes the same placements at the committed
+            // viewport/clock, without trying to render a GPU frame.
+            abi.agent(canvas.id,&json!({"op":"state","now":host.now(),"width":node.frame.width,"height":node.frame.height}));
+            for (i, id) in children.iter().enumerate() {
+                let mut h = [0.; 10];
+                let code = unsafe {
+                    abi.symbol::<unsafe extern "C" fn(u32, u32, *mut f32, usize) -> u32>(
+                        b"gpu_placement",
+                    )(canvas.id, i as u32, h.as_mut_ptr(), h.len())
+                };
+                match code {
+                    1 => {
+                        result.insert(
+                            *id,
+                            Placement::Visible {
+                                h: h[..9].try_into().unwrap(),
+                                depth: h[9],
+                                canvas: view,
+                            },
+                        );
+                    }
+                    2 => {
+                        result.insert(*id, Placement::Hidden);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        result
+    }
+
     fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
             self.abi
@@ -709,6 +809,11 @@ mod tests {
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
+uint32_t gpu_recover(void) { return 0; }
+uint32_t gpu_child(void) { return 0; }
+uint32_t gpu_children_count(void) { return 0; }
+uint32_t gpu_wants_children_each(void) { return 0; }
+uint32_t gpu_placement(void) { return 0; }
 void gpu_unload(void) {}
 uint32_t gpu_create_headless(void) { return 1; }
 uint32_t gpu_bind_at(void) { return 0; }

@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {equal} from './proof.mjs';
+import {equal, agreePins, webUnavailable} from './proof.mjs';
 
 const [name, ...args] = process.argv.slice(2);
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
+const repin = args.includes('--repin');
 const hosts = option('--hosts', 'linux,web').split(','), repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1
     || !hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux'].includes(h))) {
@@ -16,20 +17,54 @@ const app = resolve(import.meta.dir, 'games', name), script = resolve(app, 'proo
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
 const root = resolve(app, 'artifacts/prove');
 mkdirSync(root, {recursive:true});
-const run = async (host, index, build = false) => {
-  const out = resolve(root, `${host}-${build ? 'build' : index}`);
+const run = async (host, index, build = false, mode = '0') => {
+  const out = resolve(root, `${host}-${mode}-${build ? 'build' : index}`);
   mkdirSync(out, {recursive:true});
   const child = spawn(process.execPath, [script, host, ...(build ? ['--build-only'] : [])], {
-    env:{...process.env, EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build ? '0' : '1'},
+    env:{...process.env, EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode},
     stdio:['ignore','pipe','pipe'],
   });
   let log = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {log += bytes;});
   const code = await new Promise((ok, reject) => {child.on('exit', ok); child.on('error', reject);});
   writeFileSync(resolve(out, 'run.log'), log);
-  if (code !== 0) throw new Error(`${host} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`);
+  if (code !== 0) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {webUnavailable:host === 'web' && webUnavailable(log)});
   return {...JSON.parse(readFileSync(resolve(out, 'summary.json'), 'utf8')), repeat:index};
 };
+if (repin) {
+  const pinFile = resolve(app, 'pins.json'), before = JSON.parse(readFileSync(pinFile, 'utf8'));
+  const rows = [], errors = [], exercised = [];
+  if (!hosts.includes('linux')) throw new Error('repin requires the linux host; use --hosts linux,web');
+  // A single web dist is mode-specific: bake and run each mode serially.
+  for (const host of hosts) {
+    let unavailable = false;
+    try {
+      for (const mode of ['0', '1', 'fresh-game']) {
+        try { rows.push(await run(host, 1, false, mode)); }
+        catch (error) {
+          if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: configured Chrome could not launch (ENOENT); recording linux only. Set CHROME and rerun to verify web.'); break; }
+          errors.push(error);
+        }
+      }
+    } finally {
+      // Leave ordinary mode's receipt/product, including after a refusal.
+      if (host === 'web' && !unavailable) try { await run(host, 0, true); } catch (error) { errors.push(error); }
+    }
+    if (!unavailable) exercised.push(host);
+  }
+  for (const error of errors) console.error(error.message);
+  if (errors.length) throw new Error('repin refused: mode/host proof failed; pins.json unchanged; inspect artifacts/prove/*/run.log and rerun the named proof with --paranoid');
+  const candidate = agreePins(rows, before, exercised);
+  const revision = spawnSync('git', ['rev-parse', 'HEAD'], {cwd:app, encoding:'utf8'});
+  if (revision.status !== 0) throw new Error('repin refused: cannot identify commit; pins.json unchanged');
+  const command = `bun game/prove.mjs ${name} --repin${args.includes('--hosts') ? ` --hosts ${hosts.join(',')}` : ''}`;
+  const after = {...candidate, generated:command, at:revision.stdout.trim()};
+  for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
+    console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
+  if (!exercised.includes('web')) console.log('WEB not exercised; pins record linux only, no web agreement claimed.');
+  writeFileSync(pinFile, JSON.stringify(after, null, 2)+'\n');
+  if (args.includes('--report')) for (const row of rows) for (const hint of row.facilities ?? []) console.log(`REPORT ${row.host} ${row.mode}: ${hint}`);
+} else {
 // Bakes share Cargo and asset output. Complete those serially, then run the
 // independent host processes in parallel with separate receipts/save paths.
 for (const host of hosts) await run(host, 0, true);
@@ -53,4 +88,7 @@ for (const row of rows) {
 }
 for (const failure of failures) console.error(failure.reason);
 writeFileSync(resolve(root, 'summary.json'), JSON.stringify({passed:!failed, rows}, null, 2)+'\n');
+if (args.includes('--report')) for (const row of rows) for (const hint of row.facilities ?? []) console.log(`REPORT ${row.host}: ${hint}`);
 process.exitCode = failed ? 1 : 0;
+
+}

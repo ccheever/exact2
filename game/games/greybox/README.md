@@ -26,8 +26,7 @@ a zero-lag `Follow` retains the original camera offset. The engine places the ca
 0.9 metres and clamps XZ to ±19.6 metres. `near_xz` selects beacons by player name. Seekable Sim
 observes changed components, springs and explicitly reported work when settling.
 
-E5 pins checked in Chrome wasm and the Linux headless host on this arm64 Mac: setup `0x9a871d8582d905e7`, W for 1,500 ms
-`0x71f43e51a13cc49f`, player `[0, 0.9, -5.3666644]`. Read all components with
+E5 pins checked in Chrome wasm and the Linux headless host on this arm64 Mac: setup and W for 1,500 ms hashes in [pins.json](pins.json), player `[0, 0.9, -5.3666644]`. Read all components with
 `state world:*`; hold a key with `type world KeyW for 1500`. These are forms of the
 existing eight operations.
 

@@ -104,7 +104,7 @@ impl Game for SmallGame {
         if args.plates > 0 {
             return;
         }
-        let t = w.tick() as f32 / w.hz() as f32;
+        let t = w.tick_end().seconds();
         let (sin, cos) = (math::sin(t * 0.6), math::cos(t * 0.6));
         *w.get_mut::<Transform>("camera").unwrap() =
             Transform::at(sin * 8., 3., cos * 8.).looking_at(Vec3::new(0., 1., 0.), Vec3::Y);

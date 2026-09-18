@@ -218,8 +218,20 @@ fn pipelines_and_particle_capacity_are_ready_before_first_emitter() {
         &gpu.queue,
         wgpu::TextureFormat::Rgba8Unorm,
     );
+    let primitive = crate::renderer::RendererWithAssets::<false>::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    assert_eq!(
+        primitive.quads.pipeline_count(),
+        if cfg!(target_arch = "wasm32") { 2 } else { 6 }
+    );
     let before = r.residency_work();
-    assert_eq!(r.quads.pipeline_count(), 5);
+    assert_eq!(
+        r.quads.pipeline_count(),
+        if cfg!(target_arch = "wasm32") { 5 } else { 6 }
+    );
     let mut w = World::new(60, 0);
     w.spawn((Transform::default(), Emitter::default()));
     w.propagate();

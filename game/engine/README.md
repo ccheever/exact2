@@ -140,7 +140,19 @@ required to load it. The storage tests are suitable for Miri; neither installed
 nightly on the R2 machine includes Miri, so that run remains owed.
 
 Reverse one-shot initialization belongs to the controller: standalone Animation
-uses the sign of its initial zero clock (negative zero before sampling, positive
-zero at completion); Animator uses its own elapsed clock. Installing either on an
+saves an explicit `sampled` boolean (false before its first successful sample); Animator uses its own elapsed clock. Installing either on an
 existing socket pose starts at the end. Both clocks are saved, so restore does not
 restart a completed controller. Pose inspection validates both history lengths.
+
+
+Animation is explicit: `let motion = animation::step(w)` samples once; its owned
+result lets the game consume markers and call `transform.translate_local(...)`
+without holding playback leases. Registration installs no callback. Attachments
+choose their joint with `SocketFollow::new("fox", "head").offset(t)` and never
+write simulation transforms. `animation::socket(w, target, joint)` returns the current
+world-space tick endpoint; the renderer composes displayed attachments from the
+interpolated local chain. `tick_end()` returns `Now` for the boundary being authored;
+use it for root-motion time, springs and HUD publication, retaining `now()` for the
+completed boundary. `Sim` and `World` expose explicit `local_position`/`global_position`.
+Character contact includes actual displacement; collision movement uses the separate
+physics `CapsuleController` handle so both component types coexist.

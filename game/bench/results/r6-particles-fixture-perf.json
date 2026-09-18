@@ -2170,7 +2170,7 @@
           "pipelineCreations": 0,
           "modelSkinBufferReallocations": 0
         },
-        "bufferScope": "model instances and skin buffers only; excludes vertex/index, primitive pages and slots"
+        "bufferScope": "model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots"
       }
     },
     "canvas": [

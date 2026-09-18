@@ -1,5 +1,17 @@
 # game/ — the game engine add-on
 
+- To see the game: `bun game/dev.mjs beacons` (commands run from the repository root).
+- To change it: edit `game/games/beacons/logic/src/lib.rs` or `game/games/beacons/app.contract`; the dev page reloads.
+- To verify gameplay: `bun game/games/beacons/proof.mjs linux`.
+- To verify pixels: `bun game/games/beacons/proof.mjs web`.
+- To check save/setup determinism: `bun game/games/beacons/proof.mjs linux --paranoid`.
+- When pins move intentionally: `bun game/prove.mjs beacons --repin` (all modes, Linux and web).
+- Without a web carrier: `bun game/prove.mjs beacons --repin --hosts linux` (records Linux only).
+- When something stalls: `EXACT_APP_DIR=game/games/beacons EXACT_WEB_DIST=game/games/beacons/dist bun scripts/agent.mjs web "tap play" "clock settle" "state world:* busy" state logs`.
+- To see a box or blocker: `EXACT_APP_DIR=game/games/beacons EXACT_WEB_DIST=game/games/beacons/dist bun scripts/agent.mjs web "tap play" "layout world:player"`.
+- To find unused diagnostic facilities after a proof: `bun game/prove.mjs beacons --report`.
+
+
 An agent-native game engine on exact2, as an **add-on**: its own Cargo workspace,
 absent from the root `members`, so the five checks never compile it and an app
 without a world carries none of it (LLP 1041 §5). The record of why is LLP 1041 and
@@ -125,14 +137,14 @@ impl Game for SmallGame {
             if let Some(e) = nearest {
                 let mut beacon = w.get_mut::<Beacon>(e).unwrap();
                 beacon.lit = true;
-                beacon.glow.set_target(w.now(), 1.0);
+                beacon.glow.set_target(w.tick_end(), 1.0);
             }
         }
         let near = nearest.filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
             .and_then(|e| w.name(e)).unwrap_or("").to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
+            material.emissive = [beacon.glow.value(w.tick_end()) * 3.0; 3];
             count += u32::from(beacon.lit);
         }
         w.publish_record(&Hud { lit: count, near });
@@ -152,7 +164,7 @@ fn main() {
 ```
 
 `Character` composes `Move`, `Jump` and `Gravity`. Its velocity and configuration
-are saved and hashed as a component on the player. `step` reports `grounded`,
+are saved and hashed as a component on the player. `step` reports `displacement`, `grounded`,
 `jumped` and `landed`; bounds stop outward velocity, braking and landing arrive
 exactly. It uses no physics dependency; collider worlds can use Rapier's controller.
 `near` and `near_xz` return `(entity, pose)` in entity order, with an inclusive radius
@@ -182,6 +194,44 @@ and global positions, including parent chains (XZ ignores height). A missing ori
 - **Iteration is in entity order, always** — storage scans presence bitmasks in
   ascending index order, so a world loaded from a save replays exactly as the one
   that wrote it.
+
+## Author API changes (S4)
+
+| Before | After |
+|---|---|
+| `Socket("head")` on fox; `SocketFollow::new("fox")` | `SocketFollow::new("fox", "head").offset(t)` on each attachment; `animation::socket(w, "fox", "head")` for gameplay |
+| Registering animation secretly installs a second step | `let motion = animation::step(w);` then `fox.translate_local(motion.root_motion("fox"))` |
+| Core and physics both register `Character` | Core `Character` and physics `CapsuleController`; `w.character("player").step(wish, jump)` and `physics::capsule(w, "player").step(velocity)` |
+| `(w.tick() + 1) as f32 * w.dt()` | `w.tick_end().seconds()`; the same `Now` value feeds springs and publication timestamps |
+| Native and JS `position` disagree | Both expose `local_position` and `global_position` |
+| Read player position before and after stepping | `let moved = w.character("player").step(wish, jump); moved.displacement.xz().length()` |
+| Resolve an entity before `.at(entity)` | `w.play("footstep").at("player").pitch(p).start()` |
+| `State::new("survey", Play::Clip("Survey".into()))`; `Condition::Arg("speed".into(), Cmp::Gt, 0.5.into())` | `State::clip("survey", "Survey")`; `Condition::gt("speed", 0.5)` (same saved data) |
+| A title/audio edit owns every manifest default | `{"name":"Lanterns"}` or `{"game":{"audio":true}}` overrides only authored keys; generated metadata retains ownership across refreshes |
+| A fixture helper manufactures `strip.tex` | Put `strip.png` in `art/`; bake emits `assets/strip.tex` (sRGB, straight alpha, nearest sampling and mips, clamp edges) |
+| `Animation.time = -0.0` means unsampled | `Animation.sampled = false`; a saved boolean survives reverse-one-shot completion/restore |
+
+`animation::step` reads best beside the fixture's explicit parameter update and root-motion
+application. The two movement handles keep their different inputs clear: the core motor
+accepts wish/jump; the optional collision controller accepts velocity and never makes the
+core depend on physics. `w.now()` is the completed boundary on entry; `w.tick_end()` is the
+boundary the current tick produces. Sample and retarget end-of-tick spring values with it.
+
+## Proof pins
+
+Each game's `pins.json` is the sole hash authority. Its proof calls `pin(tick, state)`
+and `pinSave("continuation", path)`; Rust tests use `World::assert_pin(include_str!("../../pins.json"), game, tick, hash)`.
+The tiny Data parser skips metadata; it is smaller than a generated `pins.rs` build step.
+`bun game/prove.mjs beacons --repin` runs continuous, Save and FreshGame on Linux
+and web, refuses incomplete or disagreeing tick/save observations, then rewrites only
+`pins.json` and prints old → new. Other proof assertions still run. `hosts` records
+only exercised hosts. A missing configured Chrome executable (ENOENT) records
+Linux only; a web proof failure still refuses. `CHROME` selects the browser,
+which runs headless. `at` is HEAD, not a claim that the working tree was clean.
+New games start with empty pins until that command succeeds. Screenshots, receipts,
+transcripts and saves belong under ignored `artifacts/`; only README-cited evidence
+is retained. No ninth operation. `--report` names unused facilities tied to observed
+refusals/stalls; it does not infer that an unused operation would help a passing run.
 
 ## Determinism — the contract (LLP 1041.001 D5)
 
@@ -277,10 +327,15 @@ game/games/my-game/
 Default `logic/Cargo.toml` and `app.json` are tracked with a generated header
 (`# Generated by the game bake;` in Cargo, `_generated` in JSON). The bake refreshes
 their derived crate name, literal `Game::ID` and type when these change; unchanged
-bytes keep their timestamps. Remove the header to author an override, which always
-wins. Defaults materialize before Cargo workspace discovery, including when absent.
-Nonliteral/cfg/macro declarations supply an authored `app.json`; Rust checks the
-exported type. Greybox retains its authored `app.json` for `game.audio: true`.
+bytes keep their timestamps. Start with `{"name":"Lanterns"}` or
+`{"game":{"audio":true}}`: only those keys override defaults, recursively. The bake
+records authored keys plus the last resolved values in `_generated`, and writes a
+complete manifest for the Contract compiler. Subsequent direct edits become overrides;
+unchanged generated values continue following new defaults and literal Game declarations.
+A name override also supplies the default short name and host title. Remove the header
+from a **complete** manifest for whole-document ownership and unusual Rust exports.
+Defaults materialize before Cargo workspace discovery, including when absent.
+Greybox demonstrates title/audio overrides; asset fixtures override only `game.assets`.
 
 New action games explicitly set `Game::HZ = 120`: the first Feel sitting measured
 3.5–4.1 ms event-to-submitted-pose latency there. At 120 Hz, integer-millisecond
@@ -339,7 +394,7 @@ The same shared cadence helper tests initial persistence, boundaries, 120 ↔ 80
 hysteresis, dropped intervals and alternating 60/120 Hz sessions. These fixtures
 open no audio device; iOS was not driven here. See `audio/README.md` for the bounds.
 
-Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The Swift fixtures and web proofs do not establish those claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). Spatial `play().at(entity)` is tested while `Transform` is mutably borrowed; it resolves positions later, preserving a final position at despawn.
+Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The Swift fixtures and web proofs do not establish those claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). Spatial `play().at("player")` is tested while `Transform` is mutably borrowed; it resolves positions later, preserving a final position at despawn.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolve checks manifest syntax and the package name, but
@@ -410,18 +465,23 @@ Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs
 Declaring a model also declares every texture it references. Setup, tick zero,
 clocks and saves wait for those dependencies. `Loaded` means validated content is
 ready. Device preparation is separate: loss preserves content readiness, re-requests
-texture bytes and prepares pipelines again. Module-level recovery is verified:
-retained content is re-uploaded, pipelines re-prepare, and native fixture pixels are
-identical on a replacement device. **Host recovery is owed.** Native hosts lack a
-recovery ABI: Apple result 3 makes a canvas non-presentable and `gpu_load` would
-destroy the module surface table. The web keeps the old instance’s presentation
-surface/context, producing a black canvas. The required native ABI requests a
-replacement device while preserving the surface table; web recovery must recreate
-each canvas’s surface/context on the new device, as module swap does. Both analyses:
-`review-S3ac-sol.md` (`gpu/src/native.rs:224`, `CanvasSeams.swift:353`,
-`gpu/src/lib.rs:358`, `gpu-glue.js:148,583`) and `review-S3ac-grok.md`
-(`gpu/src/web.rs:33–60`, `gpu/src/native.rs:90–99`). No renderer-owned decoded
-mip copy survives upload; Apple’s generation store still retains delivered bytes. A loading carry refuses with named asset states, including when a
+texture bytes and prepares pipelines again. `gpu_recover` requests a new adapter/device/queue without loading a new module
+or replacing surface IDs, inputs, messages or simulation state. Native returns a
+JSON outcome through `gpu_out_ptr`; web resolves that JSON after configuring new
+canvases, sharing canvas replacement with code reload. Each instance reports its
+preparation state; its world `gpu` counters and `readyReasons` report completed
+redelivery and the first recovered draw. Apple handles result 3 and Metal removal,
+rebinds its existing layers, and recaptures children. A headless Linux module
+returns `no device` without requesting an adapter.
+
+The asset fixture destroys a real browser `GPUDevice`: recovered pixels match
+exactly, the one retained texture is fetched once, pipelines prepare again, and
+`readyReasons` is empty. Native tests destroy a device and retain the same surface
+table; physical Metal removal is unavailable on this Apple Silicon machine.
+No renderer-owned decoded mip copy survives upload. Apple's verified generation
+moves `.tex` payloads to private, read-only reloadable files and releases their
+heap buffers; files leave with the generation. Native screenshots use the
+presentation format, so BGRA-to-RGBA readback no longer discards Fox residency. A loading carry refuses with named asset states, including when a
 restore is deferred. Hosts retain a deferred carrier until `state.restored` confirms commit; a late
 refusal populates the surface restore error and journal once and leaves the fresh
 world usable. `Surface::restore(bytes, Restore::Carry)` overlays fresh audio
@@ -477,17 +537,14 @@ attempts with five-second attempt deadlines, 250/500 ms retry delays and a
 before joining/copying the body; development assets have the same pre-copy limit. A 404 is missing; 5xx/offline failures retry and then
 become named failures. A failed declaration draws its final status and stops asking
 for frames; failed cosmetics never receive a first-frame stamp. Destruction/recreation
-cancels flights. Apple’s resolver avoids a second `.tex` cache, but the generation
-store retains the delivered `Data`; moving those bytes to private reloadable files
-is owed (`review-S3ac-sol.md`, `Session.swift:214`, `PlanURL.swift:583,604`).
+cancels flights. Apple’s generation store materializes verified `.tex` payloads in
+private reloadable files and releases the delivered `Data`; recovery can re-read them.
 Its resolver caches reusable
 fonts, images, models and shaders. `settled()` returns
 remaining flight names when its sixteen rounds or deadline expire.
 
 
-Owed after R1: host-level device recovery as described above; Apple delivered-`.tex`
-bytes retained by the generation store (move to private files); primitive-module
-size reduction (D3's link map and per-cut measurements are [below](#module-size);
+Owed after R1: primitive-module size reduction (D3's link map and per-cut measurements are [below](#module-size);
 the current 764,322-byte Beacons module still exceeds the 550 KB target);
 real-device Apple interruption and multi-display sweeps; WebAudio resume-failure
 propagation. The file:line references name the six blind reviews of 4869f48c, cached under
@@ -612,7 +669,7 @@ old worlds running. Dev bindgen glue has function scope so old Wasm instances ca
 be collected; production keeps its static ES module loader.
 
 The native `Sim` and `session.world("world")` share `run(ms)`, `settle()`,
-`tap(code)`, `hold(code, ms)`, `key_down`, `key_up`, `position(entity)` and `get`.
+`tap(code)`, `hold(code, ms)`, `key_down`, `key_up`, `local_position(entity)`, `global_position(entity)` and `get`.
 Rust reads use `get::<Component>(entity)`; JavaScript uses `get(entity, "Component")`.
 JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` keeps
 simulation fields only. These helpers dispatch the existing eight agent operations.
@@ -624,9 +681,9 @@ Native spatial reads use `sim.layout("player").unwrap().screen` and
 `sim.pick(rect.center())`; set `sim.viewport(width, height)` for CSS-pixel coordinates.
 Both use the agent's geometry, current global poses and viewport. A missing entity,
 camera, projected rectangle or hit returns `None`.
-`World::global_position` and `Sim::position` read current global positions;
-the JavaScript agent's `position` reads local `Transform.position`. Use its
-`layout` response's `entity.world.position` for global coordinates.
+`World`, native `Sim`, and the JavaScript driver use `local_position` for the
+entity's Transform and `global_position` for its current parent-composed position.
+There is no ambiguous `position` helper.
 `w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit)` searches eligible
 candidates before choosing distance, breaking ties by the lowest entity index.
 `w.character("player").step(wish, jump)` mutably borrows the world and consumes
@@ -648,10 +705,12 @@ A fresh reverse standalone one-shot starts at the clip end (an explicitly nonzer
 `time` is retained).
 `Animation`, `Blend`, and `Animator` are alternatives; insertion refuses a second
 controller. Each dereferences to the same saved `animation::Playback` interface:
-`crossed("step")` and `root_motion()`. Animation advances once per fixed tick,
-after the game's tick. Call `animation::step(w)` earlier to consume this tick's
-markers or motion; the automatic second call does nothing to the sampled pose.
-It still refreshes socket followers after the game has applied the owner's motion.
+`crossed("step")` and `root_motion()`. The game explicitly calls
+`let motion = animation::step(w);` once where animation belongs in its tick. Nothing
+runs on registration or at tick end. The owned result reads
+`motion.crossed("fox", "step")` and `motion.root_motion("fox")` without component
+leases. Repeat calls do not advance playback; the early guard precedes entity queries.
+Displayed attachments are presentation dependencies, so moving the owner needs no second step.
 
 Declare the motion root explicitly with `.motion_root("b_Root_00")` on any controller.
 There is no inferred first joint and no motion extraction without a declaration.
@@ -661,8 +720,7 @@ nodes unique names when that choice would be ambiguous to the author.
 The selected node's local translation is held at its bind anchor; extracted deltas
 include complete forward or backward loops and are returned in model coordinates
 (through the sampled parent's basis when the node has a parent). Applying
-`transform.rotation * (transform.scale * playback.root_motion())` to the entity's
-position therefore does not double its travel or snap at a loop. Rotation remains
+`transform.translate_local(motion.root_motion("fox"))` to the entity therefore does not double its travel or snap at a loop. Rotation remains
 in the local pose. The game owns Transform, including collisions or rejection of
 motion; animation never moves it. Locomotion roots should have stationary ancestors.
 
@@ -675,9 +733,8 @@ Two bracketing clips share normalized phase, advanced by
 An exact knot samples and emits markers only from its active clip. Source clips still
 need compatible foot contacts; phase matching cannot repair the art.
 
-`Animator::new([State::new("walk", Play::Clip("Walk".into())).to("run",
-Condition::Arg("speed".into(), Cmp::Gt, 2.0.into())),
-State::new("run", Play::Clip("Run".into())).fade(0.2)])` is all `Data`.
+`Animator::new([State::clip("walk", "Walk").to("run",
+Condition::gt("speed", 2.0)), State::clip("run", "Run").fade(0.2)])` is all `Data`.
 Use `state_named("run")`, `state_mut("run")`, or `blend_mut("travel")` for named
 access. A state supports `.once()`, `.speed(2.)`, and `.paused(true)`; those saved
 fields can also be changed through `state_mut`. A paused state neither advances
@@ -718,8 +775,11 @@ pair is current/current. Restore, carry, teleport and model/batch arrival duplic
 current at the presentation seam without rewriting saved history. Bones remain
 compact arrays, never entities.
 
-Declare one `Socket("b_Head_05".into())` per owner; `SocketFollow::new("fox")` drives
-an attachment. Socket names resolve once per loaded rig. Replacing the loaded model
+Each attachment declares `SocketFollow::new("fox", "b_Head_05").offset(transform)`.
+A second attachment can choose a hand independently. `Socket` and the saved singleton
+`SocketPose` are gone. `animation::socket(w, "fox", "b_Head_05")` queries the current
+tick boundary in world space, including movement applied after animation. Named socket
+queries resolve once per loaded rig and return named errors. Replacing the loaded model
 rebuilds the cached bind pose, bounds and socket resolutions for every sharing
 entity at the next sample, accepting changed node counts and priming both pose
 histories. Same-tick redelivery resamples at the existing controller clock without
@@ -727,11 +787,13 @@ advancing time, phase, transitions, markers or root motion again. Identity uses 
 upgraded `Weak` and `Arc::ptr_eq`. The renderer also
 replaces geometry, materials, hierarchy and inverse binds when the content digest
 changes, rebuilding every affected instance batch.
-Removing or failing a socket invalidates `SocketPose`; locomotion continues and
-followers restore their captured authored Transform. Sampling, socket and follower
-errors have separate once-only lifetimes, reset by recovery/removal or a changed error.
-The declared socket's ancestor chain runs sim-side, including offscreen/headless.
-The follower is its attachment Transform's writer.
+The attachment does not write its simulation Transform; that remains its fallback when
+its owner or joint is unavailable. Sampling failures leave the last good pose intact.
+The renderer interpolates local translation/scale and shortest-path spherical rotation,
+then composes the joint chain at frame alpha, exactly as skinning does. Drawing, lights,
+sprites and placed children consume that displayed pose. Gameplay queries remain available
+without a renderer. The two-joint 90-degree GPU test checks the midpoint within 1e-4;
+endpoint interpolation (.5,.5) is its negative control.
 
 The `Pose` component saves previous/current local TRS, phase, flags and bounds.
 **Layout and CPU pick use a static inflated bind AABB, not the drawn skin.** The box
@@ -747,7 +809,7 @@ Controller definitions, phase, parameters, outgoing pose/motion and fade progres
 are saved/hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays fresh
 named definitions, preserving the situation and fading from the carried pose.
 A removed current state retains its old definition until a matching state is supplied.
-Deliberate cuts: f32/bool parameters, frozen outgoing pose, one socket per owner,
+Deliberate cuts: f32/bool parameters, frozen outgoing pose,
 no layered/additive graphs, closures or scripts.
 
 `games/skinned-fixture` teaches parameter-driven Survey → Walk/Run, consumes root
@@ -757,10 +819,10 @@ units/s for Walk and 120 for Run along the Fox’s +Z facing, plus
 quarter/three-quarter-phase step markers.
 The controller explicitly names that root. Heading is authored; travel comes from
 the clips. Tick-60 joint JSON is pinned in
-[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json), and the tick-120 hash
-is `0x0960f8999dd20662` (tick 60: `0x749639d3ffa1be59`). These replace S3b's circle
-pins because the motion tracks, Transform path, playback data, socket home and
-history semantics changed.
+[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json), and the tick-60/120 hashes
+are in [pins.json](games/skinned-fixture/pins.json). S4 changes these hashes because Socket/SocketPose and the follower's captured home
+are removed from saved state, and attachment transforms remain authored fallbacks.
+The 24-joint tick-60 JSON remains byte-identical; playback/root-motion arithmetic is unchanged.
 
 Run `bun game/games/skinned-fixture/proof.mjs web` (or `linux`) from the root.
 The S3b-b web/headless Linux proof run on this arm64 Mac passed in
@@ -770,8 +832,7 @@ pop-in. They run in both asset fixtures; R4's Fox ordinary/paranoid web proofs p
 GPU residency is reported as `SKIP: no device` on headless hosts, while device-backed
 runs must be ready and record zero after-ready work. Wider host sweeps remain owed.
 The proof saves at tick 45 during the fade and resumes in a fresh host through 120;
-its final save must be byte-identical. Both hosts produce the same 15,084 bytes,
-SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The native paranoid test repeats restore into
+its final save must be byte-identical. The pre-S4 byte-size/digest receipt is superseded by the attachment save-schema change. The native paranoid test repeats restore into
 a new Sim every tick and compares bytes as well as hashes and local poses. A GPU
 pixel test compares birth, restore, carry and model arrival against a current/current
 oracle with zero changed pixels per event in the Fox rectangle (channel differences
@@ -833,12 +894,8 @@ greybox, Beacons, asset-fixture and skinned-fixture in all three modes, comparin
 hash/tick/publications/journal. Physics pile tick 600 changes
 `5ba7691abdc98058 → 129ba6d92f9ac217`; two-body `simulate(120)` changes
 `9960c10fadbb9c4b → 5608994347e54d28`. Both agree across continuous, Save and
-FreshGame. The pre-E5 Greybox setup/forward pins were `7df5e5a89b4d0207` /
-`0f14b8b231091d12`; Character moved them to `9a871d8582d905e7` /
-`71f43e51a13cc49f`. The asset tick 60 (`b1365b0eb9a7c59d`), skinned ticks 60/120
-(`749639d3ffa1be59` / `0960f8999dd20662`) are unchanged. Beacons' proof endpoint
-was `331c074e0f135059` at tick 907 for pre-E5/PX1. HEAD's standalone Character already
-changed it to `ce6c7b72a5ced1e2`; the proof now asserts that tick/hash before reset.
+FreshGame. Character and later serialization changes moved the Greybox and Beacons pins;
+current values live only in each game's `pins.json`, linked below.
 
 | Native script | Off ms | Save ms | FreshGame ms |
 |---|---:|---:|---:|
@@ -1129,19 +1186,16 @@ snapshots and save bytes. Linux here is the headless host on this arm64 Mac.
 
 | Proof | Tick | World hash | Live particles |
 |---|---:|---|---:|
-| particles-fixture, web + Linux | 300 | `0x8dc0cac2d2645d93` | 20,000 |
-| sprites-fixture, web + Linux | 300 | `0x2e3d805eb6c89e55` | 200 |
-| Greybox web, setup | 0 | `0x9a871d8582d905e7` | — |
-| Greybox web, forward | 90 | `0x71f43e51a13cc49f` | — |
-| asset-fixture web | 60 | `0xb1365b0eb9a7c59d` | — |
-| skinned-fixture web | 60 / 120 | `0x749639d3ffa1be59` / `0x0960f8999dd20662` | — |
+| particles-fixture, web + Linux | 300 | [pins.json](games/particles-fixture/pins.json) | 20,000 |
+| sprites-fixture, web + Linux | 300 | [pins.json](games/sprites-fixture/pins.json) | 200 |
+| Greybox web, setup | 0 | [pins.json](games/greybox/pins.json) | — |
+| Greybox web, forward | 90 | [pins.json](games/greybox/pins.json) | — |
+| asset-fixture web | 60 | [pins.json](games/asset-fixture/pins.json) | — |
+| skinned-fixture web | 60 / 120 | [pins.json](games/skinned-fixture/pins.json) / [pins.json](games/skinned-fixture/pins.json) | — |
 
 Camera now derives its complete representation and always encodes `projection`.
-That pre-1.0 serialization correction changes the pins above, plus Beacons tick
-907 (`ce6c7b72a5ced1e2`). Greybox setup/forward moved from `7544ef30a82fdcdc` /
-`a655423c9a442bce`; particles from `7b8d9188b32e7d5c`; sprites from
-`f598d0032d70cce5`; asset from `8f6d518f39634478`; skinned from
-`b863e854ca85b74e` / `409341e24939d7c2`; Beacons from `7dde46ef4bc4bdb6`.
+That pre-1.0 serialization correction changed the pins above and Beacons tick 907;
+[pins.json](games/beacons/pins.json) records the current endpoint.
 No pin changed for a particle arithmetic or gameplay correction.
 
 The seven front/behind sprite samples run in both the web proof and the headless
@@ -1218,8 +1272,8 @@ hashed. Its derived homography, visibility and depth are not.
 contains only the component. Displayed camera and entity poses use the same
 interpolation/history as meshes and sprites. A `Parent` attachment follows that
 shared displayed transform. Socket followers still interpolate their tick-boundary
-resolved transforms: the current socket path does not recompose the displayed
-bone/socket pose between ticks. This slice does not claim to repair that limitation.
+resolved transforms. Socket attachments now recompose the interpolated local bone chain
+at the displayed alpha before projecting a placed child.
 
 The browser supplies child frames without textures and composites CSS homographies.
 Its ordinary `getBoundingClientRect` and browser pointer dispatch supply agent
@@ -1384,17 +1438,18 @@ for the Apple placement/accessibility assertions, and add `--capture40` for the
 capture sample. The browser proof drives the placed Pull button, checks its lamp
 and HUD publication, camera orbit, explicit back-face hiding and tap refusal,
 then saves and restores all three placements. Web and Linux agree at tick 330:
-`0x61007363bd681d3c`. Linux currently proves simulation, Contract actions and
-save/hash parity only: its headless presenter has no placement consumer. The
-requested extension into Linux surface/painter code is outside the named edit
-scope and awaits clarification. It does not yet prove Linux placed drawing,
-layout or input.
+[pins.json](games/placement-fixture/pins.json). Linux also paints each placed subtree through the full homography with
+inverse-mapped bilinear samples, hits through that inverse nearest-first, and
+removes hidden placements from painting, hits and the agent tree. The initial
+sign box is `(430.91, 299.76, 140.23, 30.55)` on both web and Linux (the proof
+allows ±1 px). There is no affine approximation; texture sampling is bilinear at
+device-pixel centers. Forty placed children at 1280×720 measured 0.829 ms p50,
+0.963 ms p95 for CPU paint. The headless moving-pose helper still samples the
+current tick rather than the GPU's interpolated pose; at 1000 ms the sign's x
+coordinate differs by 1.31 px (tracked in QUEUE).
 
-The macOS Rust artifacts built, but `build.mjs --run` could not get through the
-installed Swift package tool: it aborts loading `BuildServerProtocol` before
-source compilation, including with the temporary `--build-system native` wrapper.
-The wrapper was removed. The macOS fixture, accessibility assertion and measured
-40-name-plate capture cost remain unverified; no capture cost is claimed. Renderer
+Apple builds use Xcode's toolchain with `SDKROOT` unset; the Command Line Tools'
+Swift package loader cannot run on this installation. Renderer
 GPU tests do verify captured texture pixels, premultiplied blending, equal-depth
 Contract order, near-plane hiding and opaque wall occlusion. Measured browser
 frame/projection/module-size results are in [the render README](render/README.md).
@@ -1402,3 +1457,332 @@ frame/projection/module-size results are in [the render README](render/README.md
 Beacons is unchanged by U1. Its conditional prompt and nearest-beacon choice need
 stable child ownership plus component transfer when the nearest beacon changes;
 that is more than the allowed one Contract line and one component.
+
+
+### S4 author code, verbatim
+
+The skinned fixture's setup and tick before S4:
+
+<details><summary>Before</summary>
+
+```rust,ignore
+    fn setup(w: &mut World, _: &Options) {
+        w.spawn_named(
+            "fox",
+            (
+                Transform::at(0., 0., -1.8).with_scale(0.025),
+                Mesh::asset("fox.model"),
+                Animator::new([
+                    State::new("survey", Play::Clip("Survey".into())).to(
+                        "travel",
+                        Condition::Arg("speed".into(), Cmp::Gt, 0.5.into()),
+                    ),
+                    State::new(
+                        "travel",
+                        Play::Blend(
+                            Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])
+                                .parameter("speed"),
+                        ),
+                    )
+                    .fade(0.5),
+                ])
+                .motion_root("b_Root_00"),
+                Socket("b_Head_05".into()),
+            ),
+        );
+        w.spawn_named(
+            "charm",
+            (
+                Transform::default(),
+                Mesh::sphere(0.12),
+                Material::rgb(1., 0.65, 0.1),
+                SocketFollow {
+                    offset: Transform::at(0., 8., 0.).with_scale(40.),
+                    ..SocketFollow::new("fox")
+                },
+            ),
+        );
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(18., 18.),
+            Material::grid([0.13, 0.21, 0.22], 1.),
+        ));
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(6., 3.4, 7.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn((
+            Transform::at(4., 7., 3.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+        w.insert_resource(Environment {
+            fog: None,
+            ..Environment::default()
+        });
+    }
+    fn tick(w: &mut World, _: &Input, args: &Options) {
+        let time = (w.tick() + 1) as f32 * w.dt();
+        let speed = if w.tick() < 30 {
+            0.
+        } else {
+            1.6 + args.blend_bias
+        };
+        w.get_mut::<Animator>("fox").unwrap().set("speed", speed);
+        // Read this tick's output before applying the clip's displacement.
+        animation::step(w);
+        let animator = w.get::<Animator>("fox").unwrap();
+        let motion = animator.root_motion();
+        if animator.crossed("step") {
+            w.log("fox footstep");
+        }
+        drop(animator);
+        let mut fox = w.get_mut::<Transform>("fox").unwrap();
+        fox.rotation = Quat::from_rotation_y(-time * 0.45);
+        let delta = fox.rotation * (fox.scale * motion);
+        fox.position += delta;
+        drop(fox);
+        w.publish_record(&Hud {
+            motion: w.get::<Animator>("fox").unwrap().state().into(),
+            tick: (w.tick() + 1) as u32,
+        });
+    }
+```
+
+</details>
+
+The same setup and tick after S4:
+
+```rust,ignore
+    fn setup(w: &mut World, _: &Options) {
+        w.spawn_named(
+            "fox",
+            (
+                Transform::at(0., 0., -1.8).with_scale(0.025),
+                Mesh::asset("fox.model"),
+                Animator::new([
+                    State::clip("survey", "Survey").to("travel", Condition::gt("speed", 0.5)),
+                    State::blend(
+                        "travel",
+                        Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])
+                            .parameter("speed"),
+                    )
+                    .fade(0.5),
+                ])
+                .motion_root("b_Root_00"),
+            ),
+        );
+        w.spawn_named(
+            "charm",
+            (
+                Transform::default(),
+                Mesh::sphere(0.12),
+                Material::rgb(1., 0.65, 0.1),
+                SocketFollow::new("fox", "b_Head_05")
+                    .offset(Transform::at(0., 8., 0.).with_scale(40.)),
+            ),
+        );
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(18., 18.),
+            Material::grid([0.13, 0.21, 0.22], 1.),
+        ));
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(6., 3.4, 7.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn((
+            Transform::at(4., 7., 3.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+        w.insert_resource(Environment {
+            fog: None,
+            ..Environment::default()
+        });
+    }
+    fn tick(w: &mut World, _: &Input, args: &Options) {
+        let end = w.tick_end();
+        let speed = if w.tick() < 30 {
+            0.
+        } else {
+            1.6 + args.blend_bias
+        };
+        w.get_mut::<Animator>("fox").unwrap().set("speed", speed);
+        let motion = animation::step(w);
+        if motion.crossed("fox", "step") {
+            w.log("fox footstep");
+        }
+        let mut fox = w.get_mut::<Transform>("fox").unwrap();
+        fox.rotation = Quat::from_rotation_y(-end.seconds() * 0.45);
+        fox.translate_local(motion.root_motion("fox"));
+        w.publish_record(&Hud {
+            motion: w.get::<Animator>("fox").unwrap().state().into(),
+            tick: end.tick as u32,
+        });
+    }
+```
+
+Greybox's tick before S4:
+
+<details><summary>Before</summary>
+
+```rust,ignore
+    fn tick(world: &mut World, input: &Input, _: &Self::Args) {
+        let now = world.now();
+        let mut footsteps = 0;
+        {
+            let before = world.global_position("player").unwrap();
+            let motion = world
+                .character("player")
+                .step(input.stick_xz("move"), input.pressed("jump"));
+            if motion.grounded {
+                let mut player = world.get_mut::<Player>("player").unwrap();
+                let delta = world.global_position("player").unwrap() - before;
+                player.stride += exact_game::Vec2::new(delta.x, delta.z).length();
+                while player.stride >= 0.45 {
+                    player.stride -= 0.45;
+                    footsteps += 1;
+                }
+            }
+        }
+        for _ in 0..footsteps {
+            let pitch = world.rand(0.94..1.06);
+            let player = world.named("player").unwrap();
+            world.play("footstep").at(player).pitch(pitch).start();
+        }
+        if input.pressed("act") {
+            if let Some(entity) = world.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit) {
+                let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
+                beacon.lit = true;
+                beacon.glow.set_target(now, 1.0);
+                world.publish_record(&Hud { beacons: 1 });
+                world.log("beacon-1 lit");
+                world.play("chime").at(entity).start();
+            }
+        }
+        for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
+            material.emissive = [beacon.glow.value(now) * 3.0; 3];
+        }
+        scene::follow(world);
+        audio::step(world);
+    }
+```
+
+</details>
+
+Greybox's tick after S4:
+
+```rust,ignore
+    fn tick(world: &mut World, input: &Input, _: &Self::Args) {
+        let now = world.tick_end();
+        let mut footsteps = 0;
+        {
+            let motion = world
+                .character("player")
+                .step(input.stick_xz("move"), input.pressed("jump"));
+            if motion.grounded {
+                let mut player = world.get_mut::<Player>("player").unwrap();
+                player.stride += motion.displacement.xz().length();
+                while player.stride >= 0.45 {
+                    player.stride -= 0.45;
+                    footsteps += 1;
+                }
+            }
+        }
+        for _ in 0..footsteps {
+            let pitch = world.rand(0.94..1.06);
+            world.play("footstep").at("player").pitch(pitch).start();
+        }
+        if input.pressed("act") {
+            if let Some(entity) = world.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit) {
+                let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
+                beacon.lit = true;
+                beacon.glow.set_target(now, 1.0);
+                world.publish_record(&Hud { beacons: 1 });
+                world.log("beacon-1 lit");
+                world.play("chime").at(entity).start();
+            }
+        }
+        for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
+            material.emissive = [beacon.glow.value(now) * 3.0; 3];
+        }
+        scene::follow(world);
+        audio::step(world);
+    }
+```
+
+
+S4 pin changes are limited to these idioms:
+
+| Game | Before → after | Why |
+|---|---|---|
+| Skinned tick 60 | [pins.json](games/skinned-fixture/pins.json) | Removed saved singleton sockets and follower-written Transform/home |
+| Skinned tick 120 | [pins.json](games/skinned-fixture/pins.json) | Same attachment schema change; tick-60 joint JSON is unchanged |
+| Beacons tick 907 | [pins.json](games/beacons/pins.json) | Tween target/sample instants now use `tick_end()` |
+| Placement tick 330 | [pins.json](games/placement-fixture/pins.json) | Orbit and cube sample `tick_end().seconds()` |
+
+Greybox's setup/forward pins, Asset, Particles and Sprites pins are unchanged.
+Greybox and the template use the end boundary for springs. The explicit Animation
+`sampled` flag changes standalone controller saves, exercised by reverse/restore tests;
+no game currently saves a standalone Animation. Greybox's layout JSON position uses
+lossless floats (`[0.0,0.9,0.0]`) so the JS global query agrees with native reads;
+its simulation hashes are unchanged. Sprite texture bytes are unchanged.
+Logic lines (physical lines, including blanks/comments): Asset 33→33, Beacons 136→136,
+Greybox 194→192, Particles 32→32, Placement 117→117, Skinned 100→86, Sprites 102→102;
+all seven games together 714→698.
+
+
+S4 validation (2026-09-18): 521 workspace tests passed, 15 ignored, zero failed;
+all-target clippy, fmt, caps, and `bun test ./new.test.mjs ./proof.test.mjs`
+(33 passed) pass. All seven games pass Linux `--paranoid` in Off/Save/FreshGame/Off
+(28 runs); Skinned, Greybox and Beacons pass web. The 90° two-joint GPU test
+checks the displayed attachment against the shader joint at alpha 0.5 within 1e-4.
+The final workspace run excluded the concurrent generator's `new-proof-*` pattern;
+Cargo reported no match, so every member ran. Web process inventory was skipped
+when `ps` stalled; each proof still awaited every recorded host's exit.
+
+R7 review fixes (2026-09-18, uncommitted; built on H1/S4):
+
+| Review item | Change and regression |
+| --- | --- |
+| 1, frustum | `Placed::project` rejects a shared side plane, or any corner crossing near/eye/far; visible denominators are positive at all four corners. `placed_tests`: viewport-covering, tilted near/eye, far, square corners. |
+| 2, style ownership | Contract styles suspend the web override, take a fresh authored snapshot, and immediately reapply placement at the new kernel offset. `placement.test.mjs`: paused style-only change then removal. |
+| 3, HUD order | Surface below negative-ranked placements, ordinary HUD above; Apple/Linux test ordinary children first. Placement proof overlaps HUD/Pull and checks both pixels and a real tap. |
+| 4, Caltrain | Texture-less stack cards return no placement. `frame_only_web_cards_remain_in_the_kernel_column` and the real-browser `caltrain-placement.test.mjs` lock the column. |
+| 5, retirement | Leaving per-child composition calls `children_count(0)` and frees captures/frames. `retiring_each_releases_textures_and_zero_frame_releases_a_capture` toggles it three times. |
+| 6, empty Apple children | Both capture loops send an empty frame/no texture for zero size or display:none. `placement-apple.test.mjs` executes each Swift branch; the macOS proof collapses/restores the sign. |
+| 7, hidden boxes | Hidden placements report a zero box on every host. The placement proof checks it; iOS explicitly supplies accessibility children independently of capture alpha. |
+| 8, projected pixel | The fixture pins initial and tick-59 displayed bounds from `Placed::project` within 2 px at 1280×720, retains the separate >1 px motion check, and compares macOS accessibility position deltas and size. Headless placement now uses the same retained camera/plane histories and `Sim::alpha()`; the old 1.31 px difference was the renderer's. |
+| 9, measurements | Missing U1 GPU/size receipts no longer support exact figures. Projection is identified as an unretained local observation; 0.100/0.200 ms encode is timer quantization. The historical size delta included R6. |
+| 10, same-digest acceptance | Synchronize loaded-model activity and revision before post-preparation budget compaction. `identical_redelivery_survives_post_acceptance_budget_compaction` retires/redelivers identical bytes, accepts the closure, crosses the real 64 MiB budget, draws identical pixels, preserves handles and avoids duplicate mesh/texture uploads. |
+| 11, callback join | Each draw records `(raw, paced, generation)`; redraws inherit the last callback generation. The feel regression covers equal-paced distinct callbacks with a resize between, and overflow refusal. |
+| 12, total order | The direct comparator regression includes every kind and three ordinals for one owner. `quad-order.test.mjs` compiles and executes that production comparator/regression natively and in wasm, including Child's rank in the wasm diagnostic. |
+| 13, revision reuse | The retained-value test asserts copied `rate=90` and atlas frame, then uses sentinels plus the same births pointer to prove an unchanged feed takes the skip. |
+| 14, prepare/receipts | Child pipelines prepare with other quad pipelines, including primitive modules; the pipeline-count regression catches lazy preparation. R6 receipts now identify quad buffers in `bufferScope`; pre-Camera-derive diary hashes remain historical. |
+
+The Apple build-layout fix belongs to the orchestrator and was preserved.
+
+R7 validation: game workspace 530 passed / 15 ignored / 0 failed across 133
+executables and doc-test targets; the final render-only run passed 78 / 4 ignored.
+Game all-target clippy, game/root fmt, root workspace build, caps on explicitly
+staged R7 files, and boot passed. Bun host tests passed 61 tests; feel passed 26;
+the native capture-retirement regression and Caltrain texture-less-card regression
+passed. Placement passed web, Linux and macOS (Xcode toolchain), including the
+2 px projection oracle, hidden boxes, and macOS accessibility position. At the
+shared HUD/Pull overlap, tap (812,332) chose HUD on web and macOS without pulling;
+the painted RGB was (32,39,49) on web and (33,39,48) on macOS. Linux matched web.
+The placement pin runner agreed across web/Linux in Off/Save/FreshGame and kept
+tick 330's existing hash while adding the continuation-save digest. Asset passed
+web/Linux `--paranoid` (Off/Save/FreshGame/Off); Greybox, Beacons, Particles,
+Sprites and Skinned passed both hosts. Some proof runs could not complete the descendant `ps` inventory;
+they still awaited every recorded host exit. Caltrain web smoke's app, deck,
+motion and navigation checks passed, but its final status remains failed solely
+on Chrome Keychain/encryption diagnostics (errSecInteractionNotAllowed); after
+three smoke runs this environment failure is reported, not suppressed. The router
+proof now awaits the asynchronous agent and reflects R6's fresh-host autofocus
+reset. No commit was made.

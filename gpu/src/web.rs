@@ -14,6 +14,24 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
     MODULE.with(|m| m.borrow_mut().as_mut().map(f))
 }
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["globalThis", "exact", "gpu"], js_name = deviceLost)]
+    fn device_lost();
+}
+
+pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    let current = MODULE.with(|m| {
+        m.try_borrow().ok().is_some_and(|m| {
+            m.as_ref()
+                .is_some_and(|m| std::sync::Arc::ptr_eq(lost, &m.device_lost))
+        })
+    });
+    if current {
+        device_lost();
+    }
+}
+
 /// Drain requested asset paths as JSON.
 pub fn assets(id: u32) -> String {
     with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
@@ -53,6 +71,55 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
             Err(JsValue::from_str(&e))
         }
     }
+}
+
+/// Replacement canvases use the existing IDs and surface objects. No module load.
+pub async fn recover(
+    ids: &[u32],
+    canvases: Vec<web_sys::HtmlCanvasElement>,
+) -> Result<String, JsValue> {
+    let mut module = MODULE
+        .with(|m| m.borrow_mut().take())
+        .ok_or_else(|| JsValue::from_str("GPU module not loaded"))?;
+    let result: Result<String, String> = async {
+        if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
+            return Err("recovery canvas table mismatch".into());
+        }
+        // Detach old contexts before replacing their bindings. The wgpu Instance
+        // itself survives, so no surface is ever configured by another instance.
+        let targets: Vec<_> = ids
+            .iter()
+            .zip(canvases)
+            .map(|(id, canvas)| {
+                let inst = module.instances.get_mut(id).unwrap();
+                let config = inst.presentation.take().map(|p| p.1);
+                (*id, canvas, config)
+            })
+            .collect();
+        module.recover().await?;
+        for (id, canvas, config) in targets {
+            if let Some(config) = config {
+                let gpu = module.gpu.as_ref().ok_or("no device")?;
+                let target = gpu
+                    .instance
+                    .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                    .map_err(|e| e.to_string())?;
+                target.configure(&gpu.device, &config);
+                let inst = module.instances.get_mut(&id).unwrap();
+                inst.surface.device_ready();
+                inst.surface
+                    .prepare_assets(&gpu.device, &gpu.queue, config.format);
+                inst.presentation = Some((target, config));
+            }
+        }
+        Ok(module.recovery_report())
+    }
+    .await;
+    if let Err(error) = &result {
+        module.error = format!("device recovery: {error}");
+    }
+    MODULE.with(|m| *m.borrow_mut() = Some(module));
+    result.map_err(|e| JsValue::from_str(&e))
 }
 
 /// Create a canvas's surface on a `<canvas>` element. The id, or 0.
@@ -303,6 +370,15 @@ macro_rules! module {
             $crate::web::load(&$registry).await
         }
 
+        /// Recover device/context bindings while keeping every surface ID.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub async fn gpu_recover(
+            ids: &[u32],
+            canvases: Vec<::web_sys::HtmlCanvasElement>,
+        ) -> Result<String, ::wasm_bindgen::JsValue> {
+            $crate::web::recover(ids, canvases).await
+        }
+
         /// Create a canvas's surface on a `<canvas>`. The id, or 0.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_create(
@@ -361,10 +437,12 @@ macro_rules! module {
         pub fn gpu_wants_children_each(id: u32) -> bool {
             $crate::web::wants_children_each(id)
         }
+        /// Supply one direct child frame for browser composition.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_child(id: u32, index: u32, x: f32, y: f32, w: f32, h: f32) -> bool {
             $crate::web::child(id, index, [x, y, w, h])
         }
+        /// Retire direct child frames past the new count.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_children_count(id: u32, count: u32) -> bool {
             $crate::web::children_count(id, count)
@@ -392,6 +470,7 @@ macro_rules! module {
         pub fn gpu_assets(id: u32) -> String {
             $crate::web::assets(id)
         }
+        /// Drain retired asset paths as JSON.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_retired(id: u32) -> String {
             $crate::web::retired(id)

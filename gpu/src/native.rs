@@ -106,6 +106,20 @@ pub fn load(registry: &'static Registry) -> u32 {
     }
 }
 
+/// Recover the loaded module without replacing its surface table. JSON outcome.
+pub fn recover() -> String {
+    with(|m| crate::block_on(m.recover()))
+        .unwrap_or_else(|| Err("GPU module not loaded".into()))
+        .unwrap_or_else(|error| {
+            refuse(&error);
+            let quoted = json::strings(&[error]);
+            format!(
+                "{{\"status\":\"failed\",\"error\":{}}}",
+                &quoted[1..quoted.len() - 1]
+            )
+        })
+}
+
 /// Load surface ownership only; no adapter is requested.
 pub fn load_headless(registry: &'static Registry) {
     let mut module = Module::new(registry);
@@ -433,6 +447,15 @@ macro_rules! module {
             $crate::native::load(&$registry)
         }
 
+        /// Recover the device; JSON outcome in gpu_out_ptr, returning its length.
+        #[no_mangle]
+        pub extern "C" fn gpu_recover() -> u32 {
+            let bytes = $crate::native::recover().into_bytes();
+            let len = bytes.len() as u32;
+            EXACT_GPU_OUT.with(|out| *out.borrow_mut() = bytes);
+            len
+        }
+
         /// Release all instances and module TLS before unloading the library.
         #[no_mangle]
         pub extern "C" fn gpu_unload() { $crate::native::unload(); }
@@ -756,10 +779,13 @@ macro_rules! module {
 
 #[cfg(test)]
 mod placement_abi_tests {
+    use super::{bind, child, create_headless, error, load, recover, unload, with};
     use crate::{wgpu, Frame, Placement, Registry, Surface, SurfaceError, Value};
     #[derive(Default)]
     struct Sign {
         frame: [f32; 4],
+        preparations: usize,
+        retired: bool,
     }
     impl Surface for Sign {
         fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
@@ -776,10 +802,16 @@ mod placement_abi_tests {
             false
         }
         fn wants_children_each(&self) -> bool {
-            true
+            !self.retired
         }
-        fn child(&mut self, _: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
-            assert!(texture.is_none());
+        fn prepare_assets(&mut self, _: &wgpu::Device, _: &wgpu::Queue, _: wgpu::TextureFormat) {
+            self.preparations += 1;
+        }
+        fn agent(&mut self, request: &str) -> Option<String> {
+            self.retired = request == "retire";
+            Some(format!("{{\"preparations\":{}}}", self.preparations))
+        }
+        fn child(&mut self, _: usize, _: Option<&wgpu::TextureView>, frame: [f32; 4]) {
             self.frame = frame;
         }
         fn placement(&self, index: usize) -> Option<Placement> {
@@ -796,8 +828,73 @@ mod placement_abi_tests {
     };
     crate::module!(REGISTRY);
     #[test]
+    fn retiring_each_releases_textures_and_zero_frame_releases_a_capture() {
+        assert_eq!(load(&REGISTRY), 0);
+        let id = create_headless("sign");
+        assert_eq!(bind(id, "[]"), 0);
+        for _ in 0..3 {
+            with(|m| m.agent(id, "active"));
+            assert_eq!(child(id, 0, [0., 0., 20., 20.], 1, 1, &[255; 4]), 0);
+            assert_eq!(
+                with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
+                Some(1)
+            );
+            assert_eq!(child(id, 0, [0.; 4], 0, 0, &[]), 0);
+            assert_eq!(
+                with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
+                Some(0)
+            );
+            assert_eq!(child(id, 0, [0., 0., 20., 20.], 1, 1, &[255; 4]), 0);
+            with(|m| m.agent(id, "retire"));
+            assert_eq!(gpu_wants_children_each(id), 0);
+            assert_eq!(with(|m| m.instances[&id].each.len()), Some(0));
+            assert_eq!(
+                with(|m| m.placement(id, 1).unwrap().homography),
+                Some([0.; 9])
+            );
+        }
+        unload();
+    }
+
+    #[test]
+    fn destroyed_device_recovers_without_replacing_the_surface_table() {
+        if load(&REGISTRY) != 0 {
+            eprintln!("SKIP native recovery: {}", error());
+            return;
+        }
+        let id = create_headless("sign");
+        assert_ne!(id, 0);
+        assert_eq!(bind(id, "[]"), 0);
+        assert_eq!(child(id, 0, [10., 20., 100., 50.], 0, 0, &[]), 0);
+        with(|m| {
+            m.instances
+                .get_mut(&id)
+                .unwrap()
+                .messages
+                .push("pending".into())
+        });
+        with(|m| m.gpu().unwrap().device.destroy());
+        let result = recover();
+        assert!(result.contains("recovered"), "{result}");
+        assert!(result.contains("\"preparations\":1"), "{result}");
+        assert_eq!(
+            with(|m| m.instances.get(&id).unwrap().messages.clone()).unwrap(),
+            ["pending"]
+        );
+        assert!(with(|m| m.instances.get(&id).unwrap().bound).unwrap());
+        assert_eq!(
+            with(|m| m.placement(id, 1).unwrap().homography).unwrap(),
+            [100.; 9]
+        );
+        assert!(with(|m| m.gpu().is_some()).unwrap());
+        unload();
+    }
+
+    #[test]
     fn frame_only_child_and_explicit_hidden_out_do_not_need_a_device() {
         gpu_load_headless();
+        let report = recover();
+        assert!(report.contains("no device"), "{report}");
         // SAFETY: name bytes and output arrays live across these synchronous ABI calls.
         unsafe {
             let id = gpu_create_headless(b"sign".as_ptr(), 4);
@@ -817,5 +914,74 @@ mod placement_abi_tests {
             assert_eq!(out[9], -3.);
         }
         gpu_unload();
+    }
+}
+
+#[cfg(test)]
+mod device_loss_tests {
+    use crate::*;
+    struct Probe;
+    impl Surface for Probe {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            panic!("lost device rendered")
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some("alive".into())
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("probe", 0, || Box::new(Probe))],
+        shaders: &[],
+    };
+    #[test]
+    fn device_loss_guards_each_gpu_entry_before_any_other_call() {
+        for operation in 0..7 {
+            let Ok(gpu) = fixture::device() else { return };
+            let mut m = Module::new(&REGISTRY);
+            m.set_gpu(gpu);
+            let id = m.create_headless("probe").unwrap();
+            m.bind(id, &[], None);
+            // Model the asynchronous callback, without calling lose_device first.
+            m.device_lost.store(true, Ordering::Release);
+            match operation {
+                0 => assert!(!m.child(id, 0, [0., 0., 1., 1.], 1, 1, &[0; 4])),
+                1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
+                2 => assert!(m
+                    .readback(
+                        id,
+                        &Frame {
+                            width: 1.,
+                            height: 1.,
+                            scale: 1.,
+                            now_ms: 0.,
+                            seekable: true,
+                            period_ms: 0.,
+                            children_generation: 0,
+                            shader_generation: 0
+                        }
+                    )
+                    .is_none()),
+                3 => assert!(!m.dirty(id)),
+                4 => assert!(!m.sync()),
+                5 => assert!(m.gpu().is_none()),
+                _ => {
+                    #[cfg(any(target_os = "macos", target_os = "ios"))]
+                    // A sentinel must never be retained/imported after loss.
+                    assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
+                }
+            }
+            assert_eq!(m.agent(id, "state").as_deref(), Some("alive"));
+            assert!(!m.dirty(id));
+        }
     }
 }

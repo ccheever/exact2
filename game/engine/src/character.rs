@@ -18,8 +18,10 @@ pub struct Character {
     airborne: bool,
 }
 /// Events from one step. Grounded describes the end of the step.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Contact {
+    /// Actual displacement, including bounds and ground corrections.
+    pub displacement: Vec3,
     /// At the ground height with no vertical velocity.
     pub grounded: bool,
     /// Accepted a jump from the ground this step.
@@ -97,6 +99,7 @@ impl Character {
     /// it neither corrects penetration nor changes state or emits events.
     pub fn step(&mut self, pose: &mut Transform, wish: Vec3, jump: bool, dt: f32) -> Contact {
         assert!(dt.is_finite() && dt >= 0.0);
+        let before = pose.position;
         let grounded = pose.position.y <= self.ground && self.velocity.y <= 0.0;
         if dt == 0.0 {
             return Contact {
@@ -150,6 +153,7 @@ impl Character {
         }
         self.airborne = pose.position.y != self.ground || self.velocity.y != 0.0;
         Contact {
+            displacement: pose.position - before,
             grounded: !self.airborne,
             jumped,
             landed,
@@ -177,14 +181,14 @@ impl World {
     pub fn character(&mut self, target: impl Target) -> CharacterHandle<'_> {
         let entity = target
             .entity(self)
-            .expect("character target does not exist");
+            .expect("character target does not exist; `tree world` lists names; add `w.spawn_named(\"player\", (Transform::default(), Character::new()));` in setup");
         assert!(
             self.has::<Character>(entity),
-            "character target has no Character"
+            "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
         );
         assert!(
             self.has::<Transform>(entity),
-            "character target has no Transform"
+            "character target has no Transform; add `Transform::default()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
         );
         CharacterHandle {
             world: self,
@@ -235,7 +239,9 @@ mod tests {
         );
     }
     #[test]
-    #[should_panic(expected = "character target has no Character")]
+    #[should_panic(
+        expected = "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
+    )]
     fn missing_character_is_a_setup_error() {
         let mut w = World::new(60, 7);
         w.spawn_named("player", Transform::default());
@@ -252,6 +258,7 @@ mod tests {
         let a = w.spawn((Transform::at(10.0, 90.0, 0.0), Beacon::default()));
         let b = w.spawn((Transform::at(12.0, 0.0, 0.0), Beacon::default()));
         assert_eq!(w.global_position("player"), Some(Vec3::new(11.0, 0.0, 0.0)));
+        assert_eq!(w.local_position("player"), Some(Vec3::X));
         assert_eq!(
             w.nearest_xz_where::<Beacon>("player", 1.0, |_| true),
             Some(a)

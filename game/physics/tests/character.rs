@@ -1,26 +1,26 @@
 mod common;
 use common::*;
 use exact_game::{Entity, Transform, Vec3, World};
-use exact_game_physics::{self as physics, Body, BodyKind, Character, Collider};
+use exact_game_physics::{self as physics, Body, BodyKind, CapsuleController, Collider};
 fn world() -> (World, Entity) {
     let mut w = World::new(60, 0);
     physics::register(&mut w);
     ground(&mut w);
     let e = w.spawn_named(
         "fox",
-        (Transform::at(-1.0, 0.91, 0.0), Character::default()),
+        (Transform::at(-1.0, 0.91, 0.0), CapsuleController::default()),
     );
-    physics::move_character(&mut w, e, Vec3::ZERO);
+    physics::capsule(&mut w, e).step(Vec3::ZERO);
     physics::step(&mut w);
     (w, e)
 }
 fn drive(w: &mut World, e: Entity, v: Vec3, ticks: usize) {
     for _ in 0..ticks {
         {
-            let mut c = w.get_mut::<Character>(e).unwrap();
+            let mut c = w.get_mut::<CapsuleController>(e).unwrap();
             c.velocity.y -= 9.81 / 60.0;
         }
-        physics::move_character(w, e, v);
+        physics::capsule(w, e).step(v);
         physics::step(w);
     }
 }
@@ -32,7 +32,7 @@ fn push_respects_character_mask() {
             physics::register(&mut w);
             let e = w.spawn((
                 Transform::at(0.0, 1.0, 0.0),
-                Character::default(),
+                CapsuleController::default(),
                 Collider {
                     mask: 1,
                     ..Collider::default()
@@ -58,7 +58,7 @@ fn push_respects_character_mask() {
                     false,
                 );
             }
-            physics::move_character(&mut w, e, Vec3::X * 120.0);
+            physics::capsule(&mut w, e).step(Vec3::X * 120.0);
             let body = w.get::<Body>(b).unwrap();
             let x = w.get::<Transform>(e).unwrap().position.x;
             if layer == 1 {
@@ -174,7 +174,7 @@ fn platform_transport_and_finite_push_budget() {
     }
     let pos = w.get::<Transform>(e).unwrap().position;
     assert!((pos.x - 0.6).abs() < 0.02, "platform carry {pos:?}");
-    assert!(w.get::<Character>(e).unwrap().grounded);
+    assert!(w.get::<CapsuleController>(e).unwrap().grounded);
     for mass in [10.0, 1000.0] {
         let (mut w, e) = world();
         let b = box_at(
@@ -194,4 +194,25 @@ fn platform_transport_and_finite_push_budget() {
             assert!((x - 1.0).abs() < 0.01);
         }
     }
+}
+
+#[test]
+fn flat_motor_and_named_capsule_coexist_and_report_actual_displacement() {
+    let (mut w, e) = world();
+    w.spawn_named(
+        "flat",
+        (
+            Transform::default(),
+            exact_game::character::Character::new(),
+        ),
+    );
+    let flat = w.character("flat").step(Vec3::X, false);
+    assert!(flat.displacement.x > 0.);
+    let before = w.global_position(e).unwrap();
+    let moved = physics::capsule(&mut w, "fox").step(Vec3::X);
+    assert_eq!(moved.displacement, w.global_position(e).unwrap() - before);
+    let saved = w.save();
+    w.load(&saved).unwrap();
+    assert!(w.get::<CapsuleController>("fox").is_some());
+    assert!(w.get::<exact_game::character::Character>("flat").is_some());
 }

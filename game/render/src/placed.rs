@@ -27,6 +27,8 @@ pub(crate) struct Placements {
     pub children: Vec<Child>,
     items: Vec<quads::Item<Placed>>,
     claims: Vec<u16>,
+    cameras: Vec<quads::Item<Camera>>,
+    attachments: scene::Attachments,
     stamp: Option<(u64, u64, u64)>,
 }
 impl Placements {
@@ -47,12 +49,34 @@ impl Placements {
             w.revision::<Parent>(),
         );
         let initial = self.stamp.is_none_or(|old| old.0 != next.0);
+        if w.query::<&Placed>().iter().next().is_none() {
+            self.items.clear();
+            self.claims.clear();
+            self.cameras.clear();
+            self.attachments = scene::Attachments::default();
+            self.stamp = Some(next);
+            return Ok(());
+        }
         quads::feed(
             w,
             &mut self.items,
             initial,
             self.stamp.is_none_or(|old| old.1 != next.1),
             self.stamp.is_some_and(|old| old.2 != next.2),
+        );
+        quads::feed(
+            w,
+            &mut self.cameras,
+            initial,
+            self.stamp.is_none_or(|old| old.1 != next.1),
+            self.stamp.is_some_and(|old| old.2 != next.2),
+        );
+        self.attachments.feed(
+            w,
+            initial,
+            self.stamp.is_none_or(|old| old.1 != next.1),
+            self.stamp.is_some_and(|old| old.2 != next.2),
+            false,
         );
         self.stamp = Some(next);
         self.claims.clear();
@@ -97,7 +121,7 @@ impl Placements {
             };
             child.plane = Some(project(
                 item.value,
-                scene::interpolate(item.poses, input.alpha),
+                input.displayed(item.entity, scene::interpolate(item.poses, input.alpha)),
                 child.frame,
                 input.view,
                 input.proj,
@@ -105,26 +129,30 @@ impl Placements {
             ));
         }
     }
-    // Headless hosts have no render callback. Their seekable agent reads use the
-    // same projection at the current pose; they never enter a save or world hash.
-    pub fn headless(&mut self, w: &World, size: Vec2) {
-        let camera = w.query::<&Camera>().iter().find_map(|(e, c)| {
-            c.valid()
-                .then(|| scene::pose(w, e).map(|t| (t, *c)))
-                .flatten()
-        });
-        if let Some((pose, camera)) = camera {
+    // Headless hosts consume the same retained tick pair and display alpha as
+    // device hosts, including the camera. Current-pose sampling is one tick ahead.
+    pub fn headless(&mut self, size: Vec2, alpha: f32) {
+        let mut attachments = std::mem::take(&mut self.attachments);
+        attachments.frame(alpha);
+        if let Some(camera) = self.cameras.iter().find(|c| c.value.valid()) {
+            let pose = scene::displayed(
+                &attachments.output,
+                camera.entity,
+                scene::interpolate(camera.poses, alpha),
+            );
             let view = Mat4::from_rotation_translation(pose.rotation, pose.position).inverse();
             self.frame(
                 &FrameInput {
                     view,
-                    proj: camera.matrix(size),
-                    alpha: 1.,
+                    proj: camera.value.matrix(size),
+                    alpha,
+                    attachments: &attachments.output,
                     ..Default::default()
                 },
                 size,
             );
         }
+        self.attachments = attachments;
     }
     pub fn placement(&self, index: usize) -> Option<Placement> {
         self.children.get(index)?.plane.map(|p| p.placement)

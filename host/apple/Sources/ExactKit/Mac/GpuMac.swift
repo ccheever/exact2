@@ -99,6 +99,7 @@ final class Canvases {
 
     /// The smoke's line: loaded (with the load time and counts) or why not.
     var status: String {
+        if let failed { return "failed: \(failed)" }
         if module != nil { return "module loaded in \(String(format: "%.1f", loadedMs ?? 0)) ms; \(entries.count) canvases; \(rendered) renders" }
         return "not loaded: \(failed ?? (entries.isEmpty ? "no canvas" : "not requested"))"
     }
@@ -159,6 +160,7 @@ final class Canvases {
             FileHandle.standardError.write(Data("exact gpu: \(e.message)\n".utf8))
         case .success(let m):
             module = m
+            m.canvases.add(self)
             loadedMs = (CACurrentMediaTime() - t) * 1000
             // The shaders as files (LLP 1030 D8), from the app's asset root
             // (LLP 1031 D1): the app's directory in dev, the bundle in a
@@ -197,6 +199,11 @@ final class Canvases {
         var uploaded = 0
         let t0 = CACurrentMediaTime()
         for (i, child) in children.enumerated() {
+            if child.frame.width <= 0 || child.frame.height <= 0 || (child.style["display"] as? String) == "none" {
+                let r = m.child(e.id, UInt32(i), 0, 0, 0, 0, 0, 0, nil, 0)
+                if r != 0 { return false }
+                continue
+            }
             let hidden = child.isHidden
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
@@ -303,6 +310,7 @@ final class Canvases {
             e.each = each
             e.through = each || m.wantsChildren(e.id) != 0
             e.view.needsCapture = e.through
+            if !each { _ = m.childrenCount(e.id, 0) }
             if !each, let overlay = e.view.overlay {
                 for case let child as NodeView in overlay.subviews {
                     child.placement = nil; child.placementHidden = false; child.alphaValue = 1
@@ -338,7 +346,7 @@ final class Canvases {
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data, w * h * 4)
         defer { messages(e) }
         e.readAt = at
-        if r == 3 { e.rendered(3); return nil }
+        if r == 3 { rendered(e, 3); return nil }
         if r == 1 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return nil
@@ -385,6 +393,13 @@ final class Canvases {
         for _ in 0..<3 {
             captureIfNeeded()
             _ = tick(now: now)
+            // The agent owns presentation time even behind another window. An
+            // offscreen target cannot starve and refreshes the same placements.
+            if ExactEnv.agentMode {
+                for e in Array(entries.values) where !visible || e.starvedUntil > CACurrentMediaTime() {
+                    _ = readback(view: e.view)
+                }
+            }
             for e in Array(entries.values) { messages(e) }
             guard entries.values.contains(where: { $0.view.needsCapture }) else { return }
         }
@@ -422,7 +437,7 @@ final class Canvases {
                 if ExactEnv.agentMode { FileHandle.standardError.write(Data("exact gpu: canvas \(e.view.id) waited \(Int((CACurrentMediaTime() - wall) * 1000)) ms for a drawable; not presenting for a second\n".utf8)) }
             }
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
-            e.rendered(r)
+            rendered(e, r)
             rendered += 1
             more = more || e.wants
             readPlacements(m, e)

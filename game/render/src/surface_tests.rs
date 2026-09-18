@@ -525,7 +525,10 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
     headless
         .agent(r#"{"op":"state","now":17,"width":64,"height":64}"#)
         .unwrap();
-    assert_eq!(rendered.sim().unwrap().position("player").unwrap().x, 1.);
+    assert_eq!(
+        rendered.sim().unwrap().global_position("player").unwrap().x,
+        1.
+    );
     assert_eq!(
         rendered.sim().unwrap().world().hash(),
         headless.sim().unwrap().world().hash()

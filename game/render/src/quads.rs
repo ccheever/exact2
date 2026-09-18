@@ -37,6 +37,16 @@ pub(crate) struct Order {
     pub slot: u32,
     pub index: usize,
 }
+impl Order {
+    fn compare(a: &Self, b: &Self) -> std::cmp::Ordering {
+        b.depth
+            .total_cmp(&a.depth)
+            .then(a.layer.cmp(&b.layer))
+            .then(a.slot.cmp(&b.slot))
+            .then(a.kind.rank().cmp(&b.kind.rank()))
+            .then(a.index.cmp(&b.index))
+    }
+}
 pub(crate) struct Draw {
     pub kind: Kind,
     pub range: Range<u32>,
@@ -165,7 +175,7 @@ impl Quads {
             child_pipeline: None,
         };
         result.prepare(d, q);
-        if ASSETS {
+        if ASSETS || cfg!(not(target_arch = "wasm32")) {
             result.prepare_sprites(d);
         }
         result
@@ -248,14 +258,6 @@ impl Quads {
                 continue;
             };
             self.prepare_sprites(d);
-            if self.child_pipeline.is_none() {
-                self.child_pipeline = Some(pipeline(
-                    d,
-                    &source(d, include_str!("shaders/sprite.wgsl")),
-                    &[&self.layout, self.texture_layout.as_ref().unwrap()],
-                    4,
-                ));
-            }
             if self
                 .child_textures
                 .get(&i)
@@ -323,6 +325,10 @@ impl Quads {
         self.sprite_pipelines = Some(std::array::from_fn(|i| {
             pipeline(d, &shader, &[&self.layout, &texture], i)
         }));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.child_pipeline = Some(pipeline(d, &shader, &[&self.layout, &texture], 4));
+        }
         self.texture_layout = Some(texture);
     }
     pub fn prepare(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
@@ -359,7 +365,10 @@ impl Quads {
         let up = inv.y_axis.truncate().normalize();
         let mut left = exact_game::emitter::PARTICLE_BUDGET;
         for item in &self.particles {
-            let t = crate::world::scene::interpolate(item.poses, f.alpha);
+            let t = f.displayed(
+                item.entity,
+                crate::world::scene::interpolate(item.poses, f.alpha),
+            );
             let e = &item.value;
             e.particles(self.hz, f.alpha, |p| {
                 if left == 0 {
@@ -392,7 +401,10 @@ impl Quads {
                 let Some((_, _, size)) = self.textures.get(&s.texture) else {
                     continue;
                 };
-                let t = crate::world::scene::interpolate(item.poses, f.alpha);
+                let t = f.displayed(
+                    item.entity,
+                    crate::world::scene::interpolate(item.poses, f.alpha),
+                );
                 let x = right * (s.size.x * t.scale.x.abs());
                 let y = up * (s.size.y * t.scale.y.abs());
                 let center = t.position + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
@@ -452,14 +464,7 @@ impl Quads {
         }
     }
     pub fn order(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
-        self.order.sort_unstable_by(|a, b| {
-            b.depth
-                .total_cmp(&a.depth)
-                .then(a.layer.cmp(&b.layer))
-                .then(a.slot.cmp(&b.slot))
-                .then(a.kind.rank().cmp(&b.kind.rank()))
-                .then(a.index.cmp(&b.index))
-        });
+        self.order.sort_unstable_by(Order::compare);
         for o in &self.order {
             let at = match o.kind {
                 Kind::Particle(_) => {
@@ -687,6 +692,47 @@ fn pipeline(
 mod retained_tests {
     use super::*;
     #[test]
+    fn every_kind_and_owner_ordinal_has_the_same_total_order() {
+        let mut kinds = vec![Kind::Particle(false), Kind::Model(0, 0), Kind::Sprite(0)];
+        #[cfg(not(target_arch = "wasm32"))]
+        kinds.push(Kind::Child(0));
+        let mut rows = Vec::new();
+        for kind in kinds {
+            for index in [2, 0, 1] {
+                rows.push(Order {
+                    kind,
+                    depth: 3.,
+                    layer: 1,
+                    slot: 7,
+                    index,
+                });
+            }
+        }
+        rows.reverse();
+        rows.sort_unstable_by(Order::compare);
+        let actual: Vec<_> = rows.iter().map(|o| (o.kind.rank(), o.index)).collect();
+        let mut expected = vec![
+            (0, 0),
+            (0, 1),
+            (0, 2),
+            (1, 0),
+            (1, 1),
+            (1, 2),
+            (2, 0),
+            (2, 1),
+            (2, 2),
+        ];
+        #[cfg(not(target_arch = "wasm32"))]
+        expected.extend([(3, 0), (3, 1), (3, 2)]);
+        assert_eq!(actual, expected);
+        // Rank is independently pinned; a mistaken enum rank must fail too.
+        assert_eq!(Kind::Model(0, 0).rank(), 0);
+        assert_eq!(Kind::Sprite(0).rank(), 1);
+        assert_eq!(Kind::Particle(false).rank(), 2);
+        #[cfg(not(target_arch = "wasm32"))]
+        assert_eq!(Kind::Child(0).rank(), 3);
+    }
+    #[test]
     fn revisions_reuse_owned_values_and_membership_compacts_in_order() {
         let mut w = World::new(60, 0);
         let first = w.spawn((Transform::default(), Emitter::default()));
@@ -714,6 +760,16 @@ mod retained_tests {
         feed::<Sprite>(&w, &mut sprites, false, false, false);
         assert_eq!(emitters[1].value.state.births.as_ptr(), births);
         assert_eq!(sprites[0].value.texture.as_ptr(), texture);
+        assert_eq!(emitters[1].value.rate, 90.);
+        assert_eq!(sprites[0].value.frame, [16, 0, 16, 16]);
+        // Sentinel proves the unchanged-revision branch skipped the copy.
+        emitters[1].value.rate = 91.;
+        sprites[0].value.frame = [32, 0, 16, 16];
+        feed::<Emitter>(&w, &mut emitters, false, false, false);
+        feed::<Sprite>(&w, &mut sprites, false, false, false);
+        assert_eq!(emitters[1].value.state.births.as_ptr(), births);
+        assert_eq!(emitters[1].value.rate, 91.);
+        assert_eq!(sprites[0].value.frame, [32, 0, 16, 16]);
         w.despawn(first);
         feed::<Emitter>(&w, &mut emitters, false, false, false);
         assert_eq!(emitters.len(), 1);

@@ -162,11 +162,14 @@ fn main() {
                 "RAYCAST_1000 boxes={count} ms={:.3}",
                 start.elapsed().as_secs_f64() * 1000.
             );
-            let character = w.spawn((Transform::at(-4., 1., -4.), physics::Character::default()));
+            let character = w.spawn((
+                Transform::at(-4., 1., -4.),
+                physics::CapsuleController::default(),
+            ));
             let mut times = Vec::new();
             for _ in 0..120 {
                 let start = Instant::now();
-                physics::move_character(&mut w, character, Vec3::X);
+                physics::capsule(&mut w, character).step(Vec3::X);
                 times.push(start.elapsed().as_secs_f64() * 1000.);
             }
             let p = percentiles(times);

@@ -10,6 +10,12 @@ pub struct Now {
     /// Fixed steps per second.
     pub hz: u32,
 }
+impl Now {
+    /// Simulation seconds, using the fixed f32 timestep used by game motion.
+    pub fn seconds(self) -> f32 {
+        self.tick as f32 * (1.0 / self.hz as f32)
+    }
+}
 /// A stateless game; components and resources hold every bit of simulation state.
 pub trait Game: 'static {
     /// Surface name in Contract.
@@ -953,7 +959,7 @@ impl<G: Game> Sim<G> {
         // completed boundary. Retain the horizon outside the reconstructed Sim.
         let horizon = self.world_us;
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save().expect("paranoid save");
+        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", self.paranoid, G::ID, G::ID));
         let host = self.last_us;
         let queue = self.queue.clone();
         let last_ms = self.last_ms;
@@ -990,12 +996,12 @@ impl<G: Game> Sim<G> {
             self.world.assets = assets;
         }
         self.restore(&bytes)
-            .unwrap_or_else(|error| panic!("paranoid {} tick {tick}: {error}", G::ID));
+            .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", self.paranoid, G::ID, G::ID));
         assert_eq!(
             hash,
             self.world.hash(),
-            "paranoid {} tick {tick}: world hash",
-            G::ID
+            "paranoid {:?} tick {tick}: world hash; rerun bun game/games/{}/proof.mjs linux --paranoid",
+            self.paranoid, G::ID
         );
         self.world_us = horizon;
         self.last_us = host;
@@ -1069,8 +1075,12 @@ impl<G: Game> Sim<G> {
     ) -> Option<crate::Ref<'_, C>> {
         self.world.get::<C>(entity)
     }
-    /// Read the entity's current global position, including ancestor transforms.
-    pub fn position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
+    /// Read the entity's local Transform position.
+    pub fn local_position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
+        self.world.local_position(entity)
+    }
+    /// Current global position including parents.
+    pub fn global_position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
         self.world.global_position(entity)
     }
     /// Advance by milliseconds on the seekable clock, establishing an epoch if needed.
@@ -1256,7 +1266,7 @@ impl<G: Game> Sim<G> {
             .collect();
         if self.is_loading() || !pending.is_empty() {
             return Err(DataError::new(format!(
-                "save refused: assets are not ready: {:?}; {}",
+                "save refused: assets are not ready: {:?}; {}; inspect `state` and `state world:*` before saving again",
                 pending,
                 assets.state_json()
             )));
@@ -1290,30 +1300,32 @@ impl<G: Game> Sim<G> {
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.restore_into(bytes, None)
+        self.restore_into(bytes, None).map_err(|e| DataError::new(format!(
+            "restore refused (EXSIM v5): {e}; named additions default, removals are ignored, incompatible types/versions have no migration; inspect `state`")))
     }
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        self.restore_into(bytes, Some(&args))
+        self.restore_into(bytes, Some(&args)).map_err(|e| DataError::new(format!(
+            "restore refused (EXSIM v5): {e}; named additions default, removals are ignored, incompatible types/versions have no migration; inspect `state`")))
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
             DataError::new(format!(
-                "unsupported simulation save format (expected EXSIM v5; saw {:02x?})",
+                "restore refused: unsupported simulation save format (expected EXSIM v5; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
         let s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(
-                "save belongs to `{}`, expected `{}`",
+                "restore refused: EXSIM v5 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
                 s.game,
                 G::ID
             )));
         }
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
-            return Err(DataError::new("invalid saved clock or input queue"));
+            return Err(DataError::new("restore refused: EXSIM v5 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
         }
         let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
         let mut next = Self::new(bound).map_err(DataError::new)?;
@@ -1321,12 +1333,12 @@ impl<G: Game> Sim<G> {
         next.setup_pending = !next.world.assets.ready();
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
-            return Err(DataError::new("restore awaits declared assets"));
+            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect `state` pending assets and `state world:*`; retry after delivery"));
         }
         next.world.load(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
-            return Err(DataError::new("saved world and clock disagree"));
+            return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
         crate::scene::place_followers(&next.world);
         next.world.propagate();
@@ -1339,7 +1351,7 @@ impl<G: Game> Sim<G> {
             if let Some(us) = &mut e.world_us {
                 *us = us
                     .checked_add(s.world_us)
-                    .ok_or_else(|| DataError::new("saved input stamp overflow"))?;
+                    .ok_or_else(|| DataError::new("restore refused: EXSIM v5 saved input stamp overflow; no clock migration; inspect `state` and create a fresh save"))?;
             }
         }
         next.world_us = s.world_us;

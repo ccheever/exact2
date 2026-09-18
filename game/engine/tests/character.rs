@@ -121,12 +121,12 @@ fn sim_reads_match_world_reads_and_missing_entities() {
         fn tick(_: &mut World, _: &Input, _: &Options) {}
     }
     let s = Sim::<GameUnderTest>::new(Options {}).unwrap();
-    assert_eq!(s.position("player"), Some(Vec3::new(1.0, 2.0, 3.0)));
+    assert_eq!(s.global_position("player"), Some(Vec3::new(1.0, 2.0, 3.0)));
     assert_eq!(
         s.get::<Transform>("player").unwrap().position,
-        s.position("player").unwrap()
+        s.global_position("player").unwrap()
     );
-    assert!(s.position("missing").is_none());
+    assert!(s.global_position("missing").is_none());
     assert!(s.get::<Beacon>("player").is_none());
 }
 

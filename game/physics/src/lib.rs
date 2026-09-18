@@ -13,7 +13,7 @@ mod state;
 mod step;
 mod types;
 
-pub use character::move_character;
+pub use character::{capsule, CapsuleHandle, CapsuleStep};
 use exact_game::{Ref, World};
 pub use queries::{overlap, queries, raycast, sweep, Queries};
 pub use step::step;
@@ -27,7 +27,7 @@ pub fn register(world: &mut World) {
         .register::<Body>()
         .register::<Collider>()
         .register::<Announce>()
-        .register::<Character>();
+        .register::<CapsuleController>();
     world.insert_resource(Physics::default());
 }
 

@@ -213,3 +213,27 @@ test('a direct world operation also receives the refusal that created its canvas
   assert.match(f.exact.gpu.decorate({op:'screenshot',world:true},{bytes:1}).error,/restore refused/);
   assert.equal(f.exact.gpu.decorate({op:'state'},{}).error,undefined);
 });
+
+
+test('device loss replaces contexts without creating, restoring or unloading surfaces', async () => {
+  const f = await fixture({input:true});
+  const el = f.create(1); f.create(2, 'second');
+  el.listeners.keydown({target:el, code:'KeyW', key:'w', timeStamp:1});
+  const ids = [];
+  f.gpu.gpu_recover = async (surfaces, canvases) => {
+    ids.push(...surfaces); assert.equal(canvases.length, 2);
+    return JSON.stringify({status:'recovered', instances:[...surfaces]});
+  };
+  f.gpu.gpu_create = () => { throw new Error('recovery recreated the surface'); };
+  f.gpu.gpu_restore = () => { throw new Error('recovery restored a save'); };
+  f.exact.gpu.deviceLost();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await f.exact.gpu.settled();
+  assert.deepEqual(ids, [1,2]);
+  assert.equal(f.order.filter(x => x === 'replace').length, 2);
+  assert.ok(!f.order.some(x => x.includes('destroy') || x.includes('unload')));
+  assert.equal(f.exact.gpu.recovery.status, 'recovered');
+  assert.equal(f.exact.gpu.agent(1, {op:'state'}).world.tick, 0);
+  el.listeners.keyup({target:el, code:'KeyW', key:'w', timeStamp:2});
+  assert.deepEqual(f.events.filter(e=>e.t==='key').map(e=>e.down), [true,false]);
+});

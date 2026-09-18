@@ -98,7 +98,7 @@ impl Game for SmallGame {
             if let Some(e) = nearest {
                 let mut beacon = w.get_mut::<Beacon>(e).unwrap();
                 beacon.lit = true;
-                beacon.glow.set_target(w.now(), 1.0);
+                beacon.glow.set_target(w.tick_end(), 1.0);
             }
         }
         let near = nearest
@@ -108,7 +108,7 @@ impl Game for SmallGame {
             .to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
+            material.emissive = [beacon.glow.value(w.tick_end()) * 3.0; 3];
             count += u32::from(beacon.lit);
         }
         w.publish_record(&Hud { lit: count, near });

@@ -276,8 +276,51 @@ pub fn assets(
     Ok((model, textures))
 }
 
+/// Bake a standalone PNG sprite: sRGB, straight alpha, nearest min/mag/mips,
+/// clamp-to-edge on both axes. Nearest mip levels preserve the authored palette.
+pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
+    let path = path.as_ref();
+    let image = image::ImageReader::open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .decode()
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    if width == 0 || height == 0 || width > 2048 || height > 2048 {
+        return Err(format!(
+            "{}: sprite dimensions must be 1..=2048",
+            path.display()
+        ));
+    }
+    let mut texture = TextureData {
+        width,
+        height,
+        srgb: true,
+        wrap: [Wrap::Clamp; 2],
+        filter: [Filter::Nearest; 3],
+        mips: vec![image.into_raw()],
+    };
+    let (mut w, mut h) = (width, height);
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let previous = texture.mips.last().unwrap();
+        let mut next = vec![0; (nw * nh * 4) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                let from = ((y * 2).min(h - 1) * w + (x * 2).min(w - 1)) as usize * 4;
+                let to = (y * nw + x) as usize * 4;
+                next[to..to + 4].copy_from_slice(&previous[from..from + 4]);
+            }
+        }
+        texture.mips.push(next);
+        (w, h) = (nw, nh);
+    }
+    texture.validate()?;
+    Ok(texture)
+}
+
 /// A generated GPU shell's build.rs calls this before host scripts copy assets/.
-/// Only glTF/GLB inputs are models; their buffers and images are import dependencies.
+/// glTF/GLB inputs become models; standalone PNG inputs become sprite textures.
 pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     let app = app.as_ref();
     let art = app.join("art");
@@ -289,7 +332,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
                 visit(&path, files)?;
             } else if matches!(
                 path.extension().and_then(|v| v.to_str()),
-                Some("glb" | "gltf")
+                Some("glb" | "gltf" | "png")
             ) {
                 files.push(path);
             }
@@ -325,6 +368,20 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     }
     let mut outputs = std::collections::BTreeMap::new();
     for path in files {
+        if path.extension().and_then(|v| v.to_str()) == Some("png") {
+            let name = format!("{}.tex", path.file_stem().unwrap().to_str().unwrap());
+            if !asset_name(&name) {
+                return Err(format!("invalid sprite asset name `{name}`"));
+            }
+            let texture = sprite(&path)?;
+            if outputs
+                .insert(name.clone(), encode(&name, &texture)?)
+                .is_some()
+            {
+                return Err(format!("duplicate art stem {name}"));
+            }
+            continue;
+        }
         let (model, textures) = assets(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = format!("{}.model", path.file_stem().unwrap().to_str().unwrap());
         if outputs

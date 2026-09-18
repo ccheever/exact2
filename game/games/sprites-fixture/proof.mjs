@@ -4,13 +4,13 @@ import { checkSteadyResidency } from '../asset-fixture/residency.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-await proof(import.meta,async ({open,check,equal,out,say,host})=>{
+await proof(import.meta,async ({pin, pinSave, open,check,equal,out,say,host})=>{
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');await w.hold('KeyD',2500);
   const mid=await w.snapshot(),save=resolve(out,'leaves-150.world');await w.save(save);
   await w.run(2500);const end=await w.snapshot();
   say(`PIN sprites tick ${end.tick} ${end.hash}`);
-  check('pinned cross-host hash at tick 300',end.tick===300&&end.hash==='0x2e3d805eb6c89e55');
+  pin(300, end);
   const leaves=end.entities.find(e=>e.name==='leaves').components.Emitter;
   check('one emitter derives 200 live leaves',leaves.state.alive===200&&end.entities.filter(e=>e.components.Emitter).length===1);
   const player=end.entities.find(e=>e.name==='player').components;
@@ -32,7 +32,7 @@ await proof(import.meta,async ({open,check,equal,out,say,host})=>{
     }
   }
   checkSteadyResidency((await s.state()).world[0],check,say,host);
-  const endSave=resolve(out,'leaves-300.world');await w.save(endSave);await s.close();
+  const endSave=resolve(out,'leaves-300.world');await w.save(endSave);pinSave('continuation',endSave);await s.close();
   const r=await start(save),rw=r.world('world');check('restore mid-fall snapshot',equal(await rw.snapshot(),mid));
   await rw.run(2500);check('restore continues animation, camera and leaves',equal(await rw.snapshot(),end));
   const final=resolve(out,'leaves-300-restored.world');await rw.save(final);

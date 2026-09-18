@@ -17,6 +17,33 @@ public final class AssetResolver {
         self.root = root; self.names = names; self.read = read
     }
 
+    /// Own verified payloads without retaining texture heap buffers. The private
+    /// files live exactly as long as this generation and can be read after loss.
+    init(root: URL, verified: [String: Data]) throws {
+        self.root = root; names = Array(verified.keys); read = nil
+        for (name, bytes) in verified {
+            guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else {
+                throw CocoaError(.fileReadInvalidFileName)
+            }
+            if name.hasSuffix(".tex") { _ = try materialize(name, bytes) }
+            else { cache[name] = bytes }
+        }
+    }
+
+    private func materialize(_ name: String, _ bytes: Data) throws -> URL {
+        if directory == nil {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exact-generation-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            directory = dir
+        }
+        let url = directory!.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
+        files[name] = url
+        return url
+    }
+
     init(root: URL) {
         self.root = root; names = nil; read = nil
     }
@@ -35,13 +62,14 @@ public final class AssetResolver {
             throw NSError(domain: "ExactAssets", code: 1, userInfo: [NSLocalizedDescriptionKey: "asset `\(name)`: invalid name"])
         }
         if let bytes = cache[name] { return bytes }
+        if let url = files[name] { return try Data(contentsOf: url) }
         if let read {
             guard names?.contains(name) == true else { return nil }
             let bytes = try read(name)
             if let bytes, !name.hasSuffix(".tex") { cache[name] = bytes }
             return bytes
         }
-        guard let url = embeddedURL(name) else { return nil }
+        guard !isComplete, let url = embeddedURL(name) else { return nil }
         do { return try Data(contentsOf: url) }
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
@@ -50,18 +78,7 @@ public final class AssetResolver {
         guard isComplete else { return embeddedURL(name) }
         if let url = files[name] { return url }
         guard let bytes = bytes(name) else { return nil }
-        do {
-            if directory == nil {
-                let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appendingPathComponent("exact-generation-\(UUID().uuidString)", isDirectory: true)
-                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-                directory = dir
-            }
-            let url = directory!.appendingPathComponent(name)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try bytes.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
-            files[name] = url
-            return url
+        do { return try materialize(name, bytes)
         } catch { refusal = refusal ?? "verified asset materialization failed: \(error)"; return nil }
     }
 

@@ -31,7 +31,7 @@ mod values;
 mod world;
 
 pub use animation::{
-    Animation, Animator, Blend, Cmp, Condition, Ik, Play, Pose, Socket, SocketFollow, State,
+    Animation, Animator, Blend, Cmp, Condition, Ik, Play, Pose, SocketFollow, State,
 };
 pub use args::{Args, ArgumentKind};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
@@ -40,7 +40,7 @@ pub use environment::{Bloom, Environment, Fog};
 pub use exact_game_derive::{Args, Component, Data, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
-pub use glam::{Affine3A, Quat, Vec2, Vec3, Vec4};
+pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
 pub use input::{Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick};
 pub use placed::{Facing, Placed, PlacedPlane};
 pub use rng::{RangeValue, Rng};

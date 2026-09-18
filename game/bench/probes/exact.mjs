@@ -16,29 +16,31 @@ export function tickPhase(trace) {
   return count ? sum / count : null;
 }
 
-// Only the host's draw callback supplies (raw, paced). Unrelated rAFs never
-// participate; out-of-callback resize draws inherit the same paced generation.
+// One record per draw, including redraws outside a callback. A callback's
+// generation advances even when its paced time repeats.
 export function callbackRecorder(target = globalThis) {
-  let stamps, paced, count = 0, active = false, overflow = false;
-  target.exact.drawCallback = (raw, drawn) => {
-    if (!active) return;
+  let stamps, paced, generations, view, count = 0, active = false, overflow = false;
+  target.exact.drawCallback = (raw, drawn, generation, canvas) => {
+    if (!active || (view !== undefined && view !== canvas)) return;
     if (count === stamps.length) { overflow = true; return; }
-    stamps[count] = raw; paced[count++] = drawn;
+    stamps[count] = raw; paced[count] = drawn; generations[count++] = generation;
   };
   return {
-    begin(capacity) { stamps = new Float64Array(capacity); paced = new Float64Array(capacity); count = 0; overflow = false; active = true; },
+    begin(capacity, canvas) {
+      stamps = new Float64Array(capacity); paced = new Float64Array(capacity);
+      generations = new Float64Array(capacity); view = canvas;
+      count = 0; overflow = false; active = true;
+    },
     end(frames) {
       active = false;
       if (overflow) return {overflow:true};
-      let at = 0;
-      const raw = [];
-      for (let i = 0; i < frames.length; i += 8) {
-        if (i && frames[i] === frames[i - 8]) { raw.push(raw.at(-1)); continue; }
-        while (at < count && paced[at] < frames[i]) at++;
-        if (at === count || paced[at] !== frames[i]) throw new Error('Exact draw has no recorded raw callback');
-        raw.push(stamps[at]);
-      }
-      return {raw_callback_ms:raw, overflow:false};
+      // Arming and read are synchronous with the draw hook: every traced draw
+      // must have exactly one record. Refuse a partial/ambiguous join.
+      if (frames.length / 8 !== count) throw new Error('Exact draw/trace count differs');
+      for (let i = 0; i < count; i++)
+        if (paced[i] !== frames[i * 8]) throw new Error('Exact draw has no recorded raw callback');
+      return {raw_callback_ms:Array.from(stamps.subarray(0,count)),
+        callback_generation:Array.from(generations.subarray(0,count)), overflow:false};
     },
   };
 }
@@ -71,6 +73,7 @@ async function installOnce({ entity = 'player', play: selector = '[data-testid="
         exact.gpu.agent(view, { op: 'state', perf: true });
         const reply = exact.gpu.agent(view, { op: 'state', trace: { entity, frames: capacity } });
         if (reply?.trace !== 'armed') throw new Error(JSON.stringify(reply));
+        callbacks.begin(capacity, view);
         tracing = true;
       }
     }
@@ -96,7 +99,7 @@ async function installOnce({ entity = 'player', play: selector = '[data-testid="
       const frames = normalize(trace), callback = callbacks.end(frames);
       const camera_projection = trace.stride === 32 ? [] : null;
       if (camera_projection) for (let i = 0; i < trace.frames.length; i += trace.stride) camera_projection.push(...trace.frames.slice(i + 14, i + 32));
-      return { schema: 1, stride: 8, frames, raw_callback_ms: callback.raw_callback_ms,
+      return { schema: 1, stride: 8, frames, raw_callback_ms: callback.raw_callback_ms, callback_generation: callback.callback_generation,
         landmark_xyz: [8, 1, 0], clip_depth: 'zero-to-one',
         drawn_clock_ms: frames.filter((_, i) => i % 8 === 0), camera_projection,
         ...delivered, overflow: delivered.overflow || trace.overflow || callback.overflow,

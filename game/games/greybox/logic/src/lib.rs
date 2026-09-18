@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
 use exact_game::character::Character;
+use exact_game::Vec3Swizzles;
 use exact_game::{
     scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
     Spring, Stick, Transform, Vec3, World,
@@ -153,17 +154,15 @@ impl Game for Greybox {
         args.paused
     }
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
-        let now = world.now();
+        let now = world.tick_end();
         let mut footsteps = 0;
         {
-            let before = world.global_position("player").unwrap();
             let motion = world
                 .character("player")
                 .step(input.stick_xz("move"), input.pressed("jump"));
             if motion.grounded {
                 let mut player = world.get_mut::<Player>("player").unwrap();
-                let delta = world.global_position("player").unwrap() - before;
-                player.stride += exact_game::Vec2::new(delta.x, delta.z).length();
+                player.stride += motion.displacement.xz().length();
                 while player.stride >= 0.45 {
                     player.stride -= 0.45;
                     footsteps += 1;
@@ -172,8 +171,7 @@ impl Game for Greybox {
         }
         for _ in 0..footsteps {
             let pitch = world.rand(0.94..1.06);
-            let player = world.named("player").unwrap();
-            world.play("footstep").at(player).pitch(pitch).start();
+            world.play("footstep").at("player").pitch(pitch).start();
         }
         if input.pressed("act") {
             if let Some(entity) = world.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit) {

@@ -507,24 +507,18 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
 
 
-- Game proof JSON equality: `game/proof.mjs` compares object key order via JSON.stringify; native dictionaries can reorder keys. Beacons capsule values are checked by name now; make shared JSON-value equality order-independent before adding more object assertions.
 
 - Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
 - U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.
 
 - Bun 1.3.12 at the repository root: `bun test scripts/x.test.mjs` (a bare path is a filter) scans the whole tree and afterwards every `spawnSync` child gets dead stdio pipes (`echo` exits 1, `cargo metadata` returns exit 0 with no output); `bun test ./scripts/x.test.mjs` (an explicit path) or a `game/` cwd is fine. The generated-game test now routes its shell locations through a file and the docs say `./`; the Bun defect itself is unreported upstream.
-- Linux image scheduling test: `an_embedded_image_is_not_opened_on_the_boot_thread` exceeded its 100 ms wall-clock bound during concurrent builds (358 ms); the full GPU/Linux suite passed serially. Replace the scheduling-time assumption with a deterministic worker barrier.
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
 - GPU-compressed game textures (after S3a-b): separate `.tex` assets now fit the 64 MiB carrier, with RGBA8 inputs capped at 2048×2048. Bake BC7/ASTC variants selected by host next, retaining named texture deduplication, bounded carrier files and no runtime image decoder.
 
 - **R1 audio/cadence owed:** real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. Synthetic tests call interruption directly on main, not AVAudioSession notifications from a background queue. Sources: review-F2f-sol.md (`CanvasSeams.swift:507`, `game/audio/README.md:257`), review-F2f-grok.md (`game/audio/src/web.rs:47–50,117–119`). The Transform borrow regression, named nonpanic finite-source refusal, maximum-rate cap and allocation-free quantizer are fixed.
 
-- **R1 host-level device recovery owed:** module-level replacement-device pixels match, but Apple result 3 makes the canvas permanently non-presentable and native `gpu_load` destroys the module surface table. Add a recovery ABI requesting a replacement device while preserving that table. Web recovery keeps the old instance’s presentation surface/context (black canvas); recreate each canvas surface/context on the new device, as module swap does. Both reviewers: review-S3ac-sol.md (`gpu/src/native.rs:224`, `CanvasSeams.swift:353`, `gpu/src/lib.rs:358`, `gpu-glue.js:148,583`) and review-S3ac-grok.md (`gpu/src/web.rs:33–60`, `gpu/src/native.rs:90–99`). The fixture asserts state/re-fetch/hash and says “host recovery owed”, without a pseudo-test KNOWN OPEN.
 - **R1 primitive-module size isolation owed:** a primitive world still owns the asset maps and `Models`; 759 KB against the ~490 KB target — the size question needs a link map, its own slice. Both reviewers: review-S3ac-sol.md (`game/engine/src/asset.rs:374`, `sim.rs:82`, `game/render/src/renderer.rs:22,245`), review-S3ac-grok.md §Primitive module vs 759 KB. Missing decoder/shader markers do not establish storage isolation.
-- **R1 Apple delivered-`.tex` bytes owed:** the generation store retains the delivered Data; move it to private reloadable files. review-S3ac-sol.md (`Session.swift:214`, `PlanURL.swift:583,604`, `Assets.swift:37`) explains why skipping the resolver’s secondary cache does not release the original payload.
-- S3a-c macOS fixture proof: three build attempts stopped on mixed SDK/toolchain selection (SDK 27 versus the required SDK 26, then incompatible Swift tools); rerun the full native proof once the local toolchain is coherent.
-- **S3b macOS Fox is white:** the skinned fixture's textures do not arrive on macOS (`fox-mid-stride-macos.png` is untextured; the web is textured, `fox-mid-stride-web.png`). The model itself, its pins and hashes agree across hosts, so it is the Apple `.tex` delivery path after R1's consumable-bytes change or a name/path mismatch in `Assets.swift` — drive `bun game/games/skinned-fixture/proof.mjs macos` with `state world:*` and the module's asset states before touching the renderer.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
   `screenshot run.world world save`, reopen `--world run.world`, then continue;
@@ -560,11 +554,13 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   discovered PIDs; only spawn-owned handles may be signalled. Recheck browser leaks
   when this machine's process inventory is available.
 
-- **Placed UI (U1) owed:** Linux needs a direct-child frame/placement consumer in
-  `surfaces.rs` and projective composition/hit geometry in its painter/presenter;
-  the named U1 scope did not include those paths, and scope clarification is pending.
-  Its fixture currently proves only state/actions/save/hash parity. Re-run the
-  macOS placement/accessibility proof and `--capture40` when `swift-package` can
-  load BuildServerProtocol; no 40-plate capture number is claimed. Socket followers
-  still interpolate tick-resolved transforms instead of recomposing the displayed
-  socket pose. Browser host-composited children do not participate in mesh depth.
+- **Placed UI (U1) follow-up:** measure macOS `--capture40` (Xcode's toolchain now
+  builds and the placement/accessibility checks pass). Browser host-composited
+  children do not participate in mesh depth.
+
+
+- Shared-tree test expectations found by H1: `game/engine/tests/agent.rs` and Greybox's native `agent_snapshots_and_pick` still compare JSON spellings (`0` versus `0.0`); the game workspace run fails four assertions across three targets, reproduced on retry. Linux's `accessibility_focus_is_session_scoped_and_buttons_activate_from_keys` expects reload not to autofocus, whereas the host now clears autofocus history and reapplies it. The macOS Beacons proof also fails victory-control logical focus while its other assertions and web/Linux proofs pass. Reconcile these with S4/R6 before claiming a clean suite; H1 did not change their expectations.
+
+- Game driver: consider an opt-in `world().moveTo` only after action bindings and collision boxes can identify a blocker without assuming WASD or a particular motor; E7 deliberately leaves this optional helper out.
+
+- Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.

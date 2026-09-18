@@ -2,9 +2,9 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt} from './proof.mjs';
+import {agreePins, webUnavailable, pinRecorder, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt} from './proof.mjs';
 import {checkSteadyResidency} from './games/asset-fixture/residency.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -224,9 +224,9 @@ test('world convenience keeps simulation fields only and dispatches the existing
   await w.key_down('KeyW'); await w.tap('KeyE'); await w.hold('KeyW',1500);
   await w.key_up('KeyW'); await w.run(100);
   expect(await w.settle()).toBe(true);
-  expect(await w.position('player')).toEqual([0,0.9,0]);
+  expect(await w.local_position('player')).toEqual([0,0.9,0]);
   expect(await w.get('player','Transform')).toEqual({position:[0,0.9,0]});
-  expect(await w.position('missing')).toBeUndefined();
+  expect(await w.local_position('missing')).toBeUndefined();
   expect(await w.get('player','Missing')).toBeUndefined();
   for (const ms of [-1, NaN, Infinity]) expect(() => w.run(ms)).toThrow();
   expect(calls.map(c => [c.method,...c.args])).toEqual([
@@ -261,10 +261,12 @@ test('author examples and documentation describe current motion, placement and p
   expect(read('audio/README.md')).toContain('0x71f43e51a13cc49f');
 
   const proof = read('games/greybox/proof.mjs');
-  for (const pin of ['0x9a871d8582d905e7', '0x71f43e51a13cc49f', '[0, 0.9, -5.3666644]']) {
-    expect(proof).toContain(pin);
-    expect(greybox).toContain(pin);
-  }
+  const pins = JSON.parse(read('games/greybox/pins.json'));
+  expect(Object.keys(pins.ticks)).toEqual(['0','90']);
+  expect(proof).toContain('pin(0,');
+  expect(proof).toContain('pin(90,');
+  expect(greybox).toContain('[pins.json](pins.json)');
+  expect(greybox).toContain('[0, 0.9, -5.3666644]');
 });
 
  test('world get translates only the named missing-entity refusal', async () => {
@@ -366,4 +368,76 @@ test('KeyP forbids texture uploads and pipeline creation as well as requiring ne
     await checkResidency({run:async()=>responses.shift()}, {}, (name,ok)=>checks.push([name,ok]), ()=>{});
     expect(checks.find(([name])=>name==='new model name reuses textures and pipelines')[1]).toBe(error==='none');
   }
+});
+
+
+test('local and global position helpers preserve parent-space distinction', async () => {
+  const w = worldView({
+    async state() { return {entity:{components:{Transform:{position:[1,2,3]}}}}; },
+    async layout() { return {entity:{world:{position:[11,2,3]}}}; },
+  }, 'arena');
+  expect(await w.local_position('child')).toEqual([1,2,3]);
+  expect(await w.global_position('child')).toEqual([11,2,3]);
+  expect(w.position).toBeUndefined();
+});
+
+const candidates = (hosts = ['linux','web']) => hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
+  name:'fixture', host, mode, failures:[], pins:{ticks:{60:'0x123456789abcdef0'}, saves:{continuation:'a'.repeat(64)}},
+})));
+test('repin requires all modes and hosts to agree on every tick and save', () => {
+  const rows=candidates(), old=structuredClone(rows[0].pins);
+  expect(agreePins(rows, old, ['linux','web'])).toEqual({...old,hosts:['linux','web']});
+  for (const section of ['ticks','saves']) {
+    const bad=structuredClone(rows), key=Object.keys(bad[4].pins[section])[0];
+    bad[4].pins[section][key]=section==='ticks'?'0x1111111111111111':'b'.repeat(64);
+    expect(()=>agreePins(bad,old,['linux','web'])).toThrow(`web 1 ${section} ${key}`);
+    expect(rows[0].pins).toEqual(old);
+  }
+  expect(()=>agreePins(rows.slice(1),old,['linux','web'])).toThrow('linux 0 missing');
+  expect(()=>agreePins(rows,{...old,ticks:{...old.ticks,90:'0x123456789abcdef0'}},['linux','web'])).toThrow('did not observe ticks 90');
+});
+test('no-web repin records only linux and still requires three modes', () => {
+  const rows=candidates(['linux']), old=rows[0].pins;
+  expect(agreePins(rows,old,['linux']).hosts).toEqual(['linux']);
+  expect(()=>agreePins(rows,old,['linux','web'])).toThrow('web 0 missing');
+  expect(()=>agreePins(rows.slice(0,2),old,['linux'])).toThrow('linux fresh-game missing');
+});
+test('pin failure gives the one regeneration command; collection bypasses only old pins', () => {
+  const calls=[], old={ticks:{60:'0x123456789abcdef0'},saves:{}};
+  const normal=pinRecorder(old,'fixture',(...args)=>calls.push(args));
+  normal.pin(60,{tick:60,hash:'0x1111111111111111'});
+  expect(calls.at(-1)).toEqual(['pin 60 differs (expected 0x123456789abcdef0, got 0x1111111111111111); if the change is intended: bun game/prove.mjs fixture --repin',false]);
+  const collecting=pinRecorder(old,'fixture',(...args)=>calls.push(args),true);
+  collecting.pin(60,{tick:59,hash:'0x1111111111111111'});
+  expect(calls.at(-1)[1]).toBe(false);
+  collecting.pin(60,{tick:60,hash:'0x2222222222222222'});
+  expect(calls.at(-1)).toEqual(['pin 60 repeated consistently',false]);
+});
+test('facility report connects observed stalls/refusals to unused operations', () => {
+  expect(facilityReport([{method:'clock',reply:{settled:false}},{method:'tap',error:'hidden behind camera'}]).join(' ')).toContain('layout unused');
+  expect(facilityReport([{method:'layout'},{method:'tap',error:'hidden behind camera'}]).join(' ')).not.toContain('layout unused');
+  expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual([]);
+});
+
+test('hidden placed-child refusal uses observed camera visibility and names layout', async () => {
+  const calls=[], s={tree:async target=>target ? {entities:[{name:'sign'}]} : {nodes:[{id:7,props:{testId:'world'},world:{}}]},
+    state:async name=>{calls.push(name);return {entity:{placed:{hidden:true}}};},
+    layout:async name=>({entity:{visible:{behindCamera:true}}})};
+  const error=await tapRefusal(s,'sign',new Error('no view matches sign'));
+  expect(error.message).toContain('hidden (behind the camera): layout world:sign shows the placed box');
+  expect(calls).toEqual(['world:sign']);
+});
+
+test('automatic no-web fallback is only a missing configured browser, never a failed proof', () => {
+  expect(webUnavailable('web carrier unavailable: /missing/chrome: ENOENT; set CHROME to an installed browser')).toBe(true);
+  for (const log of ['asset ENOENT', 'Chrome exited (1)', 'web carrier unavailable: chrome: EACCES;', 'FAIL web pixel assertion']) expect(webUnavailable(log)).toBe(false);
+});
+
+test('tap diagnostics never manufacture a missing-entity refusal for a UI-only target', async () => {
+  let queried=0;
+  const s={tree:async target=>target?{entities:[{name:'sign'}]}:{nodes:[{id:7,world:{}}]},
+    state:async()=>{queried++;throw new Error('must not query an unobserved name');}};
+  const error=await tapRefusal(s,'play',new Error('restore refused'));
+  expect(error.message).toStartWith('restore refused; layout play');
+  expect(queried).toBe(0);
 });

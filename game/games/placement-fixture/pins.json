@@ -1,0 +1,14 @@
+{
+  "ticks": {
+    "330": "0x626f1c12836bea76"
+  },
+  "saves": {
+    "continuation": "27f28608444a701e73c10a96d20bcb801c840b2f148bf30a1ba26592c6c51b8f"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "generated": "bun game/prove.mjs placement-fixture --repin",
+  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+}

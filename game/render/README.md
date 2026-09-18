@@ -358,19 +358,18 @@ S3a-b binary have overlapping ranges: all-moving median tick/feed/encode is
 0.4342/1.0230/0.0723 ms before and 0.4443/1.0524/0.0723 ms after. This is an
 offscreen diagnostic, not an FPS claim or an isolated HEAD comparison. Native
 replacement-device pixels match: retained bytes are re-uploaded and pipelines
-re-prepare. This verifies module-level recovery. **Host recovery is owed.** Apple
-result 3 makes canvases non-presentable; native `gpu_load` destroys the module’s
-surface table. A recovery ABI must request a replacement device while preserving
-that table. Web recovery retains the old instance’s presentation surface/context
-and presents black; it must recreate each canvas surface/context on the new device
-as the module-swap path does. Both reviews trace this: `review-S3ac-sol.md`
-(`gpu/src/native.rs:224`, `CanvasSeams.swift:353`, `gpu/src/lib.rs:358`,
-`gpu-glue.js:148,583`) and `review-S3ac-grok.md` (`gpu/src/web.rs:33–60`,
-`gpu/src/native.rs:90–99`). The asset proof asserts state, re-fetch and hash and
-prints “host recovery owed”; native pixels remain a required module test.
+re-prepare. Host recovery now uses `gpu_recover`, retaining surface IDs and state while
+requesting a replacement adapter/device/queue. Browser recovery recreates canvas
+contexts through the code-swap helper. Apple reconfigures its Metal layers and
+recaptures children on result 3 or removal. The real browser device-loss proof
+has identical recovered pixels, one retained-texture re-fetch, matching residency
+counters and empty readiness reasons. Native recovery preserves the surface table;
+headless recovery reports `no device`. Physical Metal removal cannot be tested on
+this Apple Silicon device. Apple generation texture bytes live in private reloadable
+files, and native readback keeps the target format instead of destroying resident
+textures when taking a screenshot.
 
-Also owed: Apple delivered-`.tex` bytes retained by the generation store (move to
-private files; Sol, `Session.swift:214`, `PlanURL.swift:583,604`); primitive-module
+Also owed: primitive-module
 size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
 against the ~490 KB target — the size question needs a link map, its own slice;
 Sol, `asset.rs:374`, `sim.rs:82`, `renderer.rs:22,245`; Grok §Primitive module vs 759 KB).
@@ -571,38 +570,34 @@ where the host supplies frames without textures and composites the real elements
 Unplaced children, including the HUD, remain ordinary host UI. A HUD-only world
 returns false from `wants_children_each` and pays no per-child capture cost.
 
-Measurements on the shared Mac, 2026-09-18:
+The original U1 timing and size samples were unretained local observations,
+not reproducible receipts. The roughly 40.6 ns projection observation came from
+an ignored release diagnostic, not an ABI benchmark or a performance gate.
+Encode p50/p95 of 0.100/0.200 ms represented timer quantization (one/two timer
+ticks), not sub-tick precision. The shared-tree size observation included R6;
+it was not an isolated U1 size measurement. Exact GPU/size figures are withdrawn.
+`--capture40` prepares forty real children for native capture measurements.
 
-| Measurement | Result | Scope |
-| --- | ---: | --- |
-| Plane geometry + homography + visibility + ABI adapter | 40.594 ns/child/frame | 400,000 release calls, `homography_cost` ignored diagnostic |
-| Fixture tick CPU mean | 0.023889 ms | 180 live browser frames, 1280×720, DPR 1 |
-| Fixture feed CPU mean | 0.074444 ms | Same sample |
-| Fixture renderer encode p50 / p95 / mean | 0.100000 / 0.200000 / 0.115556 ms | Same sample; excludes DOM composition |
-| Fixture GPU p50 / p95 | 0.508701 / 0.784862 ms | WebGPU timestamps, forward + ACES; no timestamp errors |
-| Frame interval p50 / p95 | 16.666040 / 16.667620 ms | Browser callback cadence; not GPU time or scanout |
-| Retained baseline module raw / gzip | 858,785 / 358,320 bytes | `bun game/bench/size.mjs u1-before --no-build` |
-| Final shared-tree module raw / gzip | 888,665 / 370,716 bytes | `bun game/bench/size.mjs u1-after` |
-| Module delta raw / gzip | +29,880 / +12,396 bytes | Includes concurrent R6 changes; not isolated U1 attribution |
-| macOS capture of 40 name-plates | unavailable | Swift package loader aborts before compilation |
-
-The browser sample is `games/placement-fixture/artifacts/perf-web.json`; size
-attribution is `games/beacons/target/d3-size/u1-{before,after}.json`. The baseline
-was the retained P1 build, not a fresh isolated checkout. The fixture's `--capture40`
-mode prepares forty real Contract text children for the native capture log. The
-three-round native attempt stopped at a missing `BuildServerProtocol` symbol in
-`swift-package`, including with the required temporary native-build wrapper;
-there is no measured macOS capture number, tap proof or accessibility result yet.
-The pure native GPU pixel test passes and covers premultiplied overlap, equal-depth
-Contract order, opaque wall occlusion and explicit near-plane hiding.
+R7 hides the whole plane if any corner crosses near, eye, or far; it rejects a
+side only when all corners fail that same side. Every visible child corner has
+a positive homography denominator. Hidden children report a zero layout box on
+web, macOS, iOS and Linux. Ordinary HUD siblings paint and hit above placements;
+placed siblings retain their depth/Contract order below the HUD and above the
+surface. Style batches remove the web override, apply authored CSS, and immediately
+restore the placement with a fresh authored-style snapshot. The last placement
+retires captured textures and frames. Native child pipelines prepare before ready.
 
 The fixture's browser proof passes placed layout, camera orbit, Pull → lamp/HUD,
 back-face hiding and failed hidden tap, save/restore and a stationary HUD. Its
-Linux proof covers state, ordinary Contract input and save/hash parity, not placed
-composition: Linux's headless host has no child-placement consumer, and extending
-its painter/surface scope awaits clarification. Socket attachments use the existing
-interpolated tick-resolved socket follower transform; displayed bone/socket
-recomposition is not implemented by this slice.
+Linux proof now covers projected composition, inverse-homography taps, hidden-tree
+removal and save/hash parity. Each child is captured and sampled through the full
+projective map; no affine approximation is used. The initial box matches web exactly.
+Headless and device placements now use the same retained camera/plane tick pair
+and `Sim::alpha()`. The fixture pins initial and moving projected bounds against
+`Placed::project` within 2 px at 1280×720; motion separately requires >1 px.
+Socket attachments use the existing
+displayed socket chain at the same alpha as the skin; attachment planes no longer
+interpolate composed tick endpoints.
 
 Pins exercised without U1 editing the existing fixtures' pins:
 
@@ -610,13 +605,13 @@ Pins exercised without U1 editing the existing fixtures' pins:
 | --- | --- | --- |
 | Greybox | setup | `0x9a871d8582d905e7` |
 | Greybox | W for 1500 ms | `0x71f43e51a13cc49f` |
-| Beacons | 907, three lights | `0xce6c7b72a5ced1e2` |
+| Beacons | 907, three lights | `0x0b132d378ffd3b21` |
 | Asset | 60 | `0xb1365b0eb9a7c59d` |
 | Skinned | 60 | `0x749639d3ffa1be59` |
 | Skinned | 120 | `0x0960f8999dd20662` |
 | Particles | 300 | `0x8dc0cac2d2645d93` |
 | Sprites | 300 | `0x2e3d805eb6c89e55` |
-| Placement | 330 | `0x61007363bd681d3c` |
+| Placement | 330 | `0x626f1c12836bea76` |
 
 Final verification: game workspace tests **516 passed, 11 ignored**; all-target
 clippy and game/root fmt pass. Root `cargo build --workspace` passes. Web tests
@@ -627,3 +622,16 @@ the retry after the required wait passed. The placement proof passes on web and
 Linux with the limitations above. Caps passes with only explicitly named U1 files
 staged in a temporary index, removed afterward; the shared index is untouched.
 Logs are `/tmp/u1-*.log`. No commit, clone, stash or sub-agent.
+
+
+S4 attachments: the feed retains only requested joint ancestor chains and the owner's
+ordinary transform history. At frame alpha it mixes local translation/scale and slerps
+local rotation, composes the chain, then applies the attachment offset. The same displayed
+pose feeds primitive/model drawing, translucent depth, sprites/particles, lights and
+Contract planes. Per-frame drawing temporarily uploads that pose into both transform
+arenas, submits, then restores the ordinary histories; removing an attachment therefore
+cannot leave stale GPU values or invalidate the feed's page filtering. Birth, restore,
+teleport and model arrival prime local histories just as skinning does. The shader remains
+the skin oracle; the two-joint 90-degree test compares its GPU palette endpoint with the
+displayed attachment at alpha 0.5 to 1e-4, rejecting the (.5,.5) chord midpoint. Gameplay
+`animation::socket` remains a tick-boundary read and is not a displayed-pose claim.

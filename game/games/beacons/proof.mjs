@@ -3,13 +3,13 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {proof} from '../../proof.mjs';
 
-await proof(import.meta, async ({open, check, equal, out, host, say}) => {
+await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
   const node = (t,id) => t.nodes.find(n => n.props?.testId === id);
   const bytes = name => readFileSync(resolve(out,name));
   const walk = async (g,x,z) => {
     // From rest, acceleration and braking lose about 0.267m vs constant speed.
     for (const [axis,target,negative,positive] of [[0,x,'KeyA','KeyD'],[2,z,'KeyW','KeyS']]) {
-      const delta = target - (await g.position('player'))[axis];
+      const delta = target - (await g.global_position('player'))[axis];
       if (Math.abs(delta) > 0.15) await g.hold(delta < 0 ? negative : positive, Math.round((Math.abs(delta)+0.267)/4*1000));
       check('walking settles', await g.settle());
     }
@@ -29,7 +29,7 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
     await s.tap('play');
     const g = s.world('world');
     await g.hold('KeyW',1500);
-    const p = await g.position('player');
+    const p = await g.global_position('player');
     check('W exactly 1.5s: [0, 0.9, -5.3666644] within 1mm', p.every((v,i)=>Math.abs(v-[0,0.9,-5.3666644][i])<=0.001),p);
     check('exactly 90 ticks', (await s.state()).world[0].tick===90);
     check('capsule dimensions', equal(await g.get('player','Mesh'),{Capsule:{height:1.8,radius:0.4}}));
@@ -66,7 +66,8 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
     return {checkpoint,final};
   };
   const first=await run(1), second=await run(2);
-  check('advertised cross-host endpoint: tick 907, ce6c7b72a5ced1e2', first.final.tick === 907 && first.final.hash === '0xce6c7b72a5ced1e2');
+  pin(907, first.final);
+  pinSave("continuation", resolve(out, "final-1.world"));
   check('two full input runs produce identical state',equal(first.final,second.final));
   check('two full runs produce identical save bytes',bytes('final-1.world').equals(bytes('final-2.world')));
   say('Original host processes closed; restoring mid-glow with W held and jump queued in a fresh process.');
@@ -85,7 +86,7 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
   check('victory control takes logical focus', node(win,'again')?.focused === true && (await s.state()).focus.logical === node(win,'again')?.id);
   await s.tap('again');
   check('restart is visible in state.world', (await s.state()).world[0].restarted === 1);
-  check('Play again resets position',equal(await g.position('player'),[0,0.9,0]));
+  check('Play again resets position',equal(await g.global_position('player'),[0,0.9,0]));
   check('Play again resets HUD',node(await s.tree(),'hud-lit')?.props.text==='Beacons 0 / 3');
   await s.close();
 });

@@ -12,6 +12,7 @@ struct Request {
     under: Option<String>,
     summary: bool,
     pose: bool,
+    busy: bool,
     settle: bool,
     now: Option<f64>,
     width: Option<f32>,
@@ -33,6 +34,7 @@ impl Request {
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
                 "pose" => q.pose.read(&mut r)?,
+                "busy" => q.busy.read(&mut r)?,
                 "now" => {
                     let mut n = 0.0f64;
                     n.read(&mut r)?;
@@ -72,7 +74,7 @@ fn encode<T: Data>(v: &T) -> Result<String, String> {
 }
 fn resolve(w: &World, name: &str) -> Result<Entity, String> {
     w.resolve(name)
-        .ok_or_else(|| format!("no entity named `{name}`"))
+        .ok_or_else(|| format!("no entity named `{name}`; `tree world` lists names; add `w.spawn_named(\"{name}\", (Transform::default(),));` in setup if intended"))
 }
 fn identity(w: &World, e: Entity) -> String {
     format!(
@@ -110,7 +112,7 @@ fn hierarchy(w: &World) -> Result<Vec<(Entity, Option<Entity>, u32)>, String> {
         }
     }
     if out.len() != w.len() {
-        return Err("transform hierarchy contains a cycle".into());
+        return Err("transform hierarchy contains a cycle; `tree world` and `state world:*` show Parent components; remove the cyclic Parent in setup".into());
     }
     Ok(out)
 }
@@ -213,7 +215,7 @@ impl<G: Game> Sim<G> {
                 let entities = all[start..end].iter().take(512).map(|&(e,_,_)| {
                     Ok(format!("{{{},\"components\":{}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
                 }).collect::<Result<Vec<String>, String>>()?.join(",");
-                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}}}", w.hash(), end-start > 512))
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}{}}}", w.hash(), end-start > 512, if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
@@ -228,12 +230,12 @@ impl<G: Game> Sim<G> {
             }
             "layout" => {
                 let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
-                let view = spatial::View::new(w,self.input.viewport).ok_or("layout unavailable: needs an active camera and viewport")?;
+                let view = spatial::View::new(w,self.input.viewport).ok_or("layout unavailable: needs an active camera and viewport; add `w.spawn_named(\"camera\", (Transform::at(0., 3., 8.), Camera::default()));` in setup; inspect `state world:*`")?;
                 let hit = spatial::pick(w,&view,point).map(|(e,d,p)| Ok::<_,String>(format!("{{{},\"distance\":{},\"point\":{}}}", identity(w,e),encode(&d)?,encode(&p)?))).transpose()?.unwrap_or_else(||"null".into());
                 Ok(format!("{{\"tick\":{tick},\"hit\":{hit}}}"))
             }
             "clock" if self.is_loading() => {
-                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":false,\"changing\":[\"loading\"],\"error\":\"declared assets are not ready\",\"assets\":{}}}", w.hash(), w.assets.state_json()))
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":false,\"changing\":[\"loading\"],\"error\":{},\"assets\":{}}}", w.hash(), quote(&format!("clock refused: declared assets are not ready: {}; inspect `state world:*` and `state` for pending assets", w.assets.state_json())), w.assets.state_json()))
             }
             "clock" => {
                 let quiescent = self.quiescent();
@@ -246,7 +248,7 @@ impl<G: Game> Sim<G> {
                 let lines = lines.iter().filter(|e|e.index >= from).map(|e|quote(&e.line)).collect::<Vec<_>>().join(",");
                 Ok(format!("{{\"tick\":{tick},\"next\":{next},\"from\":{from},\"lines\":[{lines}]}}"))
             }
-            _ => Err(format!("unknown op `{}`",q.op)),
+            _ => Err(format!("unknown op `{}`; use tree, screenshot, tap, type, state, layout, logs or clock",q.op)),
         }
     }
     fn layout_json(&self, e: Entity) -> Result<String, String> {
@@ -298,6 +300,16 @@ impl<G: Game> Sim<G> {
         } else {
             format!("{{\"min\":{},\"max\":{}}}", encode(&lo)?, encode(&hi)?)
         };
-        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible}}}}}", w.tick(),identity(w,e),encode(&position)?,encode(&rotation)?,encode(&scale)?))
+        let global = if w.global_position(e).is_some() {
+            format!(
+                "{{\"position\":{},\"rotation\":{},\"scale\":{}}}",
+                json::to_string(&position).map_err(|e| e.to_string())?,
+                encode(&rotation)?,
+                encode(&scale)?
+            )
+        } else {
+            "null".into()
+        };
+        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{global},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible}}}}}", w.tick(),identity(w,e)))
     }
 }

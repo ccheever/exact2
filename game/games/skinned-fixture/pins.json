@@ -1,0 +1,15 @@
+{
+  "ticks": {
+    "60": "0x4d44c305a176e577",
+    "120": "0xd147cd9b2a8c62f7"
+  },
+  "saves": {
+    "continuation": "0d50ebe6388c4db317aae21fb3a1f30269f9e67300c3a0ec50e82eec0b7e5a79"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "generated": "bun game/prove.mjs skinned-fixture --repin",
+  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+}

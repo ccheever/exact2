@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 import { residencyProbe, checkResidency, checkSteadyResidency } from './residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-await proof(import.meta, async ({open,check,out,say,host}) => {
+await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
   const web = host === 'web';
   const residency = residencyProbe('crate.model','crate/0-srgb-straight.tex');
   let gate, server, fail = false, lossDone;
@@ -75,7 +76,7 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
   try {
     const s=await start();
     // Establish the device's first draw before measuring after-ready ticks.
-    if (web) await s.screenshot(resolve(out, 'crate-ready.png'));
+    if (host !== 'linux') await s.screenshot(resolve(out, 'crate-ready.png'));
     await s.clock(500);
     const at30=(await s.state()).world[0];
     check('setup and exactly 30 ticks after settlement', at30.tick===30 && at30.loading.length===0 && at30.assets.every(a=>a.state==='Loaded'),at30);
@@ -92,7 +93,8 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
     const clock = await restored.clock(500);
     check('publication-only changes keep clock changing', JSON.stringify(clock).includes('published.tick'), clock);
     const world=(await restored.state()).world[0];
-    check('native and web simulation hash agrees at 60', world.tick===60 && world.hash==='0xb1365b0eb9a7c59d',world.hash);
+    pin(60, world);
+    const pinnedSave=resolve(out,"continuation.world"); await restored.world("world").save(pinnedSave); pinSave("continuation",pinnedSave);
     if(web) await checkResidency(residency,restored,check,say);
     if(web) {
       const beforeLoss=resolve(out,'before-loss.png'), afterLoss=resolve(out,'after-loss.png');
@@ -104,14 +106,18 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
       const recovered = await Promise.race([lost, new Promise((_,reject)=>setTimeout(()=>reject(new Error('device recovery timeout')),20000))]);
       check('destroyed GPUDevice recovers content and reuploads texture', !recovered.error && !recovered.errors?.length && recovered.world?.hash===recoveryHash && recovered.world?.assets.every(a=>a.state==='Loaded') && textureRequests>requestsBefore, recovered);
       await restored.screenshot(afterLoss);
-      say('host recovery owed: web must recreate each canvas surface/context on the new device; native hosts need a recovery ABI preserving the surface table. Native module replacement-device pixel equality is asserted by render/tests/asset_lifecycle.rs.');
+      const before = decodePng(readFileSync(beforeLoss)), after = decodePng(readFileSync(afterLoss));
+      check('device recovery presents identical pixels', before.width===after.width && before.height===after.height && Buffer.from(before.data).equals(Buffer.from(after.data)));
+      check('recovery has no readiness reasons', recovered.world?.ready && recovered.world.readyReasons.length===0, recovered.world?.readyReasons);
+      check('replacement device uploads only retained assets and re-prepares pipelines', equal(recovered.world?.gpu.beforeReady,at30.gpu.beforeReady) && Object.values(recovered.world.gpu.afterReady).every(n=>n===0), recovered.world?.gpu);
+      check('one retained texture is fetched exactly once', textureRequests===requestsBefore+1, {before:requestsBefore,after:textureRequests});
     }
     const layout=await restored.layout('world:crate');
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);
-    if(host!=='macos') await restored.screenshot(resolve(out,`crate-${host}.png`));
-    else say('macOS pixel checks run in the shared surface GPU tests; desktop screencapture is unavailable in this session');
+    await restored.screenshot(resolve(out,`crate-${host}.png`));
+    if(host==='macos') say('SKIP physical Metal removal: this integrated device cannot be removed; native recovery ABI and replacement-device pixels run in the GPU tests.');
     say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate/0-srgb-straight.tex')).length}`);
-    if(!web) say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
+    if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
     await restored.close();
     {
       const invalid = resolve(out, 'invalid.world'); writeFileSync(invalid, 'invalid deferred save');

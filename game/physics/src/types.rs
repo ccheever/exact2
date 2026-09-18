@@ -180,7 +180,7 @@ impl Physics {
 
 /// A game-controlled upright capsule. The game owns vertical velocity and gravity.
 #[derive(Clone, Debug, Component)]
-pub struct Character {
+pub struct CapsuleController {
     /// Capsule radius, default 0.3 m.
     pub radius: f32,
     /// Total capsule height, default 1.8 m.
@@ -200,7 +200,7 @@ pub struct Character {
     /// Saved support pose for moving-platform transport.
     pub support_pose: Transform,
 }
-impl Default for Character {
+impl Default for CapsuleController {
     fn default() -> Self {
         Self {
             radius: 0.3,

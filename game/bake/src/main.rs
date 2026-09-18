@@ -1,8 +1,29 @@
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 2 {
-        eprintln!("usage: exact-game-bake INPUT.glb OUTPUT.model");
+        eprintln!("usage: exact-game-bake INPUT.glb OUTPUT.model | INPUT.png OUTPUT.tex");
         std::process::exit(2);
+    }
+    if std::path::Path::new(&args[0])
+        .extension()
+        .is_some_and(|v| v == "png")
+    {
+        let result = exact_game_bake::sprite(&args[0]).and_then(|texture| {
+            let name = args[1].to_string_lossy();
+            let bytes = exact_game_bake::encode(&name, &texture)?;
+            if let Some(parent) = std::path::Path::new(&args[1])
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+            {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&args[1], bytes).map_err(|e| e.to_string())
+        });
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
     }
     let result =
         exact_game_bake::assets(std::path::Path::new(&args[0])).and_then(|(m, textures)| {

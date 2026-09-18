@@ -116,10 +116,14 @@ impl Placed {
         ];
         let vp = proj * view;
         let clip = corners.map(|p| vp * p.extend(1.));
-        let anchor = vp * origin.extend(1.);
-        let outside = clip
-            .iter()
-            .all(|p| p.x < -p.w || p.x > p.w || p.y < -p.w || p.y > p.w);
+        // Reject only a shared side plane. Covering quads can have every corner
+        // outside different sides. Depth crossings are all-or-nothing on every
+        // host, so CSS never receives a map through the eye's vanishing line.
+        let outside = clip.iter().all(|p| p.x < -p.w)
+            || clip.iter().all(|p| p.x > p.w)
+            || clip.iter().all(|p| p.y < -p.w)
+            || clip.iter().all(|p| p.y > p.w);
+        let depth_clipped = clip.iter().any(|p| p.w <= 0. || p.z < 0. || p.z > p.w);
         let behind =
             self.facing == Facing::Fixed && x.cross(y).dot(camera.w_axis.truncate() - origin) <= 0.;
         let map =
@@ -132,8 +136,15 @@ impl Placed {
         let h = [dx.x, dy.x, a.x, dx.y, dy.y, a.y, dx.z, dy.z, a.z];
         let hidden = child_size.x <= 0.
             || child_size.y <= 0.
-            || anchor.z < 0.
-            || anchor.w <= 0.
+            || depth_clipped
+            || [
+                (0., 0.),
+                (child_size.x, 0.),
+                (child_size.x, child_size.y),
+                (0., child_size.y),
+            ]
+            .iter()
+            .any(|&(x, y)| h[6] * x + h[7] * y + h[8] <= 0.)
             || outside
             || behind
             || !h.iter().all(|n| n.is_finite())

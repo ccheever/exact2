@@ -24,9 +24,8 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync, o
   const appJson = resolve(destination, 'app.json');
   const manifest = gameDefaults(destination) ?? {};
   if (options.assets === true && manifest.game) {
-    delete manifest._generated; // --assets is an authored override.
     manifest.game.assets = true;
-    writeFileSync(appJson, JSON.stringify(manifest, null, 2) + "\n");
+    writeFileSync(appJson, JSON.stringify({game:{assets:true}}, null, 2) + "\n");
   }
   if (manifest.game) gameShells(destination, manifest.game, directory);
   // A locked resolution is read-only, including when these packages were already recorded.
@@ -48,7 +47,8 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync, o
     action = `Shared game lockfile registered ${name} (${args.slice(0, args.indexOf('--offline')).join(' ')}).`;
   }
   return `${action}\nCreated game/games/${name}\n  bun game/dev.mjs ${name}\n  bun game/games/${name}/proof.mjs linux
-  bun game/games/${name}/proof.mjs web --screenshot-only`;
+  bun game/games/${name}/proof.mjs web --screenshot-only
+  bun game/prove.mjs ${name} --repin`;
 }
 
 if (import.meta.main) console.log(createGame(process.argv[2], undefined, undefined, {assets:process.argv.includes("--assets")}));

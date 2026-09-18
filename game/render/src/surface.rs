@@ -353,6 +353,15 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 .map_err(|e| e.to_string());
             sim.asset_prepared(&name, result);
         }
+        // Closure acceptance can reactivate an identical resident model without
+        // uploading it. Publish that activity before compaction considers it.
+        for (name, model) in &mut renderer.models.loaded {
+            let active = sim.model_prepared(name);
+            if model.active != active {
+                model.active = active;
+                renderer.models.revision += 1;
+            }
+        }
         if renderer.retired_bytes(&live) > RETIRED_BUDGET {
             renderer.compact_assets(format, &live);
         }
@@ -728,7 +737,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if let Ok(size) = exact_game::json::from_str::<Size>(request) {
                 if size.width > 0. && size.height > 0. {
                     self.placed
-                        .headless(sim.world(), exact_game::Vec2::new(size.width, size.height));
+                        .headless(exact_game::Vec2::new(size.width, size.height), sim.alpha());
                 }
             }
         }
@@ -991,6 +1000,95 @@ mod residency_tests {
             s.render.as_ref().unwrap().0.models.materials.len(),
             model.materials.len(),
             "replacement reclaims old materials"
+        );
+    }
+
+    #[test]
+    fn identical_redelivery_survives_post_acceptance_budget_compaction() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        let model = model();
+        let bytes = exact_game::bin::to_vec(&model);
+        let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        s.assets();
+        s.asset("hero.model", Ok(&bytes));
+        s.asset(&model.textures[0], Ok(tex));
+        let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        let handles = s.render.as_ref().unwrap().0.models.loaded["hero.model"]
+            .nodes
+            .clone();
+        for name in ["away.model", "hero.model"] {
+            *s.sim
+                .as_ref()
+                .unwrap()
+                .world()
+                .get_mut::<exact_game::Mesh>("hero")
+                .unwrap() = exact_game::Mesh::asset(name);
+            s.assets();
+            s.retired_assets();
+        }
+        let retired = exact_game::asset::TextureData {
+            width: 1024,
+            height: 1024,
+            mips: (0..11)
+                .map(|level| vec![255; (1024usize >> level).pow(2) * 4])
+                .collect(),
+            ..Default::default()
+        };
+        let r = &mut s.render.as_mut().unwrap().0;
+        for i in 0..11 {
+            let name = format!("retired-{i}.tex");
+            r.add_texture(&name, &retired).unwrap();
+            r.retire_texture(&name);
+        }
+        let work = r.residency_work();
+        // The new peer grows the mesh arena during this preparation pass. Its
+        // unused capacity plus retired textures crosses the real 64 MiB budget.
+        let mut peer = model.clone();
+        let m = &mut peer.meshes[0];
+        m.positions.resize(600_000 * 3, 0.);
+        m.normals.resize(600_000 * 3, 0.);
+        m.uvs.resize(600_000 * 2, 0.);
+        m.tangents.clear();
+        s.sim.as_mut().unwrap().world_mut().spawn((
+            exact_game::Transform::at(100., 0., 0.),
+            exact_game::Mesh::asset("peer.model"),
+        ));
+        s.assets();
+        s.asset("hero.model", Ok(&bytes));
+        s.asset("peer.model", Ok(&exact_game::bin::to_vec(&peer)));
+        s.asset(&model.textures[0], Ok(tex));
+        let live = s
+            .sim
+            .as_ref()
+            .unwrap()
+            .presentation_assets()
+            .map(str::to_owned)
+            .collect();
+        assert!(s.render.as_ref().unwrap().0.retired_bytes(&live) < RETIRED_BUDGET);
+        s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert!(s.sim.as_ref().unwrap().model_prepared("hero.model"));
+        let r = &s.render.as_ref().unwrap().0;
+        assert!(
+            r.retired_bytes(&live) < 32 * 1024 * 1024,
+            "post-preparation compaction ran"
+        );
+        assert!(
+            r.models.loaded.contains_key("hero.model"),
+            "accepted identical model was discarded"
+        );
+        assert_eq!(r.models.loaded["hero.model"].nodes, handles);
+        assert_eq!(r.residency_work().since(work).texture_uploads, 0);
+        assert_eq!(
+            r.residency_work().since(work).mesh_uploads,
+            peer.meshes.len() as u64
+        );
+        let (after, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert_eq!(
+            before, after,
+            "same hero is drawable without duplicate upload"
         );
     }
 

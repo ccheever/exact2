@@ -276,7 +276,7 @@ impl Feed {
         self.scene.trace_camera(alpha)
     }
     /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
-    /// No world queries, allocation, or entity scans occur here.
+    /// No world queries; retained attachment chains are composed at this alpha.
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
         self.scene
             .frame(world, alpha, glam::Vec2::new(aspect, 1.), false)
@@ -558,6 +558,7 @@ impl Feed {
             moved,
             next.live != old.live || next.membership != old.membership,
             parent_changed,
+            initial || next.assets != old.assets,
         );
         self.tick = w.tick();
         self.versions = Some(next);
@@ -585,7 +586,7 @@ fn check_page(
     }
     Ok(())
 }
-fn floats(t: Transform) -> [f32; 10] {
+pub(crate) fn floats(t: Transform) -> [f32; 10] {
     [
         t.position.x,
         t.position.y,

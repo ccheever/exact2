@@ -452,3 +452,28 @@ impl<O: Output> Drop for Player<O> {
         self.output.flush();
     }
 }
+
+#[cfg(test)]
+mod named_targets {
+    use exact_game::{
+        audio::{Sounds, Synth},
+        Transform, World,
+    };
+    #[test]
+    fn named_audio_keeps_the_transform_lease_and_names_missing_targets() {
+        let mut w = World::new(60, 0);
+        w.register_audio();
+        w.resource_mut::<Sounds>().add("footstep", Synth::default());
+        w.spawn_named("player", Transform::default());
+        let mut pose = w.get_mut::<Transform>("player").unwrap();
+        w.play("footstep").at("player").pitch(1.).start();
+        pose.position.x = 1.;
+        drop(pose);
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.play("footstep").at("absent").start();
+        }))
+        .unwrap_err();
+        let message = error.downcast_ref::<String>().unwrap();
+        assert!(message.contains("audio target `absent` does not exist"));
+    }
+}

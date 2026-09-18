@@ -17,7 +17,8 @@ test('a newly generated game builds, tests and proves without editing', async ()
     let timer;
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 60000);
+      // The proof's cold native build can finish several quiet compiler steps.
+      timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 180000);
     };
     for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { process.stdout.write(data); reset(); });
     reset();
@@ -30,7 +31,7 @@ test('a newly generated game builds, tests and proves without editing', async ()
   let shellDirs = [], locatedDir;
   try {
     await run('bun', ['game/new.mjs', name]);
-    assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','pins.json','proof.mjs']);
     rmSync(resolve(app, 'app.json'));
     rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
@@ -61,7 +62,7 @@ test('a newly generated game builds, tests and proves without editing', async ()
     if (registeredLock) assert.deepEqual(readFileSync(lockfile), registeredLock, 'shared lockfile changed during test');
     writeFileSync(lockfile, originalLock);
   }
-}, 300000);
+}, 600000);
 
 // Run the real generator and Cargo against a tiny offline workspace.
 test('generator preserves an already locked workspace and registers only missing packages', () => {
@@ -146,4 +147,32 @@ test('default manifests derive the directory and literal Game ID; authored overr
     assert.equal(gameDefaults(after).game.crate,'authored-logic');
     assert.equal(readFileSync(resolve(after,'logic/Cargo.toml'),'utf8'),cargo);
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('title-only and audio-only overrides retain derived defaults', async () => {
+  const {gameDefaults} = await import('./app/shells.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 's4-overrides-'));
+  try {
+    mkdirSync(resolve(root,'logic/src'), {recursive:true});
+    const rust = (id, type) => `impl Game for ${type} { const ID: &'static str = "${id}"; }`;
+    writeFileSync(resolve(root,'logic/src/lib.rs'), rust('lanterns','Lanterns'));
+    writeFileSync(resolve(root,'app.json'), JSON.stringify({name:'Lanterns'}));
+    const title = gameDefaults(root);
+    assert.equal(title.name, 'Lanterns');
+    assert.equal(title.app.name, 'Lanterns');
+    assert.equal(title.host.macos.window.width, 1280);
+    writeFileSync(resolve(root,'logic/src/lib.rs'), rust('lanterns-next','Next'));
+    assert.equal(gameDefaults(root).game.type, 'Next');
+    assert.equal(gameDefaults(root).app.id, 'com.exact.lanterns-next');
+    writeFileSync(resolve(root,'app.json'), JSON.stringify({game:{audio:true}}));
+    const audio = gameDefaults(root);
+    assert.equal(audio.game.audio, true);
+    assert.equal(audio.game.type, 'Next');
+    assert.equal(audio.host.ios.minimumOS, '17.0');
+    const before = readFileSync(resolve(root,'app.json'),'utf8');
+    gameDefaults(root);
+    assert.equal(readFileSync(resolve(root,'app.json'),'utf8'), before);
+    assert.deepEqual(JSON.parse(before)._generated.overrides, {game:{audio:true}}, 'the author owns only authored keys');
+  } finally { rmSync(root, {recursive:true, force:true}); }
 });

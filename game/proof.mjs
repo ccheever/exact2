@@ -79,6 +79,64 @@ export function equal(a, b) {
     && keys.every((key, i) => key === other[i] && equal(a[key], b[key]));
 }
 
+export const webUnavailable = log => /web carrier unavailable:[^\n]*: ENOENT;/.test(log);
+
+// Compare observed pins, never the old expected values, before touching pins.json.
+export function agreePins(rows, previous, hosts) {
+  const modes = ['0', '1', 'fresh-game'];
+  if (!hosts.includes('linux')) throw new Error('repin refused: linux continuous / Save / FreshGame are required');
+  let reference;
+  for (const host of hosts) for (const mode of modes) {
+    const matches = rows.filter(row => row.host === host && row.mode === mode);
+    if (matches.length !== 1 || matches[0].failures?.length) throw new Error(`repin refused: ${host} ${mode} missing or failed; inspect artifacts/prove and rerun --paranoid`);
+    const row = matches[0], pins = row.pins;
+    if (!pins || !Object.keys(pins.ticks ?? {}).length || !Object.keys(pins.saves ?? {}).length)
+      throw new Error(`repin refused: ${host} ${mode} has no tick/save observations`);
+    for (const [section, pattern] of [['ticks', /^0x[0-9a-f]{16}$/], ['saves', /^[0-9a-f]{64}$/]]) {
+      for (const key of Object.keys(previous[section] ?? {})) if (!(key in pins[section]))
+        throw new Error(`repin refused: ${host} ${mode} did not observe ${section} ${key}`);
+      for (const [key, value] of Object.entries(pins[section])) {
+        if (!pattern.test(value)) throw new Error(`repin refused: ${host} ${mode} invalid ${section} ${key}: ${value}`);
+        if (reference && reference.pins[section][key] !== value)
+          throw new Error(`repin refused: ${host} ${mode} ${section} ${key}=${value} disagrees with ${reference.host} ${reference.mode}=${reference.pins[section][key]}; bun game/games/${row.name}/proof.mjs ${host} --paranoid`);
+      }
+      if (reference && !equal(Object.keys(pins[section]).sort(), Object.keys(reference.pins[section]).sort()))
+        throw new Error(`repin refused: ${host} ${mode} ${section} inventory disagrees with ${reference.host} ${reference.mode}`);
+    }
+    reference ??= row;
+  }
+  return {...reference.pins, hosts};
+}
+export function pinRecorder(previous, name, check, collecting = false) {
+  const pins = {ticks:{}, saves:{}};
+  const record = (section, key, got) => {
+    const expected = previous[section]?.[key];
+    if (key in pins[section]) check(`pin ${key} repeated consistently`, pins[section][key] === got);
+    pins[section][key] = got;
+    if (!collecting && (expected !== undefined || Object.keys(previous.ticks ?? {}).length || Object.keys(previous.saves ?? {}).length)) check(
+      expected === got ? `pin ${key}=${got}` : `pin ${key} differs (expected ${expected}, got ${got}); if the change is intended: bun game/prove.mjs ${name} --repin`, expected === got);
+  };
+  return {pins,
+    pin(tick, state) {
+      check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
+      record('ticks', String(tick), state?.hash);
+    },
+    pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
+  };
+}
+// A report describes only recorded failures/stalls, never guesses from successful calls.
+export function facilityReport(replies) {
+  const used = new Set(replies.map(r => r.method));
+  const stalls = replies.filter(r => r.method === 'clock' && r.reply?.settled === false);
+  const failures = replies.filter(r => r.error);
+  const hints = [];
+  if (stalls.length) hints.push(`${stalls.length} stalls; state world:* busy exposes moving values and busy reasons${used.has('state') ? '' : '; state unused'}`);
+  if (failures.some(r => /hidden|behind|screen|box|hit/.test(r.error)) && !used.has('layout')) hints.push('layout unused; layout <id> shows placed boxes and blockers');
+  if (failures.some(r => /asset|save|restor/.test(r.error)) && !used.has('state')) hints.push('state unused; state and state world:* expose pending assets and components');
+  if (failures.length && !used.has('logs')) hints.push('logs unused; logs includes reload/carry refusals');
+  return hints;
+}
+
 /// Whether a repository file is outside a game's deterministic build inputs:
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs, tests, proofs — and every non-source file except the README and the
@@ -90,7 +148,7 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || file.startsWith('apps/')
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
       && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
-    || /(^|\/)(proof\.mjs|.*\.test\.mjs)$/.test(file);
+    || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs)$/.test(file);
 }
 export async function paranoidRuns(run) {
   let failed = false;
@@ -126,6 +184,8 @@ export async function proof(meta, script) {
     process.exit(failed ? 1 : 0);
   }
   const finalWorlds = [];
+  const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
+  const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
   Object.assign(process.env, {EXACT_APP_DIR:app, EXACT_WEB_DIST:dist,
     EXACT_UPDATE_TRUST:'development'});
@@ -136,6 +196,7 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
+  const {pins, pin, pinSave} = pinRecorder(previousPins, name, check, collecting);
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -236,10 +297,11 @@ export async function proof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     const built = await ensureBuildReceipt({receipt, inputs:digest,
       artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
-      say(`BUILD ${name} ${host}`);
+      say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun game/games/${name}/proof.mjs ${host} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
-        buildBake(appInfo, 'linux', linuxTarget);
+        // Native mode is read at launch; keep compile-time environment stable.
+        buildBake(appInfo, 'linux', linuxTarget, {env:{EXACT_GAME_PARANOID:'0'}});
       } else {
         const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
         sample();
@@ -248,7 +310,13 @@ export async function proof(meta, script) {
       }
     }});
     if (!built) say(`BUILD cached ${name} ${host}`);
-    if (!process.argv.includes('--build-only')) await script({open, check, equal, out, host, say});
+    if (!process.argv.includes('--build-only')) {
+      if (!Object.keys(previousPins.ticks).length) say(`UNPINNED: verify and generate with bun game/prove.mjs ${name} --repin`);
+      await script({open, check, equal, out, host, say, pin, pinSave});
+      if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
+        for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section]))
+          check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
+    }
   } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
@@ -273,16 +341,20 @@ export async function proof(meta, script) {
       const baseline = resolve(out, `paranoid-${host}-normal.json`);
       writeFileSync(resolve(out, `paranoid-${host}-${process.env.EXACT_GAME_PARANOID}.json`), JSON.stringify(finalWorlds));
       if (process.env.EXACT_GAME_PARANOID === '0') writeFileSync(baseline, JSON.stringify(finalWorlds));
-      else check('paranoid final hash, tick, published record and journal equal normal',
-        equal(finalWorlds, JSON.parse(readFileSync(baseline, 'utf8'))),
-        finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
+      else {
+        const matches = equal(finalWorlds, JSON.parse(readFileSync(baseline, 'utf8')));
+        const mode = process.env.EXACT_GAME_PARANOID === '1' ? 'Save' : 'FreshGame';
+        check(matches ? `paranoid ${mode} matches continuous state` : `paranoid ${mode} differs at ${finalWorlds.map(w => `session ${w.session} tick ${w.tick}`).join(', ')}; bun game/games/${name}/proof.mjs ${host} --paranoid`,
+          matches, finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
+      }
     }
     writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining,auditUnavailable},null,2)+'\n');
     const saves = [...new Set(replies.filter(r => r.method === 'screenshot' && r.args[2] === 'save' && !r.error).map(r => r.args[0]))].sort().map(path => {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${failures.length ? 'FAIL' : 'PASS'} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');

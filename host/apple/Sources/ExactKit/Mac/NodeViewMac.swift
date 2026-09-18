@@ -758,6 +758,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !placed.isEmpty else { return ordinary() }
         let inCanvas = convert(point, from: sup)
         guard !isHidden, bounds.contains(inCanvas) else { return nil }
+        // Ordinary HUD paints above the captured children, so it hits first.
+        let inOverlay = overlay.convert(inCanvas, from: self)
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+            if let hit = child.hitTest(inOverlay) { return hit }
+        }
         // Nearest first: what is seen on top is what a tap reaches.
         for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
@@ -765,10 +770,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             guard child.bounds.contains(p) else { continue }
             // Into the child's superview's space, where AppKit expects it.
             let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
-            if let hit = child.hitTest(inOverlay) { return hit }
-        }
-        let inOverlay = overlay.convert(inCanvas, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
             if let hit = child.hitTest(inOverlay) { return hit }
         }
         return self

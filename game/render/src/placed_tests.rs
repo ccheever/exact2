@@ -51,8 +51,8 @@ fn hidden_is_explicit_for_near_offscreen_and_fixed_back() {
     };
     assert!(project_at(Placed::child(1), Transform::at(0., 0., 0.)).hidden);
     assert!(project_at(Placed::child(1), Transform::at(100., 0., -2.)).hidden);
-    // The contract hides when every corner is outside, even on different edges.
-    assert!(project_at(Placed::child(1).width(200.), Transform::at(0., -50., -2.)).hidden);
+    // A plane surrounding the viewport remains visible.
+    assert!(!project_at(Placed::child(1).width(200.), Transform::at(0., -50., -2.)).hidden);
     let mut t = Transform::at(0., 0., -2.);
     t.rotation = exact_game::Quat::from_rotation_y(std::f32::consts::PI);
     assert!(project_at(Placed::child(1).facing(Facing::Fixed), t).hidden);
@@ -283,4 +283,76 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
     s.child(0, None, [0.; 4]);
     fixture::render(&gpu, &mut s, &frame).unwrap();
     assert!(s.placement(0).unwrap().hidden);
+}
+
+#[test]
+fn crossing_near_or_eye_and_beyond_far_never_emit_a_homography() {
+    let size = Vec2::splat(200.);
+    let camera = Camera {
+        near: 0.1,
+        far: 10.,
+        ..Default::default()
+    };
+    for (z, width) in [(-0.15, 0.2), (-0.15, 2.), (-11., 1.)] {
+        let mut pose = Transform::at(0., 0., z);
+        pose.rotation = exact_game::Quat::from_rotation_y(0.8);
+        let p = project(
+            Placed::child(0).width(width).facing(Facing::Fixed),
+            pose,
+            [0., 0., 100., 100.],
+            Mat4::IDENTITY,
+            camera.matrix(size),
+            size,
+        )
+        .placement;
+        assert!(p.hidden, "z={z}, width={width}");
+        assert_eq!(p.homography, [0.; 9]);
+    }
+    let p = project(
+        Placed::child(0),
+        Transform::at(0., 0., -2.),
+        [0., 0., 100., 100.],
+        Mat4::IDENTITY,
+        camera.matrix(size),
+        size,
+    )
+    .placement;
+    assert!(!p.hidden);
+    let h = p.homography;
+    for (x, y) in [(0., 0.), (100., 0.), (100., 100.), (0., 100.)] {
+        assert!(h[6] * x + h[7] * y + h[8] > 0.);
+    }
+}
+
+#[test]
+fn headless_placement_uses_the_displayed_camera_and_plane_sample() {
+    let mut w = World::new(60, 0);
+    w.register_scene();
+    let camera = w.spawn((Transform::at(0., 0., 8.), Camera::default()));
+    let owner = w.spawn((Transform::default(), Placed::child(0)));
+    w.propagate();
+    let mut p = Placements::default();
+    p.child(0, None, [0., 0., 100., 50.]);
+    p.feed(&w).unwrap();
+    w.get_mut::<Transform>(camera).unwrap().position.x = 1.;
+    w.get_mut::<Transform>(owner).unwrap().position.x = 2.;
+    w.propagate();
+    p.feed(&w).unwrap();
+    // A fractional displayed sample differs from the committed world pose.
+    p.items[0].poses[0] = Transform::default();
+    let size = Vec2::new(1280., 720.);
+    p.cameras[0].poses[0] = Transform::at(0., 0., 8.);
+    p.headless(size, 0.5);
+    let expected = project(
+        Placed::child(0),
+        Transform::at(1., 0., 0.),
+        [0., 0., 100., 50.],
+        Mat4::from_translation(Vec3::new(-0.5, 0., -8.)),
+        Camera::default().matrix(size),
+        size,
+    );
+    assert_eq!(
+        p.placement(0).unwrap().homography,
+        expected.placement.homography
+    );
 }

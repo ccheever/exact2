@@ -23,6 +23,10 @@ impl Default for Transform {
     }
 }
 impl Transform {
+    /// Apply a model-local displacement through this transform's scale and rotation.
+    pub fn translate_local(&mut self, displacement: Vec3) {
+        self.position += self.rotation * (self.scale * displacement);
+    }
     /// An identity pose translated to x, y, z.
     pub fn at(x: f32, y: f32, z: f32) -> Self {
         Self {

@@ -128,13 +128,20 @@ pub struct PaintedBox {
     pub clip: Option<Rect4>,
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
+    projective: Option<([f32; 9], Rect4, Option<Rect4>)>,
 }
 
 impl PaintedBox {
     /// Whether a point (viewport points) is inside the box and its clip.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
-        inside(self.rect) && self.clip.is_none_or(inside)
+        inside(self.rect)
+            && self.clip.is_none_or(inside)
+            && self.projective.is_none_or(|(inv, rect, clip)| {
+                let (x, y) = crate::placement::map(&inv, x, y);
+                let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
+                inside(rect) && clip.is_none_or(inside)
+            })
     }
 }
 
@@ -220,6 +227,9 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    viewport: (f32, f32),
+    cpu_ms: Option<f64>,
 }
 
 struct Walk<'a, 'b> {
@@ -235,6 +245,9 @@ impl Painter {
             scale,
             dark: false,
             backend,
+            placements: BTreeMap::new(),
+            viewport: (0., 0.),
+            cpu_ms: None,
         }
     }
 
@@ -249,13 +262,17 @@ impl Painter {
         self.backend = backend;
     }
 
-    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
     pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        self.backend.last_frame_ms()
+        self.backend
+            .last_frame_ms()
+            .or(self.cpu_ms.map(|ms| (ms, 0.)))
     }
 
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        let started = std::time::Instant::now();
+        self.viewport = viewport;
         self.backend.begin(viewport.0, viewport.1, self.scale);
         let mut walk = Walk {
             scene,
@@ -268,10 +285,72 @@ impl Painter {
             self.backend.pointer(px, py);
         }
         let pixmap = self.backend.finish()?;
+        if self.backend.name() == "cpu" {
+            self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
+        }
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
         })
+    }
+
+    fn placed(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        id: ViewId,
+        ts: Transform,
+        offset: (f32, f32),
+        clip: Option<Rect4>,
+    ) -> bool {
+        use crate::placement::{self, Placement};
+        let Some(p) = self.placements.get(&id).copied() else {
+            return false;
+        };
+        let Placement::Visible { h, canvas, .. } = p else {
+            return true;
+        };
+        let Some(node) = walk.scene.kernel.node(id) else {
+            return true;
+        };
+        let Some(parent) = walk.scene.kernel.node(canvas) else {
+            return true;
+        };
+        let h = placement::compose(h, ts, parent.frame.x - offset.0, parent.frame.y - offset.1);
+        let Some(inv) = placement::inverse(h) else {
+            return true;
+        };
+        let f = node.frame;
+        if f.width <= 0. || f.height <= 0. {
+            return true;
+        }
+        let mut painter = Painter::new(
+            self.text.clone(),
+            self.scale,
+            Box::new(crate::raster::Raster::transparent()),
+        );
+        painter.dark = self.dark;
+        painter.placements = self.placements.clone();
+        painter.placements.remove(&id);
+        painter.viewport = (f.width, f.height);
+        painter.backend.begin(f.width, f.height, self.scale);
+        let mut child_walk = Walk {
+            scene: walk.scene,
+            boxes: Vec::new(),
+        };
+        painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
+        if let Ok(source) = painter.backend.finish() {
+            if let Some((pixels, rect)) = placement::warp(&source, h, self.scale, self.viewport) {
+                self.backend
+                    .image(&Rc::new(pixels), rect, &[], Transform::identity());
+            }
+        }
+        for mut b in child_walk.boxes {
+            b.projective = Some((inv, b.rect, b.clip));
+            b.rect = placement::bounds(&h, b.rect);
+            b.clip = clip;
+            walk.boxes.push(b);
+        }
+        true
     }
 
     fn node(
@@ -282,6 +361,9 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        if self.placed(walk, id, ts, offset, clip_rect) {
+            return;
+        }
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
@@ -311,6 +393,7 @@ impl Painter {
         };
         walk.boxes.push(PaintedBox {
             id,
+            projective: None,
             rect: bbox(ts, (x, y, w, h)),
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
@@ -507,7 +590,17 @@ impl Painter {
         } else {
             offset
         };
-        for child in node.children() {
+        let mut children: Vec<_> = node.children().into_iter().collect();
+        children.sort_by(|a, b| {
+            let rank = |id| self.placements.get(id).map(|p| p.depth());
+            match (rank(a), rank(b)) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (Some(a), Some(b)) => a.total_cmp(&b),
+            }
+        });
+        for child in children {
             self.node(walk, child, ts, child_offset, child_rect);
         }
         if clips {

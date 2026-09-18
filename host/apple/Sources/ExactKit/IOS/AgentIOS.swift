@@ -190,6 +190,7 @@ extension Agent {
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     func box(_ v: UIView) -> CGRect {
+        if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport
         let o = vp.contentOffset
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box

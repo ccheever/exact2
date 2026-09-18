@@ -5,12 +5,19 @@ component SmallGame
   state playing = false
   state pulls = 0
   state plates = 0
+  state covered = true
+  state collapsed = false
   resource hud = exactSurface("world") as shape Hud
   action play writes playing
     playing = true
   action crowd writes plates, playing
     plates = 40
     playing = true
+  action uncover writes covered, collapsed
+    if covered
+      covered = false
+    else
+      collapsed = !collapsed
   action pull writes pulls
     pulls = pulls + 1
   view
@@ -59,8 +66,9 @@ component SmallGame
             text "Name 38" width=100 padding=4 background-color="#174663"
             text "Name 39" width=100 padding=4 background-color="#174663"
           else
-            text `Lamp ${hud.lit}` testId="hud" width=120 aria-live="polite" position="absolute" top=24 left=24 padding=12 background-color="#202731"
-            text "The lantern path" testId="sign" width=200 padding=12 background-color="#4c3828" font-size=22
+            button testId="hud" press=uncover width=190 height=100 aria-live="polite" position="absolute" top=(covered ? 270 : 24) left=(covered ? 705 : 24) padding=12 background-color="#202731"
+              text `Lamp ${hud.lit}` testId="hud-label"
+            text "The lantern path" testId="sign" display=(collapsed ? "none" : "block") width=200 padding=12 background-color="#4c3828" font-size=22
             text "Moving cube" testId="name" width=140 padding=8 background-color="#174663"
             button press=pull testId="pull" aria-label="Pull" width=120 padding=12 background-color="#e8ad61"
               text "Pull" color="#202731" font-size=22

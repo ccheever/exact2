@@ -5,6 +5,18 @@ use crate::{
 };
 use exact_game::{animation, asset::Model, Entity, Pose, World};
 use exact_gpu::wgpu;
+// CPU attachment chains use the same local TRS interpolation as skin.wgsl.
+pub(crate) fn interpolated_local([a, b]: [exact_game::Transform; 2], alpha: f32) -> glam::Mat4 {
+    let alpha = alpha.clamp(0., 1.);
+    glam::Mat4::from_scale_rotation_translation(
+        a.scale.lerp(b.scale, alpha),
+        a.rotation
+            .normalize()
+            .slerp(b.rotation.normalize(), alpha)
+            .normalize(),
+        a.position.lerp(b.position, alpha),
+    )
+}
 struct Template {
     meta: u32,
     words: usize,
@@ -458,6 +470,7 @@ mod tests {
             nodes: vec![
                 Node::default(),
                 Node {
+                    name: "tip".into(),
                     parent: Some(0),
                     transform: Mat4::from_translation(Vec3::X).to_cols_array(),
                     ..Default::default()
@@ -480,8 +493,26 @@ mod tests {
         let mut pose = Pose::default();
         pose.previous = previous;
         pose.local = local;
-        let mut w = World::new(60, 0);
+        struct RigGame;
+        impl exact_game::Game for RigGame {
+            const ID: &'static str = "displayed-attachment";
+            const ASSETS: &'static [&'static str] = &["test.model"];
+            type Args = ();
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+        }
+        let mut sim = exact_game::Sim::<RigGame>::new(()).unwrap();
+        sim.deliver_asset(
+            "test.model",
+            Ok(exact_game::asset::Content::Model(model.clone())),
+        )
+        .unwrap();
+        let w = sim.world_mut();
         let e = w.spawn((Transform::default(), Mesh::asset("test.model"), pose));
+        let charm = w.spawn((
+            Transform::at(9., 8., 7.),
+            exact_game::SocketFollow::new(e, "tip"),
+        ));
         w.load(&w.save()).unwrap();
         let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
@@ -505,11 +536,11 @@ mod tests {
             }],
         )
         .unwrap();
-        skin.feed(&gpu.queue, &w, &[e], false);
+        skin.feed(&gpu.queue, w, &[e], false);
         assert_eq!(
             crate::world::tests::allocations::count(|| {
                 for _ in 0..300 {
-                    skin.pack(&w, &[e], false);
+                    skin.pack(w, &[e], false);
                 }
             }),
             0
@@ -530,16 +561,84 @@ mod tests {
             actual[12] > 0.7,
             "a lerp of composed matrices would give 0.5"
         );
+        let mut attachments = crate::world::scene::Attachments::default();
+        attachments.feed(w, true, true, false, false);
+        attachments.feed(w, false, false, false, false);
+        attachments.frame(0.5);
+        let displayed = attachments
+            .output
+            .iter()
+            .find(|a| a.entity == charm)
+            .unwrap()
+            .pose
+            .position;
+        let palette = Mat4::from_cols_slice(&actual);
+        let joint = (palette * Mat4::from_cols_slice(&model.skins[0].inverse_binds).inverse())
+            .transform_point3(Vec3::ZERO);
+        assert!(
+            displayed.distance(joint) < 1e-4,
+            "attachment {displayed:?}, GPU joint {joint:?}"
+        );
+        assert!(
+            displayed.distance(Vec3::new(0.5, 0.5, 0.)) > 0.2,
+            "endpoint interpolation is the negative control"
+        );
+        attachments.feed(w, false, false, false, true);
+        attachments.frame(0.5);
+        assert!(
+            attachments.output[0].pose.position.distance(joint) < 1e-4,
+            "unrelated model residency must not snap this rig"
+        );
+        let newborn = w.spawn((
+            Transform::default(),
+            exact_game::SocketFollow::new(e, "tip"),
+        ));
+        attachments.feed(w, false, false, false, false);
+        attachments.frame(0.5);
+        assert!(
+            attachments
+                .output
+                .iter()
+                .find(|a| a.entity == newborn)
+                .unwrap()
+                .pose
+                .position
+                .distance(joint)
+                < 1e-4,
+            "new attachments inherit the owner's displayed local history"
+        );
+        // Different attachments resolve different joints; invalid targets use their authored pose.
+        let second = w.spawn((Transform::default(), exact_game::SocketFollow::new(e, "")));
+        attachments.feed(w, false, false, false, false);
+        attachments.frame(0.5);
+        assert_eq!(
+            attachments
+                .output
+                .iter()
+                .find(|a| a.entity == second)
+                .unwrap()
+                .pose
+                .position,
+            Vec3::ZERO
+        );
+        w.get_mut::<exact_game::SocketFollow>(charm).unwrap().joint = "missing".into();
+        attachments.feed(w, false, false, false, false);
+        attachments.frame(0.5);
+        assert!(!attachments.output.iter().any(|a| a.entity == charm));
+        assert_eq!(
+            w.get::<Transform>(charm).unwrap().position,
+            Vec3::new(9., 8., 7.)
+        );
         // Restore/carry and new batches prime current/current without changing saves.
         let saved = w.save();
-        skin.pack(&w, &[e], true);
+        skin.pack(w, &[e], true);
         let len = model.nodes.len() * 10;
         assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
         assert_eq!(w.save(), saved);
-        skin.pack(&w, &[e], false);
+        skin.pack(w, &[e], false);
         assert_ne!(&skin.pose_words[..len], &skin.pose_words[len..]);
         w.teleport(e, Transform::at(3., 0., 0.));
-        skin.pack(&w, &[e], false);
+        skin.pack(w, &[e], false);
         assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
     }
     #[test]

@@ -1,0 +1,14 @@
+{
+  "ticks": {
+    "907": "0x0b132d378ffd3b21"
+  },
+  "saves": {
+    "continuation": "eb13fd528bb8f6f071663f07404860d175525b1a3a1970f7854505f841f4ee21"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "generated": "bun game/prove.mjs beacons --repin",
+  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+}

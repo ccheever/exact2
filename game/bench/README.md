@@ -718,10 +718,13 @@ one entry per row. `sample_ms` is the latency endpoint, **not** either frame clo
 `camera_projection` has 18 values per row: column-major world-to-clip matrix (16),
 then physical canvas width and height. The analyzer's projection is a homogeneous
 divide, without camera reconstruction or smoothing. Exact's observer captures rAF
-arguments without changing callbacks, then joins them to ring rows using callback
-entry wall times and draw-boundary wall times; resize draws inherit the last raw
-callback and duplicate stamps are dropped. Arrays are preallocated and serialized
-only after sampling. Old Exact traces explicitly lack raw callbacks; old traces
+arguments at each draw as `(raw, paced, generation)`, matched one-for-one to ring
+rows. Out-of-callback resize redraws inherit the preceding callback's raw stamp
+and generation, even at repeated paced time; distinct callbacks always advance
+generation. Only repeated generations are dropped in new traces. Overflow or a
+mismatched draw count refuses analysis. Arrays are preallocated and serialized
+only after sampling. Historical raw traces use raw-stamp deduplication; legacy
+Exact traces without raw callbacks retain every row (no deduplication). Old traces
 of every engine lack camera projection, and those metrics stay unavailable.
 Flat `events` rows are `[delivered_ms, VK_code, down_0_or_1, trial_id_or_minus_1]`;
 all times share one monotonic origin. Include `engine_version`, `interpolation`,

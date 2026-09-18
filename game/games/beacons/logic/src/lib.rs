@@ -117,7 +117,7 @@ impl Game for Beacons {
             if let Some(e) = nearest {
                 let mut beacon = w.get_mut::<Beacon>(e).unwrap();
                 beacon.lit = true;
-                beacon.glow.to(w.now(), 1.0, 0.5);
+                beacon.glow.to(w.tick_end(), 1.0, 0.5);
             }
         }
         let near = nearest
@@ -127,7 +127,7 @@ impl Game for Beacons {
             .to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
+            material.emissive = [beacon.glow.value(w.tick_end()) * 3.0; 3];
             count += u32::from(beacon.lit);
         }
         w.publish_record(&Hud { lit: count, near });

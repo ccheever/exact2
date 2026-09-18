@@ -1,11 +1,14 @@
-//! Saved clip clocks and local poses. `step` is automatic at tick end, or explicit
-//! before a game's marker/root-motion reads; a second call in one tick is a no-op.
+//! Saved clip clocks and local poses. Games call `step` explicitly before reading
+//! markers or root motion; a second call in one tick never advances playback.
 #![allow(missing_docs)]
 use crate::{
     asset::{Clip, Interpolation, Model, Track, TrackPath},
     math, Component, Data, Entity, Mesh, Quat, Transform, Vec3, World,
 };
 use glam::Mat4;
+mod sockets;
+use sockets::SocketCache;
+pub use sockets::{socket, socket_node, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap};
 
 /// Saved output shared by every playback controller. Declare the motion root by node name.
@@ -59,6 +62,8 @@ playback!(Animation, Blend, Animator);
 pub struct Animation {
     pub clip: String,
     pub time: f32,
+    /// Whether this controller has successfully sampled; saved across restore.
+    pub sampled: bool,
     pub speed: f32,
     pub looping: bool,
     pub markers: Vec<(f32, String)>,
@@ -68,8 +73,8 @@ impl Default for Animation {
     fn default() -> Self {
         Self {
             clip: String::new(),
-            // Negative zero marks an unsampled controller without adding saved state.
-            time: -0.,
+            time: 0.,
+            sampled: false,
             speed: 1.,
             looping: true,
             markers: vec![],
@@ -209,6 +214,9 @@ impl Default for Condition {
     }
 }
 impl Condition {
+    pub fn gt(name: impl Into<String>, value: f32) -> Self {
+        Self::Arg(name.into(), Cmp::Gt, value.into())
+    }
     fn matches(&self, params: &[(String, Param)]) -> bool {
         let Self::Arg(name, cmp, value) = self;
         let Some((_, v)) = params.iter().find(|p| &p.0 == name) else {
@@ -263,6 +271,12 @@ impl Default for State {
     }
 }
 impl State {
+    pub fn clip(name: impl Into<String>, clip: impl Into<String>) -> Self {
+        Self::new(name, Play::Clip(clip.into()))
+    }
+    pub fn blend(name: impl Into<String>, blend: Blend) -> Self {
+        Self::new(name, Play::Blend(blend))
+    }
     pub fn once(mut self) -> Self {
         self.looping = false;
         self
@@ -488,29 +502,12 @@ pub struct Ik {
     pub pole: Vec3,
     pub weight: f32,
 }
-/// Declare one gameplay socket on the owning model. Attachments never address bone entities.
-#[derive(Default, Clone, Debug, Component)]
-pub struct Socket(pub String);
-#[derive(Default, Clone, Debug, Component)]
-pub struct SocketPose(pub Transform);
-#[derive(Default, Clone, Debug, Component)]
-pub struct SocketFollow {
-    /// Captured before the first follow; restored whenever the socket is unavailable.
-    pub authored: Option<Transform>,
-    pub target: crate::FollowTarget,
-    pub offset: Transform,
-}
-impl SocketFollow {
-    pub fn new(target: impl Into<crate::FollowTarget>) -> Self {
-        Self {
-            target: target.into(),
-            ..Self::default()
-        }
-    }
-}
 #[derive(Default)]
 pub(crate) struct Runtime {
     entities: Vec<Entity>,
+    stamp: Option<[u64; 6]>,
+    output: Motion,
+    sockets: std::cell::RefCell<SocketCache>,
     rigs: BTreeMap<String, Rig>,
     scratch: Vec<f32>,
     pending: Pose,
@@ -519,28 +516,23 @@ pub(crate) struct Runtime {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ErrorSource {
     Sample,
-    Socket,
-    Follower,
 }
 struct Rig {
     model: std::sync::Weak<Model>,
     rest: Vec<f32>,
     bounds: [f32; 6],
-    sockets: BTreeMap<String, Result<u32, String>>,
 }
 pub(crate) fn register<C: Component>(w: &mut World) {
     if [
         TypeId::of::<Animation>(),
         TypeId::of::<Blend>(),
         TypeId::of::<Animator>(),
-        TypeId::of::<Socket>(),
         TypeId::of::<Ik>(),
         TypeId::of::<SocketFollow>(),
     ]
     .contains(&TypeId::of::<C>())
     {
-        w.animation_tick = Some(step);
-        w.register::<Pose>().register::<SocketPose>();
+        w.register::<Pose>();
     }
 }
 impl Rig {
@@ -549,7 +541,6 @@ impl Rig {
             model: std::sync::Arc::downgrade(model),
             rest: bind_pose(model),
             bounds: animated_bounds(model),
-            sockets: BTreeMap::new(),
         }
     }
 }
@@ -1016,16 +1007,37 @@ pub fn animated_bounds(model: &Model) -> [f32; 6] {
         b[5] + radius,
     ]
 }
-/// Evaluate clips after game-authored parameters. Called automatically once per fixed tick.
-pub fn step(w: &mut World) {
+/// Evaluate clips explicitly after game-authored parameters, at most once per fixed tick.
+pub fn step(w: &mut World) -> Motion {
+    let stamp = |w: &World| {
+        [
+            w.tick(),
+            w.membership::<Animation>(),
+            w.membership::<Blend>(),
+            w.membership::<Animator>(),
+            w.revision::<Ik>(),
+            w.revision::<Mesh>(),
+        ]
+    };
+    // Check before queries, sorting or sampling. Redelivery still resamples at the saved clock.
+    if w.animation.stamp == Some(stamp(w))
+        && w.animation.errors.is_empty()
+        && w.animation.rigs.iter().all(|(name, rig)| {
+            w.assets.models.get(name).is_some_and(|model| {
+                rig.model
+                    .upgrade()
+                    .is_some_and(|old| std::sync::Arc::ptr_eq(&old, model))
+            })
+        })
+    {
+        return w.animation.output.clone();
+    }
     if w.storage::<Animation>().is_none_or(|s| s.is_empty())
         && w.storage::<Blend>().is_none_or(|s| s.is_empty())
         && w.storage::<Animator>().is_none_or(|s| s.is_empty())
-        && w.storage::<Socket>().is_none_or(|s| s.is_empty())
         && w.storage::<Ik>().is_none_or(|s| s.is_empty())
-        && w.storage::<SocketFollow>().is_none_or(|s| s.is_empty())
     {
-        return;
+        return Motion::default();
     }
     let mut runtime = std::mem::take(&mut w.animation);
     runtime.entities.clear();
@@ -1040,16 +1052,11 @@ pub fn step(w: &mut World) {
         .extend(w.query::<&Animator>().iter().map(|(e, _)| e));
     runtime
         .entities
-        .extend(w.query::<&Socket>().iter().map(|(e, _)| e));
-    runtime
-        .entities
         .extend(w.query::<&Ik>().iter().map(|(e, _)| e));
     runtime.errors.retain(|&(e, source), _| {
         w.contains(e)
             && match source {
                 ErrorSource::Sample => runtime.entities.contains(&e),
-                ErrorSource::Socket => w.has::<Socket>(e),
-                ErrorSource::Follower => w.has::<SocketFollow>(e),
             }
     });
     runtime.entities.sort_unstable();
@@ -1119,33 +1126,6 @@ pub fn step(w: &mut World) {
             p.stepped = pose.stepped;
             p.crossed.clear();
             p.root_motion = Vec3::ZERO;
-            // Resolve a declaration once per loaded rig, including a missing name.
-            let socket_node = w
-                .get::<Socket>(e)
-                .map(|s| {
-                    rig.sockets
-                        .entry(s.0.clone())
-                        .or_insert_with(|| {
-                            named_node(&model, &s.0)
-                                .ok_or_else(|| format!("unknown socket `{}`", s.0))
-                        })
-                        .clone()
-                })
-                .transpose();
-            let socket_node = match socket_node {
-                Ok(node) => {
-                    runtime.errors.remove(&(e, ErrorSource::Socket));
-                    node
-                }
-                Err(error) => {
-                    let key = (e, ErrorSource::Socket);
-                    if runtime.errors.get(&key) != Some(&error) {
-                        w.log(format_args!("animation #{}: {error}", e.index()));
-                        runtime.errors.insert(key, error);
-                    }
-                    None
-                }
-            };
             if let Some(mut a) = w.get_mut::<Animation>(e) {
                 if !a.time.is_finite() || !a.speed.is_finite() {
                     return Err("non-finite animation clock".into());
@@ -1153,8 +1133,7 @@ pub fn step(w: &mut World) {
                 let c = clip(&model, &a.clip)?;
                 let root = a.playback.root(&model)?;
                 let duration = c.duration();
-                let old = if !a.looping && a.speed < 0. && a.time == 0. && a.time.is_sign_negative()
-                {
+                let old = if !a.looping && a.speed < 0. && a.time == 0. && !a.sampled {
                     duration
                 } else {
                     a.time
@@ -1183,6 +1162,7 @@ pub fn step(w: &mut World) {
                 }
                 if !stepped {
                     a.time = time;
+                    a.sampled = true;
                     a.playback.record(p);
                 }
             } else if let Some(mut b) = w.get_mut::<Blend>(e) {
@@ -1248,25 +1228,9 @@ pub fn step(w: &mut World) {
                     });
                 w.log(format_args!("animation {name} {playing} {marker}"));
             }
-            let socket = socket_node.map(|i| {
-                let (scale, rotation, position) =
-                    joint_matrix(&model, &p.local, i).to_scale_rotation_translation();
-                SocketPose(Transform {
-                    position,
-                    rotation,
-                    scale,
-                })
-            });
-            drop(pose);
-            if let Some(socket) = socket {
-                w.insert(e, socket);
-            } else {
-                w.remove::<SocketPose>(e);
-            }
             Ok::<_, String>(())
         })();
         if let Err(error) = result {
-            w.remove::<SocketPose>(e);
             if let Some(mut p) = w.get_mut::<Pose>(e) {
                 p.crossed.clear();
                 p.root_motion = Vec3::ZERO;
@@ -1288,52 +1252,24 @@ pub fn step(w: &mut World) {
             runtime.errors.remove(&(e, ErrorSource::Sample));
         }
     }
-    for (e, follow) in w.query::<&mut SocketFollow>().iter() {
-        let Some(transform) = w.get::<Transform>(e) else {
-            continue;
-        };
-        let authored = *follow.authored.get_or_insert(*transform);
-        drop(transform);
-        let target = match &follow.target {
-            crate::FollowTarget::Entity(e) => Some(*e),
-            crate::FollowTarget::Name(n) => w.named(n),
-        };
-        let result = target.and_then(|target| {
-            let socket = w.get::<SocketPose>(target)?;
-            let affine = |t: Transform| {
-                crate::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
-            };
-            let mut result = w.current_global(target)? * affine(socket.0) * affine(follow.offset);
-            if let Some(parent) = w
-                .get::<crate::Parent>(e)
-                .and_then(|p| w.current_global(p.0))
-            {
-                result = parent.inverse() * result;
-            }
-            let (scale, rotation, position) = result.to_scale_rotation_translation();
-            Some(Transform {
-                position,
-                rotation,
-                scale,
-            })
-        });
-        if result.is_none() {
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                runtime.errors.entry((e, ErrorSource::Follower))
-            {
-                w.log(format_args!(
-                    "socket follower #{}: missing socket",
-                    e.index()
-                ));
-                entry.insert("missing socket".into());
-            }
-        } else {
-            runtime.errors.remove(&(e, ErrorSource::Follower));
+    runtime.output.0.clear();
+    for &e in &runtime.entities {
+        if let Some(p) = w.get::<Pose>(e) {
+            runtime.output.0.push((
+                e,
+                w.name(e).map(String::from),
+                Playback {
+                    crossed: p.crossed.clone(),
+                    root_motion: p.root_motion,
+                    motion_root: None,
+                },
+            ));
         }
-        *w.get_mut::<Transform>(e).unwrap() = result.unwrap_or(authored);
     }
+    runtime.stamp = Some(stamp(w));
+    let output = runtime.output.clone();
     w.animation = runtime;
-    w.propagate();
+    output
 }
 /// Agent inspection only: all unique skin joints in imported-node order (models cap nodes at 256).
 pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {

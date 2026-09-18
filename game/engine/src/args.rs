@@ -206,9 +206,9 @@ mod restart_tests {
         };
         for edge in [true, false] {
             sim.run(100.0);
-            assert!(sim.position("player").unwrap().x > 0.0);
+            assert!(sim.global_position("player").unwrap().x > 0.0);
             sim.bind(&bind(edge, false), None).unwrap();
-            assert_eq!(sim.position("player").unwrap().x, 0.0);
+            assert_eq!(sim.global_position("player").unwrap().x, 0.0);
             let count = sim.restarted;
             sim.run(100.0);
             let hash = sim.world().hash();

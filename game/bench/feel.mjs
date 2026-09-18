@@ -96,7 +96,7 @@ export function analyze(raw, plan) {
       || !raw.events.every(Number.isFinite)) throw new Error('Invalid/overflowed probe buffer');
   const events = unpack(raw.events, 4), allFrames = unpack(raw.frames, 8);
   const count = allFrames.length;
-  for (const [key, stride] of [['raw_callback_ms', 1], ['drawn_clock_ms', 1], ['camera_projection', 18]]) {
+  for (const [key, stride] of [['callback_generation', 1], ['raw_callback_ms', 1], ['drawn_clock_ms', 1], ['camera_projection', 18]]) {
     if (raw[key] && (raw[key].length !== count * stride || !raw[key].every(Number.isFinite))) throw new Error(`Invalid ${key} buffer`);
   }
   // Historical Exact rows contain paced time + draw-boundary wall time, NOT raw rAF.
@@ -110,9 +110,9 @@ export function analyze(raw, plan) {
     const wanted = edge(plan.schedule[i].code, plan.schedule[i].down, plan.schedule[i].trial);
     if (e[1] !== wanted.code || e[2] !== +wanted.down || e[3] !== wanted.trial) throw new Error(`Event ${i} differs from schedule: ${e}`);
   });
-  // Deduplicate only real raw callbacks. Legacy paced clocks cannot distinguish
-  // resize redraws from different callbacks that share a drawn time.
-  const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => !hasRaw || i === 0 || f[0] !== all[i - 1][0]);
+  // Deduplicate callback generations (raw stamps for older raw traces). Legacy
+  // paced clocks cannot distinguish resize redraws from equal-paced callbacks.
+  const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => !hasRaw || i === 0 || (raw.callback_generation ? raw.callback_generation[f[9]] !== raw.callback_generation[all[i - 1][9]] : f[0] !== all[i - 1][0]));
   if (frames.length < 100 || frames.some(f => !f.every(Number.isFinite))) throw new Error('Missing/nonfinite frame samples');
   const intervals = frames.slice(1).map((f, i) => f[0] - frames[i][0]);
   if (hasRaw && intervals.some(x => x <= 0)) throw new Error('Nonmonotonic frame timestamps');

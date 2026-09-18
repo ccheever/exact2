@@ -33,6 +33,7 @@ pub use exact_game;
 /// GPU surface ABI, also used by module! without a direct dependency.
 pub use exact_gpu;
 pub use surface::{Presentation, WorldSurface};
+pub use world::scene::DisplayedAttachment;
 pub use world::Feed;
 
 use exact_gpu::wgpu;
@@ -206,6 +207,8 @@ pub struct FrameInput<'a> {
     pub sun: Option<Sun>,
     /// Point lights; only the first sixteen are used.
     pub points: &'a [PointLightInput],
+    /// Displayed socket attachments, evaluated from the interpolated local chain.
+    pub attachments: &'a [DisplayedAttachment],
     /// Hemisphere lighting and background.
     pub environment: Environment,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
@@ -227,6 +230,7 @@ impl Default for FrameInput<'_> {
             alpha: 1.0,
             sun: Some(Sun::default()),
             points: &[],
+            attachments: &[],
             environment: Environment::default(),
             timestamps: None,
         }
@@ -310,4 +314,14 @@ macro_rules! module {
         };
         $crate::exact_gpu::module!(REGISTRY);
     };
+}
+
+impl FrameInput<'_> {
+    pub(crate) fn displayed(
+        &self,
+        entity: exact_game::Entity,
+        fallback: exact_game::Transform,
+    ) -> exact_game::Transform {
+        world::scene::displayed(self.attachments, entity, fallback)
+    }
 }

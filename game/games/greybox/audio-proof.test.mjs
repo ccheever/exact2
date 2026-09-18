@@ -46,10 +46,12 @@ test('web visibility and page events reach every canvas under either clock', () 
     let scheduled = 0;
     const document = {hidden:false, addEventListener(name, fn) { listeners[name] = fn; }};
     const window = {addEventListener(name, fn) { listeners[name] = fn; }};
-    new Function('document','window','surfaces','gpu','exact','raf','cancelAnimationFrame','schedule', code)(
+    // `recoveringDevice` is the host's in-flight device recovery (H1); none here,
+    // so lifecycle codes deliver synchronously.
+    new Function('document','window','surfaces','gpu','exact','raf','cancelAnimationFrame','schedule','recoveringDevice', code)(
       document, window, new Map([[1, {id:11}], [2, {id:22}], [3, {id:0}]]),
       {gpu_lifecycle(id, code) { calls.push([id, code]); }}, seekable ? {now:() => 0} : {},
-      9, id => canceled.push(id), () => scheduled++);
+      9, id => canceled.push(id), () => scheduled++, undefined);
     document.hidden = true; listeners.visibilitychange();
     listeners.pagehide();
     document.hidden = false; listeners.pageshow({persisted:false});

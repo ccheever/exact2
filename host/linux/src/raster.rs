@@ -16,6 +16,7 @@ use tiny_skia::{
 #[derive(Default)]
 pub struct Raster {
     target: Option<Pixmap>,
+    transparent: bool,
     scale: f32,
     width: u32,
     height: u32,
@@ -27,6 +28,13 @@ impl Raster {
     /// A backend with nothing painted.
     pub fn new() -> Raster {
         Raster::default()
+    }
+
+    pub(crate) fn transparent() -> Self {
+        Self {
+            transparent: true,
+            ..Self::default()
+        }
     }
 
     fn device(&self, ts: Transform) -> Transform {
@@ -130,7 +138,9 @@ impl Backend for Raster {
         self.width = ((width * scale).round() as u32).max(1);
         self.height = ((height * scale).round() as u32).max(1);
         let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
-        pixmap.fill(Color::WHITE);
+        if !self.transparent {
+            pixmap.fill(Color::WHITE);
+        }
         self.target = Some(pixmap);
         self.clips.clear();
         self.layers.clear();

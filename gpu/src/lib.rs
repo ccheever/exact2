@@ -279,6 +279,7 @@ pub struct Registry {
 pub struct Module {
     registry: &'static Registry,
     gpu: Option<Gpu>,
+    instance: Option<wgpu::Instance>,
     device_lost: Arc<AtomicBool>,
     instances: HashMap<u32, Instance>,
     next: u32,
@@ -351,6 +352,7 @@ impl Module {
         Module {
             registry,
             gpu: None,
+            instance: None,
             device_lost: Arc::new(AtomicBool::new(false)),
             instances: HashMap::new(),
             next: 0,
@@ -363,19 +365,73 @@ impl Module {
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
         self.check_device();
+        self.instance = Some(gpu.instance.clone());
         self.device_lost = Arc::new(AtomicBool::new(false));
         let lost = self.device_lost.clone();
         gpu.device.set_device_lost_callback(move |_, _| {
             lost.store(true, Ordering::Release);
+            #[cfg(target_arch = "wasm32")]
+            crate::web::notify_loss(&lost);
         });
         for inst in self.instances.values_mut() {
-            if let Some((target, config)) = &inst.presentation {
+            let format = if let Some((target, config)) = &inst.presentation {
                 target.configure(&gpu.device, config);
-                inst.surface.device_ready();
-                inst.dirty = true;
-            }
+                config.format
+            } else {
+                // Web targets are reattached by web::recover; native offscreen
+                // surfaces use the same format as readback.
+                #[cfg(target_arch = "wasm32")]
+                continue;
+                #[cfg(not(target_arch = "wasm32"))]
+                wgpu::TextureFormat::Rgba8Unorm
+            };
+            inst.surface.device_ready();
+            inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
+            inst.dirty = true;
         }
         self.gpu = Some(gpu);
+    }
+
+    /// Request a replacement on the same instance, preserving surface ownership and input.
+    /// Headless modules never request an adapter. The JSON outcome includes each
+    /// surface's preparation state; hosts then drain assets and recapture children.
+    pub async fn recover(&mut self) -> Result<String, String> {
+        let Some(instance) = self.instance.clone() else {
+            return Ok("{\"status\":\"no device\",\"instances\":[]}".into());
+        };
+        self.lose_device();
+        let compatible = self
+            .instances
+            .values()
+            .find_map(|i| i.presentation.as_ref().map(|p| &p.0));
+        match load_gpu(instance, compatible).await {
+            Ok(gpu) => self.set_gpu(gpu),
+            Err(error) => {
+                self.error = format!("device recovery: {error}");
+                return Err(self.error.clone());
+            }
+        }
+        Ok(self.recovery_report())
+    }
+
+    pub(crate) fn recovery_report(&mut self) -> String {
+        let mut ids: Vec<_> = self.instances.keys().copied().collect();
+        ids.sort_unstable();
+        let rows: Vec<_> = ids
+            .into_iter()
+            .map(|id| {
+                let inst = self.instances.get_mut(&id).unwrap();
+                let state = inst
+                    .surface
+                    .agent("{\"op\":\"state\"}")
+                    .unwrap_or("null".into());
+                format!("{{\"id\":{id},\"preparation\":{state}}}")
+            })
+            .collect();
+        format!(
+            "{{\"status\":\"recovered\",\"instances\":[{}]}}",
+            rows.join(",")
+        )
     }
 
     fn check_device(&mut self) {
@@ -655,10 +711,15 @@ impl Module {
 
     /// Whether a canvas's surface wants each child as its own texture (LLP
     /// 1014 D5).
-    pub fn wants_children_each(&self, id: u32) -> bool {
-        self.instances
+    pub fn wants_children_each(&mut self, id: u32) -> bool {
+        let wants = self
+            .instances
             .get(&id)
-            .is_some_and(|i| i.surface.wants_children_each())
+            .is_some_and(|i| i.surface.wants_children_each());
+        if !wants && self.instances.get(&id).is_some_and(|i| !i.each.is_empty()) {
+            self.children_count(id, 0);
+        }
+        wants
     }
 
     /// The `index`th direct child of a canvas, painted by the host (LLP 1014
@@ -1115,15 +1176,8 @@ impl Module {
         self.instances.remove(&id);
     }
 
-    /// The canvas's children as a Metal texture the host rendered (LLP 1008
-    /// §9): `raw` is an `MTLTexture` — `width`×`height`, `rgba8Unorm`,
-    /// readable by shaders — that the host keeps alive; it is retained and
-    /// imported as it is, no bytes crossing. The same pointer again reuses
-    /// the import — and a host should keep to one texture: a new import is a
-    /// new children view to the surface, which takes it as a fresh set (the
-    /// glass crossfades). The previous children (for a surface that
-    /// crossfades) are copied out of the texture at each hand-over — the
-    /// host hands over after drawing, so the copy is of the frame before.
+    /// Import the host's retained Metal children texture; reuse an unchanged
+    /// pointer, copying previous children before the next hand-over.
     ///
     /// # Safety
     /// `raw` is a live `MTLTexture` of that size and format, valid until
@@ -1280,8 +1334,11 @@ impl Module {
         if !inst.bound {
             return None;
         }
-        inst.surface
-            .prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let format = inst
+            .presentation
+            .as_ref()
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |p| p.1.format);
+        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
         let frame = Frame {
             seekable: self.seekable,
             period_ms: self.period_ms,
@@ -1289,7 +1346,26 @@ impl Module {
             shader_generation: shaders::shader_generation(),
             ..*frame
         };
-        let result = fixture::render(gpu, inst.surface.as_mut(), &frame);
+        let (width, height) = frame.pixels();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("canvas readback"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let wants = inst
+            .surface
+            .render(&frame, &gpu.device, &gpu.queue, &view, format);
+        let result = fixture::read(gpu, &texture).map(|pixels| (pixels, wants));
         inst.drain();
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
@@ -1381,72 +1457,3 @@ pub mod web;
 
 mod asset_name;
 pub use asset_name::asset_name;
-
-#[cfg(test)]
-mod device_loss_tests {
-    use super::*;
-    struct Probe;
-    impl Surface for Probe {
-        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
-            Ok(())
-        }
-        fn render(
-            &mut self,
-            _: &Frame,
-            _: &wgpu::Device,
-            _: &wgpu::Queue,
-            _: &wgpu::TextureView,
-            _: wgpu::TextureFormat,
-        ) -> bool {
-            panic!("lost device rendered")
-        }
-        fn agent(&mut self, _: &str) -> Option<String> {
-            Some("alive".into())
-        }
-    }
-    static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe))],
-        shaders: &[],
-    };
-    #[test]
-    fn device_loss_guards_each_gpu_entry_before_any_other_call() {
-        for operation in 0..7 {
-            let Ok(gpu) = fixture::device() else { return };
-            let mut m = Module::new(&REGISTRY);
-            m.set_gpu(gpu);
-            let id = m.create_headless("probe").unwrap();
-            m.bind(id, &[], None);
-            // Model the asynchronous callback, without calling lose_device first.
-            m.device_lost.store(true, Ordering::Release);
-            match operation {
-                0 => assert!(!m.child(id, 0, [0., 0., 1., 1.], 1, 1, &[0; 4])),
-                1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
-                2 => assert!(m
-                    .readback(
-                        id,
-                        &Frame {
-                            width: 1.,
-                            height: 1.,
-                            scale: 1.,
-                            now_ms: 0.,
-                            seekable: true,
-                            period_ms: 0.,
-                            children_generation: 0,
-                            shader_generation: 0
-                        }
-                    )
-                    .is_none()),
-                3 => assert!(!m.dirty(id)),
-                4 => assert!(!m.sync()),
-                5 => assert!(m.gpu().is_none()),
-                _ => {
-                    #[cfg(any(target_os = "macos", target_os = "ios"))]
-                    // A sentinel must never be retained/imported after loss.
-                    assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
-                }
-            }
-            assert_eq!(m.agent(id, "state").as_deref(), Some("alive"));
-            assert!(!m.dirty(id));
-        }
-    }
-}

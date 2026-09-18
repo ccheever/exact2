@@ -1,7 +1,10 @@
 # exact-game-physics
 
 Vendored Rapier 0.35.3 behind Exact's saved components, in metres, kilograms and seconds.
-Call `register` during setup, `move_character` after controls, and `step` per tick.
+Call `register` during setup, `physics::capsule(w, "player").step(velocity)` after
+controls, and `physics::step` per tick. The capsule component is `CapsuleController`;
+it can coexist with the core flat-ground `Character`. The step result includes the
+actual `displacement` and `grounded` state.
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
@@ -22,14 +25,14 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
   invalidate it, so same-tick edits are visible on the next operation. Unchanged
   queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
   The free query functions are thin one-shot calls through this same cache.
-  `move_character` uses the shared scene. Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
+  The capsule handle uses the shared scene. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
   the character's rigid collider is a sensor.
 
 P1 query/sync measurements, 2026-09-17, release, 2,000-box pour: median of three
 run summaries. Entries with two numbers are p50 / p95 ms. Each row carries its
 three load1 readings. The ray batch includes the first lazy scene build; character
-timing is `move_character` per 60 Hz movement tick against the settled pile,
+timing is the capsule step (then named `move_character`) per 60 Hz movement tick against the settled pile,
 without a solver step between movements. The pile timings separately include
 `physics::step` through active and sleeping ticks.
 

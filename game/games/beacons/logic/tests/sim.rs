@@ -23,11 +23,13 @@ fn movement_seed_jump_and_save() {
         b.run(1.0);
     }
     b.key_up("ArrowUp");
-    assert_eq!(a.position("player"), b.position("player"));
-    assert!((a.position("player").unwrap() - Vec3::new(0.0, 0.9, -5.3666644)).length() < 0.001);
+    assert_eq!(a.global_position("player"), b.global_position("player"));
+    assert!(
+        (a.global_position("player").unwrap() - Vec3::new(0.0, 0.9, -5.3666644)).length() < 0.001
+    );
     assert_eq!(a.get::<Character>("player").unwrap().velocity.z, -4.0);
     a.run(100.0);
-    assert!(a.position("player").unwrap().z < -5.3666644);
+    assert!(a.global_position("player").unwrap().z < -5.3666644);
     assert!(a.settle());
     assert_eq!(a.get::<Character>("player").unwrap().velocity, Vec3::ZERO);
     a.tap("Space");
@@ -39,11 +41,11 @@ fn movement_seed_jump_and_save() {
     for _ in 0..60 {
         a.run(1000.0 / 60.0);
         b.run(1000.0 / 60.0);
-        assert_eq!(a.position("player"), b.position("player"));
-        peak = peak.max(a.position("player").unwrap().y);
+        assert_eq!(a.global_position("player"), b.global_position("player"));
+        peak = peak.max(a.global_position("player").unwrap().y);
     }
     assert!((peak - 2.1).abs() < 0.002);
-    assert_eq!(a.position("player").unwrap().y, 0.9);
+    assert_eq!(a.global_position("player").unwrap().y, 0.9);
 }
 
 #[path = "../../../../physics/tests/compare.rs"]
@@ -57,5 +59,39 @@ fn shared_paranoid_continuation() {
             sim.tap("Space");
             sim.run(1000.0);
         },
+    );
+}
+
+#[test]
+fn proof_endpoint_pin() {
+    let mut s = sim(7);
+    s.hold("KeyW", 1500.0);
+    s.tap("KeyE");
+    s.run(100.0);
+    assert!(s.settle());
+    for (axis, target, negative, positive) in [(0, 8.0, "KeyA", "KeyD"), (2, 0.0, "KeyW", "KeyS")] {
+        let delta = target - s.global_position("player").unwrap()[axis] as f64;
+        if delta.abs() > 0.15 {
+            s.hold(
+                if delta < 0.0 { negative } else { positive },
+                ((delta.abs() + 0.267) / 4.0 * 1000.0).round(),
+            );
+        }
+        assert!(s.settle());
+    }
+    s.tap("KeyE");
+    s.run(100.0);
+    s.key_down("KeyW");
+    s.key_down("Space");
+    s.run(900.0);
+    s.key_up("Space");
+    s.key_up("KeyW");
+    assert!(s.settle());
+    assert_eq!(s.world().tick(), 907);
+    exact_game::World::assert_pin(
+        include_str!("../../pins.json"),
+        "beacons",
+        907,
+        s.world().hash(),
     );
 }

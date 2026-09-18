@@ -133,6 +133,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     match field_str(line, "op").as_deref() {
         Some("tree") => accessibility_tree(p),
         Some("state") => {
+            p.boxes();
             // The runner's state, then the sections a painter cannot observe
             // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
             // reader can tell "no keyboard" from "no report".
@@ -143,6 +144,11 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     ",\"focus\":{{\"logical\":{}}}",
                     p.focus().map_or("null".into(), |id| id.to_string())
                 ));
+                if let Some((paint, readback)) = p.last_frame_ms() {
+                    s.push_str(&format!(
+                        ",\"paint\":{{\"ms\":{paint},\"readbackMs\":{readback}}}"
+                    ));
+                }
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -192,7 +198,8 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
-fn accessibility_tree<D: DataSource>(p: &Presenter<D>) -> String {
+fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>) -> String {
+    p.boxes();
     use exact_kernel::generated::PropId;
     fn text<D: DataSource>(p: &Presenter<D>, id: u32) -> String {
         let Some(node) = p.host().kernel().node(id) else {
@@ -211,6 +218,11 @@ fn accessibility_tree<D: DataSource>(p: &Presenter<D>) -> String {
     let mut tree: serde_json::Value =
         serde_json::from_str(&p.host().agent(r#"{"op":"tree"}"#)).unwrap();
     if let Some(nodes) = tree["nodes"].as_array_mut() {
+        nodes.retain(|row| {
+            row["id"]
+                .as_u64()
+                .is_none_or(|id| !p.placement_hidden(id as u32))
+        });
         for row in nodes {
             let Some(id) = row["id"].as_u64().map(|id| id as u32) else {
                 continue;

@@ -381,7 +381,10 @@ impl Surface for StackSurface {
     }
 
     fn placement(&self, index: usize) -> Option<Placement> {
-        self.cards.get(index).and_then(|c| c.placement)
+        self.cards
+            .get(index)
+            .filter(|c| c.texture.is_some())
+            .and_then(|c| c.placement)
     }
 
     fn render(
@@ -560,6 +563,20 @@ fn build(device: &wgpu::Device, format: wgpu::TextureFormat, generation: u32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_only_web_cards_remain_in_the_kernel_column() {
+        let mut stack = StackSurface::new();
+        let mut card = CardState::new();
+        card.frame = [0., 20., 100., 50.];
+        card.placement = Some(Placement {
+            homography: [1.; 9],
+            depth: -1.,
+            hidden: false,
+        });
+        stack.cards.push(card);
+        assert!(stack.placement(0).is_none());
+    }
 
     #[test]
     fn the_homography_agrees_with_the_matrix_at_rest() {

@@ -708,7 +708,7 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
-    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
     pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
         self.brush.last_frame_ms()
     }
@@ -859,6 +859,7 @@ impl<D: DataSource> Presenter<D> {
     /// Paint a frame: the pixels, with every box recorded for `layout` and
     /// hit-testing.
     pub fn frame(&mut self) -> Pixmap {
+        self.brush.placements = self.surfaces.placements(&self.host);
         let roots = self.host.roots();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
@@ -968,7 +969,8 @@ impl<D: DataSource> Presenter<D> {
             }
             // @ref LLP 1038 D6; LLP 1035.002 D1 — hidden rows remain in
             // the kernel, but have no painted box and refuse input.
-            let (hidden, inert) = self.host.route_visibility(id);
+            let (route_hidden, inert) = self.host.route_visibility(id);
+            let hidden = route_hidden || self.placement_hidden(id);
             let _ = write!(
                 detail,
                 ",\"visible\":{{\"hidden\":{hidden},\"inert\":{inert}}}"
@@ -984,6 +986,7 @@ impl<D: DataSource> Presenter<D> {
                         num(r2(b.rect.3))
                     );
                 }
+                None if self.placement_hidden(id) => detail.push_str(",\"space\":{\"viewport\":{\"x\":0,\"y\":0,\"w\":0,\"h\":0},\"capture\":{\"scale\":1}}"),
                 None => detail.push_str(",\"space\":{\"capture\":{\"scale\":1}}"),
             }
             let _ = write!(
@@ -996,6 +999,20 @@ impl<D: DataSource> Presenter<D> {
         }
         s.push('}');
         s
+    }
+
+    pub(crate) fn placement_hidden(&self, id: ViewId) -> bool {
+        let mut at = Some(id);
+        while let Some(id) = at {
+            if matches!(
+                self.brush.placements.get(&id),
+                Some(crate::placement::Placement::Hidden)
+            ) {
+                return true;
+            }
+            at = self.host.kernel().node(id).and_then(|n| n.parent);
+        }
+        false
     }
 
     /// The deepest painted box under a point (viewport points), through
@@ -1069,7 +1086,8 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's `tap`: a press at the node's center through the same
     /// path a pointer takes.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
+        self.boxes();
+        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
         let b = self

@@ -438,6 +438,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
+        // Attachments are frame dependencies, never interpolated composed endpoints.
+        // Restore these ordinary tick arenas after submission so detaching cannot
+        // leave a stale displayed transform behind or poison page-write filtering.
+        for attachment in frame.attachments {
+            let values = crate::world::floats(attachment.pose);
+            for buffer in &self.transforms {
+                self.queue.write_buffer(
+                    &buffer.raw,
+                    u64::from(attachment.entity.index()) * 40,
+                    bytes(&values),
+                );
+            }
+        }
         let device = &self.device;
         let queue = &self.queue;
         let size = (size_px.0.max(1), size_px.1.max(1));
@@ -499,7 +512,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .local
                     .transform_point3(self.meshes[record.geometry.0].center);
                 let history = self.models.poses[index];
-                let pose = crate::world::scene::interpolate(history, frame.alpha);
+                let pose = frame
+                    .attachments
+                    .iter()
+                    .find(|a| a.entity.index() == record.transform)
+                    .map_or_else(
+                        || crate::world::scene::interpolate(history, frame.alpha),
+                        |a| a.pose,
+                    );
                 let position = pose.position + pose.rotation * (pose.scale * center);
                 *depth = -frame.view.transform_point3(position).z;
             }
@@ -727,6 +747,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             pass.draw(0..3, 0..1);
         }
         queue.submit([encoder.finish()]);
+        for attachment in frame.attachments {
+            for (buffer, pose) in [
+                (&self.transforms[1 - self.current], attachment.history[0]),
+                (&self.transforms[self.current], attachment.history[1]),
+            ] {
+                queue.write_buffer(
+                    &buffer.raw,
+                    u64::from(attachment.entity.index()) * 40,
+                    bytes(&crate::world::floats(pose)),
+                );
+            }
+        }
         let mut stats = self.counts;
         stats.draws += extra_draws;
         stats.instances += self.quads.instances();

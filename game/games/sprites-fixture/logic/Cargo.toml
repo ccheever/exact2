@@ -9,3 +9,4 @@ exact-game.workspace = true
 
 [dev-dependencies]
 exact-game-render.workspace = true
+exact-game-bake.workspace = true
