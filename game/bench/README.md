@@ -53,6 +53,115 @@ web export is 39.5 MB of wasm — 10.1 MB gzipped, 7.9 MB brotli — before a ga
 The bar these set: the idiomatic path here — one entity per cube — should hold 120 Hz
 past where both twins' *optimized* paths stop: past 225,000 in a browser.
 
+## Cubes entry — 2026-09-17, display locked; comparison pending
+
+**No new refresh-rate results or sweeps were taken.** `ioreg` reported
+`CGSSessionScreenIsLocked=Yes` before validation and again afterward. A headed
+window cannot present in that state. In particular, whether Exact holds 120 Hz
+past **225,000 browser cubes remains unanswered**. The older twin numbers above
+are not substitutes for the requested interleaved sitting.
+
+| N | exact-web | three instanced (webgl) | godot-web multimesh | exact-macos | godot multimesh (native) |
+|---|---|---|---|---|---|
+| 10,000 | pending | pending | pending | pending | pending |
+| 100,000 | pending | pending | pending | pending | pending |
+| 200,000 | pending | pending | pending | pending | pending |
+| 500,000 | pending | pending | pending | pending | pending |
+
+Cells will be **fps / p95 ms / script or tick ms**, with each run's `load1`.
+The five sweep hold/break results are also **pending**, for the same reason.
+
+Run this one command with the display unlocked and available to the bench:
+
+```sh
+bun game/bench/run.mjs compare
+```
+
+It runs all five engines sequentially at each N, retakes the whole group when
+its highest load exceeds twice its lowest (three attempts maximum), then runs
+all five sweeps. Raw JSON lines, including rejected groups, go to
+`game/bench/results/cubes-<timestamp>.jsonl`; its sibling Markdown file contains
+the comparison and sweep tables. Every sweep trial retains its load and Exact's
+complete phase distributions. Keep the measured window frontmost; the runner
+refuses a locked display. Do not run multiple bench builds concurrently: baking
+N temporarily changes this app's Contract state, restoring it in `finally`.
+
+Individual runs and build/sanity commands:
+
+```sh
+bun game/bench/run.mjs exact-web cubes 100000
+bun game/bench/run.mjs exact-macos cubes 100000
+bun game/bench/run.mjs sweep exact-web cubes
+bun game/bench/run.mjs sweep exact-macos cubes
+BENCH_BUILD_ONLY=1 bun game/bench/run.mjs exact-web cubes 100000
+BENCH_BUILD_ONLY=1 bun game/bench/run.mjs exact-macos cubes 100000
+bun game/bench/cubes/proof.mjs
+```
+
+Both app builds passed locally, including the ad-hoc signed macOS executable.
+The temporary Swift wrapper supplies `--build-system native` and is removed
+when the build ends. The web runner completed a live-clock **headless sanity**
+at 100,000 cubes: 100,000 rendered instances, 100,002 entities, 2560×1440 pixels,
+phase samples through CDP, and clean Chrome exit. The checked-in proof uses
+1,000 cubes for a short repeatable sanity run. The existing three.js path also
+completed a short headless sanity. Headless lines carry `measurement: "sanity-only"`
+and cannot be swept. Their FPS values are not display measurements. A read-only macOS `EXACT_AGENT=live` launch also answered readiness, tree and
+world/perf state (100,002 entities) without a clock command and exited cleanly.
+Its drawable size was zero under the lock, so live presentation remains unverified.
+
+`cubes/` was generated with `bun game/new.mjs bench-cubes`, moved here, and
+registered in the shared game workspace. Its only update path is one entity per
+cube and two ordinary queries: precomputed quaternion step multiplication at
+60 Hz, then the camera orbit. Grid, axes (fractions evaluated in double precision
+as in the twins), speeds, 20-second orbit, 60° camera, clipping planes, roughness,
+no shadows, no bloom, 4× MSAA, viewport and scale are explicit. The twins themselves
+differ: three.js uses HSL(h, .6, .6) and light position (.38, .77, .51); Godot uses
+HSV(h, .6, .9) and Euler angles (-50°, -30°, 0°). Exact follows **three.js** for
+those authored values. Each engine retains its own material/tonemapping pipeline;
+Exact's two draws are cubes plus its normal HDR resolve/tonemap pass.
+
+Contract's `searchParam` returns text, and its stdlib has no numeric conversion;
+`#[derive(Args)]` requires a number for `u32`. Thus the runner sets `BENCH_N` and
+bakes the requested N into `state n`, restoring the source default **100000**
+afterward. The host shells are the generator's. Bakes are reused only when the
+source fingerprint, N, and output artifact hashes match. The normal repository
+builders receive `EXACT_APP_DIR`, development trust and the CommandLineTools
+`DEVELOPER_DIR`; web output is the normal `host/web/dist`.
+
+Small changes outside `bench/`: workspace membership/lockfile; optional
+`Environment.background` so a dark flat background does not also darken ambient
+lighting (defaults preserve existing scenes); `WorldSurface` perf ring counts,
+means, dimensions and a `state` request with `perf_reset: true`; and macOS's
+`EXACT_AGENT=live` enabling its **existing stdio** agent reader without setting
+the seekable clock. macOS uses stdio, not the iOS agent socket. No clock command
+is sent. No engine optimizations were made from headless timings.
+
+The 16,384-sample phase rings are reset after two seconds of warm-up and read
+once after `BENCH_SECONDS` (default eight). `fps_avg` is 1000 / `frameMs.mean`;
+percentiles/max come directly from that ring. `tick_ms` is mean time per 60 Hz
+simulation tick, `feed_ms` per history feed, and `encode_ms` per rendered frame
+(including CPU upload/encoding work); these have different sample counts and
+must not simply be added as a per-frame total. `ticksPerFrame` is retained for
+interpretation. GPU execution/compositor time is **not** measured by encode time.
+Readback/hash work happens at the window boundaries, not on each measured frame.
+
+Validation: cubes logic plus renderer tests passed (63 passed, four ignored),
+including local Metal pixel tests; targeted Clippy and formatting passed. The
+root build, Clippy/format, caps and boot checks passed. Root tests were stopped
+when two TypeScript subprocesses stalled beyond a minute; the provided Linux
+builder fallback could not complete them (its trimmed workspace lacks
+`exact-filesystem`, and the TypeScript executable is absent). These unrelated
+verification limitations were not repaired in this change. No commits were made.
+
+There is no honest new bottleneck conclusion for any of the five engines while
+the display is locked. The older twin runs suggest CPU script work limits their
+instanced/MultiMesh paths, but changing load already moved those limits. At
+Exact's first failing browser N, compare tick and feed costs (scaled by tick/feed
+counts per frame), encode cost, and frame cadence; high residual time calls for
+a GPU/upload trace, not a claim that the GPU is slow. The interleaved rerun and
+that phase breakdown are required before choosing an optimization or declaring
+the 225k bar passed or failed.
+
 ## This engine, so far — the simulation alone (no renderer yet)
 
 `cargo run --release --example churn -p exact-game`, 2026-09-17:

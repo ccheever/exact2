@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Bench Cubes", "short_name": "Bench Cubes", "id": "com.exact.bench-cubes",
+  "start_url": "/", "display": "standalone",
+  "theme_color": "#202731", "background_color": "#202731",
+  "app": { "id": "com.exact.bench-cubes", "name": "Bench Cubes" },
+  "host": {
+    "macos": { "minimumOS": "14.0", "window": { "width": 1280, "height": 720 } },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "web": {}
+  },
+  "rust": false,
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

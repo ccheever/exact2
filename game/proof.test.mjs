@@ -3,7 +3,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {artifactDigest, closeSessions} from './proof.mjs';
-import {typeArguments, typeFor, render} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, render} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -67,4 +67,29 @@ test('inventory failure clears the timer before unconditional session cleanup', 
   ],(...args)=>calls.push(args[0]));
   expect(polls).toBe(0);
   expect(calls).toEqual(['first','session cleanup','second']);
+});
+
+test('held key release survives removal of its canvas', async () => {
+  let canvas = true, down = false;
+  const carrier = {input: async (id, _, opts) => browserKey({id, opts,
+    evaluate: async () => { if (!canvas) throw new Error('canvas removed'); return true; },
+    ask: async () => { if (!canvas) throw new Error('canvas removed'); return {ok:true}; },
+    call: async (_, event) => { down=event.type==='keyDown'; }, frame: async () => {},
+  })};
+  await typeFor({node:{id:17},target:'world',options:{key:'KeyW',for:10},carrier,
+    clock:async () => {canvas=false; return {};},tagged:r=>r});
+  expect(down).toBe(false);
+});
+
+test('native receipt changes with game dylibs and embedded plan/assets', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'g1c-receipt-')), bundle=resolve(dir,'Game.app');
+  try {
+    mkdirSync(resolve(bundle,'Contents/MacOS'),{recursive:true});
+    mkdirSync(resolve(bundle,'Contents/Resources'),{recursive:true});
+    writeFileSync(resolve(bundle,'Contents/MacOS/ExactMac'),'executable');
+    for (const file of ['Contents/MacOS/libexact_gpu.dylib','Contents/MacOS/libexact_web.dylib','Contents/Resources/app.plan','Contents/Resources/texture.bin']) {
+      writeFileSync(resolve(bundle,file),'before'); const before=artifactDigest('macos',dir,{bundle});
+      writeFileSync(resolve(bundle,file),'after'); expect(artifactDigest('macos',dir,{bundle})).not.toBe(before);
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

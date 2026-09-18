@@ -26,6 +26,7 @@ let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 
 let smoke = ExactEnv.smoke
 let agentMode = ExactEnv.agentMode
+let agentReadable = agentMode || ExactEnv.environment["EXACT_AGENT"] == "live"
 setvbuf(stdout, nil, _IOLBF, 0)
 let app = NSApplication.shared
 ExactEnv.stamp("NSApplication.shared")
@@ -301,7 +302,7 @@ func finishLaunching() {
     /// ordered front; an accessory app's window is not key until something
     /// asks, and a `type` asks (`AgentMac`).
 
-    if agentMode {
+    if agentReadable {
         DispatchQueue.main.async { agentReady() }
     }
     if smoke {
@@ -320,7 +321,7 @@ func finishLaunching() {
 }
 
 func agentReady() {
-    guard agentMode, !readySent else { return }
+    guard agentReadable, !readySent else { return }
     readySent = true
     Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": session.bootError ?? NSNull()])
     Agent.startStdio(sessions: [("main", session)])
