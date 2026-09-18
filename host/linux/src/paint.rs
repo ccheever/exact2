@@ -19,14 +19,17 @@
 //! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
 //! where there is no adapter, and the deterministic oracle for pixels).
 
-use crate::text::{Paragraph, Run, Shared, Spec, TextEngine};
+use crate::image::Bitmap;
+use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+mod region;
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -142,6 +145,8 @@ impl PaintedBox {
 pub struct Scene<'a> {
     /// The kernel: frames, styles, props.
     pub kernel: &'a Kernel,
+    /// @ref LLP 1038 D6 — hidden route subtrees paint no pixels or hit boxes.
+    pub hidden: &'a dyn Fn(ViewId) -> bool,
     /// The roots, in order.
     pub roots: &'a [ViewId],
     /// A node's presentation values.
@@ -151,7 +156,7 @@ pub struct Scene<'a> {
     /// The page's scroll offset: the window is a viewport over a document.
     pub page: (f32, f32),
     /// Decoded images by node.
-    pub images: &'a BTreeMap<ViewId, Rc<Pixmap>>,
+    pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
     /// The pointer, in viewport points, when the host draws one.
@@ -178,13 +183,13 @@ pub trait Backend {
     /// Stroke a shape's outline, centred on it.
     fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
-    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform);
+    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
         text: &mut TextEngine,
         paragraph: &Paragraph,
-        color: [u8; 4],
+        palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
     );
@@ -218,11 +223,24 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    // One lease per actually accepted owner, not one global width per string.
+    // Retained while a subsequent backend frame fails.
+    accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    region_picture: Option<Rc<region::Picture>>,
+    region_frame: Option<region::Published>,
 }
 
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
+    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    skip: Option<exact_kernel::NodeKey>,
+    // Record traversal alone supplies native exact paragraphs. The normal
+    // shell path and ordinary opt-out remain unchanged.
+    region: Option<&'b exact_kernel::RegionPublication>,
+    capture: Option<&'b region::Capture>,
+    replay: Option<&'b region::Replay<'b>>,
+    region_error: Option<&'static str>,
 }
 
 impl Painter {
@@ -233,6 +251,9 @@ impl Painter {
             scale,
             dark: false,
             backend,
+            accepted_text: BTreeMap::new(),
+            region_picture: None,
+            region_frame: None,
         }
     }
 
@@ -252,12 +273,102 @@ impl Painter {
         self.backend.last_frame_ms()
     }
 
+    /// Accepted leases outside the current text catalog, deduplicated by Rc.
+    /// A catalog swap followed by failed frames retains the previous accepted
+    /// set until successful replacement. Diagnostic-only; not total residency.
+    pub fn retiring_text_residency(&self) -> crate::text::RetiringResidency {
+        self.text
+            .borrow()
+            .retiring_accepted(self.accepted_text.values())
+    }
+
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.paint_selected(scene, viewport, None, None)
+    }
+
+    /// Paint exactly the registered selected branch. An accepted publication
+    /// requires its native snapshot; live candidate text is never a fallback.
+    pub fn paint_region(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        region: &crate::content_region::ContentRegionState,
+        collection_limits: &BTreeMap<ViewId, f32>,
+    ) -> Result<Frame, String> {
+        region.validate_scale(self.scale)?;
+        self.validate_region_presentation(scene, region)?;
+        if self.backend.name() == "gpu" {
+            return Err("content-region trial requires CPU painting".into());
+        }
+        let receipt = region
+            .receipt()
+            .ok_or("content region has no successful layout")?;
+        match &receipt.selection {
+            exact_kernel::RegionSelection::Pending(key) if *key == region.binding().pending => {
+                let frame =
+                    self.paint_selected(scene, viewport, Some(region.binding().content), None)?;
+                self.region_picture = None;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: None,
+                });
+                Ok(frame)
+            }
+            exact_kernel::RegionSelection::Pending(_) => {
+                Err("content region placeholder identity mismatch".into())
+            }
+            exact_kernel::RegionSelection::Accepted(publication) => {
+                let picture = if receipt.current {
+                    // A flat native paint/hit snapshot, never an app/layout
+                    // graph. No UTF-8 copy or cold text lookup is permitted.
+                    region::Picture::capture(self, scene, region, publication, collection_limits)?
+                } else {
+                    self.region_picture
+                        .as_ref()
+                        .filter(|p| p.belongs_to(region))
+                        .cloned()
+                        .ok_or("retained content has no matching native picture")?
+                };
+                let replay = region::Replay {
+                    picture: &picture,
+                    origin: receipt.origin,
+                    content: region.binding().content,
+                    viewport,
+                };
+                let frame = self.paint_selected(
+                    scene,
+                    viewport,
+                    Some(region.binding().pending),
+                    Some(&replay),
+                )?;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: Some((picture.publication().clone(), receipt.origin)),
+                });
+                self.region_picture = Some(picture);
+                Ok(frame)
+            }
+        }
+    }
+
+    fn paint_selected(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        skip: Option<exact_kernel::NodeKey>,
+        replay: Option<&region::Replay<'_>>,
+    ) -> Result<Frame, String> {
         self.backend.begin(viewport.0, viewport.1, self.scale);
         let mut walk = Walk {
             scene,
             boxes: Vec::new(),
+            text: BTreeMap::new(),
+            skip,
+            region: None,
+            capture: None,
+            replay,
+            region_error: None,
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -265,7 +376,20 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
-        let pixmap = self.backend.finish()?;
+        let finished = self.backend.finish().and_then(|p| match walk.region_error {
+            Some(error) => Err(error.into()),
+            None => Ok(p),
+        });
+        // Publication is the ownership boundary. On Err the previous accepted
+        // set remains intact; candidate leases simply unwind with `walk`.
+        if finished.is_ok() {
+            self.accepted_text = walk.text;
+        } else {
+            drop(walk.text);
+        }
+        // Pending measurements end with every paint attempt, including failure.
+        self.text.borrow_mut().finish_text_frame();
+        let pixmap = finished?;
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -280,10 +404,27 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        if walk.region_error.is_some() {
+            return;
+        }
+        if let Some(replay) = walk.replay.filter(|r| {
+            walk.scene
+                .kernel
+                .node(id)
+                .is_some_and(|n| n.key == r.content)
+        }) {
+            replay.paint(self, walk, ts, offset, clip_rect);
+            return;
+        }
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
-        if node.style.display == Display::None
+        if walk.skip == Some(node.key) {
+            return;
+        }
+        if (walk.scene.hidden)(id)
+            || node.is_inline_run()
+            || node.style.display == Display::None
             || node.props.str(PropId::SemanticTag) == Some("dialog")
         {
             return;
@@ -312,6 +453,9 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
+        if let Some(capture) = walk.capture {
+            capture.hit(node.key, *walk.boxes.last().unwrap());
+        }
         let opacity = p.opacity.clamp(0.0, 1.0);
         if opacity <= 0.0 {
             return;
@@ -406,26 +550,64 @@ impl Painter {
         match node.node_type {
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
-                    if let Some(dst) = object_fit(img, s.object_fit, content) {
+                    if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
                         self.backend
                             .image(img, dst, &[Shape::rect(content), outer], ts);
                     }
                 }
             }
             NodeType::Text => {
-                if let Some(text) = node.props.str(PropId::Text) {
-                    // Painted with the computed rows: what the kernel measured
-                    // with, inherited font and colour included (LLP 1035.000).
-                    let spec = text_spec(&node.computed_style(StyleMask::INHERITED), text);
-                    let paragraph = self.text.borrow_mut().paragraph(&spec, Some(content.2));
-                    let mut engine = self.text.borrow_mut();
-                    self.backend.text(
-                        &mut engine,
-                        &paragraph,
-                        rgba(node.text_color().resolve(self.dark)),
-                        (content.0, content.1),
-                        ts,
-                    );
+                if let Some(publication) = walk.region {
+                    if let Some(artifact) = publication.paint_artifact(node.key) {
+                        if let Some(native) =
+                            artifact.payload::<crate::content_region::NativeText>()
+                        {
+                            if let Some(paragraph) = native.paragraph() {
+                                walk.text.insert(node.key, paragraph.clone());
+                                self.backend.text(
+                                    &mut self.text.borrow_mut(),
+                                    paragraph,
+                                    &native.palette(self.dark),
+                                    (content.0, content.1),
+                                    ts,
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    // The kernel measures a Text subtree as one paragraph. Inline
+                    // descendants deliberately have zero frames, not paint boxes.
+                    let build = || {
+                        let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+                        spec.runs = node
+                            .text_runs()
+                            .iter()
+                            .map(|run| Run::from_style(run.text, run.style))
+                            .collect();
+                        spec
+                    };
+                    let paragraph = if let Some(stamp) = node.paragraph_stamp() {
+                        self.text
+                            .borrow_mut()
+                            .paragraph_identified(&stamp, Some(content.2), build)
+                    } else {
+                        let spec = build();
+                        (!spec.is_empty())
+                            .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
+                    };
+                    if let Some(paragraph) = paragraph {
+                        let mut palette = Vec::new();
+                        text_palette(walk.scene.kernel, node, self.dark, &mut palette);
+                        walk.text.insert(node.key, paragraph.clone());
+                        let mut engine = self.text.borrow_mut();
+                        self.backend.text(
+                            &mut engine,
+                            &paragraph,
+                            &palette,
+                            (content.0, content.1),
+                            ts,
+                        );
+                    }
                 }
             }
             NodeType::TextInput => {
@@ -443,6 +625,7 @@ impl Painter {
                     .text
                     .borrow_mut()
                     .paragraph(&spec, multiline.then_some(content.2));
+                walk.text.insert(node.key, paragraph.clone());
                 let oy = content.1
                     + if multiline {
                         0.0
@@ -456,8 +639,16 @@ impl Painter {
                 };
                 {
                     let mut engine = self.text.borrow_mut();
-                    self.backend
-                        .text(&mut engine, &paragraph, ink, (content.0, oy), ts);
+                    self.backend.text(
+                        &mut engine,
+                        &paragraph,
+                        &[RunPaint {
+                            color: ink,
+                            source: node.id,
+                        }],
+                        (content.0, oy),
+                        ts,
+                    );
                 }
                 if walk.scene.focus == Some(node.id) {
                     let caret_x = content.0 + if placeholder { 0.0 } else { paragraph.width };
@@ -493,19 +684,30 @@ impl Painter {
                 None => own,
             });
         }
-        let child_offset = if ox == Overflow::Scroll || oy == Overflow::Scroll {
+        let scrolls = ox == Overflow::Scroll || oy == Overflow::Scroll;
+        let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
                 .scroll
                 .get(&node.id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            (offset.0 + sx, offset.1 + sy)
+            if let Some(capture) = walk.capture {
+                capture.scroll(node.key, (sx, sy));
+                offset
+            } else {
+                (offset.0 + sx, offset.1 + sy)
+            }
         } else {
             offset
         };
         for child in node.children() {
             self.node(walk, child, ts, child_offset, child_rect);
+        }
+        if scrolls {
+            if let Some(capture) = walk.capture {
+                capture.end_scroll();
+            }
         }
         if clips {
             self.backend.pop_clip();
@@ -516,8 +718,8 @@ impl Painter {
 /// Where a picture goes under CSS `object-fit`, centred in the content box:
 /// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
 /// size, `scale-down` the smaller of none and contain (LLP 1011 §4).
-pub fn object_fit(img: &Pixmap, fit: ObjectFit, content: Rect4) -> Option<Rect4> {
-    let (nw, nh) = (img.width() as f32, img.height() as f32);
+pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option<Rect4> {
+    let (nw, nh) = (natural.0 as f32, natural.1 as f32);
     if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
         return None;
     }
@@ -553,6 +755,23 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         align: s.text_align,
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
+    }
+}
+
+/// Mirror the canonical run ownership (own text suppresses descendants),
+/// retaining paint-only information without adding it to the metric ABI.
+fn text_palette(kernel: &Kernel, node: &NodeRef<'_>, dark: bool, out: &mut Vec<RunPaint>) {
+    if node.props.str(PropId::Text).is_some() {
+        out.push(RunPaint {
+            color: rgba(node.text_color().resolve(dark)),
+            source: node.id,
+        });
+    } else {
+        for child in node.children() {
+            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+                text_palette(kernel, &child, dark, out);
+            }
+        }
     }
 }
 
@@ -651,3 +870,293 @@ pub const POINTER: [(f32, f32); 7] = [
     (6.5, 11.5),
     (11.5, 11.5),
 ];
+
+#[cfg(test)]
+mod paragraph_tests {
+    use super::*;
+    use crate::presenter::{PainterChoice, Presenter};
+    use exact_runner::{DataError, DataSource, Value};
+    use std::rc::Rc;
+
+    #[derive(Default)]
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+    }
+
+    fn fixture(text: &str) -> Presenter<NoData> {
+        let source = format!("component App\n  view\n    column width=\"100%\" padding=20 box-sizing=\"border-box\"\n{text}");
+        let plan = contract::compile(&source).unwrap();
+        let (presenter, error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        presenter
+    }
+
+    #[test]
+    fn nested_text_paints_the_same_paragraph_that_layout_measured() {
+        let mut plain = fixture("      text \"Alpha beta gamma delta. Another line wraps here.\" testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n");
+        let mut nested = fixture("      text testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n        text \"Alpha beta \"\n        text\n          text \"gamma delta. \"\n          text \"Another line wraps here.\"\n");
+        for width in [300.0, 160.0, 240.0] {
+            assert!(plain.resize(width, 300.0).is_none());
+            assert!(nested.resize(width, 300.0).is_none());
+            let frame = |p: &Presenter<NoData>| {
+                let kernel = p.host().kernel();
+                kernel
+                    .node_by_key(kernel.find_by_test_id("paragraph")[0])
+                    .unwrap()
+                    .frame
+            };
+            assert_eq!(
+                frame(&plain),
+                frame(&nested),
+                "kernel paragraph geometry agrees at {width}"
+            );
+            let expected = plain.frame();
+            let actual = nested.frame();
+            assert!(expected
+                .data()
+                .chunks_exact(4)
+                .any(|p| p != [255, 255, 255, 255]));
+            assert!(
+                actual.data() == expected.data(),
+                "nested run pixels differ despite identical measured paragraph at width {width}"
+            );
+        }
+    }
+
+    fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> Frame {
+        let kernel = p.host().kernel();
+        let scene = Scene {
+            kernel,
+            roots: &kernel.roots(),
+            hidden: &|_| false,
+            presented: &|_| Presented::IDENTITY,
+            scroll: &BTreeMap::new(),
+            page: (0.0, 0.0),
+            images: &BTreeMap::new(),
+            focus: None,
+            pointer: None,
+        };
+        let mut painter = Painter::new(p.text().clone(), 1.0, backend);
+        painter.dark = dark;
+        painter.paint(&scene, (300.0, 300.0)).unwrap()
+    }
+
+    const COLORS: &str = "      text testId=\"paragraph\" color=\"#00000000\" font-size=24 line-height=1.5\n        text color=\"light-dark(#ff0000,#008000)\"\n          text \"MMMM \" font-weight=700 testId=\"red\"\n        text color=\"light-dark(#0000ff,#800080)\" href=\"https://example.com/\" testId=\"link\"\n          text \"WWWW\" font-family=\"monospace\" font-style=\"italic\" font-size=18 testId=\"blue\"\n";
+
+    fn has_color(frame: &tiny_skia::Pixmap, color: [u8; 4]) -> bool {
+        frame.data().chunks_exact(4).filter(|p| *p == color).count() > 10
+    }
+
+    #[test]
+    fn nested_run_colors_survive_inheritance_and_appearance() {
+        let p = fixture(COLORS);
+        for (dark, colors) in [
+            (false, [[255, 0, 0, 255], [0, 0, 255, 255]]),
+            (true, [[0, 128, 0, 255], [128, 0, 128, 255]]),
+        ] {
+            let frame = scene_frame(&p, dark, Box::new(crate::raster::Raster::new()));
+            for color in colors {
+                assert!(
+                    has_color(&frame.pixmap, color),
+                    "missing {color:?}, dark={dark}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
+        let mut p = fixture(COLORS);
+        for width in [300.0, 160.0, 240.0] {
+            assert!(p.resize(width, 300.0).is_none());
+            let kernel = p.host().kernel();
+            let node = kernel
+                .node_by_key(kernel.find_by_test_id("paragraph")[0])
+                .unwrap();
+            let canonical = node.text_runs();
+            let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+            spec.runs = canonical
+                .iter()
+                .map(|r| Run::from_style(r.text, r.style))
+                .collect();
+            assert_eq!(spec.runs[0].weight, 700);
+            assert!(spec.runs[1].italic);
+            assert_eq!(spec.runs[1].size, 18.0);
+            let mut light = Vec::new();
+            let mut dark = Vec::new();
+            text_palette(kernel, &node, false, &mut light);
+            text_palette(kernel, &node, true, &mut dark);
+            assert_eq!(light.len(), canonical.len());
+            assert_eq!(dark.len(), canonical.len());
+            let leaf = kernel.node(light[1].source).unwrap();
+            assert_eq!(leaf.props.str(PropId::TestId), Some("blue"));
+            let link = kernel.node(leaf.parent.unwrap()).unwrap();
+            assert_eq!(link.props.str(PropId::Href), Some("https://example.com/"));
+            let mut engine = p.text().borrow_mut();
+            let paragraph = engine.paragraph(&spec, Some(node.frame.width));
+            let metrics =
+                engine.measure(&spec, exact_kernel::AxisOffer::Definite(node.frame.width));
+            assert_eq!(paragraph.height, metrics.height);
+            assert_eq!(Some(paragraph.first_baseline), metrics.first_baseline);
+            assert_eq!(paragraph.height, node.frame.height);
+            for palette in [&light, &dark] {
+                let cpu: Vec<_> = paragraph
+                    .paint_glyphs(palette)
+                    .map(|(g, baseline, ink)| {
+                        (
+                            g.glyph_id as u32,
+                            g.x + g.x_offset * g.font_size,
+                            baseline + g.y - g.y_offset * g.font_size,
+                            g.metadata,
+                            ink,
+                            g.cache_key_flags
+                                .contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC),
+                        )
+                    })
+                    .collect();
+                let gpu: Vec<_> = engine
+                    .glyph_runs(&paragraph, palette)
+                    .iter()
+                    .flat_map(|run| {
+                        run.glyphs.iter().map(|(id, x, y)| {
+                            (*id, *x, *y, run.run_index, run.paint, run.synthetic_italic)
+                        })
+                    })
+                    .collect();
+                assert!(!cpu.is_empty());
+                assert_eq!(cpu, gpu, "common colored glyph stream at width {width}");
+            }
+            assert!(
+                Rc::ptr_eq(&paragraph, &engine.paragraph(&spec, Some(node.frame.width))),
+                "appearance/source metadata must not split the shaping cache"
+            );
+        }
+    }
+
+    #[test]
+    fn own_text_suppresses_inline_descendants_in_measurement_and_paint() {
+        let mut plain = fixture("      text \"Owner\" font-size=24 color=\"#ff0000\"\n");
+        let mut nested = fixture("      text \"Owner\" font-size=24 color=\"#ff0000\"\n        text \"Must not paint\" color=\"#0000ff\"\n");
+        assert_eq!(plain.frame().data(), nested.frame().data());
+    }
+
+    #[test]
+    fn identical_fonts_keep_distinct_run_colors_and_source_nodes() {
+        let style = StyleProps {
+            font_size: 24.0,
+            ..StyleProps::default()
+        };
+        let mut spec = text_spec(&style, "MMMM ");
+        spec.runs.push(Run::from_style(
+            "WWWW",
+            exact_kernel::TextStyle::from_style(&style),
+        ));
+        let palette = [
+            RunPaint {
+                color: [255, 0, 0, 255],
+                source: 1,
+            },
+            RunPaint {
+                color: [0, 0, 255, 255],
+                source: 2,
+            },
+        ];
+        let mut engine = TextEngine::new();
+        let paragraph = engine.paragraph(&spec, Some(260.0));
+        let batches = engine.glyph_runs(&paragraph, &palette);
+        assert_eq!(
+            batches.len(),
+            2,
+            "same font must not merge distinct ink/source runs"
+        );
+        for (index, batch) in batches.iter().enumerate() {
+            assert_eq!(batch.run_index, index);
+            assert_eq!(batch.paint, palette[index]);
+        }
+        let mut raster = crate::raster::Raster::new();
+        raster.begin(300.0, 80.0, 1.0);
+        raster.text(
+            &mut engine,
+            &paragraph,
+            &palette,
+            (20.0, 20.0),
+            Transform::identity(),
+        );
+        let pixels = raster.finish().unwrap();
+        assert!(palette.iter().all(|ink| has_color(&pixels, ink.color)));
+    }
+
+    #[test]
+    fn styled_paragraph_pixels_on_real_gpu_when_available() {
+        let gpu = match crate::gpu::Gpu::new() {
+            Ok(gpu) => gpu,
+            Err(error) => {
+                eprintln!(
+                    "GPU paragraph pixels NOT checked: {error}; common batch test still runs"
+                );
+                return;
+            }
+        };
+        eprintln!("GPU paragraph pixels: {} / {}", gpu.adapter, gpu.api);
+        let p = fixture(COLORS);
+        let mut painter = Painter::new(p.text().clone(), 1.0, Box::new(gpu));
+        let kernel = p.host().kernel();
+        let scene = Scene {
+            kernel,
+            roots: &kernel.roots(),
+            hidden: &|_| false,
+            presented: &|_| Presented::IDENTITY,
+            scroll: &BTreeMap::new(),
+            page: (0.0, 0.0),
+            images: &BTreeMap::new(),
+            focus: None,
+            pointer: None,
+        };
+        for (dark, colors) in [
+            (false, [[255, 0, 0, 255], [0, 0, 255, 255]]),
+            (true, [[0, 128, 0, 255], [128, 0, 128, 255]]),
+        ] {
+            painter.dark = dark;
+            let frame = painter.paint(&scene, (300.0, 300.0)).unwrap();
+            let cpu = scene_frame(&p, dark, Box::new(crate::raster::Raster::new()));
+            for color in colors {
+                assert!(
+                    has_color(&frame.pixmap, color),
+                    "GPU missing {color:?}, dark={dark}"
+                );
+                let bounds = |pixmap: &Pixmap| {
+                    let mut bounds = [u32::MAX, u32::MAX, 0, 0];
+                    for (i, pixel) in pixmap.data().chunks_exact(4).enumerate() {
+                        if pixel == color {
+                            let (x, y) = (i as u32 % pixmap.width(), i as u32 / pixmap.width());
+                            bounds = [
+                                bounds[0].min(x),
+                                bounds[1].min(y),
+                                bounds[2].max(x),
+                                bounds[3].max(y),
+                            ];
+                        }
+                    }
+                    bounds
+                };
+                for (cpu, gpu) in bounds(&cpu.pixmap).into_iter().zip(bounds(&frame.pixmap)) {
+                    assert!(
+                        cpu.abs_diff(gpu) <= 2,
+                        "CPU/GPU colored ink bounds differ: {cpu}, {gpu}"
+                    );
+                }
+            }
+        }
+    }
+}

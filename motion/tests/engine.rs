@@ -2,8 +2,8 @@
 //! reverses, and that the clock is a seek.
 
 use exact_motion::{
-    Change, Easing, Engine, EngineError, Property, SpringConfig, TimingFunction, Transition,
-    TransitionError, TransitionProperty, Transitions, Value, VelocityTracker,
+    Change, Easing, Engine, EngineError, HoldEnd, Property, SpringConfig, TimingFunction,
+    Transition, TransitionError, TransitionProperty, Transitions, Value, VelocityTracker,
 };
 
 const NODE: u64 = 7;
@@ -297,28 +297,36 @@ fn a_gesture_holds_then_releases_into_a_spring_with_its_velocity() {
         TimingFunction::Spring(SpringConfig::default()),
     );
     let mut engine = engine_with(vec![spring]);
-    let mut tracker = VelocityTracker::new();
-    for n in 0..=6 {
-        let t = n as f64 / 60.0;
-        let x = 100.0 * t; // 100 pt/s drag
-        engine.advance(t).unwrap();
-        engine
-            .hold(NODE, Property::Translate, Value::new(x, 0.0))
-            .unwrap();
-        tracker.push(t, Value::new(x, 0.0));
-        assert!(engine.quiescent(), "a held value never transitions");
-    }
-    let release = engine.now();
-    let velocity = tracker.estimate(release);
-    close(velocity.x, 100.0);
     engine
         .observe(Change {
             node: NODE,
             property: Property::Translate,
             value: Value::ZERO,
-            velocity: Some(velocity),
+            velocity: None,
         })
         .unwrap();
+    let hold = engine
+        .begin_hold(NODE, Property::Translate, 0.0, None)
+        .unwrap()
+        .unwrap();
+    let mut tracker = VelocityTracker::new();
+    for n in 0..=6 {
+        let t = n as f64 / 60.0;
+        let x = 100.0 * t; // 100 pt/s drag
+        assert!(engine
+            .update_hold(hold.token, t, hold.value + Value::new(x, 0.0))
+            .unwrap());
+        tracker.push(t, Value::new(x, 0.0));
+        assert!(engine.quiescent(), "a held value never transitions");
+        assert_eq!(engine.target(NODE, Property::Translate), Some(Value::ZERO));
+    }
+    let release = engine.now();
+    let velocity = tracker.estimate(release);
+    close(velocity.x, 100.0);
+    assert!(engine
+        .end_hold(hold.token, release, HoldEnd::Release { velocity })
+        .unwrap());
+    assert!(!engine.has_hold(hold.token));
     assert!(!engine.quiescent());
     // Released moving away from the target, the value keeps going out first.
     engine.advance(release + 1.0 / 240.0).unwrap();
@@ -382,7 +390,7 @@ fn removing_a_node_forgets_it() {
                 .observe(Change {
                     node,
                     property,
-                    value: property.identity(),
+                    value: property.identity().unwrap_or(Value::scalar(180.0)),
                     velocity: None,
                 })
                 .unwrap();
@@ -391,7 +399,10 @@ fn removing_a_node_forgets_it() {
     engine.remove(NODE);
     for property in Property::ALL {
         assert_eq!(engine.value(NODE, property), None);
-        assert_eq!(engine.value(NODE + 1, property), Some(property.identity()));
+        assert_eq!(
+            engine.value(NODE + 1, property),
+            Some(property.identity().unwrap_or(Value::scalar(180.0)))
+        );
     }
     let frame = engine.frame();
     assert_eq!(frame.len(), Property::ALL.len());

@@ -13,11 +13,22 @@
 
 use crate::paint::Presented;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
-use exact_kernel::{Kernel, NodeKey, Offer, TextMeasurer, ViewId};
+use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Change, Engine, Property};
 use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
+
+#[path = "content_region/host.rs"]
+mod content;
+#[path = "height.rs"]
+mod height;
+#[path = "height_binding.rs"]
+mod height_binding;
+#[path = "holds.rs"]
+mod holds;
+#[path = "transform_binding.rs"]
+mod transform_binding;
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -45,7 +56,17 @@ pub struct Host<D: DataSource> {
     presented: BTreeMap<ViewId, Presented>,
     viewport: (f32, f32),
     now_ms: f64,
+    height_owner: Option<NodeKey>,
+    height_bindings: height_binding::Bindings,
+    transform_bindings: transform_binding::Bindings,
+    height_projection: Option<exact_kernel::PresentedHeight>,
+    height_layout_valid: bool,
+    content_region: Option<crate::content_region::ContentRegionState>,
+    #[cfg(test)]
+    layout_calls: usize,
     data_activated: bool,
+    router_op: Option<exact_runner::RouterChange>,
+    navigation: crate::navigation::Navigation,
 }
 
 impl<D: DataSource> Host<D> {
@@ -71,17 +92,61 @@ impl<D: DataSource> Host<D> {
         carried: Option<&Carried>,
         delivery: Option<exact_runner::Delivery>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
+        Self::boot_at(
+            plan_bytes, data, measurer, width, height, carried, delivery, "/",
+        )
+    }
+
+    /// Boot with the native launch location. @ref LLP 1038 D5/D8
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_at(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
+        Self::boot_at_with_region(
+            plan_bytes, data, measurer, width, height, carried, delivery, launch, None,
+        )
+    }
+
+    /// Boot one explicitly registered native content region before any layout.
+    /// Opt-out is exactly the ordinary `boot_at` path.
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_at_with_region(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
-        let runner = Runner::boot_with_delivery(
+        let mut runner = Runner::boot_with_delivery(
             plan,
             data,
             kernel,
             carried,
             Vec::new(),
             delivery.unwrap_or_default(),
+            exact_runner::Viewport {
+                width: width as f64,
+                height: height as f64,
+            },
+            launch,
         )
         .map_err(HostError::Runner)?;
+        if let Some(action) = region.and_then(|r| r.activate) {
+            runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
         let mut host = Host {
             runner,
             engine: Engine::new(),
@@ -89,13 +154,26 @@ impl<D: DataSource> Host<D> {
             presented: BTreeMap::new(),
             viewport: (width, height),
             now_ms: 0.0,
+            height_owner: None,
+            height_bindings: Default::default(),
+            transform_bindings: Default::default(),
+            height_projection: None,
+            height_layout_valid: false,
+            content_region: None,
+            #[cfg(test)]
+            layout_calls: 0,
             data_activated: false,
+            router_op: None,
+            navigation: Default::default(),
         };
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
+        host.discover_height_handles();
+        host.discover_transform_handles();
         for id in host.preorder() {
             if let Some(node) = host.runner.kernel().node(id) {
-                host.keys.insert(node.key, id);
+                let key = node.key;
+                host.keys.insert(key, id);
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
                 for (property, value) in targets(node.style) {
@@ -110,6 +188,20 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.project_navigation();
+        host.reconcile_height_bindings();
+        host.reconcile_transform_bindings();
+        if let Some(registration) = region {
+            let roots = host.runner.roots();
+            host.content_region = Some(
+                crate::content_region::ContentRegionState::register(
+                    host.runner.kernel_mut(),
+                    &roots,
+                    registration,
+                )
+                .map_err(HostError::Layout)?,
+            );
+        }
         let error = host.layout().err();
         host.present();
         Ok((host, error))
@@ -159,6 +251,37 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// Explicit region selection, including retained provenance while pending.
+    pub fn content_region(&self) -> Option<&crate::content_region::ContentRegionState> {
+        self.content_region.as_ref()
+    }
+
+    /// Mounted collection metadata; no record keys or unmounted rows cross here.
+    pub fn collections(&self) -> Vec<exact_runner::CollectionSnapshot> {
+        self.runner.collections()
+    }
+
+    /// Commit one viewport/measurement update without re-answering resources.
+    /// `false` means stale or unchanged feedback, requiring no layout.
+    pub fn collection_feedback(
+        &mut self,
+        feedback: exact_runner::CollectionFeedback,
+    ) -> Result<bool, String> {
+        match self.runner.collection_feedback(feedback) {
+            Ok(Some(receipt)) => self
+                .commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                )
+                .map_or(Ok(true), Err),
+            Ok(None) => Ok(false),
+            Err(error) => Err(format!("collection feedback: {error:?}")),
+        }
     }
 
     /// The motion engine.
@@ -328,6 +451,26 @@ impl<D: DataSource> Host<D> {
         self.runner.take_requests()
     }
 
+    /// Admission failures remain on the runner's current tickets, not a queue.
+    pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
+        self.runner.refuse_request(ticket, reason, ordered);
+    }
+
+    /// Take one admission failure through the usual settlement path.
+    pub fn take_request_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
+        self.runner.take_request_refusal(allow_ordered)
+    }
+
+    /// Ordered refusals hold later ordered dispatch until they settle or are forgotten.
+    pub fn has_ordered_request_refusals(&self) -> bool {
+        self.runner.has_ordered_request_refusals()
+    }
+
+    /// Whether another pump must settle an admission failure.
+    pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
+        self.runner.has_request_refusals(allow_ordered)
+    }
+
     /// The executor's replies, oldest first, each a commit at `now_ms` (a
     /// ticket no longer held commits nothing); a reply the source cannot
     /// shape is the error, and the ones before it stand.
@@ -400,23 +543,47 @@ impl<D: DataSource> Host<D> {
 
     /// The viewport changed: lay out again.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
+        // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let receipt = match self.runner.set_viewport(width as f64, height as f64) {
+            Ok(receipt) => receipt,
+            Err(e) => return Some(format!("viewport: {e:?}")),
+        };
         self.viewport = (width, height);
+        if let Some(receipt) = receipt {
+            return self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            );
+        }
         self.layout().err()
     }
 
-    /// A motion frame: seek the engine to `now_ms`; presentation values
-    /// follow. Nothing else moves.
-    pub fn tick(&mut self, now_ms: f64) {
+    /// Seek presentation. Returns whether the registered Height changed layout;
+    /// paint-only properties never trigger layout or text measurement.
+    pub fn tick(&mut self, now_ms: f64) -> bool {
         self.now_ms = now_ms.max(self.now_ms);
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let changed = match self.layout_motion() {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.log(error);
+                false
+            }
+        };
         self.present();
+        changed
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
         for t in receipts {
             let r = &t.receipt;
             for key in &r.destroyed {
+                self.forget_height_handle(*key);
+                self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
                 }
@@ -427,17 +594,23 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        let layout_error = if receipts.is_empty() {
-            None
-        } else {
-            self.layout().err()
-        };
-        // Motion last, each commit at its own time: targets are in place
+        if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
+            self.discover_height_handles();
+            self.discover_transform_handles();
+        }
+        self.project_navigation();
+        self.reconcile_height_bindings();
+        self.reconcile_transform_bindings();
+        // Motion observes each commit before projected layout: targets are in place
         // before the engine hears them, and a transition a timer started is
         // born at that timer's due time — one seek and sixty give the same
         // bits (LLP 1002 D3; LLP 1012 §2).
         for t in receipts {
-            let seek = self.engine.advance(t.at_ms / 1000.0);
+            // A pointer sample may advance presentation past an overdue timer.
+            // Keep runner due-time order, but never replay the engine backwards.
+            let seek = self
+                .engine
+                .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let applied = self
                 .runner
@@ -445,22 +618,43 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            if let Err(error) = self.sync_height_owner() {
+                self.log(error);
+            }
         }
+        self.retire_height_binding();
+        self.retire_transform_binding();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let layout_error = if receipts.is_empty() {
+            self.layout_motion().err()
+        } else {
+            self.layout().err()
+        };
         self.present();
         error.or(layout_error)
     }
 
-    fn layout(&mut self) -> Result<(), String> {
-        let (w, h) = self.viewport;
-        for root in self.runner.roots() {
-            self.runner
-                .kernel_mut()
-                .compute_layout(root, Offer::definite(w, h))
-                .map_err(|e| format!("layout: {e:?}"))?;
+    // @ref LLP 1038 D6/D7/D11 — no batch consumer on this host. Keep the
+    // last coalesced op for inspection; navigation's agent section stays unavailable.
+    fn project_navigation(&mut self) {
+        if let Some(change) = self.runner.take_router_change() {
+            self.router_op = Some(change);
         }
-        Ok(())
+        for line in self.navigation.sync(self.runner.kernel(), &self.preorder()) {
+            self.runner.log(line);
+        }
+    }
+
+    /// The last router op; this host has no foreign batch consumer.
+    pub fn router_op(&self) -> Option<&exact_runner::RouterChange> {
+        self.router_op.as_ref()
+    }
+
+    /// Hidden/inert through the route and authored inert ancestors.
+    /// @ref LLP 1038 D6 — shared by painting, input, and agent layout.
+    pub fn route_visibility(&self, id: ViewId) -> (bool, bool) {
+        self.navigation.visibility(self.runner.kernel(), id)
     }
 
     /// Every presentation value the engine changed, kept by node.
@@ -473,6 +667,9 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
+            if p.property == Property::Height {
+                continue;
+            }
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
@@ -480,6 +677,7 @@ impl<D: DataSource> Host<D> {
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
+                Property::Height => unreachable!("height is projected through layout"),
             }
         }
     }

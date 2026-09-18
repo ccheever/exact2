@@ -180,6 +180,8 @@ extension Agent {
         navigation["owners"] = presenter.modals.routes.map { ["route": $0.node.props["navigationKey"] ?? "", "presentation": $0.kind] }
         navigation["source"] = presenter.modals.routes.last?.node.props["navigationSource"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation() ?? NSNull()
+        // @ref LLP 1038 D11 — last op, never inferred from route props.
+        navigation["url"] = session.routerOp?["url"] ?? NSNull()
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
     }
 
@@ -508,6 +510,11 @@ extension Agent {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
+        // @ref LLP 1038 D11 — type on the root delivers a location.
+        if v.props["navigationBack"] != nil, req["key"] == nil {
+            let location = req["text"] as? String ?? ""
+            return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
+        }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let f = v.textArea {
             f.becomeFirstResponder()

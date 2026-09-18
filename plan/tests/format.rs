@@ -29,7 +29,8 @@ fn sample() -> Plan {
         Value::str("mv"),
         Value::str("Mountain View"),
     ])]);
-    let _res = b.resource("nearby", "stations_near", &[arg], stations, Some(&initial));
+    let res = b.resource("nearby", "stations_near", &[arg], stations, Some(&initial));
+    b.set_resource_initial_args(res, &[Value::str("mv")]);
     let mut inc = Asm::new();
     inc.load_slot(count)
         .number(1.0)
@@ -480,7 +481,99 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 36-byte header.
-    bytes[36..40].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 40-byte header.
+    bytes[40..44].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
+}
+
+// @ref LLP 1038 D2/D3/D5 — new rows, header link, cache key, and typed roster.
+#[test]
+fn router_format_round_trips_and_checks_semantic_links() {
+    let mut b = PlanBuilder::from_plan(sample());
+    let string = b.primitive(TypeKind::String);
+    let ty = b.record("Router", &[("tab", string)]);
+    let init = b.constant(&Value::Unit);
+    let nav = b.slot("nav", ty, init);
+    b.set_router(nav);
+    let root = b.route("home", "/", None, true, false);
+    b.route("thread", "/t/:thread", Some(root), false, false);
+    b.route("notfound", "", None, false, true);
+    let plan = b.finish().unwrap();
+    assert_eq!(Plan::decode(&plan.encode()).unwrap(), plan);
+    assert_eq!(plan.router, Some(nav));
+    assert_eq!(
+        Value::from_bytes(plan.bytes(plan.resources[0].initial_args)).unwrap(),
+        Value::list(vec![Value::str("mv")])
+    );
+    for (parent, field) in [
+        (Some(exact_plan::RoutesId(1)), "parent"),
+        (Some(exact_plan::RoutesId(2)), "parent"),
+    ] {
+        let mut bad = plan.clone();
+        bad.routes[1].parent = parent;
+        assert!(
+            matches!(Plan::decode(&bad.encode()), Err(PlanError::BadReference {table:"routes", row:1, field:f}) if f == field)
+        );
+    }
+    let mut bad = plan.clone();
+    bad.routes[1].notfound = true;
+    assert!(matches!(
+        bad.validate(),
+        Err(PlanError::BadReference {
+            table: "routes",
+            field: "notfound",
+            ..
+        })
+    ));
+    let mut bad = plan.clone();
+    bad.router = Some(exact_plan::SlotsId(999));
+    assert!(matches!(
+        Plan::decode(&bad.encode()),
+        Err(PlanError::BadReference {
+            table: "header",
+            field: "router",
+            ..
+        })
+    ));
+    let mut bad = plan.clone();
+    bad.router = Some(exact_plan::SlotsId(0));
+    assert!(matches!(
+        bad.validate(),
+        Err(PlanError::BadReference {
+            table: "header",
+            field: "router",
+            ..
+        })
+    ));
+    let mut bad = plan.clone();
+    bad.resources[0].initial_args.len = 0;
+    assert!(matches!(
+        bad.validate(),
+        Err(PlanError::BadReference {
+            table: "resources",
+            field: "initial_args",
+            ..
+        })
+    ));
+    for (name, params, result) in [
+        ("open", vec!["Router", "string"], "Router"),
+        ("push", vec!["Router", "string"], "Router"),
+        ("replace", vec!["Router", "string"], "Router"),
+        ("back", vec!["Router"], "Router"),
+        ("select", vec!["Router", "string"], "Router"),
+        ("go", vec!["Router", "string"], "Router"),
+        ("stack", vec!["Router"], "list<Entry>"),
+        ("top", vec!["Router"], "Entry"),
+        ("depth", vec!["Router"], "number"),
+        ("params", vec!["Router", "string"], "list<string>"),
+        ("searchParam", vec!["Entry", "string"], "string"),
+        ("encodeURIComponent", vec!["string"], "string"),
+    ] {
+        let f = Stdlib::from_name(name).unwrap();
+        assert_eq!(f.params(), params);
+        assert_eq!(f.returns(), result);
+        assert_eq!(Stdlib::from_wire(f as u8), Some(f));
+    }
+    assert_eq!(Stdlib::Now as u8, 0);
+    assert_eq!(Stdlib::Min as u8, 10);
 }

@@ -63,7 +63,14 @@ fn declared_faces_and_stack_identity_reach_the_kernel_row() {
     assert_eq!(plan.str(plan.families[0].name), "Fixture Sans");
     assert_eq!(plan.stacks.len(), 9);
 
-    let runner = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let kernel = runner.kernel();
     let node = kernel
         .node_by_key(kernel.find_by_test_id("label")[0])

@@ -6,7 +6,7 @@
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window]
-//   tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
+//   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
@@ -194,6 +194,13 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       ask,
       async input(id, kind, opts) {
+        // @ref LLP 1038 D11 — history.go delivers popstate in the page.
+        if (kind === 'history') {
+          const reply = await ask({ op: 'tap', id, history: opts.history });
+          if (reply.error) throw new Error(reply.error);
+          await frame();
+          return reply;
+        }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const x = r ? r.x + r.w / 2 : contact?.x, y = r ? r.y + r.h / 2 : contact?.y;
@@ -202,7 +209,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
             ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
             : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
           const guest = await ask(request);
-          if (guest.guest === true) {
+          if (guest.guest === true || guest.handled === true) {
             if (guest.error) throw new Error(guest.error);
             await frame();
             return { ...guest, at: [x, y] };
@@ -380,6 +387,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
   if (linux && size) env.EXACT_SIZE = `${size[0]}x${size[1]}`;
+  // @ref LLP 1039 §5 — measure the requested Mac content viewport.
+  if (!linux && size) { env.EXACT_WINDOW_WIDTH = String(size[0]); env.EXACT_WINDOW_HEIGHT = String(size[1]); }
   if (linux) {
     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
     // paints the host's text on every machine, so a pixel fixture recorded
@@ -392,7 +401,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(bin, [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
   if (device) child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -675,10 +684,14 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
-    if (plan) throw new Error('a native session takes either --url or --plan, not both');
-    env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
+    // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
+    // HTTP(S) keeps the existing development-plan locator form.
+    if (/^https?:\/\//i.test(url)) {
+      if (plan) throw new Error('a native session takes either a development --url or --plan, not both');
+      env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
+    } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -729,19 +742,22 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
      * can hold a contact across requests, and how each form is delivered —
      * `platform` (a real input event through the platform's own path),
      * `recognized` (an already-recognized event injected), `activation` (a
-     * hit-test and a direct call), or `unsupported`. iOS activates and
+     * hit-test and a direct call), `presenter` (seekable native recognition
+     * without OS input injection), or `unsupported`. iOS activates and
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
     input: host === 'ios' || host === 'host-ios'
       ? { contact: carrier.pointer === true, hold: carrier.pointer === true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? (carrier.pointer ? 'platform' : 'unsupported') : 'activation') }
       : host === 'linux'
-        ? { contact: false, hold: false, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : 'platform') }
+        ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
     /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
       const node = await s.find(target);
+      // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
+      if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
       // A gesture is the platform's, and only the AppKit carrier can phase
       // one. Refusing beats quietly sending a bare delta: the whole reason
       // this form exists is that a plain wheel tests a path a finger never
@@ -749,18 +765,21 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
-      const kind = opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
+      const kind = opts.history !== undefined ? 'history' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; up or cancel it first');
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
       const r = await carrier.input(node.id, kind, { ...opts, ...at });
-      if (kind === 'down' && r.delivery !== 'unsupported') s.contact = { x: r.at[0], y: r.at[1] };
-      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: timing });
+      if (kind === 'down' && r.delivery !== 'unsupported') {
+        s.contact = r.contact === false ? null : { x: r.at[0], y: r.at[1] };
+        if (Number.isFinite(r.clock)) s.now = r.clock;
+      }
+      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
     },
     /**
      * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
-     * the viewport or `by` `{dx, dy}`, over `ms` of real time (the platform
-     * recognizes velocity from the steps); `hold` for `ms`; `up`; `cancel`.
+     * the viewport or `by` `{dx, dy}`, over `ms` of real time on platform
+     * carriers or seekable time on Linux's presenter; `hold` for `ms`; `up`; `cancel`.
      * The platform owns hit-testing, recognition, scrolling and animation:
      * the app receives whatever it delivers, and a carrier that cannot hold
      * a contact answers `delivery: "unsupported"` rather than faking one.
@@ -770,12 +789,13 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
       const r = await carrier.input(null, phase, opts);
       if (r.delivery !== 'unsupported') {
-        if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
-        if (phase === 'up' || phase === 'cancel') s.contact = null;
+        if (Number.isFinite(r.clock)) s.now = r.clock;
+        if (r.contact === false || phase === 'up' || phase === 'cancel') s.contact = null;
+        else if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
       }
-      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: timing });
+      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: r.mode ?? timing });
     },
-    /** Set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
+    /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
       const node = await s.find(target);
       const options = typeof text === 'object' && text !== null ? text : { text };
@@ -852,7 +872,7 @@ export function render(op, r) {
       // stretched rubber band, which the offset alone cannot distinguish
       // from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
@@ -996,7 +1016,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
@@ -1020,6 +1040,8 @@ async function main(argv) {
           } else if (s.contact && args[0] === 'hold') r = await s.pointer('hold', { ms: Number(args[1] ?? 0) });
           else if (s.contact && (args[0] === 'up' || args[0] === 'cancel')) r = await s.pointer(args[0]);
           else if (args[1] === 'down') r = await s.tap(args[0], { down: true, at: args[2] === 'at' ? [Number(args[3]), Number(args[4])] : undefined });
+          else if (args[1] === 'history') r = await s.tap(args[0], { history: Number(args[2]) });
+          else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;

@@ -36,7 +36,11 @@ final class SegmentHost {
     }
 
     func sync() {
-        let owners = presenter.views.values.filter { $0.props["accessibilityRole"] == "tablist" }
+        // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
+        let owners = presenter.views.values.filter {
+            $0.props["accessibilityRole"] == "tablist" &&
+                $0.props["accessibilityOrientation"] != "vertical"
+        }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
         for owner in owners {
@@ -65,7 +69,7 @@ final class SegmentHost {
             control.segmentCount = tabs.count
             for (index, tab) in tabs.enumerated() {
                 control.setLabel(tab.props["accessibilityLabel"] ?? "", forSegment: index)
-                control.setEnabled(!tab.disabled, forSegment: index)
+                control.setEnabled(!tab.disabled && !tab.inert, forSegment: index)
             }
             control.selectedSegment = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? -1
             owner.addSubview(control, positioned: .above, relativeTo: nil)
@@ -74,13 +78,16 @@ final class SegmentHost {
 
     @objc private func changed(_ sender: ExactSegmentedControl) {
         guard let ids = members[sender.ownerID], ids.indices.contains(sender.selectedSegment),
-              let tab = presenter.views[ids[sender.selectedSegment]], !tab.disabled else { sync(); return }
+              let tab = presenter.views[ids[sender.selectedSegment]], !tab.disabled, !tab.inert, !sender.isHiddenOrHasHiddenAncestor else { sync(); return }
         presenter.press(tab.id)
     }
 
     func activate(_ node: NodeView) -> Bool? {
         guard let entry = members.first(where: { $0.value.contains(node.id) }) else { return nil }
-        guard controls[entry.key]?.window != nil, !node.disabled else { return false }
+        // @ref LLP 1038 D6 — logical tabs are hidden by this projection;
+        // their native control and route ancestors decide availability.
+        guard let control = controls[entry.key], control.window != nil,
+              !control.isHiddenOrHasHiddenAncestor, !node.disabled, !node.inert else { return false }
         presenter.press(node.id)
         return true
     }

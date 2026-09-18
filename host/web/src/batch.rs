@@ -9,6 +9,19 @@ pub struct Batch {
     ops: Vec<String>,
 }
 
+/// Validate before token translation or storage/continuation serialization.
+pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
+    if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
+        if request.storage.is_some() || request.continuation.is_some() {
+            return Some("only HTTP may opt into independent transport");
+        }
+        if max_response_bytes == 0 || max_response_bytes > 64 * 1024 * 1024 {
+            return Some("independent HTTP response limit must be 1..=64 MiB");
+        }
+    }
+    None
+}
+
 pub(crate) fn quote(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
@@ -52,9 +65,78 @@ fn string_list(items: &[&str], out: &mut String) {
 }
 
 impl Batch {
+    pub(crate) fn transform_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<[(exact_kernel::NodeKey, u32); 2]>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let id = |i: usize| binding.map_or("null".into(), |b| b[i].1.to_string());
+        let key =
+            |i: usize| binding.map_or("null".into(), |b| format!("\"{}\"", motion_node(b[i].0)));
+        self.ops.push(format!("{{\"op\":\"transform-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"target\":{},\"targetKey\":{},\"clip\":{},\"clipKey\":{}}}",motion_node(handle),id(0),key(0),id(1),key(1)));
+    }
+
+    pub(crate) fn retire_transform_token(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        token: exact_motion::HoldToken,
+    ) {
+        self.ops.push(format!("{{\"op\":\"retire-motion\",\"id\":{view},\"property\":\"{}\",\"runtime\":\"{runtime}\",\"token\":\"{}\"}}",token.property().name(),token.serial()));
+    }
+
+    /// A resolved authored handle. Packed generational keys remain decimal
+    /// strings; JavaScript Numbers cannot preserve all NodeKey bits.
+    pub fn height_drag(
+        &mut self,
+        view: u32,
+        handle: exact_kernel::NodeKey,
+        target: Option<(exact_kernel::NodeKey, u32)>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        self.ops.push(format!(
+            "{{\"op\":\"height-drag\",\"id\":{view},\"target\":{},\"handleKey\":\"{}\",\"targetKey\":{}}}",
+            target.map_or("null".into(), |(_, view)| view.to_string()),
+            motion_node(handle),
+            target.map_or("null".into(), |(key, _)| format!("\"{}\"", motion_node(key))),
+        ));
+    }
+
     /// Empty.
     pub fn new() -> Batch {
         Batch::default()
+    }
+
+    /// @ref LLP 1038 D7 — one coalesced router change beside commands.
+    pub fn router(&mut self, change: &exact_runner::RouterChange) {
+        let mut s = format!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
+        quote(&change.url, &mut s);
+        s.push_str(",\"removed\":[");
+        for (i, id) in change.removed.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(s, "{id}");
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// Full live collection metadata, serialized by the common runner seam.
+    pub(crate) fn collections(&mut self, snapshots: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"collections\",\"items\":{snapshots}}}"));
+    }
+
+    /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
+        let mut out = format!("{{\"op\":\"refuse\",\"ticket\":{ticket},\"message\":");
+        quote(message, &mut out);
+        out.push('}');
+        self.ops.push(out);
     }
 
     /// Whether nothing was recorded.
@@ -151,6 +233,14 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// End a property's ownership, including a held presentation override.
+    pub fn retire_motion(&mut self, id: u32, property: &str) {
+        let mut s = format!("{{\"op\":\"retire-motion\",\"id\":{id},\"property\":");
+        quote(property, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"surface","id":…,"name":…,"values":[…]}` — a canvas's inputs
     /// (LLP 1009 D2): plan values as JSON — numbers, strings, booleans,
     /// `null` for unit and `none`, lists, records as positional lists.
@@ -173,6 +263,10 @@ impl Batch {
     /// — a request the runner handed the host to run (LLP 1016 D2); the
     /// reply comes back through `exact_fulfill`.
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        if let Some(message) = request_refusal(&r.request) {
+            self.refuse(r.ticket, message);
+            return;
+        }
         if let Some(token) = r.request.continuation {
             self.ops.push(format!(
                 "{{\"op\":\"continue\",\"ticket\":{},\"token\":{token}}}",
@@ -202,6 +296,11 @@ impl Batch {
             quote(scope, &mut s)
         } else {
             s.push_str("null")
+        }
+        if let exact_runner::HttpScheduling::Independent { max_response_bytes } = r.request.http {
+            s.push_str(&format!(
+                ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{max_response_bytes}"
+            ));
         }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);

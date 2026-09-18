@@ -399,7 +399,7 @@ fn an_image_lays_out_from_its_decoded_size() {
 }
 
 #[test]
-fn an_embedded_image_is_not_opened_on_the_boot_thread() {
+fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker() {
     let dir = std::env::temp_dir().join(format!("exact-linux-image-worker-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -429,16 +429,6 @@ fn an_embedded_image_is_not_opened_on_the_boot_thread() {
         )
         .unwrap();
     let mut images = Images::new(dir.clone());
-    let writer_path = fifo.clone();
-    let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(250));
-        use std::io::Write as _;
-        let mut writer = std::fs::OpenOptions::new()
-            .write(true)
-            .open(writer_path)
-            .unwrap();
-        writer.write_all(b"not a png").unwrap();
-    });
     let started = Instant::now();
     let reports = images.sync(&kernel, &kernel.roots());
     let elapsed = started.elapsed();
@@ -447,8 +437,10 @@ fn an_embedded_image_is_not_opened_on_the_boot_thread() {
         elapsed < Duration::from_millis(100),
         "image scheduling waited {elapsed:?} for the FIFO reader"
     );
-    writer.join().unwrap();
     images.wait(Duration::from_secs(2));
+    assert!(!images.pending());
+    assert!(images.bitmaps.is_empty());
+    assert_eq!(images.diagnostics()["refused"], 1);
     let _ = std::fs::remove_dir_all(fifo.parent().unwrap());
 }
 
@@ -656,4 +648,36 @@ component App
     assert!(!p.pending(), "the reply came back within ten seconds");
     assert!(!has(&p, "busy"));
     assert_eq!(text(&p, "signed-in"), "Signed in as ada");
+}
+
+#[test]
+fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
+    // @ref LLP 1038 D5/D8/D11 — first pixel and the Linux agent input path.
+    let source = "routes nav\n  home \"/\"\n    post \"/post/:post\"\ncomponent App\n  state first = top(nav).url\n  action follow(location: string) writes nav\n    nav = open(nav, location)\n  view\n    main navigate=follow navigationKey=`${top(nav).id}` navigationBack=\"back\" width=390 height=844\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          text e.url\n";
+    let plan = contract::compile(source).unwrap().encode();
+    let (host, error) = exact_linux::Host::boot_at(
+        &plan,
+        NoData,
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+        None,
+        None,
+        &exact_linux::app::launch_location(["--agent".into(), "post/42".into()]),
+    )
+    .unwrap();
+    assert!(error.is_none());
+    assert!(exact_runner::agent::state(host.runner()).contains("\"first\":\"/post/42\""));
+    let (mut presenter, error) =
+        Presenter::boot(&plan, NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let root = presenter.host().kernel().roots()[0];
+    presenter.type_text(root, "/post/42").unwrap();
+    assert!(exact_runner::agent::state(presenter.host().runner()).contains("/post/42"));
+    assert_eq!(
+        exact_runner::agent::logs(presenter.host().runner(), 0)
+            .matches("navigate view")
+            .count(),
+        1
+    );
 }

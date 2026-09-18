@@ -1,10 +1,14 @@
 {
   "formatVersion": 4,
-  "_header": "Extra header fields after the four fixed integers (magic, version, format digest, kernel schema, compiler identity), in declaration order. `string` is length-prefixed UTF-8. `app_id` is the app identity, reverse-DNS (LLP 1023 D5): bake writes it from DataSource::app_id(); empty is unnamed (a fixture or a stand-in) and unnamed matches anything at boot.",
+  "_header": "Extra header fields after the four fixed integers (magic, version, format digest, kernel schema, compiler identity), in declaration order. `string` is length-prefixed UTF-8. `app_id` is the app identity, reverse-DNS (LLP 1023 D5): bake writes it from DataSource::app_id(); empty is unnamed (a fixture or a stand-in) and unnamed matches anything at boot. LLP 1038 D2: router names the root slot filled before initializers.",
   "header": [
     {
       "name": "app_id",
       "codec": "string"
+    },
+    {
+      "name": "router",
+      "codec": "opt:slots"
     }
   ],
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
@@ -156,6 +160,10 @@
         },
         {
           "name": "initial",
+          "codec": "bytes"
+        },
+        {
+          "name": "initial_args",
           "codec": "bytes"
         },
         {
@@ -393,6 +401,31 @@
           "codec": "range:args"
         }
       ]
+    },
+    {
+      "name": "routes",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "pattern",
+          "codec": "str"
+        },
+        {
+          "name": "parent",
+          "codec": "opt:routes"
+        },
+        {
+          "name": "tab",
+          "codec": "bool"
+        },
+        {
+          "name": "notfound",
+          "codec": "bool"
+        }
+      ]
     }
   ],
   "_enums": "Wire ordinal is the 0-based index. An unknown ordinal is a typed decode rejection.",
@@ -440,6 +473,11 @@
       "dblclick",
       "swiperight",
       "scroll",
+      "navigate",
+      "heightrelease",
+      "transformgeometry",
+      "transformrelease",
+      "reorderdrop",
       "loadedmetadata",
       "durationchange",
       "timeupdate",
@@ -688,7 +726,7 @@
       ]
     }
   ],
-  "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation.",
+  "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",
   "stdlib": [
     {
       "name": "now",
@@ -767,8 +805,106 @@
         "number"
       ],
       "returns": "number"
+    },
+    {
+      "name": "open",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "push",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "replace",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "back",
+      "params": [
+        "Router"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "select",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "go",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "Router"
+    },
+    {
+      "name": "stack",
+      "params": [
+        "Router"
+      ],
+      "returns": "list<Entry>"
+    },
+    {
+      "name": "top",
+      "params": [
+        "Router"
+      ],
+      "returns": "Entry"
+    },
+    {
+      "name": "depth",
+      "params": [
+        "Router"
+      ],
+      "returns": "number"
+    },
+    {
+      "name": "params",
+      "params": [
+        "Router",
+        "string"
+      ],
+      "returns": "list<string>"
+    },
+    {
+      "name": "searchParam",
+      "params": [
+        "Entry",
+        "string"
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "encodeURIComponent",
+      "params": [
+        "string"
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "encodeRouteSegment",
+      "params": [
+        "string"
+      ],
+      "returns": "string"
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",
-  "_resources": "`reader` (formatVersion 4, LLP 1027 D4 as ruled 2026-09-03): the bake found this resource consulting the store. Its `initial` is then the empty-store answer \u2014 the fresh install's first frame, never a developer's session (the bake's store is empty by construction, LLP 1018 D4) \u2014 and the runner treats it as a placeholder: a kept answer from the device's store beats it, and a data source that is not ready at boot (a TypeScript module before its host loads it) is asked again at `data_ready`."
+  "_resources": "`reader` (formatVersion 4, LLP 1027 D4 as ruled 2026-09-03): the bake found this resource consulting the store. Its `initial` is then the empty-store answer \u2014 the fresh install's first frame, never a developer's session (the bake's store is empty by construction, LLP 1018 D4) \u2014 and the runner treats it as a placeholder: a kept answer from the device's store beats it, and a data source that is not ready at boot (a TypeScript module before its host loads it) is asked again at `data_ready`. LLP 1038 D5: initial_args is a canonical Value::List of evaluated bake arguments, empty bytes only without a compiled value; initial is reused only for equal arguments."
 }

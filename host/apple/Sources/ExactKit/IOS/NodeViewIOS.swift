@@ -112,6 +112,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed = false
+    var swipeHold: SwipeHold?
+    var heightRecognizer: UIPanGestureRecognizer?
+    var heightHold: HeightDragHold?
+    var heightOrigin = 0.0
+    var transformRecognizer: UIPanGestureRecognizer?
+    var transformHold: TransformDragHold?
+    var transformOrigin = CGPoint.zero
+    var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
         let action = style["touch_action"] as? String ?? "auto"
@@ -130,31 +138,45 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             addGestureRecognizer(gesture)
             swipeRecognizer = gesture
         } else if !handlers.contains("swiperight"), let gesture = swipeRecognizer {
+            let prior = swipeHold; swipeHold = nil
+            DispatchQueue.main.async { prior?.cancel() }
             removeGestureRecognizer(gesture)
             swipeRecognizer = nil
         }
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture === transformRecognizer {
+            return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
+        }
+        if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
+            let velocity = pan.velocity(in: window)
+            return SwipeInput.allows(self) && abs(velocity.y) > abs(velocity.x)
+                && presenter?.heightBindings[id]?.target != nil
+        }
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             let start = pan.location(in: window).x - pan.translation(in: window).x
-            return !disabled && start >= 20 && velocity.x > abs(velocity.y) && !allowsTouchPan(velocity)
+            return !disabled && start >= 20 && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
         }
         return super.gestureRecognizerShouldBegin(gesture)
     }
     @objc func swiping(_ gesture: UIPanGestureRecognizer) {
-        guard let presenter else { return }
-        let distance = max(0, gesture.translation(in: window).x)
-        let offset = min(distance, 64) + max(0, distance - 64) * 0.2
+        let translation = Double(gesture.translation(in: window).x)
         switch gesture.state {
-        case .began, .changed:
-            let armed = distance >= 64
+        case .began:
+            swipeHold?.cancel()
+            swipeOrigin = translation
+            swipeHold = SwipeHold(self)
+        case .changed:
+            guard let hold = swipeHold else { return }
+            let delta = translation - swipeOrigin
+            guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
+            let armed = hold.mapping.value(delta) >= 64
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
-            presenter.dragX(self, delta: Double(offset), velocity: 0, release: false)
         case .ended, .cancelled, .failed:
-            let commit = gesture.state == .ended && distance >= 64
-            swipeArmed = false
-            presenter.dragX(self, delta: 0, velocity: Double(gesture.velocity(in: window).x), release: true, commit: commit)
+            let hold = swipeHold; swipeHold = nil; swipeArmed = false
+            hold?.finish(displacement: translation - swipeOrigin,
+                fingerVelocity: Double(gesture.velocity(in: window).x), cancel: gesture.state != .ended)
         default: break
         }
     }
@@ -166,6 +188,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var hit = touch.view
         while let current = hit, current !== self {
             if current is UITextView || current is UITextField { return false }
+            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
@@ -242,6 +265,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var symbolKey: String?
     var symbolRefusal: String?
     var image: UIImage?
+    var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
     /// The native swipe cell supplies the row surface while this view is mounted in it.
@@ -258,7 +282,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return false
     }
     /// Images loaded since launch (smoke reporting).
-    nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     var text: TextEngine? { presenter?.session?.text }
     var canvases: Canvases? { presenter?.session?.canvases }
@@ -270,11 +293,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -341,58 +366,26 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return app?.resolveAsset(source)
     }
 
-    /// Decode an image completely, off the main thread: the bitmap and its
-    /// pixel size, or nil when the data is not an image (or has no pixels).
-    static func decode(_ data: Data) -> (CGImage, CGSize)? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-              cg.width > 0, cg.height > 0
-        else { return nil }
-        return (cg, CGSize(width: cg.width, height: cg.height))
+    /// One bounded, session-owned pipeline. Replacement keeps the old raster
+    /// and original intrinsic geometry until a matching new backing is accepted.
+    func loadImage(_ source: String) {
+        let previousSource = imageSource, previousGeneration = loadGeneration
+        imageSource = source
+        loadGeneration += 1
+        if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        clearSymbol(); image = nil
+        guard let session = presenter?.session else { return }
+        if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
+            imageSource = previousSource; loadGeneration = previousGeneration
+        }
     }
 
-    /// Load the image off the main thread; on the main thread — if this is
-    /// still the current load of a live view — keep it, tell the kernel its
-    /// size, and repaint.
-    func loadImage(_ source: String) {
-        imageSource = source
-        if source.hasPrefix("symbol:") { updateSymbol(); return }
-        clearSymbol()
-        // The old picture (and its size in the kernel) stay until the new
-        // one has loaded, as a browser keeps showing the old `src`.
-        loadGeneration += 1
-        let generation = loadGeneration
-        guard let url = NodeView.resolveSource(source, app: presenter?.session?.app) else {
-            image = nil
-            FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
-            presenter?.intrinsic(id, nil)
-            return
-        }
-        let id = self.id
-        let pinned = presenter?.session?.app.resolver.isComplete == true && url.isFileURL
-            ? presenter?.session?.app.assetBytes(source) : nil
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let loaded = (pinned ?? (try? Data(contentsOf: url))).flatMap(NodeView.decode)
-            DispatchQueue.main.async {
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                if let (cg, size) = loaded {
-                    self.image = UIImage(cgImage: cg)
-                    NodeView.imagesLoaded.append((source, size))
-                    presenter.intrinsic(id, size)
-                } else {
-                    self.image = nil
-                    FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
-                    presenter.intrinsic(id, nil)
-                }
-                // Only now, with the picture in hand. A picture arriving is a
-                // repaint under a canvas (LLP 1014 D4 b) that `draw(_:)`
-                // cannot report — the overlay is at alpha 0 — and a box of
-                // fixed size gives the kernel no relayout to capture after.
-                // Ask the canvas for this turn's capture directly.
-                self.setNeedsDisplay()
-                if let c = self.canvasAbove { c.needsCapture = true; self.canvases?.scheduleCapture() }
-            }
-        }
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return }
+        raster = lease
+        presenter.intrinsic(id, lease.image.naturalSize)
+        self.setNeedsDisplay()
+        if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
     }
 
     // A symbol's box is Exact's; UIKit renders its glyph, including pixel alignment.
@@ -446,11 +439,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        let previousTransform = transformHold; transformHold = nil
+        DispatchQueue.main.async { previousTransform?.cancel() }
+        let previousHeight = heightHold; heightHold = nil
+        DispatchQueue.main.async { previousHeight?.cancel() }
+        let prior = swipeHold; swipeHold = nil
+        DispatchQueue.main.async { prior?.cancel() }
         textParent?.textChildren.removeAll { $0 === self }
         textParent = nil
         textChildren.removeAll()
         invalidateText()
         loadGeneration += 1
+        presenter?.session?.rasters.cancel(id)
+        raster = nil
         imageSource = nil
         clearSymbol()
         image = nil
@@ -509,6 +510,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        presenter?.transformGeometry.changed()
         if window != nil { presenter?.flushPendingFocus() }
     }
 
@@ -537,12 +539,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        presenter?.collections.userIntent(id)
         retainedScrollTop = nil
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.syncLists()
+        presenter?.collections.changed(id, user: true)
+        presenter?.transformGeometry.changed()
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
@@ -970,7 +975,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             else { accessibilityTraits.remove(.selected) }
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
-        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
         video?.update()
         setNeedsDisplay()
@@ -1053,6 +1058,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func layoutSubviews() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
+        if kind == "image" { presenter?.session?.rasters.resized(self) }
+        presenter?.collections.changed(id)
+        presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()
@@ -1127,7 +1135,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 ctx.fill(r)
             }
         }
-        if kind == "image", symbolView == nil, let img = image {
+        if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1139,25 +1147,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 top: number("border_width_top", uniform) + number("padding_top"),
                 right: number("border_width_right", uniform) + number("padding_right"),
                 bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-            let natural = img.size
-            var size = content.size
-            if natural.width > 0 && natural.height > 0 {
-                let sx = content.width / natural.width, sy = content.height / natural.height
-                let s: CGFloat?
-                switch fit {
-                case "contain": s = min(sx, sy)
-                case "cover": s = max(sx, sy)
-                case "none": s = 1
-                case "scale-down": s = min(1, min(sx, sy))
-                default: s = nil // fill
-                }
-                if let s { size = CGSize(width: natural.width * s, height: natural.height * s) }
-            }
-            let origin = CGPoint(x: content.minX + (content.width - size.width) / 2, y: content.minY + (content.height - size.height) / 2)
+            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
             path.addClip()
             UIBezierPath(rect: content).addClip()
-            img.draw(in: CGRect(origin: origin, size: size))
+            ctx.translateBy(x: rect.minX, y: rect.maxY)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
             ctx.restoreGState()
         }
         if isParagraph {
@@ -1239,6 +1235,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !disabled, handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
+        presenter?.collections.pinsChanged()
         presenter?.editing = self
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
@@ -1246,6 +1243,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentFreezes { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
         if handlers.contains("focus") { presenter?.focus(id) }
     }
-    func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }
+    func textFieldDidEndEditing(_ textField: UITextField) { presenter?.collections.pinsChanged(); if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }
 }
 #endif

@@ -1,0 +1,21 @@
+[package]
+name = "markdown-stress-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Markdown stress example on the web: one wasm with the runner, the kernel, its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "markdown_stress_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+markdown-stress-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+markdown-stress-data = { path = "../data" }

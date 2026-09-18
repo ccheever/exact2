@@ -58,6 +58,11 @@ impl<D: DataSource> Storage<D> {
     ) -> Result<Answer, DataError> {
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
+            if request.http != exact_runner::HttpScheduling::Ordered
+                && (request.storage.is_some() || request.continuation.is_some())
+            {
+                return Err(unavailable("independent scheduling is HTTP-only"));
+            }
             if let Some(payload) = &request.storage {
                 store.observe_external_read();
                 if !self.effects {

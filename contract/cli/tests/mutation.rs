@@ -168,6 +168,8 @@ fn boot() -> Runner<Castle> {
             ..Castle::default()
         },
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap()
 }
@@ -190,6 +192,8 @@ fn a_mutation_is_none_at_boot_and_bake_never_sends() {
             ..Castle::default()
         },
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert!(has(&r, "signed-out") && !has(&r, "busy"));
@@ -361,6 +365,8 @@ fn a_reload_carries_the_slot_and_never_resends() {
         },
         Kernel::with_monospace(),
         &carried,
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert!(has(&again, "signed-in"));
@@ -505,7 +511,14 @@ impl DataSource for PoisonSource {
 fn poison_leaks_no_effects_from_the_failed_commit() {
     let plan = contract::compile(POISON_SRC).unwrap();
     let baked = contract::bake(plan, PoisonSource).unwrap();
-    let mut r = Runner::boot(baked, PoisonSource, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        PoisonSource,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
 
     assert!(matches!(
         r.act("go", vec![]),
@@ -626,6 +639,8 @@ fn a_parse_store_write_reanswers_store_reading_resources() {
         },
         Kernel::with_monospace(),
         vec![],
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(r.data().remember_asks, 1);
@@ -664,6 +679,8 @@ fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
         },
         Kernel::with_monospace(),
         vec![("session".into(), "ada".into())],
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(
@@ -694,6 +711,8 @@ fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
         },
         Kernel::with_monospace(),
         vec![("session".into(), "ada".into())],
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(
@@ -736,6 +755,8 @@ fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
         StoreSource::default(),
         Kernel::with_monospace(),
         vec![("session".into(), "ada".into())],
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(

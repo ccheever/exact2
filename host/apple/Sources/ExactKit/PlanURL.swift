@@ -125,10 +125,14 @@ public enum ExactDevelopmentLink {
         return page
     }
 
+    public static func page(_ link: URL) -> URL? {
+        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "ExactDevelopmentURLScheme") as? String else { return nil }
+        return page(link, scheme: scheme)
+    }
+
     @discardableResult
     public static func open(_ link: URL) -> Bool {
-        guard let scheme = Bundle.main.object(forInfoDictionaryKey: "ExactDevelopmentURLScheme") as? String,
-              let page = page(link, scheme: scheme) else { return false }
+        guard let page = page(link) else { return false }
         // The existing loader still checks app identity, pairing, grants and
         // runtime compatibility before changing any session. A scheme is no trust.
         ExactApp.shared.connect(page.absoluteString)

@@ -59,14 +59,23 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    var heightBindings: [UInt32: HeightDragBinding] = [:]
+    var transformBindings: [UInt32: TransformDragBinding] = [:]
+    lazy var transformGeometry = TransformGeometryHost(self)
+    lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
+    lazy var mouseSwipe = MouseSwipe(self)
+    lazy var mouseHeightDrag = MouseHeightDrag(self)
+    lazy var mouseTransformDrag = MouseTransformDrag(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
+    lazy var navigation = NavigationHost(presenter: self)
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
+    lazy var toolbar = WindowToolbarHost(self)
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -90,7 +99,7 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText(); self?.transformGeometry.changed() }
     }
 
     deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
@@ -146,22 +155,35 @@ final class Presenter {
     /// it again — the old picture stays until the new one is decoded, as a
     /// browser keeps the old `src`.
     func assetChanged(_ name: String) {
+        session?.rasters.invalidate(name)
         for v in views.values where v.kind == "image" && v.imageSource == name { v.loadImage(name) }
     }
 
     /// A restart: every view goes.
     func reset() {
+        session?.regions.reset()
+        session?.rasters.reset()
+        mouseSwipe.cancel()
+        mouseHeightDrag.cancel()
+        mouseTransformDrag.cancel()
+        collections.reset()
+        resetting = true
+        defer { resetting = false }
+        toolbar.reset()
+        navigation.reset()
         segments.reset()
         session?.canvases.reset()
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        heightBindings.removeAll()
+        transformBindings.removeAll()
+        transformGeometry.reset()
         selection.structureChanged()
         visibleText.removeAll()
         textViewportIndex = nil
         listGeometry.removeAll()
         listViews.removeAll()
-        NodeView.imagesLoaded.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -190,7 +212,7 @@ final class Presenter {
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
-            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
+            if view.isHidden || (view as? NodeView)?.inert == true { return }
             ancestor = view.superview
         }
         if selectText, target.textArea == nil, target.field == nil { return }
@@ -243,6 +265,7 @@ final class Presenter {
         defer { listSyncDepth -= 1 }
         listGeometry = listGeometry.filter { views[$0.key] != nil }
         for list in Array(listViews.values) {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
             guard views[list.id] === list, let scroll = list.scroll,
                   let content = list.container.subviews.first as? NodeView else { continue }
             var responder = root.window?.firstResponder as? NSView
@@ -271,6 +294,7 @@ final class Presenter {
     weak var hovered: NodeView?
 
     func press(_ id: UInt32) {
+        guard let node = views[id], !node.inert else { return }
         onPress?(id)
         // An invoker's press also drops its menu (LLP 1021 D3).
         menus.pressed(id)
@@ -282,6 +306,17 @@ final class Presenter {
     /// host), and never while a batch is being applied — it waits for the
     /// batch to finish, then goes if its view survived it.
     private var applying = false
+    private var resetting = false
+    private var pendingGeometry: (() -> Void)?
+
+    /// Window chrome can synchronously resize ExactView while an older batch
+    /// is still being installed. Commit its geometry after that batch, so the
+    /// remainder cannot overwrite the newer inset/layout result.
+    func deferGeometry(_ update: @escaping () -> Void) -> Bool {
+        guard applying || resetting else { return false }
+        pendingGeometry = update
+        return true
+    }
     private var waiting: [(UInt32, () -> Void)] = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard views[id] != nil else { return }
@@ -311,15 +346,21 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
-        for node in views.values { node.captureScrollPosition() }
+        collections.beginBatch(batch)
+        toolbar.prepare()
+        for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
         defer {
+            collections.endBatch()
             if outermost {
                 applying = false
+                let geometry = pendingGeometry
+                pendingGeometry = nil
                 let q = waiting
                 waiting = []
+                geometry?()
                 for (id, f) in q where views[id] != nil { f() }
                 syncLists()
                 refreshVisibleText()
@@ -333,6 +374,29 @@ final class Presenter {
             let id = UInt32(op["id"] as? Int ?? 0)
             if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
             switch kind {
+            case "transform-drag":
+                if let binding = TransformDragBinding(op) {
+                    if binding.target == nil {
+                        if transformBindings[binding.id]?.handleKey == binding.handleKey
+                            && transformBindings[binding.id]?.runtime == binding.runtime {
+                            transformBindings.removeValue(forKey: binding.id)
+                            transformGeometry.retire(binding.id)
+                        }
+                    } else { transformBindings[binding.id] = binding }
+                }
+            case "retire-motion":
+                if let rawRuntime = op["runtime"] as? String, let runtime = UInt64(rawRuntime),
+                   let rawToken = op["token"] as? String, let token = UInt64(rawToken) {
+                    session?.transformInputHold?.retire(runtime: runtime, token: token)
+                }
+            case "height-drag":
+                if let binding = HeightDragBinding(op) {
+                    if binding.target == nil {
+                        if heightBindings[binding.id]?.handleKey == binding.handleKey {
+                            heightBindings.removeValue(forKey: binding.id)
+                        }
+                    } else { heightBindings[binding.id] = binding }
+                }
             case "create":
                 let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
                 v.handlers = Set(op["handlers"] as? [String] ?? [])
@@ -366,10 +430,16 @@ final class Presenter {
             case "command":
                 onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
+                mouseSwipe.retire(id)
+                mouseHeightDrag.retire(id)
+                mouseTransformDrag.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
+                heightBindings.removeValue(forKey: id)
+                transformBindings.removeValue(forKey: id)
+                transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
                 listViews.removeValue(forKey: id)
                 gone?.removeFromSuperview()
@@ -408,6 +478,7 @@ final class Presenter {
             default: break
             }
         }
+        navigation.sync()
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
@@ -418,10 +489,15 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
-        for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
+        for node in views.values {
+            if !collections.owns(node.id) { node.restoreScrollPosition() }
+            if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+            node.applyPendingScroll()
+        }
         segments.sync()
         menus.sync()
         positionContexts()
+        toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
@@ -458,7 +534,7 @@ final class Presenter {
     func syncKeyViewLoop() {
         var listed: [NodeView] = []
         func walk(_ v: NodeView) {
-            if v.props["inert"] == "true" || v.isHidden { return }
+            if v.inert || v.isHidden { return }
             if Self.tabbable(v) { listed.append(v) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
         }

@@ -16,6 +16,29 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+/// A material paints, but never supplies a new hit target or focus owner.
+private final class MaterialContent: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
+@available(macOS 26.0, *)
+private final class GlassBackground: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        contentView?.hitTest(convert(point, from: superview))
+    }
+}
+
+private final class BlurBackground: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
 /// A scroll container that chains: a wheel event it cannot consume in its
 /// dominant direction — nothing to scroll, or already at that edge — goes
 /// to the next responder, so an inner `scroll` node never traps the page.
@@ -26,6 +49,7 @@ final class ChainingScrollView: NSScrollView {
     /// tick.
     static let lineHeight: CGFloat = 40
     /// Which axes scroll (the node's effective `overflow_x`/`overflow_y`).
+    var collectionWillScroll: (() -> Void)?
     var scrollsX = true
     var scrollsY = true
     /// `overscroll-behavior` per axis: what happens to a gesture this view
@@ -130,10 +154,12 @@ final class ChainingScrollView: NSScrollView {
         case .drop:
             return
         case .appKit:
+            collectionWillScroll?()
             super.scrollWheel(with: event)
         case .chain:
             nextResponder?.scrollWheel(with: event)
         case .here:
+            collectionWillScroll?()
             // What this view can take of it, it takes itself — never through
             // AppKit, whose nested-scroll routing may move the enclosing view
             // or animate later, doubling a delta applied here.
@@ -169,6 +195,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textAreaScroll: NSScrollView?
     var field: NSTextField?
     var scroll: ChainingScrollView?
+    var materialView: NSView?
+    private var materialContent: NSView?
+    private var materialKind: String?
     /// Natural extent from the kernel, before the CSS client-size minimum.
     var content = CGSize.zero
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
@@ -198,14 +227,24 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var symbolRefusal: String?
     var symbolClip: NSView?
     var image: NSImage?
+    var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
+    // @ref LLP 1038 D6 — projection does not overwrite authored inert.
+    var routeInert = false
+    var inert: Bool {
+        var ancestor: NSView? = self
+        while let view = ancestor {
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
+            ancestor = view.superview
+        }
+        return false
+    }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
     var tracking: NSTrackingArea?
     /// Images loaded since launch (smoke reporting).
-    nonisolated(unsafe) static var imagesLoaded: [(String, CGSize)] = []
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     var text: TextEngine? { presenter?.session?.text }
     var canvases: Canvases? { presenter?.session?.canvases }
@@ -214,7 +253,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
     override var acceptsFirstResponder: Bool {
-        if disabled { return false }
+        if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         if isParagraph { return true }
         return handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
@@ -226,12 +265,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func becomeFirstResponder() -> Bool {
         guard !disabled else { return false }
         let ok = super.becomeFirstResponder()
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
         if ok { presenter?.selection.clear() }
+        if ok { presenter?.collections.pinsChanged() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -350,12 +391,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return name == "Enter"
     }
     func controlTextDidBeginEditing(_ obj: Notification) {
+        presenter?.collections.pinsChanged()
         (field?.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
         (field?.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
         (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
         if handlers.contains("focus") { presenter?.focus(id) }
     }
-    func controlTextDidEndEditing(_ obj: Notification) { if handlers.contains("blur") { presenter?.blur(id) } }
+    func controlTextDidEndEditing(_ obj: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
 
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -368,62 +410,26 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return app?.resolveAsset(source)
     }
 
-    /// Decode an image completely, off the main thread: the bitmap and its
-    /// pixel size, or nil when the data is not an image (or has no pixels).
-    static func decode(_ data: Data) -> (CGImage, CGSize)? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary),
-              cg.width > 0, cg.height > 0
-        else { return nil }
-        return (cg, CGSize(width: cg.width, height: cg.height))
+    /// One bounded, session-owned pipeline. Replacement keeps the old raster
+    /// and original intrinsic geometry until a matching new backing is accepted.
+    func loadImage(_ source: String) {
+        let previousSource = imageSource, previousGeneration = loadGeneration
+        imageSource = source
+        loadGeneration += 1
+        if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        clearSymbol(); image = nil
+        guard let session = presenter?.session else { return }
+        if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
+            imageSource = previousSource; loadGeneration = previousGeneration
+        }
     }
 
-    /// Load the image off the main thread; on the main thread — if this is
-    /// still the current load of a live view — keep it, tell the kernel its
-    /// size, and repaint.
-    func loadImage(_ source: String) {
-        imageSource = source
-        if source.hasPrefix("symbol:") { updateSymbol(); return }
-        clearSymbol()
-        // The old picture (and its size in the kernel) stay until the new
-        // one has loaded, as a browser keeps showing the old `src`.
-        loadGeneration += 1
-        let generation = loadGeneration
-        guard let url = NodeView.resolveSource(source, app: presenter?.session?.app) else {
-            image = nil
-            FileHandle.standardError.write(Data("exact: image \(source) is not a loadable source\n".utf8))
-            presenter?.intrinsic(id, nil)
-            return
-        }
-        let id = self.id
-        let pinned = presenter?.session?.app.resolver.isComplete == true && url.isFileURL
-            ? presenter?.session?.app.assetBytes(source) : nil
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let loaded = (pinned ?? (try? Data(contentsOf: url))).flatMap(NodeView.decode)
-            DispatchQueue.main.async {
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter, presenter.views[id] === self else { return }
-                if let (cg, size) = loaded {
-                    self.image = NSImage(cgImage: cg, size: size)
-                    NodeView.imagesLoaded.append((source, size))
-                    presenter.intrinsic(id, size)
-                } else {
-                    self.image = nil
-                    FileHandle.standardError.write(Data("exact: image \(source) did not load\n".utf8))
-                    presenter.intrinsic(id, nil)
-                }
-                // Only now, with the picture in hand. A picture arriving is a
-                // repaint under a canvas (LLP 1014 D4 b) and it is not one
-                // `draw(_:)` can report: the children live in an overlay at
-                // alpha 0, which AppKit does not draw. Nor can
-                // `repaintThrough` carry it — a decode that lands on the boot
-                // capture's own turn is exactly what `paintedThisTurn`
-                // suppresses. Ask the canvas for the next turn's capture
-                // directly, or a first frame whose only change is a picture
-                // keeps the capture taken before it decoded.
-                self.needsDisplay = true
-                if let c = self.canvasAbove { c.needsCapture = true; self.canvases?.scheduleCapture() }
-            }
-        }
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return }
+        raster = lease
+        presenter.intrinsic(id, lease.image.naturalSize)
+        self.needsDisplay = true
+        if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
     }
 
     // A symbol remains an image leaf; AppKit owns glyph rendering and tint.
@@ -490,6 +496,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         textChildren.removeAll()
         invalidateText()
         loadGeneration += 1
+        presenter?.session?.rasters.cancel(id)
+        raster = nil
         imageSource = nil
         clearSymbol()
         image = nil
@@ -537,7 +545,69 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
 
     /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? self }
+    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? self }
+
+    // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
+    // AppKit owns accessibility/appearance adaptation, including Reduce
+    // Transparency and Increase Contrast; do not freeze the effective appearance.
+    var appliedMaterial: String {
+        guard let materialView, materialView.superview === self else {
+            return props["backgroundMaterial"] == nil ? "none" : "unsupported"
+        }
+        if #available(macOS 26.0, *), materialView is NSGlassEffectView { return "NSGlassEffectView(.regular)" }
+        return "NSVisualEffectView(.popover)"
+    }
+
+    func updateMaterial() {
+        let requested = props["backgroundMaterial"]
+        let kind = requested == "glass" || requested == "ultra-thin" ? requested : nil
+        if materialKind != kind {
+            let children = container.subviews.compactMap { $0 as? NodeView }
+            let old = materialView
+            materialView = nil
+            materialContent = nil
+            materialKind = kind
+            if let kind {
+                let content = MaterialContent(frame: bounds)
+                content.autoresizingMask = [.width, .height]
+                let effect: NSView
+                if kind == "glass", #available(macOS 26.0, *) {
+                    let glass = GlassBackground(frame: bounds)
+                    glass.style = .regular
+                    glass.contentView = content
+                    effect = glass
+                } else {
+                    // AppKit has no ultra-thin material. Popover is its
+                    // semantic floating-surface fallback, not iOS pixel parity.
+                    let blur = BlurBackground(frame: bounds)
+                    blur.material = .popover
+                    blur.blendingMode = .withinWindow
+                    blur.state = .followsWindowActiveState
+                    blur.addSubview(content)
+                    effect = blur
+                }
+                effect.autoresizingMask = [.width, .height]
+                effect.setAccessibilityElement(false)
+                content.setAccessibilityElement(false)
+                addSubview(effect, positioned: .below, relativeTo: subviews.first)
+                materialView = effect
+                materialContent = content
+            }
+            // Reconcile before removing the old container, keeping live child
+            // identities, their frames and their native editors intact.
+            for child in children where child.superview !== container { container.addSubview(child) }
+            old?.removeFromSuperview()
+        }
+        guard let materialView else { return }
+        let radius = max(0, number("border_radius", number("border_radius_top_left")))
+        if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
+            glass.cornerRadius = radius
+        } else {
+            materialView.wantsLayer = true
+            materialView.layer?.cornerRadius = radius
+            materialView.layer?.masksToBounds = true
+        }
+    }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -559,7 +629,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         canvases?.scheduleCapture()
     }
 
-    @objc func clipScrolled() { repaintThrough(); presenter?.syncLists(); presenter?.refreshVisibleText(); queueScrollEvent() }
+    @objc func clipScrolled() {
+        presenter?.collections.changed(id, user: true)
+        presenter?.transformGeometry.changed()
+        presenter?.syncLists()
+        repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
+    }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
     private func queueScrollEvent() {
@@ -633,6 +708,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !inert, !isHiddenOrHasHiddenAncestor else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
         guard let overlay, let sup = superview else { return super.hitTest(point) }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
@@ -707,6 +783,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the colours assigned outside a draw are re-applied. @ref LLP 1034 D2
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         guard hasSchemeColor || textChildren.contains(where: { $0.hasSchemeColor }) else { return }
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
@@ -865,9 +942,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
-        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
         video?.update()
+        updateMaterial()
         needsDisplay = true
     }
 
@@ -905,6 +983,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
+            sv.collectionWillScroll = { [weak self] in
+                guard let self else { return }; presenter?.collections.userIntent(id)
+            }
             sv.drawsBackground = false
             sv.scrollerStyle = .overlay
             sv.hasVerticalScroller = true
@@ -917,13 +998,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sv.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
             sv.autoresizingMask = [.width, .height]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
+            for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
             addSubview(sv)
             scroll = sv
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
-            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
             sv.removeFromSuperview()
             scroll = nil
         }
@@ -961,6 +1042,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // CSS z-index: a WKWebView's remote layer otherwise paints over later
         // siblings (the account mark on the deck).
         layer?.zPosition = number("z_index")
+        updateMaterial()
         needsDisplay = true
     }
 
@@ -985,9 +1067,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layer?.setAffineTransform(t)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        presenter?.transformGeometry.changed()
+    }
+
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
+        if kind == "image" { presenter?.session?.rasters.resized(self) }
+        presenter?.collections.changed(id)
+        presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()
@@ -1042,7 +1132,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 r.fill()
             }
         }
-        if kind == "image", symbolView == nil, let img = image {
+        if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1054,29 +1144,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 top: number("border_width_top", uniform) + number("padding_top"),
                 right: number("border_width_right", uniform) + number("padding_right"),
                 bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-            let natural = img.size
-            var size = content.size
-            if natural.width > 0 && natural.height > 0 {
-                let sx = content.width / natural.width, sy = content.height / natural.height
-                let s: CGFloat?
-                switch fit {
-                case "contain": s = min(sx, sy)
-                case "cover": s = max(sx, sy)
-                case "none": s = 1
-                case "scale-down": s = min(1, min(sx, sy))
-                default: s = nil // fill
-                }
-                if let s { size = CGSize(width: natural.width * s, height: natural.height * s) }
-            }
-            let origin = CGPoint(x: content.minX + (content.width - size.width) / 2, y: content.minY + (content.height - size.height) / 2)
-            NSGraphicsContext.current?.saveGraphicsState()
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            ctx.saveGState()
             path.addClip()
             NSBezierPath(rect: content).addClip()
-            img.draw(in: NSRect(origin: origin, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            NSGraphicsContext.current?.restoreGraphicsState()
+            ctx.translateBy(x: rect.minX, y: rect.maxY)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
+            ctx.restoreGState()
         }
         let textDirty = Capture.capturing || canvasAbove != nil ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
-        if isParagraph, !textDirty.isEmpty {
+        if isParagraph, !textDirty.isEmpty, presenter?.session?.regions.owns(self) != true {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
             if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
@@ -1103,6 +1182,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // input; a click nothing consumes reaches the viewport, which does the
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
+        presenter?.collections.pointerDown(id, event: event)
+        presenter?.mouseHeightDrag.down(self, event: event)
+        presenter?.mouseTransformDrag.down(self, event: event)
+        presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()
@@ -1126,6 +1209,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if presenter?.mouseTransformDrag.drag(event) == true { return }
+        if presenter?.mouseHeightDrag.drag(event) == true { return }
+        if presenter?.mouseSwipe.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
@@ -1138,6 +1224,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.interacting = 0
             presenter?.syncLists()
         }
+        if presenter?.mouseTransformDrag.up(event) == true { return }
+        if presenter?.mouseHeightDrag.up(event) == true { return }
+        if presenter?.mouseSwipe.up(event) == true { return }
+        presenter?.collections.releaseInteractionLater()
         if event.clickCount == 2 {
             var next: NSView? = self
             while let view = next {

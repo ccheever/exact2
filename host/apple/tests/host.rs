@@ -673,7 +673,8 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
 }
 
 #[test]
-fn a_first_layout_refusal_keeps_the_running_host() {
+fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
+    // @ref LLP 1039 D2 — refuse the size before layout; keep the old host.
     let plan = contract::compile("component Running\n  view\n    text \"running\"\n")
         .unwrap()
         .encode();
@@ -710,8 +711,7 @@ fn a_first_layout_refusal_keeps_the_running_host() {
         844.0,
     );
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
-    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
 
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
@@ -720,7 +720,7 @@ fn a_first_layout_refusal_keeps_the_running_host() {
 }
 
 #[test]
-fn a_failed_initial_layout_publishes_no_host() {
+fn an_invalid_initial_viewport_publishes_no_host() {
     let plan = contract::compile("component Candidate\n  view\n    text \"candidate\"\n")
         .unwrap()
         .encode();
@@ -738,7 +738,7 @@ fn a_failed_initial_layout_publishes_no_host() {
         844.0,
     );
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(after.contains("not booted"), "{after}");
@@ -765,8 +765,7 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
 
     let len = bridge.boot(&candidate, NoData, hooks, f32::NAN, 844.0);
     let refusal = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(refusal.contains("boot: Layout"), "{refusal}");
-    assert!(refusal.contains("InvalidOffer"), "{refusal}");
+    assert!(refusal.contains("InvalidViewport"), "{refusal}");
 
     let len = bridge.resize(500.0, 844.0);
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
@@ -798,7 +797,7 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
     let n = a.prepare_plan(candidate.len(), NoData, hooks, 390.0, 844.0);
     assert!(String::from_utf8_lossy(a.output_bytes(n as usize)).contains("\"error\":null"));
     let n = b.prepare_plan(candidate.len(), NoData, hooks, f32::NAN, 844.0);
-    assert!(String::from_utf8_lossy(b.output_bytes(n as usize)).contains("InvalidOffer"));
+    assert!(String::from_utf8_lossy(b.output_bytes(n as usize)).contains("InvalidViewport"));
     a.discard_plan();
     b.discard_plan();
     for bridge in [&mut a, &mut b] {
@@ -1287,72 +1286,6 @@ fn an_analysis_archive_refuses_both_boot_and_prepare_but_exposes_its_receipt() {
         let refusal = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
         assert!(refusal.contains("no prepared plan"), "{refusal}");
     }
-}
-
-#[test]
-fn a_platform_drag_holds_then_returns_to_the_authored_translate_without_layout() {
-    let plan = contract::compile(
-        r#"component Drag
-  view
-    button testId="bubble" width=100 height=40 transition="translate 180ms ease-out"
-      box testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
-      text "Message"
-"#,
-    )
-    .unwrap();
-    let (mut host, _) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        390.,
-        844.,
-    )
-    .unwrap();
-    let bubble = view(&host, "bubble");
-    let held = host.drag_x(bubble, 48., 0., false, 0.);
-    assert!(
-        held.contains("\"property\":\"translate\",\"x\":48,\"y\":0"),
-        "{held}"
-    );
-    assert!(!held.contains("\"op\":\"frame\""));
-    assert!(
-        held.contains("\"property\":\"opacity\",\"x\":0.75"),
-        "{held}"
-    );
-    assert!(
-        held.contains("\"property\":\"scale\",\"x\":0.875,\"y\":0"),
-        "{held}"
-    );
-    let armed = host.drag_x(bubble, 80., 0., false, 0.);
-    assert!(
-        armed.contains("\"property\":\"opacity\",\"x\":1"),
-        "{armed}"
-    );
-    let reversed = host.drag_x(bubble, 0., 0., false, 0.);
-    assert!(
-        reversed.contains("\"property\":\"opacity\",\"x\":0"),
-        "{reversed}"
-    );
-    host.drag_x(bubble, 48., 0., false, 0.);
-    assert_eq!(
-        host.runner().kernel().node(bubble).unwrap().style.translate,
-        exact_kernel::Vec2 { x: 0., y: 0. }
-    );
-    let release = host.drag_x(bubble, 0., -120., true, 0.);
-    assert!(release.contains("\"motion\":true"));
-    let middle = host.tick(90.);
-    assert!(middle.contains("\"property\":\"translate\""));
-    let done = host.tick(180.);
-    assert!(done.contains("\"x\":0,\"y\":0"), "{done}");
-    assert!(done.contains("\"motion\":false"));
-    assert!(done.contains("\"property\":\"opacity\",\"x\":0"), "{done}");
-    assert!(
-        done.contains("\"property\":\"scale\",\"x\":0.5,\"y\":0"),
-        "{done}"
-    );
-    assert!(host
-        .drag_x(bubble, f64::NAN, 0., false, 180.)
-        .contains("requires finite"));
 }
 
 #[test]

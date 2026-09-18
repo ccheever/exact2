@@ -168,9 +168,9 @@ pub trait DataSource {
     }
 
     /// Whether answers are available now. A TypeScript module before its
-    /// host loads it is not (LLP 1027 D4): the runner then boots every
-    /// store-reading resource from its kept answer or its compiled
-    /// empty-store placeholder, and asks again at [`super::Runner::data_ready`].
+    /// host loads it is not (LLP 1027 D4): the runner then boots resources
+    /// from compiled placeholders, or matching kept store-reader answers,
+    /// and asks again at [`super::Runner::data_ready`] (LLP 1038 D5).
     fn ready(&self) -> bool {
         true
     }

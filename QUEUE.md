@@ -1,5 +1,7 @@
 # Queue
 
+- **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md)): prioritize producer-bounded Messages pages, then scrollport-driven requests and precise page invalidation. Measure source work, bytes, settlement and UI separately. Shared views/buffers/heap and generic whole-value reconciliation remain deferred; the four-way findings are in LLP 1027.003 §9.
+
 What would make sense to do next, in rough order. This is not a spec and decides
 nothing: `rules/RULES.md` §Scope says a spec without an implementer and a date isn't
 written, so a line here is one to three lines — the thing, why, what it needs. When
@@ -25,13 +27,21 @@ sits on that list carries the trade it would take.
   and scrolling-hitch trials across real documents; measure process memory.
   Exact-offer measurement reuse halves callback traffic but has only a modest
   CPU benefit; verify its scrolling traces against Legend and profile what remains.
+- **Native verification gaps** (2026-09-15): Messages debug native tests can
+  exceed their 100 ms data-call budget during workspace validation (105–241 ms
+  on the Air); investigate without weakening the limit. Interview's new Mac
+  materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
 
-- **Router and viewport facts** (2026-09-14, accepted; Astra): LLP 1039 first — the
-  `exactViewport` fact, `aria-orientation`, the Mac tablist guard, Interview's rail —
-  then LLP 1038 slice 1 (`exact-route`, `routes`, the roster verbs, the launch fact,
-  `initial_args`, the `router` op, the iOS push-or-swap and macOS/Linux hide-and-inert
-  rules, Interview on `routes`); slice 2 fans out (web history + serving; native URL
-  entry points). Both LLPs are in `llp/current/`; 1001 and 1012 moved to foundation.
+- **Web driver shutdown** (2026-09-14): Caltrain web smoke and Interview web
+  drive print success after closing sessions but leave Bun alive; find the
+  remaining handle. Explicit exit after the smoke returns completes cleanly.
+
+
+- **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
+  routes, host projections, browser history and native URL entry points are implemented.
+  Owed: Interview's held-swipe/retained-data and iPad-wide sweep; iOS cover viewport
+  before first settlement; Chrome's software-keyboard viewport drive. TypeScript
+  route helpers remain deferred until their first data-source consumer (1038 slice 3).
 
 - **LLP 1035 follow-ups** (2026-09-09): landed the same day — inherited rows
   (1035.000 slice 1), `layout <node>` (1035.002 slice 1), a contact's phases on
@@ -478,6 +488,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Continuous release loop (LLP 1030.003 r2, 2026-09-12): release id + signed `published` and the `use`-able version screen (Caltrain first), one hosted Interview release on the directory origin behind its tunnel, `--watch`, iOS through TestFlight (the archive verb, upload, `--status`, version/build numbers), safe activation + the web page's own check, the EAS macOS-worker spike for the Apple lanes (D8, Charlie's 2026-09-12 ask), then the EAS Hosting spike. D6a install pages and D6b's Mac-local development build/install are landed; distributable native artifacts and providers remain pending. §6's six questions await Charlie; other slices await an implementer.
 
 - Shared-target filesystem helper: the ada0b93 workspace sweep failed with `spawnSync .../exact-filesystem ENOENT`; the working checkout’s async reader also intermittently returned 404 when its helper exited after one request. Reproduce helper executable identity/lifecycle across worktrees before claiming a full green sweep; evidence in `/tmp/interview-snapback4-20260913/exact2-checks/` and `/tmp/interview-snapback4-20260913/ui/`.
+  LLP 1039's web smoke passed every assertion but retained its `exact-filesystem --serve-reads` child after printing success; closing that recorded child let Bun exit 0. Close the helper at the end of a finite bake/smoke process (`/tmp/lane-router/1039/smoke-web.log`, `launched-pids.txt`).
 
 - Diagnostic source capture: the September 14 optional suite passed 55/56 cases; its source-isolation/cleanup assertion failed. A focused reproduction was interrupted after walking `snapback-sb4/snapback4/target/debug/deps` as ignored source for minutes; the assertion's cause remains unconfirmed. Exclude actual Cargo output directories of local dependency workspaces, while preserving ignored real inputs: derive output roots from Cargo instead of excluding every directory named `target`.
 
@@ -494,3 +505,29 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Messages native debug startup (2026-09-14, LLP 1027.001): three conversation tests exceed the 100 ms executor guard during synchronous native Snapback/SQLite initialization. Serial A/B on the same integrated runtime measured 132–151 ms with either the standard TextEncoder or the previous private UTF-8 counter; the helper replacement is not causal. All 13 optimized Messages tests pass. Profile native initialization and its scheduling separately; do not raise the guard or describe the full debug workspace suite as green. Evidence: `/tmp/exact2-language-parity/logs/de55b63-messages-current-serial.log` and the adjacent old-helper log.
 
 - Video (LLP 1042): verify PiP/AirPlay on physical devices; complete the designed track/controller and app audio-session ownership APIs before promising captions, background playback or DRM. Linux carries an explicitly unavailable video box.
+- Worktree-contained test fixtures (2026-09-14, router chunk (c)): `exact-apple --test inherited` / `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates standalone Cargo packages without their own workspace boundary. With `TMPDIR` inside this worktree, Cargo captures them into the repository workspace and refuses metadata. Three attempts stopped; make those generated packages explicitly standalone. Evidence: `target/router-test.log`, `target/router-test-retry2.log` in `exact2-wt-router`.
+
+- Storage reload assertion (2026-09-14, router verification): the workspace sweep failed `exact-js --test storage` / `unload_invalidates_continuations_and_configuration_survives_reload` with `"cancel"` instead of `"again"`; the focused seven-test storage rerun passed. Reproduce the cancelled file operation/reload interaction before claiming the full workspace sweep green. Evidence: `target/router-test.log`, `target/router-test-retry.log` in `exact2-wt-router`.
+
+- Web smoke teardown (2026-09-14, router verification): `bun scripts/smoke.mjs web` printed `web smoke: ok in 34.6 s` and all three Caltrain tests passed, but the Bun process remained alive afterward; the launched exec session was interrupted (exit 130). Identify the retained handle and make successful smoke runs exit naturally. Evidence: `target/router-smoke.log` in `exact2-wt-router`.
+
+- Interview router row 4 (LLP 1038 F10): seed an isolated agent-mode replica for the own-data/scroll swipe drive; first finish the static fixture’s held swipes with Simulator unobscured (other desktop apps blocked contact).
+- Interview iPad-wide iOS (LLP 1038): drive the rail on a real wide simulator viewport; the iPhone agent ignores `--size` and reports 402 × 874 for both requested sizes.
+- Interview backend list arguments (LLP 1038): let `/state` accept question/person/post ID lists and return every stacked record; the pre-replica path currently sends only each list’s first ID.
+
+- Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
+- Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
+# Graceful-overload consumers (2026-09-16)
+
+LLP 1041 starts `messages-stress` and `completion-storm` as opt-in synthetic
+workloads. Next: compare idle/loaded interaction samples on a real 120 Hz device,
+then implement bounded completion pumping and admission/fairness where measured.
+Keep module placement under LLP 1027.002; automatic windowing/image pressure and
+physical-display native sweeps remain follow-ups; the first slice drives AppKit
+and the Linux headless CPU renderer without claiming display frame timing.
+
+- Markdown/native collection integration (2026-09-18): the retained reader's
+  explicit row-height list and upstream `virtualized` collection both build.
+  Carry logical selection/full-document copy to the collection path, compare
+  its full-document workload, then retire the redundant measured-list path.
+  Do not infer a performance gain merely from combining the branches.

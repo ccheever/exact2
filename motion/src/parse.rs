@@ -22,7 +22,7 @@ use crate::transition::{
 pub enum ParseError {
     /// An empty declaration.
     Empty,
-    /// A property name outside `all`, `translate`, `scale`, `rotate`, `opacity`.
+    /// A property name outside `all` and the supported [`Property`] names.
     UnknownProperty(String),
     /// A time without `s`/`ms`, or not a number.
     BadTime(String),

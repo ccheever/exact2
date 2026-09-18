@@ -1,0 +1,15 @@
+// @ref LLP 1039 — the bake is narrow; the first host fact wins.
+shape Viewport
+  height: number
+  width: number
+component App
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 900
+  view
+    column testId="viewport"
+      when wide
+        column role="tablist" aria-orientation="vertical" testId="rail"
+          text "wide" testId="wide"
+      else
+        row role="tablist" testId="tab-bar"
+          text "narrow" testId="narrow"

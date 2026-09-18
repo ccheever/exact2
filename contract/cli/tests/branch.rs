@@ -26,7 +26,14 @@ fn corpus(name: &str) -> String {
 fn an_action_branches_on_a_key_and_matches_an_option() {
     let plan = contract::compile(&corpus("branch.contract")).unwrap();
     let plan = contract::bake(plan, NoData).unwrap();
-    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     r.act("typed", vec![Value::str("a")]).unwrap();
     r.act("typed", vec![Value::str("b")]).unwrap();
     assert_eq!(r.slot("query"), Some(&Value::str("ab")));
@@ -45,7 +52,14 @@ fn an_action_branches_on_a_key_and_matches_an_option() {
 fn a_branch_may_nest_and_an_omitted_else_is_fine() {
     let src = "component A\n  state n = 0\n  state s = \"\"\n  action go(k) writes n, s\n    if k == \"a\"\n      if n > 0\n        s = \"again\"\n      else\n        s = \"first\"\n      n = n + 1\n  view\n    column testId=\"root\"\n      input value=s change=go testId=\"i\"\n";
     let plan = contract::compile(src).unwrap();
-    let mut r = Runner::boot(plan, NoData, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     r.act("go", vec![Value::str("x")]).unwrap();
     assert_eq!(r.slot("n"), Some(&Value::Number(0.0)));
     r.act("go", vec![Value::str("a")]).unwrap();

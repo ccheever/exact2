@@ -27,5 +27,11 @@ pub fn build() -> Result<Plan, Box<dyn std::error::Error>> {
 
 /// Boot a runner for `plan` against the app's data source and a kernel.
 pub fn boot(plan: Plan, kernel: Kernel) -> Result<Runner<caltrain_data::Caltrain>, RunnerError> {
-    Runner::boot(plan, caltrain_data::Caltrain, kernel)
+    Runner::boot(
+        plan,
+        caltrain_data::Caltrain,
+        kernel,
+        Default::default(),
+        "/",
+    )
 }

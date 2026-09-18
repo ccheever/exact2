@@ -234,3 +234,27 @@ fn malformed_plan_tables_are_refused_before_generating_types() {
     plan.sources[0].params.len = u32::MAX;
     assert!(contract::typescript(&plan).is_err());
 }
+
+#[test]
+fn router_shapes_are_already_named_by_the_plan_type_generator() {
+    let plan = contract::compile(include_str!("../../corpus/routes.contract")).unwrap();
+    let declaration = contract::typescript(&plan).unwrap();
+    for name in ["Router", "Tab", "Entry", "Params"] {
+        let (id, row) = plan
+            .types
+            .iter()
+            .enumerate()
+            .find(|(_, r)| plan.str(r.name) == name)
+            .unwrap();
+        let prefix = format!("type T{id} = {{ ");
+        let line = declaration
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap();
+        for field in
+            &plan.fields[row.fields.start as usize..(row.fields.start + row.fields.len) as usize]
+        {
+            assert!(line.contains(&format!("\"{}\": T{};", plan.str(field.name), field.ty.0)));
+        }
+    }
+}

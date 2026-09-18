@@ -1,0 +1,166 @@
+//! The real Contract -> runner -> web batch/ABI path; no synchronous fake list.
+use exact_runner::{CollectionFeedback, CollectionSnapshot, RowMeasurement};
+use exact_web::{abi::Bridge, Host};
+
+#[derive(Default)]
+struct NoData;
+impl exact_runner::DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_runner::Value],
+    ) -> Result<exact_runner::Value, exact_runner::DataError> {
+        if source == "rows" {
+            Ok(exact_runner::Value::list(
+                (0..1_000)
+                    .map(|i| {
+                        exact_runner::Value::record(vec![exact_runner::Value::Number(i as f64)])
+                    })
+                    .collect(),
+            ))
+        } else {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+}
+
+fn plan() -> Vec<u8> {
+    let source = r#"shape Row
+  index: number
+component App
+  resource rows = rows() as shape list<Row>
+  state shown = true
+  state rowHeight = 32
+  state typed = ""
+  action edit(value) writes typed
+    typed = value
+  action grow writes rowHeight
+    rowHeight = 64
+  action hide writes shown
+    shown = not shown
+  view
+    column
+      button press=hide testId="hide"
+        text "Hide"
+      button press=grow testId="grow"
+        text "Grow"
+      text typed testId="echo"
+      when shown
+        list virtualized=true height=180 width=320 testId="list"
+          each x in rows key=x.index
+            column height=rowHeight
+              input value=typed change=edit testId=`row-${x.index}` height=16
+              text `${x.index}` height=16
+"#;
+    contract::compile(source).unwrap().encode()
+}
+fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
+    CollectionFeedback {
+        view: snapshot.view,
+        revision: snapshot.revision,
+        scroll_sequence: 1,
+        scroll_top: 3_000.0,
+        port_width: 320.0,
+        port_height: 180.0,
+        row_width: 305.0,
+        focus_view: None,
+        interaction_view: None,
+        measurements: snapshot
+            .rows
+            .iter()
+            .map(|row| RowMeasurement {
+                view: row.view,
+                epoch: row.epoch,
+                height: 32.0,
+            })
+            .collect(),
+    }
+}
+#[test]
+fn geometry_commits_bounded_rows_and_metadata_after_extent_then_clears_on_unmount() {
+    let (mut host, first) = Host::boot(&plan(), NoData, Default::default(), "/").unwrap();
+    let before = host.runner().collections().remove(0);
+    assert_eq!(before.count, 1_000);
+    assert!(before.rows.len() <= 16);
+    assert!(
+        first.rfind("\"op\":\"collections\"").unwrap() > first.find("\"op\":\"children\"").unwrap()
+    );
+    let batch = host.collection_feedback(&facts(&before).encode().unwrap());
+    assert!(batch.contains("\"error\":null"), "{batch}");
+    let after = host.runner().collections().remove(0);
+    assert!(after.rows.len() <= 24, "{} rows", after.rows.len());
+    assert!(after.rows.iter().any(|row| row.index > 80));
+    assert!(
+        batch.rfind("\"op\":\"collections\"").unwrap() > batch.find("\"op\":\"children\"").unwrap()
+    );
+    let kernel = host.runner().kernel();
+    let hide = kernel
+        .node_by_key(kernel.find_by_test_id("hide")[0])
+        .unwrap()
+        .id;
+    let batch = host.dispatch_at(hide, exact_runner::Event::Press, 0.0);
+    assert!(
+        batch.contains("{\"op\":\"collections\",\"items\":[]}"),
+        "{batch}"
+    );
+    assert!(host.runner().collections().is_empty());
+}
+#[test]
+fn stale_and_malformed_feedback_do_not_emit_mutations_or_advance_the_clock() {
+    let (mut host, _) = Host::boot(&plan(), NoData, Default::default(), "/").unwrap();
+    let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
+    host.collection_feedback(&bytes);
+    let before = host.runner().collections();
+    let stale = host.collection_feedback(&bytes);
+    assert!(stale.contains("\"ops\":[]"), "{stale}");
+    let bad = host.collection_feedback(&bytes[..bytes.len() - 1]);
+    assert!(bad.contains("malformed collection feedback"), "{bad}");
+    assert!(bad.contains("\"ops\":[]"), "{bad}");
+    assert_eq!(host.runner().collections(), before);
+    assert_eq!(host.runner().now_ms(), 0.0);
+}
+#[test]
+fn bridge_rejects_oversized_input_and_uses_the_common_le_decoder() {
+    let plan = plan();
+    let (host, _) = Host::boot(&plan, NoData, Default::default(), "/").unwrap();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, NoData, 390.0, 844.0, "/");
+    let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
+    bridge.advance(25.0);
+    bridge.input_write(&bytes);
+    let len = bridge.collection_feedback(bytes.len() + 1);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize))
+        .contains("collection input length"));
+    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("\"clock\":25"));
+    let len = bridge.collection_feedback(bytes.len());
+    let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(batch.contains("\"op\":\"collections\""), "{batch}");
+    assert!(batch.contains("\"error\":null"), "{batch}");
+}
+
+#[test]
+#[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
+fn real_browser_collection_feedback_and_navigation() {
+    use std::{path::Path, process::Command};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = std::env::temp_dir().join(format!("exact-collection-browser-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // Bake the constant data: the carrier wasm supplies only the host, never a
+    // fixture-specific data implementation or an authored scroll event handler.
+    let baked = contract::bake(exact_plan::Plan::decode(&plan()).unwrap(), NoData).unwrap();
+    std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
+    let output = Command::new("bun")
+        .arg("host/web/tests/collection.mjs")
+        .env("EXACT_COLLECTION_TEST", &dir)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

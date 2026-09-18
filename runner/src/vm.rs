@@ -50,6 +50,9 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
+    /// Checked route table and shapes; present only for a plan with a router.
+    /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
+    pub router: Option<&'a crate::runner::router::RouterContext>,
     /// State slots by index.
     pub slots: &'a [Value],
     /// Derives by index; `None` while not yet settled this update.
@@ -403,8 +406,8 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::Arity { pc, expected: n });
                 }
                 let call_args = stack.split_off(stack.len() - n);
-                let v =
-                    stdlib::call(f, &call_args, env.now_ms).ok_or(Trap::TypeMismatch { pc, op })?;
+                let v = stdlib::call(f, &call_args, env.now_ms, env.plan, env.router)
+                    .ok_or(Trap::TypeMismatch { pc, op })?;
                 stack.push(v);
             }
             Opcode::StoreSlot => {

@@ -12,6 +12,72 @@
 
 use crate::generated::{Direction, FontStyle, OverflowWrap, StyleProps, TextAlign, TextOverflow};
 use crate::id::AxisOffer;
+use crate::id::NodeKey;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+/// A payload-free lifetime namespace. Allocation identity is valid only while
+/// retained: it is never a wire id, address handle, or serialized cache key.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TextDomain(pub(crate) Arc<()>);
+
+impl PartialEq for TextDomain {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for TextDomain {}
+impl Hash for TextDomain {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+/// Kernel-issued proof of the current paragraph inputs, not its geometry.
+///
+/// Offers, catalog identity, runtime liveness and publication eligibility are
+/// separate checks. Host appearance, resolved palettes and raster context are
+/// independent paint inputs: equal stamps do not identify resolved pixels.
+/// This token retains only a payload-free namespace, never text, nodes, a
+/// kernel or prior revisions. Exact equality includes authored paint and source
+/// mapping; [`Self::same_metrics`] permits metric reuse after repaint.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParagraphStamp {
+    pub(crate) domain: TextDomain,
+    pub(crate) owner: NodeKey,
+    pub(crate) metrics: u64,
+    pub(crate) paint_source: u64,
+}
+
+impl ParagraphStamp {
+    /// The independently measured paragraph allocation.
+    pub fn owner(&self) -> NodeKey {
+        self.owner
+    }
+
+    /// Current metric revision. This scalar alone is not an identity.
+    pub fn metric_revision(&self) -> u64 {
+        self.metrics
+    }
+
+    /// Current authored paint/source-map revision, not resolved pixel identity.
+    /// Host appearance, palette and raster context remain separate paint inputs.
+    /// This scalar alone is not an identity.
+    pub fn paint_source_revision(&self) -> u64 {
+        self.paint_source
+    }
+
+    /// Same namespace, owner and metric inputs, ignoring paint-only changes.
+    pub fn same_metrics(&self, other: &Self) -> bool {
+        self.domain == other.domain && self.owner == other.owner && self.metrics == other.metrics
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TextRevisions {
+    pub metrics: u64,
+    pub paint_source: u64,
+}
 
 /// Run-level style: everything that changes glyph metrics.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -127,6 +193,18 @@ impl TextMetrics {
 pub trait TextMeasurer {
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Size a kernel-identified paragraph. Existing measurers use the ordinary
+    /// synchronous path; callers constructing requests still need no stamp.
+    /// The stamp identifies exactly this owner's canonical runs, not a subset
+    /// rooted at an inline child. Offers and host catalog remain separate keys.
+    fn measure_identified(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+    ) -> TextMetrics {
+        self.measure(request)
+    }
 }
 
 /// Deterministic reference measurer: every glyph advances `advance_em` ems

@@ -93,17 +93,43 @@ final class Runtime {
     func focus(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 4, 0, now)) }
     func blur(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 5, 0, now)) }
     func contextmenu(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 10, 0, now)) }
-    func dragX(_ view: UInt32, delta: Double, velocity: Double, release: Bool, now: Double) -> Batch { read(exact_drag_x(rt, view, delta, velocity, release ? 1 : 0, now)) }
+    func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
+        let batch = read(exact_hold_begin(rt, view, property, now))
+        let start = batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init)
+        return (start, batch)
+    }
+    func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+        let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
+        return (batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init), batch)
+    }
+    func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
+        read(exact_height_drag_update(rt, token, height, now))
+    }
+    func heightDragRelease(_ token: UInt64, height: Double, velocity: Double, now: Double) -> Batch {
+        read(exact_height_drag_release(rt, token, height, velocity, now))
+    }
+    func hasHold(_ token: UInt64) -> Bool { !destroyed && exact_has_hold(rt, token) != 0 }
+    func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
+        read(exact_hold_update(rt, token, x, y, now))
+    }
+    func holdEnd(_ token: UInt64, cancel: Bool, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+        read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
+    }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))
     }
+    /// Actual viewport/row observations using the runner's versioned LE wire.
+    func collectionFeedback(_ bytes: Data, now: Double) -> Batch {
+        let n = write(bytes)
+        return read(exact_collection_feedback(rt, n, now))
+    }
     func dblclick(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 11, 0, now)) }
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         let n = write(event + "\n" + payload)
-        return read(exact_dispatch(rt, view, 14, n, now))
+        return read(exact_dispatch(rt, view, 18, n, now))
     }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
@@ -118,6 +144,17 @@ final class Runtime {
     func change(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)
         return read(exact_dispatch(rt, view, 1, n, now))
+    }
+    // @ref LLP 1038 D8/D11 — Rust owns URL interpretation on every host.
+    func location(of href: String) -> String {
+        let n = write(href)
+        let len = exact_location_of(rt, n)
+        return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+    }
+    func launch(_ location: String) { let n = write(location); _ = exact_set_launch_location(rt, n) }
+    func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
+        let n = write(location)
+        return read(exact_dispatch(rt, view, 14, n, now))
     }
     func advance(now: Double) -> Batch { read(exact_advance(rt, now)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
@@ -140,6 +177,21 @@ final class Runtime {
     func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { read(exact_delivery_sync(rt)) }
+    /// The returned JSON is copied before the runtime output buffer is reused.
+    func regionRequest(_ id: UInt64, knownSource: UInt64) -> [String: Any]? {
+        let length = exact_region_request(rt, id, knownSource)
+        let data = Data(bytes: exact_out(rt), count: Int(length))
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+    func regionComplete(_ artifact: RegionArtifact) -> Batch {
+        let p = artifact.metadata
+        let retained = Unmanaged.passRetained(artifact).toOpaque()
+        return read(exact_region_complete(rt, artifact.id,
+            ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline)),
+            retained, { pointer in
+                if let pointer { Unmanaged<RegionArtifact>.fromOpaque(pointer).release() }
+            }))
+    }
     /// The agent API (LLP 1012): a request in, its reply out — JSON, not a batch.
     func agent(_ request: String) -> String {
         let n = write(request)

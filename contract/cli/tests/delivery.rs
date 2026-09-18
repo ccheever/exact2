@@ -25,7 +25,14 @@ fn corpus() -> String {
 fn boot(src: &str) -> Runner<NoData> {
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     let baked = contract::bake(plan, NoData).unwrap_or_else(|e| panic!("{e}"));
-    Runner::boot(baked, NoData, Kernel::with_monospace()).unwrap()
+    Runner::boot(
+        baked,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
 }
 
 fn text_of(r: &Runner<NoData>, test_id: &str) -> Option<String> {

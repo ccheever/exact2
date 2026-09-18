@@ -86,6 +86,8 @@ fn checked(
 
 fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
     let mut config = Config {
+        content_region: None,
+        launch: "/".into(),
         plan: baked.to_vec(),
         fallback_plan: None,
         assets: dir.to_path_buf(),
@@ -145,6 +147,8 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     foreign.app_id = "com.exact.foreign".into();
     let baked = contract::compile(source).unwrap().encode();
     let mut config = Config {
+        content_region: None,
+        launch: "/".into(),
         plan: foreign.encode(),
         fallback_plan: Some(baked),
         assets: std::env::current_dir().unwrap(),
@@ -212,6 +216,8 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let record = client.dir().join("record.json");
     let updates = Updates::from_client(client).unwrap();
     let mut config = Config {
+        content_region: None,
+        launch: "/".into(),
         plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
         fallback_plan: Some(baked.clone()),
         assets: PathBuf::from("."),
@@ -650,7 +656,14 @@ fn a_refused_initial_layout_releases_no_network_requests() {
     ));
     let result = std::panic::catch_unwind(|| {
         let seed = contract::bake(
-            contract::compile(&source.replace("SIZE", "16")).unwrap(),
+            // @ref LLP 1038 D5 — bake a placeholder keyed to this candidate's
+            // delivery sequence, so a Later answer may retain it at boot.
+            contract::compile(
+                &source
+                    .replace("SIZE", "16")
+                    .replace("ping(delivery.seq)", "ping(1)"),
+            )
+            .unwrap(),
             Seed,
         )
         .unwrap();
@@ -668,6 +681,10 @@ fn a_refused_initial_layout_releases_no_network_requests() {
             plan.resources[1].initial.len = initial.len() as u32;
             plan.resources[1].reader = seed.resources[1].reader;
             plan.data.extend_from_slice(initial);
+            let initial_args = seed.bytes(seed.resources[1].initial_args);
+            plan.resources[1].initial_args.offset = plan.data.len() as u32;
+            plan.resources[1].initial_args.len = initial_args.len() as u32;
+            plan.data.extend_from_slice(initial_args);
             let plan = plan.encode();
             let client = stage(&root, &baked, &plan, &[]);
             let mut config = selected_config(&root, &baked, client);

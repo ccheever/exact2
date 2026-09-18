@@ -1,0 +1,1393 @@
+{
+  "tables": {
+    "interview": {
+      "routes": [
+        {"name": "home", "pattern": "/", "parent": null, "tab": true, "notfound": false},
+        {"name": "notifications", "pattern": "/notifications", "parent": 0, "tab": false, "notfound": false},
+        {"name": "post", "pattern": "/post/:post", "parent": 0, "tab": false, "notfound": false},
+        {"name": "prompts", "pattern": "/prompts", "parent": null, "tab": true, "notfound": false},
+        {"name": "ask", "pattern": "/prompts/new", "parent": 3, "tab": false, "notfound": false},
+        {"name": "question", "pattern": "/prompt/:question", "parent": 3, "tab": false, "notfound": false},
+        {"name": "write", "pattern": "/prompt/:question/write", "parent": 5, "tab": false, "notfound": false},
+        {"name": "messages", "pattern": "/messages", "parent": null, "tab": true, "notfound": false},
+        {"name": "search", "pattern": "/search", "parent": null, "tab": true, "notfound": false},
+        {"name": "profile", "pattern": "/profile", "parent": null, "tab": true, "notfound": false},
+        {"name": "settings", "pattern": "/settings", "parent": 9, "tab": false, "notfound": false},
+        {"name": "person", "pattern": "/people/:person", "parent": null, "tab": false, "notfound": false},
+        {"name": "notfound", "pattern": "", "parent": null, "tab": false, "notfound": true}
+      ]
+    },
+    "messages": {
+      "routes": [
+        {"name": "inbox", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+        {"name": "thread", "pattern": "/t/:thread", "parent": 0, "tab": false, "notfound": false},
+        {"name": "details", "pattern": "/t/:thread/details", "parent": 1, "tab": false, "notfound": false},
+        {"name": "newContact", "pattern": "/t/:thread/contact", "parent": 2, "tab": false, "notfound": false},
+        {"name": "compose", "pattern": "/new", "parent": 0, "tab": false, "notfound": false}
+      ]
+    },
+    "plain": {
+      "routes": [
+        {"name": "landing", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+        {"name": "item", "pattern": "/item/:item", "parent": 0, "tab": false, "notfound": false},
+        {"name": "edit", "pattern": "/item/:item/edit", "parent": 1, "tab": false, "notfound": false},
+        {"name": "archive", "pattern": "/archive/:year/:item", "parent": 0, "tab": false, "notfound": false},
+        {"name": "unicode", "pattern": "/literal/é", "parent": 0, "tab": false, "notfound": false},
+        {"name": "done", "pattern": "/done", "parent": 0, "tab": false, "notfound": false}
+      ]
+    }
+  },
+  "param_names": {"interview": ["post", "question", "person"], "messages": ["thread"], "plain": ["item", "year"]},
+  "canonical": [
+    {"input": "", "expected": "/"},
+    {"input": "/", "expected": "/"},
+    {"input": "/a/./b/../c", "expected": "/a/c"},
+    {"input": "/a/b/..", "expected": "/a/"},
+    {"input": "/a/.", "expected": "/a/"},
+    {"input": "/../../x", "expected": "/x"},
+    {"input": "/a/%2e/b/%2E%2e/c", "expected": "/a/c"},
+    {"input": "/a/.%2E/c", "expected": "/c"},
+    {"input": "/a/%2e./c", "expected": "/c"},
+    {"input": "/hello world", "expected": "/hello%20world"},
+    {"input": "/café/東京/🦀", "expected": "/caf%C3%A9/%E6%9D%B1%E4%BA%AC/%F0%9F%A6%80"},
+    {"input": "/post/%34%32?x=%2f&x=%2F", "expected": "/post/%34%32?x=%2f&x=%2F"},
+    {"input": "/post/%zz/%/%%20", "expected": "/post/%zz/%/%%20"},
+    {"input": "/a/", "expected": "/a/"},
+    {"input": "/a//b", "expected": "/a//b"},
+    {"input": "/a?", "expected": "/a"},
+    {"input": "/a?#frag", "expected": "/a"},
+    {"input": "/?a=1&a=2", "expected": "/?a=1&a=2"},
+    {"input": "/?q=a+b&space=a%20b", "expected": "/?q=a+b&space=a%20b"},
+    {"input": "/a'\"<>^`{}[]|?q='\"<>^`{}[]|\\", "expected": "/a'%22%3C%3E%5E%60%7B%7D[]%7C?q=%27%22%3C%3E^`{}[]|\\"},
+    {"input": "/a?b?c#fragment", "expected": "/a?b?c"},
+    {"input": "/a#?ignored", "expected": "/a"},
+    {"input": "/a\\b\\..\\c?x=\\y", "expected": "/a/c?x=\\y"},
+    {"input": "a/b", "expected": "/a/b"},
+    {"input": "?a=1", "expected": "/?a=1"},
+    {"input": "#fragment", "expected": "/"},
+    {"input": " \t/a\nb\rc?x=a\tb\nc\r ", "expected": "/%20/abc?x=abc"},
+    {"input": "/a\u0000b?x=\u0001z", "expected": "/a%00b?x=%01z"},
+    {"input": "/%00/%7f?x=%FF", "expected": "/%00/%7f?x=%FF"},
+    {"input": "//example.org/a/../b?q=1#frag", "expected": "//example.org/b?q=1"},
+    {"input": "https://u:p@example.org:123/a b?q=é#f", "expected": "/https://u:p@example.org:123/a%20b?q=%C3%A9"},
+    {"input": "HTTPS://example.org?x=1", "expected": "/HTTPS://example.org?x=1"},
+    {"input": "https:/a/b", "expected": "/https:/a/b"},
+    {"input": "https:a/b", "expected": "/https:a/b"},
+    {"input": "http:a/b", "expected": "/http:a/b"},
+    {"input": "/a/%2e%2e", "expected": "/"},
+    {"input": "/?&&a=&b&=v&a=last", "expected": "/?&&a=&b&=v&a=last"},
+    {"input": "/%EF%BB%BF?x=%EF%BB%BF", "expected": "/%EF%BB%BF?x=%EF%BB%BF"},
+    {"input": "//b", "expected": "//b"},
+    {"input": "/x|y", "expected": "/x%7Cy"},
+    {"input": "/x?y=|", "expected": "/x?y=|"},
+    {"input": "/a/..//b", "expected": "//b"},
+    {"input": "/a/..///b", "expected": "///b"},
+    {"input": "/.//x/y", "expected": "//x/y"}
+  ],
+  "location_of": [
+    {"input": "https://interview.app/post/42?x=1#frag", "expected": "/post/42?x=1"},
+    {"input": "interview://post/42", "expected": "/post/42"},
+    {"input": "interview://", "expected": "/"},
+    {"input": "INTERVIEW://post/42?x=a b#frag", "expected": "/post/42?x=a%20b"},
+    {"input": "interview://post/../people/é", "expected": "/people/%C3%A9"},
+    {"input": "http://localhost:8080?x=1#f", "expected": "/?x=1"},
+    {"input": "https://user:pass@interview.app:443/post/42", "expected": "/post/42"},
+    {"input": "mailto:hi@example.org?subject=Hello world", "expected": "/hi@example.org?subject=Hello%20world"},
+    {"input": "file://folder/path", "expected": "/folder/path"},
+    {"input": "custom+app://post/%2f?x=1+2#f", "expected": "/post/%2f?x=1+2"}
+  ],
+  "components": [
+    {"input": "", "expected": ""},
+    {"input": "a/b?c#d% e+f", "expected": "a%2Fb%3Fc%23d%25%20e%2Bf"},
+    {"input": "é東京🦀", "expected": "%C3%A9%E6%9D%B1%E4%BA%AC%F0%9F%A6%80"},
+    {"input": "AZaz09-_.!~*'()", "expected": "AZaz09-_.!~*'()"},
+    {"input": ".", "expected": "."},
+    {"input": "..", "expected": ".."},
+    {"input": "\u0000", "expected": "%00%7F"}
+  ],
+  "search": [
+    {"url": "/?a=1&a=2", "name": "a", "expected": "1"},
+    {"url": "/?q=a+b%2Bc", "name": "q", "expected": "a b+c"},
+    {"url": "/?empty=&bare", "name": "bare", "expected": ""},
+    {"url": "/?empty=&bare", "name": "absent", "expected": ""},
+    {"url": "/?=first&&=last", "name": "", "expected": "first"},
+    {"url": "/?a%20b=c%3Dd%26e", "name": "a b", "expected": "c=d&e"},
+    {"url": "/?a+b=first&a%20b=last", "name": "a b", "expected": "first"},
+    {"url": "/?q=%FF%FE%E2%82", "name": "q", "expected": "���"},
+    {"url": "/?q=%zz%2", "name": "q", "expected": "%zz%2"},
+    {"url": "/?q=%EF%BB%BFhello", "name": "q", "expected": "﻿hello"},
+    {"url": "/?q=a=b=c", "name": "q", "expected": "a=b=c"},
+    {"url": "/?a=1&%61=2", "name": "a", "expected": "1"}
+  ],
+  "matches": [
+    {"table": "interview", "location": "/", "expected": {"name": "home", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "messages", "location": "/", "expected": {"name": "inbox", "params": {"thread": ""}}},
+    {"table": "plain", "location": "/", "expected": {"name": "landing", "params": {"item": "", "year": ""}}},
+    {"table": "interview", "location": "/post/%34%32?q=x", "expected": {"name": "post", "params": {"person": "", "post": "42", "question": ""}}},
+    {"table": "interview", "location": "/prompt/5/write", "expected": {"name": "write", "params": {"person": "", "post": "", "question": "5"}}},
+    {"table": "interview", "location": "/prompts/new", "expected": {"name": "ask", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/people/a+b", "expected": {"name": "person", "params": {"person": "a+b", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post/a%2Fb", "expected": {"name": "post", "params": {"person": "", "post": "a/b", "question": ""}}},
+    {"table": "interview", "location": "/post/%252F", "expected": {"name": "post", "params": {"person": "", "post": "%2F", "question": ""}}},
+    {"table": "interview", "location": "/post/%zz", "expected": {"name": "post", "params": {"person": "", "post": "%zz", "question": ""}}},
+    {"table": "interview", "location": "/post/%FF", "expected": {"name": "post", "params": {"person": "", "post": "�", "question": ""}}},
+    {"table": "interview", "location": "/nope", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post/", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post/a/", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post//a", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/POST/a", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post/%2e", "expected": {"name": "notfound", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "interview", "location": "/post/%2e%2e", "expected": {"name": "home", "params": {"person": "", "post": "", "question": ""}}},
+    {"table": "messages", "location": "/t/5/contact", "expected": {"name": "newContact", "params": {"thread": "5"}}},
+    {"table": "messages", "location": "/absent", "expected": null},
+    {"table": "messages", "location": "/t/", "expected": null},
+    {"table": "messages", "location": "/t/5/", "expected": null},
+    {"table": "messages", "location": "/t/5/contact/extra", "expected": null},
+    {"table": "plain", "location": "/archive/2026/🦀", "expected": {"name": "archive", "params": {"item": "🦀", "year": "2026"}}},
+    {"table": "plain", "location": "/literal/é", "expected": {"name": "unicode", "params": {"item": "", "year": ""}}},
+    {"table": "plain", "location": "/literal/%c3%a9", "expected": null}
+  ],
+  "chains": [
+    {
+      "table": "interview",
+      "location": "/prompt/5/write?x=1",
+      "expected": [
+        {"name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}},
+        {"name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}},
+        {"name": "write", "url": "/prompt/5/write?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}
+      ]
+    },
+    {
+      "table": "interview",
+      "location": "/people/7",
+      "expected": [
+        {"name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}},
+        {"name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}
+      ]
+    },
+    {
+      "table": "interview",
+      "location": "/post/%34%32?x=1",
+      "expected": [
+        {"name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}},
+        {"name": "post", "url": "/post/%34%32?x=1", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}
+      ]
+    },
+    {
+      "table": "interview",
+      "location": "/missing/?x=a+b",
+      "expected": [
+        {"name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}},
+        {"name": "notfound", "url": "/missing/?x=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}
+      ]
+    },
+    {
+      "table": "interview",
+      "location": "/prompts?sort=new",
+      "expected": [{"name": "prompts", "url": "/prompts?sort=new", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]
+    },
+    {
+      "table": "messages",
+      "location": "/t/a%2fb/contact?x=1",
+      "expected": [
+        {"name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}},
+        {"name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}},
+        {"name": "details", "url": "/t/a%2Fb/details", "tab": "inbox", "params": {"thread": "a/b"}},
+        {"name": "newContact", "url": "/t/a%2fb/contact?x=1", "tab": "inbox", "params": {"thread": "a/b"}}
+      ]
+    },
+    {"table": "messages", "location": "/absent", "expected": []},
+    {
+      "table": "plain",
+      "location": "/item/é/edit",
+      "expected": [
+        {"name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}},
+        {"name": "item", "url": "/item/%C3%A9", "tab": "landing", "params": {"item": "é", "year": ""}},
+        {"name": "edit", "url": "/item/%C3%A9/edit", "tab": "landing", "params": {"item": "é", "year": ""}}
+      ]
+    },
+    {"table": "plain", "location": "/", "expected": [{"name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+  ],
+  "paths": [
+    {"table": "interview", "name": "home", "params": [], "expected": "/", "error": null},
+    {"table": "interview", "name": "post", "params": ["a/b?c#d% e+f"], "expected": "/post/a%2Fb%3Fc%23d%25%20e%2Bf", "error": null},
+    {"table": "interview", "name": "write", "params": ["é"], "expected": "/prompt/%C3%A9/write", "error": null},
+    {"table": "messages", "name": "newContact", "params": ["🦀"], "expected": "/t/%F0%9F%A6%80/contact", "error": null},
+    {"table": "plain", "name": "archive", "params": ["2026", "a/b"], "expected": "/archive/2026/a%2Fb", "error": null},
+    {"table": "plain", "name": "unicode", "params": [], "expected": "/literal/é", "error": null},
+    {"table": "plain", "name": "item", "params": [""], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "item", "params": ["."], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "item", "params": [".."], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "item", "params": ["a.b"], "expected": "/item/a.b", "error": null},
+    {"table": "plain", "name": "item", "params": ["%2e"], "expected": "/item/%252e", "error": null},
+    {"table": "interview", "name": "notfound", "params": [], "expected": null, "error": "route-unknown"},
+    {"table": "messages", "name": "absent", "params": [], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "item", "params": [], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "archive", "params": ["2026"], "expected": null, "error": "route-unknown"},
+    {"table": "plain", "name": "item", "params": ["a", "b"], "expected": null, "error": "route-unknown"}
+  ],
+  "checks": [
+    {
+      "name": "duplicate names",
+      "table": {
+        "routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "home", "pattern": "/other", "parent": null, "tab": false, "notfound": false}]
+      },
+      "error": "route-duplicate",
+      "route": 1
+    },
+    {
+      "name": "parameter shadows literal",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "item", "pattern": "/item/:item", "parent": 0, "tab": false, "notfound": false},
+          {"name": "new", "pattern": "/item/new", "parent": 0, "tab": false, "notfound": false}
+        ]
+      },
+      "error": "route-shadowed",
+      "route": 2
+    },
+    {
+      "name": "equivalent parameter patterns",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "one", "pattern": "/:one", "parent": 0, "tab": false, "notfound": false},
+          {"name": "two", "pattern": "/:two", "parent": 0, "tab": false, "notfound": false}
+        ]
+      },
+      "error": "route-shadowed",
+      "route": 2
+    },
+    {
+      "name": "canonical literals shadow",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "one", "pattern": "/é", "parent": 0, "tab": false, "notfound": false},
+          {"name": "two", "pattern": "/%C3%A9", "parent": 0, "tab": false, "notfound": false}
+        ]
+      },
+      "error": "route-shadowed",
+      "route": 2
+    },
+    {
+      "name": "parent parameter missing",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "item", "pattern": "/item/:item", "parent": 0, "tab": false, "notfound": false},
+          {"name": "edit", "pattern": "/edit/:other", "parent": 1, "tab": false, "notfound": false}
+        ]
+      },
+      "error": "route-parent-param",
+      "route": 2
+    },
+    {
+      "name": "parent reference invalid",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "item", "pattern": "/item", "parent": 9, "tab": false, "notfound": false}]},
+      "error": "route-parent-param",
+      "route": 1
+    },
+    {
+      "name": "parent cycle",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": 1, "tab": false, "notfound": false}, {"name": "item", "pattern": "/item", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-parent-param",
+      "route": 0
+    },
+    {
+      "name": "invalid item",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "item", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /:",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/:", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /:0bad",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/:0bad", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /:a-b",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/:a-b", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/*",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/*", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/:id?",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/:id?", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/(a)",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/(a)", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/{a}",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/{a}", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/a+",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/a+", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/:a/:a",
+      "table": {
+        "routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/:a/:a", "parent": 0, "tab": false, "notfound": false}]
+      },
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x//y",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x//y", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid /x/../y",
+      "table": {"routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "/x/../y", "parent": 0, "tab": false, "notfound": false}]},
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "invalid //host/x",
+      "table": {
+        "routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "bad", "pattern": "//host/x", "parent": 0, "tab": false, "notfound": false}]
+      },
+      "error": "route-pattern",
+      "route": 1
+    },
+    {"name": "parameterized root", "table": {"routes": [{"name": "home", "pattern": "/:id", "parent": null, "tab": false, "notfound": false}]}, "error": "route-pattern", "route": 0},
+    {
+      "name": "notfound with pattern",
+      "table": {
+        "routes": [{"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false}, {"name": "notfound", "pattern": "/oops", "parent": null, "tab": false, "notfound": true}]
+      },
+      "error": "route-pattern",
+      "route": 1
+    },
+    {
+      "name": "second fallback",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "nf", "pattern": "", "parent": null, "tab": false, "notfound": true},
+          {"name": "nf2", "pattern": "", "parent": null, "tab": false, "notfound": true}
+        ]
+      },
+      "error": "route-shadowed",
+      "route": 2
+    },
+    {"name": "unmatched boot root", "table": {"routes": [{"name": "search", "pattern": "/search", "parent": null, "tab": true, "notfound": false}]}, "error": "route-root", "route": 0},
+    {"name": "boot root absorbed by notfound", "table": {"routes": [{"name": "search", "pattern": "/search", "parent": null, "tab": true, "notfound": false}, {"name": "notfound", "pattern": "", "parent": null, "tab": false, "notfound": true}]}, "error": null, "route": null},
+    {"name": "empty table", "table": {"routes": []}, "error": "route-pattern", "route": 0},
+    {
+      "name": "literal before parameter, partial overlaps allowed",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "new", "pattern": "/item/new", "parent": 0, "tab": false, "notfound": false},
+          {"name": "item", "pattern": "/item/:item", "parent": 0, "tab": false, "notfound": false},
+          {"name": "pair", "pattern": "/:left/x", "parent": 0, "tab": false, "notfound": false},
+          {"name": "other", "pattern": "/y/:right", "parent": 0, "tab": false, "notfound": false}
+        ]
+      },
+      "error": null,
+      "route": null
+    },
+    {
+      "name": "notfound before ordinary routes",
+      "table": {
+        "routes": [
+          {"name": "home", "pattern": "/", "parent": null, "tab": false, "notfound": false},
+          {"name": "nf", "pattern": "", "parent": null, "tab": false, "notfound": true},
+          {"name": "item", "pattern": "/item/:item", "parent": 0, "tab": false, "notfound": false}
+        ]
+      },
+      "error": null,
+      "route": null
+    }
+  ],
+  "sequences": [
+    {
+      "name": "interview retained tabs, repeated visits, and deep links",
+      "table": "interview",
+      "steps": [
+        {
+          "verb": "launch",
+          "arg": "/prompt/5/write?draft=a+b",
+          "expected": {
+            "tab": "prompts",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/prompt/5/write?draft=a+b",
+          "expected": {
+            "tab": "prompts",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "home",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/post/42",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/people/7",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 9
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/post/42",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}, {"id": 9, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 10
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/post/./42?",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}, {"id": 9, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 10
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/people/8",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}, {"id": 9, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 10, "name": "person", "url": "/people/8", "tab": "home", "params": {"person": "8", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/post/42",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}, {"id": 9, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "person", "url": "/people/7", "tab": "home", "params": {"person": "7", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/post/99?x=1&x=2",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "post", "url": "/post/99?x=1&x=2", "tab": "home", "params": {"person": "", "post": "99", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/prompt/5/write?draft=a+b",
+          "expected": {
+            "tab": "prompts",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "post", "url": "/post/99?x=1&x=2", "tab": "home", "params": {"person": "", "post": "99", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "home",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 7, "name": "post", "url": "/post/42", "tab": "home", "params": {"person": "", "post": "42", "question": ""}}, {"id": 8, "name": "post", "url": "/post/99?x=1&x=2", "tab": "home", "params": {"person": "", "post": "99", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "home",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "search",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 11
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/post/42",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "post", "url": "/post/42", "tab": "search", "params": {"person": "", "post": "42", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 12
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/prompt/8?view=all",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 6, "name": "write", "url": "/prompt/5/write?draft=a+b", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 12
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/prompt/5",
+          "expected": {
+            "tab": "prompts",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 12
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/missing/?x=1",
+          "expected": {
+            "tab": "prompts",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 13
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/elsewhere?why=a+b",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 13, "name": "notfound", "url": "/elsewhere?why=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 14
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/elsewhere?why=a+b",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 13, "name": "notfound", "url": "/elsewhere?why=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 14
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "absent",
+          "expected": {
+            "tab": "home",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 13, "name": "notfound", "url": "/elsewhere?why=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 14
+          },
+          "refusal": {"message": "unknown tab absent"}
+        },
+        {
+          "verb": "open",
+          "arg": "/settings",
+          "expected": {
+            "tab": "profile",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 13, "name": "notfound", "url": "/elsewhere?why=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}, {"id": 14, "name": "settings", "url": "/settings", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 15
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/profile",
+          "expected": {
+            "tab": "profile",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}, {"id": 13, "name": "notfound", "url": "/elsewhere?why=a+b", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}, {"id": 5, "name": "question", "url": "/prompt/5", "tab": "prompts", "params": {"person": "", "post": "", "question": "5"}}, {"id": 12, "name": "notfound", "url": "/missing/?x=1", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}, {"id": 11, "name": "question", "url": "/prompt/8?view=all", "tab": "search", "params": {"person": "", "post": "", "question": "8"}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 15
+          },
+          "refusal": null
+        }
+      ]
+    },
+    {
+      "name": "messages ancestor chain, replacement, and refusals",
+      "table": "messages",
+      "steps": [
+        {
+          "verb": "launch",
+          "arg": "/t/a%2fb/contact?draft=1",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "details", "url": "/t/a%2Fb/details", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 3, "name": "newContact", "url": "/t/a%2fb/contact?draft=1", "tab": "inbox", "params": {"thread": "a/b"}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/t/a%2fb/contact?draft=1",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "details", "url": "/t/a%2Fb/details", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 3, "name": "newContact", "url": "/t/a%2fb/contact?draft=1", "tab": "inbox", "params": {"thread": "a/b"}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "details", "url": "/t/a%2Fb/details", "tab": "inbox", "params": {"thread": "a/b"}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/new?to=a+b",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/t/9",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}, {"id": 4, "name": "thread", "url": "/t/9", "tab": "inbox", "params": {"thread": "9"}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/absent",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "no route matches /absent"}
+        },
+        {
+          "verb": "push",
+          "arg": "/absent",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "no route matches /absent"}
+        },
+        {
+          "verb": "replace",
+          "arg": "/absent",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "no route matches /absent"}
+        },
+        {
+          "verb": "go",
+          "arg": "/absent",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 1, "name": "thread", "url": "/t/a%2Fb", "tab": "inbox", "params": {"thread": "a/b"}}, {"id": 2, "name": "compose", "url": "/new?to=a+b", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "no route matches /absent"}
+        },
+        {
+          "verb": "select",
+          "arg": "inbox",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "unknown",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "unknown tab unknown"}
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/?draft=2",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/?draft=2", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 0, "name": "inbox", "url": "/?draft=2", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 5, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}]}
+            ],
+            "next": 6
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/t/%FF",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 5, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 6, "name": "thread", "url": "/t/%FF", "tab": "inbox", "params": {"thread": "�"}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/t/%EF%BF%BD",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 5, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 6, "name": "thread", "url": "/t/%FF", "tab": "inbox", "params": {"thread": "�"}}, {"id": 7, "name": "thread", "url": "/t/%EF%BF%BD", "tab": "inbox", "params": {"thread": "�"}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/t/%FF",
+          "expected": {
+            "tab": "inbox",
+            "tabs": [
+              {"name": "inbox", "stack": [{"id": 5, "name": "inbox", "url": "/", "tab": "inbox", "params": {"thread": ""}}, {"id": 6, "name": "thread", "url": "/t/%FF", "tab": "inbox", "params": {"thread": "�"}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        }
+      ]
+    },
+    {
+      "name": "tabless navigation, query identity, and multiple parameters",
+      "table": "plain",
+      "steps": [
+        {
+          "verb": "launch",
+          "arg": "/",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 1
+          },
+          "refusal": null
+        },
+        {
+          "verb": "back",
+          "arg": null,
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 1
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/item/a%2Fb?x=1&x=2",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}]}
+            ],
+            "next": 2
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/archive/2026/a%2Fb",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 2, "name": "archive", "url": "/archive/2026/a%2Fb", "tab": "landing", "params": {"item": "a/b", "year": "2026"}}]}
+            ],
+            "next": 3
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/item/a%2Fb?x=1&x=2",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 2, "name": "archive", "url": "/archive/2026/a%2Fb", "tab": "landing", "params": {"item": "a/b", "year": "2026"}}, {"id": 3, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}]}
+            ],
+            "next": 4
+          },
+          "refusal": null
+        },
+        {
+          "verb": "push",
+          "arg": "/done",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 2, "name": "archive", "url": "/archive/2026/a%2Fb", "tab": "landing", "params": {"item": "a/b", "year": "2026"}}, {"id": 3, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 4, "name": "done", "url": "/done", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/a%2Fb?x=1&x=2",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 2, "name": "archive", "url": "/archive/2026/a%2Fb", "tab": "landing", "params": {"item": "a/b", "year": "2026"}}, {"id": 3, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/item/a%2Fb?x=2&x=1",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}, {"id": 2, "name": "archive", "url": "/archive/2026/a%2Fb", "tab": "landing", "params": {"item": "a/b", "year": "2026"}}, {"id": 3, "name": "item", "url": "/item/a%2Fb?x=2&x=1", "tab": "landing", "params": {"item": "a/b", "year": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/item/a%2Fb?x=1&x=2",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 1, "name": "item", "url": "/item/a%2Fb?x=1&x=2", "tab": "landing", "params": {"item": "a/b", "year": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/item/café/edit?draft=1",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/item/caf%C3%A9/edit?draft=1",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}]}
+            ],
+            "next": 7
+          },
+          "refusal": null
+        },
+        {
+          "verb": "go",
+          "arg": "/literal/é",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 7, "name": "unicode", "url": "/literal/%C3%A9", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        },
+        {
+          "verb": "open",
+          "arg": "/item/a/",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 7, "name": "unicode", "url": "/literal/%C3%A9", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": {"message": "no route matches /item/a/"}
+        },
+        {
+          "verb": "push",
+          "arg": "/item/a/",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 7, "name": "unicode", "url": "/literal/%C3%A9", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": {"message": "no route matches /item/a/"}
+        },
+        {
+          "verb": "replace",
+          "arg": "/item/a/",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 7, "name": "unicode", "url": "/literal/%C3%A9", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": {"message": "no route matches /item/a/"}
+        },
+        {
+          "verb": "go",
+          "arg": "/item/a/",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}, {"id": 5, "name": "item", "url": "/item/caf%C3%A9", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 6, "name": "edit", "url": "/item/caf%C3%A9/edit?draft=1", "tab": "landing", "params": {"item": "café", "year": ""}}, {"id": 7, "name": "unicode", "url": "/literal/%C3%A9", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": {"message": "no route matches /item/a/"}
+        },
+        {
+          "verb": "select",
+          "arg": "landing",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        },
+        {
+          "verb": "select",
+          "arg": "landing",
+          "expected": {
+            "tab": "landing",
+            "tabs": [
+              {"name": "landing", "stack": [{"id": 0, "name": "landing", "url": "/", "tab": "landing", "params": {"item": "", "year": ""}}]}
+            ],
+            "next": 8
+          },
+          "refusal": null
+        }
+      ]
+    },
+    {
+      "name": "root replace accepts its query and refuses another route",
+      "table": "interview",
+      "steps": [
+        {
+          "verb": "launch",
+          "arg": "/search",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/search?q=hello",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search?q=hello", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": null
+        },
+        {
+          "verb": "replace",
+          "arg": "/post/42",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search?q=hello", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "replace cannot change the tab's root route"}
+        },
+        {
+          "verb": "replace",
+          "arg": "/profile",
+          "expected": {
+            "tab": "search",
+            "tabs": [
+              {"name": "home", "stack": [{"id": 0, "name": "home", "url": "/", "tab": "home", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "prompts", "stack": [{"id": 1, "name": "prompts", "url": "/prompts", "tab": "prompts", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "messages", "stack": [{"id": 2, "name": "messages", "url": "/messages", "tab": "messages", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "search", "stack": [{"id": 3, "name": "search", "url": "/search?q=hello", "tab": "search", "params": {"person": "", "post": "", "question": ""}}]},
+              {"name": "profile", "stack": [{"id": 4, "name": "profile", "url": "/profile", "tab": "profile", "params": {"person": "", "post": "", "question": ""}}]}
+            ],
+            "next": 5
+          },
+          "refusal": {"message": "replace cannot change the tab's root route"}
+        }
+      ]
+    }
+  ],
+  "reads": [
+    {"sequence": 0, "step": 0, "name": "question", "expected": ["5", "5"]},
+    {"sequence": 0, "step": 5, "name": "post", "expected": ["42", "42"]},
+    {"sequence": 1, "step": 0, "name": "thread", "expected": ["a/b", "a/b", "a/b"]},
+    {"sequence": 2, "step": 4, "name": "item", "expected": ["a/b", "a/b", "a/b"]},
+    {"sequence": 2, "step": 4, "name": "year", "expected": ["2026"]},
+    {"sequence": 2, "step": 4, "name": "absent", "expected": []}
+  ],
+  "laws": [
+    {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r)"},
+    {"name": "back_root", "statement": "back(r) = r when depth(r) = 1"},
+    {"name": "select_twice", "statement": "select(select(r, t), t) has depth 1"},
+    {"name": "open_idempotent", "statement": "open(open(r, u), u) = open(r, u)"},
+    {"name": "replace_id", "statement": "top(replace(r, u)).id = top(r).id"},
+    {"name": "go_top", "statement": "go(r, top(r).url) = r"},
+    {"name": "unique_ids", "statement": "ids in any reachable value are distinct and next exceeds them all"},
+    {"name": "entry_roundtrip", "statement": "every entry url is canonical and match(url) gives back its name and params"},
+    {"name": "canonical_idempotent", "statement": "canonical is idempotent and agrees with Chrome on the fixture set"}
+  ],
+  "law_locations": {"interview": ["/", "/post/42", "/prompt/5/write?x=1", "/unknown/"], "messages": ["/", "/t/7/contact", "/new?x=1"], "plain": ["/", "/item/7/edit", "/archive/2026/a%2Fb"]},
+  "oracle": {"browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36", "date": "2026-09-14", "canonical": "const u = new URL(\"https://x\" + (input.startsWith(\"/\") ? input : \"/\" + input)); u.pathname + u.search", "components": "encodeURIComponent(input)", "search": "new URL(url, \"https://x\").searchParams.get(name) ?? \"\""},
+  "decisions": {"replace_root": "At depth 1, replace accepts only the tab's own root route (query or parameter changes), retaining its id; a different route leaves the value unchanged with one refusal.", "chain_leaf": "The leaf preserves its canonical incoming location, including query and escape spelling; ancestors format only their own parameters.", "parameter_names": "Whole-segment ASCII identifiers: [A-Za-z_$][A-Za-z0-9_$]*.", "ids": "Seed roots in declared tab order from zero before opening the launch chain; refuse before next exceeds the largest exactly representable JavaScript integer."}
+}

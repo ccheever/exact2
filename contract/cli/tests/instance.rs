@@ -34,6 +34,69 @@ fn corpus(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+#[test]
+fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
+    #[derive(Default)]
+    struct Profile {
+        saved: Vec<Value>,
+    }
+    impl DataSource for Profile {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(match source {
+                "app" => Value::record(vec![
+                    Value::Bool(false),
+                    Value::record(vec![Value::str("1"), Value::str("Alice")]),
+                ]),
+                "command" => {
+                    self.saved.push(args[1].clone());
+                    Value::record(vec![Value::Bool(true)])
+                }
+                _ => return Err(DataError::UnknownSource(source.into())),
+            })
+        }
+    }
+    let source = corpus("instance-args.contract");
+    for source in [
+        source.clone(),
+        source
+            .replace("      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}`\n          Screen(entry=e, data=data, save=save)", "      provide data = data\n        provide save = save\n          each e in stack(nav) key=e.id\n            column navigationKey=`${e.id}`\n              Screen(entry=e)")
+            .replace("    data: App", "  inject\n    data: App"),
+    ] {
+        let plan = contract::compile(&source).unwrap();
+        let mut r = Runner::boot(
+            exact_plan::Plan::decode(&plan.encode()).unwrap(),
+            Profile::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let view = |r: &Runner<Profile>, id: &str| {
+            r.kernel()
+                .node_by_key(r.kernel().find_by_test_id(id)[0])
+                .unwrap()
+                .id
+        };
+        r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
+        r.dispatch(
+            view(&r, "profile-name"),
+            Event::Change("Edited Alice".into()),
+        )
+        .unwrap();
+        r.dispatch(view(&r, "save-profile"), Event::Press).unwrap();
+        assert_eq!(r.data_ref().saved, [Value::str("Alice"), Value::str("Edited Alice")]);
+    }
+    let invalid = source.replace("editingProfile = false", "editingProfile = 0");
+    let error = contract::compile(&invalid).unwrap_err();
+    let line = invalid
+        .lines()
+        .position(|line| line.contains("derive profileName"))
+        .unwrap()
+        + 1;
+    assert_eq!(error.id, "type-condition");
+    assert_eq!(error.span.0 as usize, line);
+}
+
 fn text_of(r: &Runner<Stations>, id: &str) -> String {
     let k = r.kernel();
     let key = k.find_by_test_id(id)[0];
@@ -58,7 +121,14 @@ fn view_of(r: &Runner<Stations>, id: &str) -> u32 {
 fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     let plan = contract::compile(&corpus("instance.contract")).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
-    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     // Two uses of Counter: two states, two derives, two actions.
     assert_eq!(text_of(&r, "count-text-a"), "a 0 0");
     let a = view_of(&r, "count-a");
@@ -105,7 +175,14 @@ fn a_child_may_not_own_a_resource() {
 fn child_derives_resolve_in_either_order_without_capturing_the_parent() {
     let src = "component App\n  state a = 100\n  view\n    column\n      Forward()\n      Ordered()\ncomponent Forward\n  state n = 2\n  derive b = a * 2\n  derive a = n + 1\n  view\n    text `${a} ${b}` testId=\"forward\"\ncomponent Ordered\n  state n = 2\n  derive a = n + 1\n  derive b = a * 2\n  view\n    text `${a} ${b}` testId=\"ordered\"\n";
     let plan = contract::compile(src).unwrap();
-    let r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(text_of(&r, "forward"), "3 6");
     assert_eq!(text_of(&r, "ordered"), "3 6");
 
@@ -132,9 +209,15 @@ fn a_row_initializer_must_conform_before_the_row_is_published() {
     b.set_slot_init(SlotsId(slot as u32), wrong);
     let malformed = b.finish().unwrap();
 
-    let error = Runner::boot(malformed, Stations, Kernel::with_monospace())
-        .err()
-        .unwrap();
+    let error = Runner::boot(
+        malformed,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .err()
+    .unwrap();
     assert!(matches!(error, RunnerError::SlotType { slot } if slot == name));
 }
 
@@ -142,7 +225,14 @@ fn a_row_initializer_must_conform_before_the_row_is_published() {
 fn an_action_parameter_shadows_a_same_named_child_prop() {
     let src = "component App\n  view\n    Capture(value=\"prop\")\ncomponent Capture\n  props\n    value: string\n  state seen = \"\"\n  action capture(value: string) writes seen\n    seen = value\n  view\n    column\n      input value=seen change=capture testId=\"capture-input\"\n      text seen testId=\"capture-result\"\n";
     let plan = contract::compile(src).unwrap();
-    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let input = view_of(&r, "capture-input");
     r.dispatch(input, Event::Change("payload".into())).unwrap();
     assert_eq!(text_of(&r, "capture-result"), "payload");
@@ -153,7 +243,14 @@ fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
     let src = "shape Station\n  id: string\n  name: string\ncomponent App\n  state item = \"root collision\"\n  state visible = true\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        each item in stations key=item.id\n          when visible\n            ScopedRow(outer=outer, item=item)\ncomponent ScopedRow\n  props\n    outer: Station\n    item: Station\n  state selected = item.name\n  state result = \"\"\n  action choose writes result\n    result = `${outer.name}/${item.name}`\n  view\n    column\n      text selected testId=`selected-${outer.id}-${item.id}`\n      button \"choose\" press=choose testId=`choose-${outer.id}-${item.id}`\n      text result testId=`result-${outer.id}-${item.id}`\n";
     let plan = contract::compile(src).unwrap();
     let plan = contract::bake(plan, Stations).unwrap();
-    let mut r = Runner::boot(plan, Stations, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(text_of(&r, "selected-mv-pa"), "Palo Alto");
     let choose = view_of(&r, "choose-mv-pa");
     r.dispatch(choose, Event::Press).unwrap();
@@ -192,7 +289,14 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
         button "empty" press=toggle testId="empty"
 "#;
     let plan = contract::compile(source).unwrap();
-    let mut runner = Runner::boot(plan, Keys, Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        Keys,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let before = runner.kernel().find_by_test_id("key-0")[0];
     let receipt = runner.act("flip", vec![]).unwrap();
     assert!(receipt.created.is_empty() && receipt.destroyed.is_empty());

@@ -6,6 +6,9 @@ use exact_plan::Value;
 /// the clock. A logic edit re-asks resources rather than preserving old answers.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Carried {
+    /// Router slot name and its value decoded through the old plan's shapes.
+    /// @ref LLP 1038 D5 — preserves named params when their field order changes.
+    pub router: Option<(String, exact_route::Router)>,
     /// The replaceable data module that produced these resource answers.
     pub data_revision: Option<String>,
     /// Preserve kept-answer persistence when a live candidate is already loaded.

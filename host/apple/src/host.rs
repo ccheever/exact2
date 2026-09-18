@@ -5,11 +5,10 @@
 //!
 //! After every commit the host walks the receipt (destroy, create, props,
 //! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), lays the roots out with the kernel's layout under the viewport,
-//! emits every parent-relative frame that changed and every scroll
-//! container's content size that changed, then feeds the motion engine the
-//! commit (LLP 1003 §4), seeks it to the app's clock, and emits each
-//! presentation value that changed. The kernel is the single source of
+//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
+//! the app's clock before laying out the roots under the viewport. Layout
+//! projects the explicitly registered Height, then emits changed frames and
+//! scroll content sizes; other presentation values follow. The kernel is the single source of
 //! truth; the mirror is a memo of what the presenter has been told.
 
 use crate::batch::Batch;
@@ -19,11 +18,33 @@ use exact_kernel::{
     Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
     TextMeasurer, ViewId,
 };
-use exact_motion::{Change, Engine, Property};
+use exact_motion::{Change, Engine, HoldToken, Property};
+
+#[path = "content_region/host.rs"]
+mod content_region_host;
+#[path = "height.rs"]
+mod height;
+#[path = "height_drag.rs"]
+mod height_drag;
+#[cfg(test)]
+#[path = "height_tests.rs"]
+mod height_tests;
+#[path = "holds.rs"]
+mod holds;
+#[cfg(test)]
+#[path = "transform_drag_tests.rs"]
+mod transform_drag_tests;
 use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
+pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
+use height_drag::{HeightDrag, HeightHandle};
+#[path = "transform_drag.rs"]
+mod transform_drag;
+#[path = "transform_drag_wire.rs"]
+mod transform_drag_wire;
 use ibex2::host::Secrets;
 use std::collections::BTreeMap;
+use transform_drag::TransformDrags;
 
 /// Why the host refused.
 #[allow(missing_docs)]
@@ -33,6 +54,7 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    RuntimeIdExhausted,
 }
 
 impl std::fmt::Display for HostError {
@@ -56,7 +78,19 @@ pub struct Host<D: DataSource> {
     mirror: BTreeMap<ViewId, Mirror>,
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
+    /// Last published common collection snapshot; refreshed only after layout.
+    collections_json: String,
     engine: Engine,
+    holds: BTreeMap<u64, HoldToken>,
+    height_owner: Option<NodeKey>,
+    height_handles: BTreeMap<NodeKey, HeightHandle>,
+    height_auto_owned: bool,
+    height_drag: Option<HeightDrag>,
+    transform_drags: TransformDrags,
+    content_region: Option<crate::content_region::RegionState>,
+    height_projection: Option<(NodeKey, f32)>,
+    #[cfg(test)]
+    layout_calls: usize,
     viewport: (f32, f32),
     now_ms: f64,
     /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
@@ -142,6 +176,8 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             None,
+            "/",
+            None,
             |_| {},
         )?;
         host.commit_boot();
@@ -164,6 +200,8 @@ impl<D: DataSource> Host<D> {
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -186,8 +224,27 @@ impl<D: DataSource> Host<D> {
             }
             facts
         });
-        let runner = Runner::boot_with_delivery(plan, data, kernel, carried, snapshot, facts)
-            .map_err(HostError::Runner)?;
+        let mut runner = Runner::boot_with_delivery(
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            facts,
+            exact_runner::Viewport {
+                width: width as f64,
+                height: height as f64,
+            },
+            launch,
+        )
+        .map_err(HostError::Runner)?;
+        if let Some(action) = region.and_then(|r| r.activate) {
+            runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
+        let content_region = region
+            .map(|r| crate::content_region::RegionState::new(runner.kernel_mut(), r))
+            .transpose()
+            .map_err(HostError::Layout)?;
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
@@ -196,7 +253,18 @@ impl<D: DataSource> Host<D> {
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
+            collections_json: "[]".into(),
             engine: Engine::new(),
+            holds: BTreeMap::new(),
+            height_owner: None,
+            height_handles: BTreeMap::new(),
+            height_auto_owned: false,
+            height_drag: None,
+            transform_drags: TransformDrags::new()?,
+            content_region,
+            height_projection: None,
+            #[cfg(test)]
+            layout_calls: 0,
             viewport: (width, height),
             now_ms: 0.0,
             data_activated: false,
@@ -216,6 +284,10 @@ impl<D: DataSource> Host<D> {
         batch.roots(&host.roots.clone());
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = host.runner.take_router_change() {
+            batch.router(&change);
         }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
@@ -238,10 +310,12 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
         // point on a dev reload.
+        host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
         let timers = host.runner.has_timers();
         let motion = !host.engine.quiescent();
@@ -405,6 +479,26 @@ impl<D: DataSource> Host<D> {
         self.runner.take_requests()
     }
 
+    /// Admission failures remain on the runner's current tickets, not a queue.
+    pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
+        self.runner.refuse_request(ticket, reason, ordered);
+    }
+
+    /// Take one admission failure through the usual settlement path.
+    pub fn take_request_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
+        self.runner.take_request_refusal(allow_ordered)
+    }
+
+    /// Ordered refusals hold later ordered dispatch until they settle or are forgotten.
+    pub fn has_ordered_request_refusals(&self) -> bool {
+        self.runner.has_ordered_request_refusals()
+    }
+
+    /// Whether another pump must settle an admission failure.
+    pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
+        self.runner.has_request_refusals(allow_ordered)
+    }
+
     /// The outcomes the executor brought back, oldest first, as one batch:
     /// each reply is a commit at `now_ms` (a ticket no longer held commits
     /// nothing); a reply the source cannot shape is the batch's error and
@@ -427,6 +521,32 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.commit(&receipts, error)
+    }
+
+    /// Strict common LE viewport feedback, with no event/resource/timer dispatch.
+    /// Stale or malformed facts leave layout and the motion clock untouched.
+    /// Only a runner receipt enters the ordinary native view commit path.
+    pub fn collection_feedback(&mut self, bytes: &[u8], now_ms: f64) -> String {
+        if !(0.0..=exact_runner::MAX_CLOCK_MS).contains(&now_ms) {
+            return self.finish(
+                Batch::new(),
+                Some("invalid collection feedback time".into()),
+            );
+        }
+        match self.runner.collection_feedback_bytes(bytes) {
+            Ok(Some(receipt)) => {
+                self.now_ms = self.now_ms.max(now_ms);
+                self.commit(
+                    &[Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }],
+                    None,
+                )
+            }
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(error) => self.finish(Batch::new(), Some(format!("{error:?}"))),
+        }
     }
 
     /// A presenter's line for the runner's journal (LLP 1012 §3): a refused
@@ -497,7 +617,21 @@ impl<D: DataSource> Host<D> {
     /// The viewport changed: lay out again; the batch carries the frames
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
+        // @ref LLP 1039 D2 — merge re-answer and relayout, once.
+        let receipt = match self.runner.set_viewport(width as f64, height as f64) {
+            Ok(receipt) => receipt,
+            Err(e) => return self.finish(Batch::new(), Some(format!("viewport: {e:?}"))),
+        };
         self.viewport = (width, height);
+        if let Some(receipt) = receipt {
+            return self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            );
+        }
         let mut batch = Batch::new();
         let error = self.layout(&mut batch).err();
         self.finish(batch, error)
@@ -570,84 +704,6 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// A horizontal platform drag holds translate; release returns to its
-    /// authored target under the authored transition, carrying velocity.
-    pub fn drag_x(
-        &mut self,
-        view: ViewId,
-        delta: f64,
-        velocity: f64,
-        release: bool,
-        now_ms: f64,
-    ) -> String {
-        let mut batch = Batch::new();
-        if ![delta, velocity, now_ms].iter().all(|v| v.is_finite()) {
-            return self.finish(batch, Some("drag requires finite values".into()));
-        }
-        let Some(node) = self.runner.kernel().node(view) else {
-            return self.finish(batch, Some("drag target is gone".into()));
-        };
-        let key = motion_node(node.key);
-        let target = targets(node.style)
-            .into_iter()
-            .find(|(p, _)| *p == Property::Translate)
-            .unwrap()
-            .1;
-        // The app authors the indicator as a direct child. The gesture holds
-        // its existing style rows; it owns no additional visual/state graph.
-        let indicators: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter_map(|id| {
-                let child = self.runner.kernel().node(id)?;
-                (child.props.bool(PropId::SwipeIndicator) == Some(true))
-                    .then(|| (motion_node(child.key), targets(child.style)))
-            })
-            .collect();
-        self.now_ms = now_ms.max(self.now_ms);
-        let result = self.engine.advance(self.now_ms / 1000.0).and_then(|()| {
-            if release {
-                self.engine.observe(Change {
-                    node: key,
-                    property: Property::Translate,
-                    value: target,
-                    velocity: Some(exact_motion::Value::new(velocity, 0.0)),
-                })
-            } else {
-                self.engine.hold(
-                    key,
-                    Property::Translate,
-                    exact_motion::Value::new(target.x + delta, target.y),
-                )
-            }?;
-            let progress = (delta / 64.0).clamp(0.0, 1.0);
-            for (indicator, values) in &indicators {
-                for &(property, value) in values {
-                    if !matches!(property, Property::Opacity | Property::Scale) {
-                        continue;
-                    }
-                    if release {
-                        self.engine.observe(Change {
-                            node: *indicator,
-                            property,
-                            value,
-                            velocity: None,
-                        })?;
-                    } else {
-                        self.engine.hold(
-                            *indicator,
-                            property,
-                            exact_motion::Value::scalar(value.x + (1.0 - value.x) * progress),
-                        )?;
-                    }
-                }
-            }
-            Ok(())
-        });
-        self.present(&mut batch, false);
-        self.finish(batch, result.err().map(|e| format!("drag: {e:?}")))
-    }
-
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {
@@ -655,8 +711,14 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let error = self.height_layout_if_needed(&mut batch).err();
+        // Only suspended ancestor mappings need a settle recheck. Normal
+        // photo Translate/Scale frames keep the existing cheap tick path.
+        if self.transform_drags.mapping_pending {
+            self.emit_transform_drags(&mut batch);
+        }
         self.present(&mut batch, false);
-        self.finish(batch, None)
+        self.finish(batch, error)
     }
 
     fn finish(&self, batch: Batch, error: Option<String>) -> String {
@@ -669,12 +731,21 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> String {
-        let mut batch = Batch::new();
+        self.commit_into(receipts, error, Batch::new())
+    }
+
+    fn commit_into(
+        &mut self,
+        receipts: &[Timed],
+        error: Option<String>,
+        mut batch: Batch,
+    ) -> String {
         for t in receipts {
             let r = &t.receipt;
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
+                    self.transform_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -708,25 +779,14 @@ impl<D: DataSource> Host<D> {
             self.roots = roots.clone();
             batch.roots(&roots);
         }
-        let layout_error = if receipts.is_empty() {
-            None
-        } else {
-            self.layout(&mut batch).err()
-        };
-        for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
-        }
-        // The capabilities the actions called, after their commits, in order.
-        for c in self.runner.take_commands() {
-            batch.command(&c.name, &c.args);
-        }
-        self.persist();
-        // Motion last, each commit at its own time: targets are in place
-        // before the engine hears them, and a transition a timer started is
-        // born at that timer's due time — so one seek and sixty give the same
-        // bits (LLP 1002 D3; LLP 1012).
+        // Runner receipts retain due-time order. Unobserved motion starts at
+        // that due time; a late receipt cannot rewind an already presented
+        // frame/hold. Match Web's floor at the engine's current presentation
+        // time, not this batch's final time. No timer work enters pointer moves.
         for t in receipts {
-            let seek = self.engine.advance(t.at_ms / 1000.0);
+            let seek = self
+                .engine
+                .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let applied = self
                 .runner
@@ -734,9 +794,34 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.reconcile_height_handles(&mut batch, true);
+            let synced = self.sync_height_owner();
+            debug_assert!(synced.is_ok(), "validated height sync");
+            // Latest target/declaration must reach the held slot before an
+            // invalidated header cancels it (negative delays sample at once).
+            self.cancel_invalid_height_drag();
+            self.reconcile_transform_drags(&mut batch);
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let layout_error = if receipts.is_empty() {
+            self.height_layout_if_needed(&mut batch).err()
+        } else {
+            self.layout(&mut batch).err()
+        };
+        for s in self.runner.take_surface_updates() {
+            batch.surface(s.view, &s.name, &s.values);
+        }
+        // The capabilities the actions called, after their commits, in order.
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = self.runner.take_router_change() {
+            batch.router(&change);
+        }
+        for c in self.runner.take_commands() {
+            batch.command(&c.name, &c.args);
+        }
+        self.persist();
+        self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error.or(layout_error))
     }
@@ -744,13 +829,25 @@ impl<D: DataSource> Host<D> {
     /// Lay every root out under the viewport and emit the parent-relative
     /// frames and scroll content sizes that changed.
     fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.layout_calls += 1;
+        }
+        self.sync_height_owner()?;
+        let sample = self.height_sample()?;
+        let projection = self.presented_height(sample);
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
-            self.runner
-                .kernel_mut()
-                .compute_layout(root, Offer::definite(w, h))
-                .map_err(|e| format!("layout: {e:?}"))?;
+            if self.content_region.is_some() {
+                self.region_layout(root, Offer::definite(w, h), batch)?;
+            } else {
+                self.runner
+                    .kernel_mut()
+                    .compute_layout_presented(root, Offer::definite(w, h), projection)
+                    .map_err(|e| format!("layout: {e:?}"))?;
+            }
         }
+        self.height_projection = sample;
         for id in self.preorder() {
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {
@@ -788,6 +885,13 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        // Layout/receipt work may change the live window. Motion-only ticks and
+        // stale feedback never traverse the tree to collect this metadata.
+        let collections = self.runner.collections_json();
+        if collections != self.collections_json {
+            batch.collections(&collections);
+            self.collections_json = collections;
+        }
         Ok(())
     }
 
@@ -796,8 +900,12 @@ impl<D: DataSource> Host<D> {
     /// starts every view at identity, and the four motion rows are never in
     /// the style dictionary.
     fn present(&mut self, batch: &mut Batch, boot: bool) {
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
-            if boot && p.value == p.property.identity() {
+            if p.property == Property::Height {
+                continue;
+            }
+            if boot && p.property.identity() == Some(p.value) {
                 continue;
             }
             let key = NodeKey {
@@ -843,6 +951,17 @@ impl<D: DataSource> Host<D> {
             .into_iter()
             .map(|e| e.name())
             .collect();
+        if handlers.contains(&"heightrelease") {
+            self.track_height_handle(id);
+        }
+        if handlers.contains(&"transformgeometry") || handlers.contains(&"transformrelease") {
+            self.transform_drags.insert(
+                id,
+                key,
+                handlers.contains(&"transformgeometry"),
+                handlers.contains(&"transformrelease"),
+            );
+        }
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, kind, &pairs, &style, &handlers);
@@ -964,6 +1083,11 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         let _: PropId = id;
         out.insert(id.name().to_string(), text);
+    }
+    if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
+        // The runner preserves collection anchors and follows the end using
+        // sequence-checked corrections. Eager native autoscroll would compete.
+        out.remove(PropId::ScrollFollowEnd.name());
     }
     if node.node_type == NodeType::TextInput {
         out.remove("spellcheck");

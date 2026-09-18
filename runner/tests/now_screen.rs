@@ -132,6 +132,8 @@ fn carried_resources_keep_their_store_dependency_across_reload() {
         CarriedStoreSource::default(),
         Kernel::with_monospace(),
         vec![("token".into(), "old".into())],
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(runner.data().remember_asks, 1);
@@ -144,6 +146,8 @@ fn carried_resources_keep_their_store_dependency_across_reload() {
         CarriedStoreSource::default(),
         Kernel::with_monospace(),
         &carried,
+        Default::default(),
+        "/",
     )
     .unwrap();
     assert_eq!(
@@ -470,7 +474,14 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
 
 fn boot() -> Runner<Schedule> {
     let (plan, _) = now_screen();
-    Runner::boot(plan, Schedule::default(), Kernel::with_monospace()).unwrap()
+    Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
 }
 
 fn text_by_test_id(r: &Runner<Schedule>, test_id: &str) -> Option<String> {
@@ -506,7 +517,14 @@ fn the_plan_round_trips_through_bytes_and_boots_to_the_expected_tree() {
     let bytes = plan.encode();
     let decoded = Plan::decode(&bytes).unwrap();
     assert_eq!(decoded, plan);
-    let r = Runner::boot(decoded, Schedule::default(), Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        decoded,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(r.roots().len(), 1);
     // Compiled data needs no query; the state-argument resource is requested once at boot.
     assert_eq!(
@@ -643,6 +661,8 @@ fn an_iframe_message_records_its_string_payload() {
         b.finish().unwrap(),
         Schedule::default(),
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     let iframe = r.roots()[0];
@@ -738,7 +758,13 @@ fn commands_exit_the_side_and_refusals_leave_the_kernel_untouched() {
     let (mut plan, _) = now_screen();
     plan.kernel_schema_digest ^= 1;
     assert!(matches!(
-        Runner::boot(plan, Schedule::default(), Kernel::with_monospace()),
+        Runner::boot(
+            plan,
+            Schedule::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/"
+        ),
         Err(RunnerError::KernelSchemaMismatch { .. })
     ));
 }
@@ -770,7 +796,14 @@ impl DataSource for Flaky {
 #[test]
 fn a_settlement_refusal_publishes_no_partial_resource_state() {
     let (plan, _) = now_screen();
-    let mut r = Runner::boot(plan, Flaky { calls: 0 }, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Flaky { calls: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let before = r.resource("board").cloned();
     // selectStation("pa") re-requests `board`; the source now refuses.
     let err = r.act("selectStation", vec![Value::str("pa")]).unwrap_err();
@@ -809,7 +842,7 @@ fn values_conform_to_declared_types_at_every_boundary() {
     b.set_slot_init(exact_plan::SlotsId(2), text); // nowMs: number
     plan = b.finish().unwrap();
     assert!(matches!(
-        Runner::boot(plan, Schedule::default(), Kernel::with_monospace()),
+        Runner::boot(plan, Schedule::default(), Kernel::with_monospace(), Default::default(), "/"),
         Err(RunnerError::SlotType { ref slot }) if slot == "nowMs"
     ));
 }
@@ -828,9 +861,15 @@ fn a_region_at_the_plan_root_is_refused() {
     }
     plan.nodes.remove(0);
     plan.validate().unwrap_or_else(|e| panic!("{e:?}"));
-    let err = Runner::boot(plan, Schedule::default(), Kernel::with_monospace())
-        .err()
-        .unwrap();
+    let err = Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .err()
+    .unwrap();
     assert!(matches!(
         err,
         RunnerError::RootRegion | RunnerError::NotOneRoot(_)
@@ -856,9 +895,15 @@ impl DataSource for Duplicates {
 #[test]
 fn keys_follow_one_rule_and_a_poisoned_runner_leaks_no_commands() {
     let (plan, _) = now_screen();
-    let err = Runner::boot(plan.clone(), Duplicates, Kernel::with_monospace())
-        .err()
-        .unwrap();
+    let err = Runner::boot(
+        plan.clone(),
+        Duplicates,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .err()
+    .unwrap();
     assert!(matches!(
         err,
         RunnerError::Instance(exact_runner::instance::InstanceError::DuplicateKey { .. })
@@ -885,7 +930,14 @@ fn keys_follow_one_rule_and_a_poisoned_runner_leaks_no_commands() {
         }
     }
     let (plan, _) = now_screen();
-    let mut r = Runner::boot(plan, LateDuplicates { calls: 0 }, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        LateDuplicates { calls: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     r.act("setDark", vec![Value::str("dark")]).unwrap();
     let err = r
         .act("selectStation", vec![Value::str("pa")])
@@ -907,22 +959,24 @@ fn keys_follow_one_rule_and_a_poisoned_runner_leaks_no_commands() {
 fn the_journal_is_a_ring_and_logs_reports_where_its_window_starts() {
     use exact_runner::JOURNAL_RING;
     let mut r = boot();
-    // The boot line, then more lines than the ring holds: the oldest go.
+    let boot_lines = r.journal_start() + r.journal().count();
+    // The boot journal, then more lines than the ring holds: the oldest go.
     for i in 0..JOURNAL_RING + 10 {
         r.log(format!("line {i}"));
     }
     assert_eq!(
         r.journal_start(),
-        11,
-        "the boot line and ten more were dropped"
+        boot_lines + 10,
+        "the boot journal and ten more lines were dropped"
     );
     assert_eq!(r.journal().count(), JOURNAL_RING);
     assert_eq!(r.journal().next(), Some("t=0 line 10"));
     let logs = exact_runner::agent::logs(&r, 0);
-    let total = JOURNAL_RING + 11;
+    let from = boot_lines + 10;
+    let total = JOURNAL_RING + from;
     assert!(
         logs.starts_with(&format!(
-            "{{\"next\":{total},\"from\":11,\"lines\":[\"t=0 line 10\""
+            "{{\"next\":{total},\"from\":{from},\"lines\":[\"t=0 line 10\""
         )),
         "{}",
         &logs[..80]
@@ -962,7 +1016,14 @@ fn an_advance_stops_at_a_refusing_timer_with_the_refusal_and_the_clock() {
         }
     }
     let (plan, _) = now_screen();
-    let mut r = Runner::boot(plan, Dupes { calls: 0 }, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Dupes { calls: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     // One timer fires cleanly first: its commit is kept and timed.
     let ok = r.advance_timed(1_500.0);
     assert_eq!(ok.receipts.len(), 1);
@@ -1003,6 +1064,8 @@ fn clock_seeks_have_an_exact_domain_and_a_bounded_catch_up() {
         Schedule::default(),
         Kernel::with_monospace(),
         &carried,
+        Default::default(),
+        "/",
     )
     .err()
     .unwrap();
@@ -1041,12 +1104,21 @@ fn app_identity_gate() {
     let (mut plan, _) = now_screen();
     plan.app_id = "com.exact.other".to_string();
     // Unnamed host: anything boots.
-    assert!(Runner::boot(plan.clone(), Schedule::default(), Kernel::with_monospace()).is_ok());
+    assert!(Runner::boot(
+        plan.clone(),
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/"
+    )
+    .is_ok());
     // Named host, foreign plan: refused, both names in the error.
     match Runner::boot(
         plan.clone(),
         Named(Schedule::default()),
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     ) {
         Err(RunnerError::AppMismatch { plan, host }) => {
             assert_eq!(plan, "com.exact.other");
@@ -1060,9 +1132,18 @@ fn app_identity_gate() {
     assert!(Runner::boot(
         plan.clone(),
         Named(Schedule::default()),
-        Kernel::with_monospace()
+        Kernel::with_monospace(),
+        Default::default(),
+        "/"
     )
     .is_ok());
     plan.app_id = String::new();
-    assert!(Runner::boot(plan, Named(Schedule::default()), Kernel::with_monospace()).is_ok());
+    assert!(Runner::boot(
+        plan,
+        Named(Schedule::default()),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/"
+    )
+    .is_ok());
 }

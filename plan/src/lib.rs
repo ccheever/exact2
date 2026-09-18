@@ -205,6 +205,47 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        // @ref LLP 1038 D2 — declaration order and the one root router slot.
+        let mut notfound = false;
+        for (i, route) in self.routes.iter().enumerate() {
+            let bad = |field| PlanError::BadReference {
+                table: "routes",
+                row: i as u32,
+                field,
+            };
+            if route.parent.is_some_and(|parent| parent.0 as usize >= i) {
+                return Err(bad("parent"));
+            }
+            if route.notfound && notfound {
+                return Err(bad("notfound"));
+            }
+            notfound |= route.notfound;
+        }
+        if let Some(id) = self.router {
+            let slot = self.slot(id);
+            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() {
+                return Err(PlanError::BadReference {
+                    table: "header",
+                    row: 0,
+                    field: "router",
+                });
+            }
+        }
+        // @ref LLP 1038 D5 — compiled data and its argument list form one cache entry.
+        for (i, resource) in self.resources.iter().enumerate() {
+            let valid = if resource.initial.len == 0 {
+                resource.initial_args.len == 0
+            } else {
+                matches!(Value::from_bytes(self.bytes(resource.initial_args)), Ok(Value::List(args)) if args.len() == resource.args.len as usize)
+            };
+            if !valid {
+                return Err(PlanError::BadReference {
+                    table: "resources",
+                    row: i as u32,
+                    field: "initial_args",
+                });
+            }
+        }
         for (i, r) in self.regions.iter().enumerate() {
             let want = match r.kind {
                 RegionKind::When | RegionKind::Match => 2,

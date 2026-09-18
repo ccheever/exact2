@@ -1,0 +1,40 @@
+// @ref LLP 1017 P4a/P4c — derived row state curried into an action prop.
+routes nav
+  tab home "/"
+    post "/post/:post"
+  notfound
+shape Viewer
+  id: string
+  name: string
+shape App
+  ios: bool
+  viewer: Viewer
+shape Result
+  ok: bool
+component App
+  resource data = app(started) as shape App
+  mutation outcome as shape Result
+  state started = true
+  action save(name: string) writes outcome
+    send outcome = command("profile", name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}`
+          Screen(entry=e, data=data, save=save)
+component Screen
+  props
+    entry: Entry
+    data: App
+    save: action
+  state editingProfile = false
+  state editName = ""
+  derive profileName = (editingProfile ? editName : data.viewer.name)
+  action edit(value: string) writes editName, editingProfile
+    editingProfile = true
+    editName = value
+  view
+    column
+      input value=profileName change=edit placeholder="name" testId="profile-name"
+      button press=save(profileName) testId="save-profile"
+        text "save"

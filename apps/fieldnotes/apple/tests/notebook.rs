@@ -395,8 +395,14 @@ fn mixed_backup_and_repeated_delete_after_reload_refresh_the_visible_library() {
         root.0.join("temporary"),
     )
     .unwrap();
-    let mut runner =
-        Runner::boot(Plan::decode(PLAN).unwrap(), data, Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        Plan::decode(PLAN).unwrap(),
+        data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     runner.data().activate().unwrap();
     runner.data_ready().unwrap();
     settle(&mut runner);
@@ -435,6 +441,8 @@ fn mixed_backup_and_repeated_delete_after_reload_refresh_the_visible_library() {
         data,
         Kernel::with_monospace(),
         &carried,
+        Default::default(),
+        "/",
     )
     .unwrap();
     runner.data().activate().unwrap();

@@ -12,6 +12,9 @@
 //! away. There is no tree diff: a keyed row keeps its views across reorders
 //! because its key, not its position, is its identity.
 
+/// Variable-height viewport collections and their portable host feedback seam.
+pub mod collection;
+mod dependencies;
 mod heights;
 mod text;
 mod window;
@@ -32,10 +35,21 @@ pub enum InstanceError {
     Bridge(bridge::BridgeError),
     UnknownNodeType(u8),
     List(&'static str),
-    SubjectKind { region: RegionsId },
-    KeyKind { region: RegionsId },
-    DuplicateKey { region: RegionsId },
-    SlotType { slot: String },
+    SubjectKind {
+        region: RegionsId,
+    },
+    KeyKind {
+        region: RegionsId,
+    },
+    DuplicateKey {
+        region: RegionsId,
+    },
+    SlotType {
+        slot: String,
+    },
+    Collection(String),
+    /// Host geometry rejected before changing any collection or kernel state.
+    InvalidCollectionFeedback,
 }
 
 impl From<Trap> for InstanceError {
@@ -59,6 +73,7 @@ pub struct NodeInst {
     children: Vec<Child>,
     /// Last emitted child list.
     last_children: Vec<ViewId>,
+    collection: Option<Box<collection::Collection>>,
 }
 
 #[derive(Debug)]
@@ -73,6 +88,8 @@ pub struct RegionInst {
     region: RegionsId,
     active: Active,
     window: Option<Box<window::ListWindow>>,
+    memo: Option<dependencies::Memo>,
+    body_memo: Option<dependencies::Memo>,
 }
 
 #[derive(Debug)]
@@ -149,6 +166,19 @@ pub struct SurfaceUpdate {
 
 /// What one update needs: the environment and the id allocator, plus the op
 /// batch under construction and the surface inputs that changed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct InstanceWork {
+    /// Created or revisited node instances (not native views).
+    pub nodes_visited: usize,
+    /// Rows whose key expression ran in this update.
+    pub rows_keyed: usize,
+    /// Rows retained without revisiting their unchanged subtree.
+    pub rows_reused: usize,
+    /// Outer keyed regions bypassed because their inputs were unchanged.
+    pub regions_skipped: usize,
+}
+
+/// Per-commit evaluation context and deterministic work counters.
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
@@ -158,6 +188,8 @@ pub struct Update<'a> {
     pub ops: Vec<Op>,
     /// Surface inputs that changed, in tree order.
     pub surfaces: Vec<SurfaceUpdate>,
+    /// Work performed during instance evaluation.
+    pub work: InstanceWork,
 }
 
 impl<'a> Update<'a> {
@@ -258,6 +290,7 @@ impl NodeInst {
         node: NodesId,
         frames: &[Frame],
     ) -> Result<NodeInst, InstanceError> {
+        u.work.nodes_visited += 1;
         let plan = u.env.plan;
         let row = plan.node(node);
         let node_type = NodeType::from_wire(row.node_type)
@@ -274,14 +307,25 @@ impl NodeInst {
             last_surface: None,
             children: Vec::new(),
             last_children: Vec::new(),
+            collection: None,
         };
         inst.emit_bindings(u, frames)?;
-        inst.children = if node_type == NodeType::List {
-            inst.list_children(u, frames)?
-        } else {
-            realize(u, Some(node), row.arm, frames)?
-        };
-        inst.emit_children(u);
+        inst.collection = collection::Collection::create(u, node, view, frames)?;
+        if inst.collection.is_none() {
+            inst.children = if node_type == NodeType::List
+                && (inst
+                    .bound_prop(u.env.plan, exact_kernel::PropId::ItemHeight)
+                    .is_some()
+                    || inst
+                        .bound_prop(u.env.plan, exact_kernel::PropId::EstimatedItemHeight)
+                        .is_some())
+            {
+                inst.list_children(u, frames)?
+            } else {
+                realize(u, Some(node), row.arm, frames)?
+            };
+            inst.emit_children(u);
+        }
         Ok(inst)
     }
 
@@ -351,13 +395,34 @@ impl NodeInst {
     }
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+        u.work.nodes_visited += 1;
         let old_top = self
             .bound_prop(u.env.plan, exact_kernel::PropId::ScrollTop)
             .cloned();
         self.emit_bindings(u, frames)?;
         self.prepare_list(u.env.plan, old_top)?;
-        update_all(u, &mut self.children, frames)?;
-        self.emit_children(u);
+
+        if let Some(collection) = &mut self.collection {
+            let follow = u
+                .env
+                .plan
+                .node(self.node)
+                .bindings
+                .iter()
+                .enumerate()
+                .find_map(|(i, b)| {
+                    let b = u.env.plan.binding(b);
+                    (b.kind == BindingKind::Prop
+                        && b.id == exact_kernel::PropId::ScrollFollowEnd as u16)
+                        .then_some(self.last[i] == Some(Value::Bool(true)))
+                })
+                .unwrap_or(false);
+            collection.follow_end(follow);
+            collection.update_data(u, frames)?;
+        } else {
+            update_all(u, &mut self.children, frames)?;
+            self.emit_children(u);
+        }
         Ok(())
     }
 
@@ -371,6 +436,11 @@ impl NodeInst {
     pub fn find(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
         if self.view == view {
             return Some(self.node);
+        }
+        if let Some(collection) = &self.collection {
+            if let Some(found) = collection.find(view, frames) {
+                return Some(found);
+            }
         }
         for c in &self.children {
             match c {
@@ -399,6 +469,16 @@ impl RegionInst {
         let mut inst = RegionInst {
             region,
             window: None,
+            memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+                dependencies::Memo::for_region(u.env.plan, region, false)
+            } else {
+                None
+            },
+            body_memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+                dependencies::Memo::for_region(u.env.plan, region, true)
+            } else {
+                None
+            },
             active: match u.env.plan.region(region).kind {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
@@ -413,6 +493,18 @@ impl RegionInst {
     }
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+        if self
+            .memo
+            .as_ref()
+            .is_some_and(|memo| memo.unchanged(&u.env))
+        {
+            u.work.regions_skipped += 1;
+            return Ok(());
+        }
+        let body_unchanged = self
+            .body_memo
+            .as_ref()
+            .is_some_and(|memo| memo.unchanged(&u.env));
         let plan = u.env.plan;
         let row = plan.region(self.region);
         let subject = u.eval(row.subject, frames)?;
@@ -428,7 +520,7 @@ impl RegionInst {
             self.window = Some(window);
             return result;
         }
-        match (&row.kind, &mut self.active) {
+        let result = match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = match subject {
                     Value::Bool(true) => Some(0),
@@ -487,6 +579,7 @@ impl RegionInst {
                 let mut keyed: Vec<(String, Value, Frame)> = Vec::with_capacity(items.len());
                 let mut seen: BTreeMap<String, ()> = BTreeMap::new();
                 for item in items.iter() {
+                    u.work.rows_keyed += 1;
                     let frame = Frame {
                         item: Some(item.clone()),
                         bound: None,
@@ -527,11 +620,17 @@ impl RegionInst {
                     frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
+                            let unchanged = body_unchanged
+                                && dependencies::same_item(&r.frame.item, &frame.item);
                             frame.row = Some(r.slots.clone());
                             r.frame = frame.clone();
                             let mut inner = frames.to_vec();
                             inner.push(frame);
-                            update_all(u, &mut r.roots, &inner)?;
+                            if unchanged {
+                                u.work.rows_reused += 1;
+                            } else {
+                                update_all(u, &mut r.roots, &inner)?;
+                            }
                             next.push(r);
                         }
                         None => {
@@ -570,7 +669,16 @@ impl RegionInst {
                 Ok(())
             }
             _ => Ok(()),
+        };
+        if result.is_ok() {
+            if let Some(memo) = &mut self.memo {
+                memo.remember(&u.env);
+            }
+            if let Some(memo) = &mut self.body_memo {
+                memo.remember(&u.env);
+            }
         }
+        result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -684,8 +792,11 @@ fn key_text(v: &Value) -> Option<String> {
 /// The root of the instance tree: the plan's top-level sites.
 #[derive(Debug)]
 pub struct Tree {
+    has_collections: bool,
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
+    /// Work performed by the last instance update.
+    pub last_work: InstanceWork,
 }
 
 impl Tree {
@@ -693,8 +804,19 @@ impl Tree {
     pub fn create(u: &mut Update<'_>) -> Result<Tree, InstanceError> {
         let children = realize(u, None, None, &[])?;
         let mut tree = Tree {
+            has_collections: u.env.plan.bindings.iter().any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == exact_kernel::PropId::Virtualized as u16
+                    && u.env.plan.code(b.expr)
+                        != [
+                            exact_plan::Opcode::Bool as u8,
+                            0,
+                            exact_plan::Opcode::Return as u8,
+                        ]
+            }),
             children,
             last_roots: Vec::new(),
+            last_work: u.work,
         };
         tree.emit_roots(u);
         Ok(tree)
@@ -703,6 +825,9 @@ impl Tree {
     /// Re-evaluate everything.
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
         update_all(u, &mut self.children, &[])?;
+        if self.has_collections && u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT))) {
+            collection::invalidate_typography(&mut self.children, u, &[])?;
+        }
         self.emit_roots(u);
         // Views are never reused within a runner. Detach removed children in
         // the final child lists before destroying them, so a removed list does
@@ -713,6 +838,7 @@ impl Tree {
             .partition(|op| !matches!(op, Op::DestroyView { .. }));
         live.extend(gone);
         u.ops = live;
+        self.last_work = u.work;
         Ok(())
     }
 
@@ -730,6 +856,9 @@ impl Tree {
                             node.view,
                             handlers.iter().map(|h| plan.handler(h).event).collect(),
                         );
+                    }
+                    if let Some(collection) = &node.collection {
+                        collection.add_children(&mut stack);
                     }
                     stack.extend(node.children.iter());
                 }
@@ -797,6 +926,11 @@ impl NodeInst {
     fn site(&self, view: ViewId, path: &mut Vec<InstanceStep>) -> Option<NodesId> {
         if self.view == view {
             return Some(self.node);
+        }
+        if let Some(collection) = &self.collection {
+            if let Some(found) = collection.site(view, path) {
+                return Some(found);
+            }
         }
         for c in &self.children {
             let found = match c {

@@ -2,6 +2,7 @@
 // @ref LLP 1008 §3, LLP 1001 §5
 import XCTest
 import CoreText
+import CExact
 #if os(macOS)
 import AppKit
 #endif
@@ -501,4 +502,552 @@ final class TextGeometryTests: XCTestCase {
         }
     }
     #endif
+}
+
+// Viewport culling must be indistinguishable from painting every shaped line.
+extension TextGeometryTests {
+    func testObsoleteUnpinnedWidthsRetireBeforeTheNextWidth() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let value = spec(String(repeating: "Café e\u{301} 🦀 東京 paragraph. ", count: 120))
+        var history: [WeakParagraphForResidency] = []
+        for width in 200..<224 {
+            autoreleasepool {
+                let paragraph = engine.paragraph(value, width: CGFloat(width))
+                history.append(WeakParagraphForResidency(paragraph))
+                XCTAssertEqual(paragraph.lines.last.map { CTLineGetStringRange($0) }.map { $0.location + $0.length },
+                               value.runs[0].text.utf16.count)
+            }
+            XCTAssertEqual(history.dropLast().filter { $0.value != nil }.count, 0,
+                           "Old widths with no presenter/checkpoint owner must not accumulate")
+        }
+    }
+
+    func testIndependentAcceptedWidthsRemainReusableDuringResize() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let value = spec(String(repeating: "two visible owners 🦀 ", count: 80))
+        let first = engine.paragraph(value, width: 180)
+        let second = engine.paragraph(value, width: 260)
+        for width in 300..<316 {
+            autoreleasepool { _ = engine.paragraph(value, width: CGFloat(width)) }
+        }
+        XCTAssertTrue(engine.paragraph(value, width: 180) === first)
+        XCTAssertTrue(engine.paragraph(value, width: 260) === second)
+        XCTAssertTrue(first !== second)
+        XCTAssertEqual(first.lines.last.map { CTLineGetStringRange($0) }.map { $0.location + $0.length },
+                       value.runs[0].text.utf16.count)
+    }
+
+    func testResidencyCheckpointRestoresWidthsAndFontNamespace() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let value = spec("checkpoint full source 🦀")
+        weak var original: Paragraph?
+        autoreleasepool { original = engine.paragraph(value, width: 180) }
+        let saved = engine.checkpoint()
+        autoreleasepool { _ = engine.paragraph(value, width: 200) }
+        XCTAssertTrue(original != nil, "Checkpoint owns its accepted cache state")
+        engine.install(nil)
+        let candidate = engine.paragraph(value, width: 180)
+        XCTAssertTrue(candidate !== original)
+        XCTAssertTrue(candidate.shape!.identity.catalog !== original!.shape!.identity.catalog)
+        engine.restore(saved)
+        XCTAssertTrue(engine.paragraph(value, width: 180) === original)
+        XCTAssertTrue(engine.paragraph(value, width: 180) !== candidate)
+    }
+
+    private func inkBitmap(_ paragraph: Paragraph, spec: Spec, bounds: CGRect,
+                           clip: CGRect, exhaustive: Bool) -> Data {
+        let width = 360, height = 180, stride = width * 4
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                bytesPerRow: stride, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        context.clip(to: clip)
+        if exhaustive {
+            // Deliberately independent of TextEngine.draw and its candidate index.
+            context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
+            for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
+                let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+                context.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                CTLineDraw(line, context)
+            }
+        } else {
+            TextEngine.draw(paragraph, spec: spec, in: bounds, context: context, dirty: clip)
+        }
+        return Data(bytes: context.data!, count: stride * height)
+    }
+
+    private func assertInkMatches(_ paragraph: Paragraph, spec: Spec, bounds: CGRect,
+                                  clip: CGRect, file: StaticString = #filePath, line: UInt = #line) {
+        let expected = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: true)
+        XCTAssertTrue(expected.contains { $0 != 0 }, "Oracle clip must contain ink", file: file, line: line)
+        let actual = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: false)
+        XCTAssertTrue(actual == expected, "Viewport differs from exhaustive paint: \(clip)", file: file, line: line)
+    }
+
+    func testViewportInkMatchesExhaustiveAtBeginningMiddleAndEnd() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: String(repeating: "Café e\u{301} 🦀 東京 — complete paragraph. ", count: 180),
+                      size: 16, weight: 400, family: 0, italic: false,
+                      lineHeight: 23.125, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [30, 60, 90, 255])
+        let paragraph = engine.paragraph(spec, width: 230)
+        XCTAssertGreaterThan(paragraph.lines.count, 100)
+        let coverage = paragraph.lines.map { CTLineGetStringRange($0) }
+        XCTAssertEqual(coverage.last!.location + coverage.last!.length, run.text.utf16.count)
+        let clip = CGRect(x: 12.5, y: 8.25, width: 320, height: 150)
+        for index in [0, paragraph.lines.count / 2, paragraph.lines.count - 1, 0] {
+            let top = paragraph.baselines[index]
+            assertInkMatches(paragraph, spec: spec,
+                             bounds: CGRect(x: 28.25, y: 48.5 - top, width: 230, height: paragraph.height), clip: clip)
+        }
+        XCTAssertEqual(paragraph.lines.map { CTLineGetStringRange($0).location }, coverage.map(\.location))
+        XCTAssertEqual(paragraph.lines.map { CTLineGetStringRange($0).length }, coverage.map(\.length))
+    }
+
+    func testViewportInkKeepsOverlappingFractionalLinesFontsAndStyledLinks() {
+        let engine = TextEngine(resolve: { _ in nil })
+        for height: CGFloat in [0, 0.25, 5.125, 24.25] {
+            var small = Run(text: "flair café\n", size: 13.25, weight: 400, family: 3,
+                            italic: true, lineHeight: height, letterSpacing: 0.125)
+            small.color = [210, 30, 60, 170]
+            small.href = "https://example.com/first"
+            var large = small
+            large.text = "🧙🏽‍♀️ 東京 fj\n"
+            large.size = 39.5; large.family = 0; large.weight = 700
+            large.color = [20, 100, 220, 160]; large.decoration = "underline line-through"
+            var last = small
+            last.text = "last link\n"; last.family = 5; last.size = 21.25
+            var strut = small; strut.text = ""; strut.size = 16
+            for alignment in [0, 1, 2] {
+                let spec = Spec(runs: [small, large, last, small, large, last], align: alignment,
+                                lineClamp: 0, color: [0, 0, 0, 255], strut: strut)
+                let paragraph = engine.paragraph(spec, width: 180)
+                for index in [0, paragraph.lines.count / 2, paragraph.lines.count - 1] {
+                    let top = paragraph.baselines[index]
+                    let bounds = CGRect(x: 72.25, y: 75.5 - top, width: 180, height: paragraph.height)
+                    for clip in [CGRect(x: 10.25, y: 25.5, width: 330, height: 100.25),
+                                 CGRect(x: 70.5, y: 72.25, width: 200, height: 10.5)] {
+                        assertInkMatches(paragraph, spec: spec, bounds: bounds, clip: clip)
+                    }
+                }
+            }
+        }
+    }
+
+    func testViewportInkRetainsAlignedOverflowOutsideTheContentBox() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let run = Run(text: String(repeating: "f", count: 32), size: 19.25, weight: 400,
+                      family: 3, italic: true, lineHeight: 24.25, letterSpacing: 0)
+        let spec = Spec(runs: [run], align: 2, lineClamp: 0, color: [0, 0, 0, 255])
+        let paragraph = engine.paragraph(spec, width: 45)
+        XCTAssertEqual(paragraph.lines.count, 1)
+        XCTAssertGreaterThan(paragraph.width, 120)
+        assertInkMatches(paragraph, spec: spec,
+                         bounds: CGRect(x: 240, y: 35, width: 45, height: paragraph.height),
+                         clip: CGRect(x: 0, y: 20, width: 220, height: 80))
+    }
+
+    func testViewportInkIndexIsReusedAndKeepsZeroHeightPaintOrder() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var run = Run(text: String(repeating: "line\n", count: 1024), size: 16, weight: 400,
+                      family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        var spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let paragraph = engine.paragraph(spec, width: 200)
+        XCTAssertTrue(paragraph.cachedInk == nil)
+        let index = paragraph.inkBounds()
+        XCTAssertTrue(paragraph.inkBounds() === index)
+        XCTAssertEqual(index.storageBytes, 2048 * 2 * MemoryLayout<CGFloat>.stride)
+        var visible: [Int] = []
+        index.forEachLine(from: 12000, through: 12048) { visible.append($0) }
+        XCTAssertGreaterThan(visible.count, 0)
+        XCTAssertTrue(visible.count < 6)
+        XCTAssertEqual(visible, visible.sorted())
+
+        // Many lines may paint the same pixels. No binary search on baselines,
+        // line-height division, or one-candidate shortcut may omit any of them.
+        run.lineHeight = 0
+        spec.runs = [run]
+        let overlapping = engine.paragraph(spec, width: 200)
+        var all: [Int] = []
+        overlapping.inkBounds().forEachLine(from: -100, through: 100) { all.append($0) }
+        XCTAssertEqual(all, Array(overlapping.lines.indices))
+        XCTAssertTrue(overlapping.inkBounds() !== index)
+        XCTAssertTrue(paragraph.inkBounds() === index)
+    }
+
+    func testTextCacheDistinguishesCanonicallyEquivalentSourceRanges() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let composed = "Café 🦀 東京"
+        let decomposed = "Cafe\u{301} 🦀 東京"
+        XCTAssertEqual(composed, decomposed) // Swift String equality is canonical.
+        XCTAssertTrue(composed.utf16.count != decomposed.utf16.count)
+        let first = Run(text: composed, size: 16, weight: 400, family: 0,
+                        italic: false, lineHeight: 24.25, letterSpacing: 0)
+        var second = first; second.text = decomposed
+        XCTAssertTrue(first != second) // CoreText indexes the actual UTF16 source.
+        var bridged = first; bridged.text = NSString(string: composed) as String
+        XCTAssertEqual(first, bridged)
+        XCTAssertEqual(first.hashValue, bridged.hashValue)
+        let spec = Spec(runs: [first], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var other = spec; other.runs = [second]
+        let a = engine.paragraph(spec, width: 60)
+        let b = engine.paragraph(other, width: 60)
+        XCTAssertTrue(a !== b)
+        for (paragraph, source) in [(a, composed), (b, decomposed)] {
+            var end = 0
+            for line in paragraph.lines {
+                let range = CTLineGetStringRange(line)
+                XCTAssertEqual(range.location, end)
+                end += range.length
+            }
+            XCTAssertEqual(end, source.utf16.count)
+        }
+        XCTAssertTrue(engine.paragraph(spec, width: 60) === a)
+        XCTAssertTrue(engine.paragraph(other, width: 60) === b)
+    }
+
+    func testViewportInkKeepsPaintOrderWhenBaselinesGoBackwards() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let baselines: [CGFloat] = [50.125, 15.25, 50.125, -8.5, 110.25, 0.25]
+        var specs: [Spec] = []
+        let lines = baselines.indices.map { i -> CTLine in
+            var run = Run(text: "fj café 🦀 \(i)", size: 24.25, weight: 400,
+                          family: 3, italic: true, lineHeight: 0, letterSpacing: 0)
+            run.color = i.isMultiple(of: 2) ? [220, 20, 50, 150] : [20, 60, 220, 170]
+            run.href = "example.md#\(i)"
+            let spec = Spec(runs: [run], align: 1, lineClamp: 0, color: [0, 0, 0, 255])
+            specs.append(spec)
+            return CTLineCreateWithAttributedString(engine.attributed(spec))
+        }
+        let paragraph = Paragraph(lines: lines, baselines: baselines, width: 180, height: 130)
+        for clip in [CGRect(x: 0, y: 20, width: 360, height: 140),
+                     CGRect(x: 30.25, y: 75.5, width: 300, height: 12.25)] {
+            assertInkMatches(paragraph, spec: specs[0],
+                             bounds: CGRect(x: 72.25, y: 40.5, width: 180, height: 130), clip: clip)
+        }
+    }
+}
+
+private final class WeakParagraphForResidency {
+    weak var value: Paragraph?
+    init(_ value: Paragraph) { self.value = value }
+}
+
+
+extension TextGeometryTests {
+    func testIntrinsicWordScalarsKeepFontMetricsAndExactUnicodeSource() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var small = spec("Café").runs[0]
+        small.text = String(repeating: "Café Cafe\u{301} 🦀 ", count: 80)
+        var large = small; large.size = 31.25; large.family = 5
+        var input = spec(""); input.runs = [small, large]
+        var expected: CGFloat = 0
+        for run in [small, large] {
+            for word in ["Café", "Cafe\u{301}", "🦀"] {
+                var one = input; var r = run; r.text = word; one.runs = [r]
+                let line = CTLineCreateWithAttributedString(engine.attributed(one))
+                expected = max(expected, ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))))
+            }
+        }
+        XCTAssertEqual(engine.minContentWidth(input), expected)
+        XCTAssertEqual(engine.minContentWidth(input), expected)
+        XCTAssertEqual(engine.residencyStats.liveParagraphs, 0)
+        XCTAssertEqual(engine.residencyStats.liveShapes, 0)
+        XCTAssertEqual(engine.residencyStats.scalarEntries, 1)
+    }
+
+    func testDroppingAcceptedLeaseAlsoReleasesItsSourceAndShaperWithoutAnotherLookup() {
+        let engine = TextEngine(resolve: { _ in nil })
+        weak var source: TextIdentity?
+        weak var shape: TextShape?
+        autoreleasepool {
+            let paragraph = engine.paragraph(spec(String(repeating: "complete source 🦀 ", count: 120)), width: 190)
+            source = paragraph.shape!.identity
+            shape = paragraph.shape
+            engine.accepted(paragraph)
+        }
+        XCTAssertTrue(shape == nil)
+        XCTAssertTrue(source == nil, "Weak lookup keys must not retain a dead paragraph's full source")
+        XCTAssertEqual(engine.residencyStats.coldEntries, 0)
+    }
+
+    func testAcceptedWidthsUseWeakLookupAndReleaseWithTheirLastOwner() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let value = spec(String(repeating: "accepted source 🦀 ", count: 90))
+        var first: Paragraph? = engine.paragraph(value, width: 180)
+        var second: Paragraph? = engine.paragraph(value, width: 270)
+        engine.accepted(first!); engine.accepted(second!)
+        let weakFirst = WeakParagraphForResidency(first!), weakSecond = WeakParagraphForResidency(second!)
+        for width in 300..<320 {
+            autoreleasepool { _ = engine.paragraph(value, width: CGFloat(width)) }
+        }
+        autoreleasepool {
+            XCTAssertTrue(engine.paragraph(value, width: 180) === first)
+            XCTAssertTrue(engine.paragraph(value, width: 270) === second)
+        }
+        first = nil; second = nil
+        XCTAssertTrue(weakFirst.value == nil)
+        XCTAssertTrue(weakSecond.value == nil, "Weak cache hits must not re-pin an accepted width")
+    }
+
+    func testColdBudgetRetiresDistinctSourcesAndAllowsOneOversizeWorkingValue() {
+        let engine = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 4096)
+        var history: [WeakParagraphForResidency] = []
+        for i in 0..<16 {
+            autoreleasepool {
+                let value = spec(String(repeating: "whole large source \(i) 🦀 ", count: 90))
+                let paragraph = engine.paragraph(value, width: 180)
+                history.append(WeakParagraphForResidency(paragraph))
+                XCTAssertEqual(paragraph.lines.last.map { CTLineGetStringRange($0) }.map { $0.location + $0.length },
+                               value.runs[0].text.utf16.count)
+            }
+            XCTAssertEqual(history.dropLast().filter { $0.value != nil }.count, 0)
+            XCTAssertEqual(engine.residencyStats.coldEntries, 1)
+            XCTAssertGreaterThan(engine.residencyStats.coldEstimatedBytes, engine.residencyStats.softTargetBytes,
+                                 "Oversize current work is observable, not rejected or truncated")
+            XCTAssertEqual(engine.residencyStats.coldOverageBytes,
+                           engine.residencyStats.coldEstimatedBytes - engine.residencyStats.softTargetBytes)
+            XCTAssertGreaterThan(engine.residencyStats.coldOwnedPayloadBytes, 0)
+        }
+    }
+
+    func testPaintReplacementSharesIdentityAndRetiresUnownedMeasurementLines() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let geometry = spec(String(repeating: "styled link café 🦀 ", count: 80))
+        weak var measured: Paragraph?
+        var ranges: [Int] = []
+        autoreleasepool {
+            let paragraph = engine.paragraph(geometry, width: 190)
+            measured = paragraph
+            ranges = paragraph.lines.map { CTLineGetStringRange($0).length }
+        }
+        let identity = measured!.shape!.identity
+        var paint = geometry
+        paint.color = [180, 30, 70, 255]
+        paint.runs[0].href = "example.md#café"
+        paint.runs[0].decoration = "underline line-through"
+        let colored = engine.paragraph(paint, width: 190)
+        XCTAssertTrue(colored.shape!.identity === identity)
+        XCTAssertEqual(colored.lines.map { CTLineGetStringRange($0).length }, ranges)
+        XCTAssertTrue(measured == nil, "Colored pixels must not keep a redundant black CTLine array")
+        XCTAssertEqual(colored.shape!.spec.runs[0].href, paint.runs[0].href)
+        XCTAssertEqual(engine.residencyStats.liveParagraphs, 1)
+        assertInkMatches(colored, spec: paint, bounds: CGRect(x: 15, y: 20, width: 190, height: colored.height),
+                         clip: CGRect(x: 0, y: 0, width: 340, height: 160))
+    }
+
+    func testIntrinsicMeasurementRetainsScalarsNotFullLineArrays() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let value = String(repeating: "Café e\u{301} 🦀 東京 ", count: 100)
+        let bytes = Array(value.utf8)
+        bytes.withUnsafeBufferPointer { bytes in
+            var run = ExactTextRun()
+            run.text = bytes.baseAddress; run.len = bytes.count
+            run.font_size = 13.25; run.font_weight = 400
+            run.has_line_height = 1; run.line_height = 18.125
+            withUnsafePointer(to: &run) { pointer in
+                var request = ExactMeasureRequest()
+                request.runs = pointer; request.count = 1; request.strut = pointer.pointee
+                request.strut.text = nil; request.strut.len = 0
+                for width in [Float(EXACT_MAX_CONTENT), Float(EXACT_MIN_CONTENT)] {
+                    request.width = width
+                    let first = engine.measure(request)
+                    XCTAssertGreaterThan(first.width, 0)
+                    XCTAssertGreaterThan(first.height, 0)
+                    XCTAssertEqual(engine.residencyStats.liveParagraphs, 0)
+                    let hits = engine.measureHits
+                    let repeated = engine.measure(request)
+                    XCTAssertEqual(repeated.width, first.width)
+                    XCTAssertEqual(repeated.height, first.height)
+                    XCTAssertEqual(repeated.baseline, first.baseline)
+                    XCTAssertEqual(engine.measureHits, hits + 1)
+                }
+            }
+        }
+        XCTAssertEqual(engine.residencyStats.scalarEntries, 3)
+    }
+}
+
+
+extension TextGeometryTests {
+    func testShortRowMaintenanceDoesNotWalkUnrelatedColdHistory() {
+        var visits: [UInt64] = []
+        for history in [10, 100, 1000] {
+            let engine = TextEngine(resolve: { _ in nil })
+            var visible: [Paragraph] = []
+            for row in 0..<history {
+                autoreleasepool {
+                    let input = spec("ROW\(row) café e\u{301} 🦀")
+                    _ = engine.minContentWidth(input)
+                    let p = engine.paragraph(input, width: 180)
+                    engine.accepted(p)
+                    visible.append(p)
+                    if visible.count > 8 { visible.removeFirst() }
+                }
+            }
+            let before = engine.residencyStats.maintenanceVisits
+            XCTAssertTrue(engine.paragraph(spec("ROW\(history - 1) café e\u{301} 🦀"), width: 180) === visible.last)
+            let fresh = engine.paragraph(spec("NEW unrelated café"), width: 180)
+            engine.accepted(fresh)
+            let work = engine.residencyStats.maintenanceVisits - before
+            visits.append(work)
+            print("cache-maintenance history=\(history) visits=\(work)")
+            XCTAssertLessThanOrEqual(work, 256, "An unrelated hit/miss/accept cannot scan all historical rows")
+            XCTAssertEqual(visible.count, 8)
+        }
+        XCTAssertLessThanOrEqual(visits.last!, visits.first! + 128)
+    }
+
+    func testResidencyReportsSharedPayloadAndLazyInkExactlyAcrossCheckpoint() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let p = engine.paragraph(spec("FIRST\nSECOND café e\u{301} 🦀"), width: 180)
+        let shape = p.shape!, source = shape.identity
+        let before = engine.residencyStats
+        XCTAssertEqual(before.coldEntries, 2)
+        XCTAssertEqual(before.coldOwnedPayloadBytes, source.ownedBytes + shape.ownedBytes + p.ownedPayloadBytes)
+        XCTAssertEqual(before.coldCoreTextEstimateBytes, shape.opaqueEstimate + p.coreTextEstimateBytes)
+        let checkpoint = engine.checkpoint()
+        let ink = p.inkBounds()
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before.coldOwnedPayloadBytes + ink.storageBytes)
+        engine.accepted(p)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 0)
+        _ = engine.paragraph(spec("unrelated replacement"), width: 240)
+        engine.restore(checkpoint)
+        XCTAssertTrue(engine.paragraph(spec("FIRST\nSECOND café e\u{301} 🦀"), width: 180) === p)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before.coldOwnedPayloadBytes + ink.storageBytes)
+    }
+
+    func testDeadWeakMetadataAndTinyColdEntriesHaveExplicitBounds() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var visible: [Paragraph] = []
+        for row in 0..<(TextResidency.maxLookupEntries + 64) {
+            autoreleasepool {
+                let p = engine.paragraph(spec("accepted \(row)"), width: 180)
+                engine.accepted(p)
+                visible.append(p)
+                if visible.count > 8 { visible.removeFirst() }
+            }
+        }
+        var stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertLessThanOrEqual(stats.geometryEntries, TextResidency.maxLookupEntries)
+        XCTAssertEqual(stats.coldEntries, 0)
+        for row in 0..<(TextResidency.maxColdEntries + 64) {
+            _ = engine.minContentWidth(spec("cold \(row)"))
+        }
+        stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.coldEntries, TextResidency.maxColdEntries)
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertEqual(stats.softTargetBytes, 64 * 1024 * 1024)
+        XCTAssertLessThanOrEqual(stats.coldEstimatedBytes, stats.softTargetBytes)
+        XCTAssertEqual(visible.count, 8)
+    }
+}
+
+extension TextGeometryTests {
+    func testScalarAndParagraphChargesShareSourceAndReleaseIndependently() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = spec("shared scalar paragraph café e\u{301} 🦀")
+        _ = engine.minContentWidth(input)
+        let paragraph = engine.paragraph(input, width: 180)
+        let shape = paragraph.shape!, source = shape.identity
+        let scalarBytes = MemoryLayout<ExactMetrics>.stride + MemoryLayout<CGFloat?>.stride
+        let stats = engine.residencyStats
+        XCTAssertEqual(stats.coldEntries, 3)
+        XCTAssertEqual(stats.coldOwnedPayloadBytes,
+                       source.ownedBytes + shape.ownedBytes + paragraph.ownedPayloadBytes + scalarBytes)
+        XCTAssertEqual(stats.coldCoreTextEstimateBytes, shape.opaqueEstimate + paragraph.coreTextEstimateBytes)
+        XCTAssertGreaterThanOrEqual(stats.coldAdmissionBytes, stats.coldEstimatedBytes)
+        engine.accepted(paragraph)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, source.ownedBytes + scalarBytes)
+        XCTAssertEqual(engine.residencyStats.coldCoreTextEstimateBytes, 0)
+        XCTAssertTrue(engine.paragraph(input, width: 180) === paragraph)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1, "Weak accepted hit cannot repin its paragraph/shape")
+    }
+
+    func testDefault64MiBSoftTargetEvictsColdWorkWithoutTruncation() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var old: [WeakParagraphForResidency] = []
+        for i in 0..<6 {
+            autoreleasepool {
+                let input = spec(String(repeating: "FULL SOURCE \(i) café\n", count: 12000))
+                let p = engine.paragraph(input, width: 180)
+                old.append(WeakParagraphForResidency(p))
+                let last = CTLineGetStringRange(p.lines.last!)
+                XCTAssertEqual(last.location + last.length, input.runs[0].text.utf16.count)
+                XCTAssertLessThanOrEqual(engine.residencyStats.coldAdmissionBytes, 64 * 1024 * 1024)
+                _ = p.inkBounds()
+                XCTAssertLessThanOrEqual(engine.residencyStats.coldEstimatedBytes,
+                                         engine.residencyStats.coldAdmissionBytes)
+            }
+        }
+        XCTAssertTrue(old.first!.value == nil, "Cold history must release under the actual default64MiB target")
+        XCTAssertTrue(old.last!.value != nil)
+    }
+
+    func testLookupCapDoesNotDestroyExternallyAcceptedParagraphs() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var leases: [Paragraph] = []
+        for i in 0..<(TextResidency.maxLookupEntries / 2 + 32) {
+            let p = engine.paragraph(spec("live owner \(i)"), width: 180)
+            engine.accepted(p)
+            leases.append(p)
+        }
+        let stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.metadataEntries, TextResidency.maxLookupEntries)
+        XCTAssertLessThanOrEqual(stats.identityEntries, TextResidency.maxIdentities)
+        XCTAssertLessThanOrEqual(stats.geometryEntries, TextResidency.maxLookupEntries)
+        XCTAssertEqual(stats.coldEntries, 0)
+        XCTAssertEqual(leases.first!.shape!.identity.geometry.runs[0].text, "live owner 0")
+        XCTAssertGreaterThan(leases.first!.inkBounds().storageBytes, 0)
+        let last = leases.last!
+        XCTAssertTrue(engine.paragraph(spec("live owner \(leases.count - 1)"), width: 180) === last)
+        let weakFirst = WeakParagraphForResidency(leases.first!)
+        leases.removeFirst()
+        XCTAssertTrue(weakFirst.value == nil, "Evicted lookup metadata cannot own a former view's paragraph")
+    }
+
+    func testAcceptedParagraphKeepsSourceAndPaintAcrossScalarReuseAndCatalogRestore() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let original = spec("Ée\u{301} 🧪漢字 linked source\nsecond line")
+        let measured = engine.paragraph(original, width: 190)
+        var painted = original
+        painted.color = [180, 30, 70, 255]
+        painted.runs[0].href = "first.md#É"
+        let accepted = engine.paragraph(painted, width: 190)
+        engine.accepted(accepted)
+        let ranges = accepted.lines.map { CTLineGetStringRange($0) }
+        let bytes = Array(accepted.shape!.spec.runs[0].text.utf8)
+        XCTAssertEqual(accepted.height, measured.height)
+        XCTAssertEqual(accepted.baselines, measured.baselines)
+        XCTAssertTrue(engine.paragraph(painted, width: 190) === accepted)
+        let cp = engine.checkpoint()
+        engine.install(nil)
+        let candidate = engine.paragraph(painted, width: 190)
+        XCTAssertTrue(candidate.shape!.identity.catalog !== accepted.shape!.identity.catalog)
+        engine.restore(cp)
+        XCTAssertTrue(engine.paragraph(painted, width: 190) === accepted)
+        var changed = painted
+        changed.color = [20, 80, 220, 255]
+        changed.runs[0].href = "second.md#e\u{301}"
+        let replacement = engine.paragraph(changed, width: 190)
+        XCTAssertTrue(replacement !== accepted)
+        XCTAssertEqual(replacement.height, accepted.height)
+        XCTAssertEqual(replacement.baselines, accepted.baselines)
+        XCTAssertEqual(replacement.lines.map { CTLineGetStringRange($0).location }, ranges.map { $0.location })
+        XCTAssertEqual(replacement.lines.map { CTLineGetStringRange($0).length }, ranges.map { $0.length })
+        XCTAssertEqual(Array(replacement.shape!.spec.runs[0].text.utf8), bytes)
+        XCTAssertEqual(replacement.shape!.spec.runs[0].href, changed.runs[0].href)
+        XCTAssertEqual(accepted.shape!.spec.runs[0].href, painted.runs[0].href)
+        XCTAssertEqual(ranges.last!.location + ranges.last!.length, original.runs[0].text.utf16.count)
+        assertInkMatches(replacement, spec: changed,
+                         bounds: CGRect(x: 15, y: 20, width: 190, height: replacement.height),
+                         clip: CGRect(x: 0, y: 0, width: 340, height: 160))
+    }
+
 }

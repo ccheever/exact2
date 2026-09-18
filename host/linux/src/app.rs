@@ -41,12 +41,24 @@ use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// The first non-flag path or scheme argument. @ref LLP 1038 D8
+pub fn launch_location(args: impl IntoIterator<Item = String>) -> String {
+    args.into_iter()
+        .find(|arg| !arg.starts_with('-'))
+        .map_or_else(|| "/".into(), |href| exact_route::location_of(&href))
+}
+
 fn has_explicit_locator(plan: Option<&str>, dev_plan: Option<&str>) -> bool {
     plan.is_some() || dev_plan.is_some()
 }
 
 /// What the environment asked for.
 pub struct Config {
+    /// Explicit consumer registration before the first layout; ordinary default
+    /// is None. This trial never guesses bindings from test IDs.
+    pub content_region: Option<crate::content_region::ContentRegionRegistration>,
+    /// The first location-bearing argument, canonicalized by exact-route.
+    pub launch: String,
     /// The plan to boot.
     pub plan: Vec<u8>,
     /// The binary's plan, only when `plan` came from a URL. A hash-valid
@@ -163,6 +175,8 @@ impl Config {
             })
             .unwrap_or((420.0, 860.0));
         Config {
+            content_region: None,
+            launch: launch_location(std::env::args().skip(1)),
             plan,
             fallback_plan,
             assets: env("EXACT_ASSETS")
@@ -286,6 +300,8 @@ pub fn boot_presenter<D: DataSource + Default>(
                 config.assets.clone(),
                 config.selected_assets.clone(),
                 (&compat, facts(&updates)),
+                &config.launch,
+                config.content_region,
             )
         });
     match booted {
@@ -320,6 +336,8 @@ pub fn boot_presenter<D: DataSource + Default>(
                 config.assets.clone(),
                 None,
                 (&compat, facts(&updates)),
+                &config.launch,
+                config.content_region,
             )
             .map(|v| delivered(v, updates))
             .map_err(|baked_error| {
@@ -332,6 +350,24 @@ pub fn boot_presenter<D: DataSource + Default>(
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    run_registered::<D>(baked, compat, None)
+}
+
+/// Launch an explicitly registered consumer using the ordinary environment,
+/// receipt and store preflight. No generic worker or authoring schema is added.
+pub fn run_with_content_region<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    region: crate::content_region::ContentRegionRegistration,
+) -> i32 {
+    run_registered::<D>(baked, compat, Some(region))
+}
+
+fn run_registered<D: DataSource + Default>(
+    baked: &[u8],
+    compat: &str,
+    region: Option<crate::content_region::ContentRegionRegistration>,
+) -> i32 {
     if print_baked_receipt(compat) {
         return 0;
     }
@@ -347,6 +383,7 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
     }
     let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
+    config.content_region = region;
     run_config::<D>(&mut config, started)
 }
 
@@ -506,6 +543,25 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn launch_arguments_share_url_interpretation_with_other_hosts() {
+        for (args, expected) in [
+            (
+                vec!["--agent", "s2b://post/42?q=a b#ignored", "/later"],
+                "/post/42?q=a%20b",
+            ),
+            (vec!["--flag", "https://example.com/post/7"], "/post/7"),
+            (vec!["/post/../post/8", "s2b://later"], "/post/8"),
+            (vec!["--flag", "post/42", "/later"], "/post/42"),
+            (vec!["notes", "1bad:thing"], "/notes"),
+            (vec!["--agent", "--url=/post/7"], "/"),
+        ] {
+            assert_eq!(
+                launch_location(args.into_iter().map(str::to_owned)),
+                expected
+            );
+        }
+    }
     #[test]
     fn a_core_only_entry_refuses_an_update_capable_compatibility_record() {
         assert_eq!(

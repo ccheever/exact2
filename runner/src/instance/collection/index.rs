@@ -1,0 +1,564 @@
+//! Private collection geometry; no host/layout types or row instances.
+//!
+//! Integration: construct with a positive normal-row estimate, then `replace_keys`
+//! only on membership/order changes. Capture an anchor before mutating heights or
+//! keys, restore it afterwards, and query `window` using the actual scrollport.
+//! Materialize the returned segments and use `prefix` for the intervening spacers.
+//! Keep at most the current anchor: it shares the old key order without copying it.
+//!
+//! Before content changes or a row is remounted, call `invalidate_row`; before a
+//! width/typography change, call `invalidate_all`. Both retain provisional heights.
+//! Feedback must carry the token from when the row was laid out, plus the caller's
+//! collection identity. Tokens are local to this index; fetching a fresh token when
+//! old feedback arrives defeats stale-report detection. An accepted measurement
+//! does not itself advance a generation; the caller orders reports within a layout.
+
+#![forbid(unsafe_code)]
+
+use std::collections::BTreeMap;
+use std::ops::Range;
+use std::rc::Rc;
+mod gaps;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum IndexError {
+    InvalidHeight,
+    InvalidGeometry,
+    DuplicateKey(String),
+    UnknownKey(String),
+    ExtentOverflow,
+    CapacityOverflow,
+    GenerationExhausted,
+}
+
+impl std::fmt::Display for IndexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidHeight => f.write_str("row height must be finite and nonnegative"),
+            Self::InvalidGeometry => f.write_str("scroll geometry must be finite and nonnegative"),
+            Self::DuplicateKey(key) => write!(f, "duplicate collection key: {key}"),
+            Self::UnknownKey(key) => write!(f, "unknown collection key: {key}"),
+            Self::ExtentOverflow => f.write_str("collection height exceeds finite geometry"),
+            Self::CapacityOverflow => f.write_str("collection index capacity overflow"),
+            Self::GenerationExhausted => f.write_str("collection measurement generation exhausted"),
+        }
+    }
+}
+
+impl std::error::Error for IndexError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MeasurementToken {
+    epoch: u64,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RowHeight {
+    height: f64,
+    generation: u64,
+    measured_epoch: Option<u64>,
+}
+
+/// A short-lived anchor around a mutation, sharing an immutable order snapshot.
+/// A deleted key uses its next surviving old neighbor, then its previous neighbor,
+/// at the same within-row offset. If no old key survives, restore to the start.
+#[derive(Debug, Clone)]
+pub(crate) struct Anchor {
+    order: Rc<[String]>,
+    row: Option<usize>,
+    within: f64,
+    follows_end: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Window {
+    pub(crate) offset: f64,
+    /// Endpoint bounds, possibly containing zero-height gaps; realize `segments`.
+    pub(crate) visible: Range<usize>,
+    pub(crate) overscan: Range<usize>,
+    /// Sorted, nonempty, disjoint positive-height runs plus at most two pins.
+    /// Interior zero-height rows are excluded unless explicitly pinned.
+    pub(crate) segments: Vec<Range<usize>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct HeightIndex {
+    order: Rc<[String]>,
+    positions: BTreeMap<String, usize>,
+    rows: Vec<RowHeight>,
+    tree: SumTree,
+    estimate: f64,
+    epoch: u64,
+    next_generation: u64,
+    #[cfg(test)]
+    rebuilds: usize,
+}
+
+impl HeightIndex {
+    /// Zero estimates are legal, but cannot bootstrap a visible row by geometry.
+    /// Choose a positive estimate for unmeasured content; measured zeroes are fine.
+    pub(crate) fn new(estimated_height: f64) -> Result<Self, IndexError> {
+        let estimate = valid_height(estimated_height)?;
+        Ok(Self {
+            order: Rc::from([]),
+            positions: BTreeMap::new(),
+            rows: Vec::new(),
+            tree: SumTree::new(&[])?,
+            estimate,
+            epoch: 1,
+            next_generation: 0,
+            #[cfg(test)]
+            rebuilds: 0,
+        })
+    }
+
+    /// Transactional membership rebuild. Surviving keys retain heights and tokens;
+    /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
+    /// Deleted and later reinserted keys always receive new measurement generations.
+    pub(crate) fn replace_keys(&mut self, keys: Vec<String>) -> Result<(), IndexError> {
+        let mut positions = BTreeMap::new();
+        let mut rows = Vec::with_capacity(keys.len());
+        let mut generation = self.next_generation;
+        for (i, key) in keys.iter().enumerate() {
+            if positions.insert(key.clone(), i).is_some() {
+                return Err(IndexError::DuplicateKey(key.clone()));
+            }
+            let row = if let Some(&old) = self.positions.get(key) {
+                self.rows[old]
+            } else {
+                generation = next_generation(generation)?;
+                RowHeight {
+                    height: self.estimate,
+                    generation,
+                    measured_epoch: None,
+                }
+            };
+            rows.push(row);
+        }
+        let tree = SumTree::new(&rows)?;
+        self.order = Rc::from(keys);
+        self.positions = positions;
+        self.rows = rows;
+        self.tree = tree;
+        self.next_generation = generation;
+        #[cfg(test)]
+        {
+            self.rebuilds += 1;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub(crate) fn key(&self, index: usize) -> Option<&str> {
+        self.order.get(index).map(String::as_str)
+    }
+
+    pub(crate) fn position(&self, key: &str) -> Option<usize> {
+        self.positions.get(key).copied()
+    }
+
+    pub(crate) fn height(&self, index: usize) -> Option<f64> {
+        self.rows.get(index).map(|row| row.height)
+    }
+
+    /// Height of rows `[0, end)`, including `end == len()`; O(log N).
+    pub(crate) fn prefix(&self, end: usize) -> Option<f64> {
+        (end <= self.len()).then(|| self.tree.prefix(end))
+    }
+
+    pub(crate) fn total_height(&self) -> f64 {
+        self.tree.total()
+    }
+
+    /// First row whose bottom is strictly after `offset`; zero-height prefixes
+    /// are skipped in O(log N). At/past total height there is no containing row.
+    pub(crate) fn row_at(&self, offset: f64) -> Result<Option<usize>, IndexError> {
+        valid_geometry(offset)?;
+        Ok(self.tree.find(offset, false))
+    }
+
+    pub(crate) fn measurement_token(&self, key: &str) -> Option<MeasurementToken> {
+        self.position(key).map(|i| MeasurementToken {
+            epoch: self.epoch,
+            generation: self.rows[i].generation,
+        })
+    }
+
+    pub(crate) fn is_measured(&self, key: &str) -> bool {
+        self.position(key)
+            .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
+    }
+
+    /// O(1) invalidation for width/typography/global content changes. No row scan
+    /// or height reset: existing heights remain estimates until measured again.
+    pub(crate) fn invalidate_all(&mut self) -> Result<(), IndexError> {
+        self.epoch = next_generation(self.epoch)?;
+        Ok(())
+    }
+
+    /// O(log N) keyed invalidation for changed content or remounted row roots.
+    pub(crate) fn invalidate_row(&mut self, key: &str) -> Result<MeasurementToken, IndexError> {
+        let i = self
+            .position(key)
+            .ok_or_else(|| IndexError::UnknownKey(key.to_owned()))?;
+        let generation = next_generation(self.next_generation)?;
+        self.next_generation = generation;
+        self.rows[i].generation = generation;
+        self.rows[i].measured_epoch = None;
+        self.tree.set_epoch(i, 0);
+        Ok(MeasurementToken {
+            epoch: self.epoch,
+            generation,
+        })
+    }
+
+    /// Returns false for stale, deleted, or mismatched rows. Errors never mutate
+    /// metadata; NaN/infinite/negative heights are rejected even for stale reports.
+    pub(crate) fn set_measured_height(
+        &mut self,
+        key: &str,
+        token: MeasurementToken,
+        height: f64,
+    ) -> Result<bool, IndexError> {
+        let height = valid_height(height)?;
+        if self.measurement_token(key) != Some(token) {
+            return Ok(false);
+        }
+        let i = self.positions[key];
+        self.tree.set(i, height)?;
+        self.rows[i].height = height;
+        self.rows[i].measured_epoch = Some(self.epoch);
+        self.tree.set_epoch(i, self.epoch);
+        Ok(true)
+    }
+
+    /// Geometry is nonnegative and finite. Clamp overscroll to the logical extent;
+    /// a zero-height scrollport has no window (explicit pins can remain mounted).
+    /// Missing pin keys are ignored; the array makes the two-pin budget explicit.
+    pub(crate) fn window(
+        &self,
+        offset: f64,
+        viewport: f64,
+        pins: [Option<&str>; 2],
+    ) -> Result<Window, IndexError> {
+        let offset = self.clamp_offset(offset, viewport)?;
+        let end = (offset + viewport).min(self.total_height());
+        let visible = self.band(offset, end);
+        let overscan = self.band(
+            (offset - viewport).max(0.0),
+            (end + viewport).min(self.total_height()),
+        );
+        let mut ranges = self.tree.positive_ranges(&overscan);
+        for key in pins.into_iter().flatten() {
+            if let Some(i) = self.position(key) {
+                ranges.push(i..i + 1);
+            }
+        }
+        ranges.sort_unstable_by_key(|range| range.start);
+        let mut segments: Vec<Range<usize>> = Vec::with_capacity(3);
+        for range in ranges {
+            if let Some(last) = segments.last_mut() {
+                if range.start <= last.end {
+                    last.end = last.end.max(range.end);
+                    continue;
+                }
+            }
+            segments.push(range);
+        }
+        Ok(Window {
+            offset,
+            visible,
+            overscan,
+            segments,
+        })
+    }
+
+    /// O(log N), no key copy. `follow_end` opts into following only if the clamped
+    /// offset is at the end of a nonzero scrollport within host rounding tolerance.
+    /// Otherwise preserve
+    /// the first visible key's top relative to the scrollport (even if it shrinks).
+    pub(crate) fn capture_anchor(
+        &self,
+        offset: f64,
+        viewport: f64,
+        follow_end: bool,
+    ) -> Result<Anchor, IndexError> {
+        let offset = self.clamp_offset(offset, viewport)?;
+        let row = self.tree.find(offset, false);
+        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
+        // Hosts may round document/layout geometry through f32. Allow relative
+        // roundoff with a tiny absolute floor, but never treat a reader more
+        // than half a logical pixel/point from the end as following it.
+        let tolerance =
+            (self.total_height().max(viewport) * f64::from(f32::EPSILON)).clamp(1.0 / 1024.0, 0.5);
+        Ok(Anchor {
+            order: Rc::clone(&self.order),
+            row,
+            within,
+            follows_end: follow_end
+                && viewport > 0.0
+                && self.max_offset(viewport) - offset <= tolerance,
+        })
+    }
+
+    /// O(log N) while the anchor survives. Deletion fallback scans the old order
+    /// only after structural edits (which already permit an index rebuild).
+    /// Drop/recapture the anchor after applying the correction; retaining many old
+    /// anchors would retain their old O(N) key snapshots too.
+    pub(crate) fn restore_anchor(&self, anchor: &Anchor, viewport: f64) -> Result<f64, IndexError> {
+        valid_geometry(viewport)?;
+        let max = self.max_offset(viewport);
+        if anchor.follows_end {
+            return Ok(max);
+        }
+        let Some(old) = anchor.row else {
+            return Ok(0.0);
+        };
+        let row = self.position(&anchor.order[old]).or_else(|| {
+            anchor.order[old + 1..]
+                .iter()
+                .chain(anchor.order[..old].iter().rev())
+                .find_map(|key| self.position(key))
+        });
+        Ok(row.map_or(0.0, |i| (self.tree.prefix(i) + anchor.within).min(max)))
+    }
+
+    fn band(&self, start: f64, end: f64) -> Range<usize> {
+        let first = self.tree.find(start, false).unwrap_or(self.len());
+        if start >= end {
+            return first..first;
+        }
+        let last = self.tree.find(end, true).map_or(self.len(), |i| i + 1);
+        first..last
+    }
+
+    fn max_offset(&self, viewport: f64) -> f64 {
+        (self.total_height() - viewport).max(0.0)
+    }
+
+    fn clamp_offset(&self, offset: f64, viewport: f64) -> Result<f64, IndexError> {
+        valid_geometry(offset)?;
+        valid_geometry(viewport)?;
+        Ok(offset.min(self.max_offset(viewport)).max(0.0))
+    }
+}
+
+fn next_generation(generation: u64) -> Result<u64, IndexError> {
+    generation
+        .checked_add(1)
+        .ok_or(IndexError::GenerationExhausted)
+}
+
+fn valid_height(value: f64) -> Result<f64, IndexError> {
+    if value.is_finite() && value >= 0.0 {
+        Ok(value.max(0.0))
+    } else {
+        Err(IndexError::InvalidHeight)
+    }
+}
+
+fn valid_geometry(value: f64) -> Result<(), IndexError> {
+    if value.is_finite() && value >= 0.0 {
+        Ok(())
+    } else {
+        Err(IndexError::InvalidGeometry)
+    }
+}
+
+/// A sum tree avoids subtractive Fenwick updates leaving negative residue after
+/// many measurements. Only O(log N) ancestors are recomputed from their children.
+#[derive(Debug)]
+struct SumTree {
+    sums: Vec<f64>,
+    measured: Vec<u64>,
+    base: usize,
+    len: usize,
+    zeros: usize,
+    #[cfg(test)]
+    visits: std::cell::Cell<usize>,
+}
+
+impl SumTree {
+    fn new(rows: &[RowHeight]) -> Result<Self, IndexError> {
+        let base = rows
+            .len()
+            .max(1)
+            .checked_next_power_of_two()
+            .ok_or(IndexError::CapacityOverflow)?;
+        let capacity = base.checked_mul(2).ok_or(IndexError::CapacityOverflow)?;
+        let mut sums = vec![0.0; capacity];
+        let mut measured = vec![u64::MAX; capacity];
+        let mut zeros = 0;
+        for (i, row) in rows.iter().enumerate() {
+            sums[base + i] = row.height;
+            measured[base + i] = row.measured_epoch.unwrap_or(0);
+            zeros += usize::from(row.height == 0.0);
+        }
+        for node in (1..base).rev() {
+            sums[node] = sums[node * 2] + sums[node * 2 + 1];
+            measured[node] = measured[node * 2].min(measured[node * 2 + 1]);
+        }
+        if !sums[1].is_finite() {
+            return Err(IndexError::ExtentOverflow);
+        }
+        Ok(Self {
+            sums,
+            measured,
+            base,
+            len: rows.len(),
+            zeros,
+            #[cfg(test)]
+            visits: std::cell::Cell::new(0),
+        })
+    }
+
+    fn total(&self) -> f64 {
+        self.sums[1]
+    }
+
+    /// Prune whole zero-height subtrees, including gaps inside the endpoint band.
+    /// Work depends on selected rows and tree depth, not on the gap's row count.
+    fn positive_ranges(&self, band: &Range<usize>) -> Vec<Range<usize>> {
+        let mut ranges = Vec::with_capacity(3);
+        if !band.is_empty() {
+            if self.zeros == 0 {
+                // Keep the usual all-positive window lookup O(log N).
+                ranges.push(band.clone());
+            } else {
+                self.collect_positive(1, 0..self.base, band, &mut ranges);
+            }
+        }
+        ranges
+    }
+
+    fn collect_positive(
+        &self,
+        node: usize,
+        span: Range<usize>,
+        band: &Range<usize>,
+        ranges: &mut Vec<Range<usize>>,
+    ) {
+        #[cfg(test)]
+        self.visits.set(self.visits.get() + 1);
+        if self.sums[node] == 0.0 || span.end <= band.start || span.start >= band.end {
+            return;
+        }
+        if node >= self.base {
+            if let Some(last) = ranges.last_mut() {
+                if last.end == span.start {
+                    last.end = span.end;
+                    return;
+                }
+            }
+            ranges.push(span);
+            return;
+        }
+        let middle = span.start + (span.end - span.start) / 2;
+        self.collect_positive(node * 2, span.start..middle, band, ranges);
+        self.collect_positive(node * 2 + 1, middle..span.end, band, ranges);
+    }
+
+    fn set(&mut self, index: usize, height: f64) -> Result<(), IndexError> {
+        // Check the new root before publishing any writes; overflow is atomic.
+        let mut node = self.base + index;
+        let mut sum = height;
+        while node > 1 {
+            sum += self.sums[node ^ 1];
+            node /= 2;
+        }
+        if !sum.is_finite() {
+            return Err(IndexError::ExtentOverflow);
+        }
+        let mut node = self.base + index;
+        self.zeros = self.zeros - usize::from(self.sums[node] == 0.0) + usize::from(height == 0.0);
+        self.sums[node] = height;
+        while node > 1 {
+            node /= 2;
+            self.sums[node] = self.sums[node * 2] + self.sums[node * 2 + 1];
+        }
+        Ok(())
+    }
+
+    fn prefix(&self, end: usize) -> f64 {
+        if end == self.len {
+            return self.total();
+        }
+        let mut node = 1;
+        let mut span = self.base;
+        let mut remaining = end;
+        let mut before = 0.0;
+        let mut after = self.total();
+        while node < self.base {
+            #[cfg(test)]
+            self.visits.set(self.visits.get() + 1);
+            span /= 2;
+            let middle = self.split(node, before, after);
+            node *= 2;
+            if remaining >= span {
+                before = middle;
+                node += 1;
+                remaining -= span;
+            } else {
+                after = middle;
+            }
+        }
+        before
+    }
+
+    // Different associations of floating-point sums can disagree by an ulp.
+    // Share the same parent-bounded splits between prefix and lookup so prefix
+    // positions never decrease, and never assign rounding residue to zero rows.
+    fn split(&self, node: usize, before: f64, after: f64) -> f64 {
+        let left = self.sums[node * 2];
+        if left == 0.0 {
+            before
+        } else if self.sums[node * 2 + 1] == 0.0 {
+            after
+        } else {
+            (before + left).min(after)
+        }
+    }
+
+    /// inclusive=true finds the first bottom >= offset (end of a half-open band),
+    /// false finds the first bottom > offset (start of that band).
+    fn find(&self, offset: f64, inclusive: bool) -> Option<usize> {
+        if self.len == 0 || self.total() == 0.0 {
+            return None;
+        }
+        let contains = |bottom: f64| {
+            if inclusive {
+                bottom >= offset
+            } else {
+                bottom > offset
+            }
+        };
+        if !contains(self.total()) {
+            return None;
+        }
+        let mut node = 1;
+        let mut before = 0.0;
+        let mut after = self.total();
+        while node < self.base {
+            #[cfg(test)]
+            self.visits.set(self.visits.get() + 1);
+            let bottom = self.split(node, before, after);
+            node *= 2;
+            if contains(bottom) {
+                after = bottom;
+            } else {
+                before = bottom;
+                node += 1;
+            }
+        }
+        let index = node - self.base;
+        (index < self.len).then_some(index)
+    }
+}
+
+#[cfg(test)]
+#[path = "index_tests.rs"]
+mod tests;

@@ -64,9 +64,9 @@ impl<'a> Parser<'a> {
     }
 
     fn rest(&self) -> &'a str {
-        // The input is already UTF-8 and every consumed token ends on a
-        // character boundary. Revalidating the suffix at each `h` makes
-        // ordinary prose with possible bare URLs needlessly quadratic.
+        // Input is already valid UTF-8. The cursor advances by whole scalars
+        // or past ASCII delimiters, so this checked slice is O(1). Revalidating
+        // the entire suffix at each ordinary 'h' made bare-URL probing quadratic.
         &self.text[self.at..]
     }
 

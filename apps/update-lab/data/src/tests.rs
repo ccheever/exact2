@@ -77,7 +77,14 @@ fn fixed_probe_survives_a_javascript_only_generation() {
 #[test]
 fn replacement_carries_the_real_labs_counter_note_and_clock() {
     let plan = contract::compile(include_str!("../../app.contract")).unwrap();
-    let mut runner = Runner::boot(plan.clone(), lab(), Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        plan.clone(),
+        lab(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     runner.act("increment", vec![]).unwrap();
     runner
         .act("editNote", vec![Value::str("kept through both updates")])
@@ -91,8 +98,15 @@ fn replacement_carries_the_real_labs_counter_note_and_clock() {
             .replacement(&[1], &receipt, module)
             .unwrap();
         candidate.activate_for_validation().unwrap();
-        runner = Runner::boot_carrying(plan.clone(), candidate, Kernel::with_monospace(), &carried)
-            .unwrap();
+        runner = Runner::boot_carrying(
+            plan.clone(),
+            candidate,
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
         assert_eq!(runner.slot("counter"), Some(&Value::Number(2.0)));
         assert_eq!(
             runner.slot("note"),

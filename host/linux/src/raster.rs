@@ -4,9 +4,11 @@
 //!
 //! @ref LLP 1015 §2
 
+use crate::image::Bitmap;
 use crate::paint::{Backend, Rect4, Shape, POINTER};
-use crate::text::{Paragraph, TextEngine};
+use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::rc::Rc;
+use std::sync::Arc;
 use tiny_skia::{
     Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
     Stroke, Transform,
@@ -20,6 +22,7 @@ pub struct Raster {
     width: u32,
     height: u32,
     clips: Vec<Rc<Mask>>,
+    text_clips: Vec<Rect4>,
     layers: Vec<(Pixmap, f32)>,
 }
 
@@ -31,6 +34,46 @@ impl Raster {
 
     fn device(&self, ts: Transform) -> Transform {
         Transform::from_scale(self.scale, self.scale).pre_concat(ts)
+    }
+
+    // Conservative device bounds of the actual rounded path, including its
+    // control points. Mask coverage remains authoritative. An untransformable
+    // path keeps the parent bound; uncertainty must never hide text.
+    fn text_clip(&self, shape: &Shape, ts: Transform) -> Rect4 {
+        let parent = self.text_clips.last().copied().unwrap_or((
+            0.0,
+            0.0,
+            self.width as f32,
+            self.height as f32,
+        ));
+        let Some(path) = rounded_rect(shape) else {
+            // mask_with skips invalid shapes when it already has a parent.
+            return if self.clips.is_empty() {
+                (0.0, 0.0, 0.0, 0.0)
+            } else {
+                parent
+            };
+        };
+        let Some(path) = path.transform(self.device(ts)) else {
+            return parent;
+        };
+        let b = path.bounds();
+        // Beyond the precise integer range, prefer the existing full mask path.
+        if [b.left(), b.top(), b.right(), b.bottom()]
+            .iter()
+            .any(|n| !n.is_finite() || n.abs() > 16_777_216.0)
+        {
+            return parent;
+        }
+        let (x, y) = (
+            (b.left() - 2.0).max(parent.0),
+            (b.top() - 2.0).max(parent.1),
+        );
+        let (right, bottom) = (
+            (b.right() + 2.0).min(parent.0 + parent.2),
+            (b.bottom() + 2.0).min(parent.1 + parent.3),
+        );
+        (x, y, (right - x).max(0.0), (bottom - y).max(0.0))
     }
 
     /// The current clip intersected with more shapes, as a mask of its own.
@@ -133,6 +176,7 @@ impl Backend for Raster {
         pixmap.fill(Color::WHITE);
         self.target = Some(pixmap);
         self.clips.clear();
+        self.text_clips.clear();
         self.layers.clear();
     }
 
@@ -168,7 +212,7 @@ impl Backend for Raster {
         }
     }
 
-    fn image(&mut self, image: &Rc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -182,7 +226,7 @@ impl Backend for Raster {
             ..PixmapPaint::default()
         };
         if let Some(t) = self.target.as_mut() {
-            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_ref());
+            t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
         }
     }
 
@@ -190,25 +234,45 @@ impl Backend for Raster {
         &mut self,
         text: &mut TextEngine,
         paragraph: &Paragraph,
-        color: [u8; 4],
+        palette: &[RunPaint],
         origin: (f32, f32),
         ts: Transform,
     ) {
         let dev = self.device(ts);
         let scale = self.scale;
         let mask = self.clips.last().cloned();
+        let clip = self.text_clips.last().copied().unwrap_or((
+            0.0,
+            0.0,
+            self.width as f32,
+            self.height as f32,
+        ));
         if let Some(t) = self.target.as_mut() {
-            text.paint(t, paragraph, color, origin, scale, dev, mask.as_deref());
+            text.paint_clipped(
+                t,
+                paragraph,
+                palette,
+                origin,
+                scale,
+                dev,
+                mask.as_deref(),
+                clip,
+            );
         }
     }
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
+        let bounds = self.text_clip(shape, ts);
         match self.mask_with(&[*shape], ts) {
-            Some(m) => self.clips.push(Rc::new(m)),
+            Some(m) => {
+                self.clips.push(Rc::new(m));
+                self.text_clips.push(bounds);
+            }
             None => {
                 // Nothing can show inside an empty box; an empty mask says so.
                 if let Some(m) = Mask::new(self.width, self.height) {
                     self.clips.push(Rc::new(m));
+                    self.text_clips.push((0.0, 0.0, 0.0, 0.0));
                 }
             }
         }
@@ -216,6 +280,7 @@ impl Backend for Raster {
 
     fn pop_clip(&mut self) {
         self.clips.pop();
+        self.text_clips.pop();
     }
 
     fn push_opacity(&mut self, alpha: f32) {

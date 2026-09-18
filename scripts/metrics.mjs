@@ -9,6 +9,10 @@
  *   bun scripts/metrics.mjs --app <name> measure that resolved app
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
  *   bun scripts/metrics.mjs --list-memory  fresh-process eager/windowed heap/RSS comparison (25/1000/25000)
+ *   bun scripts/metrics.mjs --list-memory --collections --repeats 3 --json
+ *       paired eager/virtualized rows, actual kernel geometry, twenty full traversals
+ *   bun scripts/metrics.mjs --stress-url http://127.0.0.1:PORT --seconds 10 --target-hz 120
+ *       sample a local fixture; repeat --tap <testId> to start workload controls
  *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
@@ -20,7 +24,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { arch, cpus, platform, release, tmpdir } from 'node:os';
+import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
@@ -30,6 +34,13 @@ import { Cdp } from './agent.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// Explicitly sample an already-running local stress fixture. This mode records
+// its live source state and does not claim the private-capture build guarantee.
+if (process.argv.includes('--stress-url')) {
+  const { runStressMetrics } = await import('./stress-metrics.mjs');
+  await runStressMetrics(process.argv.slice(2));
+  process.exit(process.exitCode ?? 0);
+}
 const appName = process.argv.includes('--app') ? process.argv[process.argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
 // The child uses the captured scripts and inputs; only this invocation's
@@ -68,6 +79,86 @@ if (process.env.EXACT_DIAGNOSTIC_ROOT === ROOT) {
 }
 // Opt-in large workloads run in the existing metrics binary. No browser or
 // rebuild is needed to compare runner algorithms on one fixed machine.
+if (process.argv.includes('--list-memory') && process.argv.includes('--collections')) {
+  if (process.argv.includes('--scaling')) throw new Error('choose collections or scaling');
+  const repeats = process.argv.includes('--repeats') ? Number(process.argv[process.argv.indexOf('--repeats') + 1]) : 3;
+  if (!Number.isInteger(repeats) || repeats < 1 || repeats > 10) throw new Error('--repeats must be 1..10');
+  const env = { ...developmentBuildEnv(), EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') };
+  // Include untracked modules: git diff alone omits a new implementation until staged.
+  const sourceDigest = () => {
+    const listed = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '*.rs', '*.mjs', '*.js', '*.json', '*.contract', 'Cargo.*'], { cwd: ROOT, encoding: 'utf8' });
+    if (listed.status !== 0) throw new Error(listed.stderr);
+    const digest = createHash('sha256');
+    for (const path of [...new Set(listed.stdout.split('\0').filter(Boolean))].sort()) {
+      const file = resolve(ROOT, path);
+      if (existsSync(file)) digest.update(path).update('\0').update(readFileSync(file)).update('\0');
+    }
+    return digest.digest('hex');
+  };
+  const compilerProcesses = () => {
+    const result = spawnSync('ps', ['-axo', 'comm='], { encoding: 'utf8' });
+    return result.status === 0 ? result.stdout.trim().split('\n').map(s => s.trim())
+      .filter(s => /(^|\/)(cargo|rustc|swiftc|swift-frontend|clang|clang\+\+|cc1|ld)$/.test(s)) : null;
+  };
+  out.identity.physical_memory_bytes = totalmem();
+  out.identity.logical_cpus = cpus().length;
+  out.identity.source_files_sha256_before_build = sourceDigest();
+  const built = spawnSync('cargo', ['build', '--locked', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics'], { cwd: ROOT, encoding: 'utf8', env });
+  if (built.status !== 0) { console.error(built.error?.message ?? built.stderr); process.exit(built.status ?? 1); }
+  const binary = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'release/metrics');
+  out.identity.binary_sha256 = sha256(readFileSync(binary));
+  out.identity.source_files_sha256_after_build = sourceDigest();
+  out.identity.source_changed_during_build = out.identity.source_files_sha256_before_build !== out.identity.source_files_sha256_after_build;
+  const sample = (count, mode, repeat) => new Promise((done, fail) => {
+    console.error(`collection metrics: ${count} rows, ${mode}, repeat ${repeat + 1}/${repeats}`);
+    const child = spawn(binary, ['--collection-memory', String(count), mode, '--hold'], { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '', failure;
+    const phases = [];
+    const timer = setTimeout(() => { failure = new Error(`collection ${count}/${mode}: exceeded 60 s`); child.kill(); }, 60000);
+    child.once('error', error => { clearTimeout(timer); fail(error); });
+    child.stdin.on('error', error => { failure ??= error; child.kill(); });
+    child.stderr.on('data', bytes => { stderr = (stderr + bytes).slice(-8192); });
+    child.stdout.on('data', bytes => {
+      stdout += bytes;
+      while (!failure && stdout.includes('\n')) {
+        const split = stdout.indexOf('\n'); const line = stdout.slice(0, split); stdout = stdout.slice(split + 1);
+        try {
+          const phase = JSON.parse(line);
+          const rss = ['darwin', 'linux'].includes(platform())
+            ? spawnSync('ps', ['-o', 'rss=', '-p', String(child.pid)], { encoding: 'utf8', timeout: 5000 }) : null;
+          const kib = Number(rss?.stdout?.trim());
+          phase.process_rss_bytes = rss?.status === 0 && kib > 0 ? kib * 1024 : null;
+          phase.compiler_processes_at_sample = compilerProcesses();
+          phases.push(phase); child.stdin.write('\n');
+        } catch (error) { failure = error; child.kill(); }
+      }
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (failure || code !== 0 || phases.at(-1)?.phase !== 'runner_dropped') fail(failure ?? new Error(`collection ${count}/${mode} exited ${code}: ${stderr}`));
+      else done({ count, mode, repeat, phases });
+    });
+  });
+  out.collection_memory = [];
+  for (const count of [25, 1000, 25000]) for (let repeat = 0; repeat < repeats; repeat++) {
+    // Alternate ordering across repetitions; every cell still gets a fresh process.
+    for (const mode of repeat % 2 ? ['virtualized', 'eager'] : ['eager', 'virtualized']) out.collection_memory.push(await sample(count, mode, repeat));
+  }
+  out.identity.source_files_sha256_after_measurements = sourceDigest();
+  out.identity.source_changed_during_measurements = out.identity.source_files_sha256_after_build !== out.identity.source_files_sha256_after_measurements;
+  out.collection_memory_note = 'Same release binary; fresh process per N/mode/repeat; fixed 390x800 nested scrollport inside 390x844 kernel viewport; distinct numeric records, one text root and one owned state slot per row. Virtualized feedback uses actual kernel wrapper heights and no pins; eager scrolling requires no runner calls or new layout (reported zero work, not host frame cost). Twenty traversals means top-bottom-top in viewport-sized steps; a fitting 25-row document has no scroll distance. Action samples include the authored action plus any post-layout collection feedback needed to settle. Per-phase raw synchronous runner-call, kernel-layout and driver elapsed times are milliseconds, not OS thread CPU counters or physical presentation. Tracked heap is System requested bytes since the post-compile/pre-data baseline, including O(N) records/key-height metadata and runtime transients; encoded input, diagnostic buffers, allocator slack and internal realloc transients are excluded. RSS is ps process resident memory and includes diagnostic buffers; it is not Apple physical footprint. Local-slot counts are live authored row roots times the verified one owned slot in the template. Native host views, decoded raster memory and first pixel are unmeasured. Compiler process samples are boundary observations, not proof of an otherwise idle machine. Source hashes describe the live workspace (including untracked source), not a hermetic capture; binary SHA identifies the measured executable.';
+  if (json) console.log(JSON.stringify(out));
+  else {
+    console.log(`Collection runner metrics — ${JSON.stringify(out.identity)}`);
+    for (const cell of out.collection_memory) {
+      const phase = name => cell.phases.find(p => p.phase === name);
+      const settled = phase('twenty_traversals');
+      console.log(`  ${cell.count} ${cell.mode} #${cell.repeat + 1}: ${settled.live_row_instances} rows / ${settled.live_kernel_nodes} nodes; heap ${settled.retained_heap_delta_bytes} B; RSS ${settled.process_rss_bytes ?? 'unmeasured'} B; input p50 ${phase('input_echo').runner_call_ms.p50}; body p50 ${phase('all_row_bodies').runner_call_ms.p50} ms`);
+    }
+    console.log(out.collection_memory_note);
+  }
+  process.exit(0);
+}
 if (process.argv.includes('--list-memory')) {
   if (process.argv.includes('--scaling')) throw new Error('choose --list-memory or --scaling');
   const env = { ...developmentBuildEnv(), EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') };

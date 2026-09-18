@@ -24,6 +24,31 @@ extension Agent {
     /// AppKit animates nothing here that a seek does not move.
     func nativeInFlight() -> Bool { false }
 
+    /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
+    /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
+    /// Never assign the viewport frame or subtract titlebar/toolbar heights:
+    /// AppKit owns that geometry. This is repeated programmatic window resize,
+    /// not a simulated titlebar drag or a physical frame-presentation receipt.
+    func resizeWindow(_ size: CGSize) -> [String: Any] {
+        guard contact == nil else { return ["error": "release the held contact before resizing"] }
+        guard let window = presenter.viewport.window, let content = window.contentView else {
+            return ["error": "no window to resize"]
+        }
+        window.setContentSize(size)
+        content.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        let actual = window.contentRect(forFrameRect: window.frame).size
+        let viewport = presenter.viewport.contentView.bounds.size
+        let dimensions = { (s: CGSize) -> [Double] in [Agent.r2(s.width), Agent.r2(s.height)] }
+        return ["resized": dimensions(actual), "viewport": dimensions(viewport),
+                "contentView": dimensions(content.bounds.size),
+                "contentLayout": dimensions(window.contentLayoutRect.size),
+                "windowFrame": dimensions(window.frame.size),
+                "backingScale": window.backingScaleFactor,
+                "toolbar": window.toolbar != nil, "delivery": "platform-window",
+                "native": "NSWindow.setContentSize", "paint": "displayIfNeeded; presentation unobserved"]
+    }
+
     /// What AppKit knows for `state` (LLP 1035.002 D2): the node holding
     /// the focus (a field through its field editor), no software keyboard,
     /// and the routes as the props declare them — macOS projects nothing
@@ -43,7 +68,7 @@ extension Agent {
                                          "transition": ["interactive": false, "phase": "idle"]]
         if let container = presenter.views.values.filter({ $0.props["navigationBack"] != nil }).min(by: { $0.id < $1.id }) {
             let key = container.props["navigationKey"] ?? ""
-            let routes = presenter.views.values.filter { $0 !== container && $0.props["navigationKey"] != nil }.sorted { $0.id < $1.id }
+            let routes = container.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
             let keys = routes.map { $0.props["navigationKey"] ?? "" }
             navigation["route"] = key
             if let range = NavigationRules.stack(routeKeys: keys, selected: key) {
@@ -53,6 +78,8 @@ extension Agent {
                 navigation["closedby"] = selected.props["closedby"] ?? NSNull()
             }
         }
+        // @ref LLP 1038 D11 — last op, never inferred from route props.
+        navigation["url"] = session.routerOp?["url"] ?? NSNull()
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
     }
 
@@ -108,6 +135,9 @@ extension Agent {
         for (id, v) in presenter.views.sorted(by: { $0.key < $1.key }) where v.window != nil {
             let r = box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
+            if let toolbar = presenter.toolbar.observation(v) {
+                n = ["id": Int(id), "native": toolbar]
+            }
             if let sv = v.scroll {
                 let o = sv.contentView.bounds.origin
                 n["sx"] = Agent.r2(o.x)
@@ -141,7 +171,7 @@ extension Agent {
     /// viewport, the window and the screen (both reported y-down from the
     /// top, as every space here is), the scroll and clip chains above it,
     /// whether it is hidden, in the viewport or clipped away, and what was
-    /// mounted for it. AppKit has no `inert`, so it is reported false, never
+    /// mounted for it. Hidden and inert ancestors are observed, never
     /// guessed. A stale id is refused by name.
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
@@ -186,7 +216,7 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
-        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": false, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
         if host.isHiddenOrHasHiddenAncestor {
             // Name the ancestor that hides it, never leave a reader guessing.
             var s: NSView? = host
@@ -199,9 +229,21 @@ extension Agent {
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let toolbar = presenter.toolbar.observation(host) {
+            native["windowToolbar"] = toolbar
+            // The kernel frame is authored fallback geometry, not the native
+            // titlebar item's bounds. AppKit exposes no public item frame.
+            node["space"] = ["placement": "window-toolbar", "geometry": "system-owned"]
+            node["scroll"] = [] as [Int]; node["clip"] = [] as [Int]
+            node["visible"] = ["hidden": !presenter.toolbar.visible(host), "inert": host.inert,
+                               "inViewport": false, "clipped": false]
+        }
         if let leaf = host.symbolView {
             let size = leaf.image?.size ?? .zero
             native["symbol"] = ["renderer": String(describing: Swift.type(of: leaf)), "name": host.props["symbolName"] ?? "", "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
+        }
+        if v.props["backgroundMaterial"] != nil {
+            native["effect"] = v.appliedMaterial
         }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]
@@ -237,6 +279,7 @@ extension Agent {
         case "down":
             guard contact == nil else { return ["error": "a contact is already down; up it first"] }
             guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+            if presenter.toolbar.suppresses(v) { return ["error": "native toolbar geometry is system-owned; use tap host activation"] }
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
             send(.leftMouseDown, p)
@@ -277,11 +320,21 @@ extension Agent {
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let activated = presenter.toolbar.activate(node) {
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
+                : ["error": "native toolbar item #\(id) is unavailable"]
+        }
+        if let node = view(req), presenter.toolbar.suppresses(node) {
+            return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
@@ -364,8 +417,14 @@ extension Agent {
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
+        // @ref LLP 1038 D11 — type on the root delivers a location.
+        if v.props["navigationBack"] != nil, req["key"] == nil {
+            let location = req["text"] as? String ?? ""
+            return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
+        }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
             let parts = chord.split(separator: "+").map(String.init)
@@ -383,7 +442,9 @@ extension Agent {
             // First responder only if it is not held already: re-making an
             // editing field first responder ends its editing (a blur the
             // app would see) and begins it again with no focus.
-            if let f = v.textArea {
+            if presenter.toolbar.contains(v) {
+                if let view = session.view { win.makeFirstResponder(view) }
+            } else if let f = v.textArea {
                 if win.firstResponder !== f { win.makeFirstResponder(f) }
             } else if let f = v.field {
                 let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false

@@ -301,6 +301,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
+    contract_analyze::check_routes_root(&file, true)?;
     let types = contract_types::check(&file)?;
     let analysis = contract_analyze::check(&file, &types)?;
     Ok(contract_lower::lower(&file, &types, &analysis, asset_root)?)
@@ -322,6 +323,7 @@ fn load_source(
     seen: &mut Vec<PathBuf>,
 ) -> Result<File, CompileError> {
     let mut file = contract_syntax::parse(src)?;
+    contract_analyze::check_routes_root(&file, seen.len() == 1)?;
     let uses = std::mem::take(&mut file.uses);
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     for u in &uses {
@@ -488,7 +490,17 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         plan.app_id = data.app_id().to_string();
     }
     delivery_shape(&plan)?;
-    let mut runner = Runner::boot(plan.clone(), data, Kernel::with_monospace())?;
+    viewport_shape(&plan)?;
+    let mut runner = Runner::boot(
+        plan.clone(),
+        data,
+        Kernel::with_monospace(),
+        exact_runner::Viewport {
+            width: LINT_VIEWPORT.0 as f64,
+            height: LINT_VIEWPORT.1 as f64,
+        },
+        "/",
+    )?;
     lint(&mut runner)?;
     let mut b = PlanBuilder::from_plan(plan);
     for i in 0..runner.plan().resources.len() {
@@ -509,6 +521,11 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         }
         if let Some(v) = runner.resource(&name) {
             b.set_resource_initial(ResourcesId(i as u32), v);
+            // @ref LLP 1038 D5 — the compiled value is keyed by evaluated arguments.
+            b.set_resource_initial_args(
+                ResourcesId(i as u32),
+                runner.resource_args(&name).expect("settled resource"),
+            );
         }
     }
     b.finish()
@@ -541,6 +558,40 @@ fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
             if !FIELDS.contains(&field) {
                 return Err(BakeError::Lint {
                     id: "bake-delivery-field",
+                    message: format!(
+                        "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
+                        FIELDS.join(", ")
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+// @ref LLP 1039 D1 — refuse unknown host fact fields at bake.
+fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
+    use exact_runner::viewport::{FIELDS, SOURCE};
+    for row in plan.resources.iter() {
+        if plan.str(row.source) != SOURCE {
+            continue;
+        }
+        let name = plan.str(row.name);
+        let ty = plan.type_(row.ty);
+        if ty.kind != exact_plan::TypeKind::Record {
+            return Err(BakeError::Lint {
+                id: "bake-viewport-field",
+                message: format!(
+                    "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
+                    FIELDS.join(", ")
+                ),
+            });
+        }
+        for f in ty.fields.iter() {
+            let field = plan.str(plan.field(f).name);
+            if !FIELDS.contains(&field) {
+                return Err(BakeError::Lint {
+                    id: "bake-viewport-field",
                     message: format!(
                         "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
                         FIELDS.join(", ")
@@ -585,7 +636,15 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
             None => format!("`{}` #{}", node.node_type.name(), node.id),
         };
         match node.node_type {
-            NodeType::ScrollView => {
+            NodeType::ScrollView | NodeType::List => {
+                if node.node_type == NodeType::List
+                    && !node.props.iter().any(|(id, value)| {
+                        id == exact_kernel::PropId::Virtualized
+                            && matches!(value, PropValue::Bool(true))
+                    })
+                {
+                    continue;
+                }
                 let s = node.style;
                 if matches!(s.overflow_y, exact_kernel::Overflow::Hidden) {
                     continue;

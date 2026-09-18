@@ -17,10 +17,11 @@ use crate::generated::{FieldSizing, NodeType, PropId, StyleId, StyleMask, StyleP
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::PropList;
 use crate::style::Env;
-use crate::text::{TextRun, TextStyle};
+use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun, TextStyle};
 
-/// Columnar node storage.
-#[derive(Debug, Default, Clone)]
+/// Columnar node storage. Cloning forks authored state into a fresh paragraph
+/// namespace: either arena can subsequently receive independent transactions.
+#[derive(Debug, Default)]
 pub struct NodeArena {
     generations: Vec<u32>,
     live: Vec<bool>,
@@ -47,6 +48,39 @@ pub struct NodeArena {
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
+    // Current metadata only: O(arena slot high-water), never revision history.
+    text_revisions: Vec<TextRevisions>,
+    text_domain: TextDomain,
+    text_serial: u64,
+}
+
+impl Clone for NodeArena {
+    fn clone(&self) -> Self {
+        Self {
+            generations: self.generations.clone(),
+            live: self.live.clone(),
+            node_types: self.node_types.clone(),
+            local_ids: self.local_ids.clone(),
+            parents: self.parents.clone(),
+            children: self.children.clone(),
+            styles: self.styles.clone(),
+            props: self.props.clone(),
+            flags: self.flags.clone(),
+            frames: self.frames.clone(),
+            contents: self.contents.clone(),
+            intrinsic: self.intrinsic.clone(),
+            taffy: self.taffy.clone(),
+            is_root: self.is_root.clone(),
+            free: self.free.clone(),
+            roots: self.roots.clone(),
+            by_local: self.by_local.clone(),
+            live_count: self.live_count,
+            env: self.env,
+            text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
+            text_domain: TextDomain::default(),
+            text_serial: 0,
+        }
+    }
 }
 
 impl NodeArena {
@@ -77,6 +111,7 @@ impl NodeArena {
     /// later allocation at the same slot. Keeping the generation column means
     /// [`alloc`](Self::alloc) advances identity exactly as ordinary reuse does.
     pub(crate) fn reset(&mut self) {
+        self.renew_text_namespace();
         for slot in 0..self.generations.len() {
             self.live[slot] = false;
             self.parents[slot] = None;
@@ -242,6 +277,49 @@ impl NodeArena {
         owner
     }
 
+    /// The canonical independent paragraph's current input proof. Inline nodes
+    /// return None: their own text_runs payload is not their owner's payload.
+    pub fn paragraph_stamp(&self, slot: u32) -> Option<ParagraphStamp> {
+        if !self.is_live(slot)
+            || !matches!(self.node_type(slot), NodeType::Text | NodeType::TextInput)
+            || self.measure_owner(slot) != slot
+        {
+            return None;
+        }
+        let r = self.text_revisions[slot as usize];
+        Some(ParagraphStamp {
+            domain: self.text_domain.clone(),
+            owner: self.key(slot),
+            metrics: r.metrics,
+            paint_source: r.paint_source,
+        })
+    }
+
+    pub(crate) fn renew_text_namespace(&mut self) {
+        self.text_domain = TextDomain::default();
+        self.text_serial = 0;
+        self.text_revisions.fill(TextRevisions::default());
+    }
+
+    /// Called only while applying validated mutations. Rollover cannot fail
+    /// halfway through a commit: rotating the namespace invalidates every old
+    /// proof atomically with that successful mutation. It retains no history.
+    pub(crate) fn revise_text(&mut self, slot: u32, metrics: bool) {
+        let owner = self.measure_owner(slot);
+        if !matches!(self.node_type(owner), NodeType::Text | NodeType::TextInput) {
+            return;
+        }
+        if self.text_serial == u64::MAX {
+            self.renew_text_namespace();
+        }
+        self.text_serial += 1;
+        let revision = &mut self.text_revisions[owner as usize];
+        if metrics {
+            revision.metrics = self.text_serial;
+        }
+        revision.paint_source = self.text_serial;
+    }
+
     /// Whether this slot is an inline run (a `Text` whose parent is a `Text`).
     pub fn is_inline_run(&self, slot: u32) -> bool {
         self.node_types[slot as usize] == NodeType::Text
@@ -369,6 +447,7 @@ impl NodeArena {
                 self.intrinsic.push(None);
                 self.taffy.push(None);
                 self.is_root.push(false);
+                self.text_revisions.push(TextRevisions::default());
                 (self.generations.len() - 1) as u32
             }
         };
@@ -390,6 +469,7 @@ impl NodeArena {
         self.is_root[s] = false;
         self.by_local.insert(id, slot);
         self.live_count += 1;
+        self.revise_text(slot, true);
         Ok(slot)
     }
 
@@ -398,6 +478,7 @@ impl NodeArena {
         debug_assert!(self.live[s], "free of a dead slot");
         self.by_local.remove(&self.local_ids[s]);
         self.live[s] = false;
+        self.text_revisions[s] = TextRevisions::default();
         self.parents[s] = None;
         self.children[s] = Vec::new();
         self.styles[s] = StyleProps::default();
@@ -563,5 +644,138 @@ mod tests {
         arena.text_runs(p, &mut runs);
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].text, "override");
+    }
+}
+
+#[cfg(test)]
+mod paragraph_stamp_tests {
+    use super::*;
+    use crate::{layout::LayoutTree, selector::SelectorIndex, txn, wire::Op};
+    use std::sync::Arc;
+
+    #[test]
+    fn rollover_is_atomic_and_invalid_or_noop_batches_do_not_rotate() {
+        let mut arena = NodeArena::new();
+        let mut layout = LayoutTree::new();
+        let mut selectors = SelectorIndex::new();
+        let commit = |a: &mut NodeArena, l: &mut LayoutTree, s: &mut SelectorIndex, ops: &[Op]| {
+            txn::apply(
+                txn::Target {
+                    arena: a,
+                    layout: l,
+                    selectors: s,
+                },
+                ops,
+                0,
+                0,
+                0,
+            )
+        };
+        commit(
+            &mut arena,
+            &mut layout,
+            &mut selectors,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::Text,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::Text,
+                },
+            ],
+        )
+        .unwrap();
+        let a = arena.slot_of(1).unwrap();
+        let b = arena.slot_of(2).unwrap();
+        let old = [arena.paragraph_stamp(a), arena.paragraph_stamp(b)];
+        arena.text_serial = u64::MAX - 1;
+        let set = |id| Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: "new".into(),
+        };
+        assert!(commit(&mut arena, &mut layout, &mut selectors, &[set(1), set(99)]).is_err());
+        assert_eq!(old, [arena.paragraph_stamp(a), arena.paragraph_stamp(b)]);
+        assert_eq!(arena.text_serial, u64::MAX - 1);
+        commit(
+            &mut arena,
+            &mut layout,
+            &mut selectors,
+            &[Op::ClearProp {
+                id: 1,
+                prop: PropId::Text,
+            }],
+        )
+        .unwrap();
+        assert_eq!(old, [arena.paragraph_stamp(a), arena.paragraph_stamp(b)]);
+        commit(&mut arena, &mut layout, &mut selectors, &[set(1), set(2)]).unwrap();
+        for (slot, previous) in [a, b].into_iter().zip(old) {
+            assert!(!previous
+                .unwrap()
+                .same_metrics(&arena.paragraph_stamp(slot).unwrap()));
+            assert_eq!(arena.props(slot).str(PropId::Text), Some("new"));
+        }
+        assert_eq!(arena.text_serial, 1);
+    }
+
+    #[test]
+    fn current_slot_storage_and_namespace_lifetimes_do_not_retain_history() {
+        let mut arena = NodeArena::new();
+        let slot = arena.alloc(1, NodeType::Text).unwrap();
+        let old = arena.paragraph_stamp(slot).unwrap();
+        let weak = Arc::downgrade(&arena.text_domain.0);
+        let fork = arena.clone();
+        assert!(!old.same_metrics(&fork.paragraph_stamp(slot).unwrap()));
+        arena.reset();
+        assert!(
+            weak.upgrade().is_some(),
+            "the caller still holds a payload-free stamp"
+        );
+        drop(old);
+        assert!(
+            weak.upgrade().is_none(),
+            "neither reset nor a live public fork retains the retired namespace"
+        );
+        drop(fork);
+        for _ in 0..500 {
+            let slot = arena.alloc(1, NodeType::Text).unwrap();
+            arena.free_slot(slot);
+            assert_eq!(arena.text_revisions[slot as usize], Default::default());
+        }
+        assert_eq!(arena.text_revisions.len(), arena.slot_count());
+        assert_eq!(
+            arena.slot_count(),
+            1,
+            "high-water storage, not allocation history"
+        );
+        let slot = arena.alloc(1, NodeType::Text).unwrap();
+        let held = arena.paragraph_stamp(slot).unwrap();
+        let weak = Arc::downgrade(&arena.text_domain.0);
+        drop(arena);
+        assert!(weak.upgrade().is_some());
+        drop(held);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn node_generation_wrap_does_not_reuse_a_paragraph_proof() {
+        let mut arena = NodeArena::new();
+        let slot = arena.alloc(1, NodeType::Text).unwrap();
+        let old = arena.paragraph_stamp(slot).unwrap();
+        arena.free_slot(slot);
+        arena.generations[slot as usize] = u32::MAX;
+        let reused = arena.alloc(1, NodeType::Text).unwrap();
+        let new = arena.paragraph_stamp(reused).unwrap();
+        assert_eq!(
+            old.owner(),
+            new.owner(),
+            "exercise existing u32 generation wrap"
+        );
+        assert!(
+            !old.same_metrics(&new),
+            "allocation serial must still differ"
+        );
     }
 }

@@ -20,7 +20,7 @@ fn boot() -> (Host<NoData>, String) {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    Host::boot(&plan.encode(), NoData).unwrap()
+    Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
 fn view(host: &Host<NoData>, test_id: &str) -> u32 {
@@ -93,7 +93,13 @@ fn surface_inputs_are_published_when_they_change_and_only_then() {
 #[test]
 fn the_caltrain_app_boots_with_both_surfaces() {
     let plan = caltrain::build().unwrap();
-    let (_, batch) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (_, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(
         batch.contains("\"name\":\"glass\",\"values\":[\"glass\",\"mv\"]"),
         "{}",

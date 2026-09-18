@@ -50,6 +50,20 @@ pub struct Expanded {
 /// Expand the file's root: inline every use and lift every child's own
 /// declarations into it.
 pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
+    let mut root = file.components[0].clone();
+    // @ref LLP 1038 D3 — a compiler slot, before authored initializers and
+    // before the per-use states are lifted. `none` is only an AST placeholder;
+    // types supplies Router and lowering leaves its initialization to launch.
+    if let Some(routes) = &file.routes {
+        root.states.insert(
+            0,
+            Binding {
+                name: routes.slot.clone(),
+                expr: Expr::None(routes.span),
+                span: routes.span,
+            },
+        );
+    }
     let mut counter = 0u32;
     let mut ctx = Ctx {
         file,
@@ -63,7 +77,6 @@ pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
         extra_actions: Vec::new(),
     };
     let view = inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)?;
-    let mut root = file.components[0].clone();
     root.view = view;
     let mut owners = vec![None; root.states.len()];
     for (b, owner) in ctx.extra_states {
@@ -497,7 +510,10 @@ fn derive_dependencies(
 /// becomes `f(a…, args)`.
 fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
     match e {
-        Expr::Ident(n, _) => match subst.get(n) {
+        Expr::Ident(n, span) => match subst.get(n) {
+            // Renaming a child state does not move its reference to the use
+            // site. Keep the expression's source span for diagnostics.
+            Some(Expr::Ident(name, _)) => Expr::Ident(name.clone(), *span),
             Some(r) => r.clone(),
             None => e.clone(),
         },

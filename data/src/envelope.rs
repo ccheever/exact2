@@ -3,7 +3,7 @@
 //! runner to commit inside its transaction. Values cross; nothing else does.
 
 use exact_plan::Value;
-use exact_runner::{Answer, DataError, Outcome, Request, Response, Store};
+use exact_runner::{Answer, DataError, HttpScheduling, Outcome, Request, Response, Store};
 use serde_json::{json, Value as Json};
 
 /// The header that marks a response as a turn's reply, not a host's.
@@ -127,6 +127,10 @@ fn error_from(error: &Json) -> DataError {
 fn request_json(request: &Request) -> Json {
     json!({
         "continuation": request.continuation,
+        "max_response_bytes": match request.http {
+            HttpScheduling::Ordered => None,
+            HttpScheduling::Independent { max_response_bytes } => Some(max_response_bytes),
+        },
         "storage": request.storage.as_deref().map(base64),
         "grants": request.grants,
         "method": request.method,
@@ -159,6 +163,15 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         .unwrap_or_default();
     Ok(Request {
         continuation: json["continuation"].as_u64(),
+        http: match &json["max_response_bytes"] {
+            Json::Null => HttpScheduling::Ordered,
+            value => HttpScheduling::Independent {
+                max_response_bytes: value
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .ok_or_else(|| unavailable("turn reply: invalid HTTP response limit"))?,
+            },
+        },
         storage,
         grants: text("grants"),
         method: text("method").unwrap_or_default(),
@@ -220,7 +233,7 @@ mod tests {
         assert_eq!(live.reads(), 2);
         assert_eq!(logs, vec!["hi".to_string()]);
 
-        let mut request = Request::post_json("https://x.test", "{}");
+        let mut request = Request::post_json("https://x.test", "{}").independent_http(4096);
         request.grants = Some("net.fetch https://x.test".into());
         let outcome = encode(
             Ok(Answer::Later(request.clone())),

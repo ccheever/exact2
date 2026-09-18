@@ -130,6 +130,8 @@ impl NodeInst {
         let mut region = RegionInst {
             region: *region,
             active: Active::Rows { rows: Vec::new() },
+            memo: None,
+            body_memo: None,
             window: Some(Box::new(ListWindow {
                 content,
                 owner: self.view,

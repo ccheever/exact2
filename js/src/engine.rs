@@ -242,6 +242,10 @@ mod real {
             unsafe { exact_js_clear_captures(self.0) };
         }
 
+        pub fn has_reply_strings(&self) -> bool {
+            !self.1.is_empty()
+        }
+
         /// Consume this call's strings into their exact JSON locations before
         /// the existing shape check. A user property can never act as a marker.
         pub fn restore_reply(&mut self, reply: &mut serde_json::Value) -> Result<(), String> {
@@ -348,6 +352,9 @@ mod real {
             Err(NONE.into())
         }
         pub fn clear_reply(&mut self) {}
+        pub fn has_reply_strings(&self) -> bool {
+            false
+        }
         pub fn restore_reply(&mut self, _reply: &mut serde_json::Value) -> Result<(), String> {
             Err(NONE.into())
         }

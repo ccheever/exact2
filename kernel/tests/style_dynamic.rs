@@ -6,6 +6,66 @@ use exact_kernel::{
 };
 
 #[test]
+fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
+    let mut s = StyleProps::default();
+    for (text, x, y) in [
+        ("0", 0.0, 0.0),
+        ("-0 +0", 0.0, 0.0),
+        ("12px", 12.0, 0.0),
+        ("-1.25px +.5PX", -1.25, 0.5),
+        ("\t1e2px\n-2E1px\r\u{c}", 100.0, -20.0),
+    ] {
+        s.set_dynamic(StyleId::Translate, &StyleValue::Text(text.into()))
+            .unwrap();
+        assert_eq!(s.translate, exact_kernel::Vec2 { x, y }, "{text}");
+    }
+    let max = format!("{}px 0", f32::MAX as f64);
+    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max))
+        .unwrap();
+    assert_eq!(s.translate.x, f32::MAX);
+    for text in [
+        "",
+        " ",
+        "1 0",
+        "0 1",
+        "none",
+        "1px,2px",
+        "1px 2px 0px",
+        "10% 0",
+        "calc(1px + 2px) 0",
+        "NaNpx 0",
+        "infpx 0",
+        "1e39px 0",
+        "1e-999 0",
+        "1.px 0",
+        "1e+px 0",
+        "+px 0",
+        "0\u{b}0",
+        "1px\u{a0}2px",
+    ] {
+        let before = s.clone();
+        assert!(
+            s.set_dynamic(StyleId::Translate, &StyleValue::Text(text.into()))
+                .is_err(),
+            "{text}"
+        );
+        assert_eq!(s, before, "refusal must not change row or mask: {text}");
+    }
+    s.set_dynamic(StyleId::Translate, &StyleValue::Vec2(5.0, -7.0))
+        .unwrap();
+    s.set_dynamic(StyleId::ShadowOffset, &StyleValue::Vec2(1.0, 2.0))
+        .unwrap();
+    let before = s.clone();
+    assert!(s
+        .set_dynamic(StyleId::ShadowOffset, &StyleValue::Text("1px 2px".into()))
+        .is_err());
+    assert!(s
+        .set_dynamic(StyleId::Translate, &StyleValue::Number(0.0))
+        .is_err());
+    assert_eq!(s, before, "no general scalar/vector coercion");
+}
+
+#[test]
 fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_width() {
     use exact_kernel::{wire, Kernel, NodeType, Op, StyleMask};
     let mut style = StyleProps::default();

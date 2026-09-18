@@ -7,7 +7,9 @@
 //! `opacity`. Names, units, identity values, and interpolation are CSS's:
 //! `translate` is two lengths in points, `scale` one number, `rotate` an angle
 //! in degrees, `opacity` a number; each interpolates componentwise and
-//! linearly (CSS Transitions §4, "animation type: by computed value").
+//! linearly (CSS Transitions §4, "animation type: by computed value"). The
+//! numeric `height` trial adds a scalar in pixels, with host-owned admission
+//! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
 
 /// One animatable property.
 #[repr(u8)]
@@ -21,15 +23,18 @@ pub enum Property {
     Rotate = 2,
     /// `opacity: <n>`, zero to one.
     Opacity = 3,
+    /// Numeric CSS `height`, in logical pixels; host admission is explicit.
+    Height = 4,
 }
 
 impl Property {
     /// Every property, in wire order.
-    pub const ALL: [Property; 4] = [
+    pub const ALL: [Property; 5] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
         Property::Opacity,
+        Property::Height,
     ];
 
     /// The CSS property name.
@@ -39,6 +44,7 @@ impl Property {
             Property::Scale => "scale",
             Property::Rotate => "rotate",
             Property::Opacity => "opacity",
+            Property::Height => "height",
         }
     }
 
@@ -56,16 +62,18 @@ impl Property {
     pub fn components(self) -> usize {
         match self {
             Property::Translate => 2,
-            Property::Scale | Property::Rotate | Property::Opacity => 1,
+            Property::Scale | Property::Rotate | Property::Opacity | Property::Height => 1,
         }
     }
 
-    /// The CSS initial value.
-    pub fn identity(self) -> Value {
+    /// The CSS initial value when numeric. Height initially is `auto`, not
+    /// zero: a host must adopt an eligible authored target explicitly.
+    pub fn identity(self) -> Option<Value> {
         match self {
-            Property::Translate => Value::ZERO,
-            Property::Scale | Property::Opacity => Value::scalar(1.0),
-            Property::Rotate => Value::scalar(0.0),
+            Property::Translate => Some(Value::ZERO),
+            Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
+            Property::Rotate => Some(Value::scalar(0.0)),
+            Property::Height => None,
         }
     }
 }

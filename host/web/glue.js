@@ -1,6 +1,38 @@
+// The web host's glue: apply batches, forward events, tick the clock.
+//
+// @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
+// the app. The app is the wasm (runner + kernel + data crate + baked plan).
+import { navigation, collectionController, scrollFollowers, motionController, motionBytes } from "./navigation.js";
+// Native independent HTTP carries a response ceiling; enforce it during browser reads too.
+async function boundedHttpBody(response, limit) {
+  if (limit == null) return new Uint8Array(await response.arrayBuffer());
+  if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
+  if (!response.body) return new Uint8Array();
+  const reader=response.body.getReader(), chunks=[]; let size=0;
+  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Error("HTTP response exceeds limit"); if(value.length) chunks.push(value); } }
+  catch(error) { await reader.cancel().catch(()=>{}); throw error; } finally { reader.releaseLock(); }
+  const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
+}
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
-const animations = new Map(); // "view/property" -> Animation (a spring in flight)
+const collections = collectionController({ root, views, report(bytes) {
+  if (!wasm) return false;
+  const ptr = wasm.exact_in(bytes.length);
+  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  const batch = JSON.parse(readOut(wasm.exact_collection_feedback(bytes.length)));
+  applyBatch(batch); return !batch.error;
+} });
+const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
+const motion = motionController({views, now:()=>now(), generation:()=>incarnation, inert:inertAncestor, applyBatch,
+  ready:()=>inputReady,
+  releaseInteraction:pointer=>collections.releaseInteraction(pointer),
+  request(facts) {
+    if (!wasm) return {accepted:false};
+    const bytes=motionBytes(facts), ptr=wasm.exact_in(bytes.length);
+    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);
+    return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
+  }
+});
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -8,7 +40,7 @@ function syncMedia(el, set = {}, clear = []) {
   Object.assign(el.exactMedia.props, set);
   for (const name of clear) delete el.exactMedia.props[name];
   mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
-  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 14, writeIn(payload), now())); }); }).catch(console.error);
+  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 18, writeIn(payload), now())); }); }).catch(console.error);
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
@@ -47,6 +79,7 @@ function setInputReady(ready) {
       authoredDisabled.delete(el);
     }
   }
+  if(ready)motion.commit();
 }
 for (const kind of ["click", "beforeinput", "submit"]) {
   root.addEventListener(kind, event => {
@@ -179,41 +212,7 @@ for (const name of ['pointerup', 'pointercancel']) document.addEventListener(nam
 }, { passive: true });
 function forgetList(el) { lists.get(el)?.observer.disconnect(); lists.delete(el); }
 const pendingScrolls = new Map();
-const followedScrolls = new Map();
-function rememberScroll(s) {
-  s.top = s.el.scrollTop; s.height = s.el.scrollHeight; s.port = s.el.clientHeight;
-  s.end = s.top >= s.height - s.port - 1;
-}
-function settleFollow(s) {
-  if (!s.el.isConnected) return;
-  // A reader above the end uses the browser's CSS scroll anchoring. Writing
-  // the remembered numeric offset here would undo its adjustment when content
-  // above the visible message changes.
-  if (s.end) s.el.scrollTop = s.el.scrollHeight - s.el.clientHeight;
-  rememberScroll(s);
-  const children = [...s.el.children];
-  if (children.length !== s.children.length || children.some((el, i) => el !== s.children[i])) {
-    s.observer.disconnect(); s.observer.observe(s.el);
-    for (const child of children) s.observer.observe(child);
-    s.children = children;
-  }
-}
-function followScroll(el, enabled) {
-  const old = followedScrolls.get(el);
-  if (old || !enabled) {
-    if (old && !enabled) { old.observer.disconnect(); el.removeEventListener("scroll", old.scrolled); followedScrolls.delete(el); }
-    return;
-  }
-  const s = { el, top: 0, height: 0, port: 0, end: true, children: [] };
-  s.scrolled = () => {
-    // ResizeObserver settles a changed geometry before a queued scroll
-    // notification is allowed to change whether the reader follows the end.
-    if (el.scrollHeight === s.height && el.clientHeight === s.port) rememberScroll(s);
-  };
-  s.observer = new ResizeObserver(() => { settleFollow(s); positionContexts(); });
-  s.observer.observe(el); el.addEventListener("scroll", s.scrolled, { passive: true });
-  followedScrolls.set(el, s);
-}
+const { followedScrolls, followScroll, settleFollow, rememberScroll } = scrollFollowers(positionContexts);
 root.addEventListener("pointerdown", event => {
   const target = event.target;
   const editor = target.closest?.("input, textarea, select") || target.isContentEditable;
@@ -333,7 +332,11 @@ function positionContexts() {
     }
   }
 }
-addEventListener("resize", () => requestAnimationFrame(positionContexts));
+// @ref LLP 1039 D2 — layout viewport facts, on every resize, without debounce.
+addEventListener("resize", () => {
+  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now()))));
+  requestAnimationFrame(positionContexts);
+});
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style");
 symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -484,7 +487,7 @@ function attach(el, id, handlers) {
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
   const on = (event, handle) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && (inputReady || event === "load")) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load")) handle(e);
   });
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
@@ -508,62 +511,11 @@ function attach(el, id, handlers) {
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
-      let drag = null, suppressClick = false;
-      on("pointerdown", (e) => {
-        if (!e.isPrimary || e.button !== 0 || el.matches(":disabled") || inertAncestor(el)) return;
-        if (e.target.closest("input,textarea,[contenteditable]")) return;
-        // The CSS touch-action decides which touch directions the browser
-        // keeps for scrolling. A scrolling pointer cancels this observation.
-        e.preventDefault(); e.stopPropagation();
-        const translate = getComputedStyle(el).translate;
-        const parts = translate === "none" ? ["0px", "0px"] : translate.match(/calc\([^)]*\)|\S+/g);
-        drag = { pointer: e.pointerId, x: e.clientX, y: e.clientY, distance: 0, active: false,
-          translate: el.style.translate, transition: el.style.transition, base: parts,
-          indicators: [...el.children].filter(n => n.getAttribute("swipeIndicator") === "true").map(node => {
-            // Start from authored targets even if a preceding return is in flight.
-            const scale = (node.style.scale || "1").split(" ").map(Number);
-            return { node, opacity: node.style.opacity, scale: node.style.scale, transition: node.style.transition,
-              baseOpacity: Number(node.style.opacity || "1"), baseScale: [scale[0], scale[1] ?? scale[0]] };
-          }) };
-        el.setPointerCapture(e.pointerId);
-      });
-      on("pointermove", (e) => {
-        if (!drag || drag.pointer !== e.pointerId) return;
-        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-        if (!drag.active) {
-          if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx) || dx < -8) { drag = null; return; }
-          if (dx < 8 || dx <= Math.abs(dy)) return;
-          drag.active = true;
-          el.style.transition = "none";
-          for (const { node } of drag.indicators) node.style.transition = "none";
-        }
-        drag.distance = Math.max(0, dx);
-        const offset = Math.min(drag.distance, 64) + Math.max(0, drag.distance - 64) * 0.2;
-        el.style.translate = `calc(${drag.base[0]} + ${offset}px) ${drag.base[1] || "0px"}`;
-        const progress = Math.min(offset / 64, 1);
-        for (const indicator of drag.indicators) {
-          indicator.node.style.opacity = indicator.baseOpacity + (1 - indicator.baseOpacity) * progress;
-          indicator.node.style.scale = indicator.baseScale.map(v => v + (1 - v) * progress).join(" ");
-        }
-        e.stopPropagation();
-      });
-      const finish = (e) => {
-        if (!drag || drag.pointer !== e.pointerId) return;
-        const ended = drag; drag = null;
-        if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-        if (!ended.active) return;
-        suppressClick = true;
-        // Commit the held value before restoring the authored CSS transition.
-        el.getBoundingClientRect();
-        el.style.transition = ended.transition;
-        el.style.translate = ended.translate;
-        for (const { node, opacity, scale, transition } of ended.indicators) {
-          node.style.transition = transition; node.style.opacity = opacity; node.style.scale = scale;
-        }
-        if (e.type === "pointerup" && ended.distance >= 64) send(wasm.exact_dispatch(id, 12, 0, now()));
-      };
-      on("pointerup", finish); on("pointercancel", finish); on("lostpointercapture", finish);
-      on("click", (e) => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopPropagation(); } });
+      motion.attachSwipe(el, id, on);
+    } else if (kind === "heightrelease") {
+      motion.attachHeightDrag(el, id, on);
+    } else if (kind === "transformrelease") {
+      motion.attachTransformDrag(el,id,on);
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;
@@ -634,13 +586,24 @@ function viewFor(op, id) {
 }
 function apply(batch) {
   listSelection?.before();
+  // The runner has already removed these views. A preceding children op can
+  // detach a focused descendant (and synchronously blur it) before its destroy
+  // op arrives. Retire dispatch first, while keeping the DOM lookup for cleanup.
+  for (const op of batch.ops ?? []) {
+    if (op.op === "destroy") {
+      const el = views.get(op.id);
+      if (el) retiredViews.add(el);
+    }
+  }
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
+  const collectionOp = batch.ops?.find(op => op.op === "collections");
   if (batch.error) console.error("exact:", batch.error);
   for (const op of batch.ops ?? []) {
     try {
       switch (op.op) {
+      case "router": navigation.apply(op); break;
       case "create": {
         // A canvas node is a <div> hosting its surface <canvas> under its
         // children (LLP 1014 D2): the kernel's children are laid out in the
@@ -668,7 +631,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) el.style.cssText = op.css;
+        if (el) motion.style(op.id, op.css);
         break;
       }
       case "children": {
@@ -690,21 +653,10 @@ function apply(batch) {
         while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; }
         break;
       }
-      case "animate": {
-        // A spring: frames from the engine, played by the browser with linear
-        // interpolation (LLP 1002 D2). Replaces the spring on that property.
-        const key = op.id + "/" + op.property;
-        animations.get(key)?.cancel();
-        animations.delete(key);
-        if (!op.values.length) break;
-        const el = viewFor("animate", op.id);
-        if (!el) break;
-        const css = (v) => op.property === "translate" ? `${v[0]}px ${v[1]}px` : op.property === "rotate" ? `${v}deg` : String(v);
-        const anim = el.animate(op.values.map((v) => ({ [op.property]: css(v) })), { delay: op.delay, duration: op.duration, easing: "linear" });
-        animations.set(key, anim);
-        anim.finished.then(() => { if (animations.get(key) === anim) animations.delete(key); }, () => {});
-        break;
-      }
+      case "animate": { motion.animate(op); break; }
+      case "retire-motion": { motion.retire(op.id, op.property, op.token, op.runtime); break; }
+      case "height-drag": { motion.heightBinding(op); break; }
+      case "transform-drag": { motion.transformBinding(op); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
@@ -748,6 +700,7 @@ function apply(batch) {
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",enc.encode(String(error))));
         inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
+      case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", enc.encode(op.message)); break; }
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -766,6 +719,7 @@ function apply(batch) {
           deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
           break;
         }
+        if (op.nativeHttp === "independent" && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) { deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode("invalid independent HTTP response limit")); break; }
         let decodedBody;
         try {
           if (body) decodedBody = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
@@ -778,7 +732,7 @@ function apply(batch) {
         const init = { method, headers, redirect: op.scope == null ? "follow" : "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
         const p = fetch(url, init)
-          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), new Uint8Array(await r.arrayBuffer())))
+          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
           .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", enc.encode(String(e?.message ?? e))));
         inflight.add(p);
         p.finally(() => { inflight.delete(p); controllers.delete(controller); });
@@ -809,7 +763,11 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": {
+        motion.destroy(op.id);
+        const el = views.get(op.id); if (el) { if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
+      }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {
@@ -835,21 +793,9 @@ function apply(batch) {
       console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
     }
   }
-  // Navigation keeps its routes mounted; only the selected route receives
-  // input or participates in accessibility. UIKit projects these into its
-  // own controller stack; the browser retains the same declarative state.
-  for (const nav of root.querySelectorAll("[navigationBack]")) {
-    const routes = [...nav.children].filter(route => route.hasAttribute("navigationKey"));
-    const selected = routes.findIndex(route => route.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-    const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
-    for (const [index, route] of routes.entries()) {
-      const active = index === selected;
-      if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-      route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
-      route.inert = !active || !!route.authoredInert;
-    }
-  }
+  navigation.project(root, log);
   refreshSymbols();
+  for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
@@ -859,6 +805,7 @@ function apply(batch) {
   pendingScrolls.clear();
   listSelection?.after();
   syncLists();
+  if (collectionOp) collections.commit(collectionOp.items);
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const { args, selectText } of focusCommands) {
@@ -879,6 +826,7 @@ function apply(batch) {
 }
 function applyBatch(batch) {
   const timers = apply(batch);
+  motion.commit();
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
@@ -1195,19 +1143,7 @@ function agent(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        const nav = document.querySelector("[navigationBack]");
-        const routes = nav ? [...nav.children].filter((r) => r.hasAttribute("navigationKey")) : [];
-        const key = nav?.getAttribute("navigationKey") ?? null;
-        const index = routes.findIndex((r) => r.getAttribute("navigationKey") === key);
-        const selected = index >= 0 ? routes[index] : null;
-        st.navigation = {
-          route: key,
-          stack: index >= 0 ? routes.slice(0, index + 1).map((r) => r.getAttribute("navigationKey")) : [],
-          presentation: ["modal", "fullscreen"].includes(selected?.getAttribute("navigationPresentation")) ? selected.getAttribute("navigationPresentation") : null,
-          source: selected?.getAttribute("navigationSource") ?? null,
-          closedby: selected?.getAttribute("closedby") ?? null,
-          transition: { interactive: false, phase: "idle" },
-        };
+        st.navigation = navigation.observation(root);
         return st;
       }
       case "layout": {
@@ -1245,10 +1181,15 @@ function agent(request) {
       }
       case "tap": {
         const frame = views.get(request.id);
+        if (request.history !== undefined) return navigation.travel(frame, request.history);
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
       }
       case "type": {
         const frame = views.get(request.id);
+        if (frame?.hasAttribute("navigationBack") && request.key == null) {
+          const batch = globalThis.exact.navigate(request.text ?? "");
+          return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
+        }
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
@@ -1320,6 +1261,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const preparedFonts = await prepareFonts(faces, assets);
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (!current() || request !== bootAttempt) return null;
+  const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
   let len;
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1328,13 +1270,19 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
     ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
     len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length);
   } else if (bytes) {
-    ptr = wasm.exact_in(bytes.length);
-    new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-    len = wasm.exact_boot_plan(bytes.length);
-  } else len = wasm.exact_boot();
+    ptr = wasm.exact_in(bytes.length + launch.length);
+    const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
+    payload.set(bytes); payload.set(launch, bytes.length);
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length);
+  } else {
+    ptr = wasm.exact_in(launch.length);
+    new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
+  }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
+  navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
@@ -1348,13 +1296,13 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact.pendingSurfaces = [];
   if (ticker) clearInterval(ticker);
   ticker = null;
-  for (const a of animations.values()) a.cancel();
-  animations.clear();
+  motion.reset();
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); }
+  collections.reset();
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
@@ -1375,6 +1323,13 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
 // surface and no clock but the browser's.
 let ready;
 globalThis.exact = {
+  // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
+  navigate: (location) => {
+    const nav = root.firstElementChild;
+    if (!inputReady || !nav?.hasAttribute("navigationBack")) return { ops: [], error: "no navigation root" };
+    const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
+    applyBatch(batch); return batch;
+  },
   // A dev-plan event can arrive while the wasm is still fetching. Queue it
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
@@ -1467,22 +1422,7 @@ async function main() {
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
-document.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || event.defaultPrevented) return;
-  // Making a covered editor inert can leave focus on the page body. That
-  // neutral focus still belongs to the presentation; a host input outside
-  // Exact keeps its own keys.
-  if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
-  // The browser's top layer gets the close request before an authored modal.
-  // Preventing Escape here would also prevent the popover's default dismissal.
-  if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(pop => pop.popover === "auto" || pop.popover === "hint")) return;
-  for (const nav of root.querySelectorAll("[navigationBack]")) {
-    const route = [...nav.children].find(child => child.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-    if (!["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"))) continue;
-    event.preventDefault();
-    if (route.getAttribute("closedby") === "none") return;
-    const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-    if (control && !control.disabled) control.click();
-    return;
-  }
-});
+
+// @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
+function navigate(location) { return globalThis.exact.navigate(location); }
+navigation.connect(root, navigate, log);

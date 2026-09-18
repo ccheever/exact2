@@ -215,6 +215,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "dblclick" => AttrTarget::Handler("dblclick"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "navigate" => AttrTarget::Handler("navigate"),
+        "heightrelease" => AttrTarget::Handler("heightrelease"),
+        "transformgeometry" => AttrTarget::Handler("transformgeometry"),
+        "transformrelease" => AttrTarget::Handler("transformrelease"),
+        "reorderdrop" => AttrTarget::Handler("reorderdrop"),
+        "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
+        "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
@@ -253,6 +261,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "preventsDisplaySleepDuringVideoPlayback" => {
             AttrTarget::Prop(p("preventsDisplaySleepDuringVideoPlayback"))
         }
+        "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
@@ -264,6 +273,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
+        "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
@@ -319,6 +329,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "commandfor" => AttrTarget::Prop(p("commandfor")),
         "command" => AttrTarget::Prop(p("command")),
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
+        // @ref LLP 1039 D6 — vertical tablists retain authored layout.
+        "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         // style rows, by their CSS property names
         "white-space" => styles(&["white_space"]),
@@ -428,6 +440,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&["overscroll_behavior_y"]),
         "z-index" => styles(&["z_index"]),
         "transition" => styles(&["transition"]),
+        "translate" => styles(&["translate"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
         _ => return None,
@@ -480,6 +493,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
         "zIndex" => "z-index",
+        "accessibilityOrientation" => "aria-orientation",
         "label" | "accessibilityLabel" => "aria-label",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
@@ -507,6 +521,19 @@ pub(crate) fn validate_list(
             .iter()
             .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
             .collect();
+        if heights.is_empty() {
+            return Ok(());
+        }
+        if expanded
+            .iter()
+            .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))
+        {
+            return super::err(
+                "lower-list-height",
+                "choose virtualized or an explicit row height, not both",
+                span,
+            );
+        }
         let height = (heights.len() == 1).then(|| heights[0]);
         if !height
             .is_some_and(|a| matches!(a.value, Expr::Number(n, _) if n.is_finite() && n > 0.0))

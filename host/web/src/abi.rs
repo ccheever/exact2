@@ -68,6 +68,14 @@ impl<D: DataSource> Bridge<D> {
         self.snapshot = snapshot;
     }
 
+    /// UTF-8 launch location carried after optional plan bytes.
+    /// @ref LLP 1038 D5 — the page supplies pathname plus search before boot.
+    pub fn launch_input(&self, start: usize, len: usize) -> String {
+        let start = start.min(self.input.len());
+        let end = start.saturating_add(len).min(self.input.len());
+        String::from_utf8_lossy(&self.input[start..end]).into_owned()
+    }
+
     /// Resize the input buffer and return its address.
     pub fn input(&mut self, len: usize) -> *mut u8 {
         self.input.clear();
@@ -186,14 +194,27 @@ impl<D: DataSource> Bridge<D> {
         if let Err(error) = data.activate() {
             return self.emit(exact_runner::agent::error(&format!("{error:?}")));
         }
-        self.boot_plan(plan, data)
+        let viewport = self
+            .host
+            .as_ref()
+            .map_or_else(Default::default, |h| h.runner().viewport());
+        let launch = self.host.as_ref().map_or("/", |h| h.location()).to_owned();
+        self.boot_plan(plan, data, viewport.width, viewport.height, &launch)
     }
 
     /// Boot from `plan` with `data` and the snapshot `store` handed in; the
     /// output is the first batch.
-    pub fn boot(&mut self, plan: &[u8], data: D) -> u32 {
+    pub fn boot(&mut self, plan: &[u8], data: D, width: f64, height: f64, launch: &str) -> u32 {
         let snapshot = std::mem::take(&mut self.snapshot);
-        match Host::boot_delivered(plan, data, None, snapshot, self.compat) {
+        match Host::boot_delivered(
+            plan,
+            data,
+            None,
+            snapshot,
+            self.compat,
+            exact_runner::Viewport { width, height },
+            launch,
+        ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -209,10 +230,18 @@ impl<D: DataSource> Bridge<D> {
     /// restart from a freshly compiled plan. Build the candidate beside the
     /// live host: only a successful boot replaces it, while a refusal leaves
     /// the old runner available to its page and in-flight work.
-    pub fn boot_plan(&mut self, len: usize, data: D) -> u32 {
+    pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_delivered(&plan, data, carried.as_ref(), Vec::new(), self.compat) {
+        match Host::boot_delivered(
+            &plan,
+            data,
+            carried.as_ref(),
+            Vec::new(),
+            self.compat,
+            exact_runner::Viewport { width, height },
+            launch,
+        ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -337,6 +366,7 @@ impl<D: DataSource> Bridge<D> {
     /// 7 = submit, 8 = load, 9 = message (the payload — a change's text, a
     /// key's name, or a guest message — is the input buffer's first `len`
     /// bytes, UTF-8).
+    /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     pub fn dispatch(&mut self, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -360,9 +390,28 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            14 => {
+            // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            14 => Event::Navigate(payload),
+            15 => {
+                let Some(event) = Event::height_release_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid height release"}"#.into());
+                };
+                event
+            }
+            16 | 17 => {
+                let event = if kind == 16 {
+                    Event::transform_geometry_payload(&payload)
+                } else {
+                    Event::transform_release_payload(&payload)
+                };
+                let Some(event) = event else {
+                    return self.emit(r#"{"ops":[],"error":"invalid transform event"}"#.into());
+                };
+                event
+            }
+            18 => {
                 let Some(event) = Event::media_payload(&payload) else {
-                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.to_string());
+                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
                 };
                 event
             }
@@ -395,6 +444,133 @@ impl<D: DataSource> Bridge<D> {
             Some(h) => h.fulfill_at(ticket as u64, kind, status, &headers, body, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
+        self.emit(out)
+    }
+
+    /// Re-answer viewport resources and return the resulting batch.
+    /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
+    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.resize(width, height, now_ms),
+        );
+        self.emit(out)
+    }
+
+    /// Apply the common LE collection feedback in the first `len` input bytes.
+    /// Unlike events this reports layout facts and never advances the clock.
+    pub fn collection_feedback(&mut self, len: usize) -> u32 {
+        let out = match (self.host.as_mut(), self.input.get(..len)) {
+            (Some(host), None) => crate::batch::Batch::new().finish(
+                host.runner().has_timers(),
+                host.runner().now_ms(),
+                Some("collection input length"),
+            ),
+            (Some(host), Some(bytes)) => host.collection_feedback(bytes),
+            (None, _) => crate::batch::Batch::new().finish(false, 0.0, Some("not booted")),
+        };
+        self.emit(out)
+    }
+
+    /// Fixed 48-byte LE motion request: version/op/view/property u32,
+    /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
+    pub fn motion(&mut self, len: usize) -> u32 {
+        if len == 120 {
+            let out = match (self.host.as_mut(), self.input.get(..len)) {
+                (Some(host), Some(bytes)) => host.transform_motion(bytes),
+                (None, _) => exact_runner::agent::error("not booted"),
+                _ => exact_runner::agent::error("malformed transform input"),
+            };
+            return self.emit(out);
+        }
+        use exact_motion::{HoldEnd, Property, Value};
+        let decoded = (|| -> Result<_, exact_plan::PlanError> {
+            let mut r = exact_plan::bytes::Reader::new(
+                self.input
+                    .get(..len)
+                    .filter(|_| len == 48)
+                    .ok_or(exact_plan::PlanError::BadCount(len as u32))?,
+            );
+            if r.u32()? != 1 {
+                return Err(exact_plan::PlanError::BadCount(0));
+            }
+            Ok((
+                r.u32()?,
+                r.u32()?,
+                r.u32()?,
+                r.u64()?,
+                Value::new(r.f64()?, r.f64()?),
+                r.f64()?,
+            ))
+        })();
+        let out = (|| -> Result<String, String> {
+            let (op, view, property, serial, value, now) =
+                decoded.map_err(|_| "malformed motion input".to_string())?;
+            let host = self.host.as_mut().ok_or("not booted")?;
+            if op == 8 || op == 9 {
+                if property != Property::Height as u32 {
+                    return Err("height drag requires the height property".into());
+                }
+                if op == 8 {
+                    let key = exact_kernel::NodeKey {
+                        index: serial as u32,
+                        generation: (serial >> 32) as u32,
+                    };
+                    let Some(binding) = host.height_drag_binding(view).filter(|b| b.handle == key) else {
+                        return Ok("{\"accepted\":false}".into());
+                    };
+                    let target = host.runner().kernel().node_by_key(binding.target).expect("resolved").id;
+                    return match host.begin_height_drag(key, value, now).map_err(|e| format!("{e:?}"))? {
+                        Some((start, batch)) => Ok(format!(
+                            "{{\"token\":\"{}\",\"target\":{target},\"value\":[{},{}],\"batch\":{batch}}}",
+                            start.token.serial(), start.value.x, start.value.y)),
+                        None => Ok("{\"accepted\":false}".into()),
+                    };
+                }
+                return Ok(match host.dispatch_height_held(serial, view, value.x, value.y, now).map_err(|e| format!("{e:?}"))? {
+                    Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                    None => "{\"accepted\":false}".into(),
+                });
+            }
+            if op == 6 || op == 7 {
+                if property != Property::Height as u32 {
+                    return Err("height registration requires the height property".into());
+                }
+                let batch = host.set_height_owner((op == 6).then_some(view))?;
+                return Ok(format!("{{\"accepted\":true,\"batch\":{batch}}}"));
+            }
+            if op == 0 {
+                let property = *Property::ALL
+                    .get(property as usize)
+                    .ok_or("invalid motion property")?;
+                return match host
+                    .begin_hold(view, property, value, now)
+                    .map_err(|e| format!("{e:?}"))?
+                {
+                    Some((start, batch)) => Ok(format!(
+                        "{{\"token\":\"{}\",\"value\":[{},{}],\"batch\":{batch}}}",
+                        start.token.serial(),
+                        start.value.x,
+                        start.value.y
+                    )),
+                    None => Ok("{\"accepted\":false}".into()),
+                };
+            }
+            let batch = match op {
+                1 => host.update_hold(serial, value, now),
+                2 => host.end_hold(serial, HoldEnd::Release { velocity: value }, now),
+                3 => host.end_hold(serial, HoldEnd::Cancel, now),
+                4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
+                5 => Ok(host.dispatch_held(serial, now)),
+                _ => return Err("invalid motion operation".into()),
+            }
+            .map_err(|e| format!("{e:?}"))?;
+            Ok(match batch {
+                Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
+                None => "{\"accepted\":false}".into(),
+            })
+        })()
+        .unwrap_or_else(|error| exact_runner::agent::error(&error));
         self.emit(out)
     }
 
@@ -503,21 +679,23 @@ macro_rules! host {
 
         /// Boot; returns the first batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_boot() -> u32 {
+        pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot($plan, ($new)())
+                let launch = b.launch_input(0, launch_len as usize);
+                b.boot($plan, ($new)(), width, height, &launch)
             })
         }
 
         /// Boot from plan bytes in the input buffer (the dev loop's restart).
         #[no_mangle]
-        pub extern "C" fn exact_boot_plan(len: u32) -> u32 {
+        pub extern "C" fn exact_boot_plan(len: u32, width: f64, height: f64, launch_len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
-                b.boot_plan(len as usize, ($new)())
+                let launch = b.launch_input(len as usize, launch_len as usize);
+                b.boot_plan(len as usize, ($new)(), width, height, &launch)
             })
         }
 
@@ -580,6 +758,24 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_fulfill(ticket: f64, kind: u32, status: u32, hlen: u32, blen: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
+        }
+
+        /// The layout viewport changed; returns the batch's length (LLP 1039).
+        #[no_mangle]
+        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
+        }
+
+        /// Report actual collection geometry through the shared binary decoder.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
+        }
+
+        /// Input-driven presentation ownership, with exact u64 token bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_motion(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
         }
 
         /// Move the clock; returns the batch's length.

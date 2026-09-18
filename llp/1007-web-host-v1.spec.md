@@ -149,6 +149,78 @@ quiet clock, and the pair format.
 
 ## 4. The ABI and the glue (`host/web/src/abi.rs`, `glue.js`)
 
+**Router projection (LLP 1038 D5–D7/D11, 2026-09-14).** A commit that
+changes the router slot emits one `{"op":"router","top":<id>,"url":"…","removed":[…]}`
+beside commands; the runner coalesces changes until the batch drains them.
+`navigation.js` keeps that op for `state.navigation.url`. Its session mirror
+(LLP 1038 D7, slice 2 lane a) holds `written[]` stamps `{exact:index,id,url}`,
+`gone` removed ids and `cursor`; the first op replaces index 0.
+Every History API write uses `location.origin + url`, keeping even a
+notfound location beginning `//` on this origin as a path. The document
+loads `glue.js`; its import loads `navigation.js`, for two boot modules.
+
+| commit | code / history |
+|---|---|
+| Same top id | `commit`: replace the current stamp only if its URL changed |
+| Nearest earlier written top, every intervening id removed | `commit`: `go(-k)`; consume its echo and move the cursor |
+| Otherwise, including selecting a retained tab | `commit`: truncate Forward, append and `pushState` |
+
+| popstate | code / dispatch |
+|---|---|
+| Expected echo | `connect`: consume, then drain the queue |
+| One entry Back, matching the route directly beneath the selection | `popped` → `pressBack`: the selected route's enabled Back control, once, shared with Escape |
+| Forward, multi-step Back, tab undo or an unwritten entry | `popped` → glue `navigate(location)` |
+
+A traversal's synchronous router op is captured without another history write.
+Acceptance selects the expected key (completed pop) or URL (`navigate`), and
+stamps the target with the committed id and URL (including a Back action
+replacing the revealed entry's URL in the same commit). A commit elsewhere
+restores the entry first, then mirrors the changed router through the ordinary
+commit table. Refusal restores with `history.go`, consumes
+the echo and journals once. Queued popstates and commits wait for that echo;
+restoration uses the browser's current position when a later event is queued.
+A newer traversal can supersede a pending `go`; the listener reissues its echo
+destination from the new position. The mirror's lower bound includes accepted
+pre-boot entries at negative indices, so their pushes/pops keep working after
+the root's `navigate` handler accepts them.
+The browser Navigation API's entry index locates unstamped same-document entries;
+where unavailable, Exact stamps supply the index and an unindexed refusal can
+only replace the current stamp/URL. Chrome is the parity oracle; stale echo
+indices without the Navigation API are not covered. No stack is saved across
+a page reload. An in-document reboot keeps the mirror when its first router
+op names `written[cursor].id`; a rebuilt router resets the mirror to index 0.
+The agent's `tap` history form waits for the traversal and restoration; an
+out-of-range browser no-op finishes after its bounded wait.
+
+The glue callback calls `globalThis.exact.navigate(location)` synchronously:
+dispatch kind 14 delivers the location to the root's handler and applies its
+batch before the mirror checks acceptance. Forward, multi-step Back and tab
+undo therefore run the app's chosen verb. A handler with no router change
+journals a refusal and restores; a changed router landing elsewhere restores
+then mirrors its commit. The browser fixture's `followLink` applies `go` and
+verifies all three accepted traversals, a refusal, and a Forward handler
+pushing `/other` followed by an in-app Back, and Back after a carried reboot
+with no navigate handler. `bun scripts/smoke.mjs web` explicitly runs this
+Chrome sweep through `host/web/tests/navigation.mjs`; its Cargo entry is
+`#[ignore]`, never a silent pass without Chrome or a built dist.
+A disabled completed-pop
+control journals `history: Back refused; restoring the entry`, with no press.
+Both boot exports receive UTF-8 `location.pathname + location.search` through
+the input buffer (after plan bytes for `exact_boot_plan`); module reboot keeps
+the current host URL, as it keeps the viewport. A fresh page opens the address
+bar's declared chain. `<base href="/">` anchors scripts, assets and module
+fetches at the origin root. Agent mode is read from `location`, not the base.
+The navigation module also projects direct keyed route children: only the
+selected route is interactive; only it and its immediate modal underlay are
+visible. An unmatched key leaves the previous projection alone and journals
+once per key (1035.001 D6).
+
+LLP 1039 adds `exact_resize(width, height, now_ms)` to the original six
+buffer/boot/event exports; later font, agent, store, delivery and module exports
+also remain, so six is no longer the ABI’s total. The glue passes `innerWidth` and
+`innerHeight` at boot and every window `resize`, without debounce; the new export
+returns the re-answer’s batch through the same host-owned buffers, with no `unsafe`.
+
 **Requests (LLP 1016 D2, built 2026-08-30).** The browser is the executor.
 A batch carries `{"op":"grants","lines":[…]}` once at boot — the data
 crate's `net.fetch <origin>` lines — and `{"op":"request","ticket":N,
@@ -172,7 +244,7 @@ it. Forbidden request headers (`Cookie`, `Host`, `Origin`, …) are dropped by
 
 Core exports, no `unsafe`: `exact_in(len)` resizes a host-owned input buffer
 and returns its address; `exact_out()` returns the output buffer's;
-`exact_boot()`, `exact_boot_plan(len)` (boot from plan bytes in the input
+`exact_boot(width, height, launch_len)`, `exact_boot_plan(len, width, height, launch_len)` (boot from plan bytes in the input
 buffer — the dev loop's restart, §6), `exact_dispatch(view, kind, len,
 now_ms)`, `exact_advance(now_ms)` each return the output's length. The glue
 writes a UTF-8 payload into the input buffer and reads a UTF-8 JSON batch from
@@ -405,8 +477,8 @@ the wasm.
 The fifth check counts. It reads the page, follows static imports
 transitively, and fails when any module before first pixel is not the host
 glue or comes from `apps/` — the rules file's own row, "App JS executed
-before first pixel: none". A count, not a timer. Today: one module
-(`host/web/glue.js`), one wasm reference. `dev.js` is added only by
+before first pixel: none". A count, not a timer. Today: two host modules
+(`host/web/glue.js`, `host/web/navigation.js`), one wasm reference (LLP 1038 D7). `dev.js` is added only by
 `dev.mjs`, never to `dist/`.
 
 The count enforces an import boundary, not the content of an allowed file

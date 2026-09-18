@@ -15,6 +15,80 @@ struct Device {
     plan: Plan,
     store: Store,
 }
+
+#[test]
+fn router_drafts_survive_async_links_and_device_reopen() {
+    use exact_runner::{Event, Runner};
+    fn settle(runner: &mut Runner<Module>) {
+        for _ in 0..200 {
+            let requests = runner.take_requests();
+            if requests.is_empty() {
+                return;
+            }
+            for request in requests {
+                let outcome = if let Some(token) = request.request.continuation {
+                    std::thread::spawn(runner.data().continuation(token).unwrap())
+                        .join()
+                        .unwrap()
+                } else {
+                    Outcome::Failed {
+                        kind: FailureKind::Network,
+                        message: "offline fixture".into(),
+                    }
+                };
+                runner.fulfill(request.ticket, outcome).unwrap();
+            }
+        }
+        panic!("Messages navigation did not settle");
+    }
+    let mut device = Device::new();
+    for (id, draft, reply) in [("maya", "Saved Maya", "m10"), ("dad", "Saved Dad", "")] {
+        device.call(
+            "saveDraft",
+            vec![Value::str(id), Value::str(draft), Value::str(reply)],
+        );
+    }
+    let boot = |device: &mut Device, url: &str| {
+        Runner::boot(
+            Plan::decode(super::PLAN).unwrap(),
+            device.module.take().unwrap(),
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            url,
+        )
+        .unwrap()
+    };
+    let mut runner = boot(&mut device, "/t/maya");
+    settle(&mut runner);
+    assert_eq!(runner.derive("draft"), Some(&Value::str("Saved Maya")));
+    assert_eq!(runner.derive("replying"), Some(&Value::str("m10")));
+    runner
+        .act("write", vec![Value::str("Maya edited")])
+        .unwrap();
+    runner
+        .dispatch(runner.roots()[0], Event::Navigate("/t/dad".into()))
+        .unwrap();
+    // Navigate again before the destination's resource settles. It must not save
+    // a placeholder over Dad's existing draft or reuse Maya's composer.
+    assert_ne!(runner.derive("draft"), Some(&Value::str("Maya edited")));
+    runner
+        .dispatch(runner.roots()[0], Event::Navigate("/t/maya".into()))
+        .unwrap();
+    settle(&mut runner);
+    assert_eq!(runner.derive("draft"), Some(&Value::str("Maya edited")));
+    drop(runner);
+    device.reopen();
+    let mut runner = boot(&mut device, "/t/dad");
+    settle(&mut runner);
+    assert_eq!(runner.derive("draft"), Some(&Value::str("Saved Dad")));
+    runner
+        .dispatch(runner.roots()[0], Event::Navigate("/t/maya".into()))
+        .unwrap();
+    settle(&mut runner);
+    assert_eq!(runner.derive("draft"), Some(&Value::str("Maya edited")));
+    assert_eq!(runner.derive("replying"), Some(&Value::str("m10")));
+}
+
 impl Device {
     fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);

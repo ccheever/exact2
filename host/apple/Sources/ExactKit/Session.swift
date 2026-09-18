@@ -326,6 +326,10 @@ public final class ExactSession {
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
+    let rasters = RasterLoader()
+    #if os(macOS)
+    lazy var regions = RegionController(self)
+    #endif
     var text: TextEngine
     let presenter: Presenter
     let canvases: Canvases
@@ -351,6 +355,13 @@ public final class ExactSession {
     /// Commands from the batch being applied, delivered after it (D2).
     private var pendingCommands: [(String, [Any])] = []
     private var applying = false
+    var isApplyingPresentation: Bool { applying }
+    // Weak live gesture ownership only; no historical tokens or row registry.
+    private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
+    weak var heightInputHold: HeightDragHold?
+    weak var transformInputHold: TransformDragHold?
+    func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
+    func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -392,6 +403,10 @@ public final class ExactSession {
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
     private func wire() {
+        presenter.collections.onFeedback = { [weak self] bytes in
+            guard let self, state != .destroyed else { return }
+            apply(runtime.collectionFeedback(bytes, now: now()))
+        }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
         presenter.onIntrinsic = { [unowned self] id, size in apply(runtime.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
@@ -465,9 +480,10 @@ public final class ExactSession {
             // A fresh boot over a running app (the dev menu's reload from
             // the baked plan) starts the views over; the library already
             // replaced its host.
+            routerOp = nil
+            generation += 1
             if booted { presenter.reset() }
             booted = true
-            generation += 1
             text.commitFonts()
         }
         apply(batch)
@@ -534,6 +550,7 @@ public final class ExactSession {
     }
 
     func presentCommitted(_ batch: Batch, label: String) {
+        routerOp = nil
         presenter.reset()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -556,23 +573,40 @@ public final class ExactSession {
 
     /// A batch into the presenter; frames and the clock follow it; its
     /// commands go to the delegate after it.
+    /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
+    private(set) var routerOp: [String: Any]?
+
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         let outermost = !applying
         applying = true
+        for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
+        #if os(macOS)
+        regions.prepare(batch)
+        #endif
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
         if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
-            clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            clockTimer = SessionClockTimer.schedule { [weak self] _ in
                 guard let self else { return }
                 apply(runtime.advance(now: now()))
             }
         }
         if outermost {
+            presenter.collections.flush()
+            // Route projection and all structural/style changes are now final.
+            // Ineligible recognizers may never receive another mouse/touch event.
+            for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
+            heightInputHold?.cancelIfInputIneligible()
+            transformInputHold?.cancelIfInputIneligible()
+            presenter.transformGeometry.changed()
             applying = false
+            #if os(macOS)
+            regions.flush()
+            #endif
             let queued = pendingCommands
             pendingCommands = []
             for (name, args) in queued {
@@ -650,6 +684,24 @@ public final class ExactSession {
         apply(batch)
         return batch.error == nil
     }
+    /// A host URL before boot is a launch fact; afterwards it is one event.
+    /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
+    @discardableResult public func openURL(_ url: URL) -> Bool {
+        guard state != .destroyed else { return false }
+        let location = runtime.location(of: url.absoluteString)
+        if !booted { runtime.launch(location); return true }
+        return navigate(location)
+    }
+    @discardableResult public func navigate(_ location: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        guard let node = presenter.views.values.first(where: { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }) else {
+            log("navigate refused: no navigation root handler")
+            return false
+        }
+        let batch = runtime.navigate(node.id, location, now: now())
+        apply(batch)
+        return batch.error == nil
+    }
     /// The number of live views the presenter holds (the smoke reads it).
     public var viewCount: Int { presenter.views.count }
     /// The first root's frame size (the smoke reads it).
@@ -694,8 +746,19 @@ public final class ExactSession {
         frames.run(false)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
+        rasters.shutdown()
         runtime.destroy()
         app.forget(self)
+    }
+}
+
+/// The coarse resource clock keeps advancing during native event tracking.
+enum SessionClockTimer {
+    static func schedule(_ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+        precondition(Thread.isMainThread)
+        let timer = Timer(timeInterval: 0.25, repeats: true, block: fire)
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 }
 

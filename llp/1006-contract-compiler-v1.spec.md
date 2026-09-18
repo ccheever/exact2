@@ -24,7 +24,7 @@ disagree, the code and its tests are the authority.
 | Crate | Lines | Depends on |
 | --- | --- | --- |
 | `contract-syntax` | 1,825 | nothing |
-| `contract-types` | 1,100 | `contract-syntax`, `exact-plan` (the roster's signatures) |
+| `contract-types` | 1,100 | `contract-syntax`, `exact-plan` (the roster's signatures), `exact-route` (route checks) |
 | `contract-analyze` | 354 | `contract-syntax`, `contract-types` |
 | `contract-lower` | 953 | `contract-analyze`, `contract-syntax`, `contract-types`, `exact-plan`, `exact-kernel` |
 | `contract` (driver + CLI) | 149 | all of the above, `exact-runner` (for the bake) |
@@ -42,6 +42,65 @@ compiled), `view`. The first component is the root; only the root holds
 view over its `props` that may own `state`, `derive`, and `action` of its own
 (LLP 1017 P4c, 2026-08-30 — see **Instances** below), and a prop of type
 `action` is an action reference the use site supplies.
+
+**Routes** (LLP 1038 D2/D3, 2026-09-14): one file-scope `routes <slot>`
+in the app's root file. Route lines are `[tab] <name> "<pattern>"`;
+indentation names the enclosing route as parent. Patterns are absolute paths
+with literal segments or whole `:identifier` segments. An optional bare
+`notfound` is the fallback. Rows retain declaration order; parents are earlier
+row indices; `tab` and `notfound` are table flags. For example:
+
+```
+routes nav
+  tab home "/"
+    post "/post/:post"
+  tab prompts "/prompts"
+    question "/prompt/:question"
+      write "/prompt/:question/write"
+  notfound
+```
+
+The declaration inserts a root state slot before authored initializers and
+instance lifting, with no authored initializer. Its type is `Router`; launch
+fills it before initializers run. Actions declare `writes nav` and assign
+ordinary values. Only apps with `routes` receive the four compiler shapes,
+with these exact positional field orders:
+
+- `Router { tab: string, tabs: list<Tab>, next: number }`
+- `Tab { name: string, stack: list<Entry> }`
+- `Entry { id: number, name: string, url: string, tab: string, params: Params }`
+- `Params { <each distinct :name>: string }`, in first-declaration order
+  across the table. Every entry has every parameter field; an unbound field
+  is the empty string. An undeclared field is `type-unknown-field`.
+
+The roster resolves those shapes and typed lists: `open`, `push`, `replace`,
+`select`, `go` take `(Router, string)` and return `Router`; `back(Router)`
+returns `Router`; `stack(Router)` returns `list<Entry>`, `top(Router)` an
+`Entry`, `depth(Router)` a number, and `params(Router, string)` a
+`list<string>`. `searchParam(Entry, string)` and `encodeURIComponent(string)`
+return strings. Thus `derive current = top(nav)`, `nav.tab`,
+`each e in stack(nav) key=e.id`, and `` navigationKey=`${e.id}` `` use ordinary
+field reads, derives, keyed regions and templates. The `.d.ts` generator
+already declares every plan type as `T<id>`, including these four records.
+
+`path("name", args…)` expands at its call site into the pattern's template,
+encoding each parameter with `encodeURIComponent`; numeric arguments pass
+through `toString` first. The table checks the name and exact argument count;
+parameters accept strings or numbers. There is no per-route generated function
+or typed parameter record. A location argument to `open`, `push`, `replace`
+or `go` is a literal checked against the table (including a declared
+`notfound`), a `path()` call, or another non-template expression checked by the
+runner. A direct template is `route-template`, with message "use `path()`".
+`select` takes a tab name, so its string is not a location check.
+
+**Decided (chunk (c), 2026-09-14):** compatible scoped action/action-prop
+references keep precedence over the roster. A Router-valued first argument
+selects the roster overload when it does not fit the action signature, so
+`action back` can assign `nav = back(nav)` and Messages' `press=open(id)`
+continues to bind its action. `routes` is refused in any used file: its
+component is a child of the using app, never that app's root. The existing
+`fn` namespace still precedes compiler-only `path`; roster names themselves
+remain `contract-fn-shadows-roster`.
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
@@ -137,7 +196,7 @@ loops (a body still always terminates, LLP 1005 §2; `writes` covers every
 branch; `if` needs a bool, `type-condition`; the `match` binds its name as a
 local, as the inline form does); a parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
-`change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, LLP 1005 §3 — `submit`
+`change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
 an assignment to an undeclared slot is
@@ -164,6 +223,8 @@ sources are `lower-attr-value` with the available roles; dynamic sources remain
 host-checked. `tint-color` names the schema's colour row and accepts `light-dark()`.
 
 ## 3. Passes
+
+LLP 1039 adds `aria-orientation` as the string prop `accessibilityOrientation`, emitted as ARIA on the web. Bake answers `exactViewport` at 390 × 844 and refuses unknown fields as `bake-viewport-field`; TypeScript source declarations and executor requirements skip this reserved source as they skip `exactDelivery`.
 
 **Syntax** (`contract-syntax`): an indent-aware lexer (`Indent`/`Dedent`,
 bracket-aware line continuation, template strings lexed whole), a
@@ -246,8 +307,30 @@ build <file> [-o <plan>]` prints a one-line summary or a rejection as
 Contract; the corpus test compiles it, round-trips the bytes, bakes, boots,
 and asserts the same behavior the hand-built test asserts (keyed reorder,
 `when` flip, timers, commands) — proven at both ends. `rejects.txt` holds one
-fixture per diagnostic id (26 today), each refused with exactly its id. The
+fixture per diagnostic id, each refused with exactly its id. The
 app itself is the integration fixture (`apps/caltrain/tests/app.rs`).
+
+Router rejects (LLP 1038 D2/D3) each have a same-named fixture in
+`rejects.txt`: `route-duplicate`, `route-shadowed`, `route-parent-param`,
+`route-pattern` (the four ids and messages come from `Table::check`),
+`route-no-match`, `route-unknown`, `route-template`,
+`analyze-routes-not-root`, and `type-shape-reserved`. A second `routes`
+declaration also uses `route-duplicate`; a state that redeclares its slot
+uses the ordinary `type-duplicate-name`.
+
+`routes.contract` is Interview's table with every verb and D6's stack rows.
+`tests/routes.rs` holds declaration order, positional shapes, byte-identical
+compilation and encode/decode, `/` and `/prompt/5/write` launch fill, the
+baked-argument rule, encoded string/number paths, query reads, retained tabs,
+entry-id row identity, imported-file refusals and instance lifting. It replays
+all 66 steps from `route/tests/corpus.json` through compiled actions, without
+copying expectations. `tests/typescript.rs` checks the four generated types.
+`navigate=action` (LLP 1038 D8/D11) belongs only to the first navigation
+root, carrying both `navigationKey` and `navigationBack`; after inlining, any
+other placement is `lower-navigate-root` (corpus reject). Its action takes one
+string location or no parameters, with no captured arguments. The type checker
+infers the payload or refuses a non-string declaration; analyze and lower check
+arity, including an action passed through a component prop.
 
 ## 5. The v1 app (`apps/caltrain`)
 

@@ -421,6 +421,25 @@ namespacing its own `target/`, and two apps on one machine are two ports —
 mDNS makes them two rows in the launcher. If `dist/` ever moves per-app,
 nothing here changes shape.
 
+**Router locations (LLP 1038 D7, slice 2 lane a).** `serve.mjs` and `dev.mjs`
+use `readWebRequest`; `origin.mjs` owns their `appDocumentPath` predicate and
+its published directory is served by the same `serveStatic` handler. A public
+file wins first. An absent extensionless path (including a trailing slash)
+answers `index.html`; a file-looking path such as `/missing.png` stays 404.
+Private dot segments, `/.exact/` and `/__dev` with its subtree never fall back.
+Existing envelope, dev beacon and install-page branches retain precedence;
+`/.exact/install/` still answers the install page. Documents retain `Vary:
+Accept`; envelope requests negotiate `application/vnd.exact.envelope+json`,
+and HTML retains `text/html`. Deep static envelopes root their relative payload
+URLs; alternate-envelope links are explicit so native HTML discovery does not
+need to interpret `<base>`. GET/HEAD and cache rules are unchanged.
+
+The baked document has `<base href="/">`. `deploy.mjs` replaces that root base
+with the captured release prefix when publishing; other or duplicate bases
+are refused. Deep documents such as `/post/42` therefore fetch the same pinned
+assets, module and wasm as `/`, from the atomic web-root inventory. A web
+fallback is an HTTP concern, never a fallback in origin artifact reads.
+
 ## 8. Not in this document — and the doors closed in code
 
 - **No update economy, and release binaries never fetch.** Fetching a newer

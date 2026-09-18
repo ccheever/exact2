@@ -198,6 +198,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
         ExactEnv.stamp("scene")
+        // @ref LLP 1038 D8 — consume the launch URL before constructing the view.
+        let incoming = connectionOptions.urlContexts.first?.url
+            ?? connectionOptions.userActivities.first(where: { $0.activityType == NSUserActivityTypeBrowsingWeb })?.webpageURL
+            ?? environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
+        if let url = incoming, ExactDevelopmentLink.page(url) == nil { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
@@ -221,13 +226,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window = w
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()
-        ExactEnv.stamp("window")
-        if let url = connectionOptions.urlContexts.first?.url {
+        // A cold development connection needs the mounted session and window.
+        if let url = incoming, ExactDevelopmentLink.page(url) != nil {
             DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
         }
+        ExactEnv.stamp("window")
     }
     func scene(_ scene: UIScene, openURLContexts contexts: Set<UIOpenURLContext>) {
-        if let url = contexts.first?.url { ExactDevelopmentLink.open(url) }
+        if let url = contexts.first?.url { open(url) }
+    }
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL { open(url) }
+    }
+    private func open(_ url: URL) {
+        if !ExactDevelopmentLink.open(url) { ExactIOS.session.openURL(url) }
     }
     /// Seen again: the canvases follow (`Canvases.visible`).
     func sceneDidBecomeActive(_ scene: UIScene) {

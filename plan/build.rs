@@ -18,7 +18,7 @@ struct Schema {
     #[serde(rename = "formatVersion")]
     format_version: u32,
     /// Extra header fields after the four fixed integers, in declaration
-    /// order (LLP 1023 D5 added `app_id`). Only `string` is supported.
+    /// order (LLP 1023 D5: `app_id`; LLP 1038 D2: `router`).
     #[serde(default)]
     header: Vec<Field>,
     tables: Vec<Table>,
@@ -135,15 +135,17 @@ fn validate(schema: &Schema) {
         schema.format_version, 4,
         "format: unsupported formatVersion"
     );
-    for f in &schema.header {
-        assert_eq!(
-            f.codec, "string",
-            "format: header field `{}`: only `string` is supported",
-            f.name
-        );
-    }
     let tables: BTreeSet<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tables.len(), schema.tables.len(), "format: duplicate table");
+    for f in &schema.header {
+        // @ref LLP 1038 D2 — optional table references in the header.
+        if f.codec != "string" {
+            match parse_codec(&f.codec) {
+                Codec::Opt(t) => assert!(tables.contains(t.as_str()), "format: header table `{t}`"),
+                _ => panic!("format: unsupported header codec `{}`", f.codec),
+            }
+        }
+    }
     for t in &schema.tables {
         let mut names = BTreeSet::new();
         for f in &t.fields {
@@ -204,12 +206,24 @@ fn validate(schema: &Schema) {
         }
     }
     assert!(schema.opcodes.len() <= 255, "format: opcodes exceed u8");
+    // @ref LLP 1038 D3 — reserved shapes and typed lists in the roster.
     let mut fns = BTreeSet::new();
     for f in &schema.stdlib {
         assert!(fns.insert(&f.name), "format: duplicate stdlib `{}`", f.name);
         for t in f.params.iter().chain(std::iter::once(&f.returns)) {
             assert!(
-                matches!(t.as_str(), "number" | "string" | "bool" | "any"),
+                matches!(
+                    t.as_str(),
+                    "number"
+                        | "string"
+                        | "bool"
+                        | "any"
+                        | "Router"
+                        | "Entry"
+                        | "list<Router>"
+                        | "list<Entry>"
+                        | "list<string>"
+                ),
                 "format: stdlib `{}` type `{t}`",
                 f.name
             );
@@ -467,7 +481,12 @@ fn main() {
             "    /// Header field `{}` (declared in format.json's `header`).",
             f.name
         );
-        let _ = writeln!(w, "    pub {}: String,", f.name);
+        let ty = if f.codec == "string" {
+            "String".into()
+        } else {
+            rust_type(&parse_codec(&f.codec))
+        };
+        let _ = writeln!(w, "    pub {}: {ty},", f.name);
     }
     let _ = writeln!(w, "    /// Interned strings.");
     let _ = writeln!(w, "    pub strings: Vec<String>,");
@@ -516,7 +535,15 @@ fn main() {
     let _ = writeln!(w, "        let mut w = Writer::default();");
     let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
     for f in &schema.header {
-        let _ = writeln!(w, "        w.string(&self.{});", f.name);
+        if f.codec == "string" {
+            let _ = writeln!(w, "        w.string(&self.{});", f.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "        w.u32(self.{}.map_or(u32::MAX, |v| v.0));",
+                f.name
+            );
+        }
     }
     let _ = writeln!(
         w,
@@ -575,7 +602,18 @@ fn main() {
         "        let kernel_schema_digest = r.u64()?; let compiler_identity = r.u64()?;"
     );
     for f in &schema.header {
-        let _ = writeln!(w, "        let {} = r.string()?;", f.name);
+        let expr = if f.codec == "string" {
+            "r.string()?".into()
+        } else {
+            let Codec::Opt(t) = parse_codec(&f.codec) else {
+                unreachable!()
+            };
+            format!(
+                "{{ let v = r.u32()?; if v == u32::MAX {{ None }} else {{ Some({}Id(v)) }} }}",
+                pascal(&t)
+            )
+        };
+        let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
     let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
     let _ = writeln!(
@@ -639,6 +677,14 @@ fn main() {
     let _ = writeln!(w, "    pub fn validate(&self) -> Result<(), PlanError> {{");
     let _ = writeln!(w, "        let strings = self.strings.len() as u64; let code_len = self.code.len() as u64; let data_len = self.data.len() as u64;");
     let _ = writeln!(w, "        let _ = (strings, code_len, data_len);");
+    for f in &schema.header {
+        if f.codec != "string" {
+            let Codec::Opt(t) = parse_codec(&f.codec) else {
+                unreachable!()
+            };
+            let _ = writeln!(w, "        if let Some(v) = self.{f} {{ if v.0 as usize >= self.{t}.len() {{ return Err(PlanError::BadReference {{ table: \"header\", row: 0, field: \"{f}\" }}); }} }}", f = f.name);
+        }
+    }
     for t in &schema.tables {
         let _ = writeln!(
             w,

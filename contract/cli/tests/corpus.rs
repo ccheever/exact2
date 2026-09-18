@@ -23,6 +23,9 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "forward",
         "home",
         "person",
+        "messages",
+        "notifications",
+        "settings",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
@@ -59,6 +62,8 @@ fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
         Plan::decode(&plan.encode()).unwrap(),
         Schedule,
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     let key = r.kernel().find_by_test_id("reader")[0];
@@ -110,6 +115,10 @@ fn reject_fixtures_are_refused_by_exactly_their_id() {
             + "\n";
         match contract::compile(&src) {
             Err(e) => assert_eq!(e.id, id, "fixture `{id}` was refused as `{}`: {e}", e.id),
+            Ok(plan) if id.starts_with("bake-") => {
+                let error = contract::bake(plan, Schedule).unwrap_err();
+                assert!(error.to_string().starts_with(&format!("[{id}]")), "{error}");
+            }
             Ok(_) => panic!("fixture `{id}` compiled"),
         }
         checked += 1;
@@ -130,7 +139,14 @@ fn a_file_without_a_component_is_a_typed_refusal() {
 fn a_template_with_an_inline_match_runs_through_the_compiler() {
     let src = "component App\n  state choice = some(\"yes\")\n  view\n    text `${match choice { case some(value) => value, case none => \"}\" }}` testId=\"matched\"\n";
     let plan = contract::compile(src).unwrap();
-    let r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(text_of(&r, "matched").as_deref(), Some("yes"));
 }
 
@@ -138,7 +154,14 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 fn button_primary_text_is_a_real_accessible_text_child() {
     let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
     let plan = contract::compile(src).unwrap();
-    let r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let key = r.kernel().find_by_test_id("post")[0];
     let button = r.kernel().node_by_key(key).unwrap();
     assert_eq!(button.node_type, NodeType::Pressable);
@@ -163,7 +186,14 @@ fn dynamic_invalid_integer_props_are_still_refused_at_boot() {
             "component App\n  state level = {value}\n  view\n    column aria-level=level\n      text \"heading\"\n"
         );
         let plan = contract::compile(&src).unwrap();
-        assert!(Runner::boot(plan, Schedule, Kernel::with_monospace()).is_err());
+        assert!(Runner::boot(
+            plan,
+            Schedule,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/"
+        )
+        .is_err());
     }
 }
 
@@ -249,7 +279,22 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     let baked = contract::bake(plan, Schedule).unwrap();
     assert!(baked.resources.iter().all(|r| r.initial.len > 0));
 
-    let mut r = Runner::boot(baked, Schedule, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // @ref LLP 1038 D5 — bake records exactly the arguments this unchanged boot evaluates.
+    for row in &r.plan().resources {
+        let name = r.plan().str(row.name);
+        assert_eq!(
+            Value::from_bytes(r.plan().bytes(row.initial_args)).unwrap(),
+            Value::list(r.resource_args(name).unwrap().to_vec())
+        );
+    }
     assert_eq!(text_of(&r, "count").as_deref(), Some("2 trains"));
     assert_eq!(text_of(&r, "nearest").as_deref(), Some("nearest"));
     let rows = ids(&r, "dep-");
@@ -295,7 +340,14 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     let plan = contract::compile(&src).unwrap();
     assert_eq!(contract::compile(&src).unwrap().encode(), plan.encode());
     let plan = Plan::decode(&plan.encode()).unwrap();
-    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let key = r.kernel().find_by_test_id("deck")[0];
     let node = r.kernel().node_by_key(key).unwrap();
     assert_eq!(node.node_type, NodeType::WebView);
@@ -328,7 +380,14 @@ fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_
 "#;
     let plan = contract::compile(src).unwrap();
     let plan = Plan::decode(&plan.encode()).unwrap();
-    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let node = r
         .kernel()
         .node_by_key(r.kernel().find_by_test_id("bubble")[0])
@@ -378,6 +437,8 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         contract::compile(source).unwrap(),
         Schedule,
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     let root = r
@@ -436,6 +497,8 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         Plan::decode(&plan.encode()).unwrap(),
         Schedule,
         Kernel::with_monospace(),
+        Default::default(),
+        "/",
     )
     .unwrap();
     let id = r
@@ -486,7 +549,14 @@ fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() 
 "#;
     let plan = contract::compile(src).unwrap();
     let plan = Plan::decode(&plan.encode()).unwrap();
-    let mut r = Runner::boot(plan, Schedule, Kernel::with_monospace()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let row = r.kernel().find_by_test_id("row")[0];
     let id = r.kernel().node_by_key(row).unwrap().id;
     let root = r.kernel().roots()[0];

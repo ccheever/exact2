@@ -6,15 +6,24 @@
 //! sites, and applies one atomic kernel batch; hosts then lay out and paint.
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
+mod admission;
+mod event;
+mod reorder;
+mod reorder_codec;
+pub use event::Event;
 mod carry;
+mod collection;
 mod source;
 pub use source::{DataError, DataSource};
 mod delivery;
 mod kept;
 mod lists;
 pub use lists::{ListTextPosition, ListViewport};
+pub mod router;
 mod settlement;
+mod viewport;
 pub use carry::Carried;
+pub use router::RouterChange;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -22,7 +31,6 @@ use crate::store::{Store, StoreWrite};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
 use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
-use std::fmt::Write as _;
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -56,66 +64,6 @@ pub struct Advanced {
     pub error: Option<RunnerError>,
 }
 
-/// A host event aimed at a view.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Event {
-    /// A press on the view.
-    Press,
-    /// A text input changed to `value`.
-    Change(String),
-    /// The pointer came over the view (`true`) or left it (`false`) —
-    /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
-    Hover(bool),
-    /// The view took the focus.
-    Focus,
-    /// The view lost the focus.
-    Blur,
-    /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
-    Key(String),
-    /// Enter in an input with a `submit` handler — the web's implicit
-    /// submission (HTML forms §4.10.21.2), without a form.
-    Submit,
-    /// An iframe finished loading (including an error document on the web).
-    Load,
-    /// An iframe guest posted a string to its parent (@ref LLP 1020 D2).
-    Message(String),
-    /// The platform requested a context menu (secondary click or long press).
-    Contextmenu,
-    /// A double click, or the platform’s double tap.
-    Dblclick,
-    /// A platform-recognized right swipe.
-    Swiperight,
-    /// A changed scroll position, in CSS pixels (left, top).
-    Scroll(f64, f64),
-    /// A standard media event; numeric time payloads are seconds.
-    Media(EventKind, String),
-}
-
-impl Event {
-    /// Decode a media event carried as `name\npayload` through host kind 14.
-    pub fn media_payload(payload: &str) -> Option<Self> {
-        let (name, value) = payload.split_once('\n')?;
-        let kind = EventKind::from_name(name)?;
-        if (kind as u8) < EventKind::Loadedmetadata as u8 {
-            return None;
-        }
-        if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)
-            && !value.parse::<f64>().ok()?.is_finite()
-        {
-            return None;
-        }
-        Some(Self::Media(kind, value.into()))
-    }
-
-    /// Decode the scroll event's two finite CSS-pixel coordinates.
-    pub fn scroll_payload(payload: &str) -> Option<Self> {
-        let (left, top) = payload.split_once(',')?;
-        let (left, top) = (left.parse::<f64>().ok()?, top.parse::<f64>().ok()?);
-        (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
-    }
-}
-
 /// Why the runner refused. The kernel is unchanged.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -143,6 +91,10 @@ pub enum RunnerError {
         resource: String,
     },
     UnknownView(ViewId),
+    /// A typed host event carries invalid numeric values. No action ran.
+    InvalidEvent {
+        event: &'static str,
+    },
     NoHandler {
         view: ViewId,
         event: &'static str,
@@ -159,6 +111,10 @@ pub enum RunnerError {
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
+    /// A viewport dimension is non-finite or non-positive.
+    InvalidViewport,
+    /// The declared router shapes, table, launch fallback or value is invalid.
+    Router(String),
     /// A clock value exceeds the exact integer-millisecond domain.
     ClockOutOfRange,
     /// Adding a timer interval did not advance its next due time.
@@ -226,6 +182,7 @@ enum Target {
 /// answers, and the arguments it was asked with (what `parse` sees).
 #[derive(Clone)]
 struct PendingReq {
+    refusal: Option<(&'static str, bool)>,
     ticket: u64,
     target: Target,
     source: String,
@@ -246,6 +203,8 @@ pub struct Runner<D: DataSource> {
     resources: Vec<Option<ResourceState>>,
     resource_values: Vec<Option<Value>>,
     tree: Option<Tree>,
+    reorder_owner: Option<exact_kernel::NodeKey>,
+    reorder_ops: Vec<exact_kernel::Op>,
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
@@ -268,7 +227,7 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
-    /// Store-reading resources shown from a placeholder — a kept answer or
+    /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
     /// Whether fresh answers of store-reading resources are kept for the
@@ -278,6 +237,9 @@ pub struct Runner<D: DataSource> {
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
+    // @ref LLP 1039 D2 — the layout size before settlement.
+    viewport: crate::Viewport,
+    router: Option<router::RouterContext>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
@@ -298,8 +260,23 @@ impl<D: DataSource> Runner<D> {
     /// Boot: refuse a plan built against another kernel schema, evaluate
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
-    pub fn boot(plan: Plan, data: D, kernel: Kernel) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None, Vec::new(), Default::default())
+    pub fn boot(
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        viewport: crate::Viewport,
+        launch: &str,
+    ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_inner(
+            plan,
+            data,
+            kernel,
+            None,
+            Vec::new(),
+            Default::default(),
+            viewport,
+            launch,
+        )
     }
 
     /// Boot a new plan with the state of an old runner (a dev reload that
@@ -313,6 +290,8 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         carried: &Carried,
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             plan,
@@ -321,12 +300,15 @@ impl<D: DataSource> Runner<D> {
             Some(carried),
             carried.store.clone(),
             Default::default(),
+            viewport,
+            launch,
         )
     }
 
     /// Everything a reload keeps.
     pub fn carry(&self) -> Carried {
         Carried {
+            router: self.carry_router(),
             data_revision: self.data.revision().map(str::to_owned),
             keeps_answers: self.keeps_answers,
             slots: self
@@ -367,6 +349,7 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn boot_inner(
         plan: Plan,
         mut data: D,
@@ -374,7 +357,11 @@ impl<D: DataSource> Runner<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         delivery: crate::delivery::Delivery,
+        // @ref LLP 1039 D2 — the layout size before settlement.
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
+        viewport.validate()?;
         if let Some(carried) = carried {
             if !carried.now_ms.is_finite() {
                 return Err(RunnerError::NonFiniteClock);
@@ -429,6 +416,7 @@ impl<D: DataSource> Runner<D> {
             .map(|resource| {
                 resource.reader
                     || plan.str(resource.source) == crate::delivery::SOURCE
+                    || plan.str(resource.source) == crate::viewport::SOURCE
                     || (same_logic
                         && carried.is_some_and(|carried| {
                             let name = plan.str(resource.name);
@@ -436,6 +424,7 @@ impl<D: DataSource> Runner<D> {
                         }))
             })
             .collect();
+        let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
             plan,
             data,
@@ -445,6 +434,8 @@ impl<D: DataSource> Runner<D> {
             resources: Vec::new(),
             resource_values: Vec::new(),
             tree: None,
+            reorder_owner: None,
+            reorder_ops: Vec::new(),
             ids: Ids::default(),
             now_ms: 0.0,
             timers: Vec::new(),
@@ -462,36 +453,13 @@ impl<D: DataSource> Runner<D> {
             stale: Vec::new(),
             keeps_answers: false,
             delivery,
+            viewport,
+            router,
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
         };
-        // Slots: carried values where the name and type still fit, else
-        // initial values, in order (an initializer may read earlier slots).
-        for i in 0..runner.plan.slots.len() {
-            let ty = runner.plan.slots[i].ty;
-            let name = runner.plan.str(runner.plan.slots[i].name);
-            if runner.plan.slots[i].owner.is_some() {
-                // A row slot (LLP 1017 P4c) lives on its rows, initialized as
-                // each row is created; nothing to carry, nothing to hold here.
-                runner.slots.push(Value::Unit);
-                continue;
-            }
-            let kept = carried
-                .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
-                .map(|(_, v)| v.clone())
-                .filter(|v| v.conforms(&runner.plan, ty));
-            let v = match kept {
-                Some(v) => v,
-                None => runner.eval(runner.plan.slots[i].init, &[], &[])?,
-            };
-            if !v.conforms(&runner.plan, ty) {
-                return Err(RunnerError::SlotType {
-                    slot: name.to_string(),
-                });
-            }
-            runner.slots.push(v);
-        }
+        runner.init_slots(carried, launch)?;
         runner.derives = vec![None; runner.plan.derives.len()];
         // Resources: carried where the name is still declared and the value
         // still fits the declared shape; a carried value can refuse nothing.
@@ -566,6 +534,7 @@ impl<D: DataSource> Runner<D> {
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
+                work: Default::default(),
             };
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces)
@@ -629,6 +598,7 @@ impl<D: DataSource> Runner<D> {
             }
             Err(e) => format!("{what} refused: {e:?}"),
         };
+        self.log_router_refusals();
         self.log(line);
     }
 
@@ -765,99 +735,6 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|r| self.plan.str(r.name) == name)
             .is_some_and(|i| self.store_readers[i])
-    }
-
-    /// Deliver a host event to `view`: find its handler, evaluate the curried
-    /// arguments in the instance's scope now, run the action, update.
-    pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
-        let mut what = format!(
-            "{} view {view}",
-            match &event {
-                Event::Press => "press",
-                Event::Change(_) => "change",
-                Event::Hover(true) => "hover in",
-                Event::Hover(false) => "hover out",
-                Event::Focus => "focus",
-                Event::Blur => "blur",
-                Event::Key(_) => "key",
-                Event::Submit => "submit",
-                Event::Load => "load",
-                Event::Message(_) => "message",
-                Event::Contextmenu => "contextmenu",
-                Event::Dblclick => "dblclick",
-                Event::Swiperight => "swiperight",
-                Event::Scroll(_, _) => "scroll",
-                Event::Media(kind, _) => kind.name(),
-            }
-        );
-        let was_poisoned = self.poisoned;
-        let result = self.dispatch_inner(view, event, &mut what);
-        self.log_outcome(&what, &result, was_poisoned);
-        result
-    }
-
-    fn dispatch_inner(
-        &mut self,
-        view: ViewId,
-        event: Event,
-        what: &mut String,
-    ) -> Result<CommitReceipt, RunnerError> {
-        let (node, frames) = self
-            .tree
-            .as_ref()
-            .and_then(|t| t.find(view))
-            .ok_or(RunnerError::UnknownView(view))?;
-        let (kind, payload, name) = match &event {
-            Event::Press => (EventKind::Press, None, "press"),
-            Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
-            Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
-            Event::Focus => (EventKind::Focus, None, "focus"),
-            Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
-            Event::Submit => (EventKind::Submit, None, "submit"),
-            Event::Load => (EventKind::Load, None, "load"),
-            Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
-            Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
-            Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
-            Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
-            Event::Media(kind, value) => (
-                *kind,
-                match kind {
-                    EventKind::Timeupdate | EventKind::Durationchange => {
-                        value.parse().ok().map(Value::Number)
-                    }
-                    EventKind::Error => Some(Value::str(value)),
-                    _ => None,
-                },
-                kind.name(),
-            ),
-        };
-        let row = self.plan.node(node);
-        let handler = row
-            .handlers
-            .iter()
-            .map(|h| self.plan.handler(h))
-            .find(|h| h.event == kind)
-            .cloned()
-            .ok_or(RunnerError::NoHandler { view, event: name })?;
-        let mut args = Vec::new();
-        for a in handler.args.iter() {
-            let code = self.plan.arg(a).expr;
-            args.push(self.eval(code, &[], &frames)?);
-        }
-        if let Some(p) = payload {
-            args.push(p);
-        }
-        if let Event::Scroll(left, top) = event {
-            args.extend([Value::Number(left), Value::Number(top)]);
-        }
-        let _ = write!(
-            what,
-            " ({})",
-            self.plan.str(self.plan.action(handler.action).name)
-        );
-        self.run_action(handler.action, args, &frames)
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -1154,7 +1031,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
-        if let Err(e) = self.settle(false) {
+        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.discard_later(&later);
             self.slots = saved_slots;
             for (rows, slot, old) in row_undo.into_iter().rev() {
@@ -1209,20 +1086,50 @@ impl<D: DataSource> Runner<D> {
         self.sync_pending_flags();
     }
 
+    /// Deterministic instance work counters, separate from layout and host costs.
+    pub fn last_instance_work(&self) -> crate::instance::InstanceWork {
+        self.tree
+            .as_ref()
+            .map(|tree| tree.last_work)
+            .unwrap_or_default()
+    }
+
     /// Whether an update failed after the tree began to change (see
     /// [`RunnerError::Poisoned`]).
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }
 
-    fn apply(&mut self, ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
+    fn apply(&mut self, mut ops: Vec<exact_kernel::Op>) -> Result<CommitReceipt, RunnerError> {
+        if !self.reorder_ops.is_empty() {
+            let mut prefix = std::mem::take(&mut self.reorder_ops);
+            prefix.append(&mut ops);
+            ops = prefix;
+        }
+        let change = self.router_change()?;
         self.batch += 1;
-        Ok(self.kernel.apply(0, self.batch, &ops)?)
+        let mut receipt = self.kernel.apply(0, self.batch, &ops)?;
+        let cleanup = self.reconcile_reorder()?;
+        if !cleanup.is_empty() {
+            self.batch += 1;
+            let tail = self.kernel.apply(0, self.batch, &cleanup)?;
+            receipt.batch = tail.batch;
+            receipt.epoch = tail.epoch;
+            for key in tail.touched {
+                if !receipt.created.contains(&key) && !receipt.touched.contains(&key) {
+                    receipt.touched.push(key);
+                }
+            }
+            receipt.layout_invalidated |= tail.layout_invalidated;
+        }
+        self.commit_router(change);
+        Ok(receipt)
     }
 
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
+            router: self.router.as_ref(),
             slots: &self.slots,
             derives: &self.derives,
             resources: &self.resource_values,
@@ -1253,6 +1160,15 @@ impl<D: DataSource> Runner<D> {
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }
+        // @ref LLP 1039 D1 — host facts never reach the app data source.
+        if source == crate::viewport::SOURCE {
+            return self
+                .viewport_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
+        self.log(format!("query {resource}: {source}"));
         self.data
             .answer(&mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })
@@ -1311,6 +1227,7 @@ impl<D: DataSource> Runner<D> {
             ),
         });
         self.pending.push(PendingReq {
+            refusal: None,
             ticket,
             target,
             source,
@@ -1466,7 +1383,7 @@ impl<D: DataSource> Runner<D> {
                 self.slots[slot] = Value::some(value);
             }
         }
-        if let Err(e) = self.settle(false) {
+        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.slots = saved_slots;
             self.resources = saved_resources;
             return Err(e);

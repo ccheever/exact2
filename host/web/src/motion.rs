@@ -14,7 +14,10 @@
 
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
-use exact_motion::{Change, Engine, Property, Value};
+use exact_motion::{
+    Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor,
+    TransformHold, Value,
+};
 use std::collections::BTreeMap;
 
 /// What the page must do about one property's spring after a commit.
@@ -42,15 +45,28 @@ pub enum Lowered {
         /// The property.
         property: Property,
     },
+    /// Eligibility or explicit ownership ended. Remove held DOM overrides as
+    /// well as playback, even when removing the Engine slot emitted no frame.
+    Retire {
+        /// The node's last live view id.
+        view: ViewId,
+        /// Only this property is retired.
+        property: Property,
+    },
 }
 
 /// The web host's spring evaluator: one engine, sampled at commits.
 #[derive(Debug, Default)]
 pub struct Springs {
     engine: Engine,
-    /// Springs the page is playing: `(start, target)` per property, so a
-    /// commit that leaves a spring untouched says nothing about it.
-    playing: BTreeMap<(u64, Property), (f64, Value)>,
+    holds: BTreeMap<u64, HoldToken>,
+    #[cfg(test)]
+    frame_compilations: usize,
+    /// Compare fixed-size curve identity before compiling browser keyframes.
+    playing: BTreeMap<(u64, Property), SpringDescriptor>,
+    /// One explicit trial owner, bound to its arena generation. Unsupported
+    /// styles retire its slot; a later eligible style can adopt it again.
+    height_owner: Option<(NodeKey, ViewId)>,
 }
 
 impl Springs {
@@ -62,6 +78,197 @@ impl Springs {
     /// The engine (for tests and hosts that want to read presentation values).
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// Number of property springs retained for the current mounted tree.
+    pub fn playing_count(&self) -> usize {
+        self.playing.len()
+    }
+
+    pub(crate) fn height_owner(&self) -> Option<(NodeKey, ViewId)> {
+        self.height_owner
+    }
+
+    pub(crate) fn set_height_owner(
+        &mut self,
+        kernel: &Kernel,
+        view: Option<ViewId>,
+    ) -> Result<Vec<Lowered>, &'static str> {
+        // Refuse before retiring the old owner or touching its clock/hold.
+        let next = view
+            .map(|view| {
+                let node = kernel.node(view).ok_or("unknown height owner")?;
+                // Registration is generational intent across temporary hidden
+                // or unsupported styles; repeating it is still idempotent.
+                if self.height_owner == Some((node.key, view)) {
+                    return Ok((node.key, view));
+                }
+                kernel
+                    .height_target(node.key)
+                    .ok_or("height owner is not an attached numeric box")?;
+                Ok((node.key, view))
+            })
+            .transpose()?;
+        if self.height_owner == next {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        if let Some((key, view)) = self.height_owner.take() {
+            self.retire_height(key, view, &mut out);
+        }
+        self.height_owner = next;
+        self.reconcile_height(kernel, &mut out);
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        Ok(out)
+    }
+
+    fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {
+        let node = motion_node(key);
+        let removed = self.engine.remove_property(node, Property::Height);
+        self.playing.remove(&(node, Property::Height));
+        if removed {
+            out.push(Lowered::Retire {
+                view,
+                property: Property::Height,
+            });
+        }
+    }
+
+    fn reconcile_height(&mut self, kernel: &Kernel, out: &mut Vec<Lowered>) {
+        let Some((key, view)) = self.height_owner else {
+            return;
+        };
+        let sync = kernel.height_motion_sync(key);
+        if !sync.retired.is_empty() {
+            self.retire_height(key, view, out);
+        }
+        let applied = sync.apply(&mut self.engine);
+        debug_assert!(applied.is_ok(), "height target is validated kernel input");
+        if kernel.node_by_key(key).is_none() {
+            self.height_owner = None;
+        }
+    }
+
+    pub(crate) fn token(&self, serial: u64) -> Option<HoldToken> {
+        self.holds
+            .get(&serial)
+            .copied()
+            .filter(|t| self.engine.has_hold(*t))
+    }
+
+    pub(crate) fn begin_hold(
+        &mut self,
+        kernel: &Kernel,
+        view: ViewId,
+        property: Property,
+        presented: Value,
+        now: f64,
+    ) -> Result<Option<HoldStart>, EngineError> {
+        let Some(node) = kernel.node(view) else {
+            return Ok(None);
+        };
+        if self.engine.value(motion_node(node.key), property).is_none() {
+            return Ok(None);
+        }
+        validate_height_position(property, presented)?;
+        let Some(start) =
+            self.engine
+                .begin_hold(motion_node(node.key), property, now, Some(presented))?
+        else {
+            return Ok(None);
+        };
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        self.holds.insert(start.token.serial(), start.token);
+        // Even a curve crossing its target must be cancelled on takeover; a
+        // same-clock release with new velocity must not hit the old dedup key.
+        self.playing.remove(&(start.token.node(), property));
+        Ok(Some(start))
+    }
+
+    pub(crate) fn update_hold(
+        &mut self,
+        serial: u64,
+        value: Value,
+        now: f64,
+    ) -> Result<bool, EngineError> {
+        let Some(token) = self.token(serial) else {
+            return Ok(false);
+        };
+        validate_height_position(token.property(), value)?;
+        self.engine.update_hold(token, now, value)
+    }
+
+    pub(crate) fn begin_transform_hold(
+        &mut self,
+        node: u64,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<Option<TransformHold>, EngineError> {
+        let Some(pair) = self.engine.begin_transform_hold(node, now, Some(values))? else {
+            return Ok(None);
+        };
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        for start in [pair.translate(), pair.scale()] {
+            self.holds.insert(start.token.serial(), start.token);
+            self.playing.remove(&(node, start.token.property()));
+        }
+        Ok(Some(pair))
+    }
+
+    pub(crate) fn update_transform_hold(
+        &mut self,
+        pair: TransformHold,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<bool, EngineError> {
+        self.engine.update_transform_hold(pair, now, values)
+    }
+
+    pub(crate) fn synchronize_transform(
+        &mut self,
+        kernel: &Kernel,
+        target: NodeKey,
+        now: f64,
+    ) -> Vec<Lowered> {
+        let out = self.synchronize(kernel, &[], now);
+        if let Some(node) = kernel.node_by_key(target) {
+            let key = motion_node(target);
+            let sync = MotionSync {
+                transitions: vec![(key, node.style.transition.clone())],
+                changes: targets(node.style)
+                    .into_iter()
+                    .filter(|(property, _)| {
+                        matches!(property, Property::Translate | Property::Scale)
+                    })
+                    .map(|(property, value)| Change {
+                        node: key,
+                        property,
+                        value,
+                        velocity: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            let applied = sync.apply(&mut self.engine);
+            debug_assert!(applied.is_ok(), "validated transform authoring");
+        }
+        out
+    }
+
+    pub(crate) fn end_hold(
+        &mut self,
+        serial: u64,
+        end: HoldEnd,
+        now: f64,
+    ) -> Result<bool, EngineError> {
+        let Some(token) = self.token(serial) else {
+            return Ok(false);
+        };
+        let accepted = self.engine.end_hold(token, now, end)?;
+        if accepted {
+            self.holds.remove(&serial);
+        }
+        Ok(accepted)
     }
 
     /// Tell the engine about nodes that exist before any commit it saw —
@@ -89,10 +296,9 @@ impl Springs {
         let _ = self.engine.frame();
     }
 
-    /// Feed the receipts of one commit at `now` seconds and return what the
-    /// page must do: springs to start (or restart from their current value)
-    /// and springs that stopped being the truth for their property.
-    pub fn commit(
+    /// Synchronize an accepted receipt while existing holds still own presentation.
+    /// Retirement ops are returned, but dirty frames remain for one common lowering.
+    pub(crate) fn synchronize(
         &mut self,
         kernel: &Kernel,
         receipts: &[CommitReceipt],
@@ -102,9 +308,43 @@ impl Springs {
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         for receipt in receipts {
-            let applied = kernel.motion_sync(receipt).apply(&mut self.engine);
+            let sync = kernel.motion_sync(receipt);
+            // Engine::remove also erases dirty entries, so frame() will never
+            // mention these nodes again. Retire ownership directly, without
+            // scanning springs belonging to other mounted rows.
+            for node in &sync.removed {
+                for property in Property::ALL {
+                    self.playing.remove(&(*node, property));
+                }
+            }
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         }
+        let mut out = Vec::new();
+        // Ancestor hide/detach does not touch the owner's receipt key. This
+        // checks only its ancestor path, never all mounted numeric heights.
+        self.reconcile_height(kernel, &mut out);
+        self.holds.retain(|_, token| self.engine.has_hold(*token));
+        out
+    }
+
+    /// Synchronize and lower changed properties once at a commit/input boundary.
+    pub fn commit(
+        &mut self,
+        kernel: &Kernel,
+        receipts: &[CommitReceipt],
+        now: f64,
+    ) -> Vec<Lowered> {
+        let now = now.max(self.engine.now());
+        let mut out = self.synchronize(kernel, receipts, now);
+        out.extend(self.lower_current(kernel));
+        out
+    }
+
+    // Stale photo cleanup may lower surviving old tokens at the existing clock,
+    // but must neither seek time nor import unrelated targets/owner changes.
+    pub(crate) fn lower_current(&mut self, kernel: &Kernel) -> Vec<Lowered> {
+        let now = self.engine.now();
         let mut out = Vec::new();
         for p in self.engine.frame() {
             let key = (p.node, p.property);
@@ -112,13 +352,24 @@ impl Springs {
                 self.playing.remove(&key);
                 continue;
             };
-            match self.engine.spring_frames(p.node, p.property) {
-                Some(frames) => {
-                    let target = *frames.values.last().expect("at least two frames");
-                    if self.playing.get(&key) == Some(&(frames.start, target)) {
+            if self.engine.is_held(p.node, p.property) {
+                self.playing.remove(&key);
+                continue;
+            }
+            match self.engine.spring_descriptor(p.node, p.property) {
+                Some(descriptor) => {
+                    if self.playing.get(&key) == Some(&descriptor) {
                         continue;
                     }
-                    self.playing.insert(key, (frames.start, target));
+                    #[cfg(test)]
+                    {
+                        self.frame_compilations += 1;
+                    }
+                    let frames = self
+                        .engine
+                        .spring_frames(p.node, p.property)
+                        .expect("a running spring descriptor has frames");
+                    self.playing.insert(key, descriptor);
                     out.push(Lowered::Start {
                         view,
                         property: p.property,
@@ -131,8 +382,8 @@ impl Springs {
                     // A spring that reached its target finished on the page
                     // too; one whose property moved on without a spring must
                     // stop, or its frames would keep overriding the style.
-                    if let Some((_, target)) = self.playing.remove(&key) {
-                        if p.value != target {
+                    if let Some(previous) = self.playing.remove(&key) {
+                        if p.value != previous.target {
                             out.push(Lowered::Cancel {
                                 view,
                                 property: p.property,
@@ -151,5 +402,108 @@ impl Springs {
             generation: (node >> 32) as u32,
         };
         kernel.node_by_key(key).map(|n| n.id)
+    }
+}
+
+// Native projection uses f32 CSS lengths. Reject malformed external positions
+// before advancing the clock; signed velocities/internal curve samples remain
+// unrestricted, and the DOM alone clamps a negative displayed height to zero.
+fn validate_height_position(property: Property, value: Value) -> Result<(), EngineError> {
+    if property != Property::Height {
+        return Ok(());
+    }
+    if !value.x.is_finite() || !value.y.is_finite() {
+        return Err(EngineError::NonFinite);
+    }
+    if value.y != 0.0 || value.x < 0.0 || value.x > f32::MAX as f64 {
+        return Err(EngineError::InvalidValueShape);
+    }
+    Ok(())
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use exact_runner::{DataError, DataSource, Event, Value as DataValue};
+
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, name: &str, _: &[DataValue]) -> Result<DataValue, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+    }
+
+    #[test]
+    fn hold_moves_do_not_recompile_unchanged_springs() {
+        let mut source = String::from("component App\n  state big = false\n  action toggle writes big\n    big = not big\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      text \"Held\" testId=\"held\" transition=\"translate spring(180, 12, 1)\"\n");
+        for _ in 0..32 {
+            source.push_str("      text \"Moving\" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition=\"scale spring(180, 12, 1), opacity spring(180, 12, 1)\"\n");
+        }
+        let (mut host, _) = crate::Host::boot(
+            &contract::compile(&source).unwrap().encode(),
+            NoData,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let id = |host: &crate::Host<NoData>, name| {
+            let kernel = host.runner().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id
+        };
+        let toggle = id(&host, "toggle");
+        let row = id(&host, "held");
+        host.dispatch_at(toggle, Event::Press, 0.0);
+        assert_eq!(host.springs().frame_compilations, 64);
+        let (hold, _) = host
+            .begin_hold(row, Property::Translate, Value::new(80.0, 0.0), 1.0)
+            .unwrap()
+            .unwrap();
+        for step in 2..102 {
+            let batch = host
+                .update_hold(
+                    hold.token.serial(),
+                    Value::new(80.0 + f64::from(step), 0.0),
+                    f64::from(step),
+                )
+                .unwrap()
+                .unwrap();
+            assert!(!batch.contains("\"op\":\"animate\""));
+        }
+        assert_eq!(
+            host.springs().frame_compilations,
+            64,
+            "100 input samples must not rebuild the 64 unrelated curves"
+        );
+        host.end_hold(
+            hold.token.serial(),
+            HoldEnd::Release {
+                velocity: Value::new(-20.0, 0.0),
+            },
+            101.0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(host.springs().frame_compilations, 65);
+        let (caught, _) = host
+            .begin_hold(row, Property::Translate, Value::new(181.0, 0.0), 101.0)
+            .unwrap()
+            .unwrap();
+        host.end_hold(
+            caught.token.serial(),
+            HoldEnd::Release {
+                velocity: Value::new(30.0, 0.0),
+            },
+            101.0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            host.springs().frame_compilations,
+            66,
+            "same-clock rebegin/release with a new velocity compiles once"
+        );
     }
 }

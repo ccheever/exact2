@@ -307,7 +307,9 @@ export const entitlements = (app, team) => {
     'com.apple.developer.team-identifier': team,
     'get-task-allow': true,
   };
-  if (ios.associatedDomains && app.origin) dict['com.apple.developer.associated-domains'] = [`applinks:${new URL(app.origin).host}`];
+  // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
+  const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
+  if (domains.length) dict['com.apple.developer.associated-domains'] = domains;
   return plistFile(dict);
 };
 

@@ -412,3 +412,27 @@ Use the production opt-out where the app's distribution requires it. Native
 macOS libraries also need platform-appropriate code signing: the production
 producer requires `EXACT_RUST_SIGN_IDENTITY` for the host's signing team, or
 select `wasm` for macOS production.
+
+## Interactive stress examples
+
+[Messages stress](apps/messages-stress/README.md) compares a bounded synthetic
+history page with deliberately eager construction while typing and streaming
+updates. [Completion Storm](apps/completion-storm/README.md) holds and releases
+real local HTTP requests, including failures and replies to a departed screen.
+[Markdown stress](apps/markdown-stress/README.md) exercises the shipped parser
+and reader components with large documents, huge individual blocks and reflow.
+These are opt-in developer workloads; none claims automatic virtualization or
+120 Hz performance. [LLP 1041](llp/1041-graceful-overload.rfc.md) specifies the
+graceful-overload direction and records what the first examples actually prove.
+
+With a fixture running, `bun scripts/metrics.mjs --stress-url
+http://127.0.0.1:4318 --seconds 10 --target-hz 120` samples typing-to-echo and
+frame-callback gaps (`CHROME` selects the browser). Repeat `--tap <testId>` for
+workload controls. This is a headless diagnostic, not a physical-display FPS test.
+
+After building a native app, `bun scripts/native-resize-metrics.mjs macos
+--app messages-stress` interleaves window resizing, typing and scrolling, then
+checks geometry, echo and recovery. Substitute `linux` on an actual Linux host
+or select `--app markdown-stress` / `completion-storm` (with its fixture running).
+It records raw command acknowledgments and executable identity; AppKit window
+resizing and Linux headless presenter resizing do not measure physical refresh.

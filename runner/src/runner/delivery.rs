@@ -27,12 +27,24 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         snapshot: Vec<(String, String)>,
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
-        Runner::boot_inner(plan, data, kernel, None, snapshot, Delivery::default())
+        Runner::boot_inner(
+            plan,
+            data,
+            kernel,
+            None,
+            snapshot,
+            Delivery::default(),
+            viewport,
+            launch,
+        )
     }
 
     /// Boot with complete host delivery facts before any resource settles.
     /// A carried runner's store takes precedence over the fresh snapshot.
+    #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_with_delivery(
         plan: Plan,
         data: D,
@@ -40,9 +52,13 @@ impl<D: DataSource> Runner<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         delivery: Delivery,
+        viewport: crate::Viewport,
+        launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         let snapshot = carried.map_or(snapshot, |value| value.store.clone());
-        Self::boot_inner(plan, data, kernel, carried, snapshot, delivery)
+        Self::boot_inner(
+            plan, data, kernel, carried, snapshot, delivery, viewport, launch,
+        )
     }
 
     /// What this runner believes about its delivery. Until a host says

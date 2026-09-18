@@ -354,10 +354,9 @@ fn artifact_graph(
     // branches not mounted during bake. Installed cohorts retain their own
     // implementations of matching names/shapes (1030 D3's stated caveat).
     requires.insert("sources".into(), Value::Object(sources.clone()));
-    if sources
-        .keys()
-        .any(|name| name != exact_runner::delivery::SOURCE)
-    {
+    if sources.keys().any(|name| {
+        name != exact_runner::delivery::SOURCE && name != exact_runner::viewport::SOURCE
+    }) {
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }

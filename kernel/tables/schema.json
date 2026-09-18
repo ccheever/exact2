@@ -58,16 +58,6 @@
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
   "props": [
     {
-      "id": 103,
-      "name": "listItemKey",
-      "kind": "str"
-    },
-    {
-      "id": 102,
-      "name": "estimatedItemHeight",
-      "kind": "float"
-    },
-    {
       "id": 0,
       "name": "text",
       "kind": "str",
@@ -238,7 +228,8 @@
     {
       "id": 33,
       "name": "semanticTag",
-      "kind": "str"
+      "kind": "str",
+      "measure": true
     },
     {
       "id": 34,
@@ -257,8 +248,8 @@
     },
     {
       "id": 37,
-      "name": "itemHeight",
-      "kind": "float"
+      "name": "virtualized",
+      "kind": "bool"
     },
     {
       "id": 39,
@@ -432,146 +423,186 @@
     },
     {
       "id": 73,
-      "name": "accessibilityPosInSet",
-      "kind": "int"
+      "name": "accessibilityOrientation",
+      "kind": "str"
     },
     {
       "id": 74,
-      "name": "accessibilitySetSize",
-      "kind": "int"
+      "name": "toolbarPlacement",
+      "kind": "str"
     },
     {
       "id": 75,
-      "name": "poster",
+      "name": "heightDragFor",
       "kind": "str"
     },
     {
       "id": 76,
-      "name": "autoplay",
-      "kind": "bool"
+      "name": "transformDragFor",
+      "kind": "str"
     },
     {
       "id": 77,
-      "name": "controls",
-      "kind": "bool"
+      "name": "reorderFor",
+      "kind": "str"
     },
     {
       "id": 78,
-      "name": "loop",
-      "kind": "bool"
+      "name": "listItemKey",
+      "kind": "str"
     },
     {
       "id": 79,
-      "name": "muted",
-      "kind": "bool"
+      "name": "estimatedItemHeight",
+      "kind": "float"
     },
     {
       "id": 80,
-      "name": "preload",
-      "kind": "str"
+      "name": "itemHeight",
+      "kind": "float"
     },
     {
       "id": 81,
-      "name": "playsinline",
-      "kind": "bool"
+      "name": "accessibilityPosInSet",
+      "kind": "int"
     },
     {
       "id": 82,
-      "name": "crossorigin",
-      "kind": "str"
+      "name": "accessibilitySetSize",
+      "kind": "int"
     },
     {
       "id": 83,
-      "name": "controlslist",
+      "name": "poster",
       "kind": "str"
     },
     {
       "id": 84,
-      "name": "disablepictureinpicture",
+      "name": "autoplay",
       "kind": "bool"
     },
     {
       "id": 85,
-      "name": "disableremoteplayback",
+      "name": "controls",
       "kind": "bool"
     },
     {
       "id": 86,
-      "name": "volume",
-      "kind": "float"
+      "name": "loop",
+      "kind": "bool"
     },
     {
       "id": 87,
-      "name": "playbackRate",
-      "kind": "float"
+      "name": "muted",
+      "kind": "bool"
     },
     {
       "id": 88,
-      "name": "currentTime",
-      "kind": "float"
+      "name": "preload",
+      "kind": "str"
     },
     {
       "id": 89,
-      "name": "paused",
+      "name": "playsinline",
       "kind": "bool"
     },
     {
       "id": 90,
-      "name": "preservesPitch",
-      "kind": "bool"
+      "name": "crossorigin",
+      "kind": "str"
     },
     {
       "id": 91,
-      "name": "allowsPictureInPicturePlayback",
-      "kind": "bool"
+      "name": "controlslist",
+      "kind": "str"
     },
     {
       "id": 92,
-      "name": "canStartPictureInPictureAutomaticallyFromInline",
+      "name": "disablepictureinpicture",
       "kind": "bool"
     },
     {
       "id": 93,
-      "name": "entersFullScreenWhenPlaybackBegins",
+      "name": "disableremoteplayback",
       "kind": "bool"
     },
     {
       "id": 94,
-      "name": "exitsFullScreenWhenPlaybackEnds",
-      "kind": "bool"
+      "name": "volume",
+      "kind": "float"
     },
     {
       "id": 95,
-      "name": "showsTimecodes",
-      "kind": "bool"
+      "name": "playbackRate",
+      "kind": "float"
     },
     {
       "id": 96,
-      "name": "allowsVideoFrameAnalysis",
-      "kind": "bool"
+      "name": "currentTime",
+      "kind": "float"
     },
     {
       "id": 97,
-      "name": "requiresLinearPlayback",
+      "name": "paused",
       "kind": "bool"
     },
     {
       "id": 98,
-      "name": "preferredPeakBitRate",
-      "kind": "float"
+      "name": "preservesPitch",
+      "kind": "bool"
     },
     {
       "id": 99,
-      "name": "preferredForwardBufferDuration",
-      "kind": "float"
+      "name": "allowsPictureInPicturePlayback",
+      "kind": "bool"
     },
     {
       "id": 100,
-      "name": "automaticallyWaitsToMinimizeStalling",
+      "name": "canStartPictureInPictureAutomaticallyFromInline",
       "kind": "bool"
     },
     {
       "id": 101,
+      "name": "entersFullScreenWhenPlaybackBegins",
+      "kind": "bool"
+    },
+    {
+      "id": 102,
+      "name": "exitsFullScreenWhenPlaybackEnds",
+      "kind": "bool"
+    },
+    {
+      "id": 103,
+      "name": "showsTimecodes",
+      "kind": "bool"
+    },
+    {
+      "id": 104,
+      "name": "allowsVideoFrameAnalysis",
+      "kind": "bool"
+    },
+    {
+      "id": 105,
+      "name": "requiresLinearPlayback",
+      "kind": "bool"
+    },
+    {
+      "id": 106,
+      "name": "preferredPeakBitRate",
+      "kind": "float"
+    },
+    {
+      "id": 107,
+      "name": "preferredForwardBufferDuration",
+      "kind": "float"
+    },
+    {
+      "id": 108,
+      "name": "automaticallyWaitsToMinimizeStalling",
+      "kind": "bool"
+    },
+    {
+      "id": 109,
       "name": "preventsDisplaySleepDuringVideoPlayback",
       "kind": "bool"
     }
@@ -1305,7 +1336,8 @@
       "bit": 71,
       "field": "text_align",
       "codec": "enum:TextAlign",
-      "inherited": true
+      "inherited": true,
+      "text": true
     },
     {
       "bit": 72,
@@ -1350,7 +1382,8 @@
     {
       "bit": 77,
       "field": "text_overflow",
-      "codec": "enum:TextOverflow"
+      "codec": "enum:TextOverflow",
+      "text": true
     },
     {
       "bit": 78,
@@ -1559,6 +1592,21 @@
       "person",
       "person.crop.circle",
       "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM15 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM6 19v-1a6 4 0 0 1 12 0v1"
+    ],
+    [
+      "messages",
+      "bubble.left.and.bubble.right",
+      "M3 3h14v11H8l-5 4V3Zm14 5h4v13l-5-4h-5v-3"
+    ],
+    [
+      "notifications",
+      "bell",
+      "M5 17h14l-2-3V9a5 5 0 0 0-10 0v5l-2 3Zm5 3h4"
+    ],
+    [
+      "settings",
+      "gearshape",
+      "M9 3h6v3l3 2 3-1 1 5-3 2v3l-4 3-3-2-3 2-4-3v-3l-3-2 1-5 3 1 3-2V3Zm6 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. Generated once; hosts never admit platform names directly."

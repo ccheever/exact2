@@ -1,7 +1,6 @@
-// The dev menu, the macOS half of the iOS presenter's: a real menu bar
-// where iOS has a four-finger tap. The app menu (Quit ⌘Q — the bare window
-// had no menu bar at all) always; File — Open… ⌘O when the app declares
-// documents it opens (LLP 1033), plus whatever shortcuts the plan declares;
+// The standalone Mac menu bar: standard application and window commands,
+// with app-declared shortcuts in File, Go and Settings. File — Open… ⌘O
+// exists when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
 // equivalents, not key bindings; without this they are dead); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
@@ -57,10 +56,25 @@ public enum DevMenu {
     public static func install(session: ExactSession, planPath: String?) {
         DevMenu.session = session
         DevMenu.planPath = planPath
+        NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
+    }
+
+    static func makeMenu(shortcuts: ShortcutHost, documents: Bool) -> NSMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
         let appMenu = NSMenu(title: ExactEnv.appName)
+        appMenu.addItem(withTitle: "About \(ExactEnv.appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let services = NSMenu(title: "Services")
+        appMenu.addItem(withTitle: "Services", action: nil, keyEquivalent: "").submenu = services
+        NSApp.servicesMenu = services
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide \(ExactEnv.appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit \(ExactEnv.appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let fileItem = NSMenuItem()
@@ -70,11 +84,11 @@ public enum DevMenu {
         // ⌘O belongs to the app's own documents when it declares any
         // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
         // platform, and Develop ▸ Open Project… takes ⇧⌘O behind it.
-        if ExactDocuments.declared {
+        if documents {
             file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
             file.addItem(.separator())
         }
-        session.presenter.shortcuts.attach(file)
+        file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         // AppKit does not bind ⌘A itself (`StandardKeyBinding.dict` has no
         // `selectAll`); the Edit menu is how a field hears select-all, cut,
         // copy, paste, and undo.
@@ -92,6 +106,20 @@ public enum DevMenu {
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
         editItem.submenu = edit
+        let view = NSMenu(title: "View")
+        let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
+        let go = NSMenu(title: "Go")
+        bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
+        let window = NSMenu(title: "Window")
+        window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
+        NSApp.windowsMenu = window
+        shortcuts.attach(file, application: appMenu, navigation: go)
         if enabled {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
@@ -99,11 +127,11 @@ public enum DevMenu {
             dev.addItem(withTitle: "Reload", action: #selector(DevMenuTarget.reload(_:)), keyEquivalent: "r").target = target
             let project = dev.addItem(withTitle: "Open Project…", action: #selector(DevMenuTarget.openProject(_:)), keyEquivalent: "o")
             project.target = target
-            if ExactDocuments.declared { project.keyEquivalentModifierMask = [.command, .shift] }
+            if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
             devItem.submenu = dev
         }
-        NSApp.mainMenu = bar
+        return bar
     }
 
     /// The typed URL — the affordance a physical device actually uses

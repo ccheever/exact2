@@ -13,6 +13,7 @@
 
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::MeasureOutput;
+use taffy::TraversePartialTree;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
@@ -66,6 +67,8 @@ struct Measurement {
 pub struct LayoutTree {
     taffy: TaffyTree<MeasuredNode>,
     fault: Option<String>,
+    // One derived height, not an authored target or a second style graph.
+    presented_height: Option<(NodeKey, NodeId, f32)>,
 }
 
 impl Default for LayoutTree {
@@ -81,7 +84,11 @@ impl LayoutTree {
         // here loses subpixel edits and snaps Retina views to whole points.
         let mut taffy = TaffyTree::new();
         taffy.disable_rounding();
-        LayoutTree { taffy, fault: None }
+        LayoutTree {
+            taffy,
+            fault: None,
+            presented_height: None,
+        }
     }
 
     fn note(&mut self, what: &str, result: Result<impl Sized, taffy::TaffyError>) {
@@ -128,15 +135,83 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
+        if self
+            .presented_height
+            .is_some_and(|(_, active, _)| active == node)
+        {
+            self.presented_height = None;
+        }
         let r = self.taffy.remove(node);
         self.note("remove", r);
     }
 
-    /// Replace a node's style (marks it dirty).
-    pub fn set_style(&mut self, node: NodeId, style: taffy::style::Style) {
+    /// Replace authored lowering, retaining an active presentation height.
+    /// Dirty only when the resulting full derived style changes. This is also
+    /// the path for environment/intrinsic updates that do not bump the epoch.
+    pub fn set_style(&mut self, node: NodeId, mut style: taffy::style::Style) {
+        if let Some((_, active, px)) = self.presented_height {
+            if active == node {
+                style.size.height = taffy::style::Dimension::length(px);
+            }
+        }
+        self.write_style(node, style);
+    }
+
+    fn write_style(&mut self, node: NodeId, style: taffy::style::Style) {
+        if self.taffy.style(node).is_ok_and(|old| *old == style) {
+            return;
+        }
         self.clear_measurements(node);
         let r = self.taffy.set_style(node, style);
         self.note("set_style", r);
+    }
+
+    /// Install a preflighted sample, or restore current authored lowering.
+    /// The caller validates generation, membership and eligibility before any
+    /// change here; epochs belong to requests, not to this derived cache.
+    pub(crate) fn present_height(&mut self, arena: &NodeArena, sample: Option<(u32, f32)>) {
+        let next = match sample {
+            Some((slot, px)) => {
+                let Some(node) = arena.taffy(slot) else {
+                    self.fault
+                        .get_or_insert_with(|| "presented height has no engine node".into());
+                    return;
+                };
+                Some((arena.key(slot), node, px))
+            }
+            None => None,
+        };
+        if self.presented_height == next {
+            return;
+        }
+        if let Some((key, node, _)) = self.presented_height.take() {
+            // Same-node samples can replace height directly. Restoring first
+            // would dirty twice and momentarily reinstall an obsolete target.
+            if next.is_none_or(|(next_key, _, _)| next_key != key) {
+                if let Some(slot) = arena.resolve(key) {
+                    self.write_style(node, taffy_style(arena, slot));
+                }
+            }
+        }
+        if let Some((key, node, px)) = next {
+            let mut style = taffy_style(arena, key.index);
+            style.size.height = taffy::style::Dimension::length(px);
+            self.write_style(node, style);
+        }
+        self.presented_height = next;
+    }
+
+    /// A content region trial does not compose with a height projection yet.
+    pub(crate) fn has_presented_height(&self) -> bool {
+        self.presented_height.is_some()
+    }
+
+    /// Keep a registered region's content out of shell sizing. No-op when
+    /// already cut, so unchanged shell layout continues to use its own cache.
+    pub(crate) fn cut_children(&mut self, node: NodeId) {
+        if self.taffy.child_count(node) > 0 {
+            self.set_children(node, &[]);
+        }
     }
 
     /// Replace a node's ordered children.
@@ -248,14 +323,18 @@ impl LayoutTree {
                     if runs.is_empty() {
                         return MeasureOutput::ZERO;
                     }
-                    let metrics = measurer.measure(&TextMeasureRequest {
+                    let request = TextMeasureRequest {
                         runs: &runs,
                         paragraph: Paragraph::from_style(
                             &arena.computed_style(slot, StyleMask::INHERITED),
                         ),
                         width,
                         height,
-                    });
+                    };
+                    let metrics = match arena.paragraph_stamp(slot) {
+                        Some(stamp) => measurer.measure_identified(&stamp, &request),
+                        None => measurer.measure(&request),
+                    };
                     if !metrics.is_valid() {
                         invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
                         return MeasureOutput::ZERO;

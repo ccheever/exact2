@@ -21,7 +21,7 @@ fn boot() -> (Host<NoData>, String) {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    Host::boot(&plan.encode(), NoData).unwrap()
+    Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
 fn view(host: &Host<NoData>, test_id: &str) -> u32 {
@@ -173,4 +173,86 @@ fn translate_frames_are_pairs() {
         s.contains("\"property\":\"opacity\",\"delay\":0,\"duration\":0,\"values\":[]}"),
         "{s}"
     );
+}
+
+struct Rows;
+impl DataSource for Rows {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::list(
+            (0..1_000).map(|i| Value::Number(i as f64)).collect(),
+        ))
+    }
+}
+
+#[test]
+fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset() {
+    let source = r#"component App
+  resource rows = rows() as shape list<number>
+  state shown = true
+  state big = false
+  action hide writes shown
+    shown = not shown
+  action toggle writes big
+    big = not big
+  view
+    column
+      button press=hide testId="hide"
+        text "Hide"
+      button press=toggle testId="toggle"
+        text "Toggle"
+      text "survivor" testId="survivor" scale=(big ? 1.5 : 1) transition="scale spring(180, 12, 1)"
+      when shown
+        list virtualized=true height=180
+          each x in rows key=x
+            column height=32
+              text `${x}` scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale spring(180, 12, 1), opacity spring(180, 12, 1)"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot(&plan, Rows, Default::default(), "/").unwrap();
+    let id = |host: &Host<Rows>, name| {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let hide = id(&host, "hide");
+    let toggle = id(&host, "toggle");
+    let mut previous = None;
+    for cycle in 0..16 {
+        let now = (cycle + 1) as f64 * 50.0;
+        let snapshot = host.runner().collections().remove(0);
+        let root = host
+            .runner()
+            .kernel()
+            .node(snapshot.rows[0].root)
+            .unwrap()
+            .children()[0];
+        let key = host.runner().kernel().node(root).unwrap().key;
+        assert_ne!(Some(key), previous, "a remount has a new motion identity");
+        let batch = host.dispatch_at(toggle, Event::Press, now);
+        assert!(batch.contains("\"op\":\"animate\""));
+        assert_eq!(host.springs().playing_count(), 2 * snapshot.rows.len() + 1);
+        host.dispatch_at(hide, Event::Press, now + 1.0);
+        assert!(host.runner().collections().is_empty());
+        assert_eq!(
+            host.springs().playing_count(),
+            1,
+            "only the survivor remains"
+        );
+        let node = exact_kernel::motion::motion_node(key);
+        assert!(host
+            .springs()
+            .engine()
+            .value(node, Property::Scale)
+            .is_none());
+        host.dispatch_at(hide, Event::Press, now + 2.0);
+        assert_eq!(
+            host.springs().playing_count(),
+            1,
+            "remount adopts its current style without animation"
+        );
+        previous = Some(key);
+    }
+    // Reload replaces the Host, including its engine and ownership map.
+    let (replacement, first) = Host::boot(&plan, Rows, Default::default(), "/").unwrap();
+    assert_eq!(replacement.springs().playing_count(), 0);
+    assert!(!first.contains("\"op\":\"animate\""));
 }

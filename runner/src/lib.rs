@@ -37,17 +37,25 @@ pub mod request;
 pub mod runner;
 pub mod stdlib;
 pub mod store;
+pub mod viewport;
 pub mod vm;
 
 pub use delivery::Delivery;
 pub use exact_plan::Value;
+pub use instance::collection::{
+    AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
+    ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,
+    ReorderWrapper, RowMeasurement,
+};
 pub use instance::SurfaceUpdate;
 pub use request::{
-    Answer, Dispatch, FailureKind, Outcome, Placement, Reply, Request, RequestOut, Response, Work,
+    Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request, RequestOut,
+    Response, Work,
 };
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, ListTextPosition, ListViewport,
-    Runner, RunnerError, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    RouterChange, Runner, RunnerError, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
+pub use viewport::Viewport;
 pub use vm::Trap;

@@ -21,6 +21,8 @@ exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
+exact-route = { path = "../../route" }
+exact-raster = { path = "../raster" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — no engine, no

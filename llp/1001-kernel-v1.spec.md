@@ -470,6 +470,35 @@ terminal-break behavior. `kernel/tests/review_fixes.rs` covers repeated Returns,
 shortening and unchanged values. `MonospaceMeasurer` is the deterministic reference measurer for
 tests and headless hosts.
 
+**Paragraph input identity (Tuft / Carson, 2026-09-17).** Independent Text and
+TextInput measurement owners expose `NodeRef::paragraph_stamp()`. Inline Text
+returns `None`: its own run subset must not share an identified key with its
+owner's full paragraph. `ParagraphStamp` is an opaque retained, payload-free
+namespace plus the owner's generational key and current metric/paint-source
+revisions. Full equality compares both revisions; `same_metrics` excludes
+paint/source. The namespace uses allocation identity, not value equality or a
+serialized address. Stamps retain neither the arena nor text.
+
+Layout calls `TextMeasurer::measure_identified(stamp, request)` with the same
+owner stamp exposed by reads. Its default calls the existing synchronous
+`measure`; requests and canonical run construction are unchanged. Offers,
+font-catalog identity, host appearance/resolved paint, attachment eligibility
+and accepted publication remain separate inputs. This is an input proof, not
+an asynchronous result or a promise that equal stamps produce equal pixels.
+
+Each arena slot stores two current revisions; storage follows arena high-water,
+not edit history. Source/topology invalidation updates old/new paragraph owners
+and affected inherited inputs; temporary work is bounded by the traversed
+subtree and distinct owners. Free clears revisions. New, reset, cloned and
+rehydrated arenas get fresh namespaces; derived Taffy rebuilds preserve them.
+Counter exhaustion rotates the namespace inside a validated successful apply,
+without a fallible partially applied edit. Rejected batches and exact no-ops
+preserve identity. Revisions may conservatively change for masked inputs.
+Alignment/overflow invalidation and textarea semantic-tag measurement belong to
+this proof; their schema changes require rebaked plans. Public-arena fork,
+rollover, topology, lifetime and callback/read agreement regressions live in
+`kernel/tests/paragraph_stamp.rs` and the arena unit tests.
+
 ## 7. EXNODE export (WS-C)
 
 One crossing per sync. `Kernel::rows` is the typed in-process projection; `Kernel::
@@ -519,10 +548,53 @@ uniform border radius. Web uses translucent fill, blur, and a light shadow.
 Messages uses glass for its composer, header controls, and inbox search. Authored
 children go in the effect’s `contentView`; enabled nodes with a press handler use
 `UIGlassEffect.isInteractive`. Changing or clearing the material preserves those
-children. Glass grouping is not implemented. Other hosts currently leave materials
-transparent. This explicit
+children. AppKit uses `NSGlassEffectView` with regular style on macOS 26 for
+`glass`; earlier macOS and `ultra-thin` use `NSVisualEffectView(.popover)` with
+within-window blending and window-active-state tracking. AppKit has no ultra-thin
+material; this is a semantic floating-surface fallback, not pixel parity. Authored
+children use the glass content view unless a scroll/canvas already owns their
+container. AppKit supplies appearance and accessibility adaptation. Glass grouping
+is not implemented. Linux currently leaves materials transparent. This explicit
 host policy does not alter the existing CSS `backdrop-blur` style row or claim
 pixel parity between a UIKit material and a CSS filter.
+
+### Window toolbars
+
+Charlie requested native window-toolbar presentation for Interview on 2026-09-15;
+implementer: Codex, same date. `toolbarPlacement="window"` (string prop 74) on
+`role="toolbar"` explicitly requests window chrome. A toolbar role alone does
+not. AppKit projects one visible declaration with direct pressable buttons and
+at most one direct `role="heading"` text child. The heading supplies the window
+title and a flexible spacer at its position among the buttons. Button accessible
+names, images, visible text, disabled/inert state and existing press actions supply
+standard `NSToolbarItem`s; AppKit owns their sizing, overflow and appearance.
+An action with `toolbarPlacement="navigation"` uses AppKit's leading navigation
+placement (`isNavigational`), so Back does not migrate into trailing actions.
+All toolbar actions also appear in the native menu, even without a shortcut.
+Customization is not enabled in this first slice.
+
+The containing app must call `ExactView.attachWindowToolbar(to:)`; mounting an
+embedded view never claims the containing window. An existing foreign toolbar is
+not replaced. Detach, unmount and session reset release only Exact's toolbar;
+route updates retain the toolbar and item identities. Unsupported or ambiguous
+declarations retain their authored rendering. Web, iOS and Linux retain authored
+layout. No CSS row changes meaning and no general NativeView loader is introduced.
+The standalone Mac adapter opts in and uses unified compact window chrome.
+With `viewport-fit=cover`, the actual window safe area includes the toolbar;
+the app pads content with `env(safe-area-inset-top)`, not a fixed toolbar height.
+Geometry callbacks caused by window chrome during presentation or reset are
+coalesced until the incoming batch finishes, before queued input. Otherwise a
+reset can update the new runner's insets before its older boot snapshot is drawn,
+leaving native frames behind the kernel even though the inset value is correct.
+Window-chrome declarations should be outside content flow; applications targeting
+an embedder without attachment must provide an appropriate content layout.
+
+The agent's existing `tap` reports `host-activation` through the native target/action;
+`layout` identifies `NSToolbar`/`NSToolbarItem`, enabled state and overflow. Standard
+items have no public frame API: native `space` is explicitly system-owned, while
+the kernel `frame` remains authored fallback geometry. Held pointer injection at
+that logical item is refused, not delivered to the fallback box. Window screenshots
+capture the actual chrome. This is not a physical-click or manual VoiceOver claim.
 
 ### Touch panning directions
 

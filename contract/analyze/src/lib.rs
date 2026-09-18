@@ -48,8 +48,24 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Analysis {}
 
+/// Check before merging `use` files so imported declarations cannot claim
+/// the app's root slot. @ref LLP 1038 D2/D3.
+pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeError> {
+    if let Some(routes) = &file.routes {
+        if !root_file || file.components.is_empty() {
+            return err(
+                "analyze-routes-not-root",
+                "`routes` belongs to the app's root file",
+                routes.span,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Check a file against its types.
 pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
+    check_routes_root(file, true)?;
     let Some(root) = file.components.first() else {
         return err(
             "analyze-no-component",
@@ -67,10 +83,16 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
     // owns no `resource`, `mutation`, or `task` is the type pass's refusal
     // (`type-child-resource`), made before its view is checked.
+    let expanded = contract_syntax::expand(file).map_err(|e| AnalyzeError {
+        id: e.id,
+        message: e.message,
+        span: e.span,
+    })?;
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
-        let scope = types.component_scope(c, ct);
-        check_actions(c)?;
+        let scoped = if ci == 0 { &expanded.root } else { c };
+        let scope = types.component_scope(scoped, ct);
+        check_actions(scoped)?;
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
@@ -162,7 +184,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 27] = [
+pub const HANDLERS: [&str; 32] = [
     "press",
     "change",
     "hover",
@@ -190,6 +212,11 @@ pub const HANDLERS: [&str; 27] = [
     "volumechange",
     "error",
     "canplay",
+    "navigate",
+    "heightrelease",
+    "transformgeometry",
+    "transformrelease",
+    "reorderdrop",
 ];
 
 /// What a handler's event carries as its action's last argument: `change`
@@ -197,7 +224,7 @@ pub const HANDLERS: [&str; 27] = [
 /// `message` the iframe guest's string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "key" | "message" | "error" => Some("string"),
+        "change" | "key" | "message" | "navigate" | "error" => Some("string"),
         "timeupdate" | "durationchange" => Some("number"),
         "hover" => Some("bool"),
         _ => None,
@@ -310,12 +337,21 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
     }
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if matches!(r, Ref::Action(_)) {
-        let payload = if attr == "scroll" {
+        let payload = if attr == "transformgeometry" {
+            4
+        } else if attr == "transformrelease" {
+            6
+        } else if matches!(attr, "scroll" | "heightrelease" | "reorderdrop") {
             2
         } else {
             usize::from(handler_payload(attr).is_some())
         };
-        if given + payload != params.len() {
+        let valid = if attr == "navigate" {
+            given == 0 && params.len() <= 1
+        } else {
+            given + payload == params.len()
+        };
+        if !valid {
             return err(
                 "analyze-handler-arity",
                 format!(
@@ -327,9 +363,32 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                         Some(_) if attr == "message" => " plus the guest's message",
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
+                        None if attr == "heightrelease" => " plus height and velocity",
+                        None if attr == "transformgeometry" => " plus four geometry numbers",
+                        None if attr == "transformrelease" => " plus six transform release numbers",
                         None => "",
                     }
                 ),
+                span,
+            );
+        }
+        if attr == "reorderdrop"
+            && params[given..] != [Ty::String, Ty::Option(Box::new(Ty::String))]
+        {
+            return err(
+                "analyze-handler-type",
+                "`reorderdrop` supplies string and option<string>",
+                span,
+            );
+        }
+        if matches!(
+            attr,
+            "heightrelease" | "transformgeometry" | "transformrelease"
+        ) && params[given..].iter().any(|ty| *ty != Ty::Number)
+        {
+            return err(
+                "analyze-handler-type",
+                format!("`{attr}` supplies only numeric payload parameters"),
                 span,
             );
         }

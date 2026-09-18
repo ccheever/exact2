@@ -13,12 +13,18 @@ use crate::batch::Batch;
 use crate::css;
 use crate::motion::{Lowered, Springs};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, PropValue, ViewId};
-use exact_motion::Property;
+use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, Timed, Work,
 };
+
+#[path = "height_drag.rs"]
+mod height_drag;
+pub use height_drag::HeightDragBinding;
+#[path = "transform_drag.rs"]
+mod transform_drag;
 
 /// A reply as the ABI carries it, as the runner's `Outcome`.
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
@@ -55,6 +61,7 @@ use std::fmt::Write as _;
 pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
+    RuntimeIdExhausted,
 }
 
 impl std::fmt::Display for HostError {
@@ -77,6 +84,8 @@ pub struct Host<D: DataSource> {
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
     springs: Springs,
+    height_drags: height_drag::HeightDrags,
+    transform_drags: transform_drag::TransformDrags,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -86,13 +95,20 @@ pub struct Host<D: DataSource> {
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
     parked: BTreeMap<u64, RequestOut>,
+    location: String,
+    collections: String,
 }
 
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes: decode (a validation pass), boot the runner, and
     /// produce the first batch, which creates the whole tree.
-    pub fn boot(plan_bytes: &[u8], data: D) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None)
+    pub fn boot(
+        plan_bytes: &[u8],
+        data: D,
+        viewport: exact_runner::Viewport,
+        launch: &str,
+    ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_delivered(plan_bytes, data, None, Vec::new(), None, viewport, launch)
     }
 
     /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
@@ -102,8 +118,10 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         snapshot: Vec<(String, String)>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, None, snapshot, None)
+        Host::boot_delivered(plan_bytes, data, None, snapshot, None, viewport, launch)
     }
 
     /// Boot carrying an earlier host's state (the dev loop's reload, LLP
@@ -114,8 +132,18 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
-        Host::boot_delivered(plan_bytes, data, carried, Vec::new(), None)
+        Host::boot_delivered(
+            plan_bytes,
+            data,
+            carried,
+            Vec::new(),
+            None,
+            viewport,
+            launch,
+        )
     }
 
     /// Boot knowing what this wasm was built as (LLP 1030 D7): `compat` is
@@ -127,16 +155,21 @@ impl<D: DataSource> Host<D> {
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         compat: Option<&str>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         let font_names = font_names(&plan);
         let font_faces = font_faces(&plan);
         let font_catalog = font_catalog(&font_faces);
         let kernel = Kernel::with_monospace();
-        let runner = match carried {
-            Some(c) => Runner::boot_carrying(plan, data, kernel, c),
-            None => Runner::boot_stored(plan, data, kernel, snapshot),
-        }
+        // @ref LLP 1039 D3 — both host facts precede the first settlement.
+        let delivery = compat.map_or_else(Default::default, |json| {
+            exact_runner::Delivery::default().with_compat(json)
+        });
+        let runner = Runner::boot_with_delivery(
+            plan, data, kernel, carried, snapshot, delivery, viewport, launch,
+        )
         .map_err(HostError::Runner)?;
         let mut host = Host {
             runner,
@@ -144,18 +177,15 @@ impl<D: DataSource> Host<D> {
             keys: BTreeMap::new(),
             roots: Vec::new(),
             springs: Springs::new(),
+            height_drags: height_drag::HeightDrags::default(),
+            transform_drags: transform_drag::TransformDrags::new()?,
             now_ms: 0.0,
             font_names,
             font_catalog,
             parked: BTreeMap::new(),
+            location: launch.into(),
+            collections: String::new(),
         };
-        // The binary's delivery facts before the first frame (LLP 1030 D7):
-        // the batch below creates the whole tree from the kernel as it then
-        // stands, so a `delivery` resource re-answered here needs no ops of
-        // its own.
-        if let Some(json) = compat {
-            host.set_delivery_from_compat(json)?;
-        }
         let mut batch = Batch::new();
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -178,9 +208,17 @@ impl<D: DataSource> Host<D> {
         host.springs.adopt(host.runner.kernel(), &order);
         host.roots = roots.clone();
         batch.roots(&roots);
+        host.reconcile_height_drags(&mut batch);
+        host.emit_height_drags(&mut batch);
+        host.emit_transform_drags(&mut batch);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = host.runner.take_router_change() {
+            host.location = change.url.clone();
+            batch.router(&change);
         }
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
@@ -193,6 +231,12 @@ impl<D: DataSource> Host<D> {
         Ok((host, batch))
     }
 
+    /// The latest top URL, also the module re-boot's launch fact.
+    /// @ref LLP 1038 D5/D7 — a replacement keeps the host's current location.
+    pub fn location(&self) -> &str {
+        &self.location
+    }
+
     /// The runner.
     pub fn runner(&self) -> &Runner<D> {
         &self.runner
@@ -201,17 +245,6 @@ impl<D: DataSource> Host<D> {
     /// The runner, mutably — for tests that drive it past the host.
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
-    }
-
-    /// Tell the runner what this binary knows about its delivery (LLP 1030
-    /// D7), from the archive's `compat.json`. Called by a boot, before the
-    /// first batch — the commit a re-answered `delivery` resource makes is
-    /// the boot's own.
-    pub(crate) fn set_delivery_from_compat(&mut self, json: &str) -> Result<(), HostError> {
-        self.runner
-            .set_delivery_from_compat(json)
-            .map(|_| ())
-            .map_err(HostError::Runner)
     }
 
     /// The current plan's declared face catalog for the host-owned web
@@ -226,6 +259,25 @@ impl<D: DataSource> Host<D> {
     /// reported in the batch's `error`, and the page is untouched (as the
     /// kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
+        if !transform_drag::valid_event(&event) {
+            return Batch::new().finish(
+                self.runner.has_timers(),
+                self.runner.now_ms(),
+                Some("invalid transform event"),
+            );
+        }
+        if let Event::HeightRelease { height, velocity } = &event {
+            if !height.is_finite()
+                || !(0.0..=f32::MAX as f64).contains(height)
+                || !velocity.is_finite()
+            {
+                return Batch::new().finish(
+                    self.runner.has_timers(),
+                    self.runner.now_ms(),
+                    Some("invalid height release"),
+                );
+            }
+        }
         self.now_ms = now_ms.max(self.now_ms);
         match self.runner.dispatch(view, event) {
             Ok(receipt) => {
@@ -269,6 +321,32 @@ impl<D: DataSource> Host<D> {
         &self.springs
     }
 
+    /// Register the one numeric-height trial owner (or clear it). Registration
+    /// adopts the current authored target without animating from an invented
+    /// zero height. Invalid replacement preserves the previous hold and clock.
+    /// The returned batch retires old DOM ownership before lowering new work.
+    pub fn set_height_owner(&mut self, view: Option<ViewId>) -> Result<String, &'static str> {
+        let previous = self.springs.height_owner();
+        let retired = self.springs.set_height_owner(self.runner.kernel(), view)?;
+        if previous == self.springs.height_owner() {
+            // Same live registration preserves its provenance and pending work.
+            return Ok(Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None));
+        }
+        self.height_drags.programmatic();
+        let mut batch = Batch::new();
+        for item in retired {
+            if let Lowered::Retire { view, property } = item {
+                batch.retire_motion(view, property.name());
+            }
+        }
+        // Explicit clearing publishes unbound handles now. A later receipt may
+        // auto-admit authored handles again; this setter must not undo itself.
+        self.cancel_invalid_height_drag();
+        self.emit_springs(&mut batch, &[], self.now_ms / 1000.0);
+        self.emit_height_drags(&mut batch);
+        Ok(batch.finish(self.runner.has_timers(), self.runner.now_ms(), None))
+    }
+
     /// The page's line for the runner's journal (LLP 1012 §3): a refused
     /// intent and its reason.
     pub fn log(&mut self, line: &str) {
@@ -302,6 +380,50 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&a.receipts, error.as_deref())
     }
 
+    /// Layout viewport changes re-answer the app in the same returned batch.
+    /// @ref LLP 1039 D2
+    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
+        let a = self.runner.advance_timed(now_ms);
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let mut receipts = a.receipts;
+        let mut error = a.error.map(|e| format!("{e:?}"));
+        match self.runner.set_viewport(width, height) {
+            Ok(Some(receipt)) => receipts.push(Timed {
+                at_ms: self.now_ms,
+                receipt,
+            }),
+            Ok(None) => {}
+            Err(e) => {
+                let viewport_error = format!("viewport: {e:?}");
+                error = Some(match error {
+                    Some(timer_error) => format!("{timer_error}; {viewport_error}"),
+                    None => viewport_error,
+                });
+            }
+        }
+        self.batch_for(&receipts, error.as_deref())
+    }
+
+    /// Actual nested scrollport and mounted row geometry, in the shared LE wire
+    /// format. Geometry does not advance timers or settle data/resources.
+    pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
+        match self.runner.collection_feedback_bytes(bytes) {
+            Ok(Some(receipt)) => self.batch_for(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None),
+            Err(error) => Batch::new().finish(
+                self.runner.has_timers(),
+                self.runner.now_ms(),
+                Some(&format!("collection: {error:?}")),
+            ),
+        }
+    }
+
     /// Activate deferred logic after the page's first rendering opportunity.
     pub fn data_ready(&mut self) -> String {
         if let Err(error) = self.runner.data().activate() {
@@ -321,13 +443,14 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_for(&mut self, receipts: &[Timed], error: Option<&str>) -> String {
-        let mut batch = Batch::new();
+        self.batch_from(Batch::new(), receipts, error)
+    }
+
+    fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
     }
 
-    /// The ops that make the page equal to the tree after `receipts`, and
-    /// what those commits produced beside the tree.
     fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
         for t in receipts {
             let r = &t.receipt;
@@ -335,6 +458,8 @@ impl<D: DataSource> Host<D> {
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
+                    self.height_drags.remove(id);
+                    self.transform_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -359,7 +484,17 @@ impl<D: DataSource> Host<D> {
             }
             // This commit's springs, at its own time: the style (the target)
             // is in the page before the frames that approach it start playing.
-            self.emit_springs(batch, std::slice::from_ref(r), t.at_ms / 1000.0);
+            // Adopt this receipt's time/targets/transitions while the hold is
+            // live, then cancel invalid bindings and lower dirty frames once.
+            let synced = self.springs.synchronize(
+                self.runner.kernel(),
+                std::slice::from_ref(r),
+                t.at_ms / 1000.0,
+            );
+            Self::emit_lowered(batch, synced);
+            self.reconcile_height_drags(batch);
+            self.reconcile_transform_drags(batch);
+            self.emit_springs(batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
@@ -375,10 +510,19 @@ impl<D: DataSource> Host<D> {
             self.roots = roots.clone();
             batch.roots(&roots);
         }
+        if !receipts.is_empty() {
+            self.emit_height_drags(batch);
+            self.emit_transform_drags(batch);
+        }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
         for s in self.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
+        }
+        // @ref LLP 1038 D7 — drain once, after all commits in this batch.
+        if let Some(change) = self.runner.take_router_change() {
+            self.location = change.url.clone();
+            batch.router(&change);
         }
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
@@ -426,6 +570,11 @@ impl<D: DataSource> Host<D> {
             }
             self.emit_receipts(&receipts, &mut batch);
         }
+        let collections = self.runner.collections_json();
+        if collections != self.collections {
+            self.collections = collections;
+            batch.collections(&self.collections);
+        }
         let timers = self.runner.has_timers();
         batch.finish(timers, self.runner.now_ms(), error.as_deref())
     }
@@ -436,6 +585,10 @@ impl<D: DataSource> Host<D> {
         batch: &mut Batch,
         immediate: &mut Vec<(u64, Outcome)>,
     ) {
+        if let Some(message) = crate::batch::request_refusal(&r.request) {
+            batch.refuse(r.ticket, message);
+            return;
+        }
         let Some(token) = r.request.continuation else {
             batch.request(&r);
             return;
@@ -479,6 +632,128 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// Capture a live browser presentation. Reply includes cancellation and
+    /// any other properties advanced by the same engine clock.
+    /// At this boundary `InvalidValueShape` also refuses Height positions
+    /// outside the native layout range 0..=f32::MAX, before clock mutation.
+    pub fn begin_hold(
+        &mut self,
+        view: ViewId,
+        property: Property,
+        presented: MotionValue,
+        now_ms: f64,
+    ) -> Result<Option<(HoldStart, String)>, EngineError> {
+        let Some(start) = self.springs.begin_hold(
+            self.runner.kernel(),
+            view,
+            property,
+            presented,
+            now_ms / 1000.0,
+        )?
+        else {
+            return Ok(None);
+        };
+        self.now_ms = now_ms;
+        let mut batch = Batch::new();
+        self.reconcile_transform_drags(&mut batch);
+        self.emit_springs(&mut batch, &[], now_ms / 1000.0);
+        batch.animate(
+            view,
+            property.name(),
+            0.0,
+            0.0,
+            &[],
+            property == Property::Translate,
+        );
+        Ok(Some((
+            start,
+            batch.finish(self.runner.has_timers(), self.runner.now_ms(), None),
+        )))
+    }
+
+    /// Check before any action, clock change, or presentation mutation.
+    pub fn has_hold(&self, serial: u64) -> bool {
+        self.height_hold_valid(serial)
+            && self.springs.token(serial).is_some_and(|token| {
+                self.runner
+                    .kernel()
+                    .node_by_key(NodeKey {
+                        index: token.node() as u32,
+                        generation: (token.node() >> 32) as u32,
+                    })
+                    .is_some()
+            })
+    }
+
+    /// Apply an input sample and drain common lowering once; no timer advance.
+    /// Height position outside 0..=f32::MAX is `InvalidValueShape`; stale tokens
+    /// are refused before that validation. Release velocity remains signed.
+    pub fn update_hold(
+        &mut self,
+        serial: u64,
+        value: MotionValue,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        self.validate_height_delivery(serial);
+        if !self.has_hold(serial) || !self.springs.update_hold(serial, value, now_ms / 1000.0)? {
+            return Ok(None);
+        }
+        Ok(Some(self.hold_batch(now_ms)))
+    }
+
+    /// Return to the latest authored target, even without a kernel receipt.
+    pub fn end_hold(
+        &mut self,
+        serial: u64,
+        end: HoldEnd,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        self.validate_height_delivery(serial);
+        if !self.has_hold(serial) || !self.springs.end_hold(serial, end, now_ms / 1000.0)? {
+            return Ok(None);
+        }
+        self.transform_member_ended(serial);
+        Ok(Some(self.hold_batch(now_ms)))
+    }
+
+    fn hold_batch(&mut self, now_ms: f64) -> String {
+        self.now_ms = now_ms;
+        let mut batch = Batch::new();
+        // Geometry-only invalidation has no authored receipt. Seek while held
+        // before cancellation, just as batch_for does for accepted receipts.
+        let synced = self
+            .springs
+            .synchronize(self.runner.kernel(), &[], now_ms / 1000.0);
+        Self::emit_lowered(&mut batch, synced);
+        self.reconcile_transform_drags(&mut batch);
+        self.emit_springs(&mut batch, &[], now_ms / 1000.0);
+        batch.finish(self.runner.has_timers(), self.runner.now_ms(), None)
+    }
+
+    /// Complete the authored swipe while its translate hold still owns the
+    /// live node. An action may destroy that node; its later end is then stale.
+    pub fn dispatch_held(&mut self, serial: u64, now_ms: f64) -> Option<String> {
+        if !self.has_hold(serial)
+            || !now_ms.is_finite()
+            || now_ms / 1000.0 < self.springs.engine().now()
+        {
+            return None;
+        }
+        let token = self.springs.token(serial)?;
+        if token.property() != Property::Translate {
+            return None;
+        }
+        let view = self
+            .runner
+            .kernel()
+            .node_by_key(NodeKey {
+                index: token.node() as u32,
+                generation: (token.node() >> 32) as u32,
+            })?
+            .id;
+        Some(self.dispatch_at(view, Event::Swiperight, now_ms))
+    }
+
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
     /// `kind` 0 is a response with `status`, `headers` as `name: value`
     /// lines, and `body`; 1–4 are `Network`, `Refused`, `Unsupported`,
@@ -506,7 +781,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_springs(&mut self, batch: &mut Batch, receipts: &[CommitReceipt], now_s: f64) {
-        for lowered in self.springs.commit(self.runner.kernel(), receipts, now_s) {
+        let lowered = self.springs.commit(self.runner.kernel(), receipts, now_s);
+        Self::emit_lowered(batch, lowered);
+    }
+
+    fn emit_lowered(batch: &mut Batch, lowered: Vec<Lowered>) {
+        for lowered in lowered {
             match lowered {
                 Lowered::Start {
                     view,
@@ -528,6 +808,9 @@ impl<D: DataSource> Host<D> {
                 Lowered::Cancel { view, property } => {
                     batch.animate(view, property.name(), 0.0, 0.0, &[], false);
                 }
+                Lowered::Retire { view, property } => {
+                    batch.retire_motion(view, property.name());
+                }
             }
         }
     }
@@ -535,6 +818,19 @@ impl<D: DataSource> Host<D> {
     fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
+        if kinds.contains(&EventKind::Heightrelease) {
+            self.height_drags.insert(id, key);
+        }
+        if kinds.contains(&EventKind::Transformgeometry)
+            || kinds.contains(&EventKind::Transformrelease)
+        {
+            self.transform_drags.insert(
+                id,
+                key,
+                kinds.contains(&EventKind::Transformgeometry),
+                kinds.contains(&EventKind::Transformrelease),
+            );
+        }
         let tag = tag_for(&node);
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
@@ -757,6 +1053,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
+            PropId::AccessibilityOrientation => "aria-orientation",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
@@ -839,6 +1136,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
+            PropId::AccessibilitySelected => "aria-selected",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 out.insert(format!("data-{}", other.name().to_lowercase()), text);

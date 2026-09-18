@@ -52,6 +52,7 @@ impl<D: DataSource> Runner<D> {
             ids: &mut ids,
             ops: Vec::new(),
             surfaces: Vec::new(),
+            work: Default::default(),
         };
         Ok(self
             .tree
@@ -117,6 +118,7 @@ impl<D: DataSource> Runner<D> {
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
+                work: Default::default(),
             };
             update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces))
         };

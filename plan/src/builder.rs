@@ -257,6 +257,32 @@ impl PlanBuilder {
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
 
+    /// A route in declaration order. @ref LLP 1038 D2.
+    pub fn route(
+        &mut self,
+        name: &str,
+        pattern: &str,
+        parent: Option<RoutesId>,
+        tab: bool,
+        notfound: bool,
+    ) -> RoutesId {
+        let name = self.str(name);
+        let pattern = self.str(pattern);
+        self.plan.routes.push(RoutesRow {
+            name,
+            pattern,
+            parent,
+            tab,
+            notfound,
+        });
+        RoutesId(self.plan.routes.len() as u32 - 1)
+    }
+
+    /// The root slot filled with the launch location. @ref LLP 1038 D2/D5.
+    pub fn set_router(&mut self, slot: SlotsId) {
+        self.plan.router = Some(slot);
+    }
+
     /// A derive.
     pub fn derive(&mut self, name: &str, ty: TypesId, body: Code) -> DerivesId {
         let name = self.str(name);
@@ -265,7 +291,8 @@ impl PlanBuilder {
     }
 
     /// A resource: a data source name, argument expressions, its shape, and
-    /// an optional compiled initial value.
+    /// an optional compiled initial value. With non-empty arguments, also call
+    /// `set_resource_initial_args` before `finish` (LLP 1038 D5).
     pub fn resource(
         &mut self,
         name: &str,
@@ -279,6 +306,11 @@ impl PlanBuilder {
             Some(v) => self.data(v),
             None => self.no_data(),
         };
+        let initial_args = if initial.len > 0 && args.len == 0 {
+            self.data(&Value::list(Vec::new()))
+        } else {
+            self.no_data()
+        };
         let name = self.str(name);
         let source = self.str(source);
         self.plan.resources.push(ResourcesRow {
@@ -287,6 +319,7 @@ impl PlanBuilder {
             args,
             ty,
             initial,
+            initial_args,
             reader: false,
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
@@ -483,6 +516,13 @@ impl PlanBuilder {
     pub fn set_resource_initial(&mut self, id: ResourcesId, v: &Value) {
         let bytes = self.data(v);
         self.plan.resources[id.0 as usize].initial = bytes;
+    }
+
+    /// The evaluated arguments beside a compiled value, encoded as a list.
+    /// @ref LLP 1038 D5 — bake's cache key, including an empty argument list.
+    pub fn set_resource_initial_args(&mut self, id: ResourcesId, args: &[Value]) {
+        let bytes = self.data(&Value::list(args.to_vec()));
+        self.plan.resources[id.0 as usize].initial_args = bytes;
     }
 
     /// Mark a resource as one the bake found consulting the store (LLP 1027

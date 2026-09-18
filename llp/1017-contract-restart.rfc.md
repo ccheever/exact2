@@ -102,6 +102,8 @@ The record's method is right and its bookkeeping was wrong: exact1 specified two
 
 ## 8. Decided (Charlie, 2026-08-30)
 
+LLP 1039 answers the deferred responsive-grammar question with `exactViewport`, an ordinary resource carrying width and height in CSS pixels. Interview supplies the fixture; `when` and app-defined `fn` breakpoints suffice, and `match size` and container queries remain out.
+
 The five things the panel left, ruled the same evening:
 
 1. **F2 — literal CSS names.** `font-size`, `font-weight`, `background-color`, `border-radius`, `align-items`, `justify-content`, `box-sizing`, `aria-label`, `aria-description`; hyphens are grammar at attribute position; the alias arms (`size|fontSize`, `radius|borderRadius`, `align|alignItems`, `fit|objectFit`, `wrap|flexWrap`, `direction|flexDirection`, `background|backgroundColor`) leave the tag table; `testId` is the one Exact-named attribute, and the tag names and the primary-argument sugar stay Contract's. The two apps and the smoke are rewritten once, with P1.

@@ -1,6 +1,6 @@
 //! LLP 1010: list lifetime, geometry, state and host batches.
 use exact_kernel::{Kernel, PropId};
-use exact_runner::{DataError, DataSource, Event, Runner, Value};
+use exact_runner::{DataError, DataSource, Event, Runner, Value, Viewport};
 use exact_web::Host;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -81,7 +81,14 @@ fn scrolling_has_bounded_live_and_retained_nodes_without_data_calls() {
     for count in [1000, 25000] {
         let d = data(count);
         let calls = d.calls.clone();
-        let mut r = Runner::boot(plan.clone(), d, Kernel::with_monospace()).unwrap();
+        let mut r = Runner::boot(
+            plan.clone(),
+            d,
+            Kernel::with_monospace(),
+            Viewport::default(),
+            "/",
+        )
+        .unwrap();
         assert!(r.kernel().live_count() < 20, "boot never expands N rows");
         let list = view(&r, "list");
         r.list_viewport(
@@ -151,6 +158,8 @@ fn a_pinned_row_keeps_identity_and_state_then_releases_both() {
         contract::compile(SOURCE).unwrap(),
         data(1000),
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");
@@ -206,6 +215,8 @@ fn reorder_and_deleted_anchor_preserve_the_reading_position() {
         contract::compile(SOURCE).unwrap(),
         data(1000),
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");
@@ -258,6 +269,8 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
         contract::compile(SOURCE).unwrap(),
         data(1000),
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");
@@ -325,8 +338,13 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
 
 #[test]
 fn web_batches_retire_rows_and_report_logical_accessibility_positions() {
-    let (mut host, first) =
-        Host::boot(&contract::compile(SOURCE).unwrap().encode(), data(25000)).unwrap();
+    let (mut host, first) = Host::boot(
+        &contract::compile(SOURCE).unwrap().encode(),
+        data(25000),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
     assert!(first.contains("data-itemheight"));
     assert!(first.contains("\"aria-setsize\":\"25000\""));
     let list = view(host.runner(), "list");
@@ -366,9 +384,15 @@ fn list_shape_and_all_keys_are_checked_even_outside_the_window() {
     let duplicate =
         contract::compile(&SOURCE.replace("key=item.id", "key=(item.id < 999 ? item.id : 0)"))
             .unwrap();
-    let error = Runner::boot(duplicate, data(1000), Kernel::with_monospace())
-        .err()
-        .unwrap();
+    let error = Runner::boot(
+        duplicate,
+        data(1000),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .err()
+    .unwrap();
     assert!(format!("{error:?}").contains("DuplicateKey"));
 }
 
@@ -401,6 +425,8 @@ fn measured_rows_keep_the_anchor_and_state_through_growth_resize_and_reorder() {
         contract::compile(&source).unwrap(),
         d,
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     assert!(r.kernel().live_count() < 20);
@@ -459,6 +485,8 @@ fn measured_zero_height_rows_advance_the_window_and_bad_samples_are_atomic() {
         contract::compile(&source).unwrap(),
         data(1000),
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");
@@ -509,6 +537,8 @@ fn logical_text_copy_spans_unmounted_rows_without_changing_the_window() {
         contract::compile(SOURCE).unwrap(),
         d,
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");
@@ -580,6 +610,8 @@ fn logical_text_joins_inline_runs_skips_hidden_text_and_uses_utf16_positions() {
         contract::compile(&source).unwrap(),
         data(3),
         Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
     )
     .unwrap();
     let list = view(&r, "list");

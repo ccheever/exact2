@@ -25,10 +25,27 @@ impl From<Value> for Answer {
     }
 }
 
-/// A request for the host to run (LLP 1016 D1): the fields of ibex2's
-/// `Request` a plan runner decides — not its redirect mode, not the final URL.
+/// Native HTTP scheduling; only an explicit source promise permits overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HttpScheduling {
+    /// Native transport, storage and continuations share one ordered lane.
+    #[default]
+    Ordered,
+    /// Explicit source promise: this HTTP operation and its settlement may
+    /// overlap and reorder relative to other operations, including mutations.
+    /// This is not inferred from GET, origins or grants. The host still limits
+    /// admission and enforces the response ceiling while receiving bytes.
+    Independent {
+        /// Largest accepted response body. Zero or over 64 MiB is refused.
+        max_response_bytes: u32,
+    },
+}
+
+/// One host request, with ordered native execution unless explicitly opted in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
+    /// Native HTTP scheduling; storage and continuations must remain ordered.
+    pub http: HttpScheduling,
     /// Executor-local continuation token, not an HTTP request. The browser
     /// drains its module's microtasks; native hosts take source-owned worker work.
     pub continuation: Option<u64>,
@@ -47,9 +64,18 @@ pub struct Request {
 }
 
 impl Request {
+    /// Native ordered lane is mandatory for storage and continuations, even
+    /// when an invalid HTTP annotation will cause their admission to refuse.
+    pub fn is_ordered(&self) -> bool {
+        self.http == HttpScheduling::Ordered
+            || self.storage.is_some()
+            || self.continuation.is_some()
+    }
+
     /// A `GET`.
     pub fn get(url: &str) -> Request {
         Request {
+            http: HttpScheduling::Ordered,
             continuation: None,
             storage: None,
             grants: None,
@@ -63,6 +89,7 @@ impl Request {
     /// A `POST` of a JSON text.
     pub fn post_json(url: &str, json: &str) -> Request {
         Request {
+            http: HttpScheduling::Ordered,
             continuation: None,
             storage: None,
             grants: None,
@@ -84,6 +111,14 @@ impl Request {
     /// With a header.
     pub fn header(mut self, name: &str, value: &str) -> Request {
         self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Opt HTTP into bounded independent transport. The source promises that
+    /// neither the external effect nor parsing the reply needs FIFO ordering.
+    /// Storage and continuation requests with this annotation are refused.
+    pub fn independent_http(mut self, max_response_bytes: u32) -> Self {
+        self.http = HttpScheduling::Independent { max_response_bytes };
         self
     }
 
@@ -240,4 +275,28 @@ pub struct RequestOut {
     pub request: Request,
     /// The app forced it (`refresh`): the executor bypasses its cache.
     pub forced: bool,
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use super::*;
+
+    #[test]
+    fn http_is_ordered_until_the_source_explicitly_opts_in() {
+        for request in [
+            Request::get("https://example.test"),
+            Request::post_json("https://example.test", "{}"),
+            Request::continuation(1),
+            Request::storage(vec![]),
+        ] {
+            assert_eq!(request.http, HttpScheduling::Ordered);
+        }
+        let request = Request::get("https://example.test").independent_http(4096);
+        assert_eq!(
+            request.http,
+            HttpScheduling::Independent {
+                max_response_bytes: 4096
+            }
+        );
+    }
 }

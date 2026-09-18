@@ -1,5 +1,5 @@
 //! Media events and properties survive compilation and the host boundary.
-use exact_runner::Event;
+use exact_runner::{Event, Viewport};
 use exact_web::Host;
 #[test]
 fn media_properties_events_and_rejections() {
@@ -13,7 +13,13 @@ fn media_properties_events_and_rejections() {
       text `${seconds}`
 "#;
     let plan = contract::compile(source).unwrap();
-    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
     assert!(first.contains("\"tag\":\"video\""), "{first}");
     assert!(
         first.contains("\"interactiveWidget\":\"resizes-content\""),

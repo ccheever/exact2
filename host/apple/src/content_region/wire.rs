@@ -1,0 +1,168 @@
+//! Bounded immutable request and accepted frame wire; no live source at paint.
+use super::*;
+use crate::batch::quote;
+use exact_kernel::{motion::motion_node, AxisOffer, FontStyle, NodeType, TextStyle};
+use std::fmt::Write;
+fn axis(value: AxisOffer) -> f32 {
+    match value {
+        AxisOffer::Definite(x) => x,
+        AxisOffer::MinContent => -2.,
+        AxisOffer::MaxContent => -1.,
+    }
+}
+fn metric(style: TextStyle, out: &mut String) {
+    let line = style.line_height.map_or("null".into(), |n| n.to_string());
+    let _ = write!(out, "\"size\":{},\"weight\":{},\"family\":{},\"italic\":{},\"lineHeight\":{line},\"spacing\":{}", style.font_size, style.font_weight, style.font_family, style.font_style != FontStyle::Normal, style.letter_spacing);
+}
+fn colors(node: &exact_kernel::NodeRef<'_>, out: &mut String) {
+    for (label, dark) in [("color", false), ("darkColor", true)] {
+        let c = node.text_color().resolve(dark);
+        let _ = write!(
+            out,
+            ",\"{label}\":[{},{},{},{}]",
+            c.r(),
+            c.g(),
+            c.b(),
+            c.a()
+        );
+    }
+}
+pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String, String> {
+    let node = kernel
+        .node_by_key(p.request.stamp().owner())
+        .ok_or("removed paragraph")?;
+    if node.paragraph_stamp().as_ref() != Some(p.request.stamp()) {
+        return Err("stale source stamp".into());
+    }
+    let mut leaves = Vec::new();
+    let mut stack = vec![node.id];
+    while let Some(id) = stack.pop() {
+        if leaves.len() + stack.len() >= exact_kernel::region::REGION_NODES {
+            return Err("region run cap".into());
+        }
+        let n = kernel.node(id).ok_or("removed text run")?;
+        if n.props.str(PropId::Text).is_some() {
+            leaves.push(n);
+        } else {
+            stack.extend(n.children().into_iter().rev().filter(|id| {
+                kernel
+                    .node(*id)
+                    .is_some_and(|n| n.node_type == NodeType::Text)
+            }));
+        }
+    }
+    let mut out = format!("{{\"request\":\"{}\",\"source\":\"{}\",\"ownerKey\":\"{}\",\"width\":{},\"height\":{},\"catalog\":\"{}\"", p.id, p.source, motion_node(node.key), axis(p.request.offer().width), axis(p.request.offer().height), p.request.catalog());
+    p.request.with_request(|r| -> Result<(), String> {
+        if r.runs.len() != leaves.len() {
+            return Err("metric/paint run mismatch".into());
+        }
+        let align = match r.paragraph.text_align {
+            exact_kernel::TextAlign::Left => 0,
+            exact_kernel::TextAlign::Center => 1,
+            exact_kernel::TextAlign::Right => 2,
+            exact_kernel::TextAlign::Justify => 3,
+        };
+        let wrap = match r.paragraph.overflow_wrap {
+            exact_kernel::OverflowWrap::Normal => 0,
+            exact_kernel::OverflowWrap::BreakWord => 1,
+            exact_kernel::OverflowWrap::Anywhere => 2,
+        };
+        let _ = write!(
+            out,
+            ",\"align\":{align},\"lineClamp\":{},\"overflowWrap\":{wrap},\"strut\":{{",
+            r.paragraph.line_clamp
+        );
+        metric(r.paragraph.strut, &mut out);
+        out.push('}');
+        if known != p.source {
+            out.push_str(",\"runs\":[");
+            for (i, (run, leaf)) in r.runs.iter().zip(&leaves).enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                out.push('{');
+                metric(run.style, &mut out);
+                out.push_str(",\"text\":");
+                quote(run.text, &mut out);
+                colors(leaf, &mut out);
+                out.push_str(",\"decoration\":");
+                quote(
+                    match leaf.style.text_decoration_line {
+                        exact_kernel::TextDecorationLine::None => "",
+                        exact_kernel::TextDecorationLine::Underline => "underline",
+                        exact_kernel::TextDecorationLine::LineThrough => "line-through",
+                        exact_kernel::TextDecorationLine::UnderlineLineThrough => {
+                            "underline line-through"
+                        }
+                    },
+                    &mut out,
+                );
+                out.push_str(",\"href\":");
+                quote(leaf.props.str(PropId::Href).unwrap_or(""), &mut out);
+                let _ = write!(out, ",\"key\":\"{}\"}}", motion_node(leaf.key));
+            }
+            out.push(']');
+        }
+        Ok(())
+    })?;
+    out.push('}');
+    Ok(out)
+}
+pub(super) fn state(region: &RegionState, kernel: &Kernel) -> String {
+    let id = |key| kernel.node_by_key(key).map_or(0, |n| n.id);
+    let current = region.receipt.as_ref().is_some_and(|r| r.current);
+    let mut out = format!("{{\"op\":\"region\",\"incarnation\":\"{}\",\"owner\":{},\"content\":{},\"pending\":{},\"ownerKey\":\"{}\",\"contentKey\":\"{}\",\"current\":{current},\"selection\":\"{}\",\"publication\":\"{}\",\"request\":\"{}\",\"source\":\"{}\"", region.incarnation, id(region.binding.owner), id(region.binding.content), id(region.binding.pending), motion_node(region.binding.owner), motion_node(region.binding.content), if region.publication.is_some() { "accepted" } else { "pending" }, region.publication.as_ref().map_or(0, |p| p.0), region.pending.as_ref().map_or(0, |p| p.id), region.pending.as_ref().map_or(0, |p| p.source));
+    if let Some(receipt) = &region.receipt {
+        let f = receipt.origin;
+        let _ = write!(out, ",\"clip\":[{},{},{},{}]", f.x, f.y, f.width, f.height);
+    }
+    out.push_str(",\"refused\":");
+    if let Some(why) = &region.refused {
+        quote(why, &mut out);
+    } else {
+        out.push_str("null");
+    }
+    out.push_str(",\"members\":[");
+    let mut stack = kernel
+        .node_by_key(region.binding.content)
+        .map(|n| vec![n.id])
+        .unwrap_or_default();
+    let mut first = true;
+    while let Some(id) = stack.pop() {
+        if !first {
+            out.push(',');
+        }
+        first = false;
+        let _ = write!(out, "{id}");
+        if let Some(n) = kernel.node(id) {
+            stack.extend(n.children());
+        }
+    }
+    out.push(']');
+    out.push_str(",\"frames\":");
+    out.push_str(&region.frames_json);
+    out.push('}');
+    out
+}
+pub(super) fn frames(p: &RegionPublication, kernel: &Kernel) -> String {
+    let mut out = String::from("[");
+    for (i, row) in p.frames().iter().enumerate() {
+        if i != 0 {
+            out.push(',');
+        }
+        let f = row.frame;
+        let artifact = p
+            .paint_artifact(row.node)
+            .and_then(|a| a.payload::<NativeArtifact>());
+        let n = kernel.node_by_key(row.node);
+        let kind = n.as_ref().map_or("removed", |n| match n.node_type {
+            NodeType::ScrollView => "scroll",
+            NodeType::Text => "text",
+            _ => "view",
+        });
+        let id = n.as_ref().map_or(0, |n| n.id);
+        let _ = write!(out, "{{\"key\":\"{}\",\"id\":{id},\"kind\":\"{kind}\",\"box\":[{},{},{},{}],\"extent\":[{},{}],\"artifact\":\"{}\"}}", motion_node(row.node), f.x, f.y, f.width, f.height, row.content.0, row.content.1, artifact.map_or(0, |a| a.id));
+    }
+    out.push(']');
+    out
+}

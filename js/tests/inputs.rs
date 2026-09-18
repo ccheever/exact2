@@ -207,7 +207,14 @@ fn bake_refuses_ambient_reads_and_keeps_explicit_inputs_as_compiled_data() {
 #[test]
 fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
     let baked = contract::bake(plan(), module()).unwrap();
-    let mut runner = Runner::boot(baked.clone(), module(), Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        baked.clone(),
+        module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let initial = runner.resource("value").cloned().unwrap();
     assert!(
         runner.data().take_logs().is_empty(),
@@ -235,8 +242,15 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
     );
 
     let carried = runner.carry();
-    let mut runner =
-        Runner::boot_carrying(baked, module(), Kernel::with_monospace(), &carried).unwrap();
+    let mut runner = Runner::boot_carrying(
+        baked,
+        module(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert_eq!(runner.now_ms(), 1000.0);
     assert_eq!(runner.resource("value"), Some(&at_1000));
     assert!(
@@ -254,7 +268,14 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
 #[test]
 fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
     let baked = contract::bake(plan(), module()).unwrap();
-    let mut runner = Runner::boot(baked.clone(), module(), Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        baked.clone(),
+        module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     runner.act("explicitLater", vec![]).unwrap();
     let old = runner.take_requests()[0].ticket;
     runner.advance(1000.0).unwrap();
@@ -270,8 +291,15 @@ fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
     runner.act("explicitLater", vec![]).unwrap();
     let before_reload = runner.take_requests()[0].ticket;
     let carried = runner.carry();
-    let mut reloaded =
-        Runner::boot_carrying(baked, module(), Kernel::with_monospace(), &carried).unwrap();
+    let mut reloaded = Runner::boot_carrying(
+        baked,
+        module(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     assert!(!reloaded.has_pending());
     assert!(reloaded
         .fulfill(before_reload, response())
@@ -282,7 +310,9 @@ fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
 
 #[test]
 fn pending_resources_are_reasked_when_the_same_module_restarts() {
-    struct Deferred;
+    struct Deferred {
+        baking: bool,
+    }
     impl DataSource for Deferred {
         fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
             Ok(Value::str("boot"))
@@ -290,8 +320,8 @@ fn pending_resources_are_reasked_when_the_same_module_restarts() {
         fn revision(&self) -> Option<&str> {
             Some("unchanged")
         }
-        fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
-            if args == [Value::Number(0.0)] {
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            if self.baking {
                 Ok(Answer::Now(Value::str("boot")))
             } else {
                 Ok(Answer::Later(exact_runner::Request::get(
@@ -313,27 +343,42 @@ fn pending_resources_are_reasked_when_the_same_module_restarts() {
         contract::compile(
             r#"
 component App
-  state attempt = 0
-  resource result = value(attempt) as shape string
-  action run writes attempt
-    attempt = attempt + 1
+  resource result = value(0) as shape string
+  action run
+    refresh result
   view
     text result
 "#,
         )
         .unwrap(),
-        Deferred,
+        Deferred { baking: true },
     )
     .unwrap();
-    let mut old = Runner::boot(plan.clone(), Deferred, Kernel::with_monospace()).unwrap();
+    let mut old = Runner::boot(
+        plan.clone(),
+        Deferred { baking: false },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     old.act("run", vec![]).unwrap();
     assert_eq!(old.take_requests().len(), 1);
     assert!(
         old.carry().resources.is_empty(),
         "an in-flight placeholder is not a settled answer"
     );
-    let mut next =
-        Runner::boot_carrying(plan, Deferred, Kernel::with_monospace(), &old.carry()).unwrap();
+    // @ref LLP 1038 D5 — a pending reload may use the compiled placeholder
+    // only for its baked arguments; the source is still asked under a fresh ticket.
+    let mut next = Runner::boot_carrying(
+        plan,
+        Deferred { baking: false },
+        Kernel::with_monospace(),
+        &old.carry(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     let fresh = next.take_requests()[0].ticket;
     // Tickets are scoped to the host incarnation; old completions are
     // discarded there, not handed to the replacement runner.

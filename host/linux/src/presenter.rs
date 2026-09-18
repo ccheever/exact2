@@ -16,9 +16,7 @@ use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
-use crate::paint::{
-    content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
-};
+use crate::paint::{content_size, Backend, Frame, PaintedBox, Painter, Rect4, Scene};
 use crate::raster::Raster;
 use crate::text::{Measurer, Shared, TextEngine};
 use exact_kernel::{NodeType, Overflow, PropId, ViewId};
@@ -30,6 +28,30 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
+
+mod collection;
+mod contact;
+#[path = "content_region/presenter.rs"]
+mod content_region;
+#[cfg(test)]
+#[path = "content_region/presenter_tests.rs"]
+mod content_region_tests;
+mod height;
+mod height_drag;
+#[cfg(test)]
+mod height_drag_tests;
+mod images;
+mod swipe;
+mod transform;
+mod transform_geometry;
+
+#[cfg(test)]
+#[path = "presenter/collection_tests.rs"]
+mod collection_tests;
+
+#[cfg(test)]
+#[path = "presenter/swipe_tests.rs"]
+mod swipe_tests;
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
@@ -69,6 +91,10 @@ pub struct Presenter<D: DataSource> {
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
     parked: BTreeMap<u64, exact_runner::RequestOut>,
+    refusal_turn: bool,
+    collection: collection::State,
+    contact: Option<contact::Contact>,
+    transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
@@ -78,6 +104,9 @@ pub struct Presenter<D: DataSource> {
     /// During that transaction its integrity refusal is returned as a boot
     /// error; later refusals are journaled without retitling a live session.
     booting: bool,
+    content_registration: Option<crate::content_region::ContentRegionRegistration>,
+    last_region_frame: Option<Pixmap>,
+    last_region_scale: Option<u32>,
 }
 
 /// Two decimals, the agent API's precision.
@@ -195,11 +224,14 @@ impl<D: DataSource> Presenter<D> {
             Assets::embedded(assets),
             choice,
             None,
+            "/",
+            None,
         )
     }
 
     /// Boot from entry zero or one selected generation. The selected asset
     /// roster is complete: absent names cannot fall through to `root`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_selected(
         plan: &[u8],
         data: D,
@@ -208,6 +240,8 @@ impl<D: DataSource> Presenter<D> {
         root: PathBuf,
         selected: Option<AssetResolver>,
         (compat, delivery): (&str, exact_runner::Delivery),
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -221,11 +255,14 @@ impl<D: DataSource> Presenter<D> {
             assets,
             PainterChoice::from_env(),
             Some(delivery),
+            launch,
+            region,
         )?;
         presenter.compat = compat.to_string();
         Ok((presenter, error))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn boot_with_assets(
         plan: &[u8],
         data: D,
@@ -234,7 +271,18 @@ impl<D: DataSource> Presenter<D> {
         assets: Assets,
         choice: PainterChoice,
         delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        if region.is_some() && choice != PainterChoice::Cpu {
+            return Err(HostError::Painter(
+                "content-region trial requires explicit CPU painting (EXACT_PAINTER=cpu)".into(),
+            ));
+        }
+        if region.is_some() {
+            crate::text::transfer::PaintContext::new(scale)
+                .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
+        }
         let t = std::time::Instant::now();
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
         let text = TextEngine::shared_for_assets(&decoded, &assets);
@@ -243,7 +291,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot_with(
+        let (mut host, error) = Host::boot_at_with_region(
             plan,
             data,
             Box::new(Measurer(text.clone())),
@@ -251,31 +299,28 @@ impl<D: DataSource> Presenter<D> {
             viewport.1,
             None,
             delivery,
+            launch,
+            region,
         )?;
         let mut images = Images::with_assets(assets.clone());
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
             }
-            let mut reports = images.sync(host.kernel(), &host.preorder());
-            reports.extend(images.wait(Duration::from_secs(1)));
-            let mut layout_error = None;
-            for (view, size) in reports {
-                layout_error = layout_error.or(host.set_intrinsic(view, size));
-            }
+            let metadata_ready =
+                images.prepare_metadata(host.kernel(), &host.preorder(), Duration::from_secs(1));
             if let Some(reason) = assets.take_refusal() {
                 return Err(HostError::Asset(reason));
             }
-            if images.pending() {
+            if !metadata_ready {
                 return Err(HostError::Layout(
-                    "selected images did not finish preparing".into(),
+                    "selected image metadata did not finish preparing".into(),
                 ));
             }
-            if let Some(error) = layout_error {
-                return Err(HostError::Layout(error));
-            }
         }
-        // Initial selected layout, assets and intrinsic sizes accepted.
+        images.enable_decode();
+        // Initial selected layout and asset metadata/integrity accepted.
+        // Decoded pixels and their natural dimensions arrive together later.
         // Only now may the app's queued requests reach its executor.
         let executor = crate::executor::Executor::start(&host.grants());
         if let Some(note) = executor.note() {
@@ -285,6 +330,10 @@ impl<D: DataSource> Presenter<D> {
             host,
             executor,
             parked: BTreeMap::new(),
+            refusal_turn: false,
+            collection: collection::State::default(),
+            contact: None,
+            transform_geometry: Default::default(),
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -310,6 +359,9 @@ impl<D: DataSource> Presenter<D> {
             updates: None,
             commands: Vec::new(),
             booting: true,
+            content_registration: region,
+            last_region_frame: None,
+            last_region_scale: None,
         };
         let e = p.after_commit();
         p.booting = false;
@@ -477,6 +529,11 @@ impl<D: DataSource> Presenter<D> {
     /// D7): its assets stand in for the root's by name, its plan restarts
     /// the app. `Ok(false)` when nothing is staged.
     pub fn activate_update(&mut self, data: D) -> Result<bool, HostError> {
+        if self.content_registration.is_some() {
+            return Err(HostError::Layout(
+                "content-region trial requires session retirement before update".into(),
+            ));
+        }
         let Some(updates) = self.updates.as_ref() else {
             return Ok(false);
         };
@@ -502,7 +559,7 @@ impl<D: DataSource> Presenter<D> {
             &mut carried,
             &delivery,
         )?;
-        let (mut host, error) = Host::boot_with(
+        let (host, error) = Host::boot_with(
             &candidate.plan,
             data,
             Box::new(Measurer(text.clone())),
@@ -514,18 +571,11 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             return Err(HostError::Layout(error));
         }
-        let mut images = Images::with_assets(assets.clone());
-        let mut reports = images.sync(host.kernel(), &host.preorder());
-        reports.extend(images.wait(Duration::from_secs(1)));
-        if images.pending() {
+        let mut images = self.images.candidate(assets.clone());
+        if !images.prepare_metadata(host.kernel(), &host.preorder(), Duration::from_secs(1)) {
             return Err(HostError::Layout(
-                "selected images did not finish preparing".into(),
+                "selected image metadata did not finish preparing".into(),
             ));
-        }
-        for (view, size) in reports {
-            if let Some(error) = host.set_intrinsic(view, size) {
-                return Err(HostError::Layout(error));
-            }
         }
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
@@ -542,10 +592,14 @@ impl<D: DataSource> Presenter<D> {
         self.text = text.clone();
         self.brush.text = text;
         self.assets = assets;
+        images.enable_decode();
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.parked.clear();
         self.scroll.clear();
+        self.collection = collection::State::default();
+        self.contact = None;
+        self.transform_geometry = Default::default();
         self.page = (0.0, 0.0);
         self.focus = None;
         self.pointer = None;
@@ -592,6 +646,9 @@ impl<D: DataSource> Presenter<D> {
                 "setScheme" => {
                     self.brush.dark =
                         matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
+                    if let Some(error) = self.host.content_region_appearance(self.brush.dark) {
+                        self.host.log(error);
+                    }
                 }
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
@@ -622,6 +679,11 @@ impl<D: DataSource> Presenter<D> {
         data: D,
         module: Option<crate::delivery::Module>,
     ) -> Result<Option<String>, HostError> {
+        if self.content_registration.is_some() {
+            return Err(HostError::Layout(
+                "content-region trial requires session retirement before reload".into(),
+            ));
+        }
         let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
         // Fonts are candidate state too. Keep the running plan's catalog and
@@ -659,6 +721,9 @@ impl<D: DataSource> Presenter<D> {
         self.executor = crate::executor::Executor::start(&self.host.grants());
         self.parked.clear();
         self.scroll.clear();
+        self.collection = collection::State::default();
+        self.contact = None;
+        self.transform_geometry = Default::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.focus = None;
@@ -716,17 +781,28 @@ impl<D: DataSource> Presenter<D> {
 
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
+        let error = self.host.resize(width, height);
+        if error.is_some() {
+            return error;
+        }
         self.viewport = (width, height);
-        let e = self.host.resize(width, height);
-        self.dirty = true;
-        self.clamp_scroll();
-        e
+        self.collection.advance_all();
+        self.after_commit()
     }
 
     /// After anything that may have committed: images follow the tree,
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     fn after_commit(&mut self) -> Option<String> {
+        let error = self.sync_commit();
+        self.queue_collections();
+        let refined = self.refine_collections();
+        let geometry = self.refresh_transform_geometry();
+        error.or(refined).or(geometry)
+    }
+
+    // Collection feedback calls this directly: never recurse through refinement.
+    fn sync_commit(&mut self) -> Option<String> {
         self.dirty = true;
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
@@ -734,11 +810,14 @@ impl<D: DataSource> Presenter<D> {
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
+        if !self.host.has_ordered_request_refusals() {
+            self.executor.resume_ordered();
+        }
         for r in self.host.take_requests() {
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None => {
-                    self.executor.run(r, None);
+                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
                     continue;
                 }
             };
@@ -750,12 +829,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.commands.extend(self.host.take_commands());
-        let live = self.host.preorder();
-        let reports = self.images.sync(self.host.kernel(), &live);
-        let mut error = None;
-        for (view, size) in reports {
-            error = error.or(self.host.set_intrinsic(view, size));
-        }
+        let mut error = self.sync_images();
         if !self.booting {
             error = error.or_else(|| {
                 self.assets
@@ -764,26 +838,33 @@ impl<D: DataSource> Presenter<D> {
             });
         }
         if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() {
+            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
                 self.focus = None;
             }
         }
         self.clamp_scroll();
+        self.retire_pointer();
         error
     }
 
     fn run_dispatch(&mut self, r: exact_runner::RequestOut, dispatch: exact_runner::Dispatch) {
-        match dispatch {
+        let ticket = r.ticket;
+        let ordered = r.request.is_ordered();
+        let result = match dispatch {
             exact_runner::Dispatch::Run(work) => self.executor.run(r, Some(work)),
             exact_runner::Dispatch::Held => {
                 if let Some(token) = r.request.continuation {
                     self.parked.insert(token, r);
                 }
+                Ok(())
             }
-            // No native work: refused as a missing continuation.
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
+        };
+        if let Err(reason) = result {
+            self.host.refuse_request(ticket, reason, ordered);
+            self.executor.notify();
         }
     }
 
@@ -810,6 +891,10 @@ impl<D: DataSource> Presenter<D> {
         if any {
             self.dirty = true;
             self.clamp_scroll();
+            self.queue_collections();
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
         }
         any
     }
@@ -829,14 +914,17 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn clamp_scroll(&mut self) {
+        let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
+        let region = self.host.content_region();
         let mut gone = Vec::new();
         for (id, off) in self.scroll.iter_mut() {
             match kernel.node(*id) {
                 Some(n) => {
-                    let (cw, ch) = content_size(&n, kernel);
-                    off.0 = off.0.clamp(0.0, (cw - n.frame.width).max(0.0));
-                    off.1 = off.1.clamp(0.0, (ch - n.frame.height).max(0.0));
+                    *off = self
+                        .brush
+                        .scroll_bounds(kernel, region, &n, collection_limits.get(id).copied())
+                        .clamp(*off);
                 }
                 None => gone.push(*id),
             }
@@ -847,52 +935,6 @@ impl<D: DataSource> Presenter<D> {
         let doc = self.document();
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - self.viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - self.viewport.1).max(0.0));
-    }
-
-    /// Paint a frame: the pixels, with every box recorded for `layout` and
-    /// hit-testing.
-    pub fn frame(&mut self) -> Pixmap {
-        let roots = self.host.roots();
-        let host = &self.host;
-        let presented = |id: ViewId| host.presented(id);
-        let scene = Scene {
-            kernel: host.kernel(),
-            roots: &roots,
-            presented: &presented,
-            scroll: &self.scroll,
-            page: self.page,
-            images: &self.images.bitmaps,
-            focus: self.focus,
-            pointer: self.pointer,
-        };
-        let mut painted = self.brush.paint(&scene, self.viewport);
-        if let Err(e) = &painted {
-            if self.choice == PainterChoice::Auto && self.brush.backend() == "gpu" {
-                // The GPU failed a frame (a lost device, a readback with no
-                // answer): the CPU paints from here on, this frame first.
-                eprintln!("exact: paint: {e}; painting on the CPU from here");
-                self.brush.replace_backend(Box::new(Raster::new()));
-                self.painter = cpu_info();
-                painted = self.brush.paint(&scene, self.viewport);
-            }
-        }
-        self.last_frame_succeeded = painted.is_ok();
-        let (pixmap, boxes) = match painted {
-            Ok(Frame { pixmap, boxes }) => (pixmap, boxes),
-            Err(e) => {
-                // A frame nobody could paint: a blank picture, and the last
-                // frame's boxes kept, so input still lands where things were.
-                eprintln!("exact: paint: {e}");
-                let w = ((self.viewport.0 * self.brush.scale).round() as u32).max(1);
-                let h = ((self.viewport.1 * self.brush.scale).round() as u32).max(1);
-                let mut blank = Pixmap::new(w, h).expect("a viewport has pixels");
-                blank.fill(tiny_skia::Color::WHITE);
-                (blank, std::mem::take(&mut self.boxes))
-            }
-        };
-        self.boxes = boxes;
-        self.dirty = false;
-        pixmap
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).
@@ -958,6 +1000,13 @@ impl<D: DataSource> Presenter<D> {
             if detail.ends_with('}') {
                 detail.pop();
             }
+            // @ref LLP 1038 D6; LLP 1035.002 D1 — hidden rows remain in
+            // the kernel, but have no painted box and refuse input.
+            let (hidden, inert) = self.host.route_visibility(id);
+            let _ = write!(
+                detail,
+                ",\"visible\":{{\"hidden\":{hidden},\"inert\":{inert}}}"
+            );
             match boxes.iter().find(|b| b.id == id) {
                 Some(b) => {
                     let _ = write!(
@@ -986,15 +1035,22 @@ impl<D: DataSource> Presenter<D> {
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
-        self.boxes()
+        self.boxes();
+        self.boxes
             .iter()
             .rev()
-            .find(|b| b.contains(x, y))
+            .find(|b| b.contains(x, y) && !self.host.route_visibility(b.id).1)
             .map(|b| b.id)
     }
 
     /// The nearest node at or above `id` with a handler for `kind`.
     fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
+        if kind != EventKind::Scroll && self.brush.region_blocks_action(id) {
+            return None;
+        }
+        if self.host.route_visibility(id).1 {
+            return None;
+        }
         let kernel = self.host.kernel();
         let mut at = Some(id);
         while let Some(n) = at {
@@ -1015,6 +1071,9 @@ impl<D: DataSource> Presenter<D> {
     /// else drops it). Returns the node pressed, if any.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
+        if self.brush.region_blocks_action(hit) {
+            return None;
+        }
         let kernel = self.host.kernel();
         let focus = kernel
             .node(hit)
@@ -1024,6 +1083,7 @@ impl<D: DataSource> Presenter<D> {
         if self.focus != focus {
             self.focus = focus;
             self.dirty = true;
+            self.queue_collections();
         }
         let target = self.handler_target(hit, EventKind::Press)?;
         if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
@@ -1039,6 +1099,9 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's `tap`: a press at the node's center through the same
     /// path a pointer takes.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
@@ -1059,17 +1122,23 @@ impl<D: DataSource> Presenter<D> {
         if dx == 0.0 && dy == 0.0 {
             return;
         }
+        if let Err(error) = self.pointer_cancel(self.pointer_now()) {
+            self.host.log(error);
+        }
         let mut at = self.hit(x, y);
+        let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
-            let (ox, oy) = effective_overflow(&node);
+            let bounds = self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            );
+            let (ox, oy) = bounds.axes;
             if ox == Overflow::Scroll || oy == Overflow::Scroll {
-                let (cw, ch) = content_size(&node, kernel);
-                let max = (
-                    (cw - node.frame.width).max(0.0),
-                    (ch - node.frame.height).max(0.0),
-                );
+                let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let take_x = ox == Overflow::Scroll
                     && dx != 0.0
@@ -1093,6 +1162,10 @@ impl<D: DataSource> Presenter<D> {
                     };
                     self.scroll.insert(id, (nx, ny));
                     self.dirty = true;
+                    self.collection_scrolled(id);
+                    if let Some(error) = self.refresh_transform_geometry() {
+                        self.host.log(error);
+                    }
                     return;
                 }
             }
@@ -1110,11 +1183,17 @@ impl<D: DataSource> Presenter<D> {
         if next != self.page {
             self.page = next;
             self.dirty = true;
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
         }
     }
 
     /// The agent's wheel: over the node's center.
     pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
@@ -1132,8 +1211,25 @@ impl<D: DataSource> Presenter<D> {
     /// Set an input's value as typing does: focused, the value replaced,
     /// one `change` heard by the runner.
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
         let kernel = self.host.kernel();
         let node = kernel.node(id).ok_or_else(|| format!("no view {id}"))?;
+        // @ref LLP 1038 D11 — the agent's root text is a location.
+        if node.props.str(PropId::NavigationBack).is_some() {
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return Err(format!("view {id} is disabled"));
+            }
+            let error =
+                self.host
+                    .dispatch_at(id, Event::Navigate(text.to_owned()), self.host.now());
+            let after = self.after_commit();
+            if let Some(error) = error.or(after) {
+                return Err(error);
+            }
+            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        }
         if node.node_type != NodeType::TextInput {
             return Err(format!("view {id} is not an input"));
         }
@@ -1203,6 +1299,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn blur(&mut self) {
         if self.focus.take().is_some() {
             self.dirty = true;
+            self.queue_collections();
         }
     }
 
@@ -1210,18 +1307,49 @@ impl<D: DataSource> Presenter<D> {
     /// commit: the display loop calls this when the executor's fd is
     /// readable, the agent when it waits. `None` when nothing was queued.
     pub fn pump(&mut self, now_ms: f64) -> Option<String> {
-        let outcomes = self.executor.drain();
+        let region_error = self.poll_content_region();
+        self.executor.begin_pump();
+        self.refusal_turn = !self.refusal_turn;
+        let mut outcomes = if self.refusal_turn {
+            self.host
+                .take_request_refusal(self.executor.ordered_idle())
+                .into_iter()
+                .collect()
+        } else {
+            self.executor.drain()
+        };
         if outcomes.is_empty() {
-            return None;
+            outcomes = if self.refusal_turn {
+                self.executor.drain()
+            } else {
+                self.host
+                    .take_request_refusal(self.executor.ordered_idle())
+                    .into_iter()
+                    .collect()
+            };
+        }
+        if self.host.has_request_refusals(self.executor.ordered_idle()) {
+            self.executor.notify();
+        }
+        if outcomes.is_empty() {
+            let refined = self.refine_collections();
+            return region_error
+                .or(refined)
+                .or(self.refresh_transform_geometry());
         }
         let e = self.host.fulfill_all(outcomes, now_ms);
         let after = self.after_commit();
-        e.or(after)
+        region_error.or(e).or(after)
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
         self.executor.fd()
+    }
+
+    /// Metadata, decode completion or changed budget demand wakes an idle display.
+    pub fn image_fd(&self) -> std::os::unix::io::RawFd {
+        self.images.wake_fd()
     }
 
     /// Whether a request is in flight.
@@ -1257,7 +1385,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
-        self.host.tick(now_ms);
+        if self.host.tick(now_ms) {
+            self.clamp_scroll();
+            self.queue_collections();
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
+        }
         self.dirty = true;
     }
 

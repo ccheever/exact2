@@ -1,0 +1,496 @@
+//! @ref LLP 1038 D2–D5, D7, D9 — the plan/value boundary of the router.
+//!
+//! Chunk (c)'s compiler declares these positional records, in this exact order:
+//! Router { tab: string, tabs: list<Tab>, next: number },
+//! Tab { name: string, stack: list<Entry> },
+//! Entry { id: number, name: string, url: string, tab: string, params: Params },
+//! Params { one string field per distinct :name, in first-declaration order }.
+//! The header slot's type leads to every shape; global type-row order is immaterial.
+//! Types and the route table are checked once at boot. No host interprets slots.
+
+use super::{Carried, DataSource, Runner, RunnerError};
+use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
+use exact_route::{Entry, Router, Tab, Table};
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
+/// The selected visit and all visit ids removed from any retained tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouterChange {
+    /// The selected top's visit id.
+    pub top: u64,
+    /// Its canonical location.
+    pub url: String,
+    /// Removed ids, in the old value's tab/stack order.
+    pub removed: Vec<u64>,
+}
+
+/// The checked table and shape metadata shared by the runner's VM evaluations.
+/// Constructed by boot from the plan; no additional declaration authority.
+pub struct RouterContext {
+    slot: SlotsId,
+    router_ty: TypesId,
+    entry_ty: TypesId,
+    param_names: Vec<String>,
+    table: Table,
+    committed: Option<Value>,
+    pending: Option<RouterChange>,
+    refusals: RefCell<Vec<String>>,
+}
+
+fn invalid(message: impl Into<String>) -> RunnerError {
+    RunnerError::Router(message.into())
+}
+
+impl RouterContext {
+    pub(super) fn from_plan(plan: &Plan) -> Result<Option<Self>, RunnerError> {
+        let Some(slot) = plan.router else {
+            return Ok(None);
+        };
+        let table = Table {
+            routes: plan
+                .routes
+                .iter()
+                .map(|r| exact_route::Route {
+                    name: plan.str(r.name).into(),
+                    pattern: plan.str(r.pattern).into(),
+                    parent: r.parent.map(|p| p.0 as usize),
+                    tab: r.tab,
+                    notfound: r.notfound,
+                })
+                .collect(),
+        };
+        table.check().map_err(|e| invalid(e.to_string()))?;
+        let router_ty = plan.slot(slot).ty;
+        let fields = shape(plan, router_ty, "Router", &["tab", "tabs", "next"])?;
+        primitive(plan, fields[0], TypeKind::String)?;
+        primitive(plan, fields[2], TypeKind::Number)?;
+        let tab_ty = element(plan, fields[1])?;
+        let fields = shape(plan, tab_ty, "Tab", &["name", "stack"])?;
+        primitive(plan, fields[0], TypeKind::String)?;
+        let entry_ty = element(plan, fields[1])?;
+        let fields = shape(
+            plan,
+            entry_ty,
+            "Entry",
+            &["id", "name", "url", "tab", "params"],
+        )?;
+        primitive(plan, fields[0], TypeKind::Number)?;
+        for field in &fields[1..4] {
+            primitive(plan, *field, TypeKind::String)?;
+        }
+        let names = table.param_names();
+        let params = shape(plan, fields[4], "Params", &names)?;
+        for ty in params {
+            primitive(plan, ty, TypeKind::String)?;
+        }
+        let param_names = names.into_iter().map(str::to_owned).collect();
+        Ok(Some(Self {
+            slot,
+            router_ty,
+            entry_ty,
+            param_names,
+            table,
+            committed: None,
+            pending: None,
+            refusals: RefCell::new(Vec::new()),
+        }))
+    }
+
+    fn entry(&self, value: &Value) -> Option<Entry> {
+        let v = record(value)?;
+        if v.len() != 5 {
+            return None;
+        }
+        let params = record(&v[4])?;
+        if params.len() != self.param_names.len() {
+            return None;
+        }
+        Some(Entry {
+            id: integer(&v[0])?,
+            name: v[1].as_str()?.into(),
+            url: v[2].as_str()?.into(),
+            tab: v[3].as_str()?.into(),
+            params: self
+                .param_names
+                .iter()
+                .zip(params)
+                .map(|(name, value)| Some((name.clone(), value.as_str()?.to_owned())))
+                .collect::<Option<_>>()?,
+        })
+    }
+
+    fn router(&self, value: &Value) -> Option<Router> {
+        let v = record(value)?;
+        if v.len() != 3 {
+            return None;
+        }
+        let tabs = list(&v[1])?
+            .iter()
+            .map(|tab| {
+                let t = record(tab)?;
+                if t.len() != 2 {
+                    return None;
+                }
+                Some(Tab {
+                    name: t[0].as_str()?.into(),
+                    stack: list(&t[1])?
+                        .iter()
+                        .map(|entry| self.entry(entry))
+                        .collect::<Option<_>>()?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let r = Router {
+            tab: v[0].as_str()?.into(),
+            tabs,
+            next: integer(&v[2])?,
+        };
+        // A shape-correct forged value must preserve identities, a total top,
+        // and the canonical URL/name/params round trip for every retained entry.
+        let mut ids = BTreeSet::new();
+        let mut tabs = BTreeSet::new();
+        if exact_route::top(&r).is_none()
+            || r.tabs.iter().any(|t| {
+                !tabs.insert(&t.name)
+                    || t.stack.first().is_none_or(|e| e.name != t.name)
+                    || t.stack.iter().any(|e| {
+                        e.tab != t.name
+                            || e.id >= r.next
+                            || !ids.insert(e.id)
+                            || exact_route::canonical(&e.url) != e.url
+                            || self
+                                .table
+                                .matches(&e.url)
+                                .is_none_or(|m| m.name != e.name || m.params != e.params)
+                    })
+            })
+        {
+            return None;
+        }
+        Some(r)
+    }
+
+    fn entry_value(&self, e: &Entry) -> Value {
+        Value::record(vec![
+            Value::Number(e.id as f64),
+            Value::str(&e.name),
+            Value::str(&e.url),
+            Value::str(&e.tab),
+            Value::record(
+                self.param_names
+                    .iter()
+                    .map(|n| Value::str(e.params.get(n).map_or("", String::as_str)))
+                    .collect(),
+            ),
+        ])
+    }
+
+    fn value(&self, r: &Router) -> Value {
+        Value::record(vec![
+            Value::str(&r.tab),
+            Value::list(
+                r.tabs
+                    .iter()
+                    .map(|t| {
+                        Value::record(vec![
+                            Value::str(&t.name),
+                            Value::list(t.stack.iter().map(|e| self.entry_value(e)).collect()),
+                        ])
+                    })
+                    .collect(),
+            ),
+            Value::Number(r.next as f64),
+        ])
+    }
+
+    pub(crate) fn refuse(&self, intent: &str, message: &str) {
+        // @ref LLP 1035.001 D6 / LLP 1038 D4 — settlement may retry a read;
+        // each distinct refused intent is journaled once in this commit.
+        let line = format!("router {intent} refused: {message}");
+        let mut lines = self.refusals.borrow_mut();
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+
+    fn launch(&self, location: &str) -> Result<Router, RunnerError> {
+        let (r, refusal) = Router::launch(&self.table, location);
+        match refusal {
+            None => Ok(r),
+            Some(reason) => {
+                self.refuse("launch", &reason.message);
+                let (r, refusal) = Router::launch(&self.table, "/");
+                if let Some(reason) = refusal {
+                    return Err(invalid(reason.message));
+                }
+                Ok(r)
+            }
+        }
+    }
+
+    pub(crate) fn call(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
+        let first = args.first()?;
+        if f == Stdlib::SearchParam {
+            if !first.conforms(plan, self.entry_ty) {
+                return None;
+            }
+            return Some(Value::str(&exact_route::search_param(
+                &self.entry(first)?,
+                args.get(1)?.as_str()?,
+            )));
+        }
+        if !first.conforms(plan, self.router_ty) {
+            return None;
+        }
+        let r = self.router(first)?;
+        let arg = || args.get(1)?.as_str();
+        let (after, refusal) = match f {
+            Stdlib::Open => exact_route::open(&self.table, r, arg()?),
+            Stdlib::Push => exact_route::push(&self.table, r, arg()?),
+            Stdlib::Replace => exact_route::replace(&self.table, r, arg()?),
+            Stdlib::Back => exact_route::back(&self.table, r),
+            Stdlib::Select => exact_route::select(&self.table, r, arg()?),
+            Stdlib::Go => exact_route::go(&self.table, r, arg()?),
+            Stdlib::Stack => {
+                return Some(Value::list(
+                    exact_route::stack(&r)
+                        .iter()
+                        .map(|e| self.entry_value(e))
+                        .collect(),
+                ))
+            }
+            Stdlib::Top => return Some(self.entry_value(exact_route::top(&r)?)),
+            Stdlib::Depth => return Some(Value::Number(exact_route::depth(&r) as f64)),
+            Stdlib::Params => {
+                return Some(Value::list(
+                    exact_route::params(&r, arg()?)
+                        .into_iter()
+                        .map(Value::str)
+                        .collect(),
+                ))
+            }
+            _ => return None,
+        };
+        if let Some(reason) = refusal {
+            self.refuse(f.name(), &reason.message);
+            return Some(first.clone());
+        }
+        Some(self.value(&after))
+    }
+}
+
+fn shape(
+    plan: &Plan,
+    ty: TypesId,
+    name: &str,
+    names: &[&str],
+) -> Result<Vec<TypesId>, RunnerError> {
+    let row = plan.type_(ty);
+    if row.kind != TypeKind::Record
+        || plan.str(row.name) != name
+        || row.fields.len as usize != names.len()
+    {
+        return Err(invalid(format!("expected {name} shape")));
+    }
+    row.fields
+        .iter()
+        .zip(names)
+        .map(|(f, name)| {
+            let field = plan.field(f);
+            if plan.str(field.name) != *name {
+                return Err(invalid(format!("expected {name} field in declared order")));
+            }
+            Ok(field.ty)
+        })
+        .collect()
+}
+fn primitive(plan: &Plan, ty: TypesId, kind: TypeKind) -> Result<(), RunnerError> {
+    if plan.type_(ty).kind == kind {
+        Ok(())
+    } else {
+        Err(invalid(format!("expected {} field", kind.name())))
+    }
+}
+fn element(plan: &Plan, ty: TypesId) -> Result<TypesId, RunnerError> {
+    primitive(plan, ty, TypeKind::List)?;
+    plan.type_(ty)
+        .elem
+        .ok_or_else(|| invalid("list needs an element type"))
+}
+fn record(v: &Value) -> Option<&[Value]> {
+    if let Value::Record(v) = v {
+        Some(v)
+    } else {
+        None
+    }
+}
+fn list(v: &Value) -> Option<&[Value]> {
+    if let Value::List(v) = v {
+        Some(v)
+    } else {
+        None
+    }
+}
+fn integer(v: &Value) -> Option<u64> {
+    let n = v.as_number()?;
+    (n.fract() == 0.0 && (0.0..=9_007_199_254_740_991.0).contains(&n)).then_some(n as u64)
+}
+
+impl<D: DataSource> Runner<D> {
+    pub(super) fn init_slots(
+        &mut self,
+        carried: Option<&Carried>,
+        launch: &str,
+    ) -> Result<(), RunnerError> {
+        self.slots = vec![Value::Unit; self.plan.slots.len()];
+        // The router may be a later slot: fill it before *any* initializer.
+        if let Some(context) = &self.router {
+            let name = self.plan.str(self.plan.slot(context.slot).name);
+            let old = carried
+                .and_then(|c| c.router.as_ref())
+                .filter(|(n, _)| n == name);
+            let r = match old {
+                Some((_, old))
+                    if old
+                        .tabs
+                        .iter()
+                        .map(|t| t.name.as_str())
+                        .eq(context.table.tab_names())
+                        && old.tabs.iter().flat_map(|t| &t.stack).all(|e| {
+                            context
+                                .table
+                                .matches(&e.url)
+                                .is_some_and(|m| m.name == e.name)
+                        }) =>
+                {
+                    // Params may have been reordered/renamed by a table edit.
+                    let mut kept = old.clone();
+                    for e in kept.tabs.iter_mut().flat_map(|t| &mut t.stack) {
+                        e.params = context.table.matches(&e.url).expect("checked").params;
+                    }
+                    kept
+                }
+                Some((_, old)) => {
+                    context.launch(exact_route::top(old).map_or(launch, |e| &e.url))?
+                }
+                None => context.launch(launch)?,
+            };
+            let value = context.value(&r);
+            context
+                .router(&value)
+                .ok_or_else(|| invalid("invalid router value at boot"))?;
+            self.slots[context.slot.0 as usize] = value;
+        }
+        for i in 0..self.plan.slots.len() {
+            let row = &self.plan.slots[i];
+            if row.owner.is_some() || self.plan.router == Some(SlotsId(i as u32)) {
+                continue;
+            }
+            let name = self.plan.str(row.name);
+            let kept = carried
+                .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
+                .map(|(_, v)| v.clone())
+                .filter(|v| v.conforms(&self.plan, row.ty));
+            let v = match kept {
+                Some(v) => v,
+                None => self.eval(row.init, &[], &[])?,
+            };
+            if !v.conforms(&self.plan, row.ty) {
+                return Err(RunnerError::SlotType { slot: name.into() });
+            }
+            self.slots[i] = v;
+        }
+        Ok(())
+    }
+
+    pub(super) fn carry_router(&self) -> Option<(String, Router)> {
+        let context = self.router.as_ref()?;
+        Some((
+            self.plan.str(self.plan.slot(context.slot).name).into(),
+            context.router(&self.slots[context.slot.0 as usize])?,
+        ))
+    }
+
+    pub(super) fn router_change(&self) -> Result<Option<RouterChange>, RunnerError> {
+        let Some(context) = &self.router else {
+            return Ok(None);
+        };
+        let value = &self.slots[context.slot.0 as usize];
+        if context.committed.as_ref() == Some(value) {
+            return Ok(None);
+        }
+        let r = context
+            .router(value)
+            .ok_or_else(|| invalid("invalid router value"))?;
+        let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
+        let ids: BTreeSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
+        let removed = context
+            .committed
+            .as_ref()
+            .and_then(|v| context.router(v))
+            .into_iter()
+            .flat_map(|r| r.tabs)
+            .flat_map(|t| t.stack)
+            .filter(|e| !ids.contains(&e.id))
+            .map(|e| e.id)
+            .collect();
+        Ok(Some(RouterChange {
+            top: top.id,
+            url: top.url.clone(),
+            removed,
+        }))
+    }
+
+    pub(super) fn commit_router(&mut self, change: Option<RouterChange>) {
+        if let Some(context) = &mut self.router {
+            context.committed = Some(self.slots[context.slot.0 as usize].clone());
+            if let Some(mut change) = change {
+                if let Some(pending) = context.pending.take() {
+                    // A clock seek may commit more than once before a host drains
+                    // effects. Keep every removed id and the latest selected top.
+                    let mut removed = pending.removed;
+                    for id in change.removed {
+                        if !removed.contains(&id) {
+                            removed.push(id);
+                        }
+                    }
+                    change.removed = removed;
+                }
+                context.pending = Some(change);
+            }
+        }
+        self.log_router_refusals();
+    }
+
+    pub(super) fn log_router_refusals(&mut self) {
+        let lines = self
+            .router
+            .as_ref()
+            .map(|r| std::mem::take(&mut *r.refusals.borrow_mut()))
+            .unwrap_or_default();
+        for line in lines {
+            self.log(line);
+        }
+    }
+
+    /// Take the navigation change published by successful commits, including boot.
+    /// @ref LLP 1038 D7 — drained beside commands; kernel receipts stay unchanged.
+    /// Multiple commits before a take retain the latest top/url and every removed
+    /// id in first-removal order. Unchanged or refused commits leave it alone.
+    /// Returns `None` after a take until navigation changes again, or without a router.
+    pub fn take_router_change(&mut self) -> Option<RouterChange> {
+        self.router.as_mut()?.pending.take()
+    }
+
+    /// The evaluated arguments of a settled resource (the bake's cache key).
+    /// @ref LLP 1038 D5 — written beside `resources.initial`.
+    pub fn resource_args(&self, name: &str) -> Option<&[Value]> {
+        let i = self
+            .plan
+            .resources
+            .iter()
+            .position(|r| self.plan.str(r.name) == name)?;
+        self.resources[i].as_ref().map(|r| r.args.as_slice())
+    }
+}
