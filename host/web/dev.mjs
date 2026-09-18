@@ -576,7 +576,7 @@ if (app.manifest.game && existsSync(resolve(root, 'game/app/scenes.mjs'))) {
   const observeScenes = () => {
     for (const path of sceneInputs(app)) {
       const dir = resolve(path, '..'); if (sceneWatched.has(dir)) continue; sceneWatched.add(dir);
-      watch(dir, (_, name) => { if (name?.endsWith('.json')) { clearTimeout(sceneTimer); sceneTimer = setTimeout(rebake, 30); } });
+      watch(dir, (_, name) => { if (name && sceneInputs(app).includes(resolve(dir,name))) { clearTimeout(sceneTimer); sceneTimer = setTimeout(rebake, 30); } });
     }
   };
   observeScenes();
@@ -891,13 +891,14 @@ const server = createServer(async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
   if (url.pathname === '/__dev/gpu-artifact') {
     const version = Number(url.searchParams.get('g'));
-    const artifact = version === 0 && app.hasGpu ? gpuArtifact(dist, 0, [], null, 'module') : gpuArtifacts.get(version);
+    let artifact;
+    try { artifact = version === 0 && app.hasGpu ? gpuArtifact(dist, 0, [], null, 'module') : gpuArtifacts.get(version); } catch { /* incomplete optional initial module */ }
     if (!artifact) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, {'content-type':'application/json','cache-control':'no-store'}); res.end(JSON.stringify(artifact)); return;
   }
   if (url.pathname === '/__dev/gpu') {
     const timing = gpuTimings.get(Number(url.searchParams.get('g')));
-    if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
+    if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → rendering opportunity ${Date.now()-timing.start} ms, candidate → opportunity ${url.searchParams.get('usable')} ms (warm budget 2000 ms; cache unmeasured)`);
     res.writeHead(204); res.end(); return;
   }
   if (url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
