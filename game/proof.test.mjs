@@ -521,6 +521,7 @@ test('repin refuses missing, extra, oversized and divergent three-mode evidence'
       for (const tick of [0,60,180]) writeFileSync(resolve(dir,`tick-${tick}.sim`),`bytes at ${tick}`);
     }
     expect(JSON.parse(agreePins(dirs))).toHaveLength(3);
+    expect(() => agreePins([...dirs, dirs[0]])).toThrow("exactly three");
     writeFileSync(resolve(dirs[2],'tick-180.sim'),'divergent');
     expect(() => agreePins(dirs)).toThrow('differ');
     writeFileSync(resolve(dirs[2],'tick-180.sim'),'bytes at 180');

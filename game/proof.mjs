@@ -115,6 +115,8 @@ export function equal(a, b) {
 
 /** Publish only complete, three-mode-equal candidates; tests never edit source pins. */
 export function agreePins(directories) {
+  if (!Array.isArray(directories) || directories.length !== 3)
+    throw new Error('repin refused: exactly three candidate directories required');
   const expected = ['pins.json', 'tick-0.sim', 'tick-180.sim', 'tick-60.sim'];
   const rows = directories.map(dir => {
     const files = readdirSync(dir).sort();
@@ -125,7 +127,7 @@ export function agreePins(directories) {
       return readFileSync(path);
     });
   });
-  if (rows.length !== 3 || rows.slice(1).some(row => row.some((bytes,i) => !bytes.equals(rows[0][i]))))
+  if (rows.slice(1).some(row => row.some((bytes,i) => !bytes.equals(rows[0][i]))))
     throw new Error('repin refused: continuous / Save / FreshGame candidates differ');
   const pins = JSON.parse(rows[0][0]);
   if (!Array.isArray(pins) || pins.length !== 3 || pins.some(p => !/^0x[0-9a-f]{16}$/.test(p)))
