@@ -5119,3 +5119,26 @@ captures record a134 VKMS module, which is not a compatible substitute. These
 facts explain zero selector matches without establishing when device state was
 lost. No driver load, package install, device open or native retry is covered by
 this diagnosis. Restoring the matching virtual device is separate setup work.
+
+A separate restoration downloads the exact139 extras archive, verifies its
+SHA256, and loads only its signed17,317-byte VKMS module for this boot.
+The one `insmod` exits0; the module has matching139 vermagic and no additional
+module dependencies. No package is installed, no package scripts run, and no
+boot, service or module-parameter policy changes. The module SHA is
+`661bd13d446a3ad7d4cc3d8b9f307ada50aeb8d9a1be92cfdc0b5baa595c3cee`.
+
+Post-load metadata identifies character device226:0 at `/dev/dri/card0`, backed
+by `/sys/devices/platform/vkms`. Virtual-1 is connected and lists1024×768 first;
+that list alone does not prove refresh rate or the preferred-mode flag. The
+actual defaults are cursor/writeback enabled and overlay disabled. This device
+has no `device/driver` symlink, so the original matcher would still refuse it.
+The next binding must qualify the actual platform/module/device identity and
+query the DRM identity before starting the compositor. No compositor, reference,
+client, input or DRM-device open occurs in this restoration. It establishes
+neither Wayland acceptance nor a performance result.
+
+All restoration processes/groups retire without cleanup signals. The41-file,
+105,054B archive is
+`target/wayland-device-restoration-validation/current139-v1/`, manifest
+`1ccb7da95a8a5ef8ed9f4bf28ab14a9c80b007b00a8127da770e57d70e824d69`.
+The original failed attempt remains unchanged.
