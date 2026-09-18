@@ -1,0 +1,1 @@
+{"pid": 1422094, "startedAt": "2026-09-18T21:11:52.940709+00:00", "command": ["bun", "game/bench/cubes/proof.mjs", "linux"]}

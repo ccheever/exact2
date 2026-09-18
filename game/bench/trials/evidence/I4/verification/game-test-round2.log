@@ -1,0 +1,1513 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p4  1.7T  1.5T  136G  92% /
+   Compiling glamx v0.3.0
+   Compiling wgpu-core-deps-windows-linux-android v29.0.4
+   Compiling wgpu v30.0.1
+   Compiling skinned-fixture-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/dbbd1c519c2e08c19941931f-gpu)
+   Compiling lanterns-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-gpu)
+   Compiling asset-fixture-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-gpu)
+   Compiling bench-cubes-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-gpu)
+   Compiling greybox-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-gpu)
+   Compiling beacons-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-gpu)
+   Compiling exact-game-app v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/app)
+   Compiling skinned-fixture-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/dbbd1c519c2e08c19941931f-apple)
+   Compiling skinned-fixture-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/dbbd1c519c2e08c19941931f-web)
+   Compiling skinned-fixture-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/dbbd1c519c2e08c19941931f-linux)
+   Compiling wgpu-core v29.0.4
+   Compiling asset-fixture-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-apple)
+   Compiling asset-fixture-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-web)
+   Compiling asset-fixture-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/682178d6082d3f8fc5b77435-linux)
+   Compiling greybox-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-web)
+   Compiling bench-cubes-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-web)
+   Compiling lanterns-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-web)
+   Compiling beacons-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-web)
+   Compiling bench-cubes-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-apple)
+   Compiling beacons-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-apple)
+   Compiling greybox-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-apple)
+   Compiling lanterns-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-apple)
+   Compiling parry3d v0.30.2
+   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu)
+   Compiling exact-game-render v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/render)
+   Compiling skinned-fixture-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/skinned-fixture/logic)
+   Compiling rapier3d v0.35.3 (/home/ccheever/lanes/gamenext/exact2-i1/vendor/rapier3d)
+   Compiling wgpu v29.0.4
+   Compiling vello v0.10.0
+   Compiling exact-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/host/linux)
+   Compiling beacons-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/d3679e06b82168ec6c85c47d-linux)
+   Compiling bench-cubes-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/565d29c341e2cf9e9f788d19-linux)
+   Compiling greybox-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/439038419b445eab74ca29b4-linux)
+   Compiling lanterns-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/2612b96c8d96cbdb9fe4f02c-linux)
+   Compiling exact-game-physics v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/physics)
+   Compiling lanterns-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/lanterns/logic)
+    Finished `test` profile [optimized] target(s) in 28.07s
+     Running unittests src/lib.rs (game/target/debug/deps/asset_fixture_apple-ee9ed17c3476307f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/asset_fixture_gpu-5c34ddf33c8aa10e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/asset_fixture_linux-360d4c2aee78455f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/asset_fixture_logic-423b83066820470d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-6828c96ffcf9a898)
+
+running 1 test
+test every_tick_save_matches_normal_script ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (game/target/debug/deps/asset_fixture_web-64ad588506adce67)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/beacons_apple-faaf6396f4ab4b8e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/beacons_gpu-ff9844da6414901b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/beacons_linux-fa15acc45b14faf5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/beacons_logic-bcad09c9d34f2db3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/beacons-scene.rs (game/target/debug/deps/beacons_scene-9b1f473f1dace053)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/before_capture.rs (game/target/debug/deps/before_capture-2a6ebeb0d39ee156)
+
+running 1 test
+test before_change_save_bytes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-a0fc160617198bda)
+
+running 8 tests
+test tick_10k_median ... ignored, manual 10k-tick timing; median of five
+test idle_tick_preserves_beacon_pages_and_partial_entities_keep_original_joins ... ok
+test jump_no_double_jump_and_restore ... ok
+test movement_seed_and_partitioning ... ok
+test movement_seed_jump_and_save ... ok
+test save_load_every_tick_matches_uninterrupted ... ok
+test every_tick_save_matches_normal_script ... ok
+test shared_paranoid_continuation ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running unittests src/lib.rs (game/target/debug/deps/beacons_web-6a31607b6220b540)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/bench_cubes_apple-3499479fb76b472d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/bench_cubes_gpu-4f3c7f281af3c773)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/bench_cubes_linux-9231a0f607f927cf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/bench_cubes_logic-6a5c2cd1b883bf4a)
+
+running 1 test
+test tests::scene_and_tick_match_the_bench ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-679ff0dc97c5c7dc)
+
+running 2 tests
+test one_seek_and_sixty_ticks_agree ... ok
+test every_tick_save_matches_normal_script ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running unittests src/lib.rs (game/target/debug/deps/bench_cubes_web-47ec3a08fc093407)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game-dab89a3fbfaa670a)
+
+running 98 tests
+test animation::tests::animator_parameter_fade_markers_and_weighted_root_motion ... ok
+test animation::tests::cubic_uses_left_out_and_right_in_times_span ... ok
+test animation::tests::cubic_quaternions_keep_authored_signs_and_normalize_the_polynomial ... ok
+test animation::tests::duplicate_motion_roots_choose_first_parent_first_match ... ok
+test animation::tests::bad_socket_does_not_stop_locomotion_and_each_error_source_logs_once ... ok
+test animation::tests::explicit_motion_root_is_not_first_skin_joint_and_wraps_backwards ... ok
+test animation::tests::blend_and_animator_walk_smoothly_across_loops_through_common_reads ... ok
+test animation::tests::blend_uses_normalized_phase_and_once_stops ... ok
+test animation::tests::failed_sample_preserves_history ... ok
+test animation::tests::clock_rounding_markers_loop_and_root_contribution_are_saved ... ok
+test animation::tests::invalidated_socket_restores_authored_follower ... ok
+test animation::tests::first_sample_is_current_current ... ok
+test animation::tests::extracted_walk_never_doubles_or_snaps ... ok
+test animation::tests::missing_and_removed_sockets_invalidate_and_log_once ... ok
+test animation::tests::failed_ik_does_not_commit_animator_transition_or_clock ... ok
+test animation::tests::failed_playback_contributes_no_stale_motion_or_events ... ok
+test animation::tests::one_shot_speed_pause_and_end_transition ... ok
+test animation::tests::only_contributing_blend_markers_and_motion ... ok
+test animation::tests::pose_inspection_refuses_model_length_mismatch_by_name ... ok
+test animation::tests::reverse_loop_markers_include_landing_exclude_departure_and_span_loops ... ok
+test animation::tests::redelivered_model_rebuilds_rest_bounds_and_socket_cache ... ok
+test animation::tests::reversed_one_shot_starts_at_end_and_does_not_transition_early ... ok
+test animation::tests::standalone_ik_evaluates_bind_pose ... ok
+test animation::tests::step_linear_cubic_rotation_and_parent_order ... ok
+test animation::tests::standalone_reverse_once_starts_at_end ... ok
+test animation::tests::pose_read_returns_all_unique_joints_in_node_order ... ok
+test audio::authoring_regression::registered_sound_plays_through_a_shared_world_during_component_borrow ... ok
+test audio::decode_regression::documented_synth_boundaries_round_trip ... ok
+test animation::tests::zero_length_and_zero_speed_once_finish_but_pause_waits ... ok
+test audio::tests::discarding_play_never_commits_a_voice_or_journal_line ... ok
+test audio::carry_regression::restore_keeps_saved_registry_and_runtime_registered_names ... ok
+test audio::tests::unknown_sound_names_itself - should panic ... ok
+test audio::tests::journal_lifetime_state_and_listener_refusal ... ok
+test capture::tests::dropped_events_wrong_game_schema_and_corrupt_checkpoint_refuse ... ok
+test capture::tests::checksum_and_actual_wire_size_are_checked_before_retaining_records ... ok
+test capture::tests::checksum_valid_oversized_advance_refuses_before_any_tick ... ok
+test capture::tests::checksum_valid_forged_scheduler_refuses_before_any_tick ... ok
+test capture::tests::invalid_input_and_clock_refuse_before_execution_and_mismatch_names_typed_state ... ok
+test capture::tests::imported_checkpoint_component_page_refuses_before_default_or_read ... ok
+test data::limits::tests::nested_binary_and_json_decoders_share_one_allowance ... ok
+test data::limits::tests::declared_nested_collection_storage_is_checked_before_any_element ... ok
+test data::limits::tests::total_budget_refuses_before_allocation ... ok
+test capture::tests::v2_checksum_preserves_nested_values_reordered_fields_and_defaults ... ok
+test data::text::tests::std_notation_boundaries_specials_ties_and_rounded_agent_numbers ... ok
+test sim::render_time_tests::live_restore_preserves_a_pending_future_stamp_on_the_epoch_sample ... ok
+test sim::render_time_tests::restore_refuses_a_one_tick_ahead_clock ... ok
+test storage::kind_tests::child_bearing_sparse_200k_timing ... ignored, manual child-bearing sparse 200k timing with equivalent validation
+test storage::kind_tests::sparse_200k_one_percent_timing ... ignored, manual sparse 200k timing, median of five alternating samples
+test storage::raw::tests::padded_values_move_replace_remove_and_load ... ok
+test world::inspect::measurements::named_cost ... ignored, release name lookup cost diagnostic
+test storage::raw::tests::zero_sized_drop_ownership_survives_replace_remove_and_load ... ok
+test storage::raw::tests::panicking_drops_do_not_leave_a_present_dead_value ... ok
+test world::inspect::measurements::an_unwritten_mutable_lease_invalidates_then_observes_still ... ok
+test world::inspect::measurements::settle_200k_cost ... ignored, release settle cost diagnostic
+test world::inspect::measurements::stillness_hash_cost ... ignored, release stillness cost diagnostic
+test world::inspect::measurements::recycling_a_slot_observes_the_new_incarnation ... ok
+test storage::kind_tests::idle_kind_paths_allocate_nothing ... ok
+test world::inspect::measurements::name_index_is_not_saved_hashed_or_observed ... ok
+test world::inspect::observation_tests::in_place_read_discards_every_observation_cache ... ok
+test world::inspect::observation_tests::newly_available_globals_invalidate_equal_pose_cache_entries ... ok
+test world::reload::tests::interleaved_200k_churn_reload_cost ... ignored, isolated worst-case reload timing and RSS diagnostic
+test world::reload::tests::a_recycled_unnamed_reference_is_simulation_state ... ok
+test world::reload::tests::applied_and_kept_are_observable_and_patch_excludes_skipped_state ... ok
+test world::reload::tests::references_compare_names_across_interleaved_spawn_order_and_remap_when_applied ... ok
+test world::inspect::observation_tests::global_pages_follow_ambient_ancestors_across_page_boundaries ... ok
+test scene::tests::parent_scratch_is_reused_and_flat_worlds_allocate_none ... ok
+test world::reload::tests::nested_skipped_fields_are_neither_read_nor_reset_by_patches ... ok
+test audio::decode_regression::malformed_saved_synth_is_refused_without_changing_world ... ok
+test world::tests::hierarchy_and_fresh_tick ... ok
+test world::tests::names_preserve_lowest_live_slot_and_literal_target_precedence ... ok
+test world::tests::registration_links_only_declared_storage_kinds ... ok
+test storage::raw::tests::over_aligned_owned_values_survive_pages_and_decode_scratch ... ok
+test world::tests::singleton_load_claims_inline_allocation_before_factory ... ok
+test world::reload::tests::structural_edits_are_reported_without_spawning_or_guessing_and_report_is_bounded ... ok
+test world::inspect::observation_tests::empty_pages_release_component_and_structure_cache_capacity ... ok
+test world::inspect::observation_tests::invalidation::sim_restore_carry_and_paranoid_table ... ok
+test capture::tests::compact_record_counts_refuse_before_payload_decode ... ok
+test world::tests::replay_equivalence ... ok
+test world::inspect::observation_tests::only_dirty_slots_are_hashed_and_context_changes_reset_them ... ok
+test sim::render_time_tests::integer_phase_survives_the_old_eighteen_hour_precision_limit ... ok
+test world::inspect::observation_tests::invalidation::mutation_api_table ... ok
+test world::tests::save_entity_limit_is_checked_before_reserving_slots ... ok
+test sim::render_time_tests::alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates ... ok
+test world::inspect::observation_tests::invalidation::mutable_optional_and_owned_queries_span_pages ... ok
+test world::reload::tests::over_budget_initializer_refuses_explicitly ... ok
+test capture::tests::malformed_nested_binding_count_refuses_before_any_value ... ok
+test storage::kind_tests::child_bearing_sparse_200k_never_diagnoses_nonmembers ... ok
+test world::reload::tests::random_carried_worlds_and_edits_obey_identity_ownership_and_determinism ... ok
+test storage::kind_tests::sparse_200k_one_percent_matches_raw_query_without_allocations ... ok
+test spatial::index::tests::sight_limit_includes_dead_slots_and_is_an_agent_error ... ok
+test world::inspect::observation_tests::spread_every_word_and_all_slots_have_bounded_hash_work ... ok
+test capture::tests::imported_checkpoint_counts_refuse_before_exsim_or_world_amplification ... ok
+test world::inspect::observation_tests::observation_refuses_work_past_slot_bound - should panic ... ok
+test capture::tests::legitimate_maximum_record_count_and_large_nested_bindings_still_import ... ok
+test data::text::tests::float_bits_round_trip_and_fixed_journal_matches ... ok
+test spatial::index::tests::route_diagnostic_200k_interleaved_churn_returns_nearest_and_clear_side ... ok
+test spatial::index::tests::mesh_bvh_200k_deep_far_read_and_dense_refusal ... ok
+test world::inspect::observation_tests::randomized_cached_observations_equal_the_original_path ... ok
+
+test result: ok. 92 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 17.75s
+
+     Running tests/a3.rs (game/target/debug/deps/a3-da384ea3482eb5c2)
+
+running 20 tests
+test a01_arrow_and_adjacent_generic_closers_keep_following_fields ... ok
+test a05_duplicate_record_and_map_keys_refuse_in_both_decoders ... ok
+test a03_integral_floats_are_integers_with_exact_range_checks ... ok
+test a02_expansions_ignore_shadowed_prelude_names ... ok
+test a08_huge_counts_and_strings_refuse_without_allocating_the_claim ... ok
+test a06_containers_replace_while_records_patch ... ok
+test a07_panicking_drop_does_not_retire_or_recycle_a_dirty_slot ... ok
+test a11_orphan_chains_leave_after_game_tick_in_entity_order ... ok
+test a04_saves_refuse_cycles_and_runtime_breaks_the_highest_cycle_entity_once ... ok
+test a12_fifth_filter_panics_by_name - should panic ... ok
+test a13_resource_derive_has_its_own_registration_and_storage ... ok
+test a15_mutable_guard_locks_the_whole_column_and_options_are_arrays ... ok
+test a14_insert_and_remove_are_lenient_for_dead_incarnations ... ok
+test a10_roots_are_local_parent_chains_reuse_scratch_and_fresh_is_per_tick ... ok
+test a17_material_builders_preserve_defaults_and_each_other ... ok
+test a16_short_random_draws_work_inside_spawn_and_preserve_the_stream ... ok
+test a18_spawn_named_takes_owned_or_borrowed_text ... ok
+test a19_integer_argument_and_default_bind_refuse_by_name ... ok
+test a20_one_returns_a_leased_item_and_refuses_ambiguity ... ok
+test a09_fifty_thousand_freed_slots_reuse_lowest_first_after_save ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/a4.rs (game/target/debug/deps/a4-a14460c5581383e8)
+
+running 10 tests
+test a4_5_a_coordinate_question_is_layout_and_the_old_ninth_op_is_refused ... ok
+test a4_1_host_loop_reaches_the_spring_deadline_without_the_world_running_ahead ... ok
+test a4_8_renderer_observes_completed_propagated_ticks_and_can_upload_only_the_last_two ... ok
+test a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_atomic ... ok
+test a4_7_blur_removes_hover_paused_springs_settle_and_a_hitch_collapses_input ... ok
+test same_id_restore_keeps_new_action_bindings_and_held_physical_keys ... ok
+test setup_rebuild_clears_restored_status ... ok
+test a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bindings ... ok
+test a4_6_names_schema_journal_and_cylinder_hits_follow_the_declared_contract ... ok
+test a4_2_stamps_land_in_the_containing_step_and_pause_and_queue_do_not_lose_releases ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/agent.rs (game/target/debug/deps/agent-1e9cb0e34a86c3fb)
+
+running 15 tests
+test capsule_pick_from_inside_ignores_internal_cap_surfaces ... ok
+test facing_uses_parent_pose_and_segment_blocks_only_between_endpoints ... ok
+test inverted_model_bounds_are_rejected_at_asset_load ... ok
+test eyes_snapshot_is_a_pure_read_and_optional_target_is_validated ... ok
+test projection_refusals_and_lossless_state_are_read_only ... ok
+test pick_uses_oriented_boxes_and_exact_spheres_and_capsules ... ok
+test occlusion_counts_samples_orders_caps_and_ignores_hidden_self_and_distant_bounds ... ok
+test declared_model_bounds_replace_authored_bounds_for_layout_pick_and_occlusion ... ok
+test quantized_occluder_ties_use_entity_index_and_json_canonicalizes_angles_and_zero ... ok
+test unavailable_poses_collapsed_forward_and_outside_frustum_are_explicit ... ok
+test hierarchy_preorder_under_and_cap ... ok
+test rotated_scaled_parented_blocker_uses_its_oriented_geometry_and_cache_invalidation ... ok
+test room_shell_entry_only_and_fully_degenerate_bounds_never_block ... ok
+test unbounded_cosmetic_never_blocks_pick_occlusion_or_facing_even_after_arrival ... ok
+test sight_excludes_camera_and_both_endpoint_ancestors_and_descendants_but_not_siblings ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/asset_validation.rs (game/target/debug/deps/asset_validation-b58f0734b7a26de9)
+
+running 2 tests
+test joints_and_weights_are_paired_and_mesh_bounds_are_ordered ... ok
+test malformed_models_refuse_every_simulation_and_upload_hazard ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/assets.rs (game/target/debug/deps/assets-7985dce9defa21cb)
+
+running 19 tests
+test cosmetic_names_retire_and_respawn_requests_again ... ok
+test a_publication_only_tick_names_the_changing_key ... ok
+test declared_delivery_state_retires_but_simulation_data_is_stable ... ok
+test failures_are_named_in_state_and_refused_clock ... ok
+test invalid_declaration_refuses_at_bind_with_the_name ... ok
+test headless_loader_drains_dependencies_and_reports_failures_without_panicking ... ok
+test authored_cosmetic_bounds_survive_arrival_and_save ... ok
+test failed_cosmetic_dependencies_do_not_gate_a_save ... ok
+test model_delivery_checks_carrier_size_before_decode ... ok
+test missing_declared_model_refuses_by_name_and_never_ticks ... ok
+test loading_save_refuses_and_clock_does_not_establish_an_epoch ... ok
+test save_readiness_tracks_current_meshes_without_request_drain ... ok
+test texture_is_not_a_model_declaration_or_mesh ... ok
+test saving_a_pending_cosmetic_refuses_but_failed_cosmetics_do_not_gate ... ok
+test declared_models_gate_setup_and_ticks_and_survive_restore ... ok
+test undeclared_arrival_cannot_change_simulation_reads_or_layout ... ok
+test unused_and_excessive_texture_lists_refuse ... ok
+test embedded_assets_do_not_request_host_delivery_but_baked_models_still_do ... ok
+test asset_requests_are_bounded_and_refusal_names_the_excess ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/beacons.rs (game/target/debug/deps/beacons-90e0b2aa158cdfd0)
+
+running 9 tests
+test tests::tick_10k_median ... ignored, manual 10k-tick timing; median of five
+test tests::idle_tick_preserves_beacon_pages_and_partial_entities_keep_original_joins ... ok
+test beacons_imported_capture_replays_with_scoped_checkpoint_budget ... ok
+test tests::jump_no_double_jump_and_restore ... ok
+test tests::movement_seed_and_partitioning ... ok
+test tests::movement_seed_jump_and_save ... ok
+test tests::save_load_every_tick_matches_uninterrupted ... ok
+test tests::every_tick_save_matches_normal_script ... ok
+test tests::shared_paranoid_continuation ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/bulk.rs (game/target/debug/deps/bulk-de83442b95dc037a)
+
+running 6 tests
+test bulk_kinds_have_distinct_wire_and_hash_including_empty ... ok
+test bulk_kinds_refuse_every_other_kind_by_name_including_empty ... ok
+test every_bulk_kind_skips_without_losing_the_following_value ... ok
+test matching_numeric_kind_still_refuses_partial_elements ... ok
+test numeric_bulk_budget_counts_destination_once ... ok
+test json_bulk_refusal_consumes_summary_and_array_before_next_value ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capture.rs (game/target/debug/deps/capture-91628f94751fa198)
+
+running 9 tests
+test explicit_handoff_releases_held_input_and_discards_paused_wall_time ... ok
+test budget_exhaustion_and_human_contamination_are_incomplete ... ok
+test incidental_inspection_timestamp_and_viewport_do_not_step_or_record ... ok
+test paused_checkpoint_and_pending_input_restore_without_losing_suffix ... ok
+test ticks_start_epoch_remain_exact_and_refuse_pause ... ok
+test isolated_twice_interleaved_touch_bindings_pause_and_epoch ... ok
+test refused_capture_and_restore_keep_live_hash ... ok
+test live_capture_after_lookahead_replays_checkpoint_and_continuation ... ok
+test live_capture_keeps_fractional_phase_period_changes_and_pending_device_input ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/character.rs (game/target/debug/deps/character-0749085a7720d730)
+
+running 9 tests
+test ballistic_height_contacts_and_no_double_jump ... ok
+test character_external_contact_is_an_event_once ... ok
+test character_upward_penetration_preserves_jump ... ok
+test character_zero_dt_queries_actual_contact_without_mutation ... ok
+test proximity_excludes_resolved_origin ... ok
+test proximity_is_inclusive_ordered_named_and_planar ... ok
+test proximity_returns_unborrowed_poses ... ok
+test sim_reads_match_world_reads_and_missing_entities ... ok
+test exact_arrival_bounds_and_saved_determinism ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/data.rs (game/target/debug/deps/data-799391c3ca870694)
+
+running 8 tests
+test builtins_and_unicode ... ok
+test bulk_vectors_are_little_endian_bounded_and_inspection_only ... ok
+test field_names_are_not_values ... ok
+test derive_shapes ... ok
+test errors_name_the_field_and_reject_malformed_input ... ok
+test skip_unknown_and_preserve_missing ... ok
+test numbers_nan_and_negative_zero ... ok
+test name_table_walks_unknown_fields ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ecs.rs (game/target/debug/deps/ecs-420a9767410b070b)
+
+running 9 tests
+test eight_way_query_and_retained_mutable_rows ... ok
+test borrows_name_conflicts_and_survive_iterator_drop ... ok
+test hierarchy_despawn_and_live_generations ... ok
+test joins_option_filters_and_nested_reads ... ok
+test drops_exactly_present_slots_including_load_over_existing ... ok
+test resource_and_non_state_outputs ... ok
+test mask_joins_across_words_pages_and_optional_only_queries ... ok
+test generations_names_and_order_under_churn ... ok
+test large_churn_has_history_independent_order_hash_and_save ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/ergonomics.rs (game/target/debug/deps/ergonomics-8c900dd0b7fbdfe0)
+
+running 11 tests
+test record_optional_unit_is_explicitly_refused_when_present ... ok
+test proximity_uses_both_parent_chains_and_returns_mutable_global_rows ... ok
+test typed_fields_decode_in_order_and_refuse_by_name ... ok
+test last_tick_observations_zero_ticks_ambient_resources_and_saves ... ok
+test typed_and_wire_layout_agree_without_transform ... ok
+test record_units_and_safe_integer_boundaries ... ok
+test record_publication_keeps_names_nested_values_and_saved_state ... ok
+test seeks_reuse_observation_hashes_and_live_never_hashes ... ok
+test follow_arrives_snaps_teleports_and_survives_save ... ok
+test engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick ... ok
+test wildcard_state_is_complete_bounded_and_narrowable ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/g1b.rs (game/target/debug/deps/g1b-3f81c125f7c51bf0)
+
+running 10 tests
+test ambient_resources_are_never_serialized_by_observation ... ok
+test current_and_future_input_prevent_rest_and_bound_the_next_jump ... ok
+test followers_handle_top_down_zero_offsets_current_parents_and_reincarnation ... ok
+test named_access_guarded_rows_and_release_singleton_refusal ... ok
+test global_poses_and_componentless_existence_are_observed ... ok
+test clock_reads_do_not_back_off_and_input_bind_restore_restart_reset ... ok
+test input_sugar_and_relative_sentences_match_absolute_host_input ... ok
+test springs_and_tweens_explain_rest_and_deadlines ... ok
+test observation_is_not_saved_and_resources_are_observed ... ok
+test new_live_restored_and_queued_worlds_require_an_observation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/g1b_args.rs (game/target/debug/deps/g1b_args-e431acaf79b0e070)
+
+running 4 tests
+test setup_comparison_is_bitwise_for_both_float_widths ... ok
+test saved_arguments_follow_names_default_new_fields_and_ignore_removed_fields ... ok
+test decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic ... ok
+test unregistered_saved_type_names_the_setup_fix ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/g1c.rs (game/target/debug/deps/g1c-6711829aeb980996)
+
+running 14 tests
+test clock_200k_cost ... ignored, release clock operation cost diagnostic
+test a_publication_is_a_mutation_and_requires_an_observation ... ok
+test bound_restore_validates_only_the_arguments_it_uses ... ok
+test follow_names_track_lowest_live_index ... ok
+test extreme_tween_deadline_saturates_host_microseconds ... ok
+test follow_roll_transports_continuously_through_vertical ... ok
+test leases_invalidate_observation_and_restart_backoff ... ok
+test parent_only_marker_observes_ambient_conveyor ... ok
+test rng_draws_are_observed_without_changing_hash_format ... ok
+test typed_scalars_refuse_before_domain_validation ... ok
+test clock_streams_eight_reasons_and_serializes_each_row_only_twice ... ok
+test storage_epoch_and_fused_hash_cover_structural_edits_and_messages ... ok
+test pause_explains_unobserved_rest_and_unpause_requires_a_sample ... ok
+test helper_matches_hosts_initial_read_and_fifteen_followups ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/g1d.rs (game/target/debug/deps/g1d-dcd5e3111511e613)
+
+running 5 tests
+test logging_refusal_preserves_rest_and_hash ... ok
+test ambient_tween_does_not_block_rest ... ok
+test ambient_motion_is_absent_from_changing ... ok
+test ambient_tween_does_not_drive_settle_at ... ok
+test paused_queued_input_explains_why_it_is_not_quiescent ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/greybox.rs (game/target/debug/deps/greybox-3f433d5776a79f5a)
+
+running 9 tests
+test tests::a21_shorter_setup_preserves_materials_names_and_random_draws ... ok
+test tests::agent_snapshots_and_pick ... ok
+test tests::soundscape_journals_ground_distance_beacon_and_camera_wind ... ok
+test tests::beacon_messages_journal_and_settle ... ok
+test tests::save_mid_run_retains_clock_input_and_future_events ... ok
+test tests::forward_parity_and_seek_invariance ... ok
+test tests::headless_throughput ... ok
+test tests::every_tick_save_matches_normal_script ... ok
+test tests::shared_paranoid_continuation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/kind_diagnostics.rs (game/target/debug/deps/kind_diagnostics-f0f7917028aca560)
+
+running 1 test
+test kind_diagnostics ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/kinds.rs (game/target/debug/deps/kinds-ed117cf87e007fdb)
+
+running 18 tests
+test a_declared_child_cannot_hide_in_a_skipped_field ... ok
+test checked_binding_rejects_missing_components_and_recycled_handles ... ok
+test alias_duplicate_preflight_has_no_spawn_or_lease_side_effect ... ok
+test children_validate_membership_and_parent_without_mutation ... ok
+test exactly_one_names_the_missing_kind - should panic ... ok
+test edit_context_has_a_bound_and_unwinds_without_poisoning_the_world ... ok
+test exactly_one_refuses_ambiguity - should panic ... ok
+test mutable_rows_share_one_column_lease_and_can_escape_the_iterator ... ok
+test newly_added_parent_requires_explicit_binding_and_checks_parent ... ok
+test declared_child_is_saved_once_and_stale_live_and_loaded_errors_match ... ok
+test overlapping_edit_diagnostic_names_inner_outer_kind_entity_component_and_operation ... ok
+test singleton_membership_remains_available_while_values_are_leased ... ok
+test spawn_and_typed_ids_have_exactly_the_old_representation ... ok
+test user_view_names_do_not_collide ... ok
+test decoded_and_cross_world_ids_recheck_membership_without_changing_wire_state ... ok
+test spawn_kind_resolves_and_attaches_declared_child_before_use ... ok
+test reads_preserve_epoch_every_page_and_wire_state ... ok
+test interleaved_200k_with_churn_visits_every_match_and_refuses_above_the_work_bound ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/motion.rs (game/target/debug/deps/motion-ad2bf2c82cb33001)
+
+running 6 tests
+test math_uses_the_declared_functions ... ok
+test named_jump_reaches_authored_height_and_gravity_preserves_planar_velocity ... ok
+test named_movement_accelerates_turns_brakes_and_preserves_vertical_velocity ... ok
+test spring_seeks_have_no_sampling_history ... ok
+test rng_is_reproducible_bounded_and_round_trips ... ok
+test transform_defaults_aim_and_deep_chains ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pages.rs (game/target/debug/deps/pages-3174288c01690245)
+
+running 4 tests
+test renderer_layouts_are_ten_contiguous_floats ... ok
+test page_masks_zero_bytes_leases_and_reallocation ... ok
+test membership_union_is_ordered_and_does_not_require_both_columns ... ok
+test write_generations_cover_mutable_rows_without_marking_other_pages ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/paranoid.rs (game/target/debug/deps/paranoid-a6cbeba659abeaa9)
+
+running 2 tests
+test skipped_game_field_is_detected_by_normal_comparison ... ok
+test reconstruction_preserves_live_phase_period_and_batch_horizon ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/render.rs (game/target/debug/deps/render-942a1575ac5fac14)
+
+running 3 tests
+test agent_and_timed_bind_observe_final_propagated_ticks_and_restore_generation ... ok
+test renderer_revisions_see_same_tick_edits_without_entering_the_hash ... ok
+test whole_page_float_views_match_bytes_and_environment_roundtrips ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/save.rs (game/target/debug/deps/save-952a654f52007e4b)
+
+running 4 tests
+test component_schema_evolves_by_field_name ... ok
+test round_trip_preserves_ids_names_rng_resources_and_registration_order ... ok
+test published_values_and_skipped_fields_are_not_saved ... ok
+test load_failure_is_atomic_and_names_unknown_types ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-868d841c8b55a817)
+
+running 47 tests
+test a_late_event_cannot_block_an_earlier_pending_boundary ... ok
+test aligned_live_input_is_drawn_one_frame_before_seekable_interpolation ... ok
+test delivered_live_input_is_eligible_at_the_paced_frame_but_seekable_future_waits ... ok
+test epoch_pause_live_gap_and_backwards_clock ... ok
+test delivery_is_saved_but_never_changes_simulation_hash ... ok
+test bound_restore_keeps_tick_registered_types_without_replacing_setup_registration ... ok
+test aligned_ticks_consume_input_delivered_after_the_preceding_frame ... ok
+test jittered_sixty_hz_stays_within_one_tick_over_six_hundred_frames ... ok
+test integer_seek_partitions_and_fraction ... ok
+test live_frame_history_does_not_cross_handoff_or_rebase ... ok
+test controlled_restore_anchors_destination_clock_before_first_advance ... ok
+test forwarded_keys_include_pending_downs_and_releases_without_changing_tick_held_state ... ok
+test exact_event_boundary_tap_repeat_alias_and_blur ... ok
+test live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead ... ok
+test live_inputs_follow_stamps_and_future_stamps_wait ... ok
+test early_live_save_and_switch_catch_the_exact_clock_up_without_a_tick ... ok
+test live_catchup_pause_save_and_seekable_transition ... ok
+test live_lookahead_uses_strict_next_frame_and_horizon_alpha ... ok
+test live_stall_and_its_first_recovery_frame_keep_the_same_period ... ok
+test live_stall_returns_to_steady_deltas_after_one_recovery_frame ... ok
+test live_three_tick_catchup_spreads_input_by_stamp_and_caps_a_large_gap ... ok
+test duplicate_stamp_with_negative_half_unit_remainder_cannot_retreat ... ok
+test explicit_events_are_saved_in_order_and_publication_is_separate ... ok
+test live_three_tick_catchup_spreads_input_by_stamp ... ok
+test misspelled_actions_are_not_silent - should panic ... ok
+test named_refusals_and_reads_do_not_change_the_hash ... ok
+test live_restore_rebases_without_counting_paused_wall_time ... ok
+test live_half_step_frames_draw_equal_deltas_at_every_phase ... ok
+test old_save_containers_are_refused_by_name_atomically ... ok
+test older_saves_default_the_overflow_warning_flag ... ok
+test restore_touch_viewport_continues_headless_and_resize_replaces_it ... ok
+test settle_is_bounded_for_continuous_game_work ... ok
+test settle_finds_nested_springs_and_busy_is_per_tick ... ok
+test touch_is_data_and_pointer_wheel_deltas_expire ... ok
+test slew_and_period_are_absent_from_save_state_snapshot_and_seekable_continuation ... ok
+test unpause_seeds_live_time_and_drops_the_pause_gap ... ok
+test unknown_period_has_no_lookahead_and_duplicates_preserve_the_pose ... ok
+test wrong_magic_reports_actual_bytes_and_expected_format ... ok
+test tick_phase_is_one_at_sixty_and_half_at_one_twenty ... ok
+test reload_report_survives_ticks_clears_on_restore_and_refusal_is_atomic ... ok
+test publication_drain_is_full_and_journal_is_an_indexed_ring ... ok
+test overflow_warning_is_saved_behavior ... ok
+test submicrosecond_backwards_stamps_cannot_add_time_or_change_lookahead ... ok
+test synthetic_live_frames_have_no_equal_rate_beats ... ok
+test period_transitions_share_one_bounded_monotonic_render_slew ... ok
+test sub_half_percent_period_noise_cannot_restart_grid_slew ... ok
+test every_starting_phase_aligns_within_four_seconds_and_holds ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/template.rs (game/target/debug/deps/template-a026ff2aaff5d5a8)
+
+running 3 tests
+test tests::movement_and_light ... ok
+test tests::acceleration_braking_and_ballistic_jump ... ok
+test tests::proximity_nearest_unlit_plinths_bounds_and_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_app-b941d81dd381d17b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_audio-4f4b112b7a4b5a4d)
+
+running 25 tests
+test apple::regression_tests::callback_accepts_null_interleaved_planar_short_and_mono ... ok
+test apple::regression_tests::cancelling_unpublished_shared_pcm_does_not_release_a_pending_stop ... ok
+test apple::regression_tests::full_mixer_does_not_ack_or_lose_a_start ... ok
+test apple::regression_tests::mixer_is_linear_below_one_and_firewalls_nonfinite_samples ... ok
+test apple::regression_tests::gains_ramp_per_sample_over_ten_ms ... ok
+test apple::regression_tests::pcm_is_freed_only_on_producer_after_stop_acknowledgement ... ok
+test apple::regression_tests::full_return_ring_retries_latest_watermark_without_freeing_early ... ok
+test apple::regression_tests::unique_pcm_budget_refuses_without_queueing_and_releases_after_ack ... ok
+test apple::regression_tests::full_producer_reports_rejection_and_stops_pass_unpublished_starts ... ok
+test apple::regression_tests::unsupported_callback_layouts_advance_phase_and_finish_voices ... ok
+test apple::regression_tests::unpublished_same_id_replacement_subtracts_released_bytes ... ok
+test surface::test_device::failed_device_creation_retries_at_bounded_frame_intervals ... ok
+test surface::test_device::failed_stop_disposes_device_and_failed_resume_enters_bounded_retry ... ok
+test surface::test_device::first_live_gesture_constructs_and_unlocks_before_any_frame ... ok
+test surface::test_device::seekable_frame_preserves_failed_device_cooldown ... ok
+test surface::test_device::suspension_resumes_once_and_never_changes_world ... ok
+test surface::tests::seekable_gestures_never_construct_a_device_or_pcm ... ok
+test synth::tests::adsr_and_filters ... ok
+test synth::tests::waves_match_closed_forms ... ok
+test apple::regression_tests::stopped_callback_coalesces_sets_and_retries_every_start_stop ... ok
+test synth::tests::chime_hash_is_pinned ... ok
+test apple::tests::spsc_two_threads_wrap_and_preserve_order ... ok
+test apple::regression_tests::stalled_device_bounds_controls_and_pcm_during_voice_churn ... ok
+test apple::regression_tests::player_reserves_pcm_before_synthesis_and_walks_past_refused_voices ... ok
+test apple::regression_tests::preferred_source_waits_for_stop_ack_without_restarting_the_loser ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/player.rs (game/target/debug/deps/player-6d44a6372e60342f)
+
+running 19 tests
+test null_output_discards_every_call ... ok
+test sixty_four_voice_sync_timing ... ignored, timing diagnostic: run explicitly with --ignored --nocapture
+test poses_pan_and_attenuate ... ok
+test finite_attached_sources_refuse_by_name_even_when_created_late ... ok
+test loop_journal_diff_survives_save_and_reports_changes_and_removal ... ok
+test voices_are_ambient_and_late_frames_skip_finished_pcm ... ok
+test tick_zero_ten_ms_click_starts_at_sample_zero ... ok
+test invalid_gains_are_refused_once_and_pcm_is_finite ... ok
+test loops_follow_sources_and_cache_once ... ok
+test suspended_output_waits_then_starts_at_current_phase ... ok
+test pitch_handle_and_saved_master_apply_without_definition_edits ... ok
+test despawned_projectile_explosion_still_plays_at_saved_position ... ok
+test save_mid_chime_restores_offset_and_ends ... ok
+test refused_start_is_retried_without_a_transport_bump ... ok
+test capacity_and_silence_are_selected_before_pcm_materialization ... ok
+test looping_noise_crossfades_seam_without_changing_one_shots ... ok
+test transport_restarts_at_world_offset_and_silences_pause ... ok
+test thirty_third_loop_returns_when_room_opens ... ok
+test editing_a_definition_does_not_accumulate_retired_pcm ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_bake-4fe34029ee47f348)
+
+running 3 tests
+test textures::alpha_tests::transparent_colour_cannot_bleed_and_mask_coverage_survives ... ok
+test textures::straight_tests::opaque_and_emissive_colour_ignore_alpha ... ok
+test textures::tests::color_box_is_linear_light_and_odd_edges_are_included ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/exact_game_bake-bfdd5244f1d8ce0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/outputs.rs (game/target/debug/deps/outputs-9e216acbf460eb3e)
+
+running 9 tests
+test cli_and_shell_encoding_share_the_carrier_limit ... ok
+test sixteen_pixel_crate_pins_model_and_texture_bytes ... ok
+test authored_collision_and_invalid_stems_refuse_by_name ... ok
+test rebake_never_overwrites_a_replaced_authored_output ... ok
+test content_equal_without_ownership_never_adopts_authored_output ... ok
+test legacy_manifest_adopts_only_equal_listed_outputs_and_keeps_unknown_old_bytes ... ok
+test generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_authored_assets ... ok
+test renamed_source_never_prunes_a_replaced_authored_output ... ok
+test oversize_texture_refuses_by_name_and_nearest_filters_survive ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/refusals.rs (game/target/debug/deps/refusals-179ac8cc73a82a5b)
+
+running 4 tests
+test permitted_extensions_are_baked_per_texture ... ok
+test cubic_tracks_preserve_gltf_neighbour_tangents_through_bake ... ok
+test unsupported_features_refuse_by_name ... ok
+test scene_selection_and_textured_uvs_are_not_silent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/samples.rs (game/target/debug/deps/samples-702b1bfc57ed481a)
+
+running 1 test
+test khronos_samples_bake_round_trip_and_have_complete_mips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.21s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_derive-25a9d47edfee9b06)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_physics-ef539a8f8aff2bd6)
+
+running 18 tests
+test queries::partition_tests::controller_impulses_are_discarded_when_game_restores_the_cached_velocity ... ok
+test queries::tests::overlap_deduplicates_entity_results ... ok
+test state::tests::snapshot_refusal_names_expected_format_and_seen_bytes ... ok
+test state::tests::stale_physics_is_refused_during_read ... ok
+test queries::tests::retained_queries_follow_physics_into_an_equal_revision_world ... ok
+test queries::tests::character_moves_share_the_retained_terrain_shape ... ok
+test queries::tests::unrelated_churn_keeps_the_query_and_character_scene ... ok
+test step::tests::live_page_cache_does_not_follow_physics_into_another_world ... ok
+test queries::partition_tests::ties_masks_membership_and_recycling_match_single_bvh ... ok
+test changes::churn_tests::unrelated_recycling_does_not_reset_physics_membership ... ok
+test queries::tests::retained_queries_refresh_after_same_tick_edits_and_restore ... ok
+test changes::tests::unchanged_static_pages_are_not_visited_even_when_a_body_moves ... ok
+test step::tests::moved_static_and_edited_collider_reach_rapier_on_the_next_tick ... ok
+test queries::partition_tests::static_bvh_survives_motion_and_tracks_cross_page_ancestors ... ok
+test changes::tests::interleaved_bodies_do_not_dirty_static_rows_or_a_shared_page_root ... ok
+test step::tests::cached_sync_matches_full_scan_snapshot_bytes_through_edits_and_restore ... ok
+test binned::tests::certified_refits_keep_canonical_traversal_and_equal_cost_winners ... ok
+test character::tests::character_carry_support_ties_and_pushes_match_canonical_single_scene ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.47s
+
+     Running tests/character.rs (game/target/debug/deps/character-689c44da1609158f)
+
+running 5 tests
+test push_respects_character_mask ... ok
+test wall_slide_and_thin_wall_at_twenty_metres_per_second ... ok
+test steps_below_and_above_limit ... ok
+test slopes_walkable_and_steep ... ok
+test platform_transport_and_finite_push_budget ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/mapping.rs (game/target/debug/deps/mapping-2e746c3ee5caac1b)
+
+running 5 tests
+test colliders_match_primitive_dimensions_and_plane_top ... ok
+test fast_rigid_body_does_not_tunnel_and_queries_are_read_only ... ok
+test plane_is_a_dynamic_box_and_side_pick_matches_the_physics_slab ... ok
+test moving_a_static_support_wakes_its_contact_island_only ... ok
+test heightfield_mesh_and_cylinder_use_world_entities ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/paranoid.rs (game/target/debug/deps/paranoid-8a7c53b96fc6a8f0)
+
+running 3 tests
+test incomplete_v1_refusal_keeps_destination_unchanged ... ok
+test live_scheduler_and_save_metadata_match_seekable_continuation ... ok
+test physics_snapshot_survives_every_tick_reconstruction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/queries.rs (game/target/debug/deps/queries-00f6c85f00548bef)
+
+running 3 tests
+test hierarchy_and_sorted_ties_are_live_reads ... ok
+test rays_have_closed_form_distances_and_normals ... ok
+test translational_sweeps_match_independent_distance_bisection ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scenes.rs (game/target/debug/deps/scenes-88c6e20661c3833f)
+
+running 10 tests
+test sensors_filter_events_and_journal ... ok
+test refuses_parented_body_by_name - should panic ... ok
+test free_spheres_roll_without_slipping_on_both_slopes ... ok
+test observed_bodies_participate_in_settle ... ok
+test bounce_height ... ok
+test slopes_box_static_and_sliding ... ok
+test resume_mid_bounce_every_tick ... ok
+test wake_supporter_edits_and_despawn ... ok
+test drop_stack_and_block_sleep ... ok
+test resume_and_replay_every_tick ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.39s
+
+     Running tests/timing.rs (game/target/debug/deps/timing-ac677ace7f6b4ae0)
+
+running 6 tests
+test character_extrema ... ignored, character changes scene extrema; diagnostic with canonical fallback
+test characters_and_churn ... ignored, character and churn timing; no wall-clock assertion
+test characters_only ... ignored, consecutive character calls without solver or intervening queries
+test retained_terrain ... ignored, Linux retained heightfield RSS/timing diagnostic; run alone
+test static_edits ... ignored, 1000 individual static teleports; no wall-clock assertion
+test static_scenery ... ignored, 600-tick timing diagnostic; no wall-clock assertion
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_render-3298c6637f5b5a63)
+
+running 70 tests
+test skinning::tests::hundred_fox_palettes ... ignored, 100 Fox palette GPU timestamp diagnostic
+test shapes::tests::primitives_have_outward_triangles_and_unit_normals ... ok
+test surface::ready::tests::restoring_fox_uploads_zero_asset_bytes_after_ready ... ignored, known embedded Fox restore re-upload defect; see QUEUE.md T6 ready-work
+test models::arrival_tests::material_waits_for_all_textures_before_rebinding ... ok
+test skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints ... FAILED
+test surface::lifecycle_tests::lifecycle_only_changes_presentation_and_clock_precedes_first_input ... ok
+test models::arrival_tests::normal_cache_and_rebatch_scratch_follow_the_live_records ... ok
+test perf::tests::cadence_excludes_seeks_and_keeps_dropped_intervals ... ok
+test skinning::tests::interpolate_locals_before_composing_and_inverse_bind ... ok
+test surface::tests::asset_refusal_is_named_without_poisoning_the_surface ... ok
+test surface::ready::tests::pending_and_failed_readiness_uses_existing_asset_states ... ok
+test surface::tests::capacity_error_during_timed_bind_does_not_refuse_committed_values ... ok
+test surface::tests::fresh_touch_region_matches_rendered_and_headless_worlds ... ok
+test surface::ready::tests::declared_delivery_and_warm_feed_are_counted_before_ready ... ok
+test surface::tests::device_state_reports_target_before_first_draw_and_after_loss ... ok
+test surface::ready::tests::undeclared_asset_delivery_is_named_and_separate_from_violations ... ok
+test surface::tests::peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_window_honest ... ok
+test surface::tests::layout_facing_snapshot_survives_surface_splicing_without_device ... ok
+test surface::tests::live_surface_applies_a_period_and_slews_a_changed_horizon ... ok
+test surface::tests::headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_later ... ok
+test surface::tests::seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_ticks ... ok
+test surface::tests::full_seekable_render_has_no_performance_samples ... ok
+test surface::ready::tests::never_seen_mesh_mid_play_trips_the_standard_zero_assertion ... ok
+test surface::tests::performance_recording_arms_only_through_diagnostic_state ... ok
+test surface::tests::presentation_hook_follows_frames_transport_and_gestures ... ok
+test surface::tests::presented_lifecycle_and_late_material_pipeline_are_accounted ... ok
+test surface::tests::presentation_trace_is_opt_in_read_once_and_never_advances_the_clock ... ok
+test surface::tests::viewport_occlusion_crosses_world_surface_without_a_device ... ok
+test surface::tests::restore_and_load_are_seen_by_render_without_a_bind_or_tick ... ok
+test trace::tests::same_tick_edits_and_teleports_match_gpu_history_rules ... ok
+test trace::tests::live_interpolation_at_144hz_and_tick_bursts_keeps_the_last_two_ticks ... ok
+test trace::tests::state_forms_validate_without_turning_other_operations_into_traces ... ok
+test surface::tests::teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose ... ok
+test trace::tests::trace_is_bounded_chronological_and_read_does_not_round ... ok
+test surface::tests::transient_empty_and_nonfinite_frames_advance_without_poisoning_viewport ... ok
+test world::tests::difficult_timing::difficult_moment_cost ... ignored, I3 120-tick CPU simulation / animation / feed medians, no GPU
+test world::tests::ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights ... ok
+test world::tests::feed_cpu_cost ... ignored, release CPU feed diagnostic; recording backend, no GPU
+test world::tests::asset_mesh_waits_without_inventing_geometry ... ok
+test world::tests::camera_slerps_and_nearest_lights_interpolate_without_frame_scans ... ok
+test world::tests::first_transform_on_an_older_entity_initializes_history_and_reset_reuses_meshes ... ok
+test world::tests::light_membership_retains_near_ties_then_replaces_clearly_farther_light ... ok
+test world::tests::capacity_refuses_before_history_and_allows_partial_last_page ... ok
+test surface::tests::headless_greybox_ticks_under_the_agent_clock_to_the_native_hash ... ok
+test world::tests::load_invalidates_equal_revisions_and_does_not_change_save_or_hash ... ok
+test surface::tests::surface_carry_retains_current_bindings_and_refusal_is_atomic ... ok
+test world::tests::materials_repack_pages_only_on_revision_and_default_missing_values ... ok
+test world::tests::primitive_dimensions_are_instance_data_and_capsules_deform_exactly ... ok
+test world::tests::renderer_defaults_match_world_and_negative_alpha_does_not_enable_grid ... ok
+test world::tests::revealing_a_hidden_primitive_keeps_its_dimensions ... ok
+test world::upload::tests::hash_bandwidth ... ignored, release bandwidth diagnostic
+test world::tests::propagated_chain_overlays_page_and_fresh_teleport_writes_both ... ok
+test world::tests::zero_quaternion_cpu_pose_is_finite_identity ... ok
+test world::tests::moved_then_two_still_ticks_stop_all_history_work ... ok
+test world::tests::structure_and_visibility_rebuild_but_movement_does_not ... ok
+test world::tests::long_advance_feeds_only_last_two_ticks ... ok
+test world::tests::steady_sim_feed_and_frame_inputs_allocate_nothing ... ok
+test world::tests::sun_skips_transformless_light_and_slerps_each_tick ... ok
+test world::tests::pages_are_whole_ordered_and_holes_are_zero ... ok
+test surface::ready::tests::tenfold_mid_play_growth_reports_real_buffer_and_slot_hitches ... ok
+test tests::every_shader_validates_without_an_adapter ... ok
+test assets::tests::fox_decodes_texture_skin_and_three_named_clips ... ok
+test world::tests::greybox_writes_one_or_two_pages_while_moving_and_none_at_rest ... ok
+test world::tests::difficult_timing::replacement_running_clip_has_different_cpu_skinning ... ok
+test world::upload::tests::fingerprint_observes_every_word_and_record_tail ... ok
+test surface::ready::tests::restore_upload_subset_is_reported_without_hiding_total_violations ... ok
+test world::tests::difficult_timing::carried_initializer_edits_reach_real_feed_on_next_tick ... ok
+test world::tests::animated_dimensions_never_grow_geometry_and_all_spheres_batch_together ... ok
+test world::tests::identical_parent_writes_stop_uploading_settled_transform_pages ... ok
+test world::tests::half_million_still_transforms_with_moving_camera_write_only_its_page ... ok
+
+failures:
+
+---- skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints stdout ----
+
+thread 'skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints' (1441146) panicked at render/src/skinning.rs:456:48:
+called `Result::unwrap()` on an `Err` value: "no adapter: No suitable graphics adapter found; noop support not compiled in, vulkan drivers/libraries could not be loaded, metal support not compiled in, dx12 support not compiled in, gl support not compiled in, webgpu support not compiled in"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints
+
+test result: FAILED. 64 passed; 1 failed; 5 ignored; 0 measured; 0 filtered out; finished in 9.17s
+
+error: test failed, to rerun pass `-p exact-game-render --lib`
+     Running tests/asset_lifecycle.rs (game/target/debug/deps/asset_lifecycle-ec76ed47bb8b4c82)
+
+running 11 tests
+test primitive_module_refuses_model_by_name_at_bind ... ok
+test loss_during_loading_reissues_unanswered_names ... ok
+test pending_restore_never_escapes_as_a_current_save ... ok
+test deferred_restore_preserves_the_last_texture_until_upload ... ok
+test mirrored_entity_model_refuses_by_name ... ok
+test deferred_refusal_reports_once_and_leaves_fresh_world_usable ... ok
+test loaded_content_reprepares_after_device_loss ... ok
+test replacement_device_draws_identical_pixels ... ok
+test attaching_a_device_after_headless_delivery_requests_texture_bytes ... ok
+test terminal_declaration_requests_no_more_frames ... ok
+test textureless_live_model_survives_unrelated_retirement_and_module_device_loss ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/core.rs (game/target/debug/deps/core-765244186042db97)
+
+running 21 tests
+test effects::all_cascades_and_shadow_distance ... ok
+test timing::timing_200k ... ignored, 200k cubes, 600 frames; run in release on a GPU host
+test timing::timing_beacons_shadows ... ignored, Beacons camera, 40 m plane and cube; GPU timestamps on a GPU host
+test timing::timing_effects_300 ... ignored, 300-object effects scene at 2560x1440, optional per-pass GPU timestamps
+test effects::shadow_quality::fog_camera_crosses_exponent_clamp ... ok
+test effects::shadow_quality::grazing_receivers_remain_occluded ... ok
+test review::arena_capacity_is_a_named_atomic_refusal ... ok
+test effects::bloom_spreads_light_and_leaves_subthreshold_identical ... ok
+test effects::shadow_quality::single_sided_sheet_still_casts ... ok
+test effects::shadow_quality::shadow_image_statistics_sun_camera_matrix ... ok
+test effects::sun_shadow_ratio_acne_and_subdegree_stability ... ok
+test review::resize_buckets_preserve_logical_pixels_and_never_shrink ... ok
+test review::vertical_sun_sweep_keeps_shadow_edge_within_one_texel ... ok
+test effects::shadow_quality::sky_and_far_object_converge_in_height_fog ... ok
+test review::zero_quaternion_sparse_hole_and_negative_scale ... ok
+test effects::sky_gradient_sun_disc_and_height_fog ... ok
+test interpolation_teleport_untouched_and_growth ... ok
+test lit_scene_and_output_transfer ... ok
+test nonuniform_scale_matches_baked_normal_matrix ... ok
+test review::overrange_emissive_cannot_poison_bloom_or_tonemap ... ok
+test effects::shadow_quality::far_cascade_fade_is_clean ... ok
+
+test result: ok. 18 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/instances.rs (game/target/debug/deps/instances-a825149ad8aa2081)
+
+running 4 tests
+test mirrored_single_sided_nodes_keep_their_front_face ... ok
+test models_and_materials_share_named_textures_defaults_and_samplers ... ok
+test model_local_offsets_materials_tint_glow_and_alpha_mask ... ok
+test transparent_nodes_sort_by_camera_and_double_sided_draws_back_faces ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/models.rs (game/target/debug/deps/models-7d8855318ae8ede6)
+
+running 2 tests
+test textured_samples_and_normal_emissive_differences ... ok
+test samples::khronos_samples_bake_round_trip_and_have_complete_mips ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.20s
+
+     Running tests/restore_mode.rs (game/target/debug/deps/restore_mode-c46352c140ea862e)
+
+running 1 test
+test carry_overlays_fresh_definitions_open_preserves_saved_and_runtime_names ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/world.rs (game/target/debug/deps/world-bd1d240f3c2a73f6)
+
+running 5 tests
+test beacons_grid_fog_and_bloom ... ok
+test stopped_pixels_identical_across_alphas_and_agent_seeks_feed_history ... ok
+test holding_w_moves_capsule_pixels_up_screen ... ok
+test bind_refusal_pause_messages_and_perf_do_not_need_a_device ... ok
+test greybox_surface_agent_pixels_and_beacon ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/exact_game_scene-9e19ede438484862)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/authoring.rs (game/target/debug/deps/authoring-686bff81e566a8d9)
+
+running 16 tests
+test authoring_default_metadata_comes_from_the_registered_rust_writer ... ok
+test all_component_errors_include_the_file_and_exact_field_location ... ok
+test separate_component_payloads_share_one_scene_allocation_allowance ... ok
+test assets_bind_the_exact_embedded_bytes_at_bake_and_runtime ... ok
+test strict_authoring_does_not_change_lenient_save_decoding ... ok
+test handwritten_nested_data_readers_cannot_silently_discard_authoring_fields ... ok
+test instantiation_conflicts_and_incompatible_saved_types_retain_the_world ... ok
+test fragments_qualify_ids_substitute_values_and_replace_whole_components ... ok
+test identity_parent_and_dependency_errors_are_bake_errors ... ok
+test no_source_paths_ship_and_content_identity_is_independent_of_file_location ... ok
+test scene_entities_bind_to_checked_kinds_without_changing_the_world ... ok
+test opaque_bulk_data_uses_an_explicit_typed_rust_constructor ... ok
+test fragment_diagnostics_point_to_parameter_call_sites_and_unknown_overrides ... ok
+test typed_defaults_enums_and_parents_construct_the_identical_world ... ok
+test compiled_scene_overcount_refuses_before_reading_the_first_row ... ok
+test opaque_component_collection_refuses_before_decoding_oversized_storage ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (game/target/debug/deps/greybox_apple-57c1cc0b3879a3bd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/greybox_gpu-7a8e487b9fef57f7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/greybox_linux-39ea8915da25f66f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/greybox_logic-3452eacacf147120)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/place.rs (game/target/debug/deps/place-9a175a327fb9b12e)
+
+running 3 tests
+test edge_cases_and_scatter_spacing ... ok
+test bounds_include_parent_rotation_scale_and_plane_slab ... ok
+test placement_game_replays_and_restores ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-632c81157c8cb4b7)
+
+running 9 tests
+test a21_shorter_setup_preserves_materials_names_and_random_draws ... ok
+test agent_snapshots_and_pick ... ok
+test beacon_messages_journal_and_settle ... ok
+test soundscape_journals_ground_distance_beacon_and_camera_wind ... ok
+test save_mid_run_retains_clock_input_and_future_events ... ok
+test forward_parity_and_seek_invariance ... ok
+test headless_throughput ... ok
+test every_tick_save_matches_normal_script ... ok
+test shared_paranoid_continuation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/lib.rs (game/target/debug/deps/greybox_web-b9bc79e8e391f9e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/lanterns_apple-14d1d4aeb574cc21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/lanterns_gpu-e0790f9b3c0f140c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/lanterns_linux-cf297796b78be8da)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/lanterns_logic-fbba6542f89621da)
+
+running 11 tests
+test kind_tests::idle_tick_does_not_dirty_previously_read_only_columns ... ok
+test tests::level_has_matching_player_crate_obstacles_and_twelve_targets ... ok
+test scene_tests::procedural_entities_report_named_generator_with_seed ... ok
+test kind_tests::partial_lantern_without_transform_still_counts_and_updates ... ok
+test scene_tests::walking_fox_with_authored_bounds_behind_wall_changes_geometric_eyes_headlessly ... ok
+test tests::one_second_moves_at_four_point_five_and_selects_run ... ok
+test tests::save_restores_dynamic_body_timer_animation_and_lights ... ok
+test kind_tests::saved_child_replacement_fails_identically_live_and_restored ... ok
+test scene_tests::changed_scene_authored_fields_apply_while_carried_simulation_state_survives ... ok
+test tests::no_input_loses_at_exactly_three_minutes ... ok
+test kind_tests::save_load_every_tick_matches_uninterrupted_with_controller_and_embedded_assets ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.33s
+
+     Running unittests src/bin/lanterns-scene.rs (game/target/debug/deps/lanterns_scene-6894fdb6b6b72b06)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/capture.rs (game/target/debug/deps/capture-71e41381cdbca4ba)
+
+running 3 tests
+test direct_crate_stall_names_sign_board_and_clear_side ... ok
+test crate_checkpoint_finishes_route_twice_and_restores_terminal_state ... ok
+test live_terminal_recapture_preserves_input_and_fractional_clock ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+
+     Running tests/difficult_moment.rs (game/target/debug/deps/difficult_moment-14336ec28fcc7b55)
+
+running 3 tests
+test historical::historical_scene::authored_initial_world_matches_previous_rust_construction ... ok
+test historical::before::before_change_save_bytes ... ok
+test difficult_moment_repeats_and_continues_under_four_compiled_edits ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
+
+     Running tests/timing.rs (game/target/debug/deps/timing-e2468745f24666ec)
+
+running 4 tests
+test tick_10k_median ... ignored, manual 10k-tick timing; median of five
+test respawned_cached_child_matches_continuous_and_every_tick_restore ... ok
+test every_tick_save_matches_normal_script ... ok
+test saved_bindings_and_physics_v2_pins_match_continuous_and_every_tick_restore ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.16s
+
+     Running unittests src/lib.rs (game/target/debug/deps/lanterns_web-f725043653990b92)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/skinned_fixture_apple-48cb126962dc35cf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/skinned_fixture_gpu-fe7fc1a9f35fa2c7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (game/target/debug/deps/skinned_fixture_linux-9167d673b6f1f3a2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (game/target/debug/deps/skinned_fixture_logic-6b8d7222cd75aaec)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (game/target/debug/deps/sim-e4ed727d931965c8)
+
+running 8 tests
+test hundred_fox_tick_cost ... ignored, release diagnostic: 100 skinned foxes
+test first_presented_fox_matches_current_pose_in_fox_rectangle ... FAILED
+test moving_skin_and_shadow_pixels ... ok
+test pinned_pose_and_hash ... ok
+test fox_leg_ik_and_socket ... ok
+test dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions ... ok
+test root_motion_walks_the_fox_forward_and_emits_steps ... ok
+test paranoid_roundtrip_every_tick_and_mid_fade_fresh_process ... ok
+
+failures:
+
+---- first_presented_fox_matches_current_pose_in_fox_rectangle stdout ----
+
+thread 'first_presented_fox_matches_current_pose_in_fox_rectangle' (1441795) panicked at games/skinned-fixture/logic/tests/sim.rs:306:33:
+called `Result::unwrap()` on an `Err` value: "no adapter: No suitable graphics adapter found; noop support not compiled in, vulkan drivers/libraries could not be loaded, metal support not compiled in, dx12 support not compiled in, gl support not compiled in, webgpu support not compiled in"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    first_presented_fox_matches_current_pose_in_fox_rectangle
+
+test result: FAILED. 6 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+error: test failed, to rerun pass `-p skinned-fixture-logic --test sim`
+     Running unittests src/lib.rs (game/target/debug/deps/skinned_fixture_web-8cab96a61670a7a1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests asset_fixture_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests asset_fixture_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests asset_fixture_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests asset_fixture_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests beacons_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests beacons_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests beacons_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests beacons_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests bench_cubes_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests bench_cubes_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests bench_cubes_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests bench_cubes_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game
+
+running 36 tests
+test engine/src/kind.rs - kind::Kind (line 137) - compile fail ... ok
+test engine/src/args.rs - args::Args (line 29) - compile fail ... ok
+test engine/src/args.rs - args::Args (line 35) - compile fail ... ok
+test engine/src/args.rs - args::Args (line 13) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 55) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 38) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 74) - compile fail ... ok
+test engine/src/args.rs - args::Args (line 18) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 68) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 32) - compile fail ... ok
+test engine/src/args.rs - args::Args (line 23) - compile fail ... ok
+test engine/src/storage/query.rs - storage::query::QueryBorrow (line 287) - compile fail ... ok
+test engine/src/world.rs - world::Resource (line 105) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 62) - compile fail ... ok
+test engine/src/storage/query.rs - storage::query::QueryBorrow (line 277) - compile fail ... ok
+test engine/src/storage/pages.rs - storage::pages::Pages (line 20) - compile fail ... ok
+test engine/src/kind.rs - kind::Kind (line 133) - compile fail ... ok
+test engine/src/kind.rs - kind::Kind (line 128) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 20) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 50) - compile fail ... ok
+test engine/src/data/mod.rs - data::Data (line 44) - compile fail ... ok
+test engine/src/kind.rs - kind::Kind (line 120) - compile fail ... ok
+test engine/src/place.rs - place::scatter (line 94) ... ok
+test engine/src/place.rs - place::facing (line 125) ... ok
+test engine/src/place.rs - place::grid (line 54) ... ok
+test engine/src/place.rs - place::ring (line 19) ... ok
+test engine/src/place.rs - place::line (line 72) ... ok
+test engine/src/place.rs - place::ring_jittered (line 30) ... ok
+test engine/src/place.rs - place::blockout (line 254) ... ok
+test engine/src/place.rs - place::next_to (line 201) ... ok
+test engine/src/place.rs - place::on_top_of (line 169) ... ok
+test engine/src/lib.rs - (line 166) ... ok
+test engine/src/lib.rs - (line 244) ... ok
+test engine/src/lib.rs - (line 81) ... ok
+test engine/src/lib.rs - (line 119) ... ok
+test engine/src/lib.rs - (line 965) ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+   Doc-tests exact_game_app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_audio
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_bake
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_derive
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_physics
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_render
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests exact_game_scene
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests greybox_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests greybox_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests greybox_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests greybox_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lanterns_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lanterns_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lanterns_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests lanterns_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests skinned_fixture_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests skinned_fixture_gpu
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests skinned_fixture_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests skinned_fixture_web
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `-p exact-game-render --lib`
+    `-p skinned-fixture-logic --test sim`

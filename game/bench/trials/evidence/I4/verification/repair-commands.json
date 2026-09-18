@@ -1,0 +1,31 @@
+[
+  {
+    "name": "game-test-round2",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "exitCode": 101,
+    "seconds": 88.68014634400606
+  },
+  {
+    "name": "game-clippy-round2",
+    "command": [
+      "cargo",
+      "clippy",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exitCode": 0,
+    "seconds": 11.8854277189821
+  }
+]

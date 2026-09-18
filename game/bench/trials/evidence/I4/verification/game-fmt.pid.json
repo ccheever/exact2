@@ -1,0 +1,1 @@
+{"pid": 1398261, "startedAt": "2026-09-18T21:07:08.505595+00:00", "command": ["cargo", "fmt", "--manifest-path", "game/Cargo.toml", "--all", "--", "--check"]}

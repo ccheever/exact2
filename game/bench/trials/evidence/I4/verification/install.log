@@ -1,0 +1,5 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p4  1.7T  1.5T  144G  92% /
+bun install v1.3.14 (0d9b296a)
+
+Checked 8 installs across 41 packages (no changes) [2.00ms]

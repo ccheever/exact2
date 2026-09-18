@@ -1,0 +1,129 @@
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p4  1.7T  1.5T  137G  92% /
+   Compiling memchr v2.8.3
+   Compiling leb128fmt v0.1.0
+   Compiling bumpalo v3.20.3
+   Compiling contract-syntax v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/syntax)
+   Compiling exact-motion v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/motion)
+warning: exact-js@0.1.0: exact-js: no Hermes for linux at /home/ccheever/lanes/gamenext/exact2-i1/js/../../ibex/linux/lib — the executor is a stub that refuses to load (EXACT_HERMES_DIR supplies headers/macOS; EXACT_HERMES_IOS_DIR supplies iOS builds; Linux: ./scripts/build-hermes-linux.sh in ibex, or HERMES_LIB_DIR; see LLP 1027 D6)
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu/reflect)
+   Compiling exact-kernel v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/kernel)
+   Compiling exact-plan v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/plan)
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling exact-runner v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/runner)
+   Compiling contract-types v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/types)
+   Compiling markdown-parse v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/markdown/parse)
+   Compiling wasm-encoder v0.259.0
+   Compiling exact-logic-abi v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/logic/abi)
+   Compiling markdown-data v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/markdown/data)
+   Compiling caltrain-data v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/caltrain/data)
+   Compiling contract-analyze v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/analyze)
+   Compiling llp-data v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/llp/data)
+   Compiling caltrain-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/caltrain/logic)
+   Compiling contract-lower v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/lower)
+   Compiling wgpu-core v30.0.1
+   Compiling wgpu-hal v29.0.4
+   Compiling fieldnotes-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/fieldnotes/apple)
+   Compiling weatherlight-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/weatherlight/apple)
+   Compiling weatherlight-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/weatherlight/web)
+   Compiling messages-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/apple)
+   Compiling fieldnotes-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/fieldnotes/web)
+   Compiling update-lab-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/update-lab/apple)
+   Compiling messages-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/web)
+   Compiling update-lab-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/update-lab/web)
+   Compiling messages-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/linux)
+error: failed to run custom build command for `weatherlight-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/weatherlight/web)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/weatherlight-web-339c4a7ac1e33bd5/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1429959) panicked at apps/weatherlight/web/build.rs:2:61:
+  bake Weatherlight: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
+error: failed to run custom build command for `weatherlight-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/weatherlight/apple)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/weatherlight-apple-14dcbb2f5674c4b7/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1429938) panicked at apps/weatherlight/apple/build.rs:6:64:
+  bake Weatherlight: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `fieldnotes-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/fieldnotes/apple)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/fieldnotes-apple-497b758cb7addf43/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1429922) panicked at apps/fieldnotes/apple/build.rs:11:6:
+  bake Fieldnotes: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `fieldnotes-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/fieldnotes/web)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/fieldnotes-web-d575510e33a4aabb/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1429994) panicked at apps/fieldnotes/web/build.rs:7:6:
+  bake Fieldnotes: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `messages-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/apple)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/messages-apple-b93bca4fbcc3743e/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=../bake.rs
+  cargo:rerun-if-changed=../snapback/schema.q
+
+  --- stderr
+
+  thread 'main' (1429987) panicked at apps/messages/apple/../bake.rs:27:53:
+  bake Messages: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `messages-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/web)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/messages-web-34904d442454660b/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=../bake.rs
+  cargo:rerun-if-changed=../snapback/schema.q
+
+  --- stderr
+
+  thread 'main' (1430042) panicked at apps/messages/web/../bake.rs:27:53:
+  bake Messages: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `update-lab-apple v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/update-lab/apple)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/update-lab-apple-92881cc2f20f4024/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1430023) panicked at apps/update-lab/apple/build.rs:11:6:
+  bake Update Lab: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `update-lab-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/update-lab/web)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/update-lab-web-f71074c30b4517ca/build-script-build` (exit status: 101)
+  --- stderr
+
+  thread 'main' (1430047) panicked at apps/update-lab/web/build.rs:3:10:
+  bake Update Lab: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+error: failed to run custom build command for `messages-linux v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/apps/messages/linux)`
+
+Caused by:
+  process didn't exit successfully: `/home/ccheever/lanes/gamenext/exact2-i1/target/debug/build/messages-linux-02b059c76a12cd22/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=../bake.rs
+  cargo:rerun-if-changed=../snapback/schema.q
+
+  --- stderr
+
+  thread 'main' (1430052) panicked at apps/messages/linux/../bake.rs:27:53:
+  bake Messages: "TypeScript bake requires the lean Hermes executor on this producer"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

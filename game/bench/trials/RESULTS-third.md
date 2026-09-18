@@ -256,3 +256,51 @@ a stable success probability, universal capture correctness, the causal value of
 individual changes, or a ranking against browser engines. Fixed order, changed
 engine/tests/docs, model variation, shared-host load and instrument limits prevent
 those inferences. We do not pool all historical rows into an exchangeable sample.
+
+## Checkout verification and delivery
+
+[Commands and timings](evidence/I4/verification/commands.json),
+[repair reruns](evidence/I4/verification/repair-commands.json),
+[summary](evidence/I4/verification/summary.json), and
+[final evidence audit](evidence/I4/verification/final-audit.json) are retained.
+These checks ran after all timed sessions and do not enter trial timing cells.
+
+- Game Rust workspace: **658 passed, 2 failed, 26 ignored**. The failures are
+  `skinned_normal_is_inverse_transpose_under_scaled_rotated_joints` and
+  `first_presented_fox_matches_current_pose_in_fox_rectangle`; both explicitly
+  report no suitable graphics adapter. No assertion was disabled. The suite
+  includes the inherited 200k interleaved/churn, bounded layout, movement-stall,
+  capture-clock and pending-asset regressions. Device-dependent tests that return
+  early do not establish pixel correctness.
+- Game workspace Clippy with `-D warnings` and formatting pass. Root formatting
+  and boot pass; boot remains two reachable JS modules and one Wasm reference.
+- All six ordinary Linux proofs pass: Beacons **57**, Greybox **68**, Lanterns
+  **11**, asset fixture **19**, skinned fixture **12**, cubes **3**: **170 assertions**,
+  zero failures. This parent sweep is ordinary mode; the timed A sessions' repin
+  workflows separately ran their three-mode checks.
+- Bun: **59 passed, 2 failed**, **1,014 assertions**. The generated game reaches
+  web-proof CDP startup and fails with `null ... output.setEncoding` on this box
+  without Chrome. Its three Rust tests pass. The feel test lacks prebuilt
+  60/120 Hz artifacts. The generated game and its temporary shells are cleaned up.
+- Full root Cargo build/test/Clippy were attempted and fail at TypeScript app
+  bakes requiring the unavailable lean Hermes executor. They are not green.
+- Frozen-lockfile Bun install and staged caps pass. The source reconstruction
+  audit applies all six diffs to their pinned inputs and matches **37 file hashes**;
+  its source-only copies are deleted. The 12 final evidence-audit checks pass.
+
+One local repair was necessary: ignored asset-fixture model/texture outputs lacked
+the bake manifest and caused the first game-test and Clippy runs to refuse an
+“authored asset” collision. Both failed logs remain. The **2,190-byte model** and
+**1,475-byte texture** were preserved under `scratch/I4/stale-assets/` with their
+[hash receipt](evidence/I4/verification/stale-assets.json); the ordinary proof bake
+regenerated them. The second game-test run reaches only the two GPU failures, and
+Clippy passes. No tracked fixture, deterministic position, or pin changed in this
+checkout. Free space stayed above the 25 GiB floor (136 GiB at final validation).
+
+No engine/host/game implementation or public API signature changed. The only
+harness edit relocates scratch from I2 to I4; it is committed separately from
+results/evidence. The report, retained evidence and `QUEUE.md` follow-ups are the
+remaining delivery. There were no collaboration sub-agents, pushes or remote Git
+commands. GPU pixels, Chrome/browser execution, Apple SDK/runtime and physical
+audio remain unverified. The full-SHA after2 choice and local `next/trunk` mismatch
+are disclosed above; no branch ref was rewritten to conceal that choice.

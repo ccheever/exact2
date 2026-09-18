@@ -1,0 +1,58 @@
+{
+  "rust": {
+    "passed": 658,
+    "failed": 2,
+    "ignored": 26,
+    "failedTests": [
+      "skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints",
+      "first_presented_fox_matches_current_pose_in_fox_rectangle"
+    ]
+  },
+  "proofs": {
+    "proof-asset-fixture": {
+      "assertions": 19,
+      "passed": true,
+      "summary": "PROOF PASS asset-fixture linux: 0 failures; 21.813 s"
+    },
+    "proof-beacons": {
+      "assertions": 57,
+      "passed": true,
+      "summary": "PROOF PASS beacons linux: 0 failures; 72.969 s"
+    },
+    "proof-cubes": {
+      "assertions": 3,
+      "passed": true,
+      "summary": "PROOF PASS cubes linux: 0 failures; 20.877 s"
+    },
+    "proof-lanterns": {
+      "assertions": 11,
+      "passed": true,
+      "summary": "PROOF PASS lanterns linux: 0 failures; 58.546 s"
+    },
+    "proof-greybox": {
+      "assertions": 68,
+      "passed": true,
+      "summary": "PROOF PASS greybox linux: 0 failures; 22.024 s"
+    },
+    "proof-skinned-fixture": {
+      "assertions": 12,
+      "passed": true,
+      "summary": "PROOF PASS skinned-fixture linux: 0 failures; 22.900 s"
+    }
+  },
+  "bun": {
+    "passed": 59,
+    "failed": 2,
+    "expectCalls": 1014
+  },
+  "gameClippy": "passed round 2 after stale asset preservation",
+  "gameFmt": "passed",
+  "rootBuildTestClippy": "failed: unavailable lean Hermes executor",
+  "rootFmt": "passed",
+  "boot": "passed",
+  "apiChanges": null,
+  "trialBuildOutputsDeleted": true,
+  "caps": "passed",
+  "proofAssertionTotal": 170,
+  "finalAuditChecks": 12
+}

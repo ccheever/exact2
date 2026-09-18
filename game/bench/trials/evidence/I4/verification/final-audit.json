@@ -1,0 +1,53 @@
+{
+  "checks": [
+    {
+      "name": "six retained I4 records",
+      "passed": true
+    },
+    {
+      "name": "24 measurement rows",
+      "passed": true
+    },
+    {
+      "name": "all 18 historical measurement rows byte-identical",
+      "passed": true
+    },
+    {
+      "name": "evaluator unchanged",
+      "passed": true
+    },
+    {
+      "name": "prompts unchanged",
+      "passed": true
+    },
+    {
+      "name": "baseline/a-4 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "baseline/b-4 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "after2/a-1 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "after2/b-1 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "after2/a-2 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "after2/b-2 source/auth/build/dependency links deleted",
+      "passed": true
+    },
+    {
+      "name": "37 source hashes reconstructed",
+      "passed": true
+    }
+  ],
+  "passed": true
+}

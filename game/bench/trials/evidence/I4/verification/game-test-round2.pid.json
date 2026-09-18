@@ -1,0 +1,1 @@
+{"pid": 1434104, "command": ["cargo", "test", "--manifest-path", "game/Cargo.toml", "--workspace", "--no-fail-fast"]}

@@ -1,0 +1,1 @@
+{"pid": 1395818, "startedAt": "2026-09-18T21:07:01.507196+00:00", "command": ["cargo", "clippy", "--manifest-path", "game/Cargo.toml", "--workspace", "--all-targets", "--", "-D", "warnings"]}
