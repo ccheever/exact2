@@ -603,6 +603,14 @@
       -12.0,
       0.0
     ],
+    "reload": {
+      "added": [],
+      "applied": [],
+      "kept": [],
+      "omitted": 0,
+      "removed": [],
+      "unmatched": []
+    },
     "restored": false,
     "scene_identity": {
       "assets": {
@@ -1224,6 +1232,14 @@
       -12.0,
       0.0
     ],
+    "reload": {
+      "added": [],
+      "applied": [],
+      "kept": [],
+      "omitted": 0,
+      "removed": [],
+      "unmatched": []
+    },
     "restored": false,
     "scene_identity": {
       "assets": {

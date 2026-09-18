@@ -38,7 +38,16 @@ fn main() {
                 ("-12.0, 0.0", "-18.0, 0.0"),
             ],
         ),
-        ("clip", vec![("\"Run\"", "\"Walk\"")]),
+        (
+            "clip",
+            vec![
+                ("\"Run\"", "\"Walk\""),
+                (
+                    "Animation::looping(\"Survey\")",
+                    "Animation::looping(\"Walk\")",
+                ),
+            ],
+        ),
         ("appearance", vec![("glow * 5.0", "glow * 9.0")]),
     ] {
         let mut edited = source.clone();

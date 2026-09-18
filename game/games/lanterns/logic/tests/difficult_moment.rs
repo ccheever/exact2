@@ -67,7 +67,7 @@ fn snapshot<G: Game>(s: &mut Sim<G>) -> Value {
         "input":w["input"], "timer":w["resources"]["Session"],
         "physics_gravity":w["resources"]["Physics"]["gravity"],
         "scene_identity":w["resources"]["SceneIdentity"], "entities":entities,
-        "logs":read(s,json!({"op":"logs"}))})
+        "reload":w["reload"], "logs":read(s,json!({"op":"logs"}))})
 }
 fn route() -> (Sim<Lanterns>, Vec<u8>, Value) {
     let mut s = Sim::<Lanterns>::new(options()).unwrap();
@@ -123,8 +123,7 @@ fn edited_scene(edit: &str) -> Options {
         rows.iter_mut().find(|r| r["id"] == "ledge").unwrap()["parameters"]["position"][0] =
             json!(11);
     } else {
-        rows.iter_mut().find(|r| r["id"] == "lantern-12").unwrap()["overrides"] =
-            json!({"bulb":{"Material":{"color":[0.1,0.35,0.8,1]}}});
+        rows.iter_mut().find(|r| r["id"] == "lantern-12").unwrap()["overrides"] = json!({"bulb":{"Material":{"color":[0.1,0.35,0.8,1]},"PointLight":{"color":[1,0.42,0.08],"intensity":2,"range":7}}});
     }
     // Per-process temporary authored source, below Cargo's output, removed after bake.
     let path =
@@ -136,25 +135,66 @@ fn edited_scene(edit: &str) -> Options {
     options.scene = result.unwrap().content;
     options
 }
-fn probe<G: Game>(bytes: &[u8], options: Options) -> Value {
+fn probe<G: Game>(bytes: &[u8], options: Options, unedited: bool) -> Value {
     let mut s = Sim::<G>::from_values(&options.values()).unwrap();
     let fresh = snapshot(&mut s);
     read(&mut s, json!({"op":"clock","owner":"agent","now":9000}));
     s.restore_bound(bytes).unwrap();
-    // Covers every serialized component/resource, cursor, timer, journal, held
-    // input and future input queue, not merely the selected JSON fields below.
-    assert_eq!(
-        s.save(),
-        bytes,
-        "immediate carry must preserve every EXSIM byte"
-    );
+    // The unchanged row still checks every EXSIM byte, including executor and queue.
+    let identical = s.save() == bytes;
+    if unedited {
+        assert!(identical, "unedited carry must preserve every EXSIM byte");
+    }
     let restored = snapshot(&mut s);
     let mut trajectory = Vec::new();
     for _ in 0..120 {
         ticks(&mut s, 1);
+        if s.world()
+            .get::<exact_game::Transform>("ledge")
+            .unwrap()
+            .position
+            .x
+            == 11.0
+        {
+            let ledge = s.world().named("ledge").unwrap();
+            let hit = exact_game_physics::raycast(
+                s.world(),
+                exact_game::Vec3::new(12.5, 5.0, 8.0),
+                -exact_game::Vec3::Y,
+                10.0,
+                u32::MAX,
+            )
+            .unwrap();
+            assert_eq!(
+                hit.entity, ledge,
+                "new ledge edge must reach collision queries"
+            );
+            let old = exact_game_physics::raycast(
+                s.world(),
+                exact_game::Vec3::new(8.5, 5.0, 8.0),
+                -exact_game::Vec3::Y,
+                10.0,
+                u32::MAX,
+            )
+            .unwrap();
+            assert_ne!(old.entity, ledge, "old ledge edge must disappear");
+        }
         trajectory.push(snapshot(&mut s));
     }
-    json!({"fresh":fresh,"restored":restored,"immediate_save_byte_identical":true,"trajectory":trajectory})
+    json!({"fresh":fresh,"restored":restored,"immediate_save_byte_identical":identical,"trajectory":trajectory})
+}
+fn assert_report(row: &Value, kind: &str, entity: &str, component: &str, field: &str) {
+    let items = row["restored"]["reload"][kind].as_array().unwrap();
+    assert!(
+        items
+            .iter()
+            .any(|i| i["entity"] == entity && i["component"] == component && i["field"] == field),
+        "missing {kind} {entity}.{component}.{field}: {items:?}"
+    );
+    assert!(row["restored"]["logs"]
+        .to_string()
+        .contains(&format!("reload {kind}: {entity}.{component}.{field}")));
+    assert_eq!(row["restored"]["reload"], row["trajectory"][119]["reload"]);
 }
 fn artifact(name: &str, bytes: &[u8]) {
     let path = root().join("fixtures").join(name);
@@ -201,11 +241,11 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
         "difficult-moment.json",
         serde_json::to_string_pretty(&facts).unwrap().as_bytes(),
     );
-    let v1 = probe::<Lanterns>(&bytes, options());
-    let placement = probe::<Lanterns>(&bytes, edited_scene("placement"));
-    let physics = probe::<physics_edit::Lanterns>(&bytes, options());
-    let clip = probe::<clip_edit::Lanterns>(&bytes, options());
-    let appearance = probe::<appearance_edit::Lanterns>(&bytes, edited_scene("appearance"));
+    let v1 = probe::<Lanterns>(&bytes, options(), true);
+    let placement = probe::<Lanterns>(&bytes, edited_scene("placement"), false);
+    let physics = probe::<physics_edit::Lanterns>(&bytes, options(), false);
+    let clip = probe::<clip_edit::Lanterns>(&bytes, options(), false);
+    let appearance = probe::<appearance_edit::Lanterns>(&bytes, edited_scene("appearance"), false);
     for tick in 0..120 {
         ticks(&mut a, 1);
         assert_eq!(
@@ -214,14 +254,14 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
             "unedited continuation tick {tick}"
         );
     }
-    assert_eq!(v1["trajectory"], placement["trajectory"]);
+
     assert_eq!(
         placement["fresh"]["entities"]["ledge"]["Transform"]["position"][0],
         11.0
     );
     assert_eq!(
         placement["restored"]["entities"]["ledge"]["Transform"]["position"][0],
-        10.0
+        11.0
     );
     assert_eq!(
         clip["trajectory"][0]["entities"]["fox"]["Animation"]["clip"],
@@ -230,7 +270,7 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
     assert_eq!(physics["fresh"]["physics_gravity"], json!([0., -18., 0.]));
     assert_eq!(
         physics["restored"]["physics_gravity"],
-        json!([0., -12., 0.])
+        json!([0., -18., 0.])
     );
     assert_eq!(
         appearance["fresh"]["entities"]["lantern-12/bulb"]["Material"]["color"],
@@ -239,7 +279,7 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
     for state in appearance["trajectory"].as_array().unwrap() {
         assert_eq!(
             state["entities"]["lantern-12/bulb"]["Material"]["color"],
-            json!([0.18, 0.16, 0.14, 1.0])
+            json!([0.1, 0.35, 0.8, 1.0])
         );
     }
     assert_eq!(
@@ -251,7 +291,7 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
         json!(0.016666668)
     );
     // The supplementary moment really has both velocities, and tests their carry too.
-    let moving_v1 = probe::<Lanterns>(&moving, options());
+    let moving_v1 = probe::<Lanterns>(&moving, options(), true);
     let body = &moving_v1["restored"]["entities"]["crate"]["Body"];
     for field in ["velocity", "spin"] {
         assert!(body[field]
@@ -260,11 +300,125 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
             .iter()
             .any(|v| v.as_f64().unwrap() != 0.0));
     }
-    let moving_physics = probe::<physics_edit::Lanterns>(&moving, options());
-    let moving_placement = probe::<Lanterns>(&moving, edited_scene("placement"));
-    let moving_clip = probe::<clip_edit::Lanterns>(&moving, options());
-    let moving_appearance = probe::<appearance_edit::Lanterns>(&moving, edited_scene("appearance"));
-    assert_eq!(moving_v1["trajectory"], moving_placement["trajectory"]);
+    let moving_physics = probe::<physics_edit::Lanterns>(&moving, options(), false);
+    let moving_placement = probe::<Lanterns>(&moving, edited_scene("placement"), false);
+    let moving_clip = probe::<clip_edit::Lanterns>(&moving, options(), false);
+    let moving_appearance =
+        probe::<appearance_edit::Lanterns>(&moving, edited_scene("appearance"), false);
+    for (baseline, edited, name) in [
+        (&v1, &placement, "placement"),
+        (&v1, &physics, "physics"),
+        (&v1, &clip, "clip"),
+        (&v1, &appearance, "appearance"),
+        (&moving_v1, &moving_placement, "placement"),
+        (&moving_v1, &moving_physics, "physics"),
+        (&moving_v1, &moving_clip, "clip"),
+        (&moving_v1, &moving_appearance, "appearance"),
+    ] {
+        // Exact state at carry; report/journal and authored fields may change.
+        for field in ["input", "timer"] {
+            assert_eq!(
+                baseline["restored"][field], edited["restored"][field],
+                "{name} {field}"
+            );
+        }
+        for (entity, component) in [
+            ("player", "Character"),
+            ("crate", "Body"),
+            ("fox", "Animation"),
+            ("lantern-12", "Lantern"),
+        ] {
+            assert_eq!(
+                baseline["restored"]["entities"][entity][component],
+                edited["restored"]["entities"][entity][component],
+                "{name} {entity}.{component}"
+            );
+        }
+        for i in 0..120 {
+            let a = &baseline["trajectory"][i];
+            let b = &edited["trajectory"][i];
+            assert_eq!(a["input"], b["input"], "{name} input {i}");
+            assert_eq!(a["timer"], b["timer"], "{name} timer {i}");
+            // Gravity intentionally changes rigid-body integration. Placement can
+            // affect the player/ledge contact; appearance and clip cannot.
+            if name != "physics" {
+                assert_eq!(
+                    a["entities"]["crate"]["Body"], b["entities"]["crate"]["Body"],
+                    "{name} crate {i}"
+                );
+            }
+            if matches!(name, "clip" | "appearance") {
+                for (entity, component) in [
+                    ("player", "Character"),
+                    ("player", "Transform"),
+                    ("lantern-12", "Lantern"),
+                ] {
+                    assert_eq!(
+                        a["entities"][entity][component], b["entities"][entity][component],
+                        "{name} {entity}.{component} {i}"
+                    );
+                }
+            }
+        }
+    }
+    assert_report(&placement, "applied", "ledge", "Transform", "position");
+    assert_report(&physics, "applied", "resource", "Physics", "gravity");
+    assert_report(&clip, "kept", "fox", "Animation", "clip");
+    assert_report(
+        &appearance,
+        "applied",
+        "lantern-12/bulb",
+        "Material",
+        "color",
+    );
+    assert_report(
+        &appearance,
+        "kept",
+        "lantern-12/bulb",
+        "PointLight",
+        "intensity",
+    );
+    assert!(v1["restored"]["reload"]["kept"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(!clip["restored"]["reload"]["kept"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|i| i["component"] == "PointLight"));
+    for row in placement["trajectory"].as_array().unwrap() {
+        assert_eq!(row["entities"]["ledge"]["Transform"]["position"][0], 11.0);
+    }
+    // The fox remains supported past the old edge, then leaves the new edge.
+    assert_eq!(
+        placement["trajectory"][45]["entities"]["player"]["Character"]["grounded"],
+        true
+    );
+    assert_eq!(
+        v1["trajectory"][45]["entities"]["player"]["Character"]["grounded"],
+        false
+    );
+    // A genuine landing on the shifted ledge, through the restored physics executor.
+    let landing = placement["trajectory"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| {
+            s["entities"]["player"]["Character"]["grounded"] == true
+                && s["entities"]["player"]["Transform"]["position"][1]
+                    .as_f64()
+                    .unwrap()
+                    > 2.0
+        })
+        .expect("fox must land on the moved ledge");
+    assert!(
+        landing["entities"]["player"]["Transform"]["position"][0]
+            .as_f64()
+            .unwrap()
+            >= 9.0
+    );
+
     let report = json!({"v1":v1,"placement":placement,"physics":physics,"clip":clip,"appearance":appearance,
         "supplementary_moving_crate":{"v1":moving_v1,"physics":moving_physics,"placement":moving_placement,"clip":moving_clip,"appearance":moving_appearance}});
     // Full 120-tick per-edit records are written only when explicitly requested.

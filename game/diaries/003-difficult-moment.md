@@ -1,9 +1,11 @@
 # I3 — hold a difficult moment while editing Lanterns
 
-2026-09-18, Linux x86-64, headless. **Carry preserves state, but does not explain
-how an edit interacts with it.** All four restores succeed with the entire EXSIM
-save bit-identical. Two authored changes silently disappear; executable changes
-apply at the next relevant tick. No engine behavior was fixed.
+2026-09-18, Linux x86-64, headless. **T2: carry now explains and applies authored
+edits through a three-way merge.** The old build's tick-zero Data, new build's
+tick-zero Data, and carried values distinguish unchanged authored fields from
+simulation state. The unedited continuation retains its original hash pins and
+complete-save equality. The original I3 findings (silent placement/colour loss and
+split gravity) motivated this change; the table below records the new behavior.
 
 The exact requested combination was **not achieved**. Lanterns has no animation
 blend or jump clip: airborne selects `Run`; `Animation` stores only `clip`,
@@ -23,13 +25,13 @@ The fixtures are in [`../games/lanterns/fixtures/`](../games/lanterns/fixtures/)
   Sim helpers; `clock` dispatches the existing agent operation. `after_ticks`
   schedules the same `InputEvent::Key` at an explicit host timestamp.
   `checkpoint` is a recorder marker and executes no simulation mutation.
-- `difficult-moment.sim`: 81,835-byte EXSIM v5 save at **tick 225 (3.75 s)**.
+- `difficult-moment.sim`: 131,793-byte EXSIM v6 save at **tick 225 (3.75 s)**.
   Two independent scripted runs produce **`0xec3b43cc9f709c4c`**, and their complete
   save bytes match. The normal test compares against the committed save.
 - `difficult-moment.json`: hash pair, launch/support evidence, components,
   timer, held input, spring sample, pending input and journals, including the
   two unmet requirements. No animation weights exist to record.
-- `moving-crate.sim`: 80,855-byte supplementary save at tick 133, hash
+- `moving-crate.sim`: 130,813-byte supplementary save at tick 133, hash
   `0x676338add4cd9154`. Both velocities are nonzero and `Body.asleep == false`.
 - `difficult-moment.continuations.jsonl`: restored boundary plus **every one of
   120 continued ticks for each of five builds** (605 records). This records
@@ -69,44 +71,85 @@ The original scene and shipped game logic remain unchanged.
 Each destination first starts fresh with its edited construction, establishes
 agent ownership at host time 9000 ms, and calls
 `Sim::restore_bound(&mut self, &[u8]) -> Result<(), DataError>`, the same path
-used by `WorldSurface::restore`. Immediately afterward the test compares the
-**complete save**, including physics executor bytes, held input and queued future
-input, with v1. It then advances exactly 120 ticks. The unedited restore's
+used by `WorldSurface::restore`. For the unedited row, the test compares the **complete save**, including physics
+executor bytes, held input and queued future input, with v1. Edited rows compare
+unaffected fields at restore and throughout continuation; authored changes and
+reload journal lines intentionally change their complete saves. It then advances exactly 120 ticks. The unedited restore's
 trajectory is compared at every tick with uninterrupted v1 execution. The
 supplementary moving-crate save takes the same paths and continuation length.
 
 The third edit replaces the running selection `Run` with the Fox asset's
-existing `Walk` clip. It tests replacement by a different clip name, not an asset
+existing `Walk` clip, and now changes the setup initializer `Survey` to `Walk`
+to exercise the `kept` report. It tests replacement by a different clip name, not an asset
 file replacement retaining the same clip name. A separate CPU test samples
 both real clips and confirms different skinned vertices; no GPU is needed.
 
-## Per-edit result
+## Per-edit result (T2)
 
-“Preserved” below means bit-for-bit **at restore**, not that a running simulation
-should stay frozen. Every row preserves player/crate velocity, animation cursor,
-all spring fields, held and queued input, and timer at that boundary. The
-supplementary checkpoint verifies the nonzero crate velocities too. No carry
-refusal or corruption was observed.
+Every row preserves player/crate velocities, animation cursor, spring state,
+held/queued input, and timer at restore. The moving-crate fixture proves the
+nonzero velocities too. During continuation, inputs and timer remain identical
+in every row; crate state remains identical except when gravity intentionally
+changes integration. Clip and appearance preserve character and spring trajectories.
 
-| Second build | Continue / effect | Difficult state after continuing | Understandable to the developer? | What the value is today |
-| --- | --- | --- | --- | --- |
-| **Ledge +1 m X**: `scene.json` position 10 → 11 | Succeeds, **silently ignores edit**. Fresh build has X=11; restore and all 120 ticks have X=10. Entire trajectory equals v1. Only a fresh restart using the new scene applies it. | All requested existing state preserved; no field reset. Crate is already sleeping at apex, independently of reload. | `state` exposes old Transform and saved construction args (`restoredFrom` at the restore boundary). No journal line or reload report says the new placement was ignored. A developer must compare values. | Authored placement becomes persistent `Transform.position`; the scene has provenance and a digest, but restore retains saved `Options.scene` and saved components. No authored-value merge policy. |
-| **Jump 6.4 → 8; gravity 12 → 18**: change the jump literal, character tick acceleration, and setup's `Physics.gravity` | Succeeds, **partly applies**. At +1, character velocity Y is −0.2999985 instead of −0.1999985. The next eligible jump (+76) starts at 8 m/s. But carried `Physics.gravity` remains `[0,-12,0]`; fresh build has `[0,-18,0]`. | No velocity reset at restore. Thereafter Character velocity/position change as new code executes. Animation progress, spring anchors, held/queued input and elapsed timer continue. Earlier landing makes the queued +76 jump eligible in v2; v1 is still falling and ignores that same press. | Effects are deterministic but the split between character gravity and rigid-body gravity is surprising. `state` exposes `Character.velocity` and the old `Physics.gravity`; logs contain ordinary `jump` events, with no changed-constant notice. | Jump strength and character gravity are **authored constants in executable tick code**, unknown to the engine as editable properties. `Physics.gravity` is a **persistent resource field that setup wrote once**. Only a restart applies that setup edit. |
-| **Running clip Run → Walk** | Succeeds. Saved Run remains at the exact restore boundary; Walk applies on the **next tick**. | `fox.Animation.clip` changes, and **`fox.Animation.seconds` resets** from 0.55000013 to 0.016666668 at +1, rather than advancing to 0.5666668. `speed` and `looped` survive. No blend weights exist. Other difficult state follows v1 exactly. | `state` shows Walk and the reset cursor. No journal or reload message explains lost phase. Reading `Animation::play` makes it predictable, but the reload offers no explanation. | Clip selection is a tick-code **authored constant**; `Animation.clip/seconds/speed/looped` are **persistent component state**, despite driving presentation. CPU skinned vertices are derived presentation, rebuilt by feed. No engine classification links the new clip to the old cursor. |
-| **Lantern appearance**: bulb colour `[.18,.16,.14,1]` → `[.1,.35,.8,1]`; intensity gain 5 → 9 | Succeeds, **partly applies**. Fresh colour is blue; restore and 120 ticks retain the old colour. At +1 intensity is 3.0626986 instead of 1.7014992 (gain 9/5). Colour needs a fresh restart; gain takes the next tick. | Spring configuration, anchor tick, target, start value and start velocity are preserved. Animation, velocities, inputs and timer follow v1; only tick-written intensity differs. No spring restart. | `state` exposes the mixed result; no journal or reload report explains why one half applied. No “next spawn” mechanism is exercised—this game spawns these lanterns only during setup. | Colour is **authored scene data saved as `Material.color`**. Gain is an **authored tick-code constant**. `PointLight.intensity` is conceptually **derived presentation**, but is still saved/hashed component state overwritten each tick; the engine has no separate lifetime policy for it. |
+| Second build | Applied / kept | Continued result and evidence |
+| --- | --- | --- |
+| **Ledge +1 m X** | `applied ledge.Transform.position [10,1.2,8] → [11,1.2,8]`; scene digest also applies. | X=11 at restore and all 120 ticks. Rays at X=12.5 hit the new edge; X=8.5 no longer hits the ledge. Fox lands at tick 242 at `[10.374183,3.1099114,8.408652]` and remains supported past the old edge (tick 271 is grounded only in the edited row). The renderer's real CPU feed uploads X=11 on the next tick. |
+| **Jump 6.4 → 8; gravity 12 → 18** | `applied resource.Physics.gravity [0,-12,0] → [0,-18,0]`. | Rigid bodies and tick-code character acceleration now agree. The queued +76 jump still starts at 8 m/s. No velocity reset at restore. |
+| **Running clip Run → Walk; initializer Survey → Walk** | `kept fox.Animation.clip Survey → Walk: initializer changed, applies on restart`. | Saved Run and its cursor survive restore. Tick code selects Walk at +1 and `Animation::play` resets seconds to 0.016666668, as before. Real Fox Run/Walk CPU skinning remains different. |
+| **Lantern appearance**: bulb colour changes, intensity initializer 0 → 2, tick gain 5 → 9 | `applied lantern-12/bulb.Material.color`; `kept lantern-12/bulb.PointLight.intensity 0 → 2`; scene digest applies. | Blue material persists and reaches the CPU renderer feed; the simulation's current intensity survives restore and the new gain applies on the next tick. Spring state is unchanged. Unedited light initializers produce no kept noise in other rows. |
 
-The saved construction argument wins even though `restore_bound` retains current
-**live** bindings. There is no “applied / ignored / deferred” per-field report.
-Immediate restore success alone therefore does not establish the claim that
-every edit has an understandable effect.
+Reports are asserted in both `state.world.reload` and the canvas journal, and
+remain unchanged through tick +120. They retain at most 64 items plus an omitted
+count. Existing host-level Continue/Restart outcome messages remain intact.
+The changed intensity and clip initializers extend the original four edits so
+simulation-owned fields exercise `kept`; the shipped game/scene is unchanged.
 
 | Build | Hash at restored tick 225 | Hash at +1 | Hash at +120 (tick 345) |
 | --- | --- | --- | --- |
 | v1 | `ec3b43cc9f709c4c` | `bf22b9b91da4f03c` | `14e9fd0a88907090` |
-| placement | `ec3b43cc9f709c4c` | `bf22b9b91da4f03c` | `14e9fd0a88907090` |
-| physics | `ec3b43cc9f709c4c` | `2573b41091925c32` | `60d02285cb7a8705` |
+| placement | `5676ee63de32a8ed` | `839f88fa13f1e0cd` | `d09155ed691c6021` |
+| physics | `626a26177e322ed0` | `20b8094d1b63af2b` | `1a8f375f1eef7193` |
 | clip | `ec3b43cc9f709c4c` | `f25fc07ab444b712` | `607a57ff1393d62f` |
-| appearance | `ec3b43cc9f709c4c` | `a154ab3313643b77` | `e4d43103bb91b117` |
+| appearance | `95b4b91d6f16f034` | `5f70c2446656ff54` | `8808ff8b40c06cf4` |
+
+## Merge bounds, choices, and unfavourable cases
+
+EXSIM v6 stores a compact bulk tick-zero projection: the apex save grows by
+49,958 bytes (81,835 → 131,793); the moving save grows by the same amount.
+EXSIM v5 is explicitly refused because it lacks the old authored base. This
+follows the repository's pre-1.0 no-migration rule. The base advances to the new
+initializer after a successful restore. Save/hash representation of `Entity`
+and `Id<K>` is unchanged; merge comparisons resolve unique names across reordered
+spawns. Unnamed rows require agreeing indices/component sets and a surviving
+carried incarnation. Added/removed entities/components are deferred to restart.
+
+The randomized test checks 128 worlds with random initializer edits and carried
+values: identity, every applied/kept value, skipped-field exclusion, identical
+reports, saves and hashes on two runs. Separate tests cover nested skipped fields,
+entity/typed handles under interleaved spawn order, structural changes, churn,
+report overflow, and explicit budget refusal. These assert positive report entries
+and changed values; returning an empty report or removing the merge fails them.
+
+An isolated **200,000-entity** run reverses spawn order, interleaves component sets,
+recycles every third slot and edits all 400,000 Probe fields. It checks every result,
+including after the 64-item report cap: **3.248 s merge**, **1.246 s construction and
+projection**, **1,008,688 KiB process peak RSS**, final hash `1897ba3ddadebdf1`.
+The base is **11,672,475 bytes**, the edited initializer **23,872,519 bytes**.
+These are optimized dev/test CPU observations on this shared machine. The first
+run explicitly refused the original 512 MiB decode allowance; the final limit is
+1 GiB across both decoded projections (or an importer's tighter shared budget).
+
+Projection limits: 1,000,000 slots, 256 storage types, 16 million visits, depth 64,
+512 MiB accounted projection storage and 128 MiB encoded base. Exceeding them
+returns a named error; atomic restore leaves the running simulation intact.
+Work is O(V log V) in visited data with bounded nesting, runs only at construction
+or restore, and is never triggered by a tick. Custom Data implementations remain
+trusted code. Static collider translation now uses Rapier's affected contact
+islands instead of waking every body; a negative-control test moves a sleeping
+body's support and checks that body falls while a remote sleeper stays byte-identical.
+I3 includes the real character controller and both asleep/moving crate checkpoints.
+Existing deferred-asset surface restore tests cover setup waiting for assets.
 
 ## CPU timing and memory
 
@@ -121,7 +164,7 @@ The existing recording `Writes` backend performs CPU preparation/copies and
 omits GPU uploads. Asset parse/setup and initial feed are outside per-tick timing.
 Instrumentation is `#[cfg(test)]` and opt-in; production has no timing changes.
 
-One isolated final run, median of the 120 per-tick samples:
+Original I3 baseline run, median of the 120 per-tick samples:
 
 | Measurement | Result |
 | --- | ---: |
@@ -153,11 +196,12 @@ cargo test --manifest-path game/Cargo.toml -p exact-game-render difficult_moment
 
 Set `EXACT_I3_OUT` to a directory to retain full observations; fixture changes
 require the explicit `EXACT_I3_RECORD=1` mode. The ordinary deterministic test
-never rewrites pins. The original game tests/proofs and all existing hashes are
-unchanged. No root workspace membership or public API was added.
+never rewrites pins. The original game proof hashes and unedited continuation pins are unchanged.
+Only the explicitly edited I3 rows and versioned save fixtures are regenerated;
+the root workspace gains no game dependency.
 
 
-## Verification
+## Original I3 verification (before T2)
 
 - `cargo test --manifest-path game/Cargo.toml --workspace --no-fail-fast`:
   **408 passed, 0 failed, 12 ignored**. The ignored I3 timing test was run
@@ -185,3 +229,26 @@ Unverified here: actual GPU drawing/timing, browser reload integration, Apple
 hosts, and the exact requested simultaneous blend-plus-moving-crate apex.
 The first two state requirements are recorded honestly as absent/unreached;
 none of the passing checks upgrades them into a demonstrated capability.
+
+## T2 verification before trunk integration
+
+- Game workspace: **453 passed, 0 failed, 14 ignored**; the 200k reload diagnostic
+  was also run explicitly and passed. Game clippy with `-D warnings`, formatting,
+  caps and boot pass. No unedited hash or position pin changed.
+- All Linux proofs: **130/130** (asset-fixture 6, Beacons 54, Greybox 62,
+  Lanterns 8), including complete continuation-save equality.
+- `cd game && bun test`: **49 passed, 2 environmental failures**, unchanged:
+  missing Chrome and prebuilt feel distributions. Root build/test/clippy cannot
+  finish app bakes without this producer's lean Hermes executor; root formatting,
+  caps and boot pass.
+- The existing 500,001-entity renderer test passes unchanged. Initializer encoding
+  now streams each component rather than retaining a whole tick-zero value tree.
+  The former Lanterns “ignore edited scene” test now asserts applied authored
+  placement/digest while retaining all simulation-state and plain-restore checks.
+- I3 fixtures were regenerated only through `EXACT_I3_RECORD=1`; ordinary runs
+  compare them. The same-build v1 hashes remain `ec3b43cc9f709c4c`,
+  `bf22b9b91da4f03c`, `14e9fd0a88907090`.
+
+The renderer evidence is its actual CPU feed/upload seam, not GPU pixels. GPU,
+Chrome, Apple SDK/runtime, physical sound, and the original simultaneous
+blend-plus-moving-crate apex remain unverified/unavailable here.
