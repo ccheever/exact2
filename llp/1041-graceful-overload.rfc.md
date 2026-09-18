@@ -2508,6 +2508,10 @@ one repetition remains outside its fixed window. Idle medians are 0.1–0.6 ms.
 The export span includes synchronous Rust settlement, not subsequent JavaScript
 batch application or paint. It identifies work to reduce without attributing
 the whole cost to data generation, keys or layout individually.
+The observer does not wrap `exact_resize`, whose host entry also advances due
+timers. These `exact_advance` samples therefore do not account for all timer
+settlement during resize; comparing that export alone can miss work performed
+by another entry point.
 
 Storm's 128 fulfillments occupy 123.8–127.7 ms envelopes, with 109.8–113.8 ms inside
 the direct Wasm calls. A small per-call median of 0.8 ms does not make the aggregate
@@ -2579,3 +2583,30 @@ The partial result covers 563 artifacts/208,058,993 bytes in
 `4f97f8d6ff60302af8eb8cf81c67f5b548231c060dce97c5e808869b8ac77472`.
 The original failed V2 run is unchanged. No complete six-cell PASS or physical
 120 Hz claim follows.
+
+A separate corrected Storm continuation runs three fresh processes once, with
+the same d6 binary `8a74d4f6…`, observer and V3 driver. Only the coordinator's
+initial stats request moves to the correct control port. All three reconcile
+128 exact lane payloads; the final fixture records 384 received/issued and zero
+held, rejected, abandoned or outstanding waves. Each release reply reports only
+two held responses, not 128 simultaneously ready transports.
+
+Each loaded phase contains 129 complete coalesced wake/pump/apply chains that
+begin after the conservative release-send clock bound and end inside genuine
+AppKit resize. Their first-to-last envelopes are 289.505, 315.341 and 296.452 ms;
+3/3/2 actual typing or direction-matching wheel handlers intersect them. These
+are callback chains and finite-envelope interleaving, not per-request readiness
+timestamps, CPU concurrency or sustained pressure. All nine scored phases
+complete their 108 total ACKs and 54 actual wheel changes. Full run-loop mode
+coverage remains NOTESTABLISHED because passive trace quotas overflow.
+
+Loaded pump-core medians are 0.687–0.694 ms and apply medians 0.906–0.915 ms,
+but wake-to-pump waits reach 19.468–28.107 ms and resize-core calls reach
+18.628–23.264 ms. The latter still exceed an 8.33 ms frame budget. Measured
+UI-work unions deduplicate nested spans; these stage costs cannot simply be
+added. Small instrumented samples establish neither latency tails nor physical
+120 Hz. All recorded 23 PIDs and 16 groups retire, and both ports are free.
+The separate continuation preserves the earlier 404/incomplete archive and
+covers 492 artifacts/24,482,235 bytes under
+`target/normal-clock-responsiveness-storm-d6-v3/`, manifest
+`939cbf9e2abaf31127ce6325d329784218645b83987c0afc0b51b28ca97e94d2`.
