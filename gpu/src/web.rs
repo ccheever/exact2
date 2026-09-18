@@ -201,6 +201,11 @@ pub fn agent(id: u32, request: &str) -> String {
     with(|m| m.agent(id, request)).flatten().unwrap_or_default()
 }
 
+/// Deliver a host lifecycle notification without advancing the surface.
+pub fn lifecycle(id: u32, code: u32) {
+    with(|m| m.lifecycle(id, code));
+}
+
 /// Set the host's clock ownership.
 pub fn seekable(on: bool) {
     with(|m| m.set_seekable(on));
@@ -360,6 +365,11 @@ macro_rules! module {
             $crate::web::agent(id, request_json)
         }
 
+        /// Host lifecycle code; unknown codes are ignored.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_lifecycle(id: u32, code: u32) {
+            $crate::web::lifecycle(id, code);
+        }
         /// Set the host clock ownership.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_seekable(on: bool) {

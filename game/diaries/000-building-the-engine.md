@@ -134,3 +134,68 @@ not sound verification. Apple lifecycle/session wiring and fresh sound registrie
 carry remain AU3c work after the assets slice. Audio regressions, clippy and fmt
 pass; shared greybox snapshots currently disagree on the assets lane's new
 `loading` field, and macOS proof hits the installed SDK/linker mismatch.
+
+**AU3c — bounds and host seams, with one scope blocker.** The failing regressions now cover a 32 MiB unique-PCM budget (using a 32-byte fixture), exact terminal-step retirement, retry cooldown across seekable frames, documented synth ranges in registry and saved voices, and old voice A beside fresh registry B after carry. The defaulted GPU lifecycle/clock seams and host delivery leave simulation untouched; headless modules explicitly use seekable time. SurfacePlayer passes first-input and suspend/resume epoch tests, but the generated GameAudio hook needs three forwarding methods in `game/render/src/lib.rs`, outside the brief's permitted files. That permission is pending: the new live greybox probe correctly fails its pre-frame trusted-gesture assertions, while greybox's deterministic checks and Beacons/Asset Fixture web proofs retain their hashes. The probe now lives outside build hashing and passes injected setup-failure teardown tests. Apple coverage is the callback with fixture buffers and a Swift notification fixture, not device output. The macOS proof was tried once with SDK 26 and a native-build wrapper; SwiftPM's BuildServerProtocol loader failed before launch. Audio/render Rust libraries build for iOS, and its notification code compiles with the matching Xcode compiler; the full host was not linked or driven and device interruptions remain unproven. Final checks pass: 342 game tests, 69 root GPU/Linux tests, both clippy/fmt runs and caps with only this task's files temporarily staged.
+
+## 2026-09-18, 01:00–01:50 — the first feel number, and what it said
+
+The probe finally ran end to end on the home engine (F1c died on an API error
+half-way; F1d finished it: the adapter is the bench's, one recorder for all three
+probes, a preflight that refuses a locked or busy console). The row: 50 of 50 edges,
+20 of 20 latency trials, 6.9 ms median event-to-drawn-state, zero hitches, no
+repeated positions — and **judder 0.106**, when interpolation should make it ≈ 0.
+
+Reading the raw trace against itself settled it in ten minutes: the trace keeps
+both the `requestAnimationFrame` timestamp and the wall clock per frame, and
+displacement divided by the rAF interval had a CV of exactly 0.0000. The engine
+draws precisely where the host's clock says the frame is; it is the clock that
+wanders. Chrome's callback timestamps on the 120 Hz display had deltas of 7.8–8.9 ms
+with a lag-1 autocorrelation of −0.54 — jitter around a fixed grid, which is what a
+callback delivered late for a frame that still lands on its vsync looks like. Godot
+scores 6.9e-6 with interpolation on because its process delta is smoothed to whole
+refresh intervals; the Apple host here already renders at
+`CADisplayLink.targetTimestamp`. The web host had nothing of the kind.
+
+`host/web/pace.js` (55 lines, eight tests): snap each live callback to the nearest
+slot of a lattice locked to the callbacks themselves — period from the mean of
+recent consecutive deltas, phase following with a 2% gain, late callbacks snapped
+like any other, a rate change re-estimated within ~20 frames. Replayed on both
+recorded runs the paced clock's CV is 0.002; live under load 74 the drawn
+displacement was identical on 176 of 180 frames, the other four being real
+late frames. A first run with the new glue was invalid for an embarrassing reason:
+I had copied the working-tree `gpu-glue.js`, which already carried the assets
+builder's half-done `gpu_assets` call, into the dist — build what you measure.
+
+Two more things the traces taught, filed for after the assets slice lands:
+
+- **Input latency is a phase lottery.** Run 1 measured 6.9 ms, run 2 18.0 ms, and
+  the difference is where the 60 Hz tick deadlines fall relative to the 120 Hz
+  frames: in run 1 ticks ran at alpha 0.02 (deadline just before the frame), in
+  run 2 at 0.45 (7.5 ms of idle wait between a tick being due and the frame that
+  runs it). Godot has the same lottery. A tick that is due before the *next* frame
+  should run now ("tick early", drawn at alpha ≥ 0.5 then clamped at 1): up to one
+  frame period off every input, deterministic-safe, ~10 lines in `Sim::ticks_due`.
+  Not done tonight because `sim.rs` is under the assets builder's hands.
+- The probe's "first changed frame" counts a 2%-of-a-step change as a response; a
+  perceptual threshold (say a quarter step) would be more honest for every engine.
+
+Process: my commit of the pacing swept 70 files of two builders' half-done work
+into HEAD, because my own brief tells builders to `git add -A` for the caps check and
+one did so between my `--cached` inspection and my commit. Rebuilt the commit through
+a private index (`GIT_INDEX_FILE`); the working tree never changed. Every commit from
+a tree with builders in it goes that way now, and no brief says `git add -A` again.
+
+## 03:20 — the brief's formula was wrong, and the tests said so
+
+F2b (tick-early) came back with three renderer tests it was not allowed to touch
+and a prepared patch for their expectations: `[0.02, 0.5, 1.04]` → `[1.0, 1.0, 2.0]`.
+Two equal drawn positions in a row is a held frame — the thing the pacer had just
+removed — and it came straight from the formula I had written into the brief
+(`alpha = clamp(world − (tick − 1), 0, 1)`), which draws the newest tick's state
+and then waits for the next one. The right rule keeps the render time a constant
+one tick behind the *horizon*: R = T + L − step, alpha = frac of R against the
+previous tick, never clamped in steady state; the gain is exactly the lookahead L
+(one frame period) of latency, with smoothness untouched. F2c carries the
+correction. Lesson: when a builder asks to change a test's expected numbers,
+read the numbers before the diff — the old ones were smooth, the new ones were
+not, and that is the whole review.

@@ -73,7 +73,19 @@ function size(el) {
 // time, and a picture is a function of it), else the frame's.
 const clockFor = (frameNow) => exact.clockNow?.() ?? exact.now?.() ?? frameNow;
 
+let hidden = document.hidden;
+function lifecycle(code) {
+  if (code === 0 || code === 1) hidden = code === 0;
+  for (const entry of surfaces.values()) if (entry.id) gpu?.gpu_lifecycle(entry.id, code);
+  if (hidden && !exact.now && raf !== null) { cancelAnimationFrame(raf); raf = null; }
+  if (!hidden) schedule();
+}
+document.addEventListener("visibilitychange", () => lifecycle(document.hidden ? 0 : 1));
+window.addEventListener("pagehide", () => lifecycle(0));
+window.addEventListener("pageshow", () => lifecycle(document.hidden ? 0 : 1));
+
 function render(entry, now) {
+  if (hidden && !exact.now) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
@@ -93,9 +105,11 @@ function render(entry, now) {
 // lattice (pace.js): a world drawn at the raw timestamp judders by the
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
+let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
 function frame(now) {
   raf = null;
-  const at = pace(now);
+  if (hidden && !exact.now) return;
+  const at = frameAt = pace(now);
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id) continue;
@@ -107,7 +121,7 @@ function frame(now) {
   if (more && !exact.now) schedule();
 }
 
-function schedule() { if (raf === null) raf = requestAnimationFrame(frame); }
+function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -116,6 +130,7 @@ function create(entry, module, carry) {
   entry.el.height = Math.max(1, Math.round(h * s));
   entry.id = module.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
+  module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
   entry.stateful = module.gpu_carry(entry.id) !== undefined;
   if (exact.now && entry.stateful) {
@@ -132,7 +147,7 @@ function attach(entry) {
     if (publishers.get(entry.name) === entry) surfaceRecord(entry.name, entry.stagedPublication);
     delete entry.stagedPublication;
   }
-  entry.observer = new ResizeObserver(() => { if (live(entry.view) === entry) render(entry, performance.now()); });
+  entry.observer = new ResizeObserver(() => { if (live(entry.view) === entry) render(entry, frameAt ?? performance.now()); });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
@@ -203,7 +218,7 @@ function messages(entry) {
   if (texts === undefined) return;
   for (const text of JSON.parse(texts)) {
     if (live(entry.view) !== entry) break;
-    exact.message(entry.host, text);
+    if (text !== "exact:audio") exact.message(entry.host, text);
   }
 }
 
@@ -651,7 +666,7 @@ function disposeStage(module, entries, unload = false) {
   if (unload) module.gpu_unload?.();
 }
 function rebaseStage(module, entries) {
-  const at = clockFor(performance.now());
+  const at = clockFor(frameAt ?? performance.now());
   for (const entry of entries) if (entry.reloadReport) {
     const reply = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",reload:true,now:at,releaseInput:false})) || "null");
     if (!reply?.reload || reply.error) throw new Error(`surface ${entry.name}: final clock rebase refused`);
@@ -680,7 +695,7 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}) {
   if (!loaded) throw new Error("GPU is not ready for a transactional plan restart");
   if (batch.ops.some(op => ["store", "command", "storage"].includes(op.op))) throw new Error("candidate plan has irreversible effects; restart required");
   const rows = batch.ops.filter(op => op.op === "surface"), staged = new Map(), start = performance.now();
-  const old = [...surfaces.values()], at = clockFor(start);
+  const old = [...surfaces.values()], at = clockFor(frameAt ?? start);
   reload.requested = { ...reload.loaded, plan:exact.devPlanArtifact ?? null }; reload.intent = "continue"; reload.phase = "staging"; reload.attempts++;
   gpu.gpu_seekable(true);
   try {
@@ -735,7 +750,7 @@ async function swap(version, options) {
     assertCurrent();
     replaceShaders(rows, next);
     reload.phase = "staging";
-    const at = clockFor(performance.now());
+    const at = clockFor(frameAt ?? performance.now());
     const carrier = {worldCarry:exact.worldCarry};
     for (const old of surfaces.values()) {
       const entry = candidateEntry(old, options.values?.get(old.view) ?? old.requestedValues ?? old.values);

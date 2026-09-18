@@ -32,6 +32,7 @@ final class MetalView: UIView {
 /// Every canvas on one session's page and its surface in the module — the
 /// module itself loaded once per process (LLP 1031 D12).
 final class Canvases {
+    lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
     final class Entry {
         let view: NodeView
@@ -184,6 +185,7 @@ final class Canvases {
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
+        lifecycle.deliver(e.id)
         bindNow(m, e)
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
@@ -362,7 +364,7 @@ final class Canvases {
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
-        guard let m = module, visible else { return false }
+        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
         return entries.values.contains { e in
             e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { editing(under: $0) } == true)
         }
@@ -390,7 +392,7 @@ final class Canvases {
 
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
-        guard let m = module, visible else { return false }
+        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
         let previous = frameNow
         frameNow = now
         defer { frameNow = previous }

@@ -315,8 +315,8 @@ fn invalid_gains_are_refused_once_and_pcm_is_finite() {
     let loud = Synth::square(0.0)
         .attack(0.0)
         .decay(0.0)
-        .sustain(4.0)
-        .gain(f32::MAX);
+        .sustain(1.0)
+        .gain(f32::MAX); // two valid layers still overflow; PCM must stay finite
     let pcm = exact_game_audio::render(&loud.clone().layer(loud), 48000);
     assert!(pcm.iter().all(|s| s.is_finite() && s.abs() <= 4.0));
     w.play("wind").gain(-2.0).start();

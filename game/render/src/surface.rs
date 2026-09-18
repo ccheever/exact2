@@ -3,11 +3,19 @@ use crate::{
     Feed, Renderer,
 };
 use exact_game::{Clock, Game, Sim, World};
-use exact_gpu::{wgpu, Frame, InputEvent, Surface, SurfaceError, Value};
+use exact_gpu::{wgpu, Frame, InputEvent, Lifecycle, Surface, SurfaceError, Value};
 
 /// Optional presentation executor. The default `()` links no executor code.
 /// Implementations must use a discarding output whenever `seekable` is true.
 pub trait Presentation: Default {
+    /// This executor needs the host's audio session when using live time.
+    fn wants_audio(&self) -> bool {
+        false
+    }
+    /// Clock ownership reaches the executor before any input.
+    fn clock(&mut self, _seekable: bool) {}
+    /// Aggregate visibility and interruption state, outside simulation state.
+    fn suspend(&mut self, _suspended: bool) {}
     /// Called once after the simulation advances, including zero-size frames.
     fn sync(&mut self, _world: &World, _generation: u64, _playing: bool, _seekable: bool) {}
     /// Called synchronously on key/pointer down, within the browser's gesture.
@@ -30,6 +38,10 @@ pub struct WorldSurface<G: Game, P: Presentation = ()> {
     dirty: bool,
     reported: bool,
     generation: u64,
+    seekable: bool,
+    audio_requested: bool,
+    hidden: bool,
+    interrupted: bool,
 }
 impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
     fn default() -> Self {
@@ -46,6 +58,10 @@ impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
             dirty: true,
             reported: false,
             generation: 0,
+            seekable: true,
+            audio_requested: false,
+            hidden: false,
+            interrupted: false,
         }
     }
 }
@@ -100,6 +116,20 @@ fn observer<'a>(
     }
 }
 impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
+    fn clock(&mut self, seekable: bool) {
+        self.seekable = seekable;
+        self.presentation.clock(seekable);
+    }
+    fn lifecycle(&mut self, event: Lifecycle) {
+        match event {
+            Lifecycle::Hidden => self.hidden = true,
+            Lifecycle::Visible => self.hidden = false,
+            Lifecycle::AudioInterrupted => self.interrupted = true,
+            Lifecycle::AudioResumed => self.interrupted = false,
+            _ => return,
+        }
+        self.presentation.suspend(self.hidden || self.interrupted);
+    }
     fn bind(&mut self, values: &[Value]) -> Result<(), SurfaceError> {
         self.bind_at(values, None)
     }
@@ -394,7 +424,12 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         self.sim.as_mut().and_then(Sim::take_published)
     }
     fn messages(&mut self) -> Vec<String> {
-        self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages)
+        let mut messages = self.sim.as_mut().map_or_else(Vec::new, Sim::take_messages);
+        if !self.seekable && !self.audio_requested && self.presentation.wants_audio() {
+            messages.push("exact:audio".into());
+            self.audio_requested = true;
+        }
+        messages
     }
     fn agent(&mut self, request: &str) -> Option<String> {
         self.reported = false;
@@ -502,3 +537,65 @@ fn world_state(reply: &str) -> bool {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "surface_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    #[derive(Default)]
+    struct Hook {
+        seekable: bool,
+        suspended: bool,
+        unlocked: bool,
+    }
+    impl Presentation for Hook {
+        fn wants_audio(&self) -> bool {
+            true
+        }
+        fn clock(&mut self, seekable: bool) {
+            self.seekable = seekable;
+        }
+        fn suspend(&mut self, suspended: bool) {
+            self.suspended = suspended;
+        }
+        fn unlock(&mut self) {
+            self.unlocked = !self.seekable && !self.suspended;
+        }
+    }
+    struct GameTest;
+    impl Game for GameTest {
+        type Args = ();
+        const NAME: &'static str = "lifecycle";
+        const ID: &'static str = "test.lifecycle";
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    #[test]
+    fn lifecycle_only_changes_presentation_and_clock_precedes_first_input() {
+        let mut surface = WorldSurface::<GameTest, Hook>::default();
+        surface.clock(false);
+        surface.bind(&[]).unwrap();
+        assert_eq!(surface.messages(), ["exact:audio"]);
+        assert!(surface.messages().is_empty());
+        let saved = surface.carry();
+        surface.input(&InputEvent::Key {
+            code: "KeyW".into(),
+            key: "w".into(),
+            down: true,
+            repeat: false,
+            at_ms: 0.,
+        });
+        assert!(surface.presentation.unlocked);
+        let saved_after_input = surface.carry();
+        for seekable in [false, true] {
+            surface.clock(seekable);
+            surface.lifecycle(Lifecycle::Hidden);
+            surface.lifecycle(Lifecycle::AudioInterrupted);
+            surface.lifecycle(Lifecycle::Visible);
+            assert!(surface.presentation.suspended);
+            surface.lifecycle(Lifecycle::AudioResumed);
+            assert!(!surface.presentation.suspended);
+            assert_eq!(surface.carry(), saved_after_input);
+        }
+        assert_ne!(saved, saved_after_input); // only the actual input changes saved state
+    }
+}

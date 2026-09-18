@@ -246,51 +246,33 @@ fn cancelling_unpublished_shared_pcm_does_not_release_a_pending_stop() {
 }
 
 #[test]
-fn stalled_churn_bounds_retained_bytes_to_device_windows() {
+fn unique_pcm_budget_refuses_without_queueing_and_releases_after_ack() {
     let (mut p, mut m) = Pending::new();
-    const SAMPLES: usize = 60 * 48000;
-    const BYTES: usize = SAMPLES * std::mem::size_of::<f32>();
-    for id in 0..70 {
-        let pcm: Arc<[f32]> = vec![0.25; SAMPLES].into();
-        start(&mut p, id, &pcm, 48000);
-        p.flush();
-        let retained: usize = p
-            .retained
-            .values()
-            .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
-            .sum();
-        assert!(
-            retained <= 33 * BYTES,
-            "retained {retained} bytes during stalled churn"
-        );
-        p.stop(id);
-    }
-    for id in 70..102 {
-        let pcm: Arc<[f32]> = vec![0.5; SAMPLES].into();
-        start(&mut p, id, &pcm, 48000);
-    }
+    p.byte_budget = 32;
+    let a: Arc<[f32]> = vec![0.25; 8].into();
+    let b: Arc<[f32]> = vec![0.5; 8].into();
+    assert!(p.start(1, &a, 48000, true, 0, 1.0));
+    assert!(p.start(2, &a, 48000, true, 0, 1.0)); // shared allocation counts once
+    let queued = p.controls.len();
+    assert!(!p.start(3, &b, 48000, true, 0, 1.0));
+    assert_eq!(p.controls.len(), queued);
+    assert!(!p.live.contains_key(&3));
+    assert!(!p.start(1, &b, 48000, true, 0, 1.0));
+    assert_eq!(p.controls.len(), queued);
+    assert_eq!(p.live[&1], a.as_ptr() as usize);
     p.flush();
-    let retained: usize = p
-        .retained
-        .values()
-        .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
-        .sum();
-    assert!(
-        retained <= 64 * BYTES,
-        "retained {retained} bytes with new winners"
-    );
-    for _ in 0..5 {
-        m.commands();
-        p.flush();
-    }
-    assert_eq!(m.voices.iter().flatten().count(), 32);
-    for id in 70..102 {
-        p.stop(id);
-    }
+    p.stop(1);
+    p.stop(2);
     p.flush();
+    assert!(!p.start(3, &b, 48000, true, 0, 1.0)); // callback still owns A
     m.commands();
     p.flush();
+    assert!(p.start(3, &b, 48000, true, 0, 1.0));
+    assert_eq!(p.retained.len(), 1);
+    p.stop(3); // unpublished start releases its bytes immediately
     assert!(p.retained.is_empty());
+    let oversized: Arc<[f32]> = vec![0.0; 9].into();
+    assert!(!p.start(4, &oversized, 48000, true, 0, 1.0));
 }
 
 #[test]
@@ -340,7 +322,7 @@ fn unsupported_callback_layouts_advance_phase_and_finish_voices() {
                 ptr::null_mut(),
                 ptr::null(),
                 0,
-                2,
+                1,
                 ptr::null_mut(),
             );
         }

@@ -16,9 +16,12 @@
 // the mean residual grows), the period is estimated again. The agent's clock never
 // goes through here.
 export function pacer({ window = 256, gain = 0.02 } = {}) {
-  let origin = null, period = null, last = null, misfit = 0;
+  let origin = null, period = null, last = null, misfit = 0, paced = -Infinity;
   let deltas = [];
-  return function pace(now) {
+  // The paced clock never runs backwards: a callback that lands before the last
+  // slot (a callback delivered early, a bootstrap sample) redraws at that slot.
+  return now => paced = Math.max(paced, step(now));
+  function step(now) {
     if (last === null) { last = origin = now; return now; }
     const delta = now - last;
     last = now;
@@ -46,7 +49,7 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
     // move freely until the window has filled enough to trust the period.
     origin = slot + residual * Math.max(gain, 1 / (deltas.length + 1));
     return slot;
-  };
+  }
 }
 
 function median(values) {

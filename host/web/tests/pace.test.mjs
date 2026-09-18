@@ -72,6 +72,12 @@ describe('the paced frame clock', () => {
     expect(Math.abs(settled.mean - P90)).toBeLessThan(0.02);
     expect(settled.cv).toBeLessThan(0.005);
   });
+  test('never runs backwards even when a callback lands before the last slot', () => {
+    const pace = pacer(), raw = callbacks(300, P120, { jitter: 0.5 });
+    raw.splice(200, 0, raw[199] + 0.3); // a second callback 0.3 ms after the previous one
+    let previous = -Infinity;
+    for (const now of raw) { const at = pace(now); expect(at).toBeGreaterThanOrEqual(previous); previous = at; }
+  });
   test('under the agent clock the host never paces (the pacer is only for live frames)', () => {
     // Documented at the call site: exact.now bypasses pace(). Here: a pacer given
     // agent-clock-like steps (exact multiples of 1000 ms) leaves them exact.

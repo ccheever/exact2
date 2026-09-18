@@ -108,9 +108,12 @@ struct Packet {
     sequence: u64,
     command: Command,
 }
+const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+
 /// Main-thread ownership and retry queue. The realtime side only returns a
 /// processed sequence watermark; it never touches an Arc or allocates.
 struct Pending {
+    byte_budget: usize,
     commands: Producer<Packet>,
     acknowledgements: Consumer<u64>,
     controls: VecDeque<Packet>,
@@ -128,6 +131,7 @@ impl Pending {
         let (acknowledgements, returns) = channel();
         (
             Self {
+                byte_budget: PCM_BYTE_BUDGET,
                 commands,
                 acknowledgements: returns,
                 controls: VecDeque::new(),
@@ -164,6 +168,18 @@ impl Pending {
         offset: usize,
         pitch: f32,
     ) -> bool {
+        // Refuse before changing ownership or publishing anything. Shared PCM
+        // is pointer-keyed and counted once, including stops awaiting an ack.
+        if !self.retained.contains_key(&(pcm.as_ptr() as usize)) {
+            let used: usize = self
+                .retained
+                .values()
+                .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
+                .sum();
+            if std::mem::size_of_val(&**pcm) > self.byte_budget.saturating_sub(used) {
+                return false;
+            }
+        }
         if self.live.contains_key(&id) {
             self.stop(id);
         }
@@ -408,6 +424,9 @@ impl Mixer {
             left += sample * v.left;
             right += sample * v.right;
             v.position += v.step;
+            if !v.looping && v.position >= v.pcm.len as f64 {
+                *slot = None;
+            }
         }
         // Linear below full scale, with a final non-finite firewall.
         let limit = |x: f32| {

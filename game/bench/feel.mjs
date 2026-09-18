@@ -288,15 +288,15 @@ export function table(rows) {
     fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), fmt(row.frame_ms.p50), fmt(row.frame_ms.p95),
     fmt(row.frame_ms.p99), fmt(row.frame_ms.max), `${row.hitches} (${fmt(row.hitch_percent)}%)`,
     judderText(row.player.judder), fmt(row.player.repeated_fraction * 100, 1), judderText(row.camera.judder),
-    fmt(row.camera.repeated_fraction * 100, 1), fmt(row.latency.median_ms), fmt(row.latency.p95_ms),
+    fmt(row.camera.repeated_fraction * 100, 1), fmt(row.latency.median_ms), fmt(row.latency.p95_ms), row.tick_phase == null ? '—' : fmt(row.tick_phase, 4),
     `${fmt(row.latency.median_intervals)}/${fmt(row.latency.p95_intervals)}`,
     row.frontmost_visible_confirmed ? 'yes' : 'NO'];
   const lines = [['variant', 'run', 'status', 'load1', 'Hz seen', 'p50 ms', 'p95', 'p99', 'max',
-    'hitches', 'player J', 'zero %', 'camera J', 'zero %', 'input p50', 'p95', 'input intervals', 'front/visible']];
+    'hitches', 'player J', 'zero %', 'camera J', 'zero %', 'input p50', 'p95', 'tick_phase', 'input intervals', 'front/visible']];
   for (const variant of [...new Set(rows.map(r => `${r.engine}/${r.variant}`))]) {
     const all = rows.filter(r => `${r.engine}/${r.variant}` === variant);
     all.forEach(r => lines.push(r.error
-      ? [variant, `${r.run}.${r.attempt}`, `INVALID ${r.provisional ? 'PROVISIONAL ' : ''}${r.error.replace(/[|\r\n]/g, '/')}`, fmt(r.load1, 1), ...Array(14).fill('—')]
+      ? [variant, `${r.run}.${r.attempt}`, `INVALID ${r.provisional ? 'PROVISIONAL ' : ''}${r.error.replace(/[|\r\n]/g, '/')}`, fmt(r.load1, 1), ...Array(15).fill('—')]
       : cells(r)));
     const group = all.filter(r => r.valid);
     if (!group.length) continue;
@@ -309,6 +309,7 @@ export function table(rows) {
       latency: ['median_ms', 'p95_ms', 'median_intervals', 'p95_intervals'] })) {
       for (const field of fields) middle[key][field] = group.some(r => r[key][field] === null) ? null : quantile(group.map(r => r[key][field]), .5);
     }
+    middle.tick_phase = group.every(r => Number.isFinite(r.tick_phase)) ? quantile(group.map(r => r.tick_phase), .5) : null;
     middle.provisional = group.some(r => r.provisional);
     middle.frontmost_visible_confirmed = group.every(r => r.frontmost_visible_confirmed);
     lines.push(cells({ ...middle, label: `median metrics (n=${group.length})` }));
@@ -344,7 +345,7 @@ export async function measure(engine, variant, run, seconds = 12, options = {}) 
     const metrics = analyze(raw, plan);
     const row = { schema: 1, batch, date: new Date().toISOString(), engine, variant, run, attempt, seconds,
       game: options.game ?? 'beacons', console_start: consoleStart, console_end: consoleEnd,
-      build: adapter.build ?? null, tick_hz: raw.tick_hz ?? null,
+      build: adapter.build ?? null, tick_hz: raw.tick_hz ?? null, tick_phase: raw.tick_phase ?? null,
       engine_version: raw.engine_version, browser_version: capture.browser_version ?? null,
       display_refresh_hz: capture.display.display_refresh_hz || raw.display_refresh_hz || null,
       display_pixels: capture.display.display_pixels, window_pixels: raw.window_pixels,

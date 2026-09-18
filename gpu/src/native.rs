@@ -103,7 +103,9 @@ pub fn load(registry: &'static Registry) -> u32 {
 
 /// Load surface ownership only; no adapter is requested.
 pub fn load_headless(registry: &'static Registry) {
-    MODULE.with(|m| *m.borrow_mut() = Some(Module::new(registry)));
+    let mut module = Module::new(registry);
+    module.set_seekable(true);
+    MODULE.with(|m| *m.borrow_mut() = Some(module));
 }
 
 /// Create a surface without presentation; zero means refusal.
@@ -374,6 +376,11 @@ pub fn messages(id: u32) -> Option<String> {
 /// Ask the surface; an empty string means no answer.
 pub fn agent(id: u32, request: &str) -> String {
     with(|m| m.agent(id, request)).flatten().unwrap_or_default()
+}
+
+/// Deliver a host lifecycle notification without advancing the surface.
+pub fn lifecycle(id: u32, code: u32) {
+    with(|m| m.lifecycle(id, code));
 }
 
 /// Set the host's clock ownership.
@@ -682,6 +689,9 @@ macro_rules! module {
             EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
         }
 
+        /// Host lifecycle code; unknown codes are ignored.
+        #[no_mangle]
+        pub extern "C" fn gpu_lifecycle(id: u32, code: u32) { $crate::native::lifecycle(id, code); }
         /// Set the host clock ownership.
         #[no_mangle]
         pub extern "C" fn gpu_seekable(on: bool) { $crate::native::seekable(on); }

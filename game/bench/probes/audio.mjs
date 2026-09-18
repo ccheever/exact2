@@ -1,7 +1,7 @@
 // Bench-only live WebAudio observation. Injected by CDP, never shipped in the module.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
@@ -9,6 +9,14 @@ import { serveStatic } from '../../../host/web/serve.mjs';
 
 function observe() {
   const contexts = [], gestures = [];
+  const raf = window.requestAnimationFrame.bind(window), held = [];
+  const hold = () => window.audioHoldFrames && document.querySelector('[data-gpu-input]');
+  window.requestAnimationFrame = callback => raf(at => hold() ? held.push(() => callback(at)) : callback(at));
+  const Resize = window.ResizeObserver;
+  window.ResizeObserver = class extends Resize {
+    constructor(callback) { super((...args) => hold() ? held.push(() => callback(...args)) : callback(...args)); }
+  };
+  window.releaseAudioFrames = () => { window.audioHoldFrames = false; for (const callback of held.splice(0)) raf(callback); };
   for (const type of ['keydown', 'pointerdown']) window.addEventListener(type, event => {
     gestures.push({type, trusted:event.isTrusted});
   }, true);
@@ -17,7 +25,7 @@ function observe() {
     const context = new Target(...args), analyser = context.createAnalyser();
     analyser.fftSize = 2048;
     analyser.connect(context.destination);
-    const record = {context, analyser, resumes:[], sources:[]};
+    const record = {context, analyser, createdTrusted:window.event?.isTrusted === true, resumes:[], sources:[]};
     contexts.push(record);
     const resume = context.resume.bind(context);
     context.resume = () => { record.resumes.push({trusted:window.event?.isTrusted === true && ['keydown', 'pointerdown'].includes(window.event.type), at:performance.now()}); return resume(); };
@@ -40,10 +48,10 @@ function observe() {
   }});
   window.audioProof = () => ({
     gestures,
-    contexts:contexts.map(({context, analyser, resumes, sources}) => {
+    contexts:contexts.map(({context, analyser, createdTrusted, resumes, sources}) => {
       const samples = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(samples);
-      return {state:context.state, time:context.currentTime, resumes, sources,
+      return {createdTrusted, state:context.state, time:context.currentTime, resumes, sources,
         rms:Math.sqrt(samples.reduce((sum, n) => sum + n*n, 0) / samples.length)};
     }),
     audio: (() => {
@@ -53,24 +61,26 @@ function observe() {
   });
 }
 
-export async function audioProof({out, check, say}) {
-  const dist = resolve(import.meta.dir, 'dist');
-  const server = createServer((req, res) => serveStatic(dist, req, res));
-  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'greybox-audio-'));
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const child = spawn(chrome, ['--remote-debugging-pipe', `--user-data-dir=${profile}`,
-    '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
-    '--disable-component-update', '--window-size=1280,720', 'about:blank'],
-  {stdio:['ignore','ignore','pipe','pipe','pipe']});
-  const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  const exited = new Promise(ok => {
-    child.on('exit', () => { cdp.fail('owned Chrome exited'); ok(); });
-    child.on('error', error => { cdp.fail(error.message); ok(); });
-  });
+export async function audioProof({out, check, say, game = 'greybox', connect = child => new Cdp(child.stdio[3], child.stdio[4]), spawnBrowser = spawn}) {
+  const dist = resolve(import.meta.dir, '../../games', game, 'dist');
+  let server, profile, child, cdp, exited;
   const errors = [];
-  child.stderr.on('data', data => errors.push(String(data)));
+  const kill = () => { if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} } };
   try {
+    server = createServer((req, res) => serveStatic(dist, req, res));
+    await new Promise((ok, fail) => { server.once('error', fail); server.listen(0, '127.0.0.1', ok); });
+    profile = mkdtempSync(resolve(tmpdir(), 'greybox-audio-'));
+    const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    child = spawnBrowser(chrome, ['--remote-debugging-pipe', `--user-data-dir=${profile}`,
+      '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
+      '--disable-component-update', '--window-size=1280,720', 'about:blank'],
+    {detached:true, stdio:['ignore','ignore','pipe','pipe','pipe']});
+    exited = new Promise(ok => {
+      child.on('exit', () => { cdp?.fail('owned Chrome exited'); ok(); });
+      child.on('error', error => { cdp?.fail(error.message); ok(); });
+    });
+    child.stderr.on('data', data => errors.push(String(data)));
+    cdp = connect(child);
     const {targetInfos} = await cdp.send('Target.getTargets');
     const target = targetInfos.find(t => t.type === 'page');
     const {sessionId} = await cdp.send('Target.attachToTarget', {targetId:target.targetId, flatten:true});
@@ -105,12 +115,16 @@ export async function audioProof({out, check, say}) {
       await call('Input.dispatchKeyEvent', {type:'keyDown', code, key, windowsVirtualKeyCode:vk});
       await call('Input.dispatchKeyEvent', {type:'keyUp', code, key, windowsVirtualKeyCode:vk});
     };
+    await evaluate('window.audioHoldFrames = true');
     const play = await evaluate('(() => { const r = document.querySelector("[data-testid=play]").getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()');
     await call('Input.dispatchMouseEvent', {type:'mousePressed', ...play, button:'left', clickCount:1});
     await call('Input.dispatchMouseEvent', {type:'mouseReleased', ...play, button:'left', clickCount:1});
     await until('!!document.querySelector("[data-gpu-input]") && !!exact.gpu?.wantsInput(Number(document.querySelector("[data-gpu-input]").dataset.view))');
     await evaluate('document.querySelector("[data-gpu-input]").focus()');
+    check('no audio device before the first live input/frame', (await evaluate('audioProof()')).contexts.length === 0);
     await key('KeyW', 'w', 87);
+    check('first live gesture constructs its context on the trusted stack', (await evaluate('audioProof()')).contexts[0]?.createdTrusted);
+    await evaluate('releaseAudioFrames()');
     const samples = [];
     for (let i = 0; i < 30; i++) {
       samples.push(await evaluate('audioProof()'));
@@ -123,17 +137,46 @@ export async function audioProof({out, check, say}) {
     check('wind is active while analyser RMS is nonzero', samples.some(s =>
       s.audio?.sources?.some(v => v.sound === 'wind' && v.playing)
       && s.contexts.some(c => c.rms > 0 && c.sources.some(v => v.looping))), last);
+    const unchanged = await evaluate(`(() => {
+      const id = Number(document.querySelector('[data-gpu-input]').dataset.view);
+      const before = exact.gpu.agent(id, {op:'state'}).world.hash;
+      dispatchEvent(new PageTransitionEvent('pagehide'));
+      return before === exact.gpu.agent(id, {op:'state'}).world.hash;
+    })()`);
+    check('pagehide leaves simulation state unchanged', unchanged);
+    await until('audioProof().contexts[0]?.state === "suspended"', 3000);
+    await evaluate('dispatchEvent(new PageTransitionEvent("pageshow"))');
+    await until('audioProof().contexts[0]?.state === "running"', 3000);
+    check('pageshow resumes output after suspension', true);
     writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({samples, errors}, null, 2) + '\n');
     say('AUDIO live browser evidence: audio-web.json');
   } catch (error) {
     writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({error:String(error), errors}, null, 2) + '\n');
     throw error;
   } finally {
-    const killTimer = setTimeout(() => child.kill('SIGKILL'), 3000);
-    try { await cdp.send('Browser.close', {}, undefined, 3000); } catch { child.kill('SIGKILL'); }
-    await exited;
-    clearTimeout(killTimer);
-    await new Promise(ok => server.close(ok));
-    rmSync(profile, {recursive:true, force:true});
+    // Kill the entire owned group even if setup or Browser.close failed.
+    if (child) {
+      const timer = setTimeout(kill, 3000);
+      try { if (cdp) await cdp.send('Browser.close', {}, undefined, 3000); } catch {}
+      finally { kill(); await exited; clearTimeout(timer); }
+    }
+    if (server) {
+      server.closeAllConnections();
+      await new Promise(ok => {
+        const timer = setTimeout(ok, 1000);
+        server.close(() => { clearTimeout(timer); ok(); });
+      });
+    }
+    if (profile) rmSync(profile, {recursive:true, force:true});
   }
+}
+
+if (import.meta.main) {
+  const game = process.argv[2] ?? 'greybox';
+  const out = resolve(import.meta.dir, '../../games', game, 'artifacts');
+  mkdirSync(out, {recursive:true});
+  await audioProof({game, out, say:console.log, check(name, ok, detail) {
+    if (!ok) throw new Error(`${name}: ${JSON.stringify(detail)}`);
+    console.log(`PASS ${name}`);
+  }});
 }

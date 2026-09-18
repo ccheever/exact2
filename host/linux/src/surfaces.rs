@@ -372,6 +372,10 @@ impl Surfaces {
             if let Some(bytes) = abi.read(b"gpu_messages", c.id) {
                 if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
                     for message in messages {
+                        // Headless Linux has no audio session or lifecycle to deliver.
+                        if message == "exact:audio" {
+                            continue;
+                        }
                         self.error = self.error.take().or(host.dispatch_at(
                             view,
                             Event::Message(message),

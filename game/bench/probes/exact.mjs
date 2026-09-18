@@ -7,6 +7,15 @@ export function normalize(trace) {
   return frames;
 }
 
+// Mean alpha when ticks run; near 1 means just before the pose is needed.
+export function tickPhase(trace) {
+  let sum = 0, count = 0;
+  for (let i = 0; i < trace.frames.length; i += trace.stride) {
+    if (trace.frames[i + 9] > 0) { sum += trace.frames[i + 8]; count++; }
+  }
+  return count ? sum / count : null;
+}
+
 let installing;
 export function install(options = {}) {
   return installing ??= installOnce(options);
@@ -61,7 +70,7 @@ async function installOnce({ entity = 'player', play: selector = '[data-testid="
         window_pixels: [canvas.width, canvas.height], viewport_css: [innerWidth, innerHeight],
         device_pixel_ratio: devicePixelRatio, engine_version: `exact 0.1.0 / ${state.world.hz} Hz`,
         timestamp_source: 'Frame::now_ms (rAF); window.performance.now in WorldSurface for latency',
-        tick_hz: state.world.hz, interpolation: true, exact_trace: trace, exact_perf: state.world.perf };
+        tick_phase: tickPhase(trace), tick_hz: state.world.hz, interpolation: true, exact_trace: trace, exact_perf: state.world.perf };
     },
   };
 }

@@ -553,3 +553,90 @@ Logs are in `game/target/g1d/`. An additional, non-required attempt to run the b
 `scripts/caps.test.mjs` harness under `bun test` produced empty-output fixture
 failures and was stopped, including its recorded child; it is not a passing
 result. The direct required caps check passed. No unrelated process was stopped.
+
+
+**F2b — 2026-09-18.** Live ticks now run when their deadline is strictly before
+the next frame, using the last live delta capped at one step; the 250 ms catch-up
+clamp, pause and seekable boundaries remain. Live scheduling retains frame
+precision to avoid microsecond-rounding beats at matching rates; synthetic
+3,600-frame runs cover 60, 59.94 and 120 Hz, including the necessary occasional
+extra 60 Hz tick at 59.94 Hz. Alpha now clamps the fraction between the previous
+and current tick, and live saves accept one early tick. Feed, trace and camera
+history already use that fraction; audio transport reads completed ticks directly,
+without alpha. Live input follows host delivery time; the deterministic record is
+tick-stamped. The exact probe and feel table now report mean alpha on tick-running
+frames as `tick_phase`, without changing the latency metric. All 22 simulation
+tests, all-target clippy and 15 feel tests pass; the full engine/render retry still
+has three renderer assertions for the old timing in `trace.rs` and
+`surface_tests.rs`, left unchanged pending permission to extend the brief's file
+scope. Workspace fmt remains blocked by concurrent audio/GPU edits, including
+`restore_bound`, which was not touched. Beacons web and both Linux-headless game
+proofs pass with unchanged pins; Greybox web's build fails in the concurrent GPU
+wasm macro even after the prescribed one-minute retry. The feel preflight found
+the console active (11.6 s idle, requiring 30), so no attempt or latency/tick_phase
+result was taken. Logs are `game/target/f2b-*.log`; no commit was made.
+
+
+**F2c — 2026-09-18.** Supersedes F2b's held-frame alpha and live input bypass.
+Render time is `R = T + L - step`; alpha is `(T + L) / step - tick`.
+The Sim retains the lookahead used by the last advance, resets it for seekable
+advances, and excludes it from saves/hashes. Boundary/interpolation arithmetic is
+integer microseconds multiplied by HZ before rounding (1,000,000 units per tick),
+so rational frame periods retain sub-microsecond precision without equal-rate
+beats. The signed alpha numerator is guarded only for missing history/transitions;
+steady live frames stay within the available tick pair. Seekable interpolation
+returns to its original fraction. Input again obeys `stamp < deadline`: the live
+bypass had put an 18 ms input into tick 1 during catch-up instead of tick 2.
+
+The three renderer expectations, with one world unit per 60 Hz tick:
+
+- Seekable frames T = 17, 25, 34 ms have L = 0. R = 1/3, 25/3, 52/3 ms,
+  so x = 0.02, 0.5, 1.04. The old expectations are correct; [1, 1, 2] held poses.
+- Live 144 Hz frames have T = n * 1000/144 ms and L = 1000/144 ms.
+  R = (n + 1) * 1000/144 - 1000/60 ms; x = (n + 1) * 60/144 - 1 after
+  startup, a constant 5/12-unit delta. At the 1100 ms burst, L is capped to
+  one step, R = 1100 ms and x = 66, with history [65, 66].
+- Live frames at 17 and 34 ms cap L to one step, so R = T and x = 1.02, 2.04.
+  Completed ticks are 2 and 3; the second frame's history is [2, 3]. A same-tick
+  edit to x = 5 advances that history to [3, 5]; teleport still snaps both to 20.
+
+Regression coverage:
+
+- `alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates`: inspect the
+  signed numerator before clamping across 600 frames, 60/59.94/120 Hz displays,
+  60/120 Hz worlds, four phases and three epochs; seekable clears lookahead.
+- `live_half_step_frames_draw_equal_deltas_at_every_phase`: 600 frames at 120 Hz
+  over a 60 Hz world, phases 0, .1, .25, .4 steps, deltas .5 within 1e-6.
+- `live_stall_returns_to_steady_deltas_after_one_recovery_frame`: 40 ms stall
+  followed by 60/120 Hz cadence; after the single L-reset frame, deltas are steady.
+- `live_three_tick_catchup_spreads_input_by_stamp`: down at 18 ms lands in tick 2,
+  up at 35 ms in tick 3 during a 40 ms catch-up; tick 1 receives neither.
+- `live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead`: input at
+  step + .01 ms lands in tick 2 on both clocks; first partial x = .25 is drawn at
+  T = 1.75 steps live versus 2.25 steps without lookahead, one 120 Hz frame earlier.
+- Updated horizon-alpha, future-input, restore/pause/seekable tests pass; the
+  3,600-frame no-beats test and all three renderer regressions pass.
+
+Validation (required Cargo environment set throughout):
+
+| Check | Result |
+| --- | --- |
+| `cargo test -p exact-game -p exact-game-render --no-fail-fast` | 263 passed, 0 failed, 7 ignored diagnostics; includes all 26 simulation integration tests |
+| `cargo clippy -p exact-game -p exact-game-render --all-targets -- -D warnings` | pass |
+| `rustfmt --edition 2021 --config skip_children=true --check` on the four scoped Rust files | pass |
+| `bun test bench/feel.test.mjs` | 15 passed, 0 failed, 91 assertions |
+| Beacons web / Linux headless proofs | pass, 54.446 s / 160.890 s |
+| Asset-fixture web / Linux headless proofs | pass, 44.614 s / 146.506 s |
+| Scoped `git diff --check` | pass |
+
+All four proofs retained their pins and exited all recorded children. The asset
+hash stays `0x8f6d518f39634478`; Beacons' continuation remains byte-identical.
+`game/proof.mjs` is an imported helper, so the actual proof entry points were
+`bun game/games/{beacons,asset-fixture}/proof.mjs {web,linux}`.
+After rebuilding Beacons web, the single invocation of
+`bun game/bench/feel.mjs exact --hz 60 --no-build --attempts 1` stopped in preflight:
+console active, HID idle 19.4 s, requiring 30 s. No measurement attempt or retry;
+judder, latency and `tick_phase` are unavailable for this revision. `tick_phase`
+remains mean alpha on ticking frames; near 1 means just before the pose is needed.
+Logs: `game/target/f2c-*.log`. No staging, commit, clone or sub-agent; the concurrent
+builder's `restore_bound`, audio, surface and GPU changes were left intact.

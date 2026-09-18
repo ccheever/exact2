@@ -18,35 +18,36 @@ pub enum Wave {
     Noise,
 }
 
-/// A mono subtractive voice. Seconds includes release; layers start together.
+/// A mono subtractive voice. All numeric parameters must be finite.
+/// Seconds includes release; layers start together.
 /// ADSR releases from the current envelope level at `seconds - release`.
 #[derive(Data, Clone, Debug)]
 pub struct Synth {
     /// Oscillator.
     pub wave: Wave,
-    /// Starting frequency in Hz.
+    /// Starting frequency in Hz, nonnegative.
     pub hz: f32,
-    /// Pitch glide in semitones per second.
+    /// Pitch glide in semitones per second, either sign.
     pub slide: f32,
-    /// Vibrato frequency in Hz.
+    /// Vibrato frequency in Hz, nonnegative.
     pub vibrato_hz: f32,
-    /// Vibrato amplitude in semitones.
+    /// Vibrato amplitude in semitones, nonnegative.
     pub vibrato_depth: f32,
-    /// Attack seconds.
+    /// Attack seconds, nonnegative.
     pub attack: f32,
-    /// Decay seconds.
+    /// Decay seconds, nonnegative.
     pub decay: f32,
     /// Sustained level, 0 to 1.
     pub sustain: f32,
-    /// Release seconds, included in duration.
+    /// Release seconds, nonnegative, included in duration.
     pub release: f32,
-    /// Total duration of this oscillator (layers may extend it).
+    /// Total duration, 0..=60 seconds (layers may extend it).
     pub seconds: f32,
-    /// Low-pass cutoff in Hz; zero disables it.
+    /// Low-pass cutoff in Hz, nonnegative; zero disables it.
     pub lowpass_hz: f32,
-    /// High-pass cutoff in Hz; zero disables it.
+    /// High-pass cutoff in Hz, nonnegative; zero disables it.
     pub highpass_hz: f32,
-    /// This oscillator's gain; layers have independent gains.
+    /// This oscillator's gain, nonnegative; layers have independent gains.
     pub gain: f32,
     /// Simultaneous voices, summed without clipping.
     pub layers: Vec<Synth>,
@@ -175,8 +176,16 @@ impl Synth {
                 crate::DataError::new("synth duration must be 0..60 seconds").at("seconds"),
             );
         }
+        if !(0.0..=1.0).contains(&self.sustain) {
+            return Err(crate::DataError::new("synth sustain must be 0..1").at("sustain"));
+        }
         for (name, n) in [
             ("hz", self.hz),
+            ("vibrato_hz", self.vibrato_hz),
+            ("vibrato_depth", self.vibrato_depth),
+            ("lowpass_hz", self.lowpass_hz),
+            ("highpass_hz", self.highpass_hz),
+            ("gain", self.gain),
             ("attack", self.attack),
             ("decay", self.decay),
             ("release", self.release),
@@ -658,6 +667,22 @@ mod tests;
 mod decode_regression {
     use super::*;
     #[test]
+    fn documented_synth_boundaries_round_trip() {
+        for synth in [
+            Synth::sine(0.).seconds(0.).sustain(0.).gain(0.),
+            Synth::sine(440.)
+                .seconds(60.)
+                .sustain(1.)
+                .slide(-48.)
+                .gain(f32::MAX),
+        ] {
+            let definition = Definition::new(synth);
+            let copy: Definition =
+                crate::bin::from_slice(&crate::bin::to_vec(&definition)).unwrap();
+            assert_eq!(copy.revision(), definition.revision());
+        }
+    }
+    #[test]
     fn malformed_saved_synth_is_refused_without_changing_world() {
         let mut world = World::new(60, 42);
         world.register_audio();
@@ -668,29 +693,100 @@ mod decode_regression {
         let before = world.save();
         let hash = world.hash();
         let journal = world.journal();
-        for voice in [false, true] {
-            let mut malformed = World::new(60, 0);
-            malformed.register_audio();
-            malformed.load(&before).unwrap();
-            let bad = Definition {
-                synth: std::sync::Arc::new(Synth::sine(440.).seconds(61.)),
-                revision: 0,
-            };
-            if voice {
-                malformed.resource_mut::<Voices>().voices[0].synth = bad;
-            } else {
-                malformed
-                    .resource_mut::<Sounds>()
-                    .0
-                    .insert("tone".into(), bad);
+        let mut invalid = vec![
+            Synth::sine(-1.),
+            Synth::sine(440.).seconds(-1.),
+            Synth::sine(440.).attack(-1.),
+            Synth::sine(440.).decay(-1.),
+            Synth::sine(440.).release(-1.),
+            Synth::sine(440.).seconds(61.),
+            Synth::sine(440.).sustain(2.),
+            Synth::sine(440.).sustain(-1.),
+            Synth::sine(440.).vibrato_hz(-1.),
+            Synth::sine(440.).vibrato_depth(-1.),
+            Synth::sine(440.).lowpass_hz(-1.),
+            Synth::sine(440.).highpass_hz(-1.),
+            Synth::sine(440.).gain(-1.),
+            Synth::sine(440.).slide(f32::INFINITY),
+            Synth::sine(440.).layer(Synth::sine(1.).sustain(2.)),
+        ];
+        let setters: [fn(Synth, f32) -> Synth; 12] = [
+            Synth::hz,
+            Synth::slide,
+            Synth::vibrato_hz,
+            Synth::vibrato_depth,
+            Synth::attack,
+            Synth::decay,
+            Synth::sustain,
+            Synth::release,
+            Synth::seconds,
+            Synth::lowpass_hz,
+            Synth::highpass_hz,
+            Synth::gain,
+        ];
+        for set in setters {
+            for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                invalid.push(set(Synth::default(), value));
             }
-            let error = world
-                .load(&malformed.save())
-                .expect_err("invalid synth must be refused");
-            assert!(error.to_string().contains("duration"), "{error}");
-            assert_eq!(world.save(), before);
-            assert_eq!(world.hash(), hash);
-            assert_eq!(world.journal().len(), journal.len());
         }
+        for synth in invalid {
+            for voice in [false, true] {
+                let mut malformed = World::new(60, 0);
+                malformed.register_audio();
+                malformed.load(&before).unwrap();
+                let bad = Definition {
+                    synth: std::sync::Arc::new(synth.clone()),
+                    revision: 0,
+                };
+                if voice {
+                    malformed.resource_mut::<Voices>().voices[0].synth = bad;
+                } else {
+                    malformed
+                        .resource_mut::<Sounds>()
+                        .0
+                        .insert("tone".into(), bad);
+                }
+                let error = world
+                    .load(&malformed.save())
+                    .expect_err("invalid synth must be refused");
+                assert!(error.to_string().contains("synth"), "{error}");
+                assert_eq!(world.save(), before);
+                assert_eq!(world.hash(), hash);
+                assert_eq!(world.journal().len(), journal.len());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod carry_regression {
+    use super::*;
+    use crate::{Game, Sim};
+    struct Tone;
+    impl Game for Tone {
+        type Args = ();
+        const NAME: &'static str = "tone";
+        const ID: &'static str = "test.tone";
+        fn setup(world: &mut World, _: &()) {
+            world.register_audio();
+            world
+                .resource_mut::<Sounds>()
+                .add("tone", Synth::sine(880.));
+        }
+        fn tick(_: &mut World, _: &crate::Input, _: &()) {}
+    }
+    #[test]
+    fn carry_keeps_old_voice_and_fresh_registry_for_new_voices() {
+        let mut old = Sim::<Tone>::new(()).unwrap();
+        old.world_mut()
+            .resource_mut::<Sounds>()
+            .add("tone", Synth::sine(220.));
+        old.world_mut().play("tone").start();
+        let mut fresh = Sim::<Tone>::new(()).unwrap();
+        fresh.restore_bound(&old.save()).unwrap();
+        fresh.world_mut().play("tone").start();
+        let voices = &fresh.world().resource::<Voices>().voices;
+        assert_eq!(voices[0].synth.hz, 220.);
+        assert_eq!(voices[1].synth.hz, 880.);
     }
 }
