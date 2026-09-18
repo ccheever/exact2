@@ -3182,3 +3182,57 @@ claim follows. Raw states, complete nested split rows, source/binary receipts
 and terminal proofs are retained under `target/native-630-bridge-split-native-v1/`,
 464 files/123,721,283 bytes, manifest
 `99409ba5835eca0910f4f0da23993ac0fea35503b53f022416aef7dbaf352627`.
+
+### 8.44 Native resize layout and measurement callbacks, 2026-09-17
+
+One further private 630 After build and cell refine §8.43's native boundary.
+The Reusable factory, plan, compatibility, full 10,000-row/batch32 workload,
+ordinary timers, three resize edges and 36 fixed input offers are unchanged.
+A fixed 96-byte C reply carries viewport/layout elapsed times and measurement
+counts; five scalar rows follow each resize's existing markers. The actual
+compiled header is bound through the Bridge object dependency file, alongside
+the source receipt and Rust/C/Swift ABI checks. This is another instrumented
+cost discriminator, not a speed A/B or a production hot-path change.
+
+All 105 complete interior resize parents have matching scalar rows, nonnegative
+residuals and one kernel call each. No primary records are omitted. In milliseconds:
+
+| Phase | Native/entry median | Kernel inclusive median | Swift callback median | Kernel minus callback median | Whole median / maximum |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Idle | 4.992 | 4.915 | 4.609 | 0.318 | 6.977 / 12.827 |
+| Loaded | 4.580 | 4.519 | 4.227 | 0.288 | 5.836 / 14.593 |
+| Recovery | 4.514 | 4.405 | 4.053 | 0.345 | 6.400 / 13.415 |
+
+Callback time is included in kernel time; separate medians are not additive.
+The full synchronous Swift entry includes string decoding, Spec construction,
+cache work and CoreText through return. It accounts for 93.090% of summed loaded
+kernel wall time, not 93% of CPU or pure CoreText shaping. The 35 loaded resizes
+make 9,685 identified memo calls, with 4,833 hits and 4,852 foreign callbacks
+(128–146 per resize); plain calls are zero. Every parent satisfies
+`foreign = memoCalls - memoHits + plainCalls`. Loaded `set_viewport` median is
+0.000792ms; the other native/entry residual is 0.076416ms and remains unclassified.
+These rows do not partition timer settlement, resource construction or keys.
+
+Whole resize calls exceed 1000/120ms in 11/7/9 cases. One of seven loaded timer
+chains exceeds it (maximum 8.562ms). Three of eight chains in the separate
+2,002.064ms zero-command producer interval exceed it, with whole spans of
+14.148ms, 14.017ms and 10.834ms. The producer advances revision 0→8; the loaded
+edge is 9→19. All 36 input offers are acknowledged, including 18 actual alternating
+40px wheel movements. Passive quota omissions still leave mode coverage
+unestablished. No frame deadline or physical 120Hz conclusion follows.
+
+Each edge has 18 actual AppKit size changes but 35 distinct interior viewport
+offers, including 17 adjacent pairs differing by +17 points in both axes.
+These are different sizes, not duplicate identical-viewport calls. A separate
+small AppKit control reproduces transient legacy scrollbar gutters when an old
+fitting document is tiled before it is resized. Its fitting and genuine-overflow
+cases guide a candidate pre-fit fix; this does not yet establish correctness or
+a workload speedup for that candidate, nor justify skipping necessary layouts.
+
+One build and one runtime finish successfully without retries; seven recorded
+runtime PIDs, five groups and four poster button-ups are accounted for. Raw
+records, all per-parent cuts, prior bridge/timer boundaries, exact source/header
+and binary receipts remain under `target/apple-resize-native-cut-native-v1/`,
+508 files/126,951,165 bytes, manifest
+`0678dd2aea4222a3f187b3c0f8e0f4ffc2062e393b78cffcb9a99f62c1294d5d`.
+The separate AppKit control is under `target/native-630-resize-tile-price/`.
