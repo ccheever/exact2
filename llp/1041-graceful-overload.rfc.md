@@ -2639,3 +2639,41 @@ The separate continuation preserves the earlier 404/incomplete archive and
 covers 492 artifacts/24,482,235 bytes under
 `target/normal-clock-responsiveness-storm-d6-v3/`, manifest
 `939cbf9e2abaf31127ce6325d329784218645b83987c0afc0b51b28ca97e94d2`.
+
+### 8.35 Messages row reuse with both timer entry points observed, 2026-09-17
+
+Six fresh browser cells compare the stateless and reusable sources on the same
+70668a3 base, ordered A/B, B/A, A/B. Only the private Web runtime factory differs;
+bake, plan, glue and workload remain equal. The V3 observer wraps `exact_resize`
+as well as `exact_advance`, dispatch, fulfillment and collection feedback.
+Earlier advance-only comparison evidence remains inconclusive and preserved.
+
+All six cells pass their functional checks with 10,000 supplied rows, 32 changed
+rows observed, fixed two-second phases and no trace overflow. All 432 scheduled
+offers and 144 scored input echoes complete; 474 rAF gaps are scored separately.
+Per-export inclusive durations retain zero-length calls. The union below counts
+only fully contained observed-call intervals, deduplicating any overlap; it
+excludes JavaScript batch application, DOM layout and painting outside them.
+
+| Pair | Loaded boundary revisions, control / reuse | Observed call union, control / reuse | Comparison eligibility |
+| --- | --- | --- | --- |
+| 1 | 8→16 / 8→16 | 188.4 / 107.3 ms | Equal boundary progress |
+| 2 | 8→16 / 8→17 | 176.5 / 123.6 ms | NOT_ESTABLISHED |
+| 3 | 7→16 / 8→16 | 147.8 / 96.4 ms | NOT_ESTABLISHED |
+
+Only pair 1 satisfies the predeclared equal-progress rule. Boundary snapshots
+still do not count exact commits inside the scored window, so these are observed
+coverage totals, not a repeated speedup or per-update cost estimate. In pair 2,
+reuse performs its expensive work predominantly inside `exact_resize`; ignoring
+that export would again misattribute the cost. Across all six cells, 46 timer
+entry calls exceed 8.33 ms. The reusable source therefore does not yet establish
+the target frame budget.
+
+Generic scrolling is observed, but concurrent resize and anchoring still prevent
+wheel attribution. Coarse headless-Chrome rAF gaps are not physical presentation
+intervals. No default entry activation, native gain or 120 Hz claim follows.
+All six children and the supervisor exit successfully; all 13 recorded PIDs,
+six process groups and six private listeners retire. Raw data, separate boundary
+and unscored summaries, comparison decisions and cleanup receipts are under
+`target/messages-row-reuse-web/70668a3/cells-resize-v3/`. The original six-cell
+archive and the supervisor's reproduced cleanup failure remain intact.
