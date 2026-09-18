@@ -3952,3 +3952,77 @@ report `d7b738472b2c5449e022fd72ee1538e071c91d3716ced6a00f37bd870ea2409c`.
 The immutable build capture is
 `ca5858a2bf6edfc032e9c1d91fb60f96ffbbd9c85e1faa3d8ce5f5a72aae283d`;
 source/binding archive `b1ce06f0e5d1005e3c67d4dda384b0286c3e2dd6104accc43ca433bdb004cfc6`.
+
+### 8.60 Eight exact text offers per native cache owner, 2026-09-18
+
+The Apple identified-measurement memo now retains eight exact width/height
+pairs per owner instead of four. The256-owner bound, FIFO insertion policy,
+metric/source stamps, raw-result validation and exact two-axis bit keys are
+unchanged. It retains scalar metrics, not text/font payload or worker jobs.
+This is the bounded retention experiment motivated by §8.59; the diagnostic
+witness book and224-byte ABI are not part of the production change.
+
+Corrected baseline tests record four behavioral failures and one occupancy
+assertion after the lifetime control passes; the eight-offer candidate passes
+all14 scoped tests and strict all-targets Apple Clippy. A real Host/Runner/Taffy
+resize fixture reduces actual foreign callbacks17→11, with all17 request
+width/height tuples, full metric answers, frames and output batches equal to
+an uncached oracle. That fixture uses a deterministic callback, not CoreText.
+Tests retain exact axis bits, intrinsic offers, FIFO ninth-offer eviction,
+invalid-result retry, namespace/owner lifetime and existing source controls.
+
+The allocation fixture records requested live capacity92,680→158,216 bytes,
+a65,536-byte increase; occupied owner payload increases32,768 bytes. The hash
+map's448 usable entries are not its512 inferred buckets. These are observed
+allocator requests for that fixture, not RSS, allocator size classes or a
+future churn peak. There is no new production allocation type or worker.
+
+One optimized candidate build changes only the constant against the retained
+borrowed/prefit control. Actual258 source/header cards, compiler/SDK/settings,
+77 configuration units, generated Reusable entry, plan and compatibility bytes
+match apart from that file. Both arms use the original C96 observer, full10k
+history/batch32, ordinary timer, fixed resize/type/wheel recipe and4,096/512
+quotas. Two fresh pairs run in opposite orders; no old cell supplies timings.
+
+| Comparison, control → eight offers | First A→B pair | Reversed B→A pair |
+| --- | ---: | ---: |
+| Scored resize parents | 54→54 | 54→54 |
+| Identified lookups | 15,600→15,600 | 15,600→15,600 |
+| Swift measurement callbacks | 7,991→5,066 | 7,990→5,060 |
+| Full Swift callback wall sum, ms | 313.870→268.369 | 331.263→264.246 |
+| Native+entry wall sum, ms | 349.820→305.415 | 369.166→299.756 |
+| Whole resize union, ms | 515.306→475.561 | 543.167→483.031 |
+| Whole resize calls above8.333ms | 35/54→33/54 | 36/54→33/54 |
+
+Each phase delivers the same18 viewport dimensions. Full accepted-step and
+strict AppKit-inside resize cohorts coincide; a queued last delivery can start
+after QuartzUP while still inside AppKitdidEnd. Full equal-argument histories
+match. Clock/cadence and timed revision progress are observed, not forced.
+The count reduction repeats at about37%; summed whole resize work is7.7% and
+11.1% lower in these two pairs. Callback spans are inclusive full Swift wall,
+not CoreText CPU, and are not added to the parent native/whole spans.
+
+This is a useful reduction in repeated measurement, not a120Hz result or a
+uniform latency improvement. First-pair loaded whole median worsens8.872→9.236ms,
+loaded typing ACK maximum10.257→29.312ms and wheel2.524→12.333ms. Both first-pair
+silent intervals have five of eight producer chains over8.333ms; their median
+worsens9.430→9.848ms. Reversed-pair recovery resize median worsens9.251→10.064ms
+and loaded timer maximum10.172→12.574ms. All these negatives remain beside
+the lower totals. The instrumented display remains60Hz, passive observations
+overflow and mode stays `NOTESTABLISHED`; no physical120 or broad tail bound.
+
+The reversed pair also retains a worse loaded typing ACK maximum12.751→19.942ms;
+its command-free samples differ, eight control chains versus nine candidate.
+All four cells exit0 without retry or watchdog action, all16 external posters
+release input, and their28 recorded PIDs/20 groups retire. Integrated validation
+passes14 distinct measurement tests and strict Apple all-targets Clippy; no
+whole-workspace or new native-demo build is claimed.
+
+Evidence: `target/apple-memo-offers-validation/freeze-v1/`, source/test manifest
+`06e7362b9c678a7590d5c2dca77e1d7c4ab8d75a9eae282dfebff12f29ab30bc`;
+first native pair `target/native-630-offers-pair-v1/`,1,052 files/200,556,632 bytes,
+manifest `f3cd8dbd3aca03a9b873ceb6982bd19b6cc88c6f47732c8976829c76d3e89614`;
+reversed pair `target/native-630-offers-reverse-pair-v1/`,379 files/145,723,390 bytes,
+manifest `e6e32fbcb9b58821ce09b66041ff71fc844dcf68c055b68d20544cca998084fb`.
+The original test authoring, pre-launch SDK-variable check and offline setup
+failures remain in their archives; none is a native retry or a retuned workload.
