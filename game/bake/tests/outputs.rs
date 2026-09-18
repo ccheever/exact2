@@ -14,16 +14,16 @@ fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_a
     let app = temp();
     fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
-    assert!(app.join("assets/crate/0-srgb.tex").exists());
+    assert!(app.join("assets/crate/0-srgb-straight.tex").exists());
     fs::write(app.join("assets/authored.bin"), b"keep").unwrap();
     fs::rename(app.join("art/crate.gltf"), app.join("art/renamed.gltf")).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
     assert!(!app.join("assets/crate.model").exists());
-    assert!(!app.join("assets/crate/0-srgb.tex").exists());
+    assert!(!app.join("assets/crate/0-srgb-straight.tex").exists());
     fs::remove_dir_all(app.join("art")).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
     assert!(!app.join("assets/renamed.model").exists());
-    assert!(!app.join("assets/renamed/0-srgb.tex").exists());
+    assert!(!app.join("assets/renamed/0-srgb-straight.tex").exists());
     assert_eq!(fs::read(app.join("assets/authored.bin")).unwrap(), b"keep");
     fs::remove_dir_all(app).unwrap();
 }
@@ -58,8 +58,8 @@ fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
     );
     assert_eq!(textures.len(), 1);
     assert_eq!(
-        exact_game::bin::to_vec(&textures["crate/0-srgb.tex"]),
-        include_bytes!("fixtures/crate/0-srgb.tex")
+        exact_game::bin::to_vec(&textures["crate/0-srgb-straight.tex"]),
+        include_bytes!("fixtures/crate/0-srgb-straight.tex")
     );
 }
 
@@ -75,7 +75,7 @@ fn oversize_texture_refuses_by_name_and_nearest_filters_survive() {
     fs::write(&path, source.to_string()).unwrap();
     let error = exact_game_bake::assets(&path).unwrap_err();
     assert!(
-        error.contains("oversize/0-srgb.tex") && error.contains("2048"),
+        error.contains("oversize/0-srgb-straight.tex") && error.contains("2048"),
         "{error}"
     );
     let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
@@ -88,4 +88,49 @@ fn oversize_texture_refuses_by_name_and_nearest_filters_survive() {
         [exact_game::asset::Filter::Nearest; 3]
     );
     fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn renamed_source_never_prunes_a_replaced_authored_output() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    fs::rename(app.join("art/crate.gltf"), app.join("art/renamed.gltf")).unwrap();
+    fs::write(app.join("assets/crate.model"), b"authored replacement").unwrap();
+    let error = exact_game_bake::bake_art(&app).unwrap_err();
+    assert!(
+        error.contains("crate.model") && error.contains("authored"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read(app.join("assets/crate.model")).unwrap(),
+        b"authored replacement"
+    );
+    assert!(!app.join("assets/renamed.model").exists());
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn rebake_never_overwrites_a_replaced_authored_output() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    fs::write(app.join("assets/crate.model"), b"authored replacement").unwrap();
+    let error = exact_game_bake::bake_art(&app).unwrap_err();
+    assert!(
+        error.contains("crate.model") && error.contains("authored"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read(app.join("assets/crate.model")).unwrap(),
+        b"authored replacement"
+    );
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn cli_and_shell_encoding_share_the_carrier_limit() {
+    assert!(exact_game_bake::check_size("huge.model", 64 * 1024 * 1024).is_ok());
+    let error = exact_game_bake::check_size("huge.model", 64 * 1024 * 1024 + 1).unwrap_err();
+    assert!(error.contains("huge.model") && error.contains("64 MiB"));
 }

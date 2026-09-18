@@ -33,7 +33,7 @@ pub(crate) fn uniform(
     data[28..31].copy_from_slice(&frame.environment.zenith);
     data[31] = frame.environment.ambient;
     data[32..35].copy_from_slice(&frame.environment.ground);
-    data[35] = frame.exposure;
+    data[35] = frame.environment.exposure;
     for (point, out) in frame
         .points
         .iter()
@@ -56,7 +56,7 @@ pub(crate) fn uniform(
         data[191] = fog.density.max(0.0);
         data[192] = fog.height_falloff.max(0.0);
     }
-    if let Some(bloom) = frame.bloom {
+    if let Some(bloom) = frame.environment.bloom {
         data[193] = bloom.threshold.max(0.0);
         data[194] = bloom.intensity.max(0.0);
         data[195] = bloom.radius.max(0.0);

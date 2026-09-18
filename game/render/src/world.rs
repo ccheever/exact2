@@ -1,5 +1,5 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
-use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
+use crate::{shapes, Batch, MeshId, RenderError, Vertex};
 use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
@@ -29,18 +29,28 @@ pub(crate) trait Writes {
     fn mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId;
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
-impl Writes for Renderer {
+impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
     fn model(&self, name: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
-        self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+        if ASSETS {
+            self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+        } else {
+            None
+        }
     }
     fn assets_revision(&self) -> u64 {
         self.models.revision
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
-        self.set_draw_instances(records)
+        if ASSETS {
+            self.set_draw_instances(records)
+        } else {
+            Ok(())
+        }
     }
     fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
-        self.model_poses(w, entities, initial);
+        if ASSETS {
+            self.model_poses(w, entities, initial);
+        }
     }
     fn max_slots(&self) -> u32 {
         self.max_slots()
@@ -86,7 +96,7 @@ impl Shape {
             Mesh::Plane { .. } => Self::Plane,
             Mesh::Capsule { .. } => Self::Capsule,
             Mesh::Asset(name) => {
-                return Err(RenderError::scene(format!(
+                return Err(RenderError::Scene(format!(
                     "Mesh.Asset({name}): asset meshes are not implemented"
                 )))
             }
@@ -228,7 +238,11 @@ impl Feed {
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
     /// Initial feeding initializes both histories, including a world's setup tick.
-    pub fn feed(&mut self, world: &World, renderer: &mut Renderer) -> Result<(), RenderError> {
+    pub fn feed<const ASSETS: bool>(
+        &mut self,
+        world: &World,
+        renderer: &mut crate::renderer::RendererWithAssets<ASSETS>,
+    ) -> Result<(), RenderError> {
         self.feed_to(world, renderer)
     }
     pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
@@ -240,6 +254,20 @@ impl Feed {
         self.scene.frame(world, alpha, aspect)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
+        for &entity in &self.assets.entities {
+            if w.global(entity)
+                .is_some_and(|p| p.matrix3.determinant() < 0.)
+            {
+                if let Some(mesh) = w.get::<Mesh>(entity) {
+                    if let Mesh::Asset(name) = &*mesh {
+                        return Err(RenderError::Scene(format!(
+                            "asset `{name}`: negative-determinant entity transform is unsupported"
+                        )));
+                    }
+                }
+            }
+        }
+
         if self.generation != w.presentation_generation() {
             self.reset();
             self.generation = w.presentation_generation();
@@ -509,8 +537,7 @@ fn check_page(
     if let Some((word, bits)) = mask.iter().enumerate().rev().find(|(_, bits)| **bits != 0) {
         let slot = u64::from(first) + (word * 64 + 63 - bits.leading_zeros() as usize) as u64;
         if slot >= u64::from(limit) {
-            return Err(RenderError {
-                detail: None,
+            return Err(RenderError::Capacity {
                 arena,
                 slot,
                 limit: u64::from(limit),

@@ -36,6 +36,8 @@ pub(crate) struct Models {
     pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[Mat4; 2]>,
+    words: Vec<u32>,
+    normals: Vec<([u32; 16], [u32; 16])>,
 }
 impl Models {
     fn prepare(&mut self, device: &wgpu::Device, family: &crate::pipeline::ModelPipelines) {
@@ -64,14 +66,21 @@ impl Models {
         records: &[DrawInstance],
     ) -> Result<(), RenderError> {
         // Four u32 header words + affine matrix + inverse-transpose normal matrix.
-        let mut words = Vec::with_capacity(records.len() * 36);
-        for record in records {
-            let normal = record.local.inverse().transpose();
-            if !normal.is_finite() {
-                return Err(RenderError::scene(
-                    "model node has singular transform".into(),
-                ));
+        let words = &mut self.words;
+        words.clear();
+        self.normals.resize(records.len(), ([0; 16], [0; 16]));
+        for (record, cached) in records.iter().zip(&mut self.normals) {
+            let key = record.local.to_cols_array().map(f32::to_bits);
+            if cached.0 != key {
+                let normal = record.local.inverse().transpose();
+                if !normal.is_finite() {
+                    return Err(RenderError::scene(
+                        "model node has singular transform".into(),
+                    ));
+                }
+                *cached = (key, normal.to_cols_array().map(f32::to_bits));
             }
+            let normal = cached.1;
             words.extend([
                 record.transform,
                 record.material.0 as u32,
@@ -79,7 +88,7 @@ impl Models {
                 0,
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
-            words.extend(normal.to_cols_array().map(f32::to_bits));
+            words.extend(normal);
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -90,7 +99,7 @@ impl Models {
         if instances.grow(device, queue, (words.len() * 4) as u64) {
             self.bind = Some(instance_bind(device, layout, instances));
         }
-        instances.write(queue, 0, bytes(&words));
+        instances.write(queue, 0, bytes(words));
         self.records.clear();
         self.records.extend_from_slice(records);
         self.poses.resize(records.len(), [Mat4::IDENTITY; 2]);
@@ -111,7 +120,7 @@ fn instance_bind(
         }],
     })
 }
-impl crate::Renderer {
+impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Upload model geometry and material textures once; return stable renderer handles.
     pub fn add_model(
         &mut self,
@@ -203,7 +212,13 @@ impl crate::Renderer {
         self.models.textures.insert(name.into(), texture);
         self.models.uploads += 1;
         for material in &mut self.models.materials {
-            if material.names.iter().flatten().any(|n| n == name) {
+            if material.names.iter().flatten().any(|n| n == name)
+                && material
+                    .names
+                    .iter()
+                    .flatten()
+                    .all(|n| self.models.textures.contains_key(n))
+            {
                 *material = material_bind(
                     &self.device,
                     &self.queue,
@@ -437,5 +452,73 @@ fn upload_texture(
     Texture {
         view: texture.create_view(&Default::default()),
         sampler: sampler.clone(),
+    }
+}
+
+#[cfg(test)]
+mod arrival_tests {
+    use super::*;
+    #[test]
+    fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer
+            .prepare_model("empty.model", &Model::default())
+            .unwrap();
+        let layout = &renderer.pipelines.models.as_ref().unwrap().instance;
+        for x in 0..8 {
+            let records = [DrawInstance {
+                transform: 0,
+                geometry: MeshId(0),
+                material: MaterialId(0),
+                local: Mat4::from_translation(glam::Vec3::new(x as f32, 0., 0.)),
+            }];
+            renderer
+                .models
+                .set(&gpu.device, &gpu.queue, layout, &records)
+                .unwrap();
+            assert_eq!(renderer.models.normals.len(), 1);
+            let ptr = renderer.models.words.as_ptr();
+            renderer
+                .models
+                .set(&gpu.device, &gpu.queue, layout, &records)
+                .unwrap();
+            assert_eq!(ptr, renderer.models.words.as_ptr());
+        }
+    }
+    #[test]
+    fn material_waits_for_all_textures_before_rebinding() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let model = Model {
+            materials: vec![MaterialData {
+                base_color_texture: Some(0),
+                normal_texture: Some(1),
+                ..Default::default()
+            }],
+            textures: vec!["color.tex".into(), "normal.tex".into()],
+            ..Default::default()
+        };
+        renderer.prepare_model("two.model", &model).unwrap();
+        let initial = renderer.models.materials[0].bind.clone();
+        let texture = TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        };
+        renderer.add_texture("color.tex", &texture).unwrap();
+        assert_eq!(renderer.models.materials[0].bind, initial);
+        renderer.add_texture("normal.tex", &texture).unwrap();
+        let final_bind = renderer.models.materials[0].bind.clone();
+        assert_ne!(final_bind, initial);
+        renderer.add_texture("normal.tex", &texture).unwrap();
+        assert_eq!(renderer.models.materials[0].bind, final_bind);
     }
 }

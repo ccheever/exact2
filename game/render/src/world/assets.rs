@@ -21,6 +21,13 @@ impl Assets {
         }
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
+            if w.global(entity)
+                .is_some_and(|p| p.matrix3.determinant() < 0.)
+            {
+                return Err(RenderError::Scene(format!(
+                    "asset `{name}`: negative-determinant entity transform is unsupported"
+                )));
+            }
             let Some(nodes) = r.model(name) else { continue };
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;

@@ -27,12 +27,12 @@ pub fn assets(id: u32) -> String {
 }
 /// Deliver named bytes, including a missing file, without requiring a device.
 pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
-    with(|m| m.asset(id, name, bytes)).unwrap_or(false)
+    with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
 }
 
 /// Deliver a terminal transport failure.
 pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
-    with(|m| m.asset_failed(id, name, reason)).unwrap_or(false)
+    with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
 }
 
 /// Record a refusal made by the ABI itself, before the module was reached.
@@ -365,8 +365,11 @@ pub fn carry(id: u32) -> Option<Vec<u8>> {
 }
 
 /// Restore state. False leaves the surface unchanged; error explains why.
-pub fn restore(id: u32, bytes: &[u8]) -> bool {
-    with(|m| m.restore(id, bytes)).unwrap_or(false)
+pub fn restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+    let Ok(mode) = crate::Restore::from_code(mode) else {
+        return false;
+    };
+    with(|m| m.restore(id, bytes, mode)).unwrap_or(false)
 }
 
 /// Take the latest changed public record, if any.
@@ -676,9 +679,9 @@ macro_rules! module {
         /// # Safety
         /// `data` is `len` readable bytes.
         #[no_mangle]
-        pub unsafe extern "C" fn gpu_restore(id: u32, data: *const u8, len: usize) -> bool {
+        pub unsafe extern "C" fn gpu_restore(id: u32, data: *const u8, len: usize, mode: u32) -> bool {
             let Some(bytes) = (unsafe { $crate::native::bytes("gpu_restore", data, len) }) else { return false };
-            $crate::native::restore(id, bytes)
+            $crate::native::restore(id, bytes, mode)
         }
 
         /// Changed public record in the output buffer; u32::MAX means unchanged.

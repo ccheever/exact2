@@ -249,7 +249,7 @@ impl Data for Definition {
         Ok(())
     }
 }
-/// Retained mono PCM budget, shared by registration and presentation executors.
+/// Retained mono PCM budget for presentation executors.
 pub const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
 /// Surface synthesis rate; executors with other rates also reserve before rendering.
 pub const SAMPLE_RATE: u32 = 48000;
@@ -261,11 +261,6 @@ impl Sounds {
     /// Define or replace a named sound.
     pub fn add(&mut self, name: impl Into<String>, synth: Synth) -> &mut Self {
         let name = name.into();
-        let bytes = (math::ceil(synth.duration() * SAMPLE_RATE as f32) as usize).saturating_mul(4);
-        assert!(
-            bytes <= PCM_BYTE_BUDGET,
-            "sound `{name}` exceeds the 32 MiB PCM budget"
-        );
         synth.validate();
         self.0.insert(name, Definition::new(synth));
         self
@@ -808,7 +803,7 @@ mod carry_regression {
         old.world_mut()
             .resource_mut::<Sounds>()
             .add("runtime", Synth::sine(330.));
-        fresh.restore_bound(&old.save()).unwrap();
+        fresh.restore_bound(&old.save().unwrap()).unwrap();
         assert!(fresh.world().resource::<Sounds>().0.contains_key("runtime"));
         fresh.world_mut().play("tone").start();
         let voices = &fresh.world().resource::<Voices>().voices;
@@ -837,10 +832,5 @@ mod authoring_regression {
         assert_eq!(source.gain, 0.3);
         shared.play("chime").at(entity).start();
         assert_eq!(shared.resource::<Voices>().voices.len(), 1);
-    }
-    #[test]
-    #[should_panic(expected = "sound `oversized` exceeds the 32 MiB PCM budget")]
-    fn oversized_registration_refuses_by_name() {
-        Sounds::default().add("oversized", Synth::sine(440.).seconds(200.));
     }
 }

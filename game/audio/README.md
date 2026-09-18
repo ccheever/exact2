@@ -55,7 +55,9 @@ Capacity belongs to the output. Player ranks loops first, then louder voices
 (maximum stereo gain), then newer start boundaries, then larger stable identities.
 It stops priority losers before starts and walks candidates until the output has
 accepted `capacity()` voices. A budget or device refusal cannot starve a smaller,
-lower-priority sound. A dropped loop returns at its current phase.
+lower-priority sound, except while a preferred candidate waits for stopped PCM to
+be acknowledged: non-preferred candidates stay stopped so they cannot reclaim that
+capacity. A dropped loop returns at its current phase.
 There is no callback stealing. Final per-channel gains are sanitized to 0..4 at
 this shared boundary. Missing ears silence spatial sounds. Distance gain is
 `1/max(distance,1) * (1-smoothstep(1,40,distance))`; local +X is right and pan is
@@ -63,7 +65,10 @@ equal-power. UI gains apply equally to both channels on both executors.
 
 Definitions are immutable shared values with a content revision computed at
 registration or restore. Finite voices retain their frozen definition; sources
-resolve their name in the current registry, with looping set on the definition.
+resolve their name in the current registry and require a looping definition. A
+non-looping `AudioSource` is refused by sound name at presentation; use `World::play`
+for finite sounds, which records a deterministic activation tick. This avoids adding
+activation state to attached sources or measuring their offset from world tick zero.
 `AudioSource::new("wind").gain(0.3)` starts playing by default. After explicit
 `register_audio()` in setup, `world.play("chime").at(entity)` needs only `&World`,
 so it can run while an unrelated component is borrowed.
@@ -71,8 +76,9 @@ so it can run while an unrelated component is borrowed.
 Player reserves a **32 MiB PCM budget before synthesis** (`samples × 4`), counting
 a shared allocation once. It keeps active allocations and allocations still owned
 by an output; acknowledgement releases the latter. Registry membership alone does
-not retain PCM. `Sounds::add` refuses an oversized definition by name at the surface
-sample rate (48 kHz); a Player using another rate also checks before rendering.
+not retain PCM. Registration validates definitions; the 60-second duration limit
+already keeps every valid definition below 32 MiB at 48 kHz. The Player checks the
+aggregate budget at its actual output rate before rendering.
 Web buffers follow active source references; a failed start leaves no cached PCM.
 Apple retains PCM while commands or voices can reference its raw pointer. A Stop
 command's sequence is acknowledged through the return SPSC ring; only the main
@@ -153,8 +159,12 @@ The presentation hook combines hidden/interrupted state before suspending output
 resume resets playback from the current tick offset with one readiness epoch bump.
 ExactKit recognizes the `exact:audio` surface message and configures/activates one
 process audio session only for a live requesting surface. Failed activation retries
-on Visible or an eligible Resumed notification; failed activation never emits
-Resumed, and interruption options must include `shouldResume`. Other hosts consume
+at 300 live display-link frames, or on a new Visible transition or explicit gesture;
+failed activation never emits Resumed. An interruption ending without `shouldResume`
+blocks automatic resume process-wide, including later lifecycles and automatic
+`exact:audio` requests. A subsequent Hidden → Visible transition or trusted key/pointer
+down can resume. ExactView window attach/detach refreshes aggregate visibility.
+Other hosts consume
 the request without app dispatch. SurfacePlayer returns lifecycle failures and the
 GameAudio forwarder reports them. Failed AudioUnit Stop disposes the device so work
 ends; failed Start drops it into the same 300-live-frame retry as creation failures.
@@ -240,11 +250,9 @@ are nonnegative; slide accepts either sign. Validation recurses through layers a
 applies to both saved registry and saved voice definitions; refused loads leave
 the world unchanged. Opening a `.world` restores saved `Sounds`, including runtime-registered names,
 and saved finite-voice definitions. `Sim::restore_bound` owns only app binding policy.
-The remaining dev-carry overlay needs an explicit carry/file distinction from the
-hosts: today both use the identical `gpu_restore` call and bytes. Until that plumbing
-is admitted, dev carry also restores the saved registry. The intended carry overlay
-belongs to GameAudio; finite voices keep frozen definitions, while named loops resolve
-the new registry after a swap.
+The restore seam distinguishes Open from Carry:
+GameAudio overlays fresh setup definitions only on Carry, preserving runtime names;
+finite voices retain frozen definitions. Opening a file keeps its saved registry.
 
 Apple callback tests use the real mixer with fixture buffers and open no device.
 Compiled Swift fixtures post notifications from a background queue, check ordered
@@ -254,3 +262,5 @@ wrapper. The one greybox macOS proof attempt then failed before launch: the WebK
 helper selected SDK 27 with Swift 6.3.3. There is no macOS device-output claim.
 Audio/render Rust libraries and the Swift `ExactKit` target build for iOS; iOS was
 not driven and interruption handling remains unproven on a device.
+
+Owed after F2f/AU3e: real-device Apple interruption/output and multi-display cadence sweeps; WebAudio resume failure propagation and retry; an authoring regression that keeps an unrelated component borrow live across `start()`. The callback/Swift fixtures and web proofs do not establish those claims. The shared-tree asset proof still needs its pending-carry expectation and renamed texture path reconciled.

@@ -4,29 +4,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 
-// Check literal public declarations/re-exports without compiling ignored crates.
-// Rust still diagnoses trait conformance, macros and conditional exports.
-function exportsType(file, parts, source = readFileSync(file, 'utf8')) {
-  source = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
-  const [name, ...rest] = parts;
-  if (!rest.length) return new RegExp(`\\bpub\\s+(?:(?:struct|enum|type|union)\\s+${name}\\b|use\\s+[^;]*\\b${name}\\b)`).test(source);
-  const mod = new RegExp(`\\bpub\\s+mod\\s+${name}\\s*([;{])`).exec(source);
-  if (!mod) return false;
-  if (mod[1] === ';') {
-    const base = /(?:lib|mod)\.rs$/.test(file) ? dirname(file) : file.slice(0, -3);
-    const child = [resolve(base, `${name}.rs`), resolve(base, name, 'mod.rs')].find(existsSync);
-    return !!child && exportsType(child, rest);
-  }
-  const start = mod.index + mod[0].length;
-  let end = start, depth = 1;
-  while (end < source.length && depth) {
-    if (source[end] === '{') depth++;
-    if (source[end] === '}') depth--;
-    end++;
-  }
-  return depth === 0 && exportsType(resolve(dirname(file), name, 'mod.rs'), rest, source.slice(start, end - 1));
-}
-
 export function gameShells(dir, game, workspace) {
   // Never ask Cargo to inspect generated members until they are complete. Even
   // --no-deps metadata rejects a missing target or a stale path dependency.
@@ -48,10 +25,8 @@ export function gameShells(dir, game, workspace) {
     if (!existsSync(manifest) || Bun.TOML.parse(readFileSync(manifest, 'utf8')).package?.name !== crate) {
       throw new Error(`game.crate ${crate} must name the package in ${appDir}/logic`);
     }
-    if (!exportsType(resolve(logicDir, 'src/lib.rs'), type.split('::'))) {
-      throw new Error(`game.type ${type} must be exported by ${logicDir}/src/lib.rs`);
-    }
     if (app.game.audio !== undefined && typeof app.game.audio !== "boolean") throw new Error("game.audio must be a boolean");
+    if (app.game.assets !== undefined && typeof app.game.assets !== "boolean") throw new Error("game.assets must be a boolean");
     const name = crate.slice(0, -'-logic'.length);
     const key = createHash('sha256').update(app.app.id).digest('hex').slice(0, 24);
     for (const kind of ['gpu', 'web', 'apple', 'linux']) {
@@ -62,7 +37,7 @@ export function gameShells(dir, game, workspace) {
         : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;
       desired.set(shellName, {
         'Cargo.toml': header + dependencies,
-        [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+        [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
         ...(kind === 'gpu' ? {'build.rs': `fn main() {\n    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n}\n`} : {'build.rs': `fn main() {\n    exact_game_app::bake("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`}),
       });
     }

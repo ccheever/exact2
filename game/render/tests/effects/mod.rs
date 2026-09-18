@@ -39,6 +39,7 @@ fn shadow_scene(gpu: &Gpu, depth: f32) -> (Renderer, FrameInput<'static>, Vec<Ba
         ambient: 0.5,
         sun_disc: 0.0,
         fog: None,
+        ..f.environment
     };
     f.sun = Some(Sun {
         direction: Vec3::new(1.0, -2.0, 0.3),
@@ -198,7 +199,7 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
     let mut f = frame();
     let off = render(&gpu, &mut r, &texture, &f);
     off.save("bloom-off");
-    f.bloom = Some(Bloom::default());
+    f.environment.bloom = Some(Bloom::default());
     let on = render(&gpu, &mut r, &texture, &f);
     on.save("bloom-on");
     let outside = (0..off.data.len() / 4)
@@ -209,7 +210,7 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
     assert!(on.at(298, 160)[0] > 10 && off.at(298, 160)[0] == 0);
     r.write_materials(0, &material([0.0; 3], 0.95)).unwrap();
     let low_on = render(&gpu, &mut r, &texture, &f);
-    f.bloom = None;
+    f.environment.bloom = None;
     let low_off = render(&gpu, &mut r, &texture, &f);
     assert!(low_on
         .data
@@ -220,7 +221,7 @@ fn bloom_spreads_light_and_leaves_subthreshold_identical() {
         r.write_materials(0, &material([0.0; 3], 20.0)).unwrap();
         render(&gpu, &mut r, &texture, &f).data
     });
-    f.bloom = Some(Bloom::default());
+    f.environment.bloom = Some(Bloom::default());
     for size in [(1, 1), (17, 11), (255, 129)] {
         render(
             &gpu,
@@ -243,6 +244,8 @@ fn sky_gradient_sun_disc_and_height_fog() {
     f.proj = directx::perspective(170f32.to_radians(), 1.0, 0.1, 100.0);
     f.environment = Environment {
         fog: None,
+        bloom: f.environment.bloom,
+        exposure: f.environment.exposure,
         ..Environment::default()
     };
     f.environment.sun_disc = 0.0;

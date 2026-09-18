@@ -1,5 +1,5 @@
 use super::*;
-use crate::values::{quote, value_json};
+use crate::values::quote;
 
 impl World {
     /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
@@ -136,10 +136,10 @@ impl World {
         *self.journal.borrow_mut() = lines.into();
         self.journal_next.set(next);
     }
-    pub(crate) fn publications(&self) -> BTreeMap<String, Value> {
+    pub(crate) fn publications(&self) -> BTreeMap<String, crate::values::Stored> {
         self.published.borrow().clone()
     }
-    pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, Value>) {
+    pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, crate::values::Stored>) {
         *self.published.borrow_mut() = values;
     }
     pub(crate) fn published_json(&self, rounded: bool) -> String {
@@ -148,7 +148,7 @@ impl World {
             self.published
                 .borrow()
                 .iter()
-                .map(|(k, v)| format!("{}:{}", quote(k), value_json(v, rounded)))
+                .map(|(k, v)| format!("{}:{}", quote(k), v.json(rounded)))
                 .collect::<Vec<_>>()
                 .join(",")
         )
@@ -193,6 +193,7 @@ pub(crate) enum ObservationState {
 pub(crate) struct Observation {
     entries: Vec<(u8, &'static str, Entity, u64)>,
     scratch: Vec<(usize, u64)>,
+    published: Vec<(String, u64)>,
 }
 impl World {
     pub(crate) fn observe(&self, out: &mut Observation) {
@@ -211,6 +212,14 @@ impl World {
             Some(w) => w.with_observation(&*rng),
             None => crate::hash::of(&*rng),
         };
+        let published = self.published.borrow();
+        out.published.resize_with(published.len(), Default::default);
+        for ((key, hash), (name, value)) in out.published.iter_mut().zip(published.iter()) {
+            if key != name {
+                key.clone_from(name);
+            }
+            *hash = crate::hash::of(value);
+        }
         out.entries.clear();
         let ambient = self.storage::<crate::Ambient>();
         for e in self.entities() {
@@ -275,11 +284,27 @@ impl World {
     pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
         self.observed_epoch = self.mutation_epoch();
         self.changing.clear();
-        self.observation = if before.entries == after.entries {
+        self.observation = if before.entries == after.entries && before.published == after.published
+        {
             ObservationState::Still
         } else {
             ObservationState::Changing
         };
+        if before.published != after.published {
+            for (key, _) in before.published.iter().chain(&after.published) {
+                if self.changing.len() >= 8 {
+                    break;
+                }
+                if before.published.iter().find(|v| &v.0 == key)
+                    != after.published.iter().find(|v| &v.0 == key)
+                {
+                    let reason = format!("published.{key}");
+                    if !self.changing.contains(&reason) {
+                        self.changing.push(reason);
+                    }
+                }
+            }
+        }
         let (mut a, mut b) = (0, 0);
         while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
             let old = before.entries.get(a);

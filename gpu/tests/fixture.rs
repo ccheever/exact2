@@ -11,7 +11,7 @@ use exact_gpu::{Frame, Gpu, Surface, SurfaceError, Value};
 struct Fill([f64; 4]);
 
 impl Surface for Fill {
-    fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         Ok(())
     }
 

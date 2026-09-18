@@ -8,11 +8,15 @@ fn main() {
         exact_game_bake::assets(std::path::Path::new(&args[0])).and_then(|(m, textures)| {
             let out = std::path::Path::new(&args[1]);
             std::fs::create_dir_all(out.parent().unwrap()).map_err(|e| e.to_string())?;
-            std::fs::write(out, exact_game::bin::to_vec(&m)).map_err(|e| e.to_string())?;
+            std::fs::write(
+                out,
+                exact_game_bake::encode(&out.display().to_string(), &m)?,
+            )
+            .map_err(|e| e.to_string())?;
             for (name, texture) in textures {
-                let path = out.parent().unwrap().join(name);
+                let path = out.parent().unwrap().join(&name);
                 std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-                std::fs::write(path, exact_game::bin::to_vec(&texture))
+                std::fs::write(path, exact_game_bake::encode(&name, &texture)?)
                     .map_err(|e| e.to_string())?;
             }
             Ok::<_, String>(())

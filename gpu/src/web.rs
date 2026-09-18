@@ -20,12 +20,12 @@ pub fn assets(id: u32) -> String {
 }
 /// Deliver named bytes, including a missing file, without requiring a device.
 pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
-    with(|m| m.asset(id, name, bytes)).unwrap_or(false)
+    with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
 }
 
 /// Deliver a terminal host transport failure by name.
 pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
-    with(|m| m.asset_failed(id, name, reason)).unwrap_or(false)
+    with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
 }
 
 /// Create the device and the module (asynchronous: WebGPU's adapter and
@@ -37,9 +37,10 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
     });
     match crate::load_gpu(instance, None).await {
         Ok(gpu) => {
-            let mut module = Module::new(registry);
-            module.set_gpu(gpu);
-            MODULE.with(|m| *m.borrow_mut() = Some(module));
+            MODULE.with(|m| {
+                let mut m = m.borrow_mut();
+                m.get_or_insert_with(|| Module::new(registry)).set_gpu(gpu);
+            });
             Ok(())
         }
         Err(e) => {
@@ -164,11 +165,13 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         period_ms: 0.0,
         shader_generation: 0,
     };
-    match with(|m| m.render(id, &frame)).flatten() {
+    with(|m| match m.render(id, &frame) {
         Some(true) => 1,
         Some(false) => 0,
+        None if m.gpu().is_none() => 3,
         None => 2,
-    }
+    })
+    .unwrap_or(2)
 }
 
 /// Whether a canvas wants raw input.
@@ -187,8 +190,11 @@ pub fn carry(id: u32) -> Option<Vec<u8>> {
 }
 
 /// Restore state. False leaves the surface unchanged; error explains why.
-pub fn restore(id: u32, bytes: &[u8]) -> bool {
-    with(|m| m.restore(id, bytes)).unwrap_or(false)
+pub fn restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+    let Ok(mode) = crate::Restore::from_code(mode) else {
+        return false;
+    };
+    with(|m| m.restore(id, bytes, mode)).unwrap_or(false)
 }
 
 /// Take the latest changed public record, if any.
@@ -353,8 +359,8 @@ macro_rules! module {
 
         /// Restore state, reporting a refusal through gpu_error.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_restore(id: u32, bytes: &[u8]) -> bool {
-            $crate::web::restore(id, bytes)
+        pub fn gpu_restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+            $crate::web::restore(id, bytes, mode)
         }
 
         /// Release every surface and the device before replacing this module.

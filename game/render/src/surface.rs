@@ -1,9 +1,11 @@
 use crate::{
     perf::{Perf, Stamp},
-    Feed, Renderer,
+    Feed,
 };
 use exact_game::{Clock, Game, Sim, World};
-use exact_gpu::{wgpu, Frame, InputEvent, Lifecycle, Surface, SurfaceError, Value};
+use exact_gpu::{
+    wgpu, AssetError, Frame, InputEvent, Lifecycle, Restore, Surface, SurfaceError, Value,
+};
 
 /// Optional presentation executor. The default `()` links no executor code.
 /// Implementations must use a discarding output whenever `seekable` is true.
@@ -18,6 +20,10 @@ pub trait Presentation: Default {
     fn suspend(&mut self, _suspended: bool) {}
     /// Called once after the simulation advances, including zero-size frames.
     fn sync(&mut self, _world: &World, _generation: u64, _playing: bool, _seekable: bool) {}
+    /// Snapshot newly constructed definitions before a carry replaces dynamic state.
+    fn before_restore(&mut self, _world: &World, _mode: Restore) {}
+    /// Overlay fresh definitions only for a development carry.
+    fn after_restore(&mut self, _world: &World, _mode: Restore) {}
     /// Called synchronously on key/pointer down, within the browser's gesture.
     fn unlock(&mut self) {}
 }
@@ -25,11 +31,12 @@ impl Presentation for () {}
 
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
-pub struct WorldSurface<G: Game, P: Presentation = ()> {
+pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = false> {
     sim: Option<Sim<G>>,
-    pending_restore: Option<Vec<u8>>,
+    pending_restore: Option<(Vec<u8>, Restore)>,
+    refusal: Option<SurfaceError>,
     presentation: P,
-    render: Option<(Renderer, Feed)>,
+    render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     device: bool,
     perf: Perf,
@@ -44,11 +51,12 @@ pub struct WorldSurface<G: Game, P: Presentation = ()> {
     hidden: bool,
     interrupted: bool,
 }
-impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
+impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P, ASSETS> {
     fn default() -> Self {
         Self {
             sim: None,
             pending_restore: None,
+            refusal: None,
             presentation: P::default(),
             render: None,
             format: None,
@@ -67,13 +75,15 @@ impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
         }
     }
 }
-impl<G: Game, P: Presentation> WorldSurface<G, P> {
+impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     fn finish_restore(&mut self) {
         if let Some(sim) = self.sim.as_mut().filter(|s| !s.is_loading()) {
-            if let Some(bytes) = self.pending_restore.take() {
+            if let Some((bytes, mode)) = self.pending_restore.take() {
+                self.presentation.before_restore(sim.world(), mode);
                 if let Err(error) = sim.restore_bound(&bytes) {
-                    self.error = Some(SurfaceError(error.to_string()));
-                    self.reported = false;
+                    self.refusal = Some(SurfaceError(format!("restore refused: {error}")));
+                } else {
+                    self.presentation.after_restore(sim.world(), mode);
                 }
             }
         }
@@ -87,8 +97,8 @@ impl<G: Game, P: Presentation> WorldSurface<G, P> {
         self.sim.as_ref()
     }
 }
-fn observer<'a>(
-    render: &'a mut Option<(Renderer, Feed)>,
+fn observer<'a, const ASSETS: bool>(
+    render: &'a mut Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     perf: &'a mut Perf,
     trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
@@ -127,7 +137,7 @@ fn observer<'a>(
         start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
-impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
+impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P, ASSETS> {
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
         self.presentation.clock(seekable);
@@ -142,10 +152,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         }
         self.presentation.suspend(self.hidden || self.interrupted);
     }
-    fn bind(&mut self, values: &[Value]) -> Result<(), SurfaceError> {
-        self.bind_at(values, None)
-    }
-    fn bind_at(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+    fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
             return Err(SurfaceError("bind clock must be finite".into()));
         }
@@ -181,24 +188,61 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             }
             self.sim = Some(sim);
         }
+        if !ASSETS {
+            let sim = self.sim.as_mut().unwrap();
+            if let Some(name) = sim.take_assets().first() {
+                return Err(SurfaceError(format!(
+                    "asset `{name}`: this module has no model support; declare game.assets"
+                )));
+            }
+        }
         self.dirty = true;
         Ok(())
     }
     fn assets(&mut self) -> Vec<String> {
-        self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
+        let names = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
+        if ASSETS {
+            names
+        } else {
+            for name in names {
+                self.sim
+                    .as_mut()
+                    .unwrap()
+                    .asset_failed(&name, "module has no model support");
+            }
+            Vec::new()
+        }
     }
-    fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
-        if let Some(sim) = &mut self.sim {
-            let _ = sim.asset(name, bytes);
+    fn retired_assets(&mut self) -> Vec<String> {
+        let mut retired = self
+            .sim
+            .as_mut()
+            .map_or_else(Vec::new, Sim::take_retired_assets);
+        if !retired.is_empty() {
+            // Geometry arenas are append-only; rebuild the bounded live set on retirement.
+            self.render = None;
+            self.format = None;
+            self.assets_dirty = true;
+            if let Some(sim) = &mut self.sim {
+                retired.extend(sim.invalidate_device_assets());
+            }
+        }
+        retired
+    }
+    fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
+        if ASSETS {
+            if let Some(sim) = &mut self.sim {
+                match bytes {
+                    Ok(bytes) => {
+                        let _ = sim.asset(name, Some(bytes));
+                    }
+                    Err(AssetError::Missing) => sim.asset_failed(name, "missing file"),
+                    Err(AssetError::Failed(reason)) => sim.asset_failed(name, &reason),
+                }
+            }
         }
         self.assets_dirty = true;
         self.finish_restore();
-        self.dirty = true;
-    }
-    fn asset_failed(&mut self, name: &str, reason: &str) {
-        if let Some(sim) = &mut self.sim {
-            sim.asset_failed(name, reason);
-        }
         self.dirty = true;
     }
     fn prepare_assets(
@@ -207,16 +251,23 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) {
+        if !ASSETS {
+            return;
+        }
         if !self.assets_dirty && self.format == Some(format) {
             return;
         }
         let Some(sim) = &mut self.sim else { return };
         let textures = sim.take_textures();
         if sim.presentation_models().next().is_none() && textures.is_empty() {
+            self.assets_dirty = false;
             return;
         }
         if self.format != Some(format) {
-            self.render = Some((Renderer::new(device, queue, format), Feed::default()));
+            self.render = Some((
+                crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
+                Feed::default(),
+            ));
             self.format = Some(format);
         }
         let (renderer, _) = self.render.as_mut().unwrap();
@@ -245,20 +296,17 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         self.dirty = true;
     }
     fn carry(&mut self) -> Option<Vec<u8>> {
-        self.pending_restore
-            .clone()
-            .or_else(|| self.sim.as_ref().filter(|s| !s.is_loading()).map(Sim::save))
+        self.sim.as_ref().and_then(|sim| sim.save().ok())
     }
-    fn restore(&mut self, bytes: &[u8]) -> Result<(), String> {
+    fn restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
         if self.sim.as_ref().is_some_and(Sim::is_loading) {
-            self.pending_restore = Some(bytes.to_vec());
+            self.pending_restore = Some((bytes.to_vec(), mode));
             return Ok(());
         }
-        self.sim
-            .as_mut()
-            .ok_or("world has not been bound")?
-            .restore_bound(bytes)
-            .map_err(|e| e.to_string())?;
+        let sim = self.sim.as_mut().ok_or("world has not been bound")?;
+        self.presentation.before_restore(sim.world(), mode);
+        sim.restore_bound(bytes).map_err(|e| e.to_string())?;
+        self.presentation.after_restore(sim.world(), mode);
         self.dirty = true;
         self.error = None;
         self.reported = false;
@@ -266,18 +314,28 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         Ok(())
     }
     fn device_ready(&mut self) {
-        self.device = true;
         if let Some(sim) = &mut self.sim {
             sim.defer_assets(true);
+            if !self.device {
+                sim.invalidate_device_assets();
+            }
         }
+        self.device = true;
     }
     fn device_lost(&mut self) {
         self.device = false;
         self.render = None;
         self.format = None;
+        if let Some(sim) = &mut self.sim {
+            sim.invalidate_device_assets();
+        }
+        self.assets_dirty = true;
         self.dirty = true;
     }
     fn take_error(&mut self) -> Option<SurfaceError> {
+        if let Some(refusal) = self.refusal.take() {
+            return Some(refusal);
+        }
         if self.reported {
             return None;
         }
@@ -349,11 +407,17 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                     Clock::Live
                 },
             );
-            return true;
+            return sim.assets_pending();
+        }
+        if ASSETS && !sim.device_assets_ready() {
+            return sim.assets_pending();
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {
-            self.render = Some((Renderer::new(device, queue, format), Feed::default()));
+            self.render = Some((
+                crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
+                Feed::default(),
+            ));
             self.format = Some(format);
             self.dirty = true;
         }
@@ -400,7 +464,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         let (renderer, feed) = self.render.as_mut().unwrap();
         let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
-        self.perf.stats = renderer.draw(target, frame.pixels(), &input);
+        self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);
@@ -539,8 +603,11 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             #[derive(Default, exact_game::Data)]
             struct PerfRequest {
                 perf_reset: bool,
+                perf: bool,
             }
-            if exact_game::json::from_str::<PerfRequest>(request).is_ok_and(|r| r.perf_reset) {
+            if exact_game::json::from_str::<PerfRequest>(request)
+                .is_ok_and(|r| r.perf_reset || (r.perf && !self.perf.armed()))
+            {
                 self.perf.reset();
             }
             reply.truncate(reply.len() - 2);
@@ -625,7 +692,7 @@ mod lifecycle_tests {
     fn lifecycle_only_changes_presentation_and_clock_precedes_first_input() {
         let mut surface = WorldSurface::<GameTest, Hook>::default();
         surface.clock(false);
-        surface.bind(&[]).unwrap();
+        surface.bind(&[], None).unwrap();
         assert_eq!(surface.messages(), ["exact:audio"]);
         assert!(surface.messages().is_empty());
         let saved = surface.carry();

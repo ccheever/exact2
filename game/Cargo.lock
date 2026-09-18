@@ -759,6 +759,7 @@ dependencies = [
  "gltf",
  "image",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -781,6 +782,7 @@ version = "0.1.0"
 dependencies = [
  "beacons-logic",
  "exact-game",
+ "exact-game-audio",
  "exact-game-bake",
  "exact-gpu",
  "glam 0.33.7",

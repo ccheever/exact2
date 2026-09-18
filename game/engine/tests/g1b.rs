@@ -62,7 +62,7 @@ fn new_live_restored_and_queued_worlds_require_an_observation() {
     s.tap("Space");
     s.advance(s.world().seconds() * 1000.0 + 200.0, Clock::Live);
     assert!(s.world().get::<Transform>("player").unwrap().position.y > 0.0);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut restored = Sim::<Motion>::new(()).unwrap();
     restored.restore(&saved).unwrap();
     assert!(!restored.quiescent());
@@ -84,7 +84,7 @@ fn observation_is_not_saved_and_resources_are_observed() {
     seek.run(100.0);
     live.advance(0.0, Clock::Live);
     live.advance(100.0, Clock::Live);
-    assert_eq!(seek.save(), live.save());
+    assert_eq!(seek.save().unwrap(), live.save().unwrap());
     assert!(seek.settle());
     seek.world_mut().resource_mut::<Countdown>().0 = 60;
     seek.run(17.0);
@@ -157,7 +157,7 @@ fn clock_reads_do_not_back_off_and_input_bind_restore_restart_reset() {
         .unwrap();
     assert_eq!(clock(&mut s, false).settleAt, 200.0);
     clock(&mut s, true);
-    s.restore(&s.save()).unwrap();
+    s.restore(&s.save().unwrap()).unwrap();
     assert_eq!(clock(&mut s, false).settleAt, 100.0);
     assert!(!s.settle());
 }
@@ -305,7 +305,7 @@ fn input_sugar_and_relative_sentences_match_absolute_host_input() {
         });
     }
     b.advance(300.0, Clock::Seekable);
-    assert_eq!(a.save(), b.save());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
     a.hold("ArrowUp", 100.0);
     b.hold("KeyW", 100.0);
     assert_eq!(

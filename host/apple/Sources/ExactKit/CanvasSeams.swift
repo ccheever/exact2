@@ -67,7 +67,7 @@ extension Canvases {
             let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
             guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
         }
-        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
+        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) ?? false }
         if ok { worldInput.bytes = nil }
         else {
             e.restoreError = "surface \(e.name): restore refused: \(m.error())"
@@ -89,7 +89,10 @@ extension Canvases {
     func save(_ e: Entry) -> [String: Any] {
         guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
         let length = carry(e.id)
-        guard length != UInt32.max else { return ["error": "canvas \(e.name) carries no state"] }
+        guard length != UInt32.max else {
+            let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
+            return ["error": "save refused: \(state["assets"] ?? [])", "assets": state["assets"] ?? []]
+        }
         guard length <= WorldCarrier.limit else { return ["error": WorldCarrier.refusal] }
         guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
         let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
@@ -131,10 +134,14 @@ extension Canvases {
             for _ in 0..<16 {
                 guard let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty else { break }
                 for name in names {
-                    let bytes = AssetResolver.validAssetName(name) ? session?.app.assetBytes("assets/" + name) : nil
+                    let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }
                     let chars = Array(name.utf8)
                     let ok = chars.withUnsafeBufferPointer { chars in
-                        if let bytes {
+                        if case .failure(let error) = delivery {
+                            let reason = Array(error.localizedDescription.utf8)
+                            return reason.withUnsafeBufferPointer { m.assetFailed?(e.id, chars.baseAddress, chars.count, $0.baseAddress, $0.count) ?? false }
+                        }
+                        if case .success(let bytes?) = delivery {
                             return bytes.withUnsafeBytes { raw in
                                 // Non-null with zero length distinguishes an empty file from missing.
                                 var empty: UInt8 = 0
@@ -162,7 +169,7 @@ extension Canvases {
         }
         for text in texts {
             guard live(e.view.id) === e else { break }
-            if text == "exact:audio" { lifecycle.requestAudio(); continue }
+            if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }
@@ -180,6 +187,10 @@ extension Canvases {
     @discardableResult
     func input(_ e: Entry, _ m: GpuModule, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
         guard let s = session, let send = m.input else { return false }
+        if (event["t"] as? String == "key" && event["down"] as? Bool == true)
+            || (event["t"] as? String == "pointer" && event["phase"] as? String == "down") {
+            lifecycle.gesture()
+        }
         var value = event
         value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now()
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
@@ -264,7 +275,7 @@ extension Canvases {
         let pending = world.filter { $0["quiescent"] as? Bool == false }
         return WorldClock(pending: settle && !pending.isEmpty,
                           settleAt: pending.compactMap { $0["settleAt"] as? Double }.filter(\.isFinite).max(),
-                          reply: world.isEmpty ? [:] : ["world": world.map { $0.filter { ["canvas", "tick", "hash", "quiescent"].contains($0.key) } }])
+                          reply: world.isEmpty ? [:] : ["world": world.map { $0.filter { ["canvas", "tick", "hash", "quiescent", "error", "assets", "changing"].contains($0.key) } }])
     }
 }
 
@@ -355,7 +366,7 @@ private enum CanvasAudio {
     nonisolated(unsafe) static var wanted = false
     nonisolated(unsafe) static var configured = false
     nonisolated(unsafe) static var interrupted = false
-    nonisolated(unsafe) static var shouldResume = true
+    nonisolated(unsafe) static var resumeBlocked = false
     @discardableResult static func activate() -> Bool {
         // NotificationCenter delivers on the posting thread, not necessarily main.
         if !Thread.isMainThread { return DispatchQueue.main.sync { activate() } }
@@ -381,14 +392,15 @@ final class CanvasLifecycle: NSObject {
     private var interrupted: Bool
     private var wantsAudio = false
     private var resumeAllowed: Bool
+    private var retryFrames = 0
     private let activate: () -> Bool
     init(_ owner: Canvases, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
         precondition(Thread.isMainThread)
         self.owner = owner
         self.activate = activate
         hidden = !owner.visible
-        interrupted = CanvasAudio.interrupted
-        resumeAllowed = CanvasAudio.shouldResume
+        interrupted = CanvasAudio.interrupted || CanvasAudio.resumeBlocked
+        resumeAllowed = !interrupted
         super.init()
         let center = NotificationCenter.default
         #if os(macOS)
@@ -421,14 +433,41 @@ final class CanvasLifecycle: NSObject {
         for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { module.lifecycle?(entry.id, code) }
         if code == 1 || code == 3 { owner.session?.frames.requestCanvas() }
     }
-    func requestAudio() {
+    var needsRetry: Bool {
+        wantsAudio && interrupted && !hidden && resumeAllowed
+            && !CanvasAudio.interrupted && !CanvasAudio.resumeBlocked && !ExactEnv.agentMode
+    }
+    func frame() {
+        precondition(Thread.isMainThread)
+        guard needsRetry else { return }
+        if retryFrames > 0 { retryFrames -= 1 }
+        if retryFrames == 0 { retryActivation() }
+    }
+    private func retryActivation(excluding id: UInt32? = nil) {
+        guard wantsAudio, !hidden, resumeAllowed,
+              !CanvasAudio.interrupted, !CanvasAudio.resumeBlocked else { return }
+        if activate() {
+            retryFrames = 0
+            if interrupted { interrupted = false; send(3, excluding: id) }
+        } else {
+            retryFrames = 300
+            if !interrupted { interrupted = true; send(2, excluding: id) }
+            owner?.session?.frames.requestCanvas()
+        }
+    }
+    func gesture() {
+        if wantsAudio { requestAudio() }
+    }
+    func requestAudio(userInitiated: Bool = true) {
         onMain { [weak self] in
             guard let self, !ExactEnv.agentMode else { return }
             self.wantsAudio = true
-            if !self.hidden && !self.interrupted && !self.activate() {
-                self.interrupted = true
-                self.send(2)
+            if userInitiated && !CanvasAudio.interrupted {
+                CanvasAudio.resumeBlocked = false
+                self.resumeAllowed = true
             }
+            // Automatic surface requests neither bypass no-resume nor the cooldown.
+            if userInitiated || self.retryFrames == 0 { self.retryActivation() }
         }
     }
     @objc private func visibilityChanged() {
@@ -438,27 +477,29 @@ final class CanvasLifecycle: NSObject {
     func refresh(excluding id: UInt32? = nil) {
         precondition(Thread.isMainThread)
         let next = !(owner?.visible ?? false)
+        let becameVisible = hidden && !next
         if next { CanvasAudio.active = false }
-        // A Visible notification retries even if visibility itself did not change.
-        if !next && wantsAudio && resumeAllowed && !CanvasAudio.interrupted {
-            if activate() {
-                if interrupted { interrupted = false; send(3, excluding: id) }
-            } else if !interrupted { interrupted = true; send(2, excluding: id) }
-        }
         if next != hidden { hidden = next; send(hidden ? 0 : 1, excluding: id) }
+        if becameVisible && !CanvasAudio.interrupted {
+            CanvasAudio.resumeBlocked = false
+            resumeAllowed = true
+        }
+        if becameVisible || retryFrames == 0 { retryActivation(excluding: id) }
     }
     // Keep the complete interruption transition on main, including session policy.
     func interruption(began: Bool, shouldResume: Bool) {
         onMain { [weak self] in
             guard let self else { return }
             CanvasAudio.interrupted = began
-            CanvasAudio.shouldResume = !began && shouldResume
-            self.resumeAllowed = CanvasAudio.shouldResume
+            CanvasAudio.resumeBlocked = !began && !shouldResume
+            self.resumeAllowed = !began && shouldResume
             if began {
                 CanvasAudio.active = false
+                self.retryFrames = 0
                 if !self.interrupted { self.interrupted = true; self.send(2) }
-            } else if self.resumeAllowed && (!self.wantsAudio || self.activate()) {
-                if self.interrupted { self.interrupted = false; self.send(3) }
+            } else if self.resumeAllowed {
+                if self.wantsAudio { self.retryActivation() }
+                else if self.interrupted { self.interrupted = false; self.send(3) }
             }
         }
     }

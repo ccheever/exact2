@@ -170,7 +170,7 @@ pub struct World {
     journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
-    published: RefCell<BTreeMap<String, Value>>,
+    published: RefCell<BTreeMap<String, crate::values::Stored>>,
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
     pub(crate) fresh: Vec<Entity>,
@@ -467,7 +467,7 @@ impl World {
         QueryBorrow::new(self)
     }
     /// Other entities carrying C within an inclusive radius, in entity order.
-    /// Distances use authored Transform positions; missing origins yield no rows.
+    /// Distances and returned poses use global transforms; missing origins yield no rows.
     /// Poses are copied, so neither component storage stays borrowed.
     pub fn near<C: Component>(
         &self,
@@ -493,13 +493,21 @@ impl World {
     ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
         assert!(radius.is_finite() && radius >= 0.0);
         let origin_entity = origin.entity(self);
-        let origin =
-            origin_entity.and_then(|e| self.get::<crate::Transform>(e).map(|p| p.position));
+        let origin = origin_entity.and_then(|e| {
+            self.current_global(e)
+                .map(|p| crate::Vec3::from(p.translation))
+        });
         self.entities().filter_map(move |entity| {
             if Some(entity) == origin_entity || !self.has::<C>(entity) {
                 return None;
             }
-            let pose = *self.get::<crate::Transform>(entity)?;
+            let (scale, rotation, position) =
+                self.current_global(entity)?.to_scale_rotation_translation();
+            let pose = crate::Transform {
+                position,
+                rotation,
+                scale,
+            };
             origin
                 .is_some_and(|origin| {
                     let mut delta = pose.position - origin;
@@ -633,12 +641,18 @@ impl World {
     }
     /// Publish to the app and journal only changes to this key.
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
-        let value = value.into().0;
+        self.publish_value(key, value.into().0.into());
+    }
+    pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
         let mut p = self.published.borrow_mut();
         if p.get(key) == Some(&value) {
             return;
         }
-        self.log(format_args!("publish {key}: {value:?}"));
+        if let Some(scalar) = value.value() {
+            self.log(format_args!("publish {key}: {scalar:?}"));
+        } else {
+            self.log(format_args!("publish {key}: {}", value.json(false)));
+        }
         p.insert(key.into(), value);
         self.published_pending.set(true);
         self.mutated();
@@ -647,9 +661,13 @@ impl World {
     pub fn emit(&self, text: impl Into<String>) {
         self.messages.borrow_mut().push(text.into());
     }
-    /// Last value published under a key.
+    /// Last scalar, list or positional Contract value published under a key.
+    /// Named nested records remain in take_published/agent JSON until shaped by the app.
     pub fn published(&self, key: &str) -> Option<Value> {
-        self.published.borrow().get(key).cloned()
+        self.published
+            .borrow()
+            .get(key)
+            .and_then(crate::values::Stored::value)
     }
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {

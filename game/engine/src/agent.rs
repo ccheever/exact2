@@ -178,7 +178,7 @@ impl<G: Game> Sim<G> {
                 quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
-                self.layout(e)
+                self.layout_json(e)
             }
             "layout" => {
                 let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
@@ -203,7 +203,7 @@ impl<G: Game> Sim<G> {
             _ => Err(format!("unknown op `{}`",q.op)),
         }
     }
-    fn layout(&self, e: Entity) -> Result<String, String> {
+    fn layout_json(&self, e: Entity) -> Result<String, String> {
         let w = &self.world;
         let pose = w.global(e).unwrap_or(crate::Affine3A::IDENTITY);
         let (scale, rotation, position) = pose.to_scale_rotation_translation();

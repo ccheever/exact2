@@ -15,6 +15,7 @@
       "additionalProperties": false,
       "properties": {
         "audio": { "type": "boolean" },
+        "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
         "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
       }

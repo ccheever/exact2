@@ -159,6 +159,28 @@ impl Model {
     /// Validate all upload ranges before any renderer allocation.
     pub fn validate(&self) -> Result<(), String> {
         let fail = |s: &str| Err(format!("model: {s}"));
+        if self.textures.len() > 64 {
+            return fail("at most 64 textures are allowed");
+        }
+        let mut used = BTreeSet::new();
+        for material in &self.materials {
+            used.extend(
+                [
+                    material.base_color_texture,
+                    material.normal_texture,
+                    material.metallic_roughness_texture,
+                    material.emissive_texture,
+                    material.occlusion_texture,
+                ]
+                .into_iter()
+                .flatten(),
+            );
+        }
+        for (index, name) in self.textures.iter().enumerate() {
+            if !used.contains(&(index as u32)) {
+                return Err(format!("model: unused texture `{name}`"));
+            }
+        }
         for m in &self.meshes {
             let n = m.positions.len() / 3;
             if n == 0
@@ -357,14 +379,25 @@ pub(crate) struct Assets {
     pub required: BTreeSet<String>,
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
+    pub redelivery: BTreeSet<String>,
+    pub dependencies: BTreeMap<String, Vec<String>>,
+    pub retired: Vec<String>,
+    pub refusal: Option<(String, String)>,
 }
 impl Assets {
     pub fn ready(&self) -> bool {
         self.required
             .iter()
-            .all(|n| self.states.get(n) == Some(&AssetState::Loaded))
+            .all(|n| self.states.get(n).is_none_or(|s| *s == AssetState::Loaded))
     }
-    pub fn request(&mut self, name: &str) {
+    pub fn request(&mut self, name: &str) -> bool {
+        if !self.states.contains_key(name) && self.states.len() >= 256 {
+            self.refusal = Some((
+                name.into(),
+                format!("asset `{name}`: surface limit is 256 names"),
+            ));
+            return false;
+        }
         self.states.entry(name.into()).or_insert_with(|| {
             if asset_name(name) {
                 AssetState::Pending
@@ -372,9 +405,37 @@ impl Assets {
                 AssetState::Failed(format!("asset `{name}`: invalid asset name"))
             }
         });
+        true
+    }
+    pub fn retire(&mut self, roots: &BTreeSet<String>) {
+        self.retired.clear();
+        let mut live = roots.clone();
+        for name in roots {
+            if let Some(deps) = self.dependencies.get(name) {
+                live.extend(deps.iter().cloned());
+            }
+        }
+        let removed: Vec<_> = self
+            .states
+            .keys()
+            .filter(|n| !live.contains(*n))
+            .cloned()
+            .collect();
+        for name in removed {
+            self.states.remove(&name);
+            if !self.declared.contains(&name) {
+                self.models.remove(&name);
+                self.dependencies.remove(&name);
+            }
+            self.requested.remove(&name);
+            self.prepared.remove(&name);
+            self.redelivery.remove(&name);
+            self.retired.push(name);
+        }
+        self.refusal = None;
     }
     pub fn state_json(&self) -> String {
-        let rows: Vec<_> = self
+        let mut rows: Vec<_> = self
             .states
             .iter()
             .map(|(name, state)| {
@@ -393,6 +454,13 @@ impl Assets {
                 )
             })
             .collect();
+        if let Some((name, reason)) = &self.refusal {
+            rows.push(format!(
+                "{{\"name\":{},\"state\":\"Failed\",\"reason\":{}}}",
+                crate::values::quote(name),
+                crate::values::quote(reason)
+            ));
+        }
         format!("[{}]", rows.join(","))
     }
 }
@@ -450,5 +518,43 @@ impl crate::Mesh {
             "mesh bounds must be finite and ordered"
         );
         (self, ModelBounds(bounds))
+    }
+}
+
+/// Validated content delivered to the name/dependency gate.
+pub enum Content {
+    Model(Model),
+    Texture(TextureData),
+}
+impl Content {
+    pub fn decode(name: &str, bytes: &[u8]) -> Result<Self, String> {
+        if !asset_name(name) {
+            return Err("invalid asset name".into());
+        }
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err("exceeds 64 MiB".into());
+        }
+        if name.ends_with(".tex") {
+            let texture: TextureData = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            texture.validate()?;
+            Ok(Self::Texture(texture))
+        } else if name.ends_with(".model") {
+            let model: Model = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            model.validate()?;
+            Ok(Self::Model(model))
+        } else {
+            Err("expected .model or .tex".into())
+        }
+    }
+}
+impl<G: crate::Game> crate::Sim<G> {
+    /// Headless model decoder. Primitive surfaces never link this adapter.
+    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+        self.deliver_asset(
+            name,
+            bytes
+                .ok_or_else(|| "missing file".to_owned())
+                .and_then(|b| Content::decode(name, b)),
+        )
     }
 }

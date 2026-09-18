@@ -47,7 +47,7 @@ fn main() {
             common::tick(&mut a, t);
         }
         let mut b = common::scene("bounce");
-        b.restore(&a.save()).unwrap();
+        b.restore(&a.save().unwrap()).unwrap();
         common::tick(&mut b, 45);
         for t in 46..=240 {
             common::tick(&mut a, t);
@@ -177,7 +177,7 @@ fn main() {
             let mut size = 0;
             for _ in 0..5 {
                 let start = Instant::now();
-                let bytes = sim.save();
+                let bytes = sim.save().unwrap();
                 saves.push(start.elapsed().as_secs_f64() * 1000.0);
                 size = bytes.len();
                 let mut restored = Sim::<SaveFixture>::new(()).unwrap();

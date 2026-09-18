@@ -10,7 +10,7 @@ fn card<G: Game>(args: G::Args) {
         "{} setup=0x{:016x} save_bytes={}",
         G::ID,
         s.world().hash(),
-        s.save().len()
+        s.save().unwrap().len()
     );
     for (name, request) in [
         ("tree", r#"{"op":"tree","world":true}"#),

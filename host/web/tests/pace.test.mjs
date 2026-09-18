@@ -36,8 +36,23 @@ describe('the paced frame clock', () => {
       pace(now += 2 * 1000 / from);
       for (let i = 0; i < 100; i++) pace(now += 1000 / from);
       expect(pace.period_ms).toBe(original);
-      for (let i = 0; i < 80; i++) pace(now += 1000 / to);
+      let previous = pace(now);
+      for (let i = 0; i < 80; i++) {
+        const next = pace(now += 1000 / to);
+        expect(Math.abs(next - previous - 1000 / to)).toBeLessThan(0.02);
+        previous = next;
+      }
       expect(Math.abs(pace.period_ms - 1000 / to)).toBeLessThan(0.01);
+    }
+  });
+  test('every delta stays on time at an exact half-period transition', () => {
+    const pace = pacer(), p = 1000 / 60;
+    for (let i = -400; i <= 0; i++) pace(i * p);
+    let previous = pace(0);
+    for (let i = 1; i <= 80; i++) {
+      const next = pace(i * p / 2);
+      expect(Math.abs(next - previous - p / 2)).toBeLessThan(0.02);
+      previous = next;
     }
   });
   test('republishes full rolling fits through a gradual 0.5 percent per second drift', () => {
@@ -59,11 +74,11 @@ describe('the paced frame clock', () => {
     expect(pace.period_ms).toBe(0);
     raw.slice(0, 300).forEach(pace);
     const period = pace.period_ms;
-    // A bootstrap already within 1% is retained instead of republishing noise.
-    expect(Math.abs(period - P120)).toBeLessThan(P120 * 0.01);
+    expect(Math.abs(period - P120)).toBeLessThan(0.02);
     for (let i = 300; i < raw.length; i++) {
       pace(raw[i] + (i >= 400 ? 40 : 0));
       expect(pace.period_ms).toBe(period);
+      expect(Math.abs(pace.period_ms - P120)).toBeLessThan(0.02);
     }
   });
   test('publishes a new fitted period after a display-rate change', () => {
@@ -129,6 +144,12 @@ describe('the paced frame clock', () => {
     const settled = stats(deltas(paced.slice(640)));
     expect(Math.abs(settled.mean - P90)).toBeLessThan(0.02);
     expect(settled.cv).toBeLessThan(0.005);
+  });
+  test('an isolated sub-slot callback retains the fitted lattice', () => {
+    const pace = pacer();
+    for (let i = 0; i <= 400; i++) pace(i * P120);
+    pace(400 * P120 + 0.3);
+    expect(Math.abs(pace(401 * P120 + 1) - 401 * P120)).toBeLessThan(0.05);
   });
   test('never runs backwards even when a callback lands before the last slot', () => {
     const pace = pacer(), raw = callbacks(300, P120, { jitter: 0.5 });

@@ -8,6 +8,7 @@ extern crate self as exact_game;
 mod agent;
 #[doc(hidden)]
 pub mod args;
+mod assets_load;
 pub mod character;
 pub mod data;
 mod environment;
@@ -48,3 +49,6 @@ pub mod audio;
 
 /// Baked GPU-ready assets, independent of the renderer.
 pub mod asset;
+
+/// Typed spatial results shared with the agent geometry.
+pub use spatial::{EntityLayout, PickHit, ScreenRect};

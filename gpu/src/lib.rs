@@ -93,6 +93,35 @@ pub enum Lifecycle {
     Resumed,
 }
 
+/// Delivery failure, independent of GPU readiness.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssetError {
+    /// The requested file does not exist.
+    Missing,
+    /// Terminal transport or integrity failure after bounded retries.
+    Failed(String),
+}
+/// Why saved state is being restored.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Restore {
+    /// Open an authored save, preserving its saved definitions.
+    #[default]
+    Open = 0,
+    /// Carry dynamic state to newly loaded code and definitions.
+    Carry = 1,
+}
+impl Restore {
+    /// Decode the host ABI's explicit restore purpose.
+    pub fn from_code(code: u32) -> Result<Self, String> {
+        match code {
+            0 => Ok(Self::Open),
+            1 => Ok(Self::Carry),
+            _ => Err(format!("invalid restore purpose {code}")),
+        }
+    }
+}
+
 /// What an app implements per canvas.
 pub trait Surface {
     /// Device work follows visibility: a hidden chart stops its ticker, a video
@@ -104,19 +133,17 @@ pub trait Surface {
     fn clock(&mut self, _seekable: bool) {}
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError>;
-    /// Bind at the host's optional commit clock, without requiring a frame.
-    fn bind_at(&mut self, inputs: &[Value], _at_ms: Option<f64>) -> Result<(), SurfaceError> {
-        self.bind(inputs)
-    }
+    fn bind(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError>;
     /// Names under the app's assets directory that this surface wants; drained by the module.
     fn assets(&mut self) -> Vec<String> {
         Vec::new()
     }
-    /// Deliver GPU-ready bytes, or None when the host has no such file.
-    fn asset(&mut self, _name: &str, _bytes: Option<&[u8]>) {}
-    /// A terminal host transport failure, distinct from a missing file.
-    fn asset_failed(&mut self, _name: &str, _reason: &str) {}
+    /// Names no longer referenced by the surface; discard delivery suppression.
+    fn retired_assets(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Deliver encoded content, a missing name, or a terminal transport failure.
+    fn asset(&mut self, _name: &str, _bytes: Result<&[u8], AssetError>) {}
     /// Complete device preparation inside asset delivery, before reporting readiness.
     fn prepare_assets(
         &mut self,
@@ -131,7 +158,7 @@ pub trait Surface {
         None
     }
     /// Take back a carry, possibly from an older build. Err leaves state unchanged.
-    fn restore(&mut self, _bytes: &[u8]) -> Result<(), String> {
+    fn restore(&mut self, _bytes: &[u8], _mode: Restore) -> Result<(), String> {
         Err("this surface carries no state".into())
     }
     /// One frame into `target` (of `format`). Returns whether another
@@ -330,11 +357,19 @@ impl Module {
 
     /// Adopt a device (the platform-specific loader made it).
     pub fn set_gpu(&mut self, gpu: Gpu) {
+        self.check_device();
         self.device_lost = Arc::new(AtomicBool::new(false));
         let lost = self.device_lost.clone();
         gpu.device.set_device_lost_callback(move |_, _| {
             lost.store(true, Ordering::Release);
         });
+        for inst in self.instances.values_mut() {
+            if let Some((target, config)) = &inst.presentation {
+                target.configure(&gpu.device, config);
+                inst.surface.device_ready();
+                inst.dirty = true;
+            }
+        }
         self.gpu = Some(gpu);
     }
 
@@ -485,7 +520,9 @@ impl Module {
     pub fn lose_device(&mut self) {
         for inst in self.instances.values_mut() {
             inst.surface.device_lost();
-            inst.presentation = None;
+            inst.answered.clear();
+            inst.outstanding.clear();
+            inst.dirty = true;
             inst.children = None;
             inst.each.clear();
         }
@@ -839,7 +876,7 @@ impl Module {
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail::<()>("no such canvas").is_some();
         };
-        match inst.surface.bind_at(inputs, at_ms) {
+        match inst.surface.bind(inputs, at_ms) {
             Ok(()) => {
                 inst.drain();
                 inst.bound = true;
@@ -860,11 +897,27 @@ impl Module {
             return Vec::new();
         };
         let mut wanted = Vec::new();
-        for name in inst.surface.assets() {
+        let requested = inst.surface.assets();
+        for name in inst.surface.retired_assets() {
+            inst.answered.remove(&name);
+            inst.outstanding.remove(&name);
+        }
+        for name in requested {
             if !asset_name(&name) {
                 self.error =
                     format!("asset `{name}`: expected a relative asset path without .. segments");
-            } else if !inst.answered.contains(&name) && inst.outstanding.insert(name.clone()) {
+            } else if !inst.answered.contains(&name) && !inst.outstanding.contains(&name) {
+                if inst.answered.len() + inst.outstanding.len() >= 256 {
+                    inst.surface.asset(
+                        &name,
+                        Err(AssetError::Failed(
+                            "surface limit is 256 asset names".into(),
+                        )),
+                    );
+                    inst.dirty = true;
+                    continue;
+                }
+                inst.outstanding.insert(name.clone());
                 wanted.push(name);
             }
         }
@@ -872,7 +925,7 @@ impl Module {
     }
 
     /// Deliver one requested asset, with None for a missing file; works without a device.
-    pub fn asset(&mut self, id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+    pub fn asset(&mut self, id: u32, name: &str, bytes: Result<&[u8], AssetError>) -> bool {
         if !asset_name(name) {
             self.error = format!("asset `{name}`: invalid relative asset path");
             return false;
@@ -900,21 +953,6 @@ impl Module {
         true
     }
 
-    /// Answer a requested name with a terminal transport failure, outside sticky errors.
-    pub fn asset_failed(&mut self, id: u32, name: &str, reason: &str) -> bool {
-        let Some(inst) = self.instances.get_mut(&id) else {
-            return false;
-        };
-        if !asset_name(name) || !inst.outstanding.remove(name) {
-            return false;
-        }
-        inst.answered.insert(name.into());
-        inst.surface.asset_failed(name, reason);
-        inst.drain();
-        inst.dirty = true;
-        true
-    }
-
     /// Capture state without advancing the surface or consuming its publications.
     pub fn carry(&mut self, id: u32) -> Option<Vec<u8>> {
         self.check_device();
@@ -925,13 +963,13 @@ impl Module {
     }
 
     /// Restore atomically; successful state is published before the next frame.
-    pub fn restore(&mut self, id: u32, bytes: &[u8]) -> bool {
+    pub fn restore(&mut self, id: u32, bytes: &[u8], mode: Restore) -> bool {
         self.check_device();
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
             return false;
         };
-        match inst.surface.restore(bytes) {
+        match inst.surface.restore(bytes, mode) {
             Ok(()) => {
                 // Outputs from the replaced state (including fresh setup) must not
                 // be delivered alongside the restored state. Refusals keep them.
@@ -1303,7 +1341,7 @@ mod device_loss_tests {
     use super::*;
     struct Probe;
     impl Surface for Probe {
-        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
             Ok(())
         }
         fn render(

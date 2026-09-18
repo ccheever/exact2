@@ -78,15 +78,17 @@ pub fn materials(
             let srgb = slot == 0 || slot == 3;
             let cutoff = (slot == 0 && m.alpha_mode == AlphaMode::Mask)
                 .then_some(m.alpha_cutoff / m.base_color[3].max(f32::MIN_POSITIVE));
-            let key = (texture.index(), srgb, cutoff.map(f32::to_bits));
+            let uses_alpha = slot == 0 && m.alpha_mode != AlphaMode::Opaque;
+            let key = (texture.index(), srgb, uses_alpha, cutoff.map(f32::to_bits));
             let index = if let Some(&i) = cache.get(&key) {
                 i
             } else {
                 let image = &images[texture.source().index()];
                 let name = format!(
-                    "{stem}/{}-{}{}.tex",
+                    "{stem}/{}-{}{}{}.tex",
                     texture.index(),
                     if srgb { "srgb" } else { "linear" },
+                    if uses_alpha { "-alpha" } else { "-straight" },
                     cutoff.map_or(String::new(), |c| format!("-mask{:08x}", c.to_bits()))
                 );
                 if !asset_name(&name) {
@@ -109,7 +111,7 @@ pub fn materials(
                 let data = TextureData {
                     width: image.width,
                     height: image.height,
-                    mips: mips(image.width, image.height, rgba, srgb, cutoff),
+                    mips: mips(image.width, image.height, rgba, srgb, uses_alpha, cutoff),
                     srgb,
                     wrap: [wrap(sampler.wrap_s()), wrap(sampler.wrap_t())],
                     filter: [
@@ -209,6 +211,7 @@ pub fn mips(
     mut h: u32,
     rgba: Vec<u8>,
     color: bool,
+    uses_alpha: bool,
     cutoff: Option<f32>,
 ) -> Vec<Vec<u8>> {
     let coverage = cutoff.map(|c| {
@@ -234,8 +237,9 @@ pub fn mips(
                             let v = previous[((sy * w + sx) * 4 + c) as usize] as f32 / 255.;
                             let alpha = previous[((sy * w + sx) * 4 + 3) as usize] as f32 / 255.;
                             if color && c < 3 {
-                                sum += linear(v) * alpha;
-                                weight += alpha;
+                                let weight_here = if uses_alpha { alpha } else { 1. };
+                                sum += linear(v) * weight_here;
+                                weight += weight_here;
                             } else {
                                 sum += v;
                                 weight += 1.;
@@ -282,11 +286,11 @@ mod tests {
     fn color_box_is_linear_light_and_odd_edges_are_included() {
         let pixels = vec![0, 0, 0, 255, 255, 255, 255, 255];
         assert_eq!(
-            super::mips(2, 1, pixels.clone(), true, None)[1],
+            super::mips(2, 1, pixels.clone(), true, false, None)[1],
             [188, 188, 188, 255]
         );
         assert_eq!(
-            super::mips(2, 1, pixels, false, None)[1],
+            super::mips(2, 1, pixels, false, false, None)[1],
             [128, 128, 128, 255]
         );
         assert_eq!(
@@ -294,6 +298,7 @@ mod tests {
                 3,
                 1,
                 vec![0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255],
+                false,
                 false,
                 None
             )[1],
@@ -306,16 +311,25 @@ mod tests {
 mod alpha_tests {
     #[test]
     fn transparent_colour_cannot_bleed_and_mask_coverage_survives() {
-        let mip = super::mips(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 0], true, None);
+        let mip = super::mips(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 0], true, true, None);
         assert_eq!(mip[1], [255, 0, 0, 128]);
         let mut pixels = Vec::new();
         for a in [200, 100, 100, 100, 200, 100, 100, 100] {
             pixels.extend([255, 255, 255, a]);
         }
-        let mips = super::mips(8, 1, pixels, true, Some(0.5));
+        let mips = super::mips(8, 1, pixels, true, true, Some(0.5));
         for mip in &mips[..3] {
             let covered = mip.chunks_exact(4).filter(|p| p[3] >= 128).count();
             assert_eq!(covered, (mip.len() as f32 / 4. * 0.25).round() as usize);
         }
+    }
+}
+
+#[cfg(test)]
+mod straight_tests {
+    #[test]
+    fn opaque_and_emissive_colour_ignore_alpha() {
+        let mip = super::mips(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 0], true, false, None);
+        assert_eq!(mip[1], [188, 0, 188, 128]);
     }
 }

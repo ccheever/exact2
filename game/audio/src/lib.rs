@@ -290,6 +290,7 @@ impl<O: Output> Player<O> {
             for (e, source) in world.query::<&AudioSource>().iter() {
                 if source.playing {
                     if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
+                        assert!(synth.looping, "AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound);
                         wanted.push(Wanted {
                             preferred: false,
                             key: Key::Source(e),
@@ -381,7 +382,11 @@ impl<O: Output> Player<O> {
         });
         let mut reserved: usize = self.cache.values().map(|pcm| pcm.len() * 4).sum();
         let mut accepted = 0;
+        let mut preferred_waiting = false;
         for w in wanted.iter() {
+            if preferred_waiting && !w.preferred {
+                continue;
+            }
             if accepted == capacity {
                 break;
             }
@@ -389,6 +394,9 @@ impl<O: Output> Player<O> {
             if !self.cache.contains_key(&revision) {
                 let bytes = synth::sample_count(&w.synth, self.rate).saturating_mul(4);
                 if bytes > audio::PCM_BYTE_BUDGET.saturating_sub(reserved) {
+                    // A stopped allocation is still owned by the callback. Do not
+                    // restart losers from it while a winner waits for that release.
+                    preferred_waiting |= w.preferred;
                     continue;
                 }
                 // Reserve before synthesis, once per shared definition allocation.

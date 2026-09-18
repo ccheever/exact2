@@ -69,21 +69,10 @@ final class Canvases {
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
     var module: GpuModule?
-    /// The display period last handed to the module; the session reports each change.
-    var sentPeriod = 0.0
+    var displayPeriod = DisplayPeriod()
     func period(_ ms: Double) {
-        guard ms.isFinite, ms > 0, let m = module else { return }
-        // Retain the current class through timestamp noise. ProMotion's classes
-        // include 120, 80, 60, 48, 40, 30, 24 Hz; external displays can add others.
-        guard sentPeriod == 0 || abs(ms - sentPeriod) > sentPeriod * 0.01 else { return }
-        let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
-        let candidates = rates.map { 1000 / $0 } + [1000 / max(120, (1000 / ms).rounded())]
-        let quantized = candidates.min { abs($0 - ms) < abs($1 - ms) }!
-        // Cross the midpoint by 1% before leaving a class; do not flap on a ramp.
-        guard sentPeriod == 0 || abs(ms - quantized) + sentPeriod * 0.01 < abs(ms - sentPeriod) else { return }
-        guard quantized != sentPeriod else { return }
-        sentPeriod = quantized
-        m.period?(quantized)
+        guard let m = module else { return }
+        displayPeriod.publish(ms, maximum: Double(session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 120)) { m.period?($0) }
     }
     var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
     var terminalRestoreReported = false

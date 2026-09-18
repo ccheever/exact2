@@ -5,21 +5,21 @@ component Beacons
   state playing = false
   state seed = 7
   state paused = false
-  state round = 0
+  state restart_generation = 0
   resource hud = exactSurface("world") as shape Hud
 
   action play writes playing
     playing = true
   action togglePause writes paused
     paused = not paused
-  action restart writes round, paused
-    round = round + 1
+  action restart writes restart_generation, paused
+    restart_generation = restart_generation + 1
     paused = false
 
   view
     main width="100%" height="100%" background-color="#112d33" color="#ffffff"
       when playing
-        canvas surface=world(seed, paused, round) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
+        canvas surface=world(seed, paused, restart_generation) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
           text `Beacons ${hud.beacons} / 3` aria-live="polite" testId="hud-beacons" position="absolute" top=24 left=24 padding=14 border-radius=8 background-color="#112d33" color="#ffffff" font-size=20 font-weight=600
           button press=togglePause testId="pause" position="absolute" top=24 right=24 padding=14 border-radius=8 background-color="#112d33"
             text (paused ? "Resume" : "Pause") color="#ffffff" font-size=18

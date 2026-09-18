@@ -102,7 +102,7 @@ impl MapSurface {
 }
 
 impl Surface for MapSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         if inputs.len() != 4 {
             return Err(SurfaceError(format!(
                 "map: expected 4 inputs, got {}",
@@ -276,15 +276,18 @@ mod tests {
                 Value::Number(0.0),
             ])
         };
-        map.bind(&[
-            Value::list(vec![station("a"), station("b")]),
-            Value::str("a"),
-            Value::list(vec![
-                departure("past", 1_000.0),
-                departure("next", 1_800_000.0),
-            ]),
-            Value::Number(600_000.0),
-        ])
+        map.bind(
+            &[
+                Value::list(vec![station("a"), station("b")]),
+                Value::str("a"),
+                Value::list(vec![
+                    departure("past", 1_000.0),
+                    departure("next", 1_800_000.0),
+                ]),
+                Value::Number(600_000.0),
+            ],
+            None,
+        )
         .unwrap();
         assert_eq!(
             map.train,

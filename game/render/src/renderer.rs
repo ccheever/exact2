@@ -15,12 +15,11 @@ struct Mesh {
     indices: Range<u32>,
     base_vertex: i32,
     center: Vec3,
-    radius: f32,
 }
 
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
 /// Uses four storage bindings and 4× MSAA HDR; requires WebGPU (not WebGL).
-pub struct Renderer {
+pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) pipelines: Pipelines,
@@ -44,7 +43,7 @@ pub struct Renderer {
     texture_creations: u64,
 }
 
-impl Renderer {
+impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     fn model_mirrored(&self, index: usize) -> bool {
         let slot = self.slot_list[self.batches[index].slots.start as usize];
         self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize]
@@ -209,7 +208,7 @@ impl Renderer {
     pub fn set_batches(&mut self, batches: &[Batch], slot_list: &[u32]) -> Result<(), RenderError> {
         self.check_capacity("slots", slot_list.len() as u64)?;
         for &slot in slot_list {
-            let slot = if slot >= crate::RENDER_SLOT_BASE {
+            let slot = if ASSETS && slot >= crate::RENDER_SLOT_BASE {
                 self.models
                     .records
                     .get((slot - crate::RENDER_SLOT_BASE) as usize)
@@ -300,25 +299,13 @@ impl Renderer {
             high = high.max(p);
         }
         let center = (low + high) * 0.5;
-        let radius = vertices
-            .iter()
-            .map(|v| Vec3::from_array(v.position).distance(center))
-            .fold(0.0, f32::max);
         let id = MeshId(self.meshes.len());
         self.meshes.push(Mesh {
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
             base_vertex: (vertex_start / 32) as i32,
             center,
-            radius,
         });
         id
-    }
-
-    /// Local-space bounding sphere (AABB center and maximum vertex distance).
-    /// Retained independently of the visible list for a future culling caller.
-    pub fn mesh_bounds(&self, mesh: MeshId) -> (Vec3, f32) {
-        let mesh = &self.meshes[mesh.0];
-        (mesh.center, mesh.radius)
     }
 
     /// Upload fixed-size frame data and submit the enabled passes.
@@ -326,6 +313,14 @@ impl Renderer {
     /// on effect toggles. Steady retained-scene draws allocate no renderer-owned
     /// collections; this excludes wgpu command encoding/staging.
     pub fn draw(
+        &mut self,
+        target: &wgpu::TextureView,
+        size_px: (u32, u32),
+        frame: &FrameInput<'_>,
+    ) -> Stats {
+        self.draw_assets(target, size_px, frame)
+    }
+    pub(crate) fn draw_assets(
         &mut self,
         target: &wgpu::TextureView,
         size_px: (u32, u32),
@@ -363,7 +358,7 @@ impl Renderer {
         } else {
             self.shadows = None;
         }
-        if frame.bloom.is_some() {
+        if frame.environment.bloom.is_some() {
             if self.bloom.is_none() {
                 self.bloom = Some(BloomTargets::new(
                     device,
@@ -383,21 +378,23 @@ impl Renderer {
             bytes(&frame::uniform(frame, cascades.as_ref(), size)),
         );
         // Only transparent model draws sort. Opaque/primitive batches remain retained.
-        for (_, slot, depth) in &mut self.models.transparent {
-            let index = (self.slot_list[*slot as usize] - crate::RENDER_SLOT_BASE) as usize;
-            let record = &self.models.records[index];
-            let center = record
-                .local
-                .transform_point3(self.meshes[record.geometry.0].center);
-            let history = self.models.poses[index];
-            let position = history[0]
-                .transform_point3(center)
-                .lerp(history[1].transform_point3(center), frame.alpha);
-            *depth = -frame.view.transform_point3(position).z;
+        if ASSETS {
+            for (_, slot, depth) in &mut self.models.transparent {
+                let index = (self.slot_list[*slot as usize] - crate::RENDER_SLOT_BASE) as usize;
+                let record = &self.models.records[index];
+                let center = record
+                    .local
+                    .transform_point3(self.meshes[record.geometry.0].center);
+                let history = self.models.poses[index];
+                let position = history[0]
+                    .transform_point3(center)
+                    .lerp(history[1].transform_point3(center), frame.alpha);
+                *depth = -frame.view.transform_point3(position).z;
+            }
+            self.models
+                .transparent
+                .sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
         }
-        self.models
-            .transparent
-            .sort_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
         let mut encoder = device.create_command_encoder(&Default::default());
         let mut extra_draws = 0;
         if let Some(shadows) = &self.shadows {
@@ -426,7 +423,11 @@ impl Renderer {
                     if batch.slots.is_empty() || !batch.casts_shadows {
                         continue;
                     }
-                    if let Some(material) = self.model_batches[index] {
+                    if let Some(material) = if ASSETS {
+                        self.model_batches[index]
+                    } else {
+                        None
+                    } {
                         let material = &self.models.materials[material.0];
                         if material.alpha == exact_game::asset::AlphaMode::Blend {
                             continue;
@@ -498,7 +499,11 @@ impl Renderer {
                 if batch.slots.is_empty() {
                     continue;
                 }
-                if let Some(material) = self.model_batches[index] {
+                if let Some(material) = if ASSETS {
+                    self.model_batches[index]
+                } else {
+                    None
+                } {
                     let material = &self.models.materials[material.0];
                     if material.alpha == exact_game::asset::AlphaMode::Blend {
                         continue;
@@ -530,30 +535,32 @@ impl Renderer {
                 pass.draw(0..3, 0..1);
                 extra_draws += 1;
             }
-            for &(index, slot, _) in &self.models.transparent {
-                let batch = &self.batches[index];
-                let material = &self.models.materials[self.model_batches[index].unwrap().0];
-                pass.set_pipeline(
-                    self.pipelines.models.as_ref().unwrap().forward[variant
-                        + 4 * usize::from(material.double_sided)
-                        + 8
-                        + 16 * usize::from(self.model_mirrored(index))]
-                    .as_ref()
-                    .unwrap(),
-                );
-                pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
-                pass.set_bind_group(
-                    1,
-                    self.shadows
+            if ASSETS {
+                for &(index, slot, _) in &self.models.transparent {
+                    let batch = &self.batches[index];
+                    let material = &self.models.materials[self.model_batches[index].unwrap().0];
+                    pass.set_pipeline(
+                        self.pipelines.models.as_ref().unwrap().forward[variant
+                            + 4 * usize::from(material.double_sided)
+                            + 8
+                            + 16 * usize::from(self.model_mirrored(index))]
                         .as_ref()
-                        .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                    &[],
-                );
-                pass.set_bind_group(2, &material.bind, &[]);
-                pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
-                let mesh = &self.meshes[batch.mesh.0];
-                pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
-                extra_draws += 1;
+                        .unwrap(),
+                    );
+                    pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
+                    pass.set_bind_group(
+                        1,
+                        self.shadows
+                            .as_ref()
+                            .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
+                        &[],
+                    );
+                    pass.set_bind_group(2, &material.bind, &[]);
+                    pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                    let mesh = &self.meshes[batch.mesh.0];
+                    pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
+                    extra_draws += 1;
+                }
             }
         }
         if let Some(bloom) = &self.bloom {
@@ -613,8 +620,7 @@ impl Renderer {
     fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
         let limit = u64::from(self.max_slots());
         if end > limit {
-            Err(RenderError {
-                detail: None,
+            Err(RenderError::Capacity {
                 arena,
                 slot: end - 1,
                 limit,

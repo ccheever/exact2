@@ -1,4 +1,4 @@
-use crate::{Environment, FrameInput, PointLightInput, Shadows, Sun};
+use crate::{FrameInput, PointLightInput, Shadows, Sun};
 use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
 use glam::{Mat4, Vec3};
 
@@ -267,17 +267,7 @@ impl Scene {
             alpha,
             sun,
             points: &self.output[..self.count],
-            environment: Environment {
-                background: e.background,
-                zenith: e.zenith,
-                horizon: e.horizon,
-                ground: e.ground,
-                ambient: e.ambient,
-                sun_disc: e.sun_disc,
-                fog: e.fog,
-            },
-            exposure: e.exposure,
-            bloom: e.bloom,
+            environment: e,
             timestamps: None,
         }
     }

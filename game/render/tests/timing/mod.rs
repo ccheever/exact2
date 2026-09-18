@@ -55,6 +55,7 @@ fn timing_200k() {
         horizon: [0.12, 0.18, 0.28],
         sun_disc: 0.0,
         fog: None,
+        ..frame.environment
     };
     for _ in 0..10 {
         renderer.draw(&view, (1280, 720), &frame);
@@ -286,12 +287,13 @@ fn timing_effects_300() {
             ambient: 0.5,
             sun_disc: 0.0,
             fog: None,
+            ..f.environment
         };
         if mode >= 1 {
             f.sun.as_mut().unwrap().shadows = Some(Shadows::default());
         }
         if mode == 2 {
-            f.bloom = Some(Bloom::default());
+            f.environment.bloom = Some(Bloom::default());
             f.environment = Environment {
                 fog: Some(Fog {
                     density: 0.012,

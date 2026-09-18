@@ -2,12 +2,16 @@
 use exact_game::character::Character;
 use exact_game::*;
 
+#[derive(Default, exact_game::Data)]
+struct Hud {
+    beacons: u32,
+}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    pub round: u32,
+    pub restart_generation: u32,
 }
 #[derive(Default, Component)]
 pub struct Player {
@@ -45,14 +49,7 @@ impl Game for Beacons {
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.96, 0.65, 0.22),
                 Player {
-                    character: Character::new()
-                        .speed(4.0)
-                        .accel(12.0)
-                        .brake(20.0)
-                        .jump(1.2)
-                        .gravity(9.81)
-                        .ground(0.9)
-                        .bounds_xz(-19.6..=19.6),
+                    character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
                 },
             ),
         );
@@ -95,7 +92,7 @@ impl Game for Beacons {
                 ),
             );
         }
-        w.publish("beacons", 0);
+        w.publish_record(&Hud::default());
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -103,7 +100,9 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
         let now = w.now();
-        if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
+        {
+            let mut query = w.query::<(&mut Player, &mut Transform)>();
+            let (player, pose) = query.one().expect("one player");
             player
                 .character
                 .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
@@ -124,7 +123,7 @@ impl Game for Beacons {
             material.emissive = [glow * 0.7, glow * 2.5, glow * 3.0];
             count += u32::from(beacon.lit);
         }
-        w.publish("beacons", count);
+        w.publish_record(&Hud { beacons: count });
         scene::follow(w);
     }
 }

@@ -74,9 +74,9 @@ pub(super) fn frame() -> FrameInput<'static> {
             horizon: [0.0; 3],
             sun_disc: 0.0,
             fog: None,
+            exposure: 1.0,
+            bloom: None,
         },
-        exposure: 1.0,
-        bloom: None,
         timestamps: None,
     }
 }

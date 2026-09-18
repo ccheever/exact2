@@ -56,11 +56,11 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
     await s.world('world').key_down('Space');
     if (!run) {
       checkpoint = await s.world('world').snapshot();
-      await s.screenshot(checkpointFile,'world','save');
+      await s.world('world').save(checkpointFile);
     }
     const endpoint = await continuation(s);
     const savedPath = resolve(out,`run-${run}.world`);
-    await s.screenshot(savedPath,'world','save');
+    await s.world('world').save(savedPath);
     if (!run) original = endpoint;
     else {
       check('two full runs end in identical state', equal(original,endpoint));
@@ -93,7 +93,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
   check('restored checkpoint has every saved entity', equal(checkpoint,await restored.world('world').snapshot()));
   check('restored continuation matches original', equal(original,await continuation(restored)));
   const restoredFile = resolve(out,'restored.world');
-  await restored.screenshot(restoredFile,'world','save');
+  await restored.world('world').save(restoredFile);
   check('complete continuation save is byte-identical', readFileSync(resolve(out,'run-0.world')).equals(readFileSync(restoredFile)));
   await restored.close();
 });

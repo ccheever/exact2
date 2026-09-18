@@ -67,7 +67,8 @@ model family is lazy: two shared shader modules and three shared pipeline layout
 with only the material/winding variants needed by arrived models. All four
 shadow/fog combinations for each used forward variant are prepared during asset
 delivery; changing effects during play never compiles a model pipeline. Declared
-models remain pending until this work and texture uploads finish. Disabling effects skips their passes and releases their attachments.
+content becomes Loaded independently; device readiness waits for preparation and
+texture uploads before drawing. Disabling effects skips their passes and releases their attachments.
 HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
 Viewports and post-pass UVs respect logical size. Discarded 4× MSAA colour/depth
 attachments request transient storage (a no-op where unsupported). ACES-fitted
@@ -76,7 +77,9 @@ tonemapping applies sRGB transfer once. HDR reads sanitize NaN and clamp to
 
 ## WorldSurface and feed
 
-A game's GPU shell is `exact_game_render::module!(MyGame)`. Bind constructs Sim;
+A primitive game's GPU shell is `exact_game_render::module!(MyGame)`; `game.assets:
+true` selects `module!(MyGame, assets)` and its concrete model adapter. The primitive
+module links neither model decoding nor the model shader family. Bind constructs Sim;
 the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work.
@@ -100,18 +103,23 @@ hemispheres instead of stretching them. Models use `DrawInstance { transform, ge
 allocates render slots from `RENDER_SLOT_BASE`, above entity indices. The transform
 slot still addresses the unchanged ten-float page upload. Geometry/material form
 batch keys, and composed node matrices plus inverse-transpose normals live in a
-separate instance buffer. Primitive records retain their compact identity encoding
+separate instance buffer. Rebatching retains its word scratch and caches immutable
+node normal matrices in a cache bounded by the live draw records. A material's
+final texture binding is created once all of its dependencies have arrived. Primitive records retain their compact identity encoding
 in the existing slot lists: transform/material = slot, geometry = batch, offset =
 identity. A primitive world binds no model group and samples no material texture.
 
 Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
 with opaque/mask/blend, culled/double-sided and mirrored variants prepared before
-the asset becomes Loaded.
+the prepared surface draws. Device loss preserves Loaded content and re-requests
+texture bytes for upload. Negative-determinant entity-global transforms refuse by
+asset name; baked mirrored nodes use the prepared winding variant.
 Five texture slots (base colour, normal, metallic-roughness, emission, occlusion)
 share three 1×1 default views and cached samplers. Named textures are shared across
 materials and models, uploaded once per renderer, and released from CPU memory. Colour/emission textures use sRGB texture formats; data maps are
 linear. Mips arrive baked with authored nearest/linear filters and wrap modes; fully linear
-samplers use 4× anisotropy. Colour filtering is premultiplied; MASK mip coverage is
+samplers use 4× anisotropy. Only MASK/BLEND base-colour filtering weights RGB by
+alpha; opaque and emissive maps average straight RGB. MASK mip coverage is
 retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
 derivatives (including models without tangents); baked tangents are retained for
 S3b, not uploaded. Material UV transforms apply separately to every texture.
@@ -263,3 +271,24 @@ GPU tests explicitly skip without an adapter; geometry and shader validation sti
 run. Set `EXACT_GPU_OUT` for image artifacts. The current game proofs pin native
 and browser hashes. [Game README](../README.md) covers clock, save and dev carry;
 [ergonomics diary](../diaries/002-ergonomics.md) retains experiment history.
+
+
+`Environment` is re-exported from the engine. A frame carries it once, including
+`frame.environment.exposure` and `.bloom`. Render failures are either
+`RenderError::Capacity { arena, slot, limit }` or `RenderError::Scene(reason)`.
+Mesh centers support transparent sorting; there is no unused sphere-radius API.
+World surfaces retain small work counters by default. A world-state request with
+`perf: true` or `perf_reset: true` arms the five 16,384-sample diagnostic rings;
+`perf.armed` distinguishes recorded percentiles from the unarmed zero values.
+
+S3a-c measurement (2026-09-18): the retained Beacons GPU wasm is 811,977 bytes
+before this pass and 758,561 after (gzip 322,782 → 301,524). Model shader and
+validation markers are absent from Beacons and present in the asset fixture.
+The roughly 490 KB pre-assets target is **not met**; concurrent D2 changes also
+contribute to this comparison. Three interleaved 200k-cube runs against the retained
+S3a-b binary have overlapping ranges: all-moving median tick/feed/encode is
+0.4342/1.0230/0.0723 ms before and 0.4443/1.0524/0.0723 ms after. This is an
+offscreen diagnostic, not an FPS claim or an isolated HEAD comparison. Native
+replacement-device pixels match. The web destroy-device proof re-fetches textures
+and preserves content/hash, but its post-loss screenshot remains black; the pixel
+assertion stays failing after the three-round stop. See `QUEUE.md` before shipping.

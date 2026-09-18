@@ -23,7 +23,7 @@ fn save_mid_chime_restores_offset_and_ends() {
     let mut sim = Sim::<SoundGame>::new(()).unwrap();
     sim.advance(0.0, Clock::Seekable);
     sim.advance(250.0, Clock::Seekable);
-    let save = sim.save();
+    let save = sim.save().unwrap();
     let before = sim.world().hash();
     let mut restored = Sim::<SoundGame>::new(()).unwrap();
     restored.restore(&save).unwrap();
@@ -154,7 +154,7 @@ fn world() -> World {
     let mut w = World::new(60, 0);
     w.register_audio();
     w.resource_mut::<Sounds>()
-        .add("wind", Synth::noise().seconds(2.0));
+        .add("wind", Synth::noise().seconds(2.0).looped());
     w
 }
 fn advance(sim: &mut Sim<SoundGame>, ms: f64) {
@@ -446,7 +446,7 @@ fn editing_a_definition_does_not_accumulate_retired_pcm() {
     let mut p = recording();
     for hz in 1..100 {
         w.resource_mut::<Sounds>()
-            .add("wind", Synth::noise().hz(hz as f32));
+            .add("wind", Synth::noise().hz(hz as f32).looped());
         let loop_entity = w.spawn((
             Transform::default(),
             AudioSource {
@@ -513,7 +513,7 @@ fn pitch_handle_and_saved_master_apply_without_definition_edits() {
     let id = sim.world_mut().play("chime").pitch(0.5).start();
     sim.world_mut().resource_mut::<audio::Audio>().master = 0.25;
     advance(&mut sim, 250.0);
-    let saved = sim.save();
+    let saved = sim.save().unwrap();
     sim.restore(&saved).unwrap();
     let mut p = recording();
     p.sync(sim.world(), None, Default::default());
@@ -633,15 +633,16 @@ fn refused_start_is_retried_without_a_transport_bump() {
 }
 
 #[test]
-fn sources_use_the_definitions_loop_property() {
-    let mut w = world();
+#[should_panic(
+    expected = "AudioSource `finite` requires a looping definition; use World::play for finite sounds"
+)]
+fn finite_attached_sources_refuse_by_name_even_when_created_late() {
+    let mut sim = Sim::<SoundGame>::new(()).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.advance(2000., Clock::Seekable);
+    let w = sim.world_mut();
     w.resource_mut::<Sounds>()
         .add("finite", Synth::square(440.).seconds(0.1));
     w.spawn((Transform::default(), AudioSource::new("finite")));
-    let mut p = recording();
-    p.sync(&w, Some(Listener::default()), Default::default());
-    assert!(matches!(
-        p.output.calls[0],
-        Call::Start { looping: false, .. }
-    ));
+    recording().sync(w, Some(Listener::default()), Default::default());
 }

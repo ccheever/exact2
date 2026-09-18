@@ -296,9 +296,9 @@ impl Surfaces {
             {
                 let result = self.restore.take().unwrap().and_then(|bytes| {
                     let ok = unsafe {
-                        abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize) -> bool>(
+                        abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(
                             b"gpu_restore",
-                        )(c.id, bytes.as_ptr(), bytes.len())
+                        )(c.id, bytes.as_ptr(), bytes.len(), 0)
                     };
                     if ok {
                         c.restore_input = true;
@@ -326,7 +326,27 @@ impl Surfaces {
                 }
                 for name in names {
                     delivered = true;
-                    let bytes = assets.read(&format!("assets/{name}"));
+                    let bytes = match assets.read_asset(&format!("assets/{name}")) {
+                        Ok(bytes) => bytes,
+                        Err(reason) => {
+                            unsafe {
+                                abi.symbol::<unsafe extern "C" fn(
+                                    u32,
+                                    *const u8,
+                                    usize,
+                                    *const u8,
+                                    usize,
+                                ) -> bool>(b"gpu_asset_failed")(
+                                    c.id,
+                                    name.as_ptr(),
+                                    name.len(),
+                                    reason.as_ptr(),
+                                    reason.len(),
+                                );
+                            }
+                            continue;
+                        }
+                    };
                     let (ptr, len) = bytes
                         .as_ref()
                         .map_or((std::ptr::null(), 0), |b| (b.as_ptr(), b.len()));
@@ -481,7 +501,9 @@ impl<D: DataSource> Presenter<D> {
                 Some(bytes) => {
                     json!({"bytes":bytes.len(),"data":base64::engine::general_purpose::STANDARD.encode(&bytes),"tick":state["world"]["tick"],"hash":state["world"]["hash"]})
                 }
-                None => json!({"error":abi.error().unwrap_or("surface carries no state".into())}),
+                None => {
+                    json!({"error":format!("save refused: {}",state["world"]["assets"]), "assets":state["world"]["assets"]})
+                }
             };
         }
         if q["op"] == "logs" {

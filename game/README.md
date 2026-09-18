@@ -40,13 +40,15 @@ pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    // Restart idiom: round is the world's identity; Play again increments it.
-    pub round: u32,
+    // Changing restart_generation reconstructs setup; Play again increments it.
+    pub restart_generation: u32,
 }
 #[derive(Default, Component)]
 struct Player { character: Character }
 #[derive(Default, Component)]
 pub struct Beacon { pub lit: bool, glow: Spring }
+#[derive(Default, Data)]
+struct Hud { lit: u32, near: String }
 pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "small-game";
@@ -68,16 +70,17 @@ impl Game for SmallGame {
             w.spawn_named(format!("beacon-{}", i + 1), (Transform::at(x, 0.7, 0.0),
                 Mesh::sphere(0.5), Material::default(), Beacon::default()));
         }
-        w.publish("lit", 0);
-        w.publish("near", "");
+        w.publish_record(&Hud::default());
     }
     fn paused(args: &Options) -> bool { args.paused }
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
-        if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
+        {
+            let mut query = w.query::<(&mut Player, &mut Transform)>();
+            let (player, pose) = query.one().expect("one player");
             player.character.step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
         }
-        let position = w.get::<Transform>("player").unwrap().position;
+        let position = Vec3::from(w.current_global(w.named("player").unwrap()).unwrap().translation);
         let mut nearest = None;
         for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
             let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
@@ -90,13 +93,13 @@ impl Game for SmallGame {
                 nearest = Some((entity, distance));
             }
         }
-        w.publish("near", nearest.and_then(|(e, _)| w.name(e)).unwrap_or(""));
+        let near = nearest.and_then(|(e, _)| w.name(e)).unwrap_or("").to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
             count += u32::from(beacon.lit);
         }
-        w.publish("lit", count);
+        w.publish_record(&Hud { lit: count, near });
         scene::follow(w);
     }
 }
@@ -117,7 +120,7 @@ are saved and hashed inside the player's component. `step` reports `grounded`,
 `jumped` and `landed`; bounds stop outward velocity, braking and landing arrive
 exactly. It uses no physics dependency; collider worlds can use Rapier's controller.
 `near` and `near_xz` return `(entity, pose)` in entity order, with an inclusive radius
-and authored Transform positions (XZ ignores height). A missing origin yields no rows.
+and global positions, including parent chains (XZ ignores height). A missing origin yields no rows.
 
 - **A tick is a function that calls functions.** No scheduler, no plugins, no
   system parameters. Physics is `physics::step(world)`, written where it runs.
@@ -129,8 +132,7 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
   Unmarked fields construct; `#[live]` fields are read each tick.
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
-  swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and
-  `SAVE_VERSION`, world time and dynamic input; the first restored host clock
+  swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID`, world time and dynamic input; the first restored host clock
   establishes a new epoch.
 - **Time is an input.** Under the seekable clock, `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
@@ -163,7 +165,11 @@ wasm; unexercised engine APIs do not inherit a measured parity claim.
 
 ## Publications and events
 
-`World::publish("beacons", count)` updates the current public record. Contract reads
+`w.publish_record(&Hud { beacons: count })` publishes a `#[derive(Default, Data)]`
+record through its existing field traversal. Nested records, lists, options and scalars
+keep their field names and JSON types; Contract validates them against `shape Hud`
+at the app boundary. Typed numeric vectors publish arrays; enum variants are not Contract values.
+`World::publish("beacons", count)` remains the scalar operation. Contract reads
 it with `resource hud = exactSurface("world") as shape Hud`; absent fields default
 and extra keys are ignored. It needs no app data module. `Sim::take_published`
 drains changed state; a rebuilt or restored simulation publishes again.
@@ -177,7 +183,7 @@ An empty queue adds no world save bytes.
 No ninth operation (LLP 1041.001). `tree`, `state`, `layout`, `logs` and `clock`
 reach the world through one export on the module; an entity is a target
 (`world:fox`); `clock` is the only thing that moves the world; the journal is how an
-agent hears. Capture the complete simulation with `s.screenshot('run.world', 'world', 'save')`
+agent hears. Capture the complete simulation with `s.world('world').save('run.world')`
 (CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
 `--world run.world` holds the bytes until Play creates the first carrying surface,
 then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
@@ -243,17 +249,24 @@ Greybox, Beacons and the asset fixture retain their deterministic web hash pins.
 `Surface::lifecycle` carries Hidden/Visible/Interrupted/Resumed independently of
 simulation; `Surface::clock` supplies ownership before input. Player reserves its
 32 MiB PCM budget before synthesis and releases acknowledged allocations, trying
-smaller candidates after refusals. Finite voices are ambient and do not block settle.
-File restore preserves saved sound registries. A carry-only fresh-registry overlay
-still needs the hosts to distinguish dev carry from opening a file; both currently
-call the same restore API. That policy belongs to the audio adapter, not Sim.
+smaller candidates after refusals. When a preferred candidate waits for stopped PCM,
+non-preferred sources stay stopped until acknowledgement frees capacity. Attached
+`AudioSource`s require looped definitions and refuse finite definitions by name;
+`World::play` records a finite voice's deterministic start tick. Registration validates
+parameters; the Player owns the actual PCM budget. Finite voices are ambient and do
+not block settle. File restore preserves saved sound registries; dev carry
+overlays fresh definitions in GameAudio while retaining runtime names and frozen
+finite voices. That policy belongs to the audio adapter, not Sim.
 
-Apple tests drive the real callback with fixture buffers and compile notification
-fixtures for main-thread delivery, aggregate visibility, failure retry and
-`shouldResume`. The macOS Swift product built and linked; the one AU3d proof attempt
-failed before launch when the WebKit helper selected SDK 27 with Swift 6.3.3.
-Audio/render Rust libraries and ExactKit build for iOS; iOS was not driven here.
-See `audio/README.md` for the bounds and remaining carry plumbing.
+Apple tests drive the real callback with fixture buffers. The macOS Swift package
+builds and its tests cover main-thread lifecycle delivery, window attach/detach,
+process-wide no-resume inheritance, gesture/Visible recovery, and 300-live-frame
+activation retries. Automatic `exact:audio` requests cannot override no-resume.
+The same shared cadence helper tests initial persistence, boundaries, 120 ↔ 80
+hysteresis, dropped intervals and alternating 60/120 Hz sessions. These fixtures
+open no audio device; iOS was not driven here. See `audio/README.md` for the bounds.
+
+Owed after F2f/AU3e: real-device Apple interruption/output and multi-display cadence sweeps; WebAudio resume failure propagation and retry; an authoring regression that keeps an unrelated component borrow live across `start()`. The callback/Swift fixtures and web proofs do not establish those claims. The shared-tree asset proof still needs its pending-carry expectation and renamed texture path reconciled.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
@@ -305,7 +318,10 @@ remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true
 hemispheres without stretching them. Normals use inverse dimension scale.
 Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
-`Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
+`app.json` selects model support with `game.assets: true` (or `new.mjs --assets`).
+The synthesized shell uses `module!(Game, assets)`; primitive shells link no model
+decoder, upload code or shader family. A primitive module refuses asset meshes by
+name at bind. `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
 colour and adds emission. Only declared models supply simulation data and baked
 layout/pick bounds. An undeclared model is presentation-only: `world.model(name)`
@@ -315,11 +331,17 @@ bundle, or leave it unpickable. Arrival cannot change a game's reads or bounds.
 
 Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
 Declaring a model also declares every texture it references. Setup, tick zero,
-clocks and saves wait for those dependencies. On a device, `Loaded` means geometry
-and textures uploaded and every needed forward/shadow pipeline variant prepared,
-including mirrored nodes; headless hosts validate the same bytes without GPU work.
-A loading carry returns an already pending restore, or refuses a new save.
-`Sim::save()` requires completed declarations. Every web agent operation waits at
+clocks and saves wait for those dependencies. `Loaded` means validated content is
+ready. Device preparation is separate: loss preserves content readiness, re-requests
+texture bytes and prepares pipelines before drawing resumes. No decoded mip copy
+survives upload. A loading carry refuses with named asset states, including when a
+restore is deferred. An invalid deferred save reports one refusal and leaves the
+fresh world usable. `Surface::restore(bytes, Restore::Carry)` overlays fresh audio
+registrations on saved registrations; `Restore::Open` (the default) restores saved
+Sounds. Runtime-registered saved names survive either mode.
+`sim.load_assets(|name| std::fs::read(asset_dir.join(name)))?` drains headless
+requests and dependencies without ticking. `let saved = sim.save()?` returns a
+named pending/failed-asset error until requested assets are ready; saving does not panic. Every web agent operation waits at
 the same bounded delivery barrier, including world-save screenshots. Loading does
 not establish or advance the simulation's host clock epoch.
 
@@ -338,8 +360,9 @@ materials, nodes, skins, clips and named texture references. Each
 renderer requests textures as model materials arrive, shares them by name across
 materials/models, uploads each once and releases the CPU mip payload. Models use
 shared 1×1 placeholders until textures arrive. The `.baked-assets.json` manifest
-owns generated outputs: renamed/deleted sources prune only those files, including
-when `art/` disappears; authored collisions refuse. Ignore this manifest and the
+records the SHA-256 digest of each generated output. Overwrite and pruning require
+bytes matching that recorded digest (or bytes already equal to the desired output),
+even after a source rename or removal of `art/`; authored collisions refuse by name. Ignore this manifest and the
 generated `.model`/`.tex` files. Stems must be unique across art subdirectories.
 The standalone baker is `cargo run -p exact-game-bake -- art/fox.glb assets/fox.model`
 (from `game/`); its texture files accompany the model under the output directory.
@@ -349,29 +372,41 @@ slash-separated nonempty segments other than `.` and `..`, no backslashes or
 control characters. Spaces and punctuation are permitted and URL-encoded by the
 web host. Invalid declarations refuse at bind. The baker, module, Linux resolver,
 web and Swift resolver use the same cases. Names are answered once per surface
-instance. Hosts drain at most sixteen rounds. Web fetches make at most three
+while referenced by an asset mesh (or while declarations gate setup). Dropping the
+last reference retires delivery states and answered names; respawning re-requests.
+Declared simulation model data remains immutable and available to `world.model`.
+A model may list at most 64 textures, all used by materials; a surface tracks at
+most 256 asset names and refuses excess requests by name. Hosts drain at most
+sixteen rounds. At most eight web fetches run concurrently, each with at most three
 attempts with five-second attempt deadlines, 250/500 ms retry delays and a
 20-second total deadline. A 404 is missing; 5xx/offline failures retry and then
-become named failures. Destruction/recreation cancels flights. `settled()` returns
+become named failures. A failed declaration draws its final status and stops asking
+for frames; failed cosmetics never receive a first-frame stamp. Destruction/recreation
+cancels flights. Apple delivery consumes `.tex` bytes; its resolver caches reusable
+fonts, images, models and shaders. `settled()` returns
 remaining flight names when its sixteen rounds or deadline expire.
 
 The runtime decodes only `bin` Data. No glTF or image decoder enters the module.
 EXGAME v3 and EXSIM v5 remain unchanged for existing games. The baker refuses
-textures above 2048×2048 and files above the 64 MiB carrier limit. It traverses
+textures above 2048×2048; both baking and loading enforce the 64 MiB carrier limit. It traverses
 only the single default scene and refuses multi-scene/no-default inputs, sparse
 accessors, morph targets, non-triangle primitives, missing UVs on textured meshes,
 joints/weights mismatches and unsupported channels/extensions by name. UV0
 transforms, authored nearest/linear filters and wrap modes survive baking. Colour
-mips filter in linear premultiplied-alpha space; MASK coverage is retained to the
-nearest representable texel count. Bake and runtime share model/texture validation,
+mips use linear-light RGB; only MASK/BLEND base colour weights RGB by alpha.
+Opaque colour and emissive maps average straight RGB, and the mode is part of the
+dedup key and generated name. MASK coverage is retained to the nearest texel count. Bake and runtime share model/texture validation,
 including finite scalars and inverse binds, ordered bounds, clip node/arity/time
 invariants and nonsingular node transforms. Skins and clips remain data until S3b.
 The 16×16 crate pins both output files; Khronos test inputs are digest-pinned.
 
 Model pipelines are lazy and share shader modules/layouts. A primitive-only world
-creates no model pipelines or texture uploads. Declared asset work finishes inside
-`Pending → Loaded`, before play; the peer surface test asserts unchanged asset
-compilation/upload counts through ticking and drawing. An undeclared cosmetic
+links no model decoder or shader family. Loaded content is prepared before the
+surface draws, and device loss repeats only that preparation. Entity-global
+negative-determinant transforms on asset meshes refuse by name: the current feed
+has immutable node winding batches, so silently accepting entity winding changes
+would render inconsistently. Baked mirrored nodes remain supported. The peer
+surface test asserts unchanged preparation/upload counts through normal play. An undeclared cosmetic
 pop-in is the explicit exception: its arrival can prepare/upload during play.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
@@ -383,9 +418,15 @@ Live frames use the host's display period, not the last frame delta. The web
 exports its 16-sample median, refined by full rolling fits when the period differs
 by more than 1%; sustained skipped slots reacquire even a harmonic rate change.
 Apple quantizes `targetTimestamp - timestamp` to display rate classes with 1%
-hysteresis: ProMotion's actual cadence can differ from its nominal `duration`.
-L is unknown (zero) headless, before Apple's first display-link tick, and during
-the first sixteen web intervals (about 150 ms at 120 Hz, 267 ms at 60 Hz).
+hysteresis and three consecutive candidate intervals, including initial acquisition.
+A doubled interval cannot change the class. Both Apple hosts use the same quantizer;
+every callback publishes its session's current class before rendering because the
+module is process-wide. ProMotion's cadence can differ from nominal `duration`.
+L is unknown (zero) headless and until the first display-link tick after the module
+exists; Apple keeps publishing zero until three stable intervals establish a class.
+On web it is unknown for the first sixteen intervals (133 ms at 120 Hz, 267 ms at 60 Hz).
+A materially short web interval starts reacquisition at raw monotonic time, avoiding
+a double-step/hold on 60 → 120 Hz; an isolated sub-slot callback keeps the fit.
 With world time `T` and fixed step `step = 1000/hz`, `L` approaches
 `min(period, step)`; ticks run strictly before the scheduling horizon `T + L`.
 Seekable uses `L = 0`. A live gap
@@ -412,7 +453,9 @@ on a frame; at 144/60 the remaining phases cycle. During acquisition,
 `|ΔR - frame_delta| <= 0.0025 * frame_delta`, including period transitions
 (apart from integer rounding). Increasing L from zero to 16.667 ms takes 6.667 s;
 zero to 8.333 ms takes 3.333 s. Grid-only acquisition needs at most four seconds
-at 60 Hz or faster. At aligned
+at 60 Hz or faster when L is already at target. After unknown → 60 Hz, the shared
+budget serializes horizon and grid acquisition: about ten seconds before 60/60
+sits at alpha 1. At aligned
 60/60, the tick runs at the frame and alpha is 1: no interpolation lag.
 `tick_phase` is mean alpha on ticking frames, about 1 at 60/60 and 0.5 at 120/60.
 
@@ -435,7 +478,8 @@ for the next eligible tick. Seekable preserves its strict `stamp < deadline`
 rule, including exact-boundary inputs going to the following tick. Queued input
 stays stamp-ordered. Live stamps queued before a callback are clamped to that
 frame's `now_ms`: an event stamped 16.8 ms has arrived even if pacing names the
-frame 16.667 ms. Seekable future stamps still wait. Multi-tick catch-up spreads
+frame 16.667 ms. The initial/restore epoch sample skips this clamp so rebased
+future stamps retain their offsets. Seekable future stamps still wait. Multi-tick catch-up spreads
 input across ticks. Only a gap beyond the 250 ms cap collapses its input onto
 the first remaining step. The deterministic record is the tick-stamped input
 sequence with the same seed; live host stamps alone are not a seekable replay.
@@ -462,5 +506,17 @@ The native `Sim` and `session.world("world")` share `run(ms)`, `settle()`,
 Rust reads use `get::<Component>(entity)`; JavaScript uses `get(entity, "Component")`.
 JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` keeps
 simulation fields only. These helpers dispatch the existing eight agent operations.
-The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
+The generated game demonstrates nearby prompts, beacon plinths, and `restart_generation` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
+
+
+Native spatial reads use `sim.layout("player").unwrap().screen` and
+`sim.pick(rect.center())`; set `sim.viewport(width, height)` for CSS-pixel coordinates.
+Both use the agent's geometry, current global poses and viewport. A missing entity,
+camera, projected rectangle or hit returns `None`.
+Changing the non-live `Options::restart_generation` reconstructs setup through the
+same argument-binding path as any other setup change; there is no second reset path.
+World performance state keeps small counts, totals, maxima and draw counters by
+default. Request `state` with `perf: true` or `perf_reset: true` to arm the five
+16,384-sample rings; reset clears the recording and `perf.armed` reports its state.
+Percentiles are zero before recording; counters still report total work.

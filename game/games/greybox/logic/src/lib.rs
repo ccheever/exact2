@@ -8,6 +8,10 @@ use exact_game::{
     Spring, Stick, Transform, Vec3, World,
 };
 
+#[derive(Default, exact_game::Data)]
+struct Hud {
+    beacons: u32,
+}
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
 #[derive(Default, Component)]
 pub struct Player {
@@ -95,14 +99,7 @@ impl Game for Greybox {
                 Material::rgb(0.8, 0.45, 0.15),
                 Player {
                     stride: 0.0,
-                    character: Character::new()
-                        .speed(4.0)
-                        .accel(12.0)
-                        .brake(20.0)
-                        .jump(1.2)
-                        .gravity(9.81)
-                        .ground(0.9)
-                        .bounds_xz(-19.6..=19.6),
+                    character: Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
                 },
             ),
         );
@@ -142,7 +139,7 @@ impl Game for Greybox {
                 Beacon::default(),
             ),
         );
-        world.publish("beacons", 0);
+        world.publish_record(&Hud::default());
     }
     fn paused(args: &Self::Args) -> bool {
         args.paused
@@ -151,7 +148,9 @@ impl Game for Greybox {
         let dt = world.dt();
         let now = world.now();
         let mut footsteps = 0;
-        if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
+        {
+            let mut query = world.query::<(&mut Player, &mut Transform)>();
+            let (player, pose) = query.one().expect("one player");
             let before = pose.position;
             let motion =
                 player
@@ -177,7 +176,7 @@ impl Game for Greybox {
                 if !beacon.lit {
                     beacon.lit = true;
                     beacon.glow.set_target(now, 1.0);
-                    world.publish("beacons", 1);
+                    world.publish_record(&Hud { beacons: 1 });
                     world.log("beacon-1 lit");
                     world.play("chime").at(entity).start();
                 }

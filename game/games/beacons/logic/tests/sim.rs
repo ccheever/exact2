@@ -11,7 +11,11 @@ fn sim(seed: u64) -> Sim<Beacons> {
 fn movement_seed_and_partitioning() {
     let mut a = sim(7);
     let mut b = sim(7);
-    assert_eq!(a.save(), b.save());
+    a.viewport(800., 600.);
+    b.viewport(800., 600.);
+    let hit = a.pick(a.layout("player").unwrap().screen.center()).unwrap();
+    assert_eq!(a.world().name(hit.entity), Some("player"));
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
     assert_ne!(
         a.world().get::<Transform>("crate-1").unwrap().position,
         sim(8).world().get::<Transform>("crate-1").unwrap().position
@@ -22,7 +26,7 @@ fn movement_seed_and_partitioning() {
     for _ in 0..1500 {
         b.run(1.0);
     }
-    assert_eq!(a.save(), b.save());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
     assert_eq!(a.world().hash(), 0x7379ac5210e92317);
     assert_eq!(a.position("player"), Some(Vec3::new(0.0, 0.9, -5.3666644)));
     println!(
@@ -49,7 +53,7 @@ fn jump_no_double_jump_and_restore() {
     a.tap("Space");
     a.run(250.0);
     let mut b = sim(7);
-    b.restore(&a.save()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
     a.tap("Space");
     a.run(250.0);
     b.run(250.0);
@@ -59,8 +63,8 @@ fn jump_no_double_jump_and_restore() {
     assert_eq!(a.position("player").unwrap().y, 0.9);
     b.key_down("ArrowRight");
     b.run(713.0);
-    a.restore(&b.save()).unwrap();
+    a.restore(&b.save().unwrap()).unwrap();
     a.run(827.0);
     b.run(827.0);
-    assert_eq!(a.save(), b.save());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
 }

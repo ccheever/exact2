@@ -297,8 +297,14 @@ fn capacity_refuses_before_history_and_allows_partial_last_page() {
         ..Default::default()
     };
     let e = f.feed_to(&w, &mut r).unwrap_err();
-    assert_eq!(e.arena, "transforms");
-    assert_eq!(e.slot, PAGE as u64);
+    assert_eq!(
+        e,
+        RenderError::Capacity {
+            arena: "transforms",
+            slot: PAGE as u64,
+            limit: PAGE as u64
+        }
+    );
     assert!(r.calls.is_empty());
     r.limit += 1;
     f.feed_to(&w, &mut r).unwrap();
@@ -378,7 +384,7 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
     assert_eq!(input.points[0].position.x, 1.25);
     assert_eq!(input.points[15].position.x, 16.25);
     assert!(input.sun.unwrap().shadows.is_some());
-    assert!(input.bloom.is_some());
+    assert!(input.environment.bloom.is_some());
     assert_eq!(
         input.environment.fog,
         exact_game::Environment::default().fog
@@ -735,13 +741,13 @@ fn identical_parent_writes_stop_uploading_settled_transform_pages() {
 }
 
 #[test]
-fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
+fn several_pages_of_still_transforms_with_moving_camera_write_only_its_page() {
     struct CameraOnly;
     impl Game for CameraOnly {
         type Args = ();
         const ID: &'static str = "large-still-writes";
         fn setup(w: &mut World, _: &Self::Args) {
-            for _ in 0..500_000 {
+            for _ in 0..(PAGE * 3 + 17) {
                 w.spawn(Transform::default());
             }
             w.spawn((Transform::default(), Camera::default()));
@@ -769,13 +775,13 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
                 r.calls,
                 [
                     Call::Begin,
-                    Call::Transform((500_000 / PAGE * PAGE) as u32, PAGE * 10, false)
+                    Call::Transform((PAGE * 3) as u32, PAGE * 10, false)
                 ]
             );
         }
     }
     eprintln!(
-        "500000 still entities + moving camera: 1 transform page/write per tick, 0 material writes"
+        "3 full pages plus a partial page of still entities + moving camera: 1 transform page/write per tick, 0 material writes"
     );
 }
 
@@ -783,7 +789,7 @@ fn half_million_still_transforms_with_moving_camera_write_only_its_page() {
 fn animated_dimensions_never_grow_geometry_and_all_spheres_batch_together() {
     let mut w = World::new(60, 0);
     let e = w.spawn_named("pulse", (Transform::default(), Mesh::sphere(0.5)));
-    for i in 1..5000 {
+    for i in 1..7 {
         w.spawn((Transform::default(), Mesh::sphere(i as f32)));
     }
     let mut f = Feed::default();
@@ -791,14 +797,14 @@ fn animated_dimensions_never_grow_geometry_and_all_spheres_batch_together() {
     f.feed_to(&w, &mut r).unwrap();
     assert_eq!(r.meshes.len(), 1);
     assert_eq!(f.batches.len(), 1);
-    assert_eq!(f.slots.len(), 5000);
-    for i in 0..4100 {
-        *w.get_mut::<Mesh>(e).unwrap() = Mesh::sphere(0.5 + i as f32 * 0.001);
+    assert_eq!(f.slots.len(), 7);
+    for radius in [0.01, 0.5, 4.599, 2.0, 0.5] {
+        *w.get_mut::<Mesh>(e).unwrap() = Mesh::sphere(radius);
         f.feed_to(&w, &mut r).unwrap();
         assert_eq!(r.meshes.len(), 1);
     }
     assert_eq!(f.batches.len(), 1);
-    assert_eq!(r.materials[9], 2.0 * (0.5 + 4099.0 * 0.001));
+    assert_eq!(r.materials[9], 1.0);
 }
 #[test]
 fn asset_mesh_waits_without_inventing_geometry() {

@@ -32,43 +32,39 @@ pub use world::Feed;
 
 use exact_gpu::wgpu;
 use glam::{Mat4, Vec3};
-pub use renderer::Renderer;
+/// Full renderer for direct clients. Game modules select their concrete capability.
+pub type Renderer = renderer::RendererWithAssets<true>;
 use std::ops::Range;
 pub use timing::{GPU_PASS_COUNT, GPU_PASS_NAMES};
 
-/// A refused arena capacity request. `limit` is an exclusive slot count.
+/// A refused capacity request or invalid scene.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenderError {
-    /// Additional named scene refusal, if this is not an arena slot error.
-    pub detail: Option<String>,
-    /// Arena whose requested slot exceeds capacity.
-    pub arena: &'static str,
-    /// Highest zero-based slot requested.
-    pub slot: u64,
-    /// Maximum supported slot count (valid slots are below this value).
-    pub limit: u64,
+pub enum RenderError {
+    /// A slot outside the arena's exclusive limit.
+    Capacity {
+        /// Arena name.
+        arena: &'static str,
+        /// Highest zero-based requested slot.
+        slot: u64,
+        /// Exclusive slot limit.
+        limit: u64,
+    },
+    /// Named scene validation failure.
+    Scene(String),
 }
-
 impl RenderError {
     pub(crate) fn scene(detail: String) -> Self {
-        Self {
-            arena: "mesh",
-            slot: 0,
-            limit: 4096,
-            detail: Some(detail),
-        }
+        Self::Scene(detail)
     }
 }
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(detail) = &self.detail {
-            return f.write_str(detail);
+        match self {
+            Self::Scene(detail) => f.write_str(detail),
+            Self::Capacity { arena, slot, limit } => {
+                write!(f, "{arena} arena: slot {slot} exceeds limit {limit}")
+            }
         }
-        write!(
-            f,
-            "{} arena: slot {} exceeds limit {}",
-            self.arena, self.slot, self.limit
-        )
     }
 }
 impl std::error::Error for RenderError {}
@@ -174,7 +170,7 @@ impl Default for Shadows {
     }
 }
 
-pub use exact_game::{Bloom, Fog};
+pub use exact_game::{Bloom, Environment, Fog};
 
 /// An inverse-square point light, smoothly extinguished at its range.
 #[derive(Debug, Clone, Copy, Default)]
@@ -187,39 +183,6 @@ pub struct PointLightInput {
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,
-}
-
-/// Shared sky gradient and hemisphere illumination, all in linear RGB.
-#[derive(Debug, Clone, Copy)]
-pub struct Environment {
-    /// Optional flat background, independent of ambient illumination.
-    pub background: Option<[f32; 3]>,
-    /// Radiance directly overhead.
-    pub zenith: [f32; 3],
-    /// Radiance at the horizon; also the default fog colour.
-    pub horizon: [f32; 3],
-    /// Radiance directly below.
-    pub ground: [f32; 3],
-    /// Hemisphere illumination multiplier (does not scale the background).
-    pub ambient: f32,
-    /// Sun disc angular radius in radians; zero disables both disc and glow.
-    pub sun_disc: f32,
-    /// None selects a forward pipeline with no fog calculations.
-    pub fog: Option<Fog>,
-}
-impl Default for Environment {
-    fn default() -> Self {
-        let engine = exact_game::Environment::default();
-        Self {
-            background: engine.background,
-            zenith: engine.zenith,
-            horizon: engine.horizon,
-            ground: engine.ground,
-            ambient: engine.ambient,
-            sun_disc: engine.sun_disc,
-            fog: engine.fog,
-        }
-    }
 }
 
 /// Constant-size displayed-frame input; transforms stay in the tick buffers.
@@ -238,10 +201,6 @@ pub struct FrameInput<'a> {
     pub points: &'a [PointLightInput],
     /// Hemisphere lighting and background.
     pub environment: Environment,
-    /// Linear exposure multiplier before the ACES-fitted curve.
-    pub exposure: f32,
-    /// Optional HDR bloom; allocation only on enable/resize, released on disable.
-    pub bloom: Option<Bloom>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
@@ -262,8 +221,6 @@ impl Default for FrameInput<'_> {
             sun: Some(Sun::default()),
             points: &[],
             environment: Environment::default(),
-            exposure: 1.0,
-            bloom: Some(Bloom::default()),
             timestamps: None,
         }
     }
@@ -303,10 +260,13 @@ mod tests {
 /// Export one game's surface and the native or wasm GPU module ABI.
 #[macro_export]
 macro_rules! module {
-    ($game:ty) => { $crate::module!($game, hook ()); };
-    ($game:ty, audio) => {
+    ($game:ty) => { $crate::module!($game, hook (), false); };
+    ($game:ty, assets) => { $crate::module!($game, hook (), true); };
+    ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
+    ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
+    ($game:ty, audio_mode $assets:literal) => {
         #[derive(Default)]
-        struct GameAudio(exact_game_audio::SurfacePlayer);
+        struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
         impl $crate::Presentation for GameAudio {
             fn wants_audio(&self) -> bool { true }
             fn clock(&mut self, seekable: bool) { self.0.clock(seekable); }
@@ -316,18 +276,28 @@ macro_rules! module {
             fn sync(&mut self, world: &$crate::exact_game::World, generation: u64, playing: bool, seekable: bool) {
                 self.0.sync(world, generation, playing, seekable);
             }
+            fn before_restore(&mut self, world: &$crate::exact_game::World, mode: $crate::exact_gpu::Restore) {
+                self.1 = if mode == $crate::exact_gpu::Restore::Carry { world.try_resource::<$crate::exact_game::audio::Sounds>().map(|s| s.clone()) } else { None };
+            }
+            fn after_restore(&mut self, world: &$crate::exact_game::World, mode: $crate::exact_gpu::Restore) {
+                if mode == $crate::exact_gpu::Restore::Carry {
+                    if let Some(fresh) = self.1.take() {
+                        if world.try_resource::<$crate::exact_game::audio::Sounds>().is_some() { world.resource_mut::<$crate::exact_game::audio::Sounds>().0.extend(fresh.0); }
+                    }
+                }
+            }
             fn unlock(&mut self) { self.0.unlock(); }
         }
-        $crate::module!($game, hook GameAudio);
+        $crate::module!($game, hook GameAudio, $assets);
     };
-    ($game:ty, hook $hook:ty) => {
+    ($game:ty, hook $hook:ty, $assets:literal) => {
         /// The game's sole surface; shaders are embedded in the renderer.
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
             surfaces: &[(
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets>::default()),
             )],
             shaders: &[],
         };

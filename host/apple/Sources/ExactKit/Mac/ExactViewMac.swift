@@ -110,6 +110,7 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        session.canvases.lifecycle.refresh()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
         else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }

@@ -29,10 +29,6 @@ fn lit_scene_and_output_transfer() {
     .enumerate()
     {
         let mesh = renderer.add_mesh(&vertices, &indices);
-        let (center, radius) = renderer.mesh_bounds(mesh);
-        assert!(vertices
-            .iter()
-            .all(|v| Vec3::from_array(v.position).distance(center) <= radius + 1e-6));
         batches.push(Batch {
             mesh,
             casts_shadows: true,
@@ -78,6 +74,7 @@ fn lit_scene_and_output_transfer() {
         horizon: [0.12, 0.18, 0.28],
         sun_disc: 0.0,
         fog: None,
+        ..frame.environment
     };
     let texture = target(&gpu, (600, 400), format);
     let unlit_point = render(&gpu, &mut renderer, &texture, &frame);
@@ -356,6 +353,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         horizon: [0.16, 0.21, 0.26],
         sun_disc: 0.0,
         fog: None,
+        ..frame.environment
     };
     frame.sun = Some(Sun {
         direction: Vec3::new(1.0, -1.0, -2.0),

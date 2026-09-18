@@ -59,7 +59,7 @@ fn assert_finite_half_output(gpu: &Gpu, texture: &wgpu::Texture) {
 fn overrange_emissive_cannot_poison_bloom_or_tonemap() {
     let Some(gpu) = gpu() else { return };
     let mut f = frame();
-    f.bloom = Some(Bloom::default());
+    f.environment.bloom = Some(Bloom::default());
     f.environment.horizon = [0.03; 3];
     f.environment.zenith = [0.03; 3];
     f.environment.ground = [0.03; 3];
@@ -82,7 +82,7 @@ fn overrange_emissive_cannot_poison_bloom_or_tonemap() {
             .write_materials(0, &material([0.0; 3], emission))
             .unwrap();
         for bloom in [None, Some(Bloom::default())] {
-            f.bloom = bloom;
+            f.environment.bloom = bloom;
             floating.draw(
                 &float_target.create_view(&Default::default()),
                 (640, 360),
@@ -101,6 +101,8 @@ fn zero_quaternion_sparse_hole_and_negative_scale() {
     let mut f = frame();
     f.environment = Environment {
         sun_disc: 0.0,
+        bloom: f.environment.bloom,
+        exposure: f.environment.exposure,
         ..Environment::default()
     };
     f.sun = Some(Sun {
@@ -164,8 +166,7 @@ fn arena_capacity_is_a_named_atomic_refusal() {
     let before = render(&gpu, &mut r, &texture, &f);
     let t = transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE);
     for first in [limit, u32::MAX] {
-        let expected = RenderError {
-            detail: None,
+        let expected = RenderError::Capacity {
             arena: "transforms",
             slot: u64::from(first),
             limit: u64::from(limit),
@@ -174,10 +175,10 @@ fn arena_capacity_is_a_named_atomic_refusal() {
         assert_eq!(r.write_transforms_both(first, &t), Err(expected.clone()));
         assert_eq!(
             r.write_materials(first, &material([0.0; 3], 0.0)),
-            Err(RenderError {
-                detail: None,
+            Err(RenderError::Capacity {
                 arena: "materials",
-                ..expected.clone()
+                slot: u64::from(first),
+                limit: u64::from(limit),
             })
         );
         assert_eq!(r.set_batches(&[], &[first]), Err(expected.clone()));
@@ -185,8 +186,7 @@ fn arena_capacity_is_a_named_atomic_refusal() {
     let long = vec![0; limit as usize + 1];
     assert_eq!(
         r.set_batches(&[], &long),
-        Err(RenderError {
-            detail: None,
+        Err(RenderError::Capacity {
             arena: "slots",
             slot: u64::from(limit),
             limit: u64::from(limit)
@@ -205,7 +205,7 @@ fn resize_buckets_preserve_logical_pixels_and_never_shrink() {
     let Some(gpu) = gpu() else { return };
     let mut r = cube_scene(&gpu, wgpu::TextureFormat::Rgba8Unorm);
     let mut f = frame();
-    f.bloom = Some(Bloom::default());
+    f.environment.bloom = Some(Bloom::default());
     f.environment = Environment::default();
     r.write_materials(0, &material([0.0; 3], 20.0)).unwrap();
     let mut first = None;
@@ -280,6 +280,7 @@ fn vertical_sun_sweep_keeps_shadow_edge_within_one_texel() {
         ambient: 0.5,
         sun_disc: 0.0,
         fog: None,
+        ..f.environment
     };
     let settings = Shadows {
         cascades: 1,

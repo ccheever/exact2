@@ -82,10 +82,11 @@ final class GpuModule {
 
     let wantsInput: WantsFn?
     let input: BindFn?
-    typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> Bool
+    typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UInt32) -> Bool
     typealias AssetFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Bool
     var assets: WantsFn?
     var asset: AssetFn?
+    var assetFailed: AssetFn?
     var carry: WantsFn?
     var restore: RestoreFn?
     let published: WantsFn?
@@ -146,13 +147,13 @@ final class GpuModule {
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
-        module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self)
+        module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         if ExactEnv.agentMode { sym("gpu_seekable", SeekableFn.self)?(true) }
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
+    init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
         self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.published = published; self.agent = agent; self.outPtr = outPtr
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.wantsChildren = wantsChildren; self.readback = readback
         self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
@@ -200,5 +201,30 @@ final class GpuModule {
         let n = Int(errorLen())
         guard n > 0, let p = errorPtr() else { return "" }
         return String(decoding: UnsafeBufferPointer(start: p, count: n), as: UTF8.self)
+    }
+}
+
+/// Display-link cadence policy shared by AppKit and UIKit.
+struct DisplayPeriod {
+    private(set) var value = 0.0
+    private var candidate = 0.0
+    private var samples = 0
+    mutating func publish(_ ms: Double, maximum: Double, send: (Double) -> Void) {
+        // gpu_period belongs to the shared module, not this session. Even zero
+        // must replace another session's known cadence before this one's render.
+        defer { send(value) }
+        guard ms.isFinite, ms > 0, maximum.isFinite, maximum > 0 else { return }
+        let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
+        let candidates = rates.map { 1000 / $0 } + (1...12).map { 1000 * Double($0) / maximum }
+        let next = candidates.min { abs($0 - ms) < abs($1 - ms) }!
+        // Cross the midpoint by 1% of the held class before considering a change.
+        guard next != value,
+              value == 0 || abs(ms - next) + value * 0.01 < abs(ms - value) else {
+            candidate = 0; samples = 0
+            return
+        }
+        if next == candidate { samples += 1 } else { candidate = next; samples = 1 }
+        // The first class needs the same persistence as subsequent classes.
+        if samples >= 3 { value = next; candidate = 0; samples = 0 }
     }
 }

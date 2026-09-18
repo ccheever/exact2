@@ -34,7 +34,7 @@ fn saved_arguments_follow_names_default_new_fields_and_ignore_removed_fields() {
     })
     .unwrap();
     let mut next = Sim::<New>::new(Reordered::default()).unwrap();
-    next.restore(&s.save()).unwrap();
+    next.restore(&s.save().unwrap()).unwrap();
     assert_eq!(
         (next.args().left, next.args().right, next.args().added),
         (17, 42, 0)
@@ -45,7 +45,7 @@ fn saved_arguments_follow_names_default_new_fields_and_ignore_removed_fields() {
         added: 4,
     })
     .unwrap();
-    bound.restore_bound(&s.save()).unwrap();
+    bound.restore_bound(&s.save().unwrap()).unwrap();
     assert_eq!(
         (bound.args().left, bound.args().right, bound.args().added),
         (2, 3, 4)
@@ -84,7 +84,7 @@ impl Game for Validated {
 #[test]
 fn decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic() {
     let mut s = Sim::<Validated>::new(Floats::default()).unwrap();
-    let before = s.save();
+    let before = s.save().unwrap();
     let bad = Floats {
         volume: 2.0,
         ..Default::default()
@@ -100,7 +100,7 @@ fn decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic() 
             Some(2000.0)
         )
         .is_err());
-    assert_eq!(before, s.save());
+    assert_eq!(before, s.save().unwrap());
     s.run(100.0);
     s.bind(
         &Floats {
@@ -126,7 +126,7 @@ fn decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic() 
     let canonical = json::to_string(s.args()).unwrap();
     assert!(state.contains(&format!("\"args\":{canonical}")), "{state}");
     assert!(state.contains("1.234567890123"));
-    let bytes = s.save();
+    let bytes = s.save().unwrap();
     let old = json::to_string(s.args()).unwrap();
     let mut replaced = bytes.clone();
     let start = replaced
@@ -141,7 +141,7 @@ fn decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic() 
         .unwrap_err()
         .to_string()
         .contains("volume"));
-    assert_eq!(s.save(), bytes);
+    assert_eq!(s.save().unwrap(), bytes);
 }
 #[test]
 fn setup_comparison_is_bitwise_for_both_float_widths() {
@@ -173,7 +173,7 @@ fn unregistered_saved_type_names_the_setup_fix() {
     let mut s = Sim::<Late>::new(()).unwrap();
     s.run(17.0);
     let mut fresh = Sim::<Late>::new(()).unwrap();
-    let error = fresh.restore(&s.save()).unwrap_err().to_string();
+    let error = fresh.restore(&s.save().unwrap()).unwrap_err().to_string();
     assert!(
         error.contains("Projectile") && error.contains("world.register::<Projectile>() in setup"),
         "{error}"
@@ -188,6 +188,6 @@ fn unregistered_saved_type_names_the_setup_fix() {
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
     let mut registered = Sim::<Registered>::new(()).unwrap();
-    registered.restore(&s.save()).unwrap();
+    registered.restore(&s.save().unwrap()).unwrap();
     assert_eq!(registered.world().query::<&Projectile>().iter().count(), 1);
 }

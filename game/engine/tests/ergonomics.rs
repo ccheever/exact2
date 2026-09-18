@@ -109,7 +109,7 @@ fn last_tick_observations_zero_ticks_ambient_resources_and_saves() {
     s.advance(17.0, Clock::Seekable);
     assert!(!s.quiescent());
     let mut restored = Sim::<Moving>::new(()).unwrap();
-    restored.restore(&s.save()).unwrap();
+    restored.restore(&s.save().unwrap()).unwrap();
     assert!(!restored.quiescent());
     s.advance(1000.0, Clock::Seekable);
     assert!(s.quiescent(), "the last tick, not the whole seek, is still");
@@ -144,7 +144,7 @@ fn follow_arrives_snaps_teleports_and_survives_save() {
     let x = s.world().get::<Transform>(camera).unwrap().position.x;
     assert!(x > 0.0 && x < 2.0);
     // A world load registers Follow even when the current setup has no camera.
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut other = Sim::<Moving>::new(()).unwrap();
     other.restore(&saved).unwrap();
     for _ in 0..200 {
@@ -251,14 +251,14 @@ fn engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick
         Vec3::new(8.0, 11.0, 16.0)
     );
     s.run(100.0);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let snapshot = s.agent(r#"{"op":"state","entity":"*"}"#);
     let mut restored = Sim::<Following>::new(Options::default()).unwrap();
     restored.restore(&saved).unwrap();
     assert_eq!(snapshot, restored.agent(r#"{"op":"state","entity":"*"}"#));
     s.run(100.0);
     restored.run(100.0);
-    assert_eq!(s.save(), restored.save());
+    assert_eq!(s.save().unwrap(), restored.save().unwrap());
     // A newly added or teleported follower can be unplaced in a carry.
     s.world_mut().spawn_named(
         "new-camera",
@@ -267,7 +267,7 @@ fn engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick
             Follow::new("player").offset(0.0, 5.0, 8.0),
         ),
     );
-    restored.restore(&s.save()).unwrap();
+    restored.restore(&s.save().unwrap()).unwrap();
     let player = restored
         .world()
         .get::<Transform>("player")
@@ -281,4 +281,79 @@ fn engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick
             .position,
         player + Vec3::new(0.0, 5.0, 8.0)
     );
+}
+
+#[test]
+fn record_publication_keeps_names_nested_values_and_saved_state() {
+    #[derive(Default, Data)]
+    struct Detail {
+        label: String,
+        active: bool,
+    }
+    #[derive(Default, Data)]
+    struct Hud {
+        beacons: u32,
+        detail: Detail,
+        rows: Vec<Detail>,
+        optional: Option<u32>,
+        values: Vec<u32>,
+    }
+    let hud = Hud {
+        beacons: 2,
+        detail: Detail {
+            label: "two".into(),
+            active: true,
+        },
+        rows: vec![Detail::default()],
+        optional: Some(4),
+        values: vec![1, 3],
+    };
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    sim.world().publish_record(&hud);
+    let expected = r#"{"beacons":2,"detail":{"active":true,"label":"two"},"optional":4,"rows":[{"active":false,"label":""}],"values":[1,3]}"#;
+    assert_eq!(sim.take_published().as_deref(), Some(expected));
+    sim.world().publish_record(&hud);
+    assert!(sim.take_published().is_none());
+    sim.world().publish("beacons", 3);
+    assert_eq!(
+        sim.world().published("beacons").unwrap().as_number(),
+        Some(3.0)
+    );
+    let saved = sim.save().unwrap();
+    let mut restored = Sim::<Moving>::new(()).unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(sim.take_published(), restored.take_published());
+    assert_eq!(saved, restored.save().unwrap());
+}
+
+#[test]
+fn proximity_uses_both_parent_chains_and_returns_mutable_global_rows() {
+    #[derive(Default, Component)]
+    struct Beacon {
+        lit: bool,
+    }
+    let mut w = World::new(60, 0);
+    let parent = w.spawn(Transform::at(10., 4., 0.));
+    let player = w.spawn_named("player", (Parent(parent), Transform::at(2., 0., 0.)));
+    let other_parent = w.spawn(Transform::at(11., 4., 0.));
+    let close = w.spawn((
+        Parent(other_parent),
+        Transform::at(2., 0., 0.),
+        Beacon::default(),
+    ));
+    let high = w.spawn((Transform::at(12., 100., 0.), Beacon::default()));
+    w.spawn((Transform::at(2., 0., 0.), Beacon::default()));
+    let rows: Vec<_> = w.near::<Beacon>(player, 1.).collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, close);
+    assert_eq!(rows[0].1.position, Vec3::new(13., 4., 0.));
+    let mut ids = Vec::new();
+    for (e, _) in w.near_xz::<Beacon>("player", 1.) {
+        w.get_mut::<Beacon>(e).unwrap().lit = true;
+        ids.push(e);
+    }
+    assert_eq!(ids, [close, high]);
+    assert_eq!(w.near::<Beacon>("missing", 1.).count(), 0);
+    w.get_mut::<Transform>(parent).unwrap().position.x = 50.;
+    assert_eq!(w.near_xz::<Beacon>(player, 1.).count(), 0);
 }

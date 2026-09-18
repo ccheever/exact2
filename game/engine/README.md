@@ -106,3 +106,16 @@ reported the same byte counts. Load1: Mac before 21.58/21.58/21.58, after 19.15/
 Linux before 3.32/3.32/3.32, after 1.85/1.85/1.85.
 The RNG is this fixture's singleton; ordinary Resource cells use the same storage.
 Run `cargo run --release -p exact-game --example memory` or `--example churn`.
+
+
+Publish a HUD with `w.publish_record(&Hud { beacons })` and a normal `Data` derive;
+Contract validates names and types against its shape at the app boundary. Scalar
+`publish` remains available. `near`/`near_xz` return global poses in entity order,
+including translated or rotated parents. Mandatory queries use
+`query.one().expect("one player")`. Native spatial tests use
+`sim.layout("player").unwrap().screen.center()` and `sim.pick(point)`.
+`sim.load_assets(|name| std::fs::read(name))?` drains headless dependencies;
+`sim.save()?` returns named pending/failed assets instead of panicking. The game-save
+migration hook is gone: the format and game identity are checked before loading.
+The template's non-live `restart_generation` is incremented to reconstruct setup
+through the existing argument-binding path.

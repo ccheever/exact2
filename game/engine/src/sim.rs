@@ -18,8 +18,6 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Named models required before setup and tick zero. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
-    /// Game save schema version; older versions pass through migrate.
-    const SAVE_VERSION: u32 = 1;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Discoverable controls.
@@ -32,8 +30,6 @@ pub trait Game: 'static {
     }
     /// Construct the world after argument decoding succeeds.
     fn setup(world: &mut World, args: &Self::Args);
-    /// Upgrade a loaded older world before it becomes observable.
-    fn migrate(_world: &mut World, _from: u32) {}
     /// Stop world time while continuing to serve reads.
     fn paused(_args: &Self::Args) -> bool {
         false
@@ -62,7 +58,6 @@ struct Queued {
 #[derive(Default, Data)]
 struct Saved {
     game: String,
-    version: u32,
     world: Vec<u8>,
     args: String,
     input: Input,
@@ -71,7 +66,7 @@ struct Saved {
     journal: Vec<Event>,
     journal_next: u64,
     overflow_logged: bool,
-    published: std::collections::BTreeMap<String, Value>,
+    published: std::collections::BTreeMap<String, crate::values::Stored>,
 }
 // Host-only phase: one tick is 1_000_000 units. Only the bounded remainder is
 // floating point; neither elapsed world time nor the slew grows in an f64.
@@ -124,7 +119,9 @@ impl<G: Game> Sim<G> {
         for &name in G::ASSETS {
             world.assets.declared.insert(name.into());
             world.assets.required.insert(name.into());
-            world.assets.request(name);
+            if !world.assets.models.contains_key(name) {
+                world.assets.request(name);
+            }
         }
         if !world.assets.ready() {
             return world;
@@ -141,6 +138,9 @@ impl<G: Game> Sim<G> {
     }
     /// Drain first-sight model requests. Nondeclared meshes may pop in after tick zero.
     pub fn take_assets(&mut self) -> Vec<String> {
+        if self.setup_pending && !self.assets_pending() {
+            return Vec::new();
+        }
         let revision = self.world.revision::<crate::Mesh>();
         if revision != self.asset_mesh_revision {
             let names: Vec<_> = self
@@ -155,8 +155,20 @@ impl<G: Game> Sim<G> {
                     }
                 })
                 .collect();
+            let mut roots: std::collections::BTreeSet<_> = names.iter().cloned().collect();
+            if self.setup_pending {
+                roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            }
+            self.world.assets.retire(&roots);
+            self.textures
+                .retain(|n, _| self.world.assets.states.contains_key(n));
             for name in names {
-                self.world.assets.request(&name);
+                if !self.world.assets.request(&name) {
+                    continue;
+                }
+                if !name.ends_with(".model") {
+                    self.asset_failed(&name, "mesh requires a .model name");
+                }
             }
             self.asset_mesh_revision = revision;
         }
@@ -165,14 +177,19 @@ impl<G: Game> Sim<G> {
             .states
             .iter()
             .filter(|(n, s)| {
-                **s == crate::asset::AssetState::Pending && !assets.requested.contains(*n)
+                (**s == crate::asset::AssetState::Pending || assets.redelivery.contains(*n))
+                    && !assets.requested.contains(*n)
             })
             .map(|(n, _)| n.clone())
             .collect();
         assets.requested.extend(names.iter().cloned());
         names
     }
-    /// Device-backed surfaces defer readiness until pipeline preparation and upload finish.
+    /// Drain names whose last cosmetic mesh reference disappeared.
+    pub fn take_retired_assets(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.world.assets.retired)
+    }
+    /// Device-backed surfaces retain arriving texture payloads until upload.
     pub fn defer_assets(&mut self, defer: bool) {
         self.defer_assets = defer;
     }
@@ -182,7 +199,50 @@ impl<G: Game> Sim<G> {
             .assets
             .models
             .iter()
+            .filter(|(n, _)| self.world.assets.states.contains_key(*n))
             .map(|(n, m)| (n.as_str(), m.as_ref()))
+    }
+    /// Content remains Loaded after loss; only device preparation is invalidated.
+    pub fn invalidate_device_assets(&mut self) -> Vec<String> {
+        let assets = &mut self.world.assets;
+        assets.prepared.clear();
+        let mut retry = Vec::new();
+        for (name, state) in &assets.states {
+            if *state == crate::asset::AssetState::Pending {
+                assets.requested.remove(name);
+            }
+            if name.ends_with(".tex") && *state == crate::asset::AssetState::Loaded {
+                assets.requested.remove(name);
+                assets.redelivery.insert(name.clone());
+                retry.push(name.clone());
+            }
+        }
+        retry
+    }
+    /// Names still awaiting bytes, including recovery uploads.
+    pub fn assets_pending(&self) -> bool {
+        if self.setup_pending
+            && self.world.assets.required.iter().any(|n| {
+                matches!(
+                    self.world.assets.states.get(n),
+                    Some(crate::asset::AssetState::Failed(_))
+                )
+            })
+        {
+            return false;
+        }
+        self.world
+            .assets
+            .states
+            .values()
+            .any(|s| *s == crate::asset::AssetState::Pending)
+            || !self.world.assets.redelivery.is_empty()
+    }
+    /// Every retained model and dependency prepared for the current device.
+    pub fn device_assets_ready(&self) -> bool {
+        self.world.assets.states.iter().all(|(n, s)| {
+            *s != crate::asset::AssetState::Loaded || self.world.assets.prepared.contains(n)
+        })
     }
     /// Move texture payloads to the renderer; no CPU mip copy survives upload.
     pub fn take_textures(
@@ -196,12 +256,6 @@ impl<G: Game> Sim<G> {
         match result {
             Ok(()) => {
                 self.world.assets.prepared.insert(name.into());
-                if name.ends_with(".tex") {
-                    self.world
-                        .assets
-                        .states
-                        .insert(name.into(), AssetState::Loaded);
-                }
             }
             Err(reason) => {
                 self.world.assets.states.insert(
@@ -215,26 +269,24 @@ impl<G: Game> Sim<G> {
     fn finish_assets(&mut self) {
         use crate::asset::AssetState;
         let assets = &mut self.world.assets;
-        for (name, model) in &assets.models {
+        for (name, textures) in &assets.dependencies {
+            if !assets.states.contains_key(name) {
+                continue;
+            }
             if matches!(assets.states.get(name), Some(AssetState::Failed(_))) {
                 continue;
             }
-            let failed = model
-                .textures
-                .iter()
-                .find_map(|n| match assets.states.get(n) {
-                    Some(AssetState::Failed(e)) => Some(e.clone()),
-                    _ => None,
-                });
+            let failed = textures.iter().find_map(|n| match assets.states.get(n) {
+                Some(AssetState::Failed(e)) => Some(e.clone()),
+                _ => None,
+            });
             if let Some(reason) = failed {
                 assets
                     .states
                     .insert(name.clone(), AssetState::Failed(reason));
-            } else if assets.prepared.contains(name)
-                && model
-                    .textures
-                    .iter()
-                    .all(|n| assets.states.get(n) == Some(&AssetState::Loaded))
+            } else if textures
+                .iter()
+                .all(|n| assets.states.get(n) == Some(&AssetState::Loaded))
             {
                 assets.states.insert(name.clone(), AssetState::Loaded);
             }
@@ -247,33 +299,47 @@ impl<G: Game> Sim<G> {
     }
     /// Transport failure after the host's bounded retries.
     pub fn asset_failed(&mut self, name: &str, reason: &str) {
+        if !self.world.assets.request(name) {
+            return;
+        }
+        self.world.assets.redelivery.remove(name);
         self.world.assets.requested.insert(name.into());
         self.asset_prepared(name, Err(reason.into()));
     }
-    /// Install and validate one named model/texture. A declaration includes its textures.
-    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
-        use crate::asset::{AssetState, Model, TextureData};
-        self.world.assets.request(name);
+    /// Install a validated content result. Decoding belongs to the model adapter.
+    pub fn deliver_asset(
+        &mut self,
+        name: &str,
+        result: Result<crate::asset::Content, String>,
+    ) -> Result<(), String> {
+        use crate::asset::{AssetState, Content};
+        if !self.world.assets.request(name) {
+            return Err(format!("asset `{name}`: surface limit is 256 names"));
+        }
         self.world.assets.requested.insert(name.into());
-        let result: Result<(), String> = (|| {
-            if !crate::asset::asset_name(name) {
-                return Err("invalid asset name".into());
-            }
-            let bytes = bytes.ok_or_else(|| "missing file".to_string())?;
-            if name.ends_with(".tex") {
-                let texture: TextureData = bin::from_slice(bytes).map_err(|e| e.to_string())?;
-                texture.validate()?;
+        self.world.assets.redelivery.remove(name);
+        match result {
+            Ok(Content::Texture(texture)) => {
+                self.world
+                    .assets
+                    .states
+                    .insert(name.into(), AssetState::Loaded);
                 if self.defer_assets {
                     self.textures.insert(name.into(), texture);
-                } else {
-                    self.world
-                        .assets
-                        .states
-                        .insert(name.into(), AssetState::Loaded);
                 }
-            } else {
-                let model: Model = bin::from_slice(bytes).map_err(|e| e.to_string())?;
-                model.validate()?;
+            }
+            Ok(Content::Model(model)) => {
+                let extra = model
+                    .textures
+                    .iter()
+                    .filter(|n| !self.world.assets.states.contains_key(*n))
+                    .count();
+                if self.world.assets.states.len() + extra > 256 {
+                    self.asset_failed(name, "dependencies exceed surface limit of 256 names");
+                    return Err(format!(
+                        "asset `{name}`: dependencies exceed surface limit of 256 names"
+                    ));
+                }
                 for texture in &model.textures {
                     self.world.assets.request(texture);
                     if self.world.assets.declared.contains(name) {
@@ -282,22 +348,20 @@ impl<G: Game> Sim<G> {
                 }
                 self.world
                     .assets
+                    .dependencies
+                    .insert(name.into(), model.textures.clone());
+                self.world
+                    .assets
                     .models
                     .insert(name.into(), std::sync::Arc::new(model));
-                if !self.defer_assets {
-                    self.world.assets.prepared.insert(name.into());
-                }
             }
-            Ok(())
-        })();
-        if let Err(reason) = &result {
-            self.world.assets.states.insert(
-                name.into(),
-                AssetState::Failed(format!("asset `{name}`: {reason}")),
-            );
+            Err(reason) => {
+                self.asset_failed(name, &reason);
+                return Err(format!("asset `{name}`: {reason}"));
+            }
         }
         self.finish_assets();
-        result.map_err(|e| format!("asset `{name}`: {e}"))
+        Ok(())
     }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn from_values(values: &[Value]) -> Result<Self, String> {
@@ -308,9 +372,17 @@ impl<G: Game> Sim<G> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
+        if G::ASSETS.len() > 256 {
+            return Err(format!(
+                "asset `{}`: surface limit is 256 names",
+                G::ASSETS[256]
+            ));
+        }
         for name in G::ASSETS {
-            if !crate::asset::asset_name(name) {
-                return Err(format!("asset `{name}`: invalid declaration name"));
+            if !crate::asset::asset_name(name) || !name.ends_with(".model") {
+                return Err(format!(
+                    "asset `{name}`: declaration requires a .model name"
+                ));
             }
         }
         args.check_scalars()?;
@@ -715,8 +787,9 @@ impl<G: Game> Sim<G> {
             }
         }
         self.rebase_queue = false;
-        if clock == Clock::Live {
-            // Every queued device event arrived before this callback. Pacing can
+        if clock == Clock::Live && self.last_us.is_some() {
+            // The epoch sample preserves rebased future stamps. On later frames,
+            // every queued device event arrived before this callback. Pacing can
             // name the frame earlier than event.timeStamp; it cannot defer delivery.
             // min preserves stamp order and the spread of earlier catch-up input.
             for e in &mut self.queue {
@@ -1020,12 +1093,21 @@ impl<G: Game> Sim<G> {
         keys.into_iter().collect()
     }
     /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Vec<u8> {
-        assert!(
-            !self.is_loading(),
-            "save refused: declared assets are not ready: {}",
-            self.world.assets.state_json()
-        );
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        if self.is_loading()
+            || self.world.assets.refusal.is_some()
+            || self
+                .world
+                .assets
+                .states
+                .values()
+                .any(|state| *state != crate::asset::AssetState::Loaded)
+        {
+            return Err(DataError::new(format!(
+                "save refused: assets are not ready: {}",
+                self.world.assets.state_json()
+            )));
+        }
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
         for e in &mut queue {
@@ -1039,7 +1121,6 @@ impl<G: Game> Sim<G> {
         }
         let saved = Saved {
             game: G::ID.into(),
-            version: G::SAVE_VERSION,
             world: self.world.save(),
             args: self.args_json.clone(),
             input: self.input.clone(),
@@ -1052,7 +1133,7 @@ impl<G: Game> Sim<G> {
         };
         let mut bytes = b"EXSIM\0\x05".to_vec();
         bytes.extend(bin::to_vec(&saved));
-        bytes
+        Ok(bytes)
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
@@ -1078,14 +1159,6 @@ impl<G: Game> Sim<G> {
                 G::ID
             )));
         }
-        if s.version > G::SAVE_VERSION {
-            return Err(DataError::new(format!(
-                "save for `{}` has newer version {} (supported {})",
-                G::ID,
-                s.version,
-                G::SAVE_VERSION
-            )));
-        }
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
@@ -1101,9 +1174,6 @@ impl<G: Game> Sim<G> {
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
             return Err(DataError::new("saved world and clock disagree"));
-        }
-        if s.version < G::SAVE_VERSION {
-            G::migrate(&mut next.world, s.version);
         }
         crate::scene::place_followers(&next.world);
         next.world.propagate();
@@ -1130,6 +1200,9 @@ impl<G: Game> Sim<G> {
             .presentation_generation
             .checked_add(1)
             .expect("presentation generation exhausted");
+        // A deferred restore may commit on the last texture's content delivery,
+        // before the presenter has drained that payload into the current device.
+        next.textures = std::mem::take(&mut self.textures);
         *self = next;
         Ok(())
     }
@@ -1205,11 +1278,26 @@ mod render_time_tests {
         }
     }
     #[test]
+    fn live_restore_preserves_a_pending_future_stamp_on_the_epoch_sample() {
+        let mut s = Sim::<Ticker<60>>::new(()).unwrap();
+        s.advance(10.0, Clock::Live);
+        s.queue.push_back(Queued {
+            host_us: 12_000,
+            ..Default::default()
+        });
+        let save = s.save().unwrap();
+        s.restore(&save).unwrap();
+        s.advance(100.0, Clock::Live);
+        assert_eq!(s.queue.len(), 1);
+        assert_eq!(s.queue[0].host_us, 102_000);
+        assert!(s.queue[0].world_us.is_none());
+    }
+    #[test]
     fn restore_refuses_a_one_tick_ahead_clock() {
         let mut s = Sim::<Ticker<60>>::new(()).unwrap();
         s.advance(0.0, Clock::Seekable);
         s.advance(17.0, Clock::Seekable);
-        let good = s.save();
+        let good = s.save().unwrap();
         let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
         saved.world_us = 10_000;
         let mut bad = b"EXSIM\0\x05".to_vec();
@@ -1219,6 +1307,6 @@ mod render_time_tests {
             .unwrap_err()
             .to_string()
             .contains("world and clock disagree"));
-        assert_eq!(s.save(), good);
+        assert_eq!(s.save().unwrap(), good);
     }
 }

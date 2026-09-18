@@ -64,7 +64,7 @@ fn resume_and_replay_every_tick() {
         tick(&mut b, t);
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
     }
-    let save = a.save();
+    let save = a.save().unwrap();
     let mut restored = scene("pile");
     restored.restore(&save).unwrap();
     tick(&mut restored, 90);
@@ -309,7 +309,7 @@ fn resume_mid_bounce_every_tick() {
     let ball = original.world().named("ball").unwrap();
     assert!(original.world().get::<Body>(ball).unwrap().velocity.y > 0.0);
     let mut restored = scene("bounce");
-    restored.restore(&original.save()).unwrap();
+    restored.restore(&original.save().unwrap()).unwrap();
     tick(&mut restored, 45);
     for t in 46..=240 {
         tick(&mut original, t);

@@ -32,7 +32,12 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
     if (last === null) { last = origin = now; return now; }
     const delta = now - last;
     if (delta <= 0) return paced;
+    // Ignore duplicate/very early callbacks without contaminating the next delta.
+    if (period !== null && delta < period * 0.25) return paced;
     last = now;
+    // A half-period callback belongs to a faster display, not the next old slot.
+    // Keep the published period while reacquiring from raw monotonic timestamps.
+    if (period !== null && delta < period * 0.6) { acquire(now); return now; }
     if (period === null) {
       deltas.push(delta);
       if (deltas.length < 16) return now;
@@ -43,7 +48,7 @@ export function pacer({ window = 256, gain = 0.02 } = {}) {
       return now;
     }
     const k = Math.round((now - origin) / period);
-    if (k < 1) { acquire(now); return now; }
+    if (k < 1) return now;
     const slot = origin + k * period, residual = now - slot;
     // A lattice that fits leaves residuals well inside a slot; one that does not
     // (callbacks at another rate) leaves them near ±period/2 on most frames.

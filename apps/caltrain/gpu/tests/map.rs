@@ -42,8 +42,11 @@ fn the_map_binds_its_inputs_and_lays_out_stations_on_a_line() {
         ])]
         .into(),
     );
-    map.bind(&[line.clone(), Value::str("mv"), board, Value::Number(0.0)])
-        .unwrap();
+    map.bind(
+        &[line.clone(), Value::str("mv"), board, Value::Number(0.0)],
+        None,
+    )
+    .unwrap();
     let v = map.vertices(200.0, 160.0);
     // The line (6) and the train (6); the stations are the canvas's
     // children, laid out by the kernel (LLP 1014).
@@ -54,12 +57,15 @@ fn the_map_binds_its_inputs_and_lays_out_stations_on_a_line() {
         .count();
     assert_eq!(blue, 6, "the train is the blue dot");
     assert!(
-        map.bind(&[
-            line,
-            Value::Number(1.0),
-            Value::List(vec![].into()),
-            Value::Number(0.0)
-        ])
+        map.bind(
+            &[
+                line,
+                Value::Number(1.0),
+                Value::List(vec![].into()),
+                Value::Number(0.0)
+            ],
+            None
+        )
         .is_err(),
         "a wrong input is refused by name"
     );
@@ -70,12 +76,15 @@ fn the_map_renders_and_reads_back_on_this_machines_gpu() {
     let Some(gpu) = device() else { return };
     let mut map = MapSurface::new();
     let line = Value::List(vec![station("sf"), station("mv"), station("sj")].into());
-    map.bind(&[
-        line,
-        Value::str("mv"),
-        Value::List(vec![].into()),
-        Value::Number(0.0),
-    ])
+    map.bind(
+        &[
+            line,
+            Value::str("mv"),
+            Value::List(vec![].into()),
+            Value::Number(0.0),
+        ],
+        None,
+    )
     .unwrap();
     let frame = Frame {
         width: 200.0,
@@ -112,10 +121,10 @@ fn the_aurora_renders_a_lit_sky_and_wants_every_frame() {
     let Some(gpu) = device() else { return };
     let mut sky = AuroraSurface::new();
     assert!(
-        sky.bind(&[Value::Number(1.0)]).is_err(),
+        sky.bind(&[Value::Number(1.0)], None).is_err(),
         "the seed is a string"
     );
-    sky.bind(&[Value::str("mv")]).unwrap();
+    sky.bind(&[Value::str("mv")], None).unwrap();
     let frame = Frame {
         width: 64.0,
         height: 64.0,

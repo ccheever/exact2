@@ -506,3 +506,67 @@ fn player_reserves_pcm_before_synthesis_and_walks_past_refused_voices() {
         "acknowledgement releases the reservation"
     );
 }
+
+#[test]
+fn preferred_source_waits_for_stop_ack_without_restarting_the_loser() {
+    use crate::{Listener, Output, Player};
+    use exact_game::{
+        audio::{AudioSource, Sounds, Synth},
+        Transform, World,
+    };
+    struct Device(Pending);
+    impl Output for Device {
+        fn capacity(&self) -> usize {
+            32
+        }
+        fn flush(&mut self) {
+            self.0.flush();
+        }
+        fn owns_pcm(&self, pcm: &Arc<[f32]>) -> bool {
+            self.0.retained.contains_key(&(pcm.as_ptr() as usize))
+        }
+        fn start(
+            &mut self,
+            id: u64,
+            pcm: &Arc<[f32]>,
+            rate: u32,
+            looping: bool,
+            offset: usize,
+            pitch: f32,
+        ) -> bool {
+            self.0.start(id, pcm, rate, looping, offset, pitch)
+        }
+        fn set(&mut self, id: u64, l: f32, r: f32) {
+            self.0.set(id, l, r);
+        }
+        fn stop(&mut self, id: u64) {
+            self.0.stop(id);
+        }
+    }
+    let (pending, mut mixer) = Pending::new();
+    let mut player = Player::new(Device(pending), 48000);
+    let mut world = World::new(60, 0);
+    world.register_audio();
+    let mut entities = Vec::new();
+    for (name, hz, gain) in [("A", 100., 0.1), ("B", 200., 0.8), ("C", 300., 0.7)] {
+        world
+            .resource_mut::<Sounds>()
+            .add(name, Synth::square(hz).seconds(60.).looped());
+        entities.push(world.spawn((Transform::default(), AudioSource::new(name).gain(gain))));
+    }
+    player.sync(&world, Some(Listener::default()), Default::default());
+    mixer.commands();
+    world.get_mut::<AudioSource>(entities[0]).unwrap().gain = 1.;
+    for _ in 0..4 {
+        player.sync(&world, Some(Listener::default()), Default::default());
+        assert!(
+            !player.active.contains_key(&crate::Key::Source(entities[2])),
+            "C must stay stopped while A waits for its PCM"
+        );
+    }
+    mixer.commands();
+    player.sync(&world, Some(Listener::default()), Default::default());
+    assert!(player.active.contains_key(&crate::Key::Source(entities[0])));
+    assert!(player.active.contains_key(&crate::Key::Source(entities[1])));
+    assert!(!player.active.contains_key(&crate::Key::Source(entities[2])));
+}

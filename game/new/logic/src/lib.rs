@@ -1,13 +1,18 @@
 use exact_game::character::Character;
 use exact_game::*;
 
+#[derive(Default, exact_game::Data)]
+struct Hud {
+    lit: u32,
+    near: String,
+}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    // Restart idiom: round is the world's identity; Play again increments it.
-    pub round: u32,
+    // Restart idiom: changing restart_generation reconstructs setup; Play again increments it.
+    pub restart_generation: u32,
 }
 #[derive(Default, Component)]
 struct Player {
@@ -73,20 +78,25 @@ impl Game for SmallGame {
                 ),
             );
         }
-        w.publish("lit", 0);
-        w.publish("near", "");
+        w.publish_record(&Hud::default());
     }
     fn paused(args: &Options) -> bool {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
-        if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
+        {
+            let mut query = w.query::<(&mut Player, &mut Transform)>();
+            let (player, pose) = query.one().expect("one player");
             player
                 .character
                 .step(pose, input.stick_xz("move"), input.pressed("jump"), dt);
         }
-        let position = w.get::<Transform>("player").unwrap().position;
+        let position = Vec3::from(
+            w.current_global(w.named("player").unwrap())
+                .unwrap()
+                .translation,
+        );
         let mut nearest = None;
         for (entity, pose) in w.near_xz::<Beacon>("player", 1.5) {
             let mut beacon = w.get_mut::<Beacon>(entity).unwrap();
@@ -100,13 +110,16 @@ impl Game for SmallGame {
                 nearest = Some((entity, distance));
             }
         }
-        w.publish("near", nearest.and_then(|(e, _)| w.name(e)).unwrap_or(""));
+        let near = nearest
+            .and_then(|(e, _)| w.name(e))
+            .unwrap_or("")
+            .to_owned();
         let mut count = 0;
         for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(w.now()) * 3.0; 3];
             count += u32::from(beacon.lit);
         }
-        w.publish("lit", count);
+        w.publish_record(&Hud { lit: count, near });
         scene::follow(w);
     }
 }

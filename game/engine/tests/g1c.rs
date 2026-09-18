@@ -264,7 +264,10 @@ fn bound_restore_validates_only_the_arguments_it_uses() {
         fn setup(_: &mut World, _: &Volume) {}
         fn tick(_: &mut World, _: &Input, _: &Volume) {}
     }
-    let old = Sim::<Old>::new(Volume { volume: 2.0 }).unwrap().save();
+    let old = Sim::<Old>::new(Volume { volume: 2.0 })
+        .unwrap()
+        .save()
+        .unwrap();
     let mut new = Sim::<New>::new(Volume { volume: 0.5 }).unwrap();
     assert!(new.restore(&old).is_err());
     new.restore_bound(&old).unwrap();

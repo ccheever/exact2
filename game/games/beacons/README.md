@@ -27,4 +27,13 @@ in `artifacts/process-cleanup.json`.
 and XZ bounds of ±19.6 metres. `near_xz` selects beacons around the player by name. The
 90-tick W hash is `0x7379ac5210e92317` on arm64 macOS, x86-64 Linux and Chrome wasm; the position is `[0, 0.9, -5.3666644]`. Gravity is 9.81 m/s²;
 beacon glow uses a finite 0.5-second smoothstep tween. Scenery has no collisions.
-The glow is material emission, without bloom. No textures or audio are used.
+The glow is material emission with the renderer's restrained default bloom. No textures or audio are used.
+
+
+The HUD uses `publish_record(&Hud { beacons })` over `Data`; Contract checks its
+shape. Player movement requires `query.one().expect("one player")`, and only ground
+and bounds override `Character` defaults. Proximity uses global positions. Native
+saves use `sim.save()?`; proofs use `session.world("world").save(path)` over the
+existing screenshot-save transport. Native layout/pick reads have typed results.
+`Options::restart_generation` changes on Play again, reconstructing setup through
+the existing argument-binding path. This game has no audio.

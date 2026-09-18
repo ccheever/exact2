@@ -27,7 +27,7 @@ pub extern "C" fn pile_hash() -> u64 {
         common::tick(&mut sim, tick);
     }
     let mut restored = common::scene("pile");
-    restored.restore(&sim.save()).unwrap();
+    restored.restore(&sim.save().unwrap()).unwrap();
     common::tick(&mut restored, 90);
     for tick in 91..=600 {
         common::tick(&mut sim, tick);

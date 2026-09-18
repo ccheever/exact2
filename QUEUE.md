@@ -517,3 +517,9 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
 - GPU-compressed game textures (after S3a-b): separate `.tex` assets now fit the 64 MiB carrier, with RGBA8 inputs capped at 2048×2048. Bake BC7/ASTC variants selected by host next, retaining named texture deduplication, bounded carrier files and no runtime image decoder.
+
+- **F2f/AU3e follow-up** (2026-09-18): run real-device Apple interruption/output and multi-display cadence sweeps; propagate/retry WebAudio resume failures; keep an unrelated component borrow live across `start()` in the authoring regression. The closing round leaves these beyond-scope claims unproven.
+
+- S3a-c web recovery: the real `GPUDevice.destroy()` fixture re-fetches textures and resumes draws without validation errors, but the post-loss browser PNG is black; native replacement-device pixels match. Three rounds stopped with the web pixel assertion failing. Investigate the retained WebGPU presentation/context path before shipping.
+- S3a-c size: Beacons now excludes the model shader/decoder markers, but 758,561 bytes remains above the roughly 490 KB pre-assets target. Attribute the remaining growth before another size pass.
+- S3a-c macOS fixture proof: three build attempts stopped on mixed SDK/toolchain selection (SDK 27 versus the required SDK 26, then incompatible Swift tools); rerun the full native proof once the local toolchain is coherent.

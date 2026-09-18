@@ -74,7 +74,7 @@ fn save_mid_run_retains_clock_input_and_future_events() {
         at_ms: 1012.0,
     });
     s.run(713.123);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
     assert_eq!(s.world().hash(), restored.world().hash());
@@ -125,30 +125,9 @@ fn agent_snapshots_and_pick() {
         let got = s.agent(request);
         assert_eq!(got, expected.trim(), "{name}");
     }
-    #[derive(Default, exact_game::Data)]
-    struct Screen {
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-    }
-    #[derive(Default, exact_game::Data)]
-    struct EntityLayout {
-        screen: Screen,
-    }
-    #[derive(Default, exact_game::Data)]
-    struct Layout {
-        entity: EntityLayout,
-    }
-    let layout: Layout =
-        exact_game::json::from_str(&s.agent(r#"{"op":"layout","entity":"player"}"#)).unwrap();
-    let screen = layout.entity.screen;
-    let hit = s.agent(&format!(
-        "{{\"op\":\"layout\",\"x\":{},\"y\":{}}}",
-        screen.x + screen.w * 0.5,
-        screen.y + screen.h * 0.5
-    ));
-    assert!(hit.contains("\"name\":\"player\""), "{hit}");
+    let screen = s.layout("player").unwrap().screen;
+    let hit = s.pick(screen.center()).unwrap();
+    assert_eq!(s.world().name(hit.entity), Some("player"));
     assert_eq!(
         s.agent(r#"{"op":"state","entity":"missing"}"#),
         r#"{"tick":0,"error":"no entity named `missing`"}"#
