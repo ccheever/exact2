@@ -87,9 +87,11 @@ No FPS, frame deadline or physical presentation result is asserted by this UI.
 
 The existing `history` source accepts an optional `option<string>` cursor as its
 seventh argument. Omitted/`none` preserves the six-argument manual/eager controls;
-`some("")` selects the bounded tail. A decimal synthetic index recenters a clamped
-200-row window; a position at/past the end resolves to the last row, and malformed
-cursors are refused. Answers append `earlier`, `later`, `hasEarlier`, `hasLater` to
+`some("")` selects the latest 200 rows. A decimal synthetic index starts its window
+100 rows before that position (never before the first row) and returns up to 200
+rows. Near the tail the window is shorter; its start is not pulled back from the
+tail. A position at/past the end resolves to the last row, and malformed cursors
+are refused. Answers append `earlier`, `later`, `hasEarlier`, `hasLater` to
 the existing statistics. Extending this source keeps one resource active and
 avoids generating an unused second history. `reachstart`/`reachend` move the cursor
 only when the corresponding flag is true. Latest also issues a scroll offset
@@ -130,7 +132,7 @@ shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior
 feedback, cursor validation, and Latest followed by a local echo. Counts are
 printed with `cargo test -p messages-stress-data --test bounded -- --nocapture`.
 
-Bounded validation, 2026-09-18: the runner traversed 100,000 records with 200
+Bounded validation, 2026-09-18: the runner traversed 100,000 records with at most 200
 supplied/keyed rows per shift, zero source queries/key evaluations for interior
 feedback, and at most 31 mounted rows. Web and Linux headless CPU drives on macOS
 reached the first message and returned to Latest, checked six exact Unicode echoes

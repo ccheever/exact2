@@ -101,9 +101,11 @@ pub fn window(controls: Controls, echo: &str, cursor: &str) -> Result<Window, &'
             })
             .min(controls.count - 1)
     };
-    let start = position
-        .saturating_sub(WINDOW_SIZE / 2)
-        .min(controls.count.saturating_sub(WINDOW_SIZE));
+    let start = if cursor.is_empty() {
+        controls.count.saturating_sub(WINDOW_SIZE)
+    } else {
+        position.saturating_sub(WINDOW_SIZE / 2)
+    };
     let end = (start + WINDOW_SIZE).min(controls.count);
     Ok(Window {
         // A local echo belongs at the history tail, never inside an older window.

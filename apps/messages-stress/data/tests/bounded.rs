@@ -164,7 +164,7 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
                 assert!((row.top - corrected - offset).abs() <= 0.01,
                     "N={count}, earlier={earlier}, anchor={anchor}, offset={offset}, corrected={corrected}, row={row:?}");
                 max_mounted = max_mounted.max(c.rows.len());
-                // Accept the correction. A final clamped shift can still
+                // Accept the correction. A final shift can still
                 // geometrically contain the new endpoint: its newly armed edge
                 // dispatches once, but hasEarlier/hasLater prevents a query.
                 let queries = r.data_ref().queries;
@@ -245,7 +245,14 @@ fn cursor_resolution_clamps_after_shrink_and_refuses_malformed_positions() {
         let Value::List(rows) = &answer[0] else {
             panic!("rows")
         };
-        assert_eq!(rows.len(), WINDOW_SIZE);
+        let (expected_start, expected_len) = if cursor.is_empty() {
+            ("800", WINDOW_SIZE)
+        } else {
+            ("899", WINDOW_SIZE / 2 + 1)
+        };
+        assert_eq!(rows.len(), expected_len);
+        assert_eq!(answer[5], Value::str(expected_start));
+        assert_eq!(answer[6], Value::str("999"));
         assert_eq!(id(rows.last().unwrap()), "m-000999");
         assert_eq!(answer[8], Value::Bool(false));
     }

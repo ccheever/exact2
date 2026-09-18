@@ -117,11 +117,21 @@ fn manual_pages_cover_the_logical_history_without_claiming_windowing() {
 fn cursor_windows_match_the_full_generator_and_keep_echo_at_the_tail() {
     let controls = Controls::new(1_000, 2, 8).unwrap();
     let full = history(controls, "echo").unwrap();
-    for cursor in ["0", "300", "799", "999", "100000", ""] {
+    for (cursor, expected_start, expected_end) in [
+        ("0", 0, 200),
+        ("300", 200, 400),
+        ("799", 699, 899),
+        ("900", 800, 1_000),
+        ("950", 850, 1_000),
+        ("999", 899, 1_000),
+        ("100000", 899, 1_000),
+        ("", 800, 1_000),
+    ] {
         let answer = model::window(controls, "echo", cursor).unwrap();
         let start: usize = answer.earlier.parse().unwrap();
         let end = answer.later.parse::<usize>().unwrap() + 1;
-        assert_eq!(end - start, model::WINDOW_SIZE);
+        assert_eq!((start, end), (expected_start, expected_end), "{cursor}");
+        assert!(end - start <= model::WINDOW_SIZE);
         assert_eq!(answer.has_earlier, start > 0);
         assert_eq!(answer.has_later, end < controls.count);
         let with_echo = end + usize::from(!answer.has_later);
@@ -129,4 +139,20 @@ fn cursor_windows_match_the_full_generator_and_keep_echo_at_the_tail() {
     }
     assert!(model::window(controls, "", "-1").is_err());
     assert!(model::window(controls, &"x".repeat(MAX_DRAFT_CHARS + 1), "").is_err());
+}
+
+#[test]
+fn existing_cursor_keeps_its_window_start_as_history_grows() {
+    let original = model::window(Controls::new(1_000, 0, 8).unwrap(), "", "999").unwrap();
+    assert_eq!(original.earlier, "899");
+    assert_eq!(original.rows.len(), 101);
+    assert!(!original.has_later);
+    for count in [10_000, 100_000] {
+        let grown = model::window(Controls::new(count, 0, 8).unwrap(), "", "999").unwrap();
+        assert_eq!(grown.earlier, original.earlier);
+        assert_eq!(grown.later, "1098");
+        assert_eq!(grown.rows.len(), model::WINDOW_SIZE);
+        assert_eq!(&grown.rows[..original.rows.len()], original.rows);
+        assert!(grown.has_later);
+    }
 }
