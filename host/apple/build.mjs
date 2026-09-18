@@ -421,7 +421,7 @@ function main(args) {
   try {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
-  const hasGpu = existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'));
+  const hasGpu = app.hasGpu;
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise
@@ -460,7 +460,7 @@ function main(args) {
     cleanup.push(capture);
     for (const file of [`lib${crate.replace(/-/g, '_')}.a`, ...(hasGpu ? [dylib] : [])]) captureAppleProduct(buildReceipt, resolve(cargoLibDir, file), resolve(capture, file));
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
-    copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
+    copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck'], ...(app.manifest.game ? [] : [['gpu/shaders', 'shaders']])]);
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
     placeAppleArtifact(capture, paths.capture);

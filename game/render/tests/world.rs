@@ -124,13 +124,15 @@ fn greybox_surface_agent_pixels_and_beacon() {
     assert!(first.count(|p| p[0] > 20 || p[1] > 20 || p[2] > 20) > 200_000);
     render(&gpu, &mut surface, 350., "world-greybox-350");
     key(&mut surface, "KeyW", true, 350.);
-    render(&gpu, &mut surface, 1650., "world-greybox-walk");
-    key(&mut surface, "KeyW", false, 1650.);
-    let before = render(&gpu, &mut surface, 2100., "world-beacon-before");
+    // 1.35 s of W under Move's acceleration and braking stops about 1.3 m short of the
+    // beacon at z = -6.5: in range, and not hiding it behind the capsule.
+    render(&gpu, &mut surface, 1700., "world-greybox-walk");
+    key(&mut surface, "KeyW", false, 1700.);
+    let before = render(&gpu, &mut surface, 2150., "world-beacon-before");
     let rect = bounds(&mut surface, "beacon-1");
-    key(&mut surface, "KeyE", true, 2100.);
-    key(&mut surface, "KeyE", false, 2130.);
-    let after = render(&gpu, &mut surface, 2800., "world-beacon-after");
+    key(&mut surface, "KeyE", true, 2150.);
+    key(&mut surface, "KeyE", false, 2180.);
+    let after = render(&gpu, &mut surface, 2850., "world-beacon-after");
     let before_luma = luminance(&before, &rect);
     let after_luma = luminance(&after, &bounds(&mut surface, "beacon-1"));
     eprintln!("beacon patch luminance {before_luma:.2} -> {after_luma:.2}");

@@ -97,6 +97,7 @@ impl<G: Game> Sim<G> {
         let mut world = World::new(G::HZ, 0);
         world.register_scene();
         G::setup(&mut world, args);
+        crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();
         world
@@ -716,6 +717,7 @@ impl<G: Game> Sim<G> {
         if s.version < G::SAVE_VERSION {
             G::migrate(&mut next.world, s.version);
         }
+        crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);

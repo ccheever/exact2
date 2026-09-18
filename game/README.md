@@ -167,16 +167,31 @@ is closed and recorded children are checked before exit. Artifacts are in the ga
 From the repository root:
 
 ```sh
-bun game/new.mjs my-game                 # copy the complete, tested small game
+bun game/new.mjs my-game                 # create the three files and logic crate
 bun game/dev.mjs my-game                 # the shared dev loop, on loopback
 bun game/games/my-game/proof.mjs web      # or macos
 ```
 
 Games are members of this workspace: one lockfile, profiles and dependency pins in
 `game/`, no workspace manifest or lockfile in a game. The generator registers the
-new packages in that shared lockfile without upgrading dependencies. The three
-one-line host shells use shared dependencies and web/Apple build scripts; game
-code lives in `logic/`, its UI in `app.contract`, and its proof beside them.
+new packages in that shared lockfile without upgrading dependencies. An author owns exactly this:
+
+```text
+game/games/my-game/
+  logic/          Cargo.toml, src/lib.rs, tests/sim.rs
+  app.contract
+  app.json
+  proof.mjs
+```
+
+`app.json` declares `"game": { "crate": "my-game-logic", "type": "SmallGame" }`.
+The crate is the package in `logic/`; its name ends in `-logic`. The type can
+include a module path. Resolving the app for dev, proof, build or deploy generates
+`game/.shells/my-game-{gpu,web,apple}/` before building. These ignored crates
+contain the GPU module and the web/Apple bakes; identical bytes are never rewritten.
+The workspace glob includes them; its tracked `.gitignore` lets Cargo resolve an
+otherwise empty glob before the first bake. Games embed the engine shaders and
+have no `gpu/shaders` directory.
 `cargo test` from `game/` runs the engine and every game's logic tests.
 `bun test game/new.test.mjs` copies the real files in `game/new/`, builds and proves
 the untouched game, then removes it. `bun scripts/caps.mjs` from the repository

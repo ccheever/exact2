@@ -2,7 +2,7 @@
 # from the root `members`, so exact2's five checks never compile it. It consumes
 # exact2 by path, as an app outside the repository does.
 [workspace]
-members = ["engine", "derive", "render", "physics", "audio", "app", "games/*/logic", "games/*/gpu", "games/*/web", "games/*/apple", "bench/cubes/logic", "bench/cubes/gpu", "bench/cubes/web", "bench/cubes/apple"]
+members = ["engine", "derive", "render", "physics", "audio", "app", "games/*/logic", "bench/cubes/logic", ".shells/*"]
 resolver = "2"
 
 [workspace.package]

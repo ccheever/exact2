@@ -31,12 +31,11 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         one.world().hash()
     );
-    assert!(
-        (one.world().get::<Transform>("player").unwrap().position - Vec3::new(0.0, 0.9, -5.733332))
-            .length()
-            < 1e-4
+    assert_eq!(
+        one.world().get::<Transform>("player").unwrap().position,
+        Vec3::new(0.0, 0.9, -5.3666644)
     );
-    assert_eq!(one.world().hash(), 0x2464f19d35fb4996);
+    assert_eq!(one.world().hash(), 0xd7a1808b306f15b7);
 }
 #[test]
 fn beacon_messages_journal_and_settle() {

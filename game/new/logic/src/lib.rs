@@ -24,7 +24,6 @@ impl Game for SmallGame {
             Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));
         w.spawn((Transform::at(2.0, 0.5, 0.0), Mesh::sphere(0.5), Material::default(), Beacon::default()));
         w.publish("lit", 0);
-        scene::follow(w);
     }
     fn paused(args: &Options) -> bool { args.paused }
     fn tick(w: &mut World, input: &Input, _: &Options) {

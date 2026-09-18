@@ -174,6 +174,7 @@ fn wildcard_state_is_complete_bounded_and_narrowable() {
         .spawn_named("child", (Parent(parent), Transform::at(1.0, 2.0, 3.0)));
     let reply = s.agent(r#"{"op":"state","entity":"*","under":"player"}"#);
     assert_eq!(reply.matches("\"components\":").count(), 2);
+    assert!(reply.contains(&format!("\"hash\":\"0x{:016x}\"", s.world().hash())));
     assert!(reply.contains("child") && !reply.contains("bird"));
     for _ in 0..520 {
         s.world_mut().spawn(Transform::default());
@@ -212,4 +213,72 @@ fn seeks_hash_only_twice_and_live_never_hashes() {
     assert_eq!(WRITES.swap(0, Ordering::Relaxed), 2);
     s.advance(60_100.0, Clock::Live);
     assert_eq!(WRITES.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick() {
+    #[derive(Default, Args)]
+    struct Options {
+        x: f32,
+    }
+    struct Following;
+    impl Game for Following {
+        const ID: &'static str = "placement";
+        type Args = Options;
+        fn setup(w: &mut World, args: &Options) {
+            w.spawn_named("player", Transform::at(args.x, 2.0, 3.0));
+            w.spawn_named(
+                "camera",
+                (
+                    Transform::default(),
+                    Follow::new("player").offset(0.0, 9.0, 13.0).lag(0.15),
+                ),
+            );
+        }
+        fn tick(w: &mut World, _: &Input, _: &Options) {
+            w.get_mut::<Transform>("player").unwrap().position.x += 1.0;
+            scene::follow(w);
+        }
+    }
+    let mut s = Sim::<Following>::new(Options { x: 4.0 }).unwrap();
+    assert_eq!(
+        s.world().get::<Transform>("camera").unwrap().position,
+        Vec3::new(4.0, 11.0, 16.0)
+    );
+    s.bind(&[Value::Number(8.0)], None).unwrap();
+    assert_eq!(
+        s.world().get::<Transform>("camera").unwrap().position,
+        Vec3::new(8.0, 11.0, 16.0)
+    );
+    s.run(100.0);
+    let saved = s.save();
+    let snapshot = s.agent(r#"{"op":"state","entity":"*"}"#);
+    let mut restored = Sim::<Following>::new(Options::default()).unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(snapshot, restored.agent(r#"{"op":"state","entity":"*"}"#));
+    s.run(100.0);
+    restored.run(100.0);
+    assert_eq!(s.save(), restored.save());
+    // A newly added or teleported follower can be unplaced in a carry.
+    s.world_mut().spawn_named(
+        "new-camera",
+        (
+            Transform::default(),
+            Follow::new("player").offset(0.0, 5.0, 8.0),
+        ),
+    );
+    restored.restore(&s.save()).unwrap();
+    let player = restored
+        .world()
+        .get::<Transform>("player")
+        .unwrap()
+        .position;
+    assert_eq!(
+        restored
+            .world()
+            .get::<Transform>("new-camera")
+            .unwrap()
+            .position,
+        player + Vec3::new(0.0, 5.0, 8.0)
+    );
 }

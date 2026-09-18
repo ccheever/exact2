@@ -716,6 +716,20 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
 
 // ---------------------------------------------------------------- the eight operations
 
+/** A convenience over state, screenshot and type; wire replies keep all tags. */
+export function worldView(session, name) {
+  return {
+    async snapshot() {
+      const {tick, hash, entities, truncated} = await session.state(`${name}:*`);
+      return {tick, hash, entities, truncated};
+    },
+    state: entity => session.state(`${name}:${entity}`),
+    save: path => session.screenshot(path, name, 'save'),
+    key: (code, opts = {}) => session.type(name, {...opts, key:code}),
+    hold: (code, ms) => session.type(name, {key:code, for:ms}),
+  };
+}
+
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
@@ -760,6 +774,8 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     },
     /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
     tree: async (target, under) => target == null ? s.op({ op: 'tree' }) : s.op({ op: 'tree', ...await s.target(target), world: true, ...(under != null ? { under } : {}) }),
+    /** Simulation conveniences use this receiver so proof proxies record every operation. */
+    world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
     state: async (target, under) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */

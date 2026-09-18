@@ -3,7 +3,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {artifactDigest, closeSessions, equal} from './proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -194,4 +194,37 @@ test('proof equality compares complete nested objects independently of key order
     [{a:null}, {}], [[1,2], [2,1]], [[1], [1,2]], [[], {}], [null, {}], [1, '1'],
   ]) expect(equal(a,b)).toBe(false);
   expect(equal([null,true,{a:[]}], [null,true,{a:[]}])).toBe(true);
+});
+
+
+test('world convenience keeps simulation fields only and dispatches the existing operations', async () => {
+  const calls = [], entities = [{name:'player', components:{Transform:{position:[0,0.9,0]}}}];
+  let clock=0, epoch=1, incarnation=1;
+  const raw = {
+    world(name) { return worldView(this, name); },
+    async state(target) { return {tick:90, hash:'0x123', entities, truncated:false, clock, epoch, incarnation}; },
+    async type(...args) { return {clock, epoch, incarnation, args}; },
+    async screenshot(...args) { return {clock, epoch, incarnation, args}; },
+  };
+  // Like proof's proxy, every underlying operation is recorded with its full reply.
+  const session = new Proxy(raw, {get(target, method) {
+    if (method === 'world') return target[method];
+    return async (...args) => { const reply=await target[method](...args); calls.push({method,args,reply}); return reply; };
+  }});
+  const w=session.world('arena'), before=await w.snapshot();
+  clock+=2000;
+  expect(await w.snapshot()).toEqual(before);
+  clock=0; epoch++; incarnation++;
+  expect(await w.snapshot()).toEqual(before);
+  expect(Object.keys(before)).toEqual(['tick','hash','entities','truncated']);
+  expect(before).toEqual({tick:90,hash:'0x123',entities,truncated:false});
+  await w.state('player'); await w.save('checkpoint.world');
+  await w.key('KeyW', {phase:'down'}); await w.key('KeyE'); await w.hold('KeyW',1500);
+  expect(calls.map(c => [c.method,...c.args])).toEqual([
+    ['state','arena:*'], ['state','arena:*'], ['state','arena:*'], ['state','arena:player'],
+    ['screenshot','checkpoint.world','arena','save'], ['type','arena',{key:'KeyW',phase:'down'}],
+    ['type','arena',{key:'KeyE'}], ['type','arena',{key:'KeyW',for:1500}],
+  ]);
+  expect(calls[1].reply).toMatchObject({clock:2000,epoch:1,incarnation:1});
+  expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
 });

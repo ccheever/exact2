@@ -571,7 +571,10 @@ impl FollowTarget {
     }
 }
 
-/// A saved camera follower. Call `scene::follow` at the desired point in the tick.
+/// A saved camera follower. Call `scene::follow` only where motion happens in tick.
+/// The engine places followers after setup and setup-argument rebuilds. Restore
+/// places uninitialized followers while preserving saved, initialized poses and
+/// smoothing, so restoring never advances the simulation by an extra step.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Follow {
     /// Target handle or name. A changed name resolution reinitializes the follow.
@@ -613,11 +616,20 @@ impl Follow {
 /// Step followers in entity order. The look direction follows the eased position,
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 pub fn follow(world: &World) {
+    follow_inner(world, false);
+}
+pub(crate) fn place_followers(world: &World) {
+    follow_inner(world, true);
+}
+fn follow_inner(world: &World, placement_only: bool) {
     for (e, follow) in world.query::<&mut Follow>().iter() {
         let target = follow.target.resolve(world);
         if target != follow.resolved {
             follow.initialized = false;
             follow.resolved = target;
+        }
+        if placement_only && follow.initialized {
+            continue;
         }
         let Some(target) = target else {
             continue;

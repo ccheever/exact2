@@ -12,6 +12,7 @@ pub mod data;
 mod environment;
 mod input;
 pub mod math;
+pub mod motion;
 mod rng;
 pub mod scene;
 mod sim;

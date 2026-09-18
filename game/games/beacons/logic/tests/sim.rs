@@ -28,7 +28,8 @@ fn movement_jump_seed_and_save() {
         "W1500 position={position:?} hash=0x{:016x}",
         a.world().hash()
     );
-    assert!((position - Vec3::new(0.0, 0.9, -5.7333384)).length() < 0.001);
+    assert_eq!(position, Vec3::new(0.0, 0.9, -5.3666644));
+    assert_eq!(a.world().hash(), 0x7b36bcac0b3dfb2e);
     assert_eq!(a.save(), b.save());
     a.key_up("KeyW");
     a.tap("Space");
@@ -50,5 +51,30 @@ fn movement_jump_seed_and_save() {
     assert_eq!(
         a.world().get::<Transform>("player").unwrap().position.y,
         0.9
+    );
+}
+
+#[test]
+fn glow_is_exactly_smoothstep_at_one_tenth_second() {
+    use beacons_logic::Beacon;
+    use exact_game::{Material, Now};
+    let mut s = sim(7);
+    let player = s.world().named("player").unwrap();
+    s.world_mut().teleport(player, Transform::at(8.0, 0.9, 0.0));
+    s.tap("KeyE");
+    s.run(1000.0 / 60.0); // The input tick anchors the tween at zero.
+    s.run(100.0);
+    let beacon = s.world().get::<Beacon>("beacon-1").unwrap();
+    assert!(beacon.lit);
+    assert_eq!(
+        beacon.glow.value(Now {
+            tick: beacon.glow.start_tick + 6,
+            hz: 60
+        }),
+        0.104
+    );
+    assert_eq!(
+        s.world().get::<Material>("beacon-1").unwrap().emissive,
+        [0.208, 0.26, 0.208]
     );
 }

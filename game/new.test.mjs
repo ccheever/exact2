@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
@@ -29,13 +29,22 @@ test('a newly generated game builds, tests and proves without editing', async ()
   let registeredLock;
   try {
     await run('bun', ['game/new.mjs', name]);
+    assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','proof.mjs']);
+    env.EXACT_APP_DIR = app;
+    await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     registeredLock = readFileSync(lockfile);
-    for (const file of ['Cargo.toml','Cargo.lock','web/build.rs','apple/build.rs']) assert.ok(!existsSync(resolve(app, file)), file);
+    for (const file of ['Cargo.toml','Cargo.lock','web','apple','gpu']) assert.ok(!existsSync(resolve(app, file)), file);
+    const shellFiles = ['gpu','web','apple'].flatMap(kind => ['Cargo.toml','src/lib.rs', ...(kind === 'gpu' ? [] : ['build.rs'])]
+      .map(file => resolve(import.meta.dir, '.shells', `${name}-${kind}`, file)));
+    const stamps = shellFiles.map(file => statSync(file).mtimeMs);
+    await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
+    assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
     await run('cargo', ['test', '-p', `${name}-logic`], import.meta.dir);
     await run('bun', [resolve(app, 'proof.mjs'), 'web']);
     assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), new RegExp(`PROOF PASS ${name} web: 0 failures`));
   } finally {
     rmSync(app, {recursive:true, force:true});
+    for (const kind of ['gpu','web','apple']) rmSync(resolve(import.meta.dir, '.shells', `${name}-${kind}`), {recursive:true, force:true});
     if (registeredLock) assert.deepEqual(readFileSync(lockfile), registeredLock, 'shared lockfile changed during test');
     writeFileSync(lockfile, originalLock);
   }
@@ -81,10 +90,3 @@ test('generator preserves an already locked workspace and registers only missing
     run(['metadata', '--locked', '--offline', '--format-version', '1']);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 180000);
-
-test('greybox easing has a documented MOVE_LAG with its pinned value', () => {
-  const source = readFileSync(resolve(import.meta.dir, 'games/greybox/logic/src/lib.rs'), 'utf8');
-  assert.match(source, /\/\/[^\n]*[Ss]econds[^\n]*\nconst MOVE_LAG: f32 = 0\.074690334;/);
-  assert.equal((source.match(/math::ease\([^\n]*, MOVE_LAG, dt\)/g) ?? []).length, 2);
-  assert.doesNotMatch(source, /math::ease\([^\n]*0\.074690334/);
-});

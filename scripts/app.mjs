@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
+import { gameShells } from '../game/app/shells.mjs';
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -36,7 +37,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
-  const name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
@@ -48,8 +49,20 @@ export function resolveApp(nameOrCrate) {
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
   const manifest = readManifest(dir, name);
+  if (manifest.game !== undefined) name = gameShells(dir, manifest.game, workspace);
+  let packages;
+  const cargoPackage = kind => {
+    if (!packages) {
+      const result = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
+      packages = JSON.parse(result.stdout).packages;
+    }
+    return packages.find(pkg => pkg.name === `${name}-${kind}`);
+  };
   return {
     name, dir, workspace, target, crate: (kind) => `${name}-${kind}`,
+    cargoPackage,
+    get hasGpu() { return manifest.game !== undefined || !!cargoPackage('gpu'); },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
     /** The app identity, reverse-DNS: the bundle id on every platform (`build.mjs:48–49` derived it from the crate name before the manifest). */
@@ -401,12 +414,12 @@ export const appleCargoClaims = (app, target, units) => [...new Set(units.map(un
 export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
-  env.EXACT_ASSET_ROOTS=['assets','deck','gpu/shaders'].filter(root=>existsSync(resolve(app.dir,root))).join(',');
+  env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>existsSync(resolve(app.dir,root))).join(',');
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
-  const graph=buildGraph(app,target,kind,env,platform!=='linux'&&existsSync(resolve(app.dir,'gpu/Cargo.toml'))),messages=[],roots=[];
+  const graph=buildGraph(app,target,kind,env,platform!=='linux'&&app.hasGpu),messages=[],roots=[];
   const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);

@@ -87,3 +87,67 @@ fn math_uses_the_declared_functions() {
     );
     assert_eq!(math::lerp(0.0, 10.0, 0.3), 3.0);
 }
+
+#[test]
+fn named_movement_accelerates_turns_brakes_and_preserves_vertical_velocity() {
+    use exact_game::motion::Move;
+    let movement = Move {
+        speed: 4.0,
+        accel: 12.0,
+        brake: 20.0,
+    };
+    let mut velocity = Vec3::new(0.0, 7.0, 0.0);
+    movement.step(&mut velocity, Vec3::X, 0.125);
+    assert_eq!(velocity, Vec3::new(1.5, 7.0, 0.0));
+    movement.step(&mut velocity, Vec3::X, 1.0);
+    assert_eq!(velocity, Vec3::new(4.0, 7.0, 0.0));
+    movement.step(&mut velocity, Vec3::NEG_X, 0.25);
+    assert_eq!(velocity.x, 1.0);
+    movement.step(&mut velocity, Vec3::ZERO, 0.025);
+    assert_eq!(velocity.x, 0.5);
+    movement.step(&mut velocity, Vec3::ZERO, 0.1);
+    assert_eq!(velocity, Vec3::new(0.0, 7.0, 0.0));
+    for _ in 0..60 {
+        movement.step(&mut velocity, Vec3::ZERO, 1.0 / 60.0);
+    }
+    assert_eq!(velocity, Vec3::new(0.0, 7.0, 0.0));
+    velocity.x = 4.0;
+    for _ in 0..13 {
+        movement.step(&mut velocity, Vec3::ZERO, 1.0 / 60.0);
+    }
+    assert_eq!(velocity, Vec3::new(0.0, 7.0, 0.0));
+    movement.step(&mut velocity, Vec3::new(10.0, 99.0, 10.0), 1.0);
+    assert!((Vec3::new(velocity.x, 0.0, velocity.z).length() - 4.0).abs() < 1e-6);
+    movement.step(&mut velocity, Vec3::new(0.0, 99.0, 0.5), 1.0);
+    assert_eq!(velocity, Vec3::new(0.0, 7.0, 2.0));
+    movement.step(&mut velocity, Vec3::X, 0.0);
+    assert_eq!(velocity, Vec3::new(0.0, 7.0, 2.0));
+}
+
+#[test]
+fn named_jump_reaches_authored_height_and_gravity_preserves_planar_velocity() {
+    use exact_game::motion::{Gravity, Jump};
+    let mut velocity = Vec3::new(2.0, -8.0, 3.0);
+    Jump {
+        height: 1.2,
+        gravity: 9.81,
+    }
+    .start(&mut velocity);
+    assert_eq!(
+        velocity.y.to_bits(),
+        libm::sqrtf(2.0 * 9.81 * 1.2).to_bits()
+    );
+    let apex = velocity.y / 9.81;
+    let rise = velocity.y * apex - 0.5 * 9.81 * apex * apex;
+    assert!((rise - 1.2).abs() < 1e-6);
+    Gravity(9.81).step(&mut velocity, apex);
+    assert_eq!(velocity, Vec3::new(2.0, 0.0, 3.0));
+    Gravity(9.81).step(&mut velocity, 1.0);
+    assert_eq!(velocity, Vec3::new(2.0, -9.81, 3.0));
+    Jump {
+        height: 0.0,
+        gravity: 9.81,
+    }
+    .start(&mut velocity);
+    assert_eq!(velocity, Vec3::new(2.0, 0.0, 3.0));
+}

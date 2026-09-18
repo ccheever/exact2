@@ -1,13 +1,11 @@
 //! The first game: a capsule, landmarks, and one beacon. No host and no GPU.
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
+use exact_game::motion::{Gravity, Jump, Move};
 use exact_game::{
-    math, scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
+    scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
     Spring, Stick, Transform, Vec3, World,
 };
-
-// Seconds for horizontal velocity to close 1 - 1/e of the remaining gap.
-const MOVE_LAG: f32 = 0.074690334;
 
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
 #[derive(Default, Component)]
@@ -98,7 +96,6 @@ impl Game for Greybox {
             ),
         );
         world.publish("beacons", 0);
-        scene::follow(world);
     }
     fn paused(args: &Self::Args) -> bool {
         args.paused
@@ -106,19 +103,26 @@ impl Game for Greybox {
     fn tick(world: &mut World, input: &Input, _: &Self::Args) {
         let dt = world.dt();
         let now = world.now();
-        let desired = input.stick_xz("move") * 4.0;
         let mut position = Vec3::ZERO;
         if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
-            player.velocity.x = math::ease(player.velocity.x, desired.x, MOVE_LAG, dt);
-            player.velocity.z = math::ease(player.velocity.z, desired.z, MOVE_LAG, dt);
+            Move {
+                speed: 4.0,
+                accel: 12.0,
+                brake: 20.0,
+            }
+            .step(&mut player.velocity, input.stick_xz("move"), dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
-                player.velocity.y = 5.0;
+                Jump {
+                    height: 1.2,
+                    gravity: 9.81,
+                }
+                .start(&mut player.velocity);
             }
             pose.position.x += player.velocity.x * dt;
             pose.position.z += player.velocity.z * dt;
             if pose.position.y > 0.9 || player.velocity.y > 0.0 {
                 pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                player.velocity.y -= 9.81 * dt;
+                Gravity(9.81).step(&mut player.velocity, dt);
                 if pose.position.y <= 0.9 {
                     pose.position.y = 0.9;
                     player.velocity.y = 0.0;

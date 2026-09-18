@@ -168,7 +168,7 @@ impl<G: Game> Sim<G> {
                 let entities = all[start..end].iter().take(512).map(|&(e,_,_)| {
                     Ok(format!("{{{},\"components\":{}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
                 }).collect::<Result<Vec<String>, String>>()?.join(",");
-                Ok(format!("{{\"tick\":{tick},\"entities\":[{entities}],\"truncated\":{}}}", end-start > 512))
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}}}", w.hash(), end-start > 512))
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;

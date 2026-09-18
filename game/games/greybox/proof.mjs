@@ -27,33 +27,33 @@ const position = state => state?.entity?.components?.Transform?.position;
   }
   const initial = await s.state();
   check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x9d8e9359b9f3e65f', initial?.world?.[0]?.hash);
-  const down = await s.type('world', { key: 'KeyW', phase: 'down' });
+  const down = await s.world('world').key('KeyW', {phase: 'down'});
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.clock('+1500');
-  const player = await s.state('world:player');
+  const player = await s.world('world').state('player');
   check('player has the exact authored capsule', equal(player?.entity?.components?.Mesh,
     {Capsule:{height:1.8, radius:0.4}}), player?.entity?.components?.Mesh);
-  check('W for 1500 ms equals the native pinned position', equal(position(player), [0, 0.9, -5.7333384]), position(player));
+  check('W for 1500 ms equals the native pinned position', equal(position(player), [0, 0.9, -5.3666644]), position(player));
   const forward = await s.state();
   const hash = forward?.world?.[0]?.hash;
-  check('W for 1500 ms equals the current native hash', hash === '0x2464f19d35fb4996', hash);
+  check('W for 1500 ms equals the current native hash', hash === '0xd7a1808b306f15b7', hash);
   check('1500 ms advances exactly 90 ticks', forward?.world?.[0]?.tick === 90, forward?.world?.[0]?.tick);
   const layout = await s.layout('world:player');
   const box = layout?.entity?.screen;
   check('player has a viewport-space screen box', box && [box.x, box.y, box.w, box.h].every(Number.isFinite)
     && box.w > 0 && box.h > 0 && box.x >= 0 && box.y >= 0
     && box.x + box.w <= 1280 && box.y + box.h <= 720, box);
-  await s.type('world', { key: 'KeyW', phase: 'up' });
+  await s.world('world').key('KeyW', {phase: 'up'});
   if (box) {
     const pick = await s.layout('world', [box.x + box.w / 2, box.y + box.h / 2]);
     check('pick at the player box reaches player', pick?.hit?.name === 'player', pick);
     const tap = await s.tap('world:player');
     check('entity tap uses platform input', tap?.delivery === 'platform', tap);
   }
-  await s.type('world', {key:'KeyW', for:100});
-  await s.type('world', { key: 'KeyE' });
+  await s.world('world').hold('KeyW', 100);
+  await s.world('world').key('KeyE');
   await s.clock('+100');
-  const beacon = await s.state('world:beacon-1');
+  const beacon = await s.world('world').state('beacon-1');
   check('E lights beacon-1', beacon?.entity?.components?.Beacon?.lit === true, beacon);
   const settled = await s.clock('settle');
   check('world settles after movement and beacon spring', settled?.settled === true && settled?.world?.[0]?.quiescent === true, settled);
@@ -64,13 +64,13 @@ const position = state => state?.entity?.components?.Transform?.position;
   check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines.some(line => line.includes('beacon-1 lit'))), logs?.world);
   check('no browser/GPU errors', !logs?.host?.some(line => /^(exception:|console\.error:|error:)/.test(line)), logs?.host);
   await s.tap('pause');
-  const beforePause = await s.state('world:player');
+  const beforePause = await s.world('world').snapshot();
   // A held movement input makes the pause assertion meaningful even after settle.
-  await s.type('world', { key: 'KeyW', phase: 'down' });
-  await s.clock('+1000');
-  const paused = await s.state('world:player');
-  check('pause preserves player and tick with W held', equal(position(paused), position(beforePause)) && paused?.tick === beforePause?.tick, paused);
-  await s.type('world', { key: 'KeyW', phase: 'up' });
+  await s.world('world').key('KeyW', {phase: 'down'});
+  await s.clock('+2000');
+  const paused = await s.world('world').snapshot();
+  check('pause + 2 seconds preserves the simulation snapshot with W held', equal(paused, beforePause));
+  await s.world('world').key('KeyW', {phase: 'up'});
   await screenshot(resolve(out, 'greybox-web.png'));
   const pausedTree = await s.tree();
   check('paused HUD offers Resume', pausedTree?.nodes?.some(n => n.props?.text === 'Resume'));
@@ -90,13 +90,13 @@ const position = state => state?.entity?.components?.Transform?.position;
   // Key events from HUD descendants fall through, except the control's own keys.
   if (host === 'web') {
     await s.tap('pause');
-    const beforeKeys = await s.state('world:player');
+    const beforeKeys = await s.world('world').state('player');
     await s.type('pause', {key:'KeyW',phase:'down'});
     await s.clock('+500');
     await s.type('pause', {key:'KeyW',phase:'up'});
-    const afterKeys = await s.state('world:player');
+    const afterKeys = await s.world('world').state('player');
     check('W bubbles from the focused Resume button and moves the world', position(afterKeys)?.[2] < position(beforeKeys)?.[2]);
-    await s.type('world', {key:'Space',phase:'down'});
+    await s.world('world').key('Space', {phase:'down'});
     await s.tap('pause');
     await s.type('pause', {key:'Space',phase:'up'});
     check('hold Space then click Pause releases the world key', !(await s.state()).world[0].input.held.includes('Space'));
@@ -104,17 +104,17 @@ const position = state => state?.entity?.components?.Transform?.position;
     await s.type('pause', {key:'Space'});
     check('Space activates the focused button', (await s.state()).world[0].paused);
     await s.tap('pause'); await s.clock('+100');
-    const afterSpace = await s.state('world:player');
+    const afterSpace = await s.world('world').state('player');
     check('button Space never queues a world jump', position(afterSpace)?.[1] === 0.9, position(afterSpace));
     await s.tap('pause');
   } else say('SKIP web descendant-key bubbling: macOS uses native control dispatch');
   // Resume uses the same live argument without reconstructing the world.
   await s.tap('pause');
-  await s.type('world', { key: 'KeyW', phase: 'down' });
+  await s.world('world').key('KeyW', {phase: 'down'});
   await s.clock('+100');
-  const resumed = await s.state('world:player');
-  check('Resume continues the existing world', position(resumed)?.[2] < position(paused)?.[2]);
-  await s.type('world', { key: 'KeyW', phase: 'up' });
+  const resumed = await s.world('world').state('player');
+  check('Resume continues the existing world', position(resumed)?.[2] < paused.entities.find(e => e.name === 'player').components.Transform.position[2]);
+  await s.world('world').key('KeyW', {phase: 'up'});
 
   // D6: hold W, queue a jump without advancing a tick, then capture the whole sim.
   await session.close(); session = null;
@@ -122,30 +122,31 @@ const position = state => state?.entity?.components?.Transform?.position;
   const originalFile = resolve(out, 'original.world'), restoredFile = resolve(out, 'restored.world');
   session = await open();
   await session.tap('play'); await session.clock(0);
-  await session.type('world', {key:'KeyW',phase:'down'}); await session.clock('+500');
-  await session.type('world', {key:'Space',phase:'down'});
-  const saved = await session.screenshot(worldFile, 'world', 'save');
+  await session.world('world').key('KeyW', {phase:'down'}); await session.clock('+500');
+  await session.world('world').key('Space', {phase:'down'});
+  const checkpointState = await session.world('world').snapshot();
+  const saved = await session.world('world').save(worldFile);
   const continueWorld = async () => {
     await session.clock('+500');
-    const jumped = await session.state('world:player');
+    const jumped = await session.world('world').state('player');
     check('saved queued jump executes after capture', position(jumped)?.[1] > 0.9, position(jumped));
-    await session.type('world', {key:'Space',phase:'up'});
+    await session.world('world').key('Space', {phase:'up'});
     await session.clock('+1000');
-    await session.type('world', {key:'KeyW',phase:'up'});
-    return {world:(await session.state()).world[0], player:await session.state('world:player')};
+    await session.world('world').key('KeyW', {phase:'up'});
+    return session.world('world').snapshot();
   };
   const uninterrupted = await continueWorld();
-  await session.screenshot(originalFile, 'world', 'save');
+  await session.world('world').save(originalFile);
   await session.close(); session = null; say('CLOSED original browser/process before restoring');
   session = await open({world:worldFile});
   check('save waits behind Play', !node(await session.tree(), 'world'));
   await session.tap('play');
   const restored = (await session.state()).world[0];
   check('new session restores before first render, with the same tick and hash', restored.restored === true && restored.tick === saved?.tick && restored.hash === saved?.hash, restored);
+  check('restore preserves the simulation snapshot', equal(checkpointState, await session.world('world').snapshot()));
   const continued = await continueWorld();
-  await session.screenshot(restoredFile, 'world', 'save');
-  check('D6 two sessions continue to the same state, position, tick and hash', continued.world.restored === false && continued.world.hash === uninterrupted.world.hash
-    && continued.world.tick === uninterrupted.world.tick && equal(position(continued.player), position(uninterrupted.player)), {expected:uninterrupted.world.hash, actual:continued.world.hash});
+  await session.world('world').save(restoredFile);
+  check('D6 two sessions continue to the same simulation snapshot', equal(continued, uninterrupted));
   check('D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications', readFileSync(originalFile).equals(readFileSync(restoredFile)));
 
   await session.close(); session = null;

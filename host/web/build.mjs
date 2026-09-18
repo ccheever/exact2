@@ -61,7 +61,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 const shaders = resolve(app.dir, 'gpu', 'shaders');
-copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
+if (!app.manifest.game) copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 copyFileSync(resolve(root, 'host/web/navigation.js'), resolve(stage, 'navigation.js'));
@@ -161,7 +161,7 @@ if (ios.associatedDomains && ios.team) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 const gpuCrate = crate.replace(/-web$/, '-gpu');
 let gpuNote = 'no GPU crate';
-if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
+if (app.hasGpu) {
   const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
   const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', stage, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });
   if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; }

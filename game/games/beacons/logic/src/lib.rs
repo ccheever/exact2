@@ -1,4 +1,5 @@
 //! Beacons: deterministic movement, three lights, and a following camera.
+use exact_game::motion::{Gravity, Jump, Move};
 use exact_game::*;
 
 #[derive(Default, Args)]
@@ -94,7 +95,6 @@ impl Game for Beacons {
             );
         }
         w.publish("beacons", 0);
-        scene::follow(w);
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -102,19 +102,26 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let dt = w.dt();
         let now = w.now();
-        let desired = input.stick_xz("move") * 4.0;
         let mut position = Vec3::ZERO;
         if let Some((player, pose)) = w.query::<(&mut Player, &mut Transform)>().one() {
-            player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
-            player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
+            Move {
+                speed: 4.0,
+                accel: 12.0,
+                brake: 20.0,
+            }
+            .step(&mut player.velocity, input.stick_xz("move"), dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
-                player.velocity.y = 4.852216;
+                Jump {
+                    height: 1.2,
+                    gravity: 9.81,
+                }
+                .start(&mut player.velocity);
             }
             pose.position.x = (pose.position.x + player.velocity.x * dt).clamp(-19.6, 19.6);
             pose.position.z = (pose.position.z + player.velocity.z * dt).clamp(-19.6, 19.6);
             if pose.position.y > 0.9 || player.velocity.y > 0.0 {
                 pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
-                player.velocity.y -= 9.81 * dt;
+                Gravity(9.81).step(&mut player.velocity, dt);
                 if pose.position.y <= 0.9 {
                     pose.position.y = 0.9;
                     player.velocity.y = 0.0;

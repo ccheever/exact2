@@ -9,9 +9,9 @@ impl DataSource for NoData {
     }
 }
 
-/// Bake the app beside the calling web/Apple crate, with no JS or Rust module.
+/// Bake the app named by the generated shell, with no JS or Rust module.
 /// `apple` selects macOS or iOS from Cargo's target OS.
-pub fn bake(platform: &str) {
+pub fn bake(platform: &str, app_dir: &str) {
     let platform = if platform == "apple" {
         if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
             "ios"
@@ -21,7 +21,7 @@ pub fn bake(platform: &str) {
     } else {
         platform
     };
-    let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("..");
+    let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(app_dir);
     println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
     for path in ["app.contract", "app.json", "assets", "deck", "gpu/shaders"] {
         let path = app.join(path);
