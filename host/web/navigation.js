@@ -326,11 +326,15 @@ export function collectionController({ root, views, report, settled=()=>{},
       else waiting.delete(s);
       let g = s.valid ? geometry(s) : null;
       let measurements = [];
+      const measuredSizes = new Map();
       const visible = g && g.height > 0 && g.rowWidth > 0
         && s.rows.every(row => row.el.isConnected && row.el.getClientRects().length);
       if (visible) {
-        measurements = s.rows.map(row => ({ view: row.view, epoch: row.epoch,
-          height: row.el.getBoundingClientRect().height }));
+        measurements = s.rows.map(row => {
+          const rect = row.el.getBoundingClientRect();
+          measuredSizes.set(row.el, `${rect.width},${rect.height}`);
+          return { view: row.view, epoch: row.epoch, height: rect.height };
+        });
       } else if (releases.includes(s)) {
         // A hidden/partially attached former owner can release with its last
         // real geometry and no measurements; this never admits a new pin.
@@ -351,7 +355,9 @@ export function collectionController({ root, views, report, settled=()=>{},
       let bytes;
       try { bytes = collectionBytes(facts); } catch { continue; }
       s.budget--; reportsLeft--;
-      for (const el of s.observed.keys()) s.observed.set(el, size(el));
+      for (const el of s.observed.keys()) s.observed.set(el, measuredSizes.get(el) ?? size(el));
+      // Samples belong to this DOM pass only; report can synchronously replace rows.
+      measuredSizes.clear();
       delivering = true;
       let accepted;
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
@@ -493,15 +499,17 @@ export function collectionController({ root, views, report, settled=()=>{},
         for (const row of s.rows) rowOwners.set(row.el, s);
         el.style.overflowAnchor = 'none';
         scrollChanged(s); // catches new user scroll before its scroll event runs
-        const g = geometry(s), correction = snapshot.correction;
-        if (g && correction && s.corrected !== snapshot.revision
+        const correction = snapshot.correction;
+        if (correction && s.corrected !== snapshot.revision
             && BigInt(correction.scrollSequence) === s.sequence
-            && (s.dimensions === null || s.dimensions === `${g.width},${g.height},${g.rowWidth}`)
             && Number.isFinite(correction.scrollTop) && correction.scrollTop >= 0) {
-          s.corrected = snapshot.revision;
-          // Relative conversion also handles a list below siblings in its port.
-          port.scrollTop += correction.scrollTop - g.raw;
-          s.scrollTop = port.scrollTop; // consume the programmatic scroll echo
+          const g = geometry(s);
+          if (g && (s.dimensions === null || s.dimensions === `${g.width},${g.height},${g.rowWidth}`)) {
+            s.corrected = snapshot.revision;
+            // Relative conversion also handles a list below siblings in its port.
+            port.scrollTop += correction.scrollTop - g.raw;
+            s.scrollTop = port.scrollTop; // consume the programmatic scroll echo
+          }
         }
         observe(s);
         enqueue(s, !delivering);

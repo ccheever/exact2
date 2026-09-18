@@ -3606,3 +3606,38 @@ Successful evidence: `target/web-after-trace-cell-v2/`, manifest
 `497a037625a5964bb4cd1e279a7c5970067e5b697b82ad326ac96ff045aa2d22`.
 The original failure remains in `target/web-after-trace-cell-v1/`, manifest
 `dc997ad466ddb723a6902526792f305613d21ef9b25f161fdf5991d15c9e9308`.
+
+### 8.53 Web collection geometry read reuse, 2026-09-18
+
+Following the resize/DOM trace in §8.52, collection commits now read correction
+geometry only after the correction passes the cheap revision, scroll-sequence
+and requested-top checks. Actual current dimensions still decide whether to
+apply it. Observer baselines remain fresh on each valid commit. In the real DOM
+fixture, a correction-free commit reads the list and port rectangles once each
+instead of twice; an eligible correction still reads its current nested origin.
+
+Within a single feedback pass, each mounted row's measured rectangle supplies
+both its reported height and its observer width/height baseline. A temporary
+map bounded by mounted rows is cleared before synchronous feedback can replace
+nodes or change dimensions. Later passes sample again. Presence checks remain
+separate: zero-height attached rows can be measured; hidden or detached rows
+cannot supply invented geometry. Epochs, focus/interaction pins, correction
+eligibility and the existing two-pass/four-report scheduling are unchanged.
+
+Three tests fail on the original source because of duplicate rectangle reads,
+after checking exact feedback bytes and pin identities. Three new controls pass
+there. The first test run also exposed two scrollbar-width assumptions in test
+expectations; those failures are preserved separately, and the corrected tests
+are identical between the confirmed baseline and candidate. The candidate
+passes all 68 existing/new collection, motion and Arrange tests, 242 assertions,
+including six new tests. Coverage includes fractional wrapping, stale user-scroll
+priority, synchronous replacement with the same view ID/new epoch, and fresh
+dimensions on the next pass. Exact source identities and process cleanup are
+recorded; no app or Rust build is involved.
+
+This proves fewer DOM geometry calls with equivalent fixture feedback, not a
+timing gain or fewer forced layouts. The necessary observer reads can still
+force layout, and the temporary map/string work has a cost. A fresh matched
+runtime comparison remains outstanding. Evidence:
+`target/web-collection-read-reuse-validation/freeze-v1/`, artifact manifest
+`d87d34a2a8488619299f1f16a6dd6d23c0ebe80ef246b49d415825e14632dbfb`.

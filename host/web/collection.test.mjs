@@ -45,17 +45,17 @@ function setup() {
     const root = document.getElementById('root');
     root.innerHTML = `<div id="port" style="height:180px;width:320px;overflow:auto;border:3px solid;padding:0"><div style="height:50px"></div><div data-view="1" style="padding:10px 12px;overflow-anchor:auto"><div data-view="2" style="height:40px;display:flow-root"><input data-view="3"></div><div data-view="4" style="height:60px;display:flow-root"><button data-view="5">row</button></div><div style="height:1800px"></div></div></div>`;
     const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
-    const frames = new Map(), reports = [];
+    const frames = new Map(), reports = [], wires = [];
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(32, true), height: d.getFloat64(40, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), rows: [] };
       for (let n = 0; n < d.getUint32(64, true); n++) read.rows.push({ view: d.getUint32(68 + n * 20, true), epoch: String(d.getBigUint64(72 + n * 20, true)), height: d.getFloat64(80 + n * 20, true) });
-      reports.push(read); return globalThis.f.onReport?.(read);
+      wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...options });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, top: 0, height: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, top: 1840, height: 60, epoch: '2' }], correction: null, ...extra });
     const flush = () => { const pending = [...frames.values()]; frames.clear(); for (const fn of pending) fn(); };
-    globalThis.f = { root, views, controller, snapshot, reports, frames, flush, port: document.getElementById('port') };
+    globalThis.f = { root, views, controller, snapshot, reports, wires, frames, flush, port: document.getElementById('port') };
     return f;
   };
 }
@@ -81,6 +81,86 @@ test('actual nested scrollport, content padding, mounted rows, and coalesced scr
   expect(result.last.rows.map(row => row.height)).toEqual([40, 60]);
   expect(result.last.rows[0].epoch).toBe('9007199254740993');
   expect(result.anchor).toBe('none');
+});
+// Count native DOM reads without substituting rectangles or layout results.
+function collectionReads(f) {
+  const elements = [f.views.get(1), f.port, f.views.get(2), f.views.get(4)], counts = [0,0,0,0];
+  elements.forEach((el,i) => { const read=el.getBoundingClientRect.bind(el);
+    el.getBoundingClientRect=()=>{counts[i]++;return read();}; });
+  return { counts, clear:()=>counts.fill(0) };
+}
+test('collection read reuse: correction-free commit reads only observer baselines', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
+    return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',scroll_top:0,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:null,interaction_view:null,
+    measurements:[{view:2,epoch:'9007199254740993',height:40},{view:4,epoch:'2',height:60}]})]);
+  expect(result.commit).toEqual([1,1,1,1]);
+});
+test('collection read reuse: one row sample preserves fractional wire, epochs and both pins', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.views.get(2).style.height='40.5px';f.views.get(4).style.height='60.25px';
+    f.controller.commit([f.snapshot('7')]);f.port.scrollTop=110;
+    f.views.get(3).focus({preventScroll:true});f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    reads.clear();let beforeReport;f.onReport=()=>{beforeReport=[...reads.counts];};f.flush();
+    return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+  expect(result.pending).toBe(0);
+  expect(result.beforeReport.slice(2)).toEqual([1,1]);
+});
+test('collection read reuse: eligible nested correction alone reads geometry, latest user scroll wins', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence,s=f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:140}});
+    reads.clear();f.controller.commit([s]);const eligible={top:f.port.scrollTop,reads:[...reads.counts]};
+    reads.clear();f.controller.commit([s]);const repeated={top:f.port.scrollTop,reads:[...reads.counts]};
+    f.port.scrollTop=260;reads.clear();f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]);
+    return {eligible,repeated,newer:{top:f.port.scrollTop,reads:[...reads.counts]}};})()`);
+  expect(result.eligible).toEqual({top:200,reads:[2,2,1,1]});
+  expect(result.repeated).toEqual({top:200,reads:[1,1,1,1]});
+  expect(result.newer).toEqual({top:260,reads:[1,1,1,1]});
+});
+test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
+    f.views.get(2).style.height='40.5px';f.onReport=()=>{widths.push(f.port.clientWidth);if(replaced)return;replaced=true;
+      const old=f.views.get(2),row=document.createElement('div');row.dataset.view='2';row.style.height='73.5px';old.replaceWith(row);f.views.set(2,row);
+      f.views.get(4).style.height='88.25px';f.port.style.width='240px';
+      const next=f.snapshot('2');next.rows[0].epoch='9007199254740994';f.controller.commit([next]);};
+    f.controller.commit([f.snapshot()]);f.flush();const first=f.reports.length,queued=f.frames.size;f.flush();f.flush();
+    return {first,queued,reports:f.reports,wires:f.wires,widths,pending:f.frames.size};})()`);
+  expect(result.first).toBe(1);expect(result.queued).toBe(1);expect(result.pending).toBe(0);
+  expect(result.reports.map(r=>[r.revision,r.sequence,r.rowWidth,r.rows])).toEqual([
+    ['1','0',result.widths[0]-24,[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60}]],
+    ['2','1',result.widths[1]-24,[{view:2,epoch:'9007199254740994',height:73.5},{view:4,epoch:'2',height:88.25}]],
+  ]);
+  for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
+    revision:r.revision,scroll_sequence:r.sequence,scroll_top:0,port_width:r.width,port_height:180,
+    row_width:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows})]);
+});
+test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.style.cssText='font:16px monospace;line-height:20.25px';row.textContent='word '.repeat(41);
+    f.controller.commit([f.snapshot()]);f.flush();const first=row.getBoundingClientRect().height,firstWidth=f.port.clientWidth;
+    f.port.style.width='180px';f.controller.commit([f.snapshot('2')]);f.flush();const second=row.getBoundingClientRect().height,secondWidth=f.port.clientWidth;
+    return {first,second,firstWidth,secondWidth,reports:f.reports,pending:f.frames.size};})()`);
+  expect(result.second).toBeGreaterThan(result.first);
+  expect(result.reports.map(r=>r.rows[0].height)).toEqual([result.first,result.second]);
+  expect(result.reports.map(r=>[r.sequence,r.rowWidth])).toEqual([['0',result.firstWidth-24],['1',result.secondWidth-24]]);
+  expect(Number.isInteger(result.first/20.25)).toBe(true);expect(Number.isInteger(result.second/20.25)).toBe(true);
+  expect([result.first,result.second].some(n=>n%1!==0)).toBe(true);expect(result.pending).toBe(0);
+});
+test('collection read reuse: zero-height attached rows measure, hidden and detached rows never guess', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.replaceChildren();row.style.height='0px';
+    f.controller.commit([f.snapshot()]);f.flush();const zero=f.reports.at(-1).rows[0].height;
+    f.views.get(4).style.display='none';f.controller.commit([f.snapshot('2')]);f.flush();const hidden=f.reports.length;
+    f.views.get(4).style.display='';row.remove();f.controller.commit([f.snapshot('3')]);f.flush();const detached=f.reports.length;
+    f.views.get(1).prepend(row);row.style.height='12.75px';f.controller.commit([f.snapshot('4')]);f.flush();
+    return {zero,hidden,detached,last:f.reports.at(-1),count:f.reports.length,pending:f.frames.size};})()`);
+  expect(result.zero).toBe(0);expect(result.hidden).toBe(1);expect(result.detached).toBe(1);
+  expect(result.last.revision).toBe('4');expect(result.last.rows[0].height).toBe(12.75);
+  expect(result.count).toBe(2);expect(result.pending).toBe(0);
 });
 test('integer DOM end retains fractional measured extent in actual collection feedback', async () => {
   const result = await evaluate(`(() => {
