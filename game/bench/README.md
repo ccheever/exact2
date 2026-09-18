@@ -180,18 +180,43 @@ operating systems, the same bits.
 ## Feel — Beacons, live clock
 
 ```sh
-# Build the home game's ordinary web host first (repository root):
-EXACT_APP_DIR="$PWD/game/games/beacons" EXACT_WEB_DIST="$PWD/game/games/beacons/dist" bun host/web/build.mjs
 bun game/bench/feel.mjs exact
-bun game/bench/feel.mjs three
-bun game/bench/feel.mjs godot --seconds 12
+bun game/bench/feel.mjs exact --hz 120
+bun game/bench/feel.mjs compare
+# Trust the existing bakes while another lane edits build inputs:
+bun game/bench/feel.mjs exact --game beacons --no-build --attempts 1
 ```
 
-Each command takes **three sequential runs per variant**. Godot alternates shipped /
-interpolation-on, three times each. An invalid focus/latency attempt is retained and
-retaken, up to three attempts per slot; high load alone never causes a retry.
+One command does **preflight → prepare → warm → three attempts → rows/table**.
+Before any preparation or launch, macOS `ioreg` must report `IOConsoleLocked=No`
+and `HIDIdleTime` ≥ 30 seconds. Locked, active or unreadable console state refuses
+the command immediately; it never waits and retries that refusal. Preflight is
+checked again after preparation, at every attempt, every five seconds during
+capture, and at completion. Leave the keyboard/mouse untouched and the display
+unlocked throughout. High load does not refuse a capture: any sampled `load1 > 8`
+marks its row **PROVISIONAL**, including otherwise valid rows.
+
+Ordinary 60 Hz preparation uses `game/proof.mjs`'s existing content/artifact-digest
+build gate with an empty proof callback: it builds only when stale, then the
+bench warms and measures. **`--no-build` skips the staleness/build path**, trusts
+existing artifacts, fingerprints them, and records the skipped freshness check.
+`--hz 120` selects the existing `games/<game>/target/feel120` bake and labels the
+row **exact/120hz**; the ordinary dist is **exact/60hz**. The actual world tick rate
+must match the label in every trace, even with `--no-build`.
+
+`--game` defaults to `beacons`; Exact's observer is bench-owned and accepts
+`--entity player` and `--play '[data-testid="play"]'`. Other games need the same
+live-host trace protocol. The twins and `compare` currently support Beacons only.
+`compare` interleaves exact/60hz, exact/120hz, three/shipped, godot/shipped and
+godot/interpolation, three times. Individual `three` and `godot` commands also
+remain available. Exactly **three attempts per variant** are taken by default;
+invalid input/focus/latency rows are retained and count toward that budget. There
+are no automatic retakes. `--attempts 1` permits a single diagnostic attempt,
+including when it fails; high load never adds an attempt.
+
 JSON lines go to stdout and are also appended to
-`results/feel-YYYY-MM-DD.jsonl` (UTC date); progress and a Markdown table go to stderr.
+`results/feel-YYYY-MM-DD.jsonl` (UTC date); progress and a Markdown table go to stderr. The table is also saved as
+`results/feel-<batch>.md`, including completed rows if a later preflight aborts.
 Each row links a gzipped JSON trace containing **every frame and delivered event**.
 There is no browser package or new dependency: Bun serves the existing local three.js,
 plain `fetch` and `WebSocket` speak CDP, and a fresh **headed** Chrome gets a unique
@@ -263,8 +288,7 @@ unsubtracted observer cost; the games' own allocation and UI work remain include
   during that frame; subtracting it could yield negative latency. Reported median
   and p95 are milliseconds and multiples of the run's median refresh interval.
   Failed/moving-baseline trials are explicit; fewer than 20 valid trials makes the
-  row invalid. The command exits nonzero if bounded retakes cannot fill three valid
-  slots per variant.
+  row invalid. The command exits nonzero if any attempt is invalid.
 
 **This measures the engine's pipeline from event delivery to presented state, not
 the OS/USB path, GPU completion, compositor queue or scanout.** Chrome events use
@@ -364,8 +388,9 @@ W/D/jump/S path, and the numerical tests and repository caps check pass.
 
 ### Exact's observer
 
-`exact` serves the built Beacons host and injects the adjacent
-[`feel.mjs`](../games/beacons/feel.mjs) only into this benchmark page. It first opens
+`exact` serves the selected built host and explicitly installs
+[`probes/exact.mjs`](probes/exact.mjs) only into this benchmark page. No per-game
+probe file is required; concurrent/repeated installation shares one promise. It first opens
 Play to warm the actual GPU module/pipelines, fresh-boots the authored title with
 `exact.reload()`, then focuses Play for the unchanged Enter/W/D/jump/S script.
 There is no `?agent` parameter, host clock override, alternate simulation or renderer.
@@ -398,25 +423,77 @@ probe. The adapter copies the first eight numbers only at the final bulk read,
 retaining the full trace and perf summary alongside them. Scheduling, judder,
 latency, quantiles and the provisional threshold use the twins' unchanged functions.
 
-`FEEL_EXACT_DIST` selects another built directory. `FEEL_EXACT_HZ=120` labels an
-explicitly built 120 Hz experiment; the runner checks the actual world Hz and refuses
-a mislabeled result. To prepare that build, temporarily add `const HZ: u32 = 120;`
-to Beacons' `impl Game`, build into a separate `EXACT_WEB_DIST`, then restore the
-source before measuring. This changes the game's tick constant only, with no
-interpolation setting. Both commands still take three valid runs.
+Exact and three.js both use [`probes/input.mjs`](probes/input.mjs): one recorder,
+one scheduled item per key edge, preserving delivery time and `event.timeStamp`.
+The schedule uses the same key definition and passes its accepted codes to Godot.
+A press and its release are already two schedule items: 10 main-script edges plus
+40 latency-trial edges equals **50 delivered events**, not 100. Extra accepted
+edges invalidate the attempt; the analyzer never deduplicates them.
+
+**What was wrong in the first real Exact run:** the saved
+`feel-2026-09-18T07-35-27-317Z-exact-shipped-1-attempt1.json.gz` contains 100 events
+for 50 scheduled edges, with no adjacent equal event timestamps. Enter has exactly
+one down/up pair. There are unscheduled A edges and extra W/D/S edges at distinct
+times (the first W arrives about 348 ms after Enter, before its scheduled 500 ms).
+This is extra delivered input contaminating the capture, not a down/up counting
+mistake or a listener recording each event twice. The trace cannot identify who
+sent the extra input. The shared recorder, explicit idempotent installation and
+idle-console preflight make the method consistent and reject contamination;
+they do not erase evidence to force the expected count.
+
+`FEEL_EXACT_DIST` can select another prebuilt directory; `FEEL_EXACT_HZ` supplies
+the default rate label, overridden by `--hz`. A 120 Hz run reuses the provisioned
+experiment without editing game source or changing interpolation. Preparation of
+a new experiment is outside this command. A mismatched actual rate is invalid.
 
 Implementation validation includes a 144 Hz presentation/60 Hz tick fixture, tick
 bursts, ring wrapping/full precision, read-once state semantics, unchanged simulation
 time, and an allocation counter covering the armed trace. Adapter tests preserve
 both timestamps and produce byte-for-byte identical input to the common analyzer.
 
-**Measurement pending:** the first local attempts reached the live page but AppKit
-reported `loginwindow` (PID 415) as frontmost: the display was locked even though
-Chrome reported `document.hasFocus() === true` and visibility `visible`. The strict
-foreground gate refused measurement and every launched Chrome was killed and awaited.
-No exact timing, judder or latency row has yet been accepted; the twins' numbers
-above are not evidence about this engine. Unlocking the display is required for the
-three valid 60 Hz runs and the labeled 120 Hz experiment.
+### F1d single attempt — 2026-09-18, provisional
+
+Command: `bun game/bench/feel.mjs exact --hz 60 --no-build --attempts 1`.
+Preflight passed unlocked, with 586.4 s console idle at capture start and 673.9 s
+at completion. Actual simulation rate was 60 Hz; the display was 120 Hz, content
+2200×1520 pixels, Chrome 153.0.8010.52. The shared recorder delivered **50/50
+scheduled edges**, and the common analyzer accepted **20/20 latency trials**.
+No focus/visibility loss occurred. Chrome PID 83949 was killed, its exit awaited,
+and the process audit found no remaining process for that PID/profile.
+
+| variant | status | peak load1 | frame p50 / p95 / p99 / max ms | hitches | player / camera judder | repeated positions | input p50 / p95 ms |
+|---|---|---:|---|---:|---|---|---|
+| exact/60hz | valid, PROVISIONAL | 25.7 | 8.30 / 10.00 / 10.30 / 10.80 | 0 | 0.10560 / 0.10559 | 0% / 0% | 6.90 / 10.03 |
+
+[JSONL row](results/feel-2026-09-18.jsonl),
+[table](results/feel-2026-09-18T08-02-42-873Z.md),
+[raw trace](results/feel-2026-09-18T08-02-42-873Z-exact-60hz-1-attempt1.json.gz).
+
+The count is now analyzable, but **judder is not approximately zero**: player and
+camera are both about 0.106 despite no repeated positions or threshold-defined
+hitches. Read against the raw trace (the exact trace keeps both the frame's
+`requestAnimationFrame` timestamp and the wall clock), the number is exactly the
+frame clock's own jitter: the rAF intervals in the judder window have a CV of 0.1056
+(7.8–8.9 ms on an 8.33 ms display), the drawn displacements a CV of 0.1056, and
+displacement divided by the rAF interval a CV of **0.0000**. The engine draws
+precisely where the host's clock says the frame is; Chrome's callback clock wanders
+around the vsync grid under this load while the frames land on it. Godot with
+interpolation scores 6.9e-6 on the same display because its process delta is
+smoothed to whole refresh intervals; the Apple host here already renders at
+`CADisplayLink.targetTimestamp`, a presentation-aligned clock. So the finding is a
+web-host frame-pacing gap, not an interpolation gap: `host/web/gpu-glue.js` must
+pace the frame clock it hands the module (snap each delta to whole refresh periods
+within a tolerance, keep the paced clock within half a period of the callback's).
+The schedule also records a maximum late edge of 58.6 ms, so zero render hitches does
+not mean the loaded runner delivered every edge precisely on time. These are
+one provisional attempt's event-to-drawn-state numbers, with no new twin runs
+in the same sitting; they cannot establish a latency ranking. No retake was made.
+
+**Full measurement pending:** the orchestrator must run `compare` in a quiet
+sitting for three attempts of all five variants. The 120 Hz bake was selected and
+fingerprinted in tests, but not launched here. The normal stale-build path was
+not executed in F1d; existing bakes were trusted with `--no-build`, and no Cargo
+command ran. Earlier twin rows above remain historical, not evidence about Exact.
 
 ### Trace protocol
 

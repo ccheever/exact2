@@ -10,6 +10,7 @@ var window: Window
 var frames := PackedFloat64Array()
 var events := PackedFloat64Array()
 var schedule: Array = []
+var codes: Array = []
 var keys: Array[InputEventKey] = []
 var count := 0
 var event_count := 0
@@ -52,6 +53,7 @@ func _initialize() -> void:
 	var config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(config_path))
 	output = config.output
 	schedule = config.schedule
+	codes = config.codes
 	duration = config.duration_ms
 	frames.resize(int(ceil((duration / 1000.0 + 10) * 1000)) * STRIDE)
 	events.resize(128 * 4)
@@ -79,13 +81,16 @@ func _initialize() -> void:
 func _input(event: InputEvent) -> void:
 	if not active or not event is InputEventKey or event.echo:
 		return
+	var code := 13 if event.physical_keycode == KEY_ENTER else event.physical_keycode
+	if not codes.has(code):
+		return
 	if (event_count + 1) * 4 > events.size():
 		overflow = true
 		return
 	var i := event_count * 4
 	event_count += 1
 	events[i] = Time.get_ticks_usec() / 1000.0
-	events[i + 1] = 13 if event.physical_keycode == KEY_ENTER else event.physical_keycode
+	events[i + 1] = code
 	events[i + 2] = 1 if event.pressed else 0
 	events[i + 3] = armed_trial
 	armed_trial = -1
