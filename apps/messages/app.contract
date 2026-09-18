@@ -87,6 +87,10 @@ shape ReactionChoice
   value: string
   label: string
 shape Conversation
+  earlier: string
+  later: string
+  hasEarlier: bool
+  hasLater: bool
   selectionCount: number
   selectedText: string
   muted: bool
@@ -138,6 +142,8 @@ component Messages
   derive draft = (draftThread == chatThread ? draftText : (savedComposer.thread == chatThread ? savedComposer.draft : ""))
   state selecting = false
   state selection = ""
+  state cursor = ""
+  state windowShift = 0
   state selected = ""
   state selectingText = ""
   state selectedBody = ""
@@ -188,8 +194,15 @@ component Messages
   resource deletedInbox = recentlyDeleted(deletedSelection, revision, now()) as shape DeletedInbox
   resource contacts = recipients(recipient, recipientQuery, newDraft, revision) as shape Recipients
   resource savedComposer = conversationDraft(chatThread, revision) as shape ComposerDraft
-  resource chat = conversation(chatThread, revision, replying, selection) as shape Conversation
+  resource chat = conversation(chatThread, revision, replying, selection, cursor) as shape Conversation
 
+  // Negative, changing requests clamp to the top on every explicit shift.
+  // Latest restores end-following; an eager transcript has no retained anchor.
+  action shiftWindow(value: string) writes cursor, windowShift, timestampOffset, selectingText
+    cursor = value
+    windowShift = windowShift + 1
+    timestampOffset = 0
+    selectingText = ""
   action search(value) writes query, swipedThread
     query = value
     swipedThread = ""
@@ -208,7 +221,8 @@ component Messages
   action permanentlyDelete writes change, deletedSelection
     send change = purgeConversations(recoveryTargets, now())
     deletedSelection = ""
-  action open(id: string, savedDraft: string, savedReply: string) writes nav, selected, change, draftText, draftThread, replyRoot, replyThread, swipedThread, composerEditing, timestampOffset, selectingText
+  action open(id: string, savedDraft: string, savedReply: string) writes nav, selected, change, draftText, draftThread, replyRoot, replyThread, swipedThread, composerEditing, timestampOffset, selectingText, cursor
+    cursor = ""
     selectingText = ""
     timestampOffset = 0
     if swipedThread != ""
@@ -222,7 +236,8 @@ component Messages
       replyThread = id
       replyRoot = savedReply
       send change = markRead(id)
-  action back writes nav, selected, attachments, change, composerEditing, timestampOffset, selecting, selection, selectingText
+  action back writes nav, selected, attachments, change, composerEditing, timestampOffset, selecting, selection, selectingText, cursor
+    cursor = ""
     selectingText = ""
     selecting = false
     selection = ""
@@ -257,7 +272,8 @@ component Messages
   action write(value) writes draftText, draftThread
     draftThread = chatThread
     draftText = value
-  action sendDraft writes draftText, draftThread, change, attachments
+  action sendDraft writes draftText, draftThread, change, attachments, cursor
+    cursor = ""
     if draft != ""
       send change = sendMessage(thread, draft, replying, ticks, now())
       draftThread = chatThread
@@ -489,7 +505,8 @@ component Messages
     focus("recipient-search")
   action writeNew(value) writes newDraft
     newDraft = value
-  action sendNewMessage writes change, nav, draftText, draftThread, replyRoot, replyThread, newDraft, timestampOffset
+  action sendNewMessage writes change, nav, draftText, draftThread, replyRoot, replyThread, newDraft, timestampOffset, cursor
+    cursor = ""
     timestampOffset = 0
     if contacts.canSend
       if chatThread != "" and chatThread != contacts.target and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
@@ -516,7 +533,8 @@ component Messages
   task synchronization mount
     every(3000, synchronize)
 
-  action followLink(location: string) writes nav, change, draftThread, replyThread, selected, selecting, selection, selectingText, selectedPicker, composerEditing, detailsEditing, attachments, timestampOffset, swipedThread
+  action followLink(location: string) writes nav, change, draftThread, replyThread, selected, selecting, selection, selectingText, selectedPicker, composerEditing, detailsEditing, attachments, timestampOffset, swipedThread, cursor
+    cursor = ""
     if chatThread != "" and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
       send change = saveDraft(chatThread, draft, replying)
     draftThread = ""
@@ -664,11 +682,14 @@ component Messages
                   text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 color="light-dark(#000000, #ffffff)"
                   text "›" font-size=22 font-weight=600 color="light-dark(#b4b4b7, #8e8e93)"
             column testId="conversation-body" flex=1 min-height=0
-              scroll testId="transcript" scrollFollowEnd=true keyboardDismissMode="interactive" scrollTop=(1000000 + chat.scrollRevision) flex=1 min-height=0 overflow-x="hidden"
+              scroll testId="transcript" scrollFollowEnd=(cursor == "") keyboardDismissMode="interactive" scrollTop=(cursor == "" ? 1000000 + chat.scrollRevision : 0 - windowShift) flex=1 min-height=0 overflow-x="hidden"
                 scroll scroll=timestampsScrolled testId="timestamp-reveal" width="100%" overflow-x=(selecting ? "hidden" : "scroll") overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                   row width="200%"
                     column scroll-snap-align="start" width="50%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=14 padding-bottom=14 gap=4
-                      when length(chat.messages) > 0
+                      when chat.hasEarlier
+                        button press=shiftWindow(chat.earlier) testId="show-earlier-messages" left=timestampOffset padding=12
+                          text "Show earlier messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
+                      when length(chat.messages) > 0 and not chat.hasEarlier
                         column testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
                           text "iMessage" font-size=11 line-height="13.333333px" color="#8e8e93"
                           row testId="conversation-encryption" align-items="center" gap=4.333333 height=13.333333
@@ -718,6 +739,12 @@ component Messages
                               text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 color="light-dark(#007aff, #0a84ff)"
                           when selecting
                             button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" z-index=3
+                      when chat.hasLater
+                        button press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
+                          text "Show later messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
+                      when cursor != "" and (chat.hasEarlier or chat.hasLater)
+                        button press=shiftWindow("") testId="show-latest-messages" left=timestampOffset padding=12
+                          text "Show latest messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
                       when chat.typingName != ""
                         row testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
                           when chat.typingAvatar != ""

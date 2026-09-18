@@ -16,6 +16,8 @@ exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
 
 #[cfg(test)]
 mod snapback_tests;
+#[cfg(test)]
+mod window_tests;
 
 #[cfg(test)]
 mod tests {
