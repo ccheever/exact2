@@ -159,7 +159,7 @@ fn saved_child_replacement_fails_identically_live_and_restored() {
     assert_eq!(live.world().save(), restored.world().save());
 }
 #[test]
-fn save_load_every_tick_matches_uninterrupted_with_controller_and_loading_assets() {
+fn save_load_every_tick_matches_uninterrupted_with_controller_and_embedded_assets() {
     let mut live = game();
     let mut restored = game();
     live.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
@@ -179,7 +179,8 @@ fn save_load_every_tick_matches_uninterrupted_with_controller_and_loading_assets
         restored.agent(r#"{"op":"clock","ticks":1}"#);
         assert!(
             live.save() == restored.save(),
-            "continuation save mismatch at tick {tick}"
+            "continuation save mismatch at tick {tick}; world bytes equal: {}; live hash: {:016x}; restored hash: {:016x}",
+            live.world().save() == restored.world().save(), live.world().hash(), restored.world().hash()
         );
         let bytes = restored.save();
         restored.restore(&bytes).unwrap();

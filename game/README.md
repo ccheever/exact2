@@ -435,6 +435,44 @@ fixture directory environment variable is needed. Both games also restore and
 advance after every tick; immediate comparisons cover world bytes, and following
 ticks compare complete Sim saves (restore clears consumed input edges).
 
+T3b2 verification on the merged `9bd587bffaa3a74a6293153593fc1df78f5d351f`
+trunk: **493 Rust tests pass, 1 fails, 15 ignored**. Do not ship this lane yet.
+The active Lanterns restore-every-tick test diverges on its first continuation
+(loop index 1): live world hash `f2e496b15441b4e5`, restored
+`b981f5010ceaad9d`; complete world bytes also differ. Three fix rounds stopped,
+the failing assertion remains, and `QUEUE.md` records the reproducer. Beacons'
+180-tick restore continuation and both games' partial-entity/idle-page tests pass.
+The child replacement regression separately proves identical live/restored errors
+and bytes. No cause is claimed for the remaining continuation failure.
+
+Game workspace Clippy (`-D warnings`) and formatting pass. Bun is **55/2**:
+the generated-game browser launch needs Chrome, and the feel probe needs its
+60/120 Hz web bakes. All Linux proofs pass: Beacons **54**, Greybox **62**,
+Lanterns **8**, asset-fixture **7** assertions (131 total). Their elapsed times,
+including builds, were 71.747 / 21.466 / 54.057 / 19.408 seconds respectively;
+see the run logs for the actual build breakdown. GPU pixels, browser and Apple
+runtime execution remain unverified. Full root build/test/Clippy are blocked by
+the absent lean Hermes executor; root formatting passes.
+
+Source counts (`logic/src/lib.rs`, including inline tests): Lanterns **634 lines,
+9 `unwrap()` and 8 `expect()`**; Beacons **159 lines, 0 `unwrap()` and 2
+`expect()`**. Lanterns' separate 63-line kind/binding module is deleted (previous
+combined count: 620). Both game tick call paths contain zero `unwrap()`,
+`expect()` or panic-substituting `unwrap_or_else`; setup binds the saved IDs.
+Five fresh 10,000-tick samples in the optimized dev/test profile, with held W:
+Lanterns **167.818 µs/tick** median (range 165.775–196.900), Beacons
+**1.896 µs/tick** (1.397–1.935). These are shared-machine diagnostics, not a
+paired performance claim against the earlier T3b measurements.
+
+Only Lanterns pins changed: saved `Lantern.bulb`, saved `Session.actors`, and
+the scene digest of the newly saved default ID. The three world hashes at
+0/60/180 are `a778d065d6cea372`, `8f7cfe89cd32bdef`, `ecf7e7cab49ab213`.
+[Every changed pin, with file:line and old → new](games/lanterns/fixtures/binding-hash-changes.txt)
+includes the 609 existing difficult-moment hash occurrences as well as these
+three pins. The two difficult-moment binary saves grew by 1,160 bytes each;
+all existing non-hash gameplay fields in the JSON/JSONL fixtures compare equal.
+The committed before-change fixtures themselves remain unchanged.
+
 A world's observation starts `Unknown`, also after rebuilding, restoring, live
 advancement, queued input, or live argument changes; every mutable storage lease invalidates the sample. Unknown is not quiescent.
 A paused world with no queued input is quiescent because time is stopped, reports `changing: ["paused"]`, and becomes Unknown on unpause.
