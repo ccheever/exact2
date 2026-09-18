@@ -1,0 +1,1267 @@
+{
+  "animation_limitation": "No blend state exists; airborne selects Run. Animation.play resets seconds on clip change.",
+  "animation_weights": null,
+  "crate_limitation": "Crate sleeps before apex in all three route exploration rounds. Nonzero motion is tested at the supplementary pushed-crate checkpoint; no state was injected.",
+  "launch": {
+    "entities": {
+      "crate": {
+        "Body": {
+          "asleep": true,
+          "damping": 0.45,
+          "gravity": 1.0,
+          "kind": {
+            "Dynamic": {}
+          },
+          "mass": 3.0,
+          "spin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "spin_damping": 8.0,
+          "velocity": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": false,
+          "shape": {
+            "Box": {
+              "half": [
+                0.6,
+                0.6,
+                0.6
+              ]
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.45,
+            0.24,
+            0.09,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.78
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1.2,
+              1.2,
+              1.2
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.9199433,
+            0.5999157,
+            7.9714556
+          ],
+          "rotation": [
+            1.0901033e-7,
+            0.12899767,
+            -3.5215695e-8,
+            0.9916449
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "fox": {
+        "Animation": {
+          "clip": "Survey",
+          "looped": true,
+          "seconds": 0.033333335,
+          "speed": 1.0
+        },
+        "Material": {
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.58
+        },
+        "Mesh": {
+          "Asset": [
+            "Fox.glb"
+          ]
+        },
+        "Parent": [
+          {
+            "generation": 0,
+            "index": 52
+          }
+        ],
+        "Transform": {
+          "position": [
+            0.0,
+            -0.65,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.70710677,
+            0.0,
+            0.70710677
+          ],
+          "scale": [
+            0.018,
+            0.018,
+            0.018
+          ]
+        }
+      },
+      "lantern-12": {
+        "Lantern": {
+          "glow": {
+            "config": {
+              "damping": 10.0,
+              "mass": 1.0,
+              "stiffness": 100.0
+            },
+            "start_tick": 0,
+            "start_value": 0.0,
+            "start_velocity": 0.0,
+            "target": 0.0
+          },
+          "lit": false
+        },
+        "Transform": {
+          "position": [
+            10.0,
+            2.4,
+            8.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "lantern-12/bulb": {
+        "Material": {
+          "color": [
+            0.18,
+            0.16,
+            0.14,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.5
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.19
+          }
+        },
+        "Parent": [
+          {
+            "generation": 0,
+            "index": 48
+          }
+        ],
+        "PointLight": {
+          "color": [
+            1.0,
+            0.42,
+            0.08
+          ],
+          "intensity": 0.0,
+          "range": 7.0
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            1.16,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "ledge": {
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": false,
+          "shape": {
+            "Box": {
+              "half": [
+                2.0,
+                1.2,
+                2.0
+              ]
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.28,
+            0.27,
+            0.32,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.85
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              4.0,
+              2.4,
+              4.0
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            10.0,
+            1.2,
+            8.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "player": {
+        "Body": {
+          "asleep": false,
+          "damping": 0.0,
+          "gravity": 1.0,
+          "kind": {
+            "Kinematic": {}
+          },
+          "mass": 0.0,
+          "spin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "spin_damping": 0.0,
+          "velocity": [
+            0.0,
+            -2.746496,
+            0.0
+          ]
+        },
+        "Character": {
+          "grounded": true,
+          "height": 1.3,
+          "mass": 80.0,
+          "radius": 0.35,
+          "slope_degrees": 50.0,
+          "step": 0.32,
+          "support": [
+            {
+              "generation": 0,
+              "index": 3
+            }
+          ],
+          "support_pose": {
+            "position": [
+              6.9199433,
+              0.5999157,
+              7.9714556
+            ],
+            "rotation": [
+              1.0901033e-7,
+              0.12899767,
+              -3.5215695e-8,
+              0.9916449
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "velocity": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": true,
+          "shape": {
+            "Capsule": {
+              "height": 1.3,
+              "radius": 0.35
+            }
+          }
+        },
+        "Player": {
+          "stride": 0.20658186
+        },
+        "Transform": {
+          "position": [
+            6.624192,
+            1.8599124,
+            8.408652
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      }
+    },
+    "hash": "0x177327a8a3a73455",
+    "input": {
+      "actions": {
+        "jump": {
+          "keys": [
+            "Space"
+          ],
+          "name": "jump",
+          "stick": [],
+          "touch": []
+        },
+        "light": {
+          "keys": [
+            "KeyE"
+          ],
+          "name": "light",
+          "stick": [],
+          "touch": []
+        },
+        "move": {
+          "keys": [],
+          "name": "move",
+          "stick": [
+            {
+              "keys": [
+                [
+                  "KeyW",
+                  "KeyS",
+                  "KeyA",
+                  "KeyD"
+                ],
+                [
+                  "ArrowUp",
+                  "ArrowDown",
+                  "ArrowLeft",
+                  "ArrowRight"
+                ]
+              ],
+              "touch": [
+                {
+                  "Left": {}
+                }
+              ]
+            }
+          ],
+          "touch": []
+        }
+      },
+      "forwarded": [],
+      "held": []
+    },
+    "logs": {
+      "from": 0,
+      "lines": [
+        "t=0 tick=0 spawn #0",
+        "t=0 tick=0 spawn #1",
+        "t=0 tick=0 spawn #2",
+        "t=0 tick=0 spawn #3",
+        "t=0 tick=0 spawn #4",
+        "t=0 tick=0 spawn #5",
+        "t=0 tick=0 spawn #6",
+        "t=0 tick=0 spawn #7",
+        "t=0 tick=0 spawn #8",
+        "t=0 tick=0 spawn #9",
+        "t=0 tick=0 spawn #10",
+        "t=0 tick=0 spawn #11",
+        "t=0 tick=0 spawn #12",
+        "t=0 tick=0 spawn #13",
+        "t=0 tick=0 spawn #14",
+        "t=0 tick=0 spawn #15",
+        "t=0 tick=0 spawn #16",
+        "t=0 tick=0 spawn #17",
+        "t=0 tick=0 spawn #18",
+        "t=0 tick=0 spawn #19",
+        "t=0 tick=0 spawn #20",
+        "t=0 tick=0 spawn #21",
+        "t=0 tick=0 spawn #22",
+        "t=0 tick=0 spawn #23",
+        "t=0 tick=0 spawn #24",
+        "t=0 tick=0 spawn #25",
+        "t=0 tick=0 spawn #26",
+        "t=0 tick=0 spawn #27",
+        "t=0 tick=0 spawn #28",
+        "t=0 tick=0 spawn #29",
+        "t=0 tick=0 spawn #30",
+        "t=0 tick=0 spawn #31",
+        "t=0 tick=0 spawn #32",
+        "t=0 tick=0 spawn #33",
+        "t=0 tick=0 spawn #34",
+        "t=0 tick=0 spawn #35",
+        "t=0 tick=0 spawn #36",
+        "t=0 tick=0 spawn #37",
+        "t=0 tick=0 spawn #38",
+        "t=0 tick=0 spawn #39",
+        "t=0 tick=0 spawn #40",
+        "t=0 tick=0 spawn #41",
+        "t=0 tick=0 spawn #42",
+        "t=0 tick=0 spawn #43",
+        "t=0 tick=0 spawn #44",
+        "t=0 tick=0 spawn #45",
+        "t=0 tick=0 spawn #46",
+        "t=0 tick=0 spawn #47",
+        "t=0 tick=0 spawn #48",
+        "t=0 tick=0 spawn #49",
+        "t=0 tick=0 spawn #50",
+        "t=0 tick=0 spawn #51",
+        "t=0 tick=0 spawn #52",
+        "t=0 tick=0 spawn #53",
+        "t=0 tick=0 spawn #54",
+        "t=0 tick=0 spawn #55",
+        "t=0 tick=0 spawn #56",
+        "t=0 tick=0 spawn #57",
+        "t=0 tick=0 spawn #58",
+        "t=0 tick=0 spawn #59",
+        "t=0 tick=0 spawn #60",
+        "t=0 tick=0 spawn #61",
+        "t=0 tick=0 spawn #62",
+        "t=0 tick=0 spawn #63",
+        "t=0 tick=0 spawn #64",
+        "t=0 tick=0 spawn #65",
+        "t=0 tick=0 spawn #66",
+        "t=0 tick=0 spawn #67",
+        "t=0 tick=0 spawn #68",
+        "t=0 tick=0 spawn #69",
+        "t=0 tick=0 spawn #70",
+        "t=0 tick=0 spawn #71",
+        "t=0 tick=0 spawn #72",
+        "t=0 tick=0 spawn #73",
+        "t=0 tick=0 spawn #74",
+        "t=0 tick=0 spawn #75",
+        "t=0 tick=0 spawn #76",
+        "t=0 tick=0 spawn #77",
+        "t=0 tick=0 spawn #78",
+        "t=0 tick=0 spawn #79",
+        "t=0 tick=0 spawn #80",
+        "t=0 tick=0 spawn #81",
+        "t=0 tick=0 spawn #82",
+        "t=0 tick=0 spawn #83",
+        "t=0 tick=0 spawn #84",
+        "t=0 tick=0 spawn #85",
+        "t=0 tick=0 spawn #86",
+        "t=0 tick=0 spawn #87",
+        "t=0 tick=0 spawn #88",
+        "t=0 tick=0 spawn #89",
+        "t=0 tick=0 spawn #90",
+        "t=0 tick=0 spawn #91",
+        "t=0 tick=0 spawn #92",
+        "t=0 tick=0 spawn #93",
+        "t=0 tick=0 spawn #94",
+        "t=0 tick=0 spawn #95",
+        "t=0 tick=0 spawn #96",
+        "t=0 tick=0 spawn #97",
+        "t=0 tick=0 spawn #98",
+        "t=0 tick=0 spawn #99",
+        "t=0 tick=0 spawn #100",
+        "t=0 tick=0 spawn #101",
+        "t=0 tick=0 spawn #102",
+        "t=0 tick=0 spawn #103",
+        "t=0 tick=0 spawn #104",
+        "t=0 tick=0 spawn #105",
+        "t=0 tick=0 spawn #106",
+        "t=0 tick=0 spawn #107",
+        "t=0 tick=0 spawn #108",
+        "t=0 tick=0 spawn #109",
+        "t=0 tick=0 spawn #110",
+        "t=0 tick=0 spawn #111",
+        "t=0 tick=0 spawn #112",
+        "t=0 tick=0 spawn #113",
+        "t=0 tick=0 spawn #114",
+        "t=0 tick=0 spawn #115",
+        "t=0 tick=0 publish count: Number(0.0)",
+        "t=0 tick=0 publish total: Number(12.0)",
+        "t=0 tick=0 publish remaining: Number(180.0)",
+        "t=0 tick=0 publish phase: Str(\"playing\")",
+        "t=0 tick=0 publish assetReady: Bool(true)",
+        "t=0 tick=0 control: agent attached; controlled clock",
+        "t=0 tick=0 loop wind on gain 0.22",
+        "t=183 tick=11 sfx footstep at player gain 1.00",
+        "t=333 tick=20 sfx footstep at player gain 1.00",
+        "t=500 tick=30 sfx footstep at player gain 1.00",
+        "t=650 tick=39 sfx footstep at player gain 1.00",
+        "t=800 tick=48 sfx footstep at player gain 1.00",
+        "t=966 tick=58 sfx footstep at player gain 1.00",
+        "t=983 tick=59 publish remaining: Number(179.0)",
+        "t=1116 tick=67 sfx footstep at player gain 1.00",
+        "t=1266 tick=76 sfx footstep at player gain 1.00",
+        "t=1433 tick=86 sfx footstep at player gain 1.00",
+        "t=1583 tick=95 sfx footstep at player gain 1.00",
+        "t=1733 tick=104 sfx footstep at player gain 1.00",
+        "t=1900 tick=114 sfx footstep at player gain 1.00",
+        "t=1983 tick=119 publish remaining: Number(178.0)",
+        "t=2083 tick=125 sfx footstep at player gain 1.00",
+        "t=2300 tick=138 sfx footstep at player gain 1.00",
+        "t=2350 tick=141 jump",
+        "t=2350 tick=141 sfx jump at player gain 1.00",
+        "t=2983 tick=179 publish remaining: Number(177.0)"
+      ],
+      "next": 142,
+      "tick": 192
+    },
+    "physics_gravity": [
+      0.0,
+      -12.0,
+      0.0
+    ],
+    "restored": false,
+    "scene_identity": {
+      "assets": {
+        "Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7"
+      },
+      "digest": "35fdc6ef06f327972b945e8c561a3e2566d9df03145b9430d86c5df6b09e7911"
+    },
+    "tick": 192,
+    "timer": {
+      "elapsed": 192,
+      "jump_press": 0,
+      "light_press": 0,
+      "phase": 1
+    }
+  },
+  "moment": {
+    "entities": {
+      "crate": {
+        "Body": {
+          "asleep": true,
+          "damping": 0.45,
+          "gravity": 1.0,
+          "kind": {
+            "Dynamic": {}
+          },
+          "mass": 3.0,
+          "spin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "spin_damping": 8.0,
+          "velocity": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": false,
+          "shape": {
+            "Box": {
+              "half": [
+                0.6,
+                0.6,
+                0.6
+              ]
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.45,
+            0.24,
+            0.09,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.78
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1.2,
+              1.2,
+              1.2
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.9199433,
+            0.5999157,
+            7.9714556
+          ],
+          "rotation": [
+            1.0901033e-7,
+            0.12899767,
+            -3.5215695e-8,
+            0.9916449
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "fox": {
+        "Animation": {
+          "clip": "Run",
+          "looped": true,
+          "seconds": 0.55000013,
+          "speed": 1.0
+        },
+        "Material": {
+          "color": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.58
+        },
+        "Mesh": {
+          "Asset": [
+            "Fox.glb"
+          ]
+        },
+        "Parent": [
+          {
+            "generation": 0,
+            "index": 52
+          }
+        ],
+        "Transform": {
+          "position": [
+            0.0,
+            -0.65,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.70710677,
+            0.0,
+            0.70710677
+          ],
+          "scale": [
+            0.018,
+            0.018,
+            0.018
+          ]
+        }
+      },
+      "lantern-12": {
+        "Lantern": {
+          "glow": {
+            "config": {
+              "damping": 10.0,
+              "mass": 1.0,
+              "stiffness": 100.0
+            },
+            "start_tick": 219,
+            "start_value": 0.0,
+            "start_velocity": 0.0,
+            "target": 1.0
+          },
+          "lit": true
+        },
+        "Transform": {
+          "position": [
+            10.0,
+            2.4,
+            8.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "lantern-12/bulb": {
+        "Material": {
+          "color": [
+            0.18,
+            0.16,
+            0.14,
+            1.0
+          ],
+          "emissive": [
+            1.0146427,
+            0.41854012,
+            0.081171416
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.5
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.19
+          }
+        },
+        "Parent": [
+          {
+            "generation": 0,
+            "index": 48
+          }
+        ],
+        "PointLight": {
+          "color": [
+            1.0,
+            0.42,
+            0.08
+          ],
+          "intensity": 1.2683034,
+          "range": 7.0
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            1.16,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "ledge": {
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": false,
+          "shape": {
+            "Box": {
+              "half": [
+                2.0,
+                1.2,
+                2.0
+              ]
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.28,
+            0.27,
+            0.32,
+            1.0
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "grid_spacing": 0.0,
+          "metallic": 0.0,
+          "roughness": 0.85
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              4.0,
+              2.4,
+              4.0
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            10.0,
+            1.2,
+            8.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      "player": {
+        "Body": {
+          "asleep": false,
+          "damping": 0.0,
+          "gravity": 1.0,
+          "kind": {
+            "Kinematic": {}
+          },
+          "mass": 0.0,
+          "spin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "spin_damping": 0.0,
+          "velocity": [
+            4.499988,
+            0.0,
+            0.0
+          ]
+        },
+        "Character": {
+          "grounded": false,
+          "height": 1.3,
+          "mass": 80.0,
+          "radius": 0.35,
+          "slope_degrees": 50.0,
+          "step": 0.32,
+          "support": [],
+          "support_pose": {
+            "position": [
+              6.9199433,
+              0.5999157,
+              7.9714556
+            ],
+            "rotation": [
+              1.0901033e-7,
+              0.12899767,
+              -3.5215695e-8,
+              0.9916449
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "velocity": [
+            4.5,
+            1.5199184e-6,
+            0.0
+          ]
+        },
+        "Collider": {
+          "bounce": 0.0,
+          "friction": 0.6,
+          "layer": 1,
+          "mask": 4294967295,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "sensor": true,
+          "shape": {
+            "Capsule": {
+              "height": 1.3,
+              "radius": 0.35
+            }
+          }
+        },
+        "Player": {
+          "stride": 0.20658186
+        },
+        "Transform": {
+          "position": [
+            9.099186,
+            3.619911,
+            8.408652
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      }
+    },
+    "hash": "0xec3b43cc9f709c4c",
+    "input": {
+      "actions": {
+        "jump": {
+          "keys": [
+            "Space"
+          ],
+          "name": "jump",
+          "stick": [],
+          "touch": []
+        },
+        "light": {
+          "keys": [
+            "KeyE"
+          ],
+          "name": "light",
+          "stick": [],
+          "touch": []
+        },
+        "move": {
+          "keys": [],
+          "name": "move",
+          "stick": [
+            {
+              "keys": [
+                [
+                  "KeyW",
+                  "KeyS",
+                  "KeyA",
+                  "KeyD"
+                ],
+                [
+                  "ArrowUp",
+                  "ArrowDown",
+                  "ArrowLeft",
+                  "ArrowRight"
+                ]
+              ],
+              "touch": [
+                {
+                  "Left": {}
+                }
+              ]
+            }
+          ],
+          "touch": []
+        }
+      },
+      "forwarded": [
+        "KeyD"
+      ],
+      "held": [
+        "KeyD",
+        "Space"
+      ]
+    },
+    "logs": {
+      "from": 0,
+      "lines": [
+        "t=0 tick=0 spawn #0",
+        "t=0 tick=0 spawn #1",
+        "t=0 tick=0 spawn #2",
+        "t=0 tick=0 spawn #3",
+        "t=0 tick=0 spawn #4",
+        "t=0 tick=0 spawn #5",
+        "t=0 tick=0 spawn #6",
+        "t=0 tick=0 spawn #7",
+        "t=0 tick=0 spawn #8",
+        "t=0 tick=0 spawn #9",
+        "t=0 tick=0 spawn #10",
+        "t=0 tick=0 spawn #11",
+        "t=0 tick=0 spawn #12",
+        "t=0 tick=0 spawn #13",
+        "t=0 tick=0 spawn #14",
+        "t=0 tick=0 spawn #15",
+        "t=0 tick=0 spawn #16",
+        "t=0 tick=0 spawn #17",
+        "t=0 tick=0 spawn #18",
+        "t=0 tick=0 spawn #19",
+        "t=0 tick=0 spawn #20",
+        "t=0 tick=0 spawn #21",
+        "t=0 tick=0 spawn #22",
+        "t=0 tick=0 spawn #23",
+        "t=0 tick=0 spawn #24",
+        "t=0 tick=0 spawn #25",
+        "t=0 tick=0 spawn #26",
+        "t=0 tick=0 spawn #27",
+        "t=0 tick=0 spawn #28",
+        "t=0 tick=0 spawn #29",
+        "t=0 tick=0 spawn #30",
+        "t=0 tick=0 spawn #31",
+        "t=0 tick=0 spawn #32",
+        "t=0 tick=0 spawn #33",
+        "t=0 tick=0 spawn #34",
+        "t=0 tick=0 spawn #35",
+        "t=0 tick=0 spawn #36",
+        "t=0 tick=0 spawn #37",
+        "t=0 tick=0 spawn #38",
+        "t=0 tick=0 spawn #39",
+        "t=0 tick=0 spawn #40",
+        "t=0 tick=0 spawn #41",
+        "t=0 tick=0 spawn #42",
+        "t=0 tick=0 spawn #43",
+        "t=0 tick=0 spawn #44",
+        "t=0 tick=0 spawn #45",
+        "t=0 tick=0 spawn #46",
+        "t=0 tick=0 spawn #47",
+        "t=0 tick=0 spawn #48",
+        "t=0 tick=0 spawn #49",
+        "t=0 tick=0 spawn #50",
+        "t=0 tick=0 spawn #51",
+        "t=0 tick=0 spawn #52",
+        "t=0 tick=0 spawn #53",
+        "t=0 tick=0 spawn #54",
+        "t=0 tick=0 spawn #55",
+        "t=0 tick=0 spawn #56",
+        "t=0 tick=0 spawn #57",
+        "t=0 tick=0 spawn #58",
+        "t=0 tick=0 spawn #59",
+        "t=0 tick=0 spawn #60",
+        "t=0 tick=0 spawn #61",
+        "t=0 tick=0 spawn #62",
+        "t=0 tick=0 spawn #63",
+        "t=0 tick=0 spawn #64",
+        "t=0 tick=0 spawn #65",
+        "t=0 tick=0 spawn #66",
+        "t=0 tick=0 spawn #67",
+        "t=0 tick=0 spawn #68",
+        "t=0 tick=0 spawn #69",
+        "t=0 tick=0 spawn #70",
+        "t=0 tick=0 spawn #71",
+        "t=0 tick=0 spawn #72",
+        "t=0 tick=0 spawn #73",
+        "t=0 tick=0 spawn #74",
+        "t=0 tick=0 spawn #75",
+        "t=0 tick=0 spawn #76",
+        "t=0 tick=0 spawn #77",
+        "t=0 tick=0 spawn #78",
+        "t=0 tick=0 spawn #79",
+        "t=0 tick=0 spawn #80",
+        "t=0 tick=0 spawn #81",
+        "t=0 tick=0 spawn #82",
+        "t=0 tick=0 spawn #83",
+        "t=0 tick=0 spawn #84",
+        "t=0 tick=0 spawn #85",
+        "t=0 tick=0 spawn #86",
+        "t=0 tick=0 spawn #87",
+        "t=0 tick=0 spawn #88",
+        "t=0 tick=0 spawn #89",
+        "t=0 tick=0 spawn #90",
+        "t=0 tick=0 spawn #91",
+        "t=0 tick=0 spawn #92",
+        "t=0 tick=0 spawn #93",
+        "t=0 tick=0 spawn #94",
+        "t=0 tick=0 spawn #95",
+        "t=0 tick=0 spawn #96",
+        "t=0 tick=0 spawn #97",
+        "t=0 tick=0 spawn #98",
+        "t=0 tick=0 spawn #99",
+        "t=0 tick=0 spawn #100",
+        "t=0 tick=0 spawn #101",
+        "t=0 tick=0 spawn #102",
+        "t=0 tick=0 spawn #103",
+        "t=0 tick=0 spawn #104",
+        "t=0 tick=0 spawn #105",
+        "t=0 tick=0 spawn #106",
+        "t=0 tick=0 spawn #107",
+        "t=0 tick=0 spawn #108",
+        "t=0 tick=0 spawn #109",
+        "t=0 tick=0 spawn #110",
+        "t=0 tick=0 spawn #111",
+        "t=0 tick=0 spawn #112",
+        "t=0 tick=0 spawn #113",
+        "t=0 tick=0 spawn #114",
+        "t=0 tick=0 spawn #115",
+        "t=0 tick=0 publish count: Number(0.0)",
+        "t=0 tick=0 publish total: Number(12.0)",
+        "t=0 tick=0 publish remaining: Number(180.0)",
+        "t=0 tick=0 publish phase: Str(\"playing\")",
+        "t=0 tick=0 publish assetReady: Bool(true)",
+        "t=0 tick=0 control: agent attached; controlled clock",
+        "t=0 tick=0 loop wind on gain 0.22",
+        "t=183 tick=11 sfx footstep at player gain 1.00",
+        "t=333 tick=20 sfx footstep at player gain 1.00",
+        "t=500 tick=30 sfx footstep at player gain 1.00",
+        "t=650 tick=39 sfx footstep at player gain 1.00",
+        "t=800 tick=48 sfx footstep at player gain 1.00",
+        "t=966 tick=58 sfx footstep at player gain 1.00",
+        "t=983 tick=59 publish remaining: Number(179.0)",
+        "t=1116 tick=67 sfx footstep at player gain 1.00",
+        "t=1266 tick=76 sfx footstep at player gain 1.00",
+        "t=1433 tick=86 sfx footstep at player gain 1.00",
+        "t=1583 tick=95 sfx footstep at player gain 1.00",
+        "t=1733 tick=104 sfx footstep at player gain 1.00",
+        "t=1900 tick=114 sfx footstep at player gain 1.00",
+        "t=1983 tick=119 publish remaining: Number(178.0)",
+        "t=2083 tick=125 sfx footstep at player gain 1.00",
+        "t=2300 tick=138 sfx footstep at player gain 1.00",
+        "t=2350 tick=141 jump",
+        "t=2350 tick=141 sfx jump at player gain 1.00",
+        "t=2983 tick=179 publish remaining: Number(177.0)",
+        "t=3200 tick=192 jump",
+        "t=3200 tick=192 sfx jump at player gain 1.00",
+        "t=3650 tick=219 lantern-12 lit",
+        "t=3650 tick=219 sfx chime at lantern-12 gain 1.00",
+        "t=3650 tick=219 publish count: Number(1.0)"
+      ],
+      "next": 147,
+      "tick": 225
+    },
+    "physics_gravity": [
+      0.0,
+      -12.0,
+      0.0
+    ],
+    "restored": false,
+    "scene_identity": {
+      "assets": {
+        "Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7"
+      },
+      "digest": "35fdc6ef06f327972b945e8c561a3e2566d9df03145b9430d86c5df6b09e7911"
+    },
+    "tick": 225,
+    "timer": {
+      "elapsed": 225,
+      "jump_press": 0,
+      "light_press": 0,
+      "phase": 1
+    }
+  },
+  "pending_actions": [
+    {
+      "after_ticks": 10,
+      "down": false,
+      "key": "Space"
+    },
+    {
+      "after_ticks": 75,
+      "down": true,
+      "key": "Space"
+    },
+    {
+      "after_ticks": 76,
+      "down": false,
+      "key": "Space"
+    }
+  ],
+  "reproduction_hashes": [
+    "0xec3b43cc9f709c4c",
+    "0xec3b43cc9f709c4c"
+  ],
+  "spring_sample": {
+    "value": 0.3402998447418213,
+    "velocity": 5.335072040557861
+  }
+}

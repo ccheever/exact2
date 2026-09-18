@@ -272,6 +272,8 @@ impl Model {
         seconds: f32,
         looped: bool,
     ) -> Result<Vec<SampledVertex>, String> {
+        #[cfg(test)]
+        let _timing = sample_timing::Guard::start();
         let clip = self
             .clips
             .get(clip)
@@ -614,5 +616,27 @@ mod tests {
         let run = fox.sample("Run", 0.5, true).unwrap();
         assert!(survey.iter().all(|v| v.0.iter().all(|n| n.is_finite())));
         assert!(survey.iter().zip(&run).any(|(a, b)| a.0 != b.0));
+    }
+}
+
+// Opt-in test instrumentation: no production fields or timing work.
+#[cfg(test)]
+pub(crate) mod sample_timing {
+    use std::{cell::Cell, time::Instant};
+    thread_local! {
+        pub static NANOS: Cell<Option<u128>> = const { Cell::new(None) };
+    }
+    pub struct Guard(Option<Instant>);
+    impl Guard {
+        pub fn start() -> Self {
+            Self(NANOS.with(|n| n.get().map(|_| Instant::now())))
+        }
+    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if let Some(start) = self.0 {
+                NANOS.with(|n| n.set(Some(n.get().unwrap() + start.elapsed().as_nanos())));
+            }
+        }
     }
 }
