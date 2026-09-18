@@ -135,6 +135,23 @@ fn edited_scene(edit: &str) -> Options {
     options.scene = result.unwrap().content;
     options
 }
+#[derive(Default, exact_game::Data)]
+struct PendingInput {
+    host_us: i64,
+    world_us: Option<i64>,
+    event: InputEvent,
+}
+#[derive(Default, exact_game::Data)]
+struct ControlState {
+    input: exact_game::Input,
+    queue: Vec<PendingInput>,
+    world_us: i64,
+}
+fn control_bytes<G: Game>(sim: &Sim<G>) -> Vec<u8> {
+    let save = sim.save();
+    let controls: ControlState = exact_game::bin::from_slice(&save[7..]).unwrap();
+    exact_game::bin::to_vec(&controls)
+}
 fn probe<G: Game>(bytes: &[u8], options: Options, unedited: bool) -> Value {
     let mut s = Sim::<G>::from_values(&options.values()).unwrap();
     let fresh = snapshot(&mut s);
@@ -146,6 +163,7 @@ fn probe<G: Game>(bytes: &[u8], options: Options, unedited: bool) -> Value {
         assert!(identical, "unedited carry must preserve every EXSIM byte");
     }
     let restored = snapshot(&mut s);
+    let mut controls = vec![control_bytes(&s)];
     let mut trajectory = Vec::new();
     for _ in 0..120 {
         ticks(&mut s, 1);
@@ -180,8 +198,9 @@ fn probe<G: Game>(bytes: &[u8], options: Options, unedited: bool) -> Value {
             assert_ne!(old.entity, ledge, "old ledge edge must disappear");
         }
         trajectory.push(snapshot(&mut s));
+        controls.push(control_bytes(&s));
     }
-    json!({"fresh":fresh,"restored":restored,"immediate_save_byte_identical":identical,"trajectory":trajectory})
+    json!({"fresh":fresh,"restored":restored,"immediate_save_byte_identical":identical,"trajectory":trajectory,"controls":controls})
 }
 fn assert_report(row: &Value, kind: &str, entity: &str, component: &str, field: &str) {
     let items = row["restored"]["reload"][kind].as_array().unwrap();
@@ -315,6 +334,12 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
         (&moving_v1, &moving_clip, "clip"),
         (&moving_v1, &moving_appearance, "appearance"),
     ] {
+        // Full binary dynamic input, pending queue and relative world clock at
+        // the restored boundary and every continued tick, not only held keys.
+        assert_eq!(
+            baseline["controls"], edited["controls"],
+            "{name} input/queue bytes"
+        );
         // Exact state at carry; report/journal and authored fields may change.
         for field in ["input", "timer"] {
             assert_eq!(

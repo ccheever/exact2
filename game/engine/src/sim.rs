@@ -76,6 +76,7 @@ struct Saved {
     version: u32,
     world: Vec<u8>,
     base: Vec<u8>,
+    base_args: String,
     args: String,
     input: Input,
     queue: Vec<Queued>,
@@ -98,6 +99,7 @@ struct LiveTime {
 pub struct Sim<G: Game> {
     pub(crate) world: World,
     base: Vec<u8>,
+    base_args: String,
     pub(crate) reload: crate::world::reload::Report,
     setup_pending: bool,
     asset_mesh_revision: u64,
@@ -267,6 +269,7 @@ impl<G: Game> Sim<G> {
         if self.setup_pending && assets.ready() {
             let world = Self::build(&self.args, self.world.assets.clone());
             let base = world.initializer().map_err(|e| e.to_string())?;
+            self.base_args = crate::json::to_string(&self.args).map_err(|e| e.to_string())?;
             self.world = world;
             self.base = base;
             self.setup_pending = false;
@@ -349,6 +352,7 @@ impl<G: Game> Sim<G> {
         Ok(Self {
             world,
             base,
+            base_args: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             reload: Default::default(),
             setup_pending: !G::ASSETS.is_empty(),
             asset_mesh_revision: u64::MAX,
@@ -432,6 +436,7 @@ impl<G: Game> Sim<G> {
             self.advance_with(at, Clock::Seekable, after);
         }
         if let Some((mut world, base)) = restart {
+            self.base_args = crate::json::to_string(&args).map_err(|e| e.to_string())?;
             self.base = base;
             self.reload = Default::default();
             self.capture_fail("construction binding restarted the world; start a new capture");
@@ -1167,6 +1172,13 @@ impl<G: Game> Sim<G> {
             version: G::SAVE_VERSION,
             world: self.world.save(),
             base: self.base.clone(),
+            // Usually identical: only retain a separate construction after live
+            // bindings or an authored carry made the two argument sets differ.
+            base_args: if self.base_args == self.args_json {
+                String::new()
+            } else {
+                self.base_args.clone()
+            },
             args: self.args_json.clone(),
             input: self.input.clone(),
             queue: self.relative_queue(),
@@ -1196,7 +1208,14 @@ impl<G: Game> Sim<G> {
         if saved.game != G::ID {
             return Err(DataError::new("save game ID differs"));
         }
-        let args = crate::json::from_str_in(&saved.args, budget)?;
+        let args = crate::json::from_str_in(
+            if saved.base_args.is_empty() {
+                &saved.args
+            } else {
+                &saved.base_args
+            },
+            budget,
+        )?;
         let mut sim = Self::new(args).map_err(DataError::new)?;
         sim.restore_into(bytes, None, budget)?;
         Ok(sim)
@@ -1271,8 +1290,21 @@ impl<G: Game> Sim<G> {
         } else {
             saved_args
         };
-        let mut next = Self::new(bound).map_err(DataError::new)?;
+        // The saved gameplay construction may predate an applied scene edit.
+        // Reconstruct tick zero from the arguments that produced its base, so a
+        // second same-build restore cannot undo that edit.
+        let initial_args = if args.is_some() {
+            &self.base_args
+        } else if s.base_args.is_empty() {
+            &s.args
+        } else {
+            &s.base_args
+        };
+        let initial_args = crate::json::from_str_in(initial_args, budget)?;
+        let mut next = Self::new(initial_args).map_err(DataError::new)?;
         next.world = Self::build(&next.args, self.world.assets.clone());
+        next.args_json = crate::json::to_string(&bound)?;
+        next.args = bound;
         next.setup_pending = !next.world.assets.ready();
         next.defer_assets = self.defer_assets;
         if next.setup_pending {

@@ -208,6 +208,22 @@ fn changed_scene_authored_fields_apply_while_carried_simulation_state_survives()
     assert!(fresh
         .agent(r#"{"op":"state"}"#)
         .contains("authored initializer changed"));
+    // A second save/restore in this build must not reconstruct the old scene
+    // as its initializer and silently undo the applied edit.
+    let carried = fresh.save();
+    let mut twice = Sim::<Lanterns>::from_save(&carried).unwrap();
+    assert_eq!(twice.save(), carried);
+    twice.restore(&carried).unwrap();
+    assert_eq!(twice.save(), carried);
+    assert_eq!(
+        twice
+            .world()
+            .get::<Transform>("lantern-1")
+            .unwrap()
+            .position
+            .x,
+        -11.0
+    );
     // The ordinary portable save retains its original initial-condition argument too.
     let mut restored = Sim::<Lanterns>::new(Options {
         scene: baked.content,

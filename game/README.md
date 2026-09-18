@@ -680,7 +680,10 @@ New/removed entities, components and resources are reported for restart; carry n
 spawns or despawns them. New schema fields retain the existing load-by-name defaults.
 Use the development Restart control to instantiate new content.
 
-EXSIM v6 adds the old tick-zero Data projection as compact bulk bytes. Older saves
+EXSIM v6 adds the old tick-zero Data projection as compact bulk bytes. It also
+retains the arguments that produced that base when they differ from the carried
+gameplay arguments, so saving and restoring again cannot undo an applied scene edit.
+Older saves
 are refused with an explicit restart-required error; no inferred base or migration
 is possible. Unedited restores preserve all v6 save bytes, world hashes, queued and
 held input, executor state and clock continuation. Records merge recursively by
