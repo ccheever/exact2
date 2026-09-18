@@ -4172,3 +4172,54 @@ bytes, manifest `2aaf18c381f83a6da7785fcd7bf6028bd673e633c6094068c8ddb7f23275cdf
 report `a5d563fc02f331aeefa05f4d548646707d4c0113c2367fc9846ba56e247377b0`.
 Independent reconstruction of all108 raw parent/C96 joins and feedback unions
 agrees. Previous control captures, source-test failures and timing cells stay sealed.
+
+### 8.64 First Mac giant-paragraph live resize: input works, output is late, 2026-09-18
+
+One fresh e494 Markdown process exercises the complete1MiB fixture during an
+actual Quartz/AppKit resize. The document is1,048,531UTF8 bytes; its unsplit
+paragraph is1,048,499UTF8 bytes/999,569UTF16 units. The final source identity is
+unchanged. Paragraph width940→856 produces8155→8988 lines and height212030→233688.
+The app stays in the full-size, wide, manual, paused paragraph configuration.
+This is not a4MiB, mixed-Markdown or code-block result.
+
+The native live-resize interval lasts1800.118ms with18 changes. All six typing
+handlers and six ordinary wheel handlers, plus their ACKs, are inside it. Wheels
+move the actual RegionSurface alternately40/-40px; final actual/raster/layer
+scroll offsets agree at0 and the final typed echo matches. The external sequence
+is down,20 drag events and up. Inputs use the normal agent route, not physical
+keyboard/trackpad events; there is no clock-settle pump or in-edge state polling.
+
+No accepted raster plus current model-layer assignment is established inside the
+resize interval. Two successful completion-return markers do not prove accepted
+output. The first post-edge checkpoint has publication/candidate16 but
+visiblePublication0 and displayable=false; retained visible paragraph pixels
+through resize are therefore not established. Final publication41/artifact40
+matches the current source and geometry, but raster acceptance is3660.260ms
+after the native edge and model-layer assignment4122.117ms after it. These are
+model-layer timestamps, not screen presentation evidence.
+
+Two complete worker shape spans take2668.770ms and2548.628ms. The first overlaps
+the edge; the second is entirely afterward. Final indexing takes77.576ms. Clipped
+instrumented unions within the edge are8.939ms on UI and1653.490ms on the worker;
+these cover selected hooks, not all UI work or isolated CoreText/CPU cost. Nested
+stage durations are not additive. Input responsiveness and eventual correctness
+do not establish continuous reflow or120Hz. The result remains
+FUNCTIONAL_IN_EDGE_PUBLICATION_NOTESTABLISHED.
+
+All36 positive tracking witnesses are in the primary trace. Passive quota
+saturation keeps mode NOTESTABLISHED; primary179/4096, UI468/8192 and worker101/8192
+have no omissions or nesting mismatches. Saved replies15,174,032B stay below64MiB.
+One build/capture and one runtime exit0 without retry; four owned PIDs/two groups
+retire with poster UP. The initial missing-header receipt assertion is preserved:
+an added record of the actual Bridge.swift.o dependency rule, canonical header
+and module map, and dependency mtime within the owned build supplies provenance
+without rewriting the receipt or rebuilding.
+
+Evidence: `target/apple-giant-live-e494-execution-v1/`, runtime manifest
+`6058cd8fa7c965bc09192868809c443676b527d0824cf001d5308778858602dd`
+(48 files/16,866,842B), report
+`b36e777391842ce58f774cbdfdbd8c1955f373fb884bc4d891b6a9b53908e983`, and
+offline closure `f70889298a7c765542c005ca3164429c47ece70994ed2dc3a3831527f0bb1bd3`.
+Independent raw reconstruction agrees on the clipped stages and late publication.
+The next source investigation targets full worker shaping and stale-job delay;
+the existing ordered-worker boundary and full paragraph remain the workload.
