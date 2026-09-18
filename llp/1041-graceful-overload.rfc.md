@@ -4123,3 +4123,52 @@ Evidence: `target/web-observer-baseline-trace-cell-v1/`,30 artifacts/34,422,503
 bytes, manifest `d760378de413c0fe7bdc10e8e4ae3f28150040cc10b0e8dea7ef1cedee55c7c5`;
 report `8d0cb401189da027e521327b80cf5914d2ba1f32fe35a19742d9c5b6ea600016`.
 The earlier §8.55 pair and §8.61 source-test failures remain unchanged.
+
+### 8.63 Unicode boundary reuse: mixed first native pair, 2026-09-18
+
+One fresh native Messages control then candidate pair tests reuse of immutable
+Unicode line endpoints across widths. Both retain Reusable Messages, prefitting,
+borrowed text and §8.60's eight offers. Only Text.swift and TextResidency.swift
+differ. The candidate adds bounded, residency-charged endpoint storage and locale
+qualification; the nil-tokenizer policy stays unchanged. Locale identifiers,
+preferred languages and two CFPreferences reads qualify reuse, with another
+qualification during construction. Their cost is not separately measured.
+
+The new candidate build/capture and both fresh processes pass. Each arm delivers
+all18 accepted viewport dimensions in each of three AppKit resize intervals;
+all54 complete C96 parents are inside those intervals. Each final resize begins
+after Quartz UP but finishes before AppKit didEnd. Window/port geometry, accepted
+dimensions and external points match; backing scale is not separately recorded.
+Full10k/batch32, normal clock and all72 input offers/ACKs remain intact, including
+36 directional40px wheels. All16 equal-argument full History comparisons match.
+Loaded progress is8→18 in both arms; recovery/final19 versus18 is retained.
+
+| Phase | Whole resize union, control→candidate ms | Swift callback sum ms | Whole >8.333ms |
+|---|---:|---:|---:|
+| Idle |108.527→158.482|60.908→81.499|4/18→11/18|
+| Load |151.307→147.839|83.795→77.338|10/18→10/18|
+| Recovery |156.674→142.526|90.464→74.170|9/18→10/18|
+
+Pooled whole resize work rises416.508→448.847ms (+7.8%); native+entry is
+266.130→269.986ms and callback wall235.167→233.007ms. Idle callback counts differ
+1970→1955; load/recovery match1536/1560. These are inclusive wall spans, not CPU
+or tokenizer-only costs, and exclude surrounding prefit work outside resize.
+The native observer does not count tokenizer construction or boundary-cache hits;
+the separate source fixture's3→1 construction result is not native reuse evidence.
+
+Candidate recovery resize max14.530ms, loaded timer max12.824ms and idle wheel
+ACK max17.969ms remain. Command-free intervals contain8 complete timer chains per
+arm; whole misses rise3/8→4/8 and medians7.396→8.247ms. Loaded timer misses rise
+1/7→2/7. ACK includes transport/queue/handler, not frame latency. Primary records
+have zero omissions; passive quota saturation keeps mode NOTESTABLISHED.
+
+The fixed-order pair establishes no aggregate benefit or cause for the mixed
+phases. The candidate remains private, with no production activation or automatic
+repeat. Recorded60Hz hardware does not prove physical120Hz. Both cells exit0
+once; all14 owned PIDs/10 groups retire, with eight poster UPs and ports free.
+
+Evidence: `target/native-630-text-boundaries-pair-v1/`,921 artifacts/201,166,864
+bytes, manifest `2aaf18c381f83a6da7785fcd7bf6028bd673e633c6094068c8ddb7f23275cdf4`;
+report `a5d563fc02f331aeefa05f4d548646707d4c0113c2367fc9846ba56e247377b0`.
+Independent reconstruction of all108 raw parent/C96 joins and feedback unions
+agrees. Previous control captures, source-test failures and timing cells stay sealed.
