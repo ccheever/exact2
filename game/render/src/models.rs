@@ -117,8 +117,20 @@ impl crate::Renderer {
         &mut self,
         model: &Model,
     ) -> Result<(Vec<MeshId>, Vec<MaterialId>), RenderError> {
+        let _scope = self.audit.enter();
         model.validate().map_err(RenderError::scene)?;
+        let old = self.asset_work().0;
+        let family = self.pipelines.models.is_some();
         self.pipelines.prepare_model(&self.device, model);
+        crate::audit::record(
+            crate::audit::PIPELINE,
+            "model family",
+            (self.asset_work().0 - old) as u64,
+        );
+        if !family {
+            crate::audit::record(crate::audit::SHADER, "model family", 2);
+            crate::audit::record(crate::audit::LAYOUT, "model family", 3);
+        }
         self.models
             .prepare(&self.device, self.pipelines.models.as_ref().unwrap());
         for (name, pixel, srgb) in [
@@ -196,6 +208,7 @@ impl crate::Renderer {
     }
     /// Upload once by immutable asset name. The caller drops the CPU mip payload.
     pub fn add_texture(&mut self, name: &str, data: &TextureData) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         if self.models.textures.contains_key(name) {
             return Ok(());
         }
@@ -230,6 +243,7 @@ impl crate::Renderer {
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
     pub fn set_draw_instances(&mut self, records: &[DrawInstance]) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         let Some(family) = &self.pipelines.models else {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
@@ -362,6 +376,12 @@ fn upload_texture(
     data: &TextureData,
     samplers: &mut BTreeMap<([Wrap; 2], [Filter; 3]), wgpu::Sampler>,
 ) -> Texture {
+    crate::audit::record(crate::audit::TEXTURE, "game baked texture", 1);
+    crate::audit::record(
+        crate::audit::TEX_BYTES,
+        "game baked texture",
+        data.mips.iter().map(|m| m.len() as u64).sum(),
+    );
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("game baked texture"),
         size: wgpu::Extent3d {

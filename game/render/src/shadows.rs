@@ -111,6 +111,7 @@ impl ShadowMaps {
         sample_layout: &wgpu::BindGroupLayout,
         camera_layout: &wgpu::BindGroupLayout,
     ) -> Self {
+        crate::audit::record(crate::audit::TEXTURE, "effect target", 1);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game sun cascades"),
             size: wgpu::Extent3d {

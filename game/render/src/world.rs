@@ -91,7 +91,7 @@ impl Writes for Renderer {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Shape {
     Box,
     Sphere,
@@ -284,6 +284,8 @@ impl Feed {
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
     /// Initial feeding initializes both histories, including a world's setup tick.
     pub fn feed(&mut self, world: &World, renderer: &mut Renderer) -> Result<(), RenderError> {
+        let _scope = renderer.audit.enter();
+        renderer.audit.tick(world.tick());
         self.feed_to(world, renderer)
     }
     pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
@@ -464,6 +466,7 @@ impl Feed {
                             self.asset_vertices.clear();
                             self.asset_vertices
                                 .extend(sampled.into_iter().map(asset_vertex));
+                            let _name = crate::audit::Audit::current().name(name, false);
                             let mesh_id =
                                 r.textured_mesh(&self.asset_vertices, &model.indices, &model.image);
                             let group = self.groups.len();
@@ -485,6 +488,8 @@ impl Feed {
                     primitive => {
                         let shape = Shape::of(primitive)?;
                         *self.shapes.entry(shape).or_insert_with(|| {
+                            let _name =
+                                crate::audit::Audit::current().name(&format!("{shape:?}"), false);
                             let (v, i) = shape.geometry();
                             let index = self.groups.len();
                             self.groups.push(Group {

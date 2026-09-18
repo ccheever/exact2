@@ -112,6 +112,7 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
     use crate::perf::CLOCK_READS;
     let world = World::new(60, 0);
     let mut render = None;
+    let mut recording = None;
     let mut perf = Perf::default();
     let mut error = None;
     for measure in [false, true] {
@@ -119,6 +120,7 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
         let mut trace = None;
         let mut after = observer(
             &mut render,
+            &mut recording,
             &mut perf,
             &mut trace,
             &mut error,
@@ -742,4 +744,48 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         .models
         .instances
         .is_none());
+}
+
+#[test]
+fn presented_lifecycle_and_late_material_pipeline_are_accounted() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Art>::default();
+    s.device_ready();
+    s.bind(&[]).unwrap();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../games/asset-fixture/art/crate.gltf");
+    let (mut model, textures) = exact_game_bake::assets(&path).unwrap();
+    for material in &mut model.materials {
+        material.double_sided = false;
+    }
+    s.asset("crate.model", Some(&exact_game::bin::to_vec(&model)));
+    for (name, texture) in textures {
+        s.asset(&name, Some(&exact_game::bin::to_vec(&texture)));
+    }
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    assert!(
+        !s.ready_reasons().is_empty(),
+        "encoding is not presentation"
+    );
+    s.lifecycle(Lifecycle::Presented);
+    assert!(s.ready_reasons().is_empty());
+    let before = s.audit.json(true);
+    assert_eq!(before["beforeReady"]["shaderModules"], 7);
+    assert_eq!(before["beforeReady"]["renderPipelines"], 16);
+    assert_eq!(before["beforeReady"]["bindGroupLayouts"], 9);
+    assert_eq!(before["afterReady"]["violations"], 0);
+    for material in &mut model.materials {
+        material.double_sided = true;
+    }
+    // Direct renderer usage also counts; deliberately bypass declared delivery.
+    s.render
+        .as_mut()
+        .unwrap()
+        .0
+        .prepare_model("late-variant.model", &model)
+        .unwrap();
+    let after = s.audit.json(true);
+    assert_eq!(after["afterReady"]["renderPipelines"], 5, "{after}");
+    assert!(after["afterReady"]["meshBytesUploaded"].as_u64().unwrap() > 0);
+    assert!(after["afterReady"]["violations"].as_u64().unwrap() > 0);
 }

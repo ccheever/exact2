@@ -9,6 +9,7 @@
 #![deny(unsafe_code)]
 
 mod assets;
+mod audit;
 mod bloom;
 mod buffers;
 mod frame;
@@ -16,6 +17,7 @@ mod model_pipeline;
 mod models;
 mod perf;
 mod pipeline;
+mod recording;
 mod renderer;
 mod shadows;
 pub mod shapes;

@@ -175,6 +175,13 @@ export async function proof(meta, script) {
     let closed = false;
     const close = async () => { if (!closed) {
       try {
+        if (['beacons', 'greybox', 'lanterns', 'asset-fixture'].includes(name)) {
+          const state = await raw.state('world', {world:true});
+          const {ready, gpu} = state.world ?? {};
+          check('ready: no GPU allocations or asset uploads after ready',
+            ready === true && gpu?.afterReady?.violations === 0,
+            {ready, gpu, lastAfterReady:gpu?.lastAfterReady});
+        }
         if (compareParanoid) {
           const state = await raw.state('world', {world:true});
           const world = state.world;

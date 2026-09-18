@@ -26,17 +26,23 @@ impl Presentation for () {}
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
 pub struct WorldSurface<G: Game, P: Presentation = ()> {
+    audit: crate::audit::Audit,
+    recording: Option<(crate::recording::Recording, Feed)>,
+    presented: bool,
+    drawn: bool,
     sim: Option<Sim<G>>,
     pending_restore: Option<Vec<u8>>,
     presentation: P,
     render: Option<(Renderer, Feed)>,
     format: Option<wgpu::TextureFormat>,
     device: bool,
+    device_lost: bool,
     perf: Perf,
     trace: Option<crate::trace::Trace>,
     error: Option<SurfaceError>,
     dirty: bool,
     assets_dirty: bool,
+    asset_feed_exception: Option<String>,
     reported: bool,
     generation: u64,
     seekable: bool,
@@ -47,17 +53,23 @@ pub struct WorldSurface<G: Game, P: Presentation = ()> {
 impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
     fn default() -> Self {
         Self {
+            audit: Default::default(),
+            recording: None,
+            presented: false,
+            drawn: false,
             sim: None,
             pending_restore: None,
             presentation: P::default(),
             render: None,
             format: None,
             device: false,
+            device_lost: false,
             perf: Perf::default(),
             trace: None,
             error: None,
             dirty: true,
             assets_dirty: false,
+            asset_feed_exception: None,
             reported: false,
             generation: 0,
             seekable: true,
@@ -87,8 +99,13 @@ impl<G: Game, P: Presentation> WorldSurface<G, P> {
         self.sim.as_ref()
     }
 }
+#[path = "surface_ready.rs"]
+mod ready;
+
+#[allow(clippy::too_many_arguments)]
 fn observer<'a>(
     render: &'a mut Option<(Renderer, Feed)>,
+    recording: &'a mut Option<(crate::recording::Recording, Feed)>,
     perf: &'a mut Perf,
     trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
@@ -124,6 +141,13 @@ fn observer<'a>(
                 }
             }
         }
+        if left < 2 && error.is_none() {
+            if let Some((recording, feed)) = recording {
+                if let Err(e) = recording.feed(feed, world) {
+                    *error = Some(SurfaceError(e.to_string()));
+                }
+            }
+        }
         start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
@@ -134,6 +158,13 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
     }
     fn lifecycle(&mut self, event: Lifecycle) {
         match event {
+            Lifecycle::Presented => {
+                if self.drawn {
+                    self.presented = true;
+                    self.mark_ready();
+                }
+                return;
+            }
             Lifecycle::Hidden => self.hidden = true,
             Lifecycle::Visible => self.hidden = false,
             Lifecycle::AudioInterrupted => self.interrupted = true,
@@ -146,6 +177,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         self.bind_at(values, None)
     }
     fn bind_at(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        let _scope = self.audit.enter();
         if at_ms.is_some_and(|at| !at.is_finite()) {
             return Err(SurfaceError("bind clock must be finite".into()));
         }
@@ -159,6 +191,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 at_ms,
                 observer(
                     &mut self.render,
+                    &mut self.recording,
                     &mut self.perf,
                     &mut self.trace,
                     &mut self.error,
@@ -182,17 +215,33 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             self.sim = Some(sim);
         }
         self.dirty = true;
+        self.headless_feed();
         Ok(())
     }
     fn assets(&mut self) -> Vec<String> {
         self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
     }
     fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
+        let _scope = self.audit.enter();
+        let _name = self.audit.name(name, self.cosmetic(name));
         if let Some(sim) = &mut self.sim {
-            let _ = sim.asset(name, bytes);
+            let result = sim.asset(name, bytes);
+            if !self.device && result.is_ok() && name.ends_with(".tex") {
+                if let Some(data) = bytes.and_then(|b| {
+                    exact_game::bin::from_slice::<exact_game::asset::TextureData>(b).ok()
+                }) {
+                    crate::audit::record(crate::audit::TEXTURE, name, 1);
+                    crate::audit::record(
+                        crate::audit::TEX_BYTES,
+                        name,
+                        data.mips.iter().map(|m| m.len() as u64).sum(),
+                    );
+                }
+            }
         }
         self.assets_dirty = true;
         self.finish_restore();
+        self.headless_feed();
         self.dirty = true;
     }
     fn asset_failed(&mut self, name: &str, reason: &str) {
@@ -200,6 +249,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             sim.asset_failed(name, reason);
         }
         self.dirty = true;
+        self.headless_feed();
     }
     fn prepare_assets(
         &mut self,
@@ -207,6 +257,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) {
+        let _scope = self.audit.enter();
         if !self.assets_dirty && self.format == Some(format) {
             return;
         }
@@ -223,6 +274,8 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                     return;
                 }
             };
+            self.presented = false;
+            self.drawn = false;
             self.render = Some((Renderer::new(device, queue, format), feed));
             self.format = Some(format);
         }
@@ -230,6 +283,11 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         let prepared: Vec<_> = sim
             .presentation_models()
             .map(|(name, model)| {
+                let cosmetic = !G::ASSETS.contains(&name);
+                if cosmetic && !renderer.models.loaded.contains_key(name) {
+                    self.asset_feed_exception = Some(name.into());
+                }
+                let _name = self.audit.name(name, cosmetic);
                 (
                     name.to_owned(),
                     renderer
@@ -242,6 +300,11 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             sim.asset_prepared(&name, result);
         }
         for (name, texture) in textures {
+            let declared = G::ASSETS.contains(&name.as_str())
+                || sim
+                    .presentation_models()
+                    .any(|(n, m)| G::ASSETS.contains(&n) && m.textures.contains(&name));
+            let _name = self.audit.name(&name, !declared);
             let result = renderer
                 .add_texture(&name, &texture)
                 .map_err(|e| e.to_string());
@@ -274,12 +337,18 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
     }
     fn device_ready(&mut self) {
         self.device = true;
+        self.device_lost = false;
+        self.recording = None;
+        self.presented = false;
         if let Some(sim) = &mut self.sim {
             sim.defer_assets(true);
         }
     }
     fn device_lost(&mut self) {
         self.device = false;
+        self.device_lost = true;
+        self.presented = false;
+        self.drawn = false;
         self.render = None;
         self.format = None;
         self.dirty = true;
@@ -299,11 +368,15 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
+        let _scope = self.audit.enter();
+        self.audit
+            .tick(self.sim.as_ref().map_or(0, |s| s.world().tick()));
         self.reported = false;
         if self.error.is_some() {
             return false;
         }
         self.device = true;
+        self.device_lost = false;
         self.prepare_assets(device, queue, format);
         let Some(sim) = &mut self.sim else {
             return false;
@@ -330,6 +403,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                     Clock::Seekable,
                     observer(
                         &mut self.render,
+                        &mut self.recording,
                         &mut self.perf,
                         &mut self.trace,
                         &mut self.error,
@@ -347,7 +421,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             self.dirty = true;
             return self.error.is_none();
         }
-        if sim.is_loading() {
+        if sim.is_loading() && sim.world().loading().next().is_some() {
             sim.advance(
                 frame.now_ms,
                 if frame.seekable {
@@ -367,6 +441,8 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                     return false;
                 }
             };
+            self.presented = false;
+            self.drawn = false;
             self.render = Some((Renderer::new(device, queue, format), feed));
             self.format = Some(format);
             self.dirty = true;
@@ -376,6 +452,8 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             if let Some(trace) = &mut self.trace {
                 trace.feed(sim.world());
             }
+            let exception = self.asset_feed_exception.take();
+            let _name = exception.as_ref().map(|n| self.audit.name(n, true));
             let (renderer, feed) = self.render.as_mut().unwrap();
             if let Err(e) = feed.feed(sim.world(), renderer) {
                 self.error = Some(SurfaceError(e.to_string()));
@@ -394,6 +472,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             },
             observer(
                 &mut self.render,
+                &mut self.recording,
                 &mut self.perf,
                 &mut self.trace,
                 &mut self.error,
@@ -415,6 +494,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
         self.perf.stats = renderer.draw(target, frame.pixels(), &input);
+        self.drawn = true;
         if let Some(start) = start {
             let ms = start.elapsed();
             self.perf.encode.push(ms);
@@ -500,6 +580,8 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         messages
     }
     fn agent(&mut self, request: &str) -> Option<String> {
+        self.headless_feed();
+        let _scope = self.audit.enter();
         self.reported = false;
         let sim = self.sim.as_mut()?;
         match crate::trace::request(request) {
@@ -539,6 +621,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
             request,
             observer(
                 &mut self.render,
+                &mut self.recording,
                 &mut self.perf,
                 &mut self.trace,
                 &mut self.error,
@@ -566,6 +649,13 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 ",\"device\":false"
             });
             self.perf.append(&mut reply);
+            let reasons = self.ready_reasons();
+            reply.push_str(&format!(
+                ",\"ready\":{},\"readyReasons\":{},\"gpu\":{}",
+                reasons.is_empty(),
+                serde_json::to_string(&reasons).unwrap(),
+                self.audit.json(self.device)
+            ));
             reply.push_str("}}");
         }
         if let Some(error) = &self.error {

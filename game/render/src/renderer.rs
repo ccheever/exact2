@@ -24,6 +24,7 @@ struct Mesh {
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
 /// Uses four storage bindings and 4× MSAA HDR; requires WebGPU (not WebGL).
 pub struct Renderer {
+    pub(crate) audit: crate::audit::Audit,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) pipelines: Pipelines,
@@ -60,7 +61,16 @@ impl Renderer {
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Starts small; all arenas grow on demand and never shrink.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+        let audit = crate::audit::Audit::current();
+        let _scope = audit.enter();
         let pipelines = Pipelines::new(device, format);
+        crate::audit::record(crate::audit::SHADER, "primitive family", 5);
+        crate::audit::record(
+            crate::audit::PIPELINE,
+            "primitive family",
+            (pipelines.forward.len() + pipelines.tone.len() + pipelines.bloom.len() + 2) as u64,
+        );
+        crate::audit::record(crate::audit::LAYOUT, "primitive family", 6);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game frame"),
             size: (frame::FLOATS * 4) as u64,
@@ -106,6 +116,7 @@ impl Renderer {
             &[255, 255, 255, 255],
         );
         Self {
+            audit,
             models: crate::models::Models::default(),
             model_batches: Vec::new(),
             slot_list: Vec::new(),
@@ -138,6 +149,7 @@ impl Renderer {
     /// Swap history roles. The caller makes every live slot current before drawing.
     /// Feed retains matching target pages instead of copying the previous buffer.
     pub fn begin_tick(&mut self) {
+        let _scope = self.audit.enter();
         let previous = self.current;
         self.current = 1 - self.current;
         self.transforms[self.current].live = self.transforms[previous].live;
@@ -149,6 +161,7 @@ impl Renderer {
     /// Exactly one queue write for a nonempty run. Panics on incomplete records;
     /// capacity refusals return the arena, requested slot and exclusive limit.
     pub fn write_transforms(&mut self, first_slot: u32, values: &[f32]) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         let end = record_end(first_slot, values.len(), 10);
         if values.is_empty() {
             return Ok(());
@@ -165,6 +178,7 @@ impl Renderer {
         first_slot: u32,
         values: &[f32],
     ) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         let end = record_end(first_slot, values.len(), 10);
         if values.is_empty() {
             return Ok(());
@@ -186,6 +200,7 @@ impl Renderer {
         first_slot: u32,
         values: &[f32],
     ) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         let end = record_end(first_slot, values.len(), 10);
         if values.is_empty() {
             return Ok(());
@@ -203,6 +218,7 @@ impl Renderer {
     /// Negative base alpha enables the grid with spacing = -alpha; geometry is opaque.
     /// Capacity refusals return the arena, requested slot and exclusive limit.
     pub fn write_materials(&mut self, first_slot: u32, values: &[f32]) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         let end = record_end(first_slot, values.len(), 12);
         if values.is_empty() {
             return Ok(());
@@ -220,6 +236,7 @@ impl Renderer {
     /// marks. The caller initializes every referenced slot; sparse holes are not
     /// tracked on the CPU. Capacity refusals return an error before changing the list.
     pub fn set_batches(&mut self, batches: &[Batch], slot_list: &[u32]) -> Result<(), RenderError> {
+        let _scope = self.audit.enter();
         self.check_capacity("slots", slot_list.len() as u64)?;
         for &slot in slot_list {
             let slot = if slot >= crate::RENDER_SLOT_BASE {
@@ -292,6 +309,7 @@ impl Renderer {
     /// Append a triangle mesh to the shared vertex/index arenas. Indices are local
     /// to this mesh; winding is counterclockwise. Panics on empty/invalid geometry.
     pub fn add_mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId {
+        let _scope = self.audit.enter();
         self.add_mesh_inner(vertices, indices, None)
     }
 
@@ -302,6 +320,7 @@ impl Renderer {
         indices: &[u32],
         image: &crate::assets::Image,
     ) -> MeshId {
+        let _scope = self.audit.enter();
         let texture = material_texture(
             &self.device,
             &self.queue,
@@ -319,6 +338,7 @@ impl Renderer {
         indices: &[u32],
         texture: Option<wgpu::BindGroup>,
     ) -> MeshId {
+        let _scope = self.audit.enter();
         assert!(!vertices.is_empty() && !indices.is_empty() && indices.len().is_multiple_of(3));
         assert!(indices.iter().all(|&i| (i as usize) < vertices.len()));
         let vertex_start = self.vertices.live;
@@ -329,6 +349,11 @@ impl Renderer {
         assert!(vertex_end / stride <= i32::MAX as u64 && index_end / 4 <= u64::from(u32::MAX));
         self.vertices.grow(&self.device, &self.queue, vertex_end);
         self.indices.grow(&self.device, &self.queue, index_end);
+        crate::audit::record(
+            crate::audit::MESH_BYTES,
+            "mesh",
+            (size_of_val(vertices) + size_of_val(indices)) as u64,
+        );
         self.vertices
             .write(&self.queue, vertex_start, bytes(vertices));
         self.indices.write(&self.queue, index_start, bytes(indices));
@@ -360,8 +385,10 @@ impl Renderer {
 
     /// Replace one retained mesh's vertex records without reallocating its range.
     pub(crate) fn update_mesh(&mut self, mesh: MeshId, vertices: &[Vertex]) {
+        let _scope = self.audit.enter();
         let mesh = &self.meshes[mesh.0];
         assert_eq!(mesh.vertex_count, vertices.len());
+        crate::audit::streaming(size_of_val(vertices) as u64);
         self.vertices
             .write(&self.queue, mesh.vertex_offset, bytes(vertices));
     }
@@ -383,6 +410,7 @@ impl Renderer {
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
+        let _scope = self.audit.enter();
         let device = &self.device;
         let queue = &self.queue;
         let size = (size_px.0.max(1), size_px.1.max(1));
@@ -715,6 +743,12 @@ fn material_texture(
     rgba: &[u8],
 ) -> wgpu::BindGroup {
     assert_eq!(rgba.len(), width as usize * height as usize * 4);
+    crate::audit::record(crate::audit::TEXTURE, "game base colour", 1);
+    crate::audit::record(
+        crate::audit::TEX_BYTES,
+        "game base colour",
+        rgba.len() as u64,
+    );
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("game base colour"),
         size: wgpu::Extent3d {
