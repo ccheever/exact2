@@ -202,3 +202,44 @@ not, and that is the whole review.
 
 
 **AU3d — lifecycle, PCM ownership and truthful proof.** Lifecycle now says Interrupted/Resumed, Player reserves PCM before rendering and keeps it only through output acknowledgement, output start is one fallible operation, registered plays use a shared World, and sources have a playing-by-default constructor. Regression fixtures cover oversized-name refusal, same-id replacement, priority fallback, saved runtime names, main-thread Apple notifications, activation retries and shouldResume; failed AudioUnit lifecycle operations dispose the device and enter bounded retry. The live web probe passes both frame/gesture orderings without withholding callbacks, measures gesture cost and retries an injected start failure; Greybox, Beacons and asset-fixture web pins are unchanged. ExactMac linked, but the single macOS proof failed in the WebKit helper's SDK/compiler mismatch; iOS Rust libraries and ExactKit built, not driven. The carry-only fresh registry overlay remains pending a scope decision: the hosts currently send identical bytes through the same restore API for dev carry and file open.
+
+## 2026-09-18, 04:56–06:00 — the first full feel sitting, and the second whole-engine review
+
+The console went quiet at 04:55 and the armed script took the whole table:
+exact 60 and 120 Hz worlds, three.js, Godot shipped and interpolated, three attempts
+each (`game/bench/README.md`, "First full sitting"). Exact's walking player moves by
+a displacement that varies 0.2 % frame to frame — three.js's varies 50–70 % and
+repeats a frame every fifth or sixth, shipped Godot repeats every other frame,
+interpolated Godot 3–37 % — and its event-to-submitted-pose latency at 60 Hz ticks
+(5–6.5 ms) sits with three.js's per-frame stepping (4.5 ms) and three times under
+Godot's (16 ms); at 120 Hz ticks 3.5–4.1 ms. Every row is provisional (load 12–29
+from two builders and four reviewers) and the README reads it like an adversary.
+
+Two things the sitting cost me. The runner rejected every exact row as it ran
+("Nonmonotonic frame timestamps"): my fix for the resize path — redraw at the last
+paced frame time — puts two trace rows at one timestamp, which the analyzer called
+backwards. A redraw at an unchanged time is not a frame interval; the analyzer now
+collapses it and a `reanalyze` command scores saved traces, so the rows were
+recovered without re-measuring. And the first exact attempts were contaminated by
+me: I ran a proof while the sitting was in progress and its Chrome stole the
+window's focus (`front/visible NO`, the player stood still for 138 frames). A sitting
+is a sitting; nothing else touches the display. Godot's probe, refactored two
+briefs ago by a builder with no display, had a GDScript type-inference error and
+compared JSON floats with integer key codes; both fixed by hand, six Godot rows
+taken afterwards.
+
+The second whole-engine review (astra, `review-ASTRA-whole-2.md`) answered the
+owner's question directly: keep the engine, no restart — "cut the coupling around
+it". Its five changes, in order: deferred restore refusal nonfatal and asset
+re-preparation after device loss; publications in quiescence; the model machinery
+split out of the primitive artifact (Beacons ships 787 KB of GPU wasm for a game
+with no models) and the 640 KiB of diagnostic rings no longer allocated by default;
+displayed-pose rules unified before skeletons; the feel probe reporting raw cadence
+and paced time as separate columns with a visibility threshold before any "better
+than Godot" claim. Plus a deletion list (an export parser, a duplicate `Environment`,
+a speculative bounding radius, an impersonating error type, three audio starts, an
+async unlock path, save migration nobody uses, two enormous tests, a 9,494-line proof
+transcript) and ten author-facing edges. All of it is briefed (S3a-c, D2) before
+skeletons; the reviews of the tick-early scheduler and of the audio lifecycle each
+took two rounds to converge, which is the pattern: the builder finds the design's
+gaps, the reviewers find the builder's, and the brief's own formula is not exempt.
