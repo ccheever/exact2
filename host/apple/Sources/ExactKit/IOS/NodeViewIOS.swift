@@ -94,7 +94,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var didAutofocus = false
     var liveText: String?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -282,20 +281,22 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { canvasInput?.blur() }
+        if ok { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if canvasInput?.presses(presses, down: true) == true { return }
+        if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
+        if !disabled, handlers.contains("press"), let key = presses.first?.key,
+           ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
         guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
         presenter?.key(id, NodeView.keyName(key))
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if canvasInput?.presses(presses, down: false) != true { super.pressesEnded(presses, with: event) }
+        if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesEnded(presses, with: event) }
     }
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if canvasInput?.presses(presses, down: false) != true { super.pressesCancelled(presses, with: event) }
+        if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
     }
     /// The web's key names for UIKit's.
     static func keyName(_ key: UIKey) -> String {

@@ -48,12 +48,16 @@ final class CanvasInput {
         }
         return sent
     }
-    func presses(_ presses: Set<UIPress>, down: Bool) -> Bool {
-        guard let view, view.isFirstResponder else { return false }
+    func presses(_ presses: Set<UIPress>, down: Bool, source: NodeView) -> Bool {
+        guard let view else { return false }
         var handled = false
         for press in presses {
             guard let key = press.key else { continue }
             let code = KeyCodes.hid(key.keyCode.rawValue)
+            if down {
+                guard source.isFirstResponder, source.forwardsCanvasKey(code,
+                    command: !key.modifierFlags.intersection([.command, .control]).isEmpty) else { continue }
+            } else if !keys.contains(code) { continue }
             let repeated = down && keys.contains(code)
             if down { keys.insert(code) } else { keys.remove(code) }
             view.canvases?.input(view, ["t": "key", "code": code, "key": key.characters.isEmpty ? KeyCodes.key(code) : key.characters, "down": down, "repeat": repeated], timestamp: press.timestamp)

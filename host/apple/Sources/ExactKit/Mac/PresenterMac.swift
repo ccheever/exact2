@@ -52,6 +52,7 @@ final class PageScrollView: NSScrollView {
 }
 
 final class Presenter {
+    var autofocusProcessed = false
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -352,7 +353,6 @@ final class Presenter {
             default: break
             }
         }
-        syncAccessibility()
         navigation.sync()
         fitDocument()
         // The page's canvas colour is the first root's background — what
@@ -373,6 +373,7 @@ final class Presenter {
         if structureChanged { selection.structureChanged() }
         refreshVisibleText()
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
+        syncAccessibility()
     }
 
     /// Align an enclosing context panel's preview with its source, while

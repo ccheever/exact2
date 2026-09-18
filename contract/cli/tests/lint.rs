@@ -123,13 +123,14 @@ fn bake_refuses_a_pressable_with_zero_area() {
 }
 
 #[test]
-fn live_regions_refuse_values_outside_the_two_priorities() {
-    for value in ["off", "rude", "", "POLITE"] {
+fn live_regions_accept_html_values_and_bound_strings() {
+    for value in ["rude", "", "POLITE"] {
         let source = format!("component A\n  view\n    text \"Count\" aria-live=\"{value}\"\n");
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, "lower-attr-value");
         assert!(error.message.contains("polite") && error.message.contains("assertive"));
     }
+    contract::compile("component A\n  state priority = \"off\"\n  view\n    column\n      text \"Quiet\" aria-live=\"off\"\n      text \"Bound\" aria-live=priority\n").unwrap();
     contract::compile(include_str!("../../corpus/accessibility.contract")).unwrap();
     assert!(contract::compile("component A\n  view\n    input autofocus autofocus\n").is_err());
 }

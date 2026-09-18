@@ -393,7 +393,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
-        if session.canvases.wantsInput(v.id) || req["phase"] != nil { return canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
@@ -403,7 +403,9 @@ extension Agent {
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
             let parts = chord.split(separator: "+").map(String.init)
-            let key = parts.last ?? chord
+            let rawKey = parts.last ?? chord
+            let device = KeyCodes.device(rawKey)
+            let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
                 switch modifier { case "Meta": modifiers.insert(.command); case "Shift": modifiers.insert(.shift)
@@ -428,6 +430,7 @@ extension Agent {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
             } else { return ["error": "view \(v.id) takes no key"] }
             let (chars, code): (String, UInt16) = {
+                if let device, let code = KeyCodes.mac.first(where: { $0.value == device.code })?.key { return (device.key == "Enter" ? "\r" : device.key, UInt16(code)) }
                 switch key {
                 case "c": return (key, 8)
                 case "o": return (key, 31)
@@ -456,8 +459,15 @@ extension Agent {
             if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            win.sendEvent(down)
-            win.sendEvent(up)
+            let phase = req["phase"] as? String
+            if phase != "up" { win.sendEvent(down) }
+            if phase != "down" { win.sendEvent(up) }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak v] in
+                    v?.keyUp(with: up)
+                    return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
+                }
+            }
             return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
         }
         if let f = v.textArea {

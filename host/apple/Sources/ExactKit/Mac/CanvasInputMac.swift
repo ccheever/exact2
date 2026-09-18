@@ -6,6 +6,7 @@ final class CanvasInput {
     weak var view: NodeView?
     private var tracking: NSTrackingArea?
     private var inactive: NSObjectProtocol?
+    private var keys: Set<String> = []
     private var buttons = 0
     private var modifiers: Set<String> = []
 
@@ -34,12 +35,17 @@ final class CanvasInput {
     }
     func blur() {
         guard let view else { return }
-        buttons = 0; modifiers.removeAll()
+        buttons = 0; modifiers.removeAll(); keys.removeAll()
         view.canvases?.input(view, ["t": "blur"])
     }
-    func key(_ event: NSEvent, down: Bool) -> Bool {
-        guard let view, view.window?.firstResponder === view else { return false }
+    func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {
+        guard let view else { return false }
         let code = KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
+        if down {
+            guard view.window?.firstResponder === source,
+                  source.forwardsCanvasKey(code, command: !event.modifierFlags.intersection([.command, .control]).isEmpty) else { return false }
+            keys.insert(code)
+        } else if keys.remove(code) == nil { return false }
         let key = event.characters.flatMap { $0.isEmpty ? nil : $0 } ?? KeyCodes.key(code)
         view.canvases?.input(view, ["t": "key", "code": code, "key": key, "down": down, "repeat": event.isARepeat], timestamp: event.timestamp)
         return !event.modifierFlags.contains(.command)

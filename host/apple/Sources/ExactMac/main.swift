@@ -213,9 +213,6 @@ nonisolated(unsafe) var readySent = false
 // Delay both attachment and boot until Launch Services has delivered launch URLs.
 // @ref LLP 1038 D5/D8
 func finishLaunching() {
-    window.contentView = view
-    view.attachWindowToolbar(to: window)
-    ExactEnv.stamp("contentView")
     ExactEnv.stamp("before boot")
     let tBoot = CACurrentMediaTime()
     // The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
@@ -245,7 +242,7 @@ func finishLaunching() {
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).
     let boot: Batch = {
-        let size = session.viewportSize
+        let size = window.contentView?.bounds.size ?? window.contentLayoutRect.size
         let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
         if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
             DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
@@ -255,6 +252,11 @@ func finishLaunching() {
         }
         return session.boot(size: size)
     }()
+    // Boot the selected plan before attachment can auto-boot the embedded one.
+    // A session mounts once, including its one autofocus attempt.
+    window.contentView = view
+    view.attachWindowToolbar(to: window)
+    ExactEnv.stamp("contentView")
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs

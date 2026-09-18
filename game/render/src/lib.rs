@@ -188,14 +188,15 @@ pub struct Environment {
 }
 impl Default for Environment {
     fn default() -> Self {
+        let engine = exact_game::Environment::default();
         Self {
-            background: None,
-            zenith: [0.12, 0.22, 0.4],
-            horizon: [0.45, 0.6, 0.65],
-            ground: [0.04, 0.035, 0.025],
-            ambient: 0.5,
-            sun_disc: 0.00465,
-            fog: None,
+            background: engine.background,
+            zenith: engine.zenith,
+            horizon: engine.horizon,
+            ground: engine.ground,
+            ambient: engine.ambient,
+            sun_disc: engine.sun_disc,
+            fog: engine.fog,
         }
     }
 }

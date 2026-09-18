@@ -417,9 +417,7 @@ impl Feed {
                     {
                         let record = &p.floats()[i * 10..i * 10 + 10];
                         out[..9].copy_from_slice(&record[..9]);
-                        if record[9] > 0.0 {
-                            out[3] = -record[9];
-                        }
+                        out[3] = grid_alpha(record[3], record[9]);
                     } else {
                         out.copy_from_slice(&default);
                     }
@@ -497,16 +495,19 @@ fn floats(t: Transform) -> [f32; 10] {
         t.scale.z,
     ]
 }
+fn grid_alpha(alpha: f32, spacing: f32) -> f32 {
+    if spacing > 0.0 {
+        -spacing
+    } else {
+        alpha.max(0.0)
+    }
+}
 fn material_floats(m: Material) -> [f32; 12] {
     [
         m.color[0],
         m.color[1],
         m.color[2],
-        if m.grid_spacing > 0.0 {
-            -m.grid_spacing
-        } else {
-            m.color[3]
-        },
+        grid_alpha(m.color[3], m.grid_spacing),
         m.metallic,
         m.roughness,
         m.emissive[0],

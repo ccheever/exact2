@@ -51,6 +51,7 @@ pub struct Presenter<D: DataSource> {
     /// reload boots a fresh runner, which is told again.
     compat: String,
     focus: Option<ViewId>,
+    autofocus_processed: bool,
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
@@ -297,6 +298,7 @@ impl<D: DataSource> Presenter<D> {
             assets,
             compat: String::new(),
             focus: None,
+            autofocus_processed: false,
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
@@ -759,6 +761,29 @@ impl<D: DataSource> Presenter<D> {
                 self.focus = None;
             }
         }
+        if !self.autofocus_processed {
+            for id in live {
+                let node = self.host.kernel().node(id).unwrap();
+                if node.props.bool(PropId::Autofocus) != Some(true)
+                    || !self.focusable(id)
+                    || self.host.route_visibility(id).1
+                {
+                    continue;
+                }
+                if !self
+                    .box_of(id)
+                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
+                {
+                    continue;
+                }
+                self.autofocus_processed = true;
+                if self.focus.is_none() {
+                    self.focus = Some(id);
+                    self.dirty = true;
+                }
+                break;
+            }
+        }
         self.clamp_scroll();
         error
     }
@@ -998,17 +1023,26 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    fn focusable(&self, id: ViewId) -> bool {
+        self.host.kernel().node(id).is_some_and(|n| {
+            n.props.bool(PropId::Disabled) != Some(true)
+                && (n.node_type == NodeType::TextInput
+                    || n.props.str(PropId::AccessibilityRole) == Some("button"))
+        })
+    }
+
     /// A press at a point, the path a click takes: hit, then up to a
     /// `press` handler; focus follows the click (an input takes it, anything
     /// else drops it). Returns the node pressed, if any.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
-        let kernel = self.host.kernel();
-        let focus = kernel
-            .node(hit)
-            .filter(|node| node.node_type == NodeType::TextInput)
-            .filter(|node| node.props.bool(PropId::Disabled) != Some(true))
-            .map(|_| hit);
+        let mut focus = Some(hit);
+        while let Some(id) = focus {
+            if self.focusable(id) {
+                break;
+            }
+            focus = self.host.kernel().node(id).and_then(|n| n.parent);
+        }
         if self.focus != focus {
             self.focus = focus;
             self.dirty = true;
@@ -1178,6 +1212,25 @@ impl<D: DataSource> Presenter<D> {
         Ok(s)
     }
 
+    /// Agent keyboard input uses the same focus and activation path as evdev.
+    pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
+        if !self.focusable(id) || self.host.route_visibility(id).1 {
+            return Err(format!("view {id} cannot take focus"));
+        }
+        self.focus = Some(id);
+        self.dirty = true;
+        if down {
+            let ch = match key {
+                "Space" | " " => Some(' '),
+                "Enter" => Some('\n'),
+                s if s.chars().count() == 1 => s.chars().next(),
+                _ => None,
+            };
+            self.key(ch, key == "Backspace", self.host.now());
+        }
+        Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
+    }
+
     /// A key for the focused input: a character appended, a backspace, or
     /// nothing. The runner hears one `change` with the new value.
     pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
@@ -1186,6 +1239,13 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         if node.props.bool(PropId::Disabled) == Some(true) {
+            return;
+        }
+        if node.props.str(PropId::AccessibilityRole) == Some("button") {
+            if matches!(ch, Some(' ' | '\n' | '\r')) {
+                self.host.dispatch_at(id, Event::Press, now_ms);
+                self.after_commit();
+            }
             return;
         }
         if node.props.bool(PropId::Editable) == Some(false) {

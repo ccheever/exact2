@@ -7,6 +7,7 @@
 import UIKit
 
 final class Presenter {
+    var autofocusProcessed = false
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -504,12 +505,12 @@ final class Presenter {
             }
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }
-        syncAccessibility()
         navigation.sync(batch)
         segments.sync()
         menus.sync()
         swipeActions.sync()
         positionContexts()
+        syncAccessibility()
     }
 
     /// Geometry can be deferred for the source route while a modal owns the

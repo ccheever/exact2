@@ -44,7 +44,13 @@ fn shade(input: Varying, visibility: f32) -> vec4<f32> {
         let weight = pow(abs(normalize(input.normal)), vec3(8.0));
         let planes = vec3(max(lines.y, lines.z), max(lines.x, lines.z), max(lines.x, lines.y));
         let fade = 1.0 - smoothstep(0.2, 1.0, max(footprint.x, max(footprint.y, footprint.z)));
-        let line = dot(planes, weight) / max(dot(weight, vec3(1.0)), 0.0001) * fade;
+        // Integrated line coverage, including the union of both projected axes.
+        // Minification converges to this lined mean, never the unlined base.
+        let width = footprint * 1.25;
+        let t = min(0.5 / width, vec3(1.0));
+        let mean = 2.0 * width * (t - t*t*t + 0.5*t*t*t*t);
+        let plane_mean = vec3(1.0) - vec3((1.0-mean.y)*(1.0-mean.z), (1.0-mean.x)*(1.0-mean.z), (1.0-mean.x)*(1.0-mean.y));
+        let line = dot(mix(plane_mean, planes, fade), weight) / max(dot(weight, vec3(1.0)), 0.0001);
         base *= 1.0 + 0.35 * line;
     }
     let metallic = clamp(materials[i+4u], 0.0, 1.0);

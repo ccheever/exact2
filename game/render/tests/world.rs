@@ -318,4 +318,64 @@ fn beacons_designed_defaults() {
         changed > 1000,
         "grid must add visible detail: {changed} pixels"
     );
+    // At a distance, unresolved lines retain their mean instead of disappearing.
+    sim.world_mut()
+        .get_mut::<Material>("ground")
+        .unwrap()
+        .grid_spacing = 0.001;
+    surface.restore(&sim.save()).unwrap();
+    let distant = render(&gpu, &mut surface, 0.0, "beacons-distant-grid");
+    let brighter = distant
+        .data
+        .chunks_exact(4)
+        .zip(plain.data.chunks_exact(4))
+        .filter(|(a, b)| i16::from(a[0]) > i16::from(b[0]) + 3)
+        .count();
+    assert!(
+        brighter > 1000,
+        "unresolved grid retains its lined mean: {brighter}"
+    );
+    sim.world_mut()
+        .get_mut::<Material>("ground")
+        .unwrap()
+        .grid_spacing = 0.0;
+    sim.world_mut().get_mut::<Material>("ground").unwrap().color[3] = -2.0;
+    surface.restore(&sim.save()).unwrap();
+    assert!(
+        plain.data == render(&gpu, &mut surface, 0.0, "beacons-negative-alpha").data,
+        "negative alpha must not enable a grid"
+    );
+
+    let env = exact_game::Environment {
+        fog: None,
+        ..Default::default()
+    };
+    sim.world_mut().insert_resource(env);
+    surface.restore(&sim.save()).unwrap();
+    let clear = render(&gpu, &mut surface, 0.0, "beacons-no-fog");
+    assert!(
+        plain
+            .data
+            .chunks_exact(4)
+            .zip(clear.data.chunks_exact(4))
+            .filter(|(a, b)| (i16::from(a[0]) - i16::from(b[0])).abs() > 3)
+            .count()
+            > 1000
+    );
+    let env = exact_game::Environment {
+        bloom: None,
+        ..Default::default()
+    };
+    sim.world_mut().insert_resource(env);
+    surface.restore(&sim.save()).unwrap();
+    let dark = render(&gpu, &mut surface, 0.0, "beacons-no-bloom");
+    assert!(
+        plain
+            .data
+            .chunks_exact(4)
+            .zip(dark.data.chunks_exact(4))
+            .filter(|(a, b)| (i16::from(a[0]) - i16::from(b[0])).abs() > 1)
+            .count()
+            > 50
+    );
 }

@@ -1027,11 +1027,11 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         let want = tags::prop_ty(prop);
         if prop == PropId::AccessibilityLive
-            && !matches!(value, Expr::Str(s, _) if s == "polite" || s == "assertive")
+            && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
         {
             return err(
                 "lower-attr-value",
-                "`aria-live` takes \"polite\" or \"assertive\"",
+                "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
                 span,
             );
         }

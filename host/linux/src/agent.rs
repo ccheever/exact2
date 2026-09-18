@@ -113,7 +113,7 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
-        Some("tree") => unavailable_tree(p),
+        Some("tree") => accessibility_tree(p),
         Some("state") => {
             // The runner's state, then the sections a painter cannot observe
             // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
@@ -121,7 +121,13 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
-                s.push_str(",\"focus\":{\"unavailable\":true},\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}");
+                s.push_str(&format!(
+                    ",\"focus\":{{\"logical\":{}}}",
+                    p.focus().map_or("null".into(), |id| id.to_string())
+                ));
+                s.push_str(
+                    ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
+                );
             }
             s
         }
@@ -147,6 +153,11 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
+            if let Some(key) = field_str(line, "key") {
+                return p
+                    .type_key(id, &key, field_str(line, "phase").as_deref() != Some("up"))
+                    .unwrap_or_else(|e| error(&e));
+            }
             let text = field_str(line, "text").unwrap_or_default();
             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
         }
@@ -160,11 +171,49 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
-fn unavailable_tree<D: DataSource>(p: &Presenter<D>) -> String {
-    p.host().agent("{\"op\":\"tree\"}").replace(
-        "\"type\":\"WebView\",\"props\":",
-        "\"type\":\"WebView\",\"unavailable\":true,\"props\":",
-    )
+fn accessibility_tree<D: DataSource>(p: &Presenter<D>) -> String {
+    use exact_kernel::generated::PropId;
+    fn text<D: DataSource>(p: &Presenter<D>, id: u32) -> String {
+        let Some(node) = p.host().kernel().node(id) else {
+            return String::new();
+        };
+        if let Some(s) = node.props.str(PropId::Text) {
+            return s.into();
+        }
+        node.children()
+            .iter()
+            .map(|&id| text(p, id))
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    let mut tree: serde_json::Value =
+        serde_json::from_str(&p.host().agent(r#"{"op":"tree"}"#)).unwrap();
+    if let Some(nodes) = tree["nodes"].as_array_mut() {
+        for row in nodes {
+            let Some(id) = row["id"].as_u64().map(|id| id as u32) else {
+                continue;
+            };
+            row["focused"] = (p.focus() == Some(id)).into();
+            if row["type"] == "WebView" {
+                row["unavailable"] = true.into();
+            }
+            if let Some(node) = p.host().kernel().node(id) {
+                if matches!(
+                    node.props.str(PropId::AccessibilityRole),
+                    Some("button" | "link")
+                ) {
+                    row["accessibleName"] = node
+                        .props
+                        .str(PropId::AccessibilityLabel)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| text(p, id))
+                        .into();
+                }
+            }
+        }
+    }
+    tree.to_string()
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.

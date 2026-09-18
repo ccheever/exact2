@@ -1,6 +1,31 @@
 // The GPU module's optional input, message and agent seams (LLP 1041.002 §3).
 // The runner never learns what a surface's world is; the web host is the oracle.
 import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+extension NodeView {
+    var inputCanvas: NodeView? {
+        #if os(macOS)
+        var ancestor: NSView? = self
+        #else
+        var ancestor: UIView? = self
+        #endif
+        while let view = ancestor {
+            if let node = view as? NodeView, node.canvasInput != nil { return node }
+            ancestor = view.superview
+        }
+        return nil
+    }
+    func forwardsCanvasKey(_ code: String, command: Bool = false) -> Bool {
+        guard !disabled, !inert, field == nil, textArea == nil, !command, code != "Tab" else { return false }
+        return !(["Space", "Enter", "NumpadEnter"].contains(code)
+            && (kind == "button" || ["button", "link"].contains(props["accessibilityRole"] ?? "")))
+    }
+}
 
 // The file carrier has a product budget before allocation; engine limits remain
 // the second, structural boundary. The same limit applies before base64 capture.

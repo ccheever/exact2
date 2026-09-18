@@ -16,7 +16,7 @@ The target must match that format. Direct callers initialize sparse holes too.
 
 Transform records are ten floats (position, quaternion, scale); materials are twelve
 (linear base RGBA, metallic, roughness, emissive RGB, primitive dimensions XYZ).
-Base alpha is reserved; the forward shader returns 1. Quaternions should be unit
+The forward shader is opaque (alpha 1). Negative uploaded base alpha encodes positive grid spacing; WorldSurface clamps authored alpha to nonnegative when the grid is off. Quaternions should be unit
 length; zero draws as identity. Scale is positive; negative inputs use absolute
 values. Mirroring awaits double-sided materials. WebGPU depth is 0–1, near zero;
 reverse-Z is unsupported. Capsule height is tip-to-tip.

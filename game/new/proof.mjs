@@ -5,9 +5,12 @@ await proof(import.meta, async ({open, check}) => {
   const s = await open();
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
+  check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  check('state agrees with initial focus', (await s.state()).focus.logical === node(title, 'play')?.id);
   check('title and Play', !!node(title, 'play') && title.nodes.some(n => n.props?.text === 'Small game'));
   check('world loads after Play', !node(title, 'world'));
   await s.tap('play');
+  check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
   check('initial HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 0');
   await s.type('world', {key:'KeyW', for:250});
   check('movement', (await s.state('world:player')).entity.components.Transform.position[2] < 0);

@@ -510,7 +510,7 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
-        if session.canvases.wantsInput(v.id) || req["phase"] != nil { return canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
@@ -520,7 +520,27 @@ extension Agent {
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let f = v.textArea {
             f.becomeFirstResponder()
-            if let key = req["key"] as? String {
+            if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
+           v.forwardsCanvasKey(device.code) {
+            guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
+            let phase = req["phase"] as? String
+            for step in phase.map({ [$0] }) ?? ["down", "up"] {
+                session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false])
+            }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak self, weak canvas] in
+                    if let self, let canvas { self.session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) }
+                    return ["phase": "up", "delivery": "recognized"]
+                }
+            }
+            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        }
+        if let key = req["key"] as? String, ["Space", " ", "Enter"].contains(key), v.handlers.contains("press") {
+            _ = v.becomeFirstResponder()
+            if req["phase"] as? String != "up" { presenter.press(v.id) }
+            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        }
+        if let key = req["key"] as? String {
                 if key == "Enter" { f.insertText("\n") }
                 else if key == "Backspace" { f.deleteBackward() }
                 else { return ["error": "unsupported textarea key \(key)"] }

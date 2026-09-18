@@ -1096,14 +1096,14 @@ if (deckFixture) {
 
 }
 
-// Live regions, DOM/native names, and focus survive updates but reset on remount.
-if ((host === 'web' || apple) && !argv.includes('--app-only')) {
+// Live regions, computed names, and once-per-session autofocus.
+if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-accessibility-'));
   const plan = resolve(tmp, 'accessibility.plan');
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'accessibility fixture compiles: ' + c.stderr);
   if (c.status === 0) {
-    const f = await open({host, plan});
+    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
@@ -1115,10 +1115,20 @@ if ((host === 'web' || apple) && !argv.includes('--app-only')) {
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       await f.tap('other');
       check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
-      await f.tap('toggle'); await f.tap('toggle');
+      await f.clock('+1000'); await f.clock('+1000');
       t = await f.tree();
-      check(byTestId(t, 'first')?.focused === true, 'newly shown node autofocuses');
-      check((await f.state()).focus.logical === byTestId(t, 'first')?.id, 'state agrees with tree focus');
+      check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
+      check((await f.state()).focus.logical === byTestId(t, 'other')?.id, 'state agrees with tree focus');
+      if (host === 'macos') {
+        const source = resolve(tmp, 'reload.contract');
+        writeFileSync(source, readFileSync(resolve(ROOT, 'contract/corpus/accessibility.contract'), 'utf8').replace('text "Other"', 'text "Other reloaded"'));
+        const rebuilt = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
+        check(rebuilt.status === 0, 'reload fixture compiles: ' + rebuilt.stderr);
+        let tree;
+        for (let i = 0; i < 100; i++) { tree = await f.tree(); if (byTestId(tree, 'other')?.accessibleName === 'Other reloaded') break; await sleep(20); }
+        check(byTestId(tree, 'other')?.accessibleName === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
+        check(byTestId(await f.tree(), 'first')?.focused !== true, 'reload does not steal focus for First');
+      }
     } finally { await f.close(); }
   }
   rmSync(tmp, {recursive:true, force:true});

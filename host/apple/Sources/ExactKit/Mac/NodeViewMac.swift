@@ -180,7 +180,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var didAutofocus = false
     var liveText: String?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -281,10 +280,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A key down at a focused node, by the web's key name. Space and Enter
     /// on a pressable fire `press`, as they do on a `<button>`.
     override func keyDown(with event: NSEvent) {
-        if let canvasInput {
-            if !canvasInput.key(event, down: true) { super.keyDown(with: event) }
-            return
-        }
+        if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
         guard !disabled else { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
@@ -302,7 +298,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.keyDown(with: event)
     }
     override func keyUp(with event: NSEvent) {
-        if canvasInput?.key(event, down: false) != true { super.keyUp(with: event) }
+        if inputCanvas?.canvasInput?.key(event, down: false, source: self) != true { super.keyUp(with: event) }
     }
     override func flagsChanged(with event: NSEvent) {
         if canvasInput?.flags(event) != true { super.flagsChanged(with: event) }

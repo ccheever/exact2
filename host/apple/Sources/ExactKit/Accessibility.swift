@@ -1,4 +1,4 @@
-// HTML live regions and once-per-mounted-node autofocus, shared by Apple hosts.
+// HTML live regions and once-per-session autofocus, shared by Apple hosts.
 #if os(macOS)
 import AppKit
 #else
@@ -14,18 +14,25 @@ extension NodeView {
     var accessibleName: String { props["accessibilityLabel"] ?? accessibleText }
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert else { return false }
-        var ancestor = paragraphOwner
-        while true {
-            if ancestor.isHidden || ancestor.inert { return false }
-            guard let parent = ancestor.superview as? NodeView else { return true }
-            ancestor = parent
+        #if os(macOS)
+        var ancestor: NSView? = paragraphOwner
+        #else
+        var ancestor: UIView? = paragraphOwner
+        #endif
+        while let view = ancestor {
+            if view.isHidden || (view as? NodeView)?.inert == true { return false }
+            ancestor = view.superview
         }
+        return true
     }
 }
 
 extension Presenter {
     func syncAccessibility() {
-        var tookFocus = false
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
+            return
+        }
         for node in views.values.sorted(by: { $0.id < $1.id }) {
             if node.kind == "button" || node.props["accessibilityRole"] == "button" {
                 #if os(macOS)
@@ -34,7 +41,7 @@ extension Presenter {
                 node.accessibilityLabel = node.accessibleName
                 #endif
             }
-            if let live = node.props["accessibilityLive"] {
+            if let live = node.props["accessibilityLive"], live == "polite" || live == "assertive" {
                 let text = node.accessibleText
                 if node.accessibilityVisible,
                    let previous = node.liveText, previous != text, !text.isEmpty {
@@ -48,17 +55,21 @@ extension Presenter {
                 }
                 node.liveText = text
             } else { node.liveText = nil }
-            guard !node.didAutofocus, node.props["autofocus"] == "true",
+            guard !autofocusProcessed, node.props["autofocus"] == "true",
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
             // Mark before dispatch: a focus action can synchronously apply another batch.
-            node.didAutofocus = true
-            if tookFocus { continue }
+            autofocusProcessed = true
             #if os(macOS)
+            guard let window = node.window else { continue }
+            let current = window.firstResponder
+            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view else { continue }
             let target: NSView = node.textArea ?? node.field ?? node
-            tookFocus = target.acceptsFirstResponder && node.window?.makeFirstResponder(target) == true
+            if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
+            func hasFocus(_ view: UIView) -> Bool { view.isFirstResponder || view.subviews.contains(where: hasFocus) }
+            guard let window = node.window, !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
-            tookFocus = target.becomeFirstResponder()
+            _ = target.becomeFirstResponder()
             #endif
         }
     }

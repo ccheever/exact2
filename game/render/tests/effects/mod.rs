@@ -241,7 +241,10 @@ fn sky_gradient_sun_disc_and_height_fog() {
     f.camera_position = Vec3::ZERO;
     f.view = glam::Mat4::IDENTITY;
     f.proj = directx::perspective(170f32.to_radians(), 1.0, 0.1, 100.0);
-    f.environment = Environment::default();
+    f.environment = Environment {
+        fog: None,
+        ..Environment::default()
+    };
     f.environment.sun_disc = 0.0;
     let texture = target(&gpu, (512, 512), wgpu::TextureFormat::Rgba8Unorm);
     let sky = render(&gpu, &mut r, &texture, &f);

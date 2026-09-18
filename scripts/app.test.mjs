@@ -191,3 +191,51 @@ test('deploy excludes generated shells and regenerates them from captured game s
     assert.ok(readFileSync(resolve(dirname(gpu.manifest_path),'src/lib.rs'),'utf8').includes('SmallGame'));
   } finally { disposeSnapshot(snapshot); }
 }));
+
+
+test('rendered tree includes focus and the computed accessible name', async () => {
+  const { render } = await import('./agent.mjs');
+  const line = render('tree', {nodes:[{id:1, depth:0, type:'View', props:{testId:'play'}, focused:true, accessibleName:'Play'}]});
+  assert.match(line, /\[focused\]/);
+  assert.match(line, /name="Play"/);
+});
+
+
+test('autofocus is deferred and processed once per document, including a refused attempt', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('function focusAutofocus()'), source.indexOf('function setInputReady'));
+  const element = () => ({exactAutofocus:true, getClientRects:()=>[{}], matches:()=>false,
+    setAttribute() {}, focus() { document.activeElement = this; }});
+  const document = {body:{}, activeElement:null};
+  const first = element(), other = element();
+  const views = new Map([[1,first]]);
+  const context = {document, views, root:{querySelectorAll:()=>[...views.values()]}, inputReady:true,
+    inertAncestor:()=>false, getComputedStyle:()=>({visibility:'visible'})};
+  const focus = runInNewContext('let autofocusProcessed = false;'+fn+';focusAutofocus', context);
+  document.activeElement = other;
+  focus();
+  assert.equal(document.activeElement, other, 'existing focus must win');
+  document.activeElement = document.body;
+  views.set(1, element()); // replacement view after plan reload
+  focus();
+  assert.equal(document.activeElement, document.body, 'refused autofocus is still processed');
+});
+
+
+test('applying autofocus props cannot trigger browser focus during a batch', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('// @ref LLP 1020 D2 — one page listener'));
+  class Element {}
+  const apply = runInNewContext(fn+';applyProps', {inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element});
+  const attrs = new Map();
+  const el = {setAttribute:(k,v)=>attrs.set(k,v), removeAttribute:k=>attrs.delete(k)};
+  apply(el, {autofocus:'true'}, []);
+  assert.equal(attrs.has('autofocus'), false);
+  assert.equal(el.exactAutofocus, true);
+  apply(el, {}, ['autofocus']);
+  assert.equal(el.exactAutofocus, false);
+});

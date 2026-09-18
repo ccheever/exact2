@@ -5,7 +5,6 @@
 // Nothing here runs per frame; layout and motion are the browser's.
 
 import { navigation } from "./navigation.js";
-
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
@@ -17,7 +16,7 @@ const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
 let memory = null;
-let inputReady = false;
+let inputReady = false, autofocusProcessed = false;
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let rustLoader = null, rustLoading = null;
@@ -39,16 +38,14 @@ async function loadRust() {
 }
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
-// Baked content is readable and scrollable before the data executor arrives.
-// `inert` would remove the entire tree from hit testing (including scrollers)
-// and accessibility. Gate actions and editing, not browser layout/navigation.
+// Before data arrives, gate actions/editing but preserve scrolling and accessibility.
 function focusAutofocus() {
-  if (!inputReady) return;
-  let focused = false;
-  for (const el of root.querySelectorAll("[autofocus]")) {
-    if (el.exactAutofocused || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
-    el.exactAutofocused = true;
-    if (!focused) { el.focus(); focused = document.activeElement === el; }
+  if (!inputReady || autofocusProcessed) return;
+  for (const el of views.values()) {
+    if (!el.exactAutofocus || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
+    autofocusProcessed = true; // Before focus handlers can re-enter apply.
+    if (document.activeElement && document.activeElement !== document.body) return;
+    el.setAttribute("autofocus", ""); el.focus(); return;
   }
 }
 function setInputReady(ready) {
@@ -372,6 +369,7 @@ function applyProps(el, set, clear) {
     else if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
+    else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
     else if (name === "inert") { el.authoredInert = false; el.inert = false; }
     else el.removeAttribute(name);
   }
@@ -390,7 +388,8 @@ function applyProps(el, set, clear) {
       el.checked = value === "true";
     } else if (name === "inert") {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
-    } else if (name === "disabled" || name === "readonly" || name === "autofocus") {
+    } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
+    } else if (name === "disabled" || name === "readonly") {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);

@@ -868,3 +868,16 @@ fn feed_cpu_cost() {
         }
     }
 }
+
+#[test]
+fn renderer_defaults_match_world_and_negative_alpha_does_not_enable_grid() {
+    assert_eq!(
+        crate::Environment::default().fog,
+        exact_game::Environment::default().fog
+    );
+    let mut material = Material::default();
+    material.color[3] = -2.0;
+    assert!(material_floats(material)[3] >= 0.0);
+    material.grid_spacing = 2.0;
+    assert_eq!(material_floats(material)[3], -2.0);
+}

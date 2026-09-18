@@ -92,7 +92,7 @@ const position = state => state?.entity?.components?.Transform?.position;
   say(`TIMINGS ${JSON.stringify(perf)}`);
   writeFileSync(resolve(out, 'state.json'), JSON.stringify(finalState, null, 2) + '\n');
   // Key events from HUD descendants fall through, except the control's own keys.
-  if (host === 'web') {
+  {
     await s.tap('pause');
     const beforeKeys = await s.world('world').state('player');
     await s.type('pause', {key:'KeyW',phase:'down'});
@@ -111,7 +111,7 @@ const position = state => state?.entity?.components?.Transform?.position;
     const afterSpace = await s.world('world').state('player');
     check('button Space never queues a world jump', position(afterSpace)?.[1] === 0.9, position(afterSpace));
     await s.tap('pause');
-  } else say('SKIP web descendant-key bubbling: macOS uses native control dispatch');
+  }
   // Resume uses the same live argument without reconstructing the world.
   await s.tap('pause');
   await s.world('world').key('KeyW', {phase: 'down'});

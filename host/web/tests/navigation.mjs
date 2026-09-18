@@ -392,6 +392,25 @@ try {
       assert.equal((await session.state()).slots.backPresses, 1);
     } finally { await session.close(); }
   });
+  await run('autofocus waits for the batch and never retries across remount or reload', async () => {
+    served = dist;
+    const plan = [...readFileSync(dir + '/accessibility.plan')];
+    const page = readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8');
+    writeFileSync(dist + '/index.html', page.replace('<script type="module" src="./glue.js"></script>',
+      `<script>(${fixture})(${JSON.stringify(plan)})</script><script type="module" src="./glue.js"></script>`));
+    await call('Page.navigate', {url:url+'/'});
+    await until(`globalThis.exact?.ready?.then(()=>!!document.querySelector('[data-testid="first"]'))`);
+    await evaluate('exact.ready');
+    const first = () => evaluate(`document.activeElement?.getAttribute('data-testid')`);
+    assert.equal(await first(), 'first');
+    await evaluate(`document.querySelector('[data-testid="other"]').focus()`);
+    await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
+    assert.equal(await first(), 'other');
+    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
+    assert.notEqual(await first(), 'first');
+    assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
+  });
+
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }
   process.kill(-child.pid, 'SIGKILL'); await exited;
