@@ -98,10 +98,11 @@ function render(entry, now) {
 // lattice (pace.js): a world drawn at the raw timestamp judders by the
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
+let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
 function frame(now) {
   raf = null;
   if (hidden && !exact.now) return;
-  const at = pace(now);
+  const at = frameAt = pace(now);
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id) continue;
@@ -130,7 +131,7 @@ function create(entry, module, carry) {
   }
 }
 function attach(entry) {
-  entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, performance.now()); });
+  entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, frameAt ?? performance.now()); });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
@@ -485,7 +486,7 @@ async function swap(version) {
       create(entry, next, old.id ? gpu.gpu_carry(old.id) : old.carry);
       restorePending(entry, next, carrier);
       const {w,h,s} = size(old.host);
-      if (next.gpu_render(entry.id, w, h, s, clockFor(performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
+      if (next.gpu_render(entry.id, w, h, s, clockFor(frameAt ?? performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
     }
   } catch (error) {
     for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
