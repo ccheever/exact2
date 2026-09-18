@@ -415,7 +415,11 @@ impl Feed {
                         .as_ref()
                         .filter(|p| p.mask[i / 64] & (1 << (i % 64)) != 0)
                     {
-                        out[..9].copy_from_slice(&p.floats()[i * 10..i * 10 + 9]);
+                        let record = &p.floats()[i * 10..i * 10 + 10];
+                        out[..9].copy_from_slice(&record[..9]);
+                        if record[9] > 0.0 {
+                            out[3] = -record[9];
+                        }
                     } else {
                         out.copy_from_slice(&default);
                     }
@@ -498,7 +502,11 @@ fn material_floats(m: Material) -> [f32; 12] {
         m.color[0],
         m.color[1],
         m.color[2],
-        m.color[3],
+        if m.grid_spacing > 0.0 {
+            -m.grid_spacing
+        } else {
+            m.color[3]
+        },
         m.metallic,
         m.roughness,
         m.emissive[0],

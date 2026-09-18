@@ -724,6 +724,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
+            PropId::AccessibilityLive => "aria-live",
+            PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",

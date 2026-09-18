@@ -20,15 +20,20 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
   };
   const firstRun = async (index) => {
     const s = await open();
+    const title = await s.tree();
+    check('Play is initially focused and named by text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+    check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
     check('title exposes Play and no world', !!node(await s.tree(), 'play') && !node(await s.tree(), 'world'));
     await s.tap('play');
     check('initial HUD is Beacons 0 / 3', node(await s.tree(), 'hud-beacons')?.props.text === 'Beacons 0 / 3');
+    const playing = await s.tree();
+    check('HUD is polite and Pause is named by text', node(playing, 'hud-beacons')?.props.accessibilityLive === 'polite' && node(playing, 'pause')?.accessibleName === 'Pause');
     const initial = await s.world('world').snapshot();
     const input = await s.world('world').key('KeyW', {phase:'down'});
     check('movement uses browser input', input.delivery === 'platform');
     await s.clock('+1500');
     check('W exactly 1.5s: [0, 0.9, -5.3666644] within 1 mm', near(pos(await s.world('world').state('player')), [0,0.9,-5.3666644]));
-    check('W for 1500 ms equals native pinned hash', (await s.world('world').snapshot()).hash === '0x7b36bcac0b3dfb2e');
+    check('W for 1500 ms equals native pinned hash', (await s.world('world').snapshot()).hash === '0x0619e292b3d08094');
     check('1.5s is exactly 90 ticks', (await s.state()).world[0].tick === 90);
     await s.world('world').key('KeyW', {phase:'up'});
     await go(s, 8, 0);
@@ -42,6 +47,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
     check('glow fully up at 1s', equal(components(await s.world('world').state('beacon-1')).Material.emissive, [2,2.5,2]));
     await s.tap('pause');
     check('Pause now reads Resume', (await s.tree()).nodes.some(n => n.props?.text === 'Resume'));
+    check('Resume name follows its text', node(await s.tree(), 'pause')?.accessibleName === 'Resume');
     const frozen = await s.world('world').snapshot();
     await s.world('world').key('KeyW', {phase:'down'});
     await s.clock('+2000');
@@ -99,6 +105,8 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
   await go(s, 3, -9);
   await s.world('world').key('KeyE'); await s.clock('+1000');
   check('all three lit: win text and Play again', (await s.tree()).nodes.some(n => n.props?.text === 'All beacons lit') && !!node(await s.tree(), 'play-again'));
+  check('Play again is named by text', node(await s.tree(), 'play-again')?.accessibleName === 'Play again');
+  await s.screenshot(resolve(out, 'beacons-win.png'));
   await s.tap('play-again');
   check('Play again resets position and count', near(pos(await s.world('world').state('player')), [0,0.9,0]) && node(await s.tree(), 'hud-beacons')?.props.text === 'Beacons 0 / 3');
   // Real keyboard activation of a focused button, not synthetic world input.

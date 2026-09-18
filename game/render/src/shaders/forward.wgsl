@@ -29,9 +29,24 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32
     let diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * base / PI;
     return (diffuse + distribution * visibility * fresnel) * nl;
 }
+@diagnostic(off, derivative_uniformity)
 fn shade(input: Varying, visibility: f32) -> vec4<f32> {
     let i = input.slot * 12u;
-    let base = vec3(materials[i], materials[i+1u], materials[i+2u]);
+    var base = vec3(materials[i], materials[i+1u], materials[i+2u]);
+    // Opaque materials reuse alpha as a negative grid-spacing flag: no wider uploads.
+    let spacing = -materials[i+3u];
+    if spacing > 0.0 {
+        let cell = input.world / spacing;
+        let footprint = max(fwidth(cell), vec3(0.0001));
+        let distance = abs(fract(cell - 0.5) - 0.5);
+        let lines = 1.0 - smoothstep(vec3(0.0), footprint * 1.25, distance);
+        // Triplanar projection: omit each face's normal axis, so walls work too.
+        let weight = pow(abs(normalize(input.normal)), vec3(8.0));
+        let planes = vec3(max(lines.y, lines.z), max(lines.x, lines.z), max(lines.x, lines.y));
+        let fade = 1.0 - smoothstep(0.2, 1.0, max(footprint.x, max(footprint.y, footprint.z)));
+        let line = dot(planes, weight) / max(dot(weight, vec3(1.0)), 0.0001) * fade;
+        base *= 1.0 + 0.35 * line;
+    }
     let metallic = clamp(materials[i+4u], 0.0, 1.0);
     let roughness = clamp(materials[i+5u], 0.045, 1.0);
     let emissive = vec3(materials[i+6u], materials[i+7u], materials[i+8u]);

@@ -199,7 +199,7 @@ impl Mesh {
     }
 }
 
-/// Renderer-neutral surface properties: ten contiguous f32s including the pad.
+/// Renderer-neutral surface properties: ten contiguous f32s including grid spacing.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 #[repr(C)]
 pub struct Material {
@@ -211,9 +211,8 @@ pub struct Material {
     pub roughness: f32,
     /// Linear RGB emitted light.
     pub emissive: [f32; 3],
-    /// Explicit upload padding; transient and initialized to zero by default.
-    #[data(skip)]
-    pub pad: f32,
+    /// World-space grid spacing; zero disables the procedural grid.
+    pub grid_spacing: f32,
 }
 impl Default for Material {
     fn default() -> Self {
@@ -222,7 +221,7 @@ impl Default for Material {
             metallic: 0.0,
             roughness: 0.5,
             emissive: [0.0; 3],
-            pad: 0.0,
+            grid_spacing: 0.0,
         }
     }
 }
@@ -233,6 +232,18 @@ impl Material {
         Self {
             color: [r, g, b, 1.0],
             ..Self::default()
+        }
+    }
+    /// A world-space grid on any surface; colour is the base, spacing is in metres.
+    /// Lines use screen-space derivatives and fade to their average below a pixel.
+    pub fn grid(color: [f32; 3], spacing: f32) -> Self {
+        assert!(
+            spacing.is_finite() && spacing > 0.0,
+            "grid spacing must be positive and finite"
+        );
+        Self {
+            grid_spacing: spacing,
+            ..Self::rgb(color[0], color[1], color[2])
         }
     }
     /// Set linear RGB emitted light.

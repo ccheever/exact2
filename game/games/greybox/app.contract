@@ -17,11 +17,11 @@ component Greybox
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
         canvas surface=world(seed, paused) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
-          text `Beacons ${hud.beacons} / 1` testId="hud-beacons" position="absolute" top=24 left=24 padding=12 border-radius=8 background-color="#202731" color="#ffffff" font-size=18 font-weight=600
+          text `Beacons ${hud.beacons} / 1` aria-live="polite" testId="hud-beacons" position="absolute" top=24 left=24 padding=12 border-radius=8 background-color="#202731" color="#ffffff" font-size=18 font-weight=600
           button press=togglePause testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff" font-size=16 font-weight=600
       else
         column height="100%" align-items="center" justify-content="center" gap=24
           text "Grey box" font-size=48 font-weight=600 color="#ffffff"
-          button press=play testId="play" padding=16 border-radius=8 background-color="#e8ad61"
+          button press=play autofocus testId="play" padding=16 border-radius=8 background-color="#e8ad61"
             text "Play" font-size=20 font-weight=600 color="#202731"

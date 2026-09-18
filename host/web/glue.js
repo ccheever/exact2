@@ -42,6 +42,15 @@ const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 // Baked content is readable and scrollable before the data executor arrives.
 // `inert` would remove the entire tree from hit testing (including scrollers)
 // and accessibility. Gate actions and editing, not browser layout/navigation.
+function focusAutofocus() {
+  if (!inputReady) return;
+  let focused = false;
+  for (const el of root.querySelectorAll("[autofocus]")) {
+    if (el.exactAutofocused || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
+    el.exactAutofocused = true;
+    if (!focused) { el.focus(); focused = document.activeElement === el; }
+  }
+}
 function setInputReady(ready) {
   inputReady = ready;
   root.setAttribute("aria-busy", String(!ready));
@@ -51,6 +60,7 @@ function setInputReady(ready) {
       authoredDisabled.delete(el);
     }
   }
+  if (ready) focusAutofocus();
 }
 for (const kind of ["click", "beforeinput", "submit"]) {
   root.addEventListener(kind, event => {
@@ -380,7 +390,7 @@ function applyProps(el, set, clear) {
       el.checked = value === "true";
     } else if (name === "inert") {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
-    } else if (name === "disabled" || name === "readonly") {
+    } else if (name === "disabled" || name === "readonly" || name === "autofocus") {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
@@ -646,11 +656,7 @@ function apply(batch) {
       switch (op.op) {
       case "router": navigation.apply(op); break;
       case "create": {
-        // A canvas node is a <div> hosting its surface <canvas> under its
-        // children (LLP 1014 D2): the kernel's children are laid out in the
-        // box, in flow, over the surface — a bare <canvas>'s children would
-        // be fallback content, never rendered. The surface element is the
-        // host's, never a child the kernel knows (`data-surface`).
+        // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
         const el = document.createElement(op.tag === "canvas" ? "div" : op.tag);
         if (op.tag === "canvas") {
           const surface = document.createElement("canvas");
@@ -847,13 +853,11 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
-  // Focusing can dispatch an action; every node/value in this batch must be
-  // committed before its focus handler runs.
+  // Once after mount; mark before focus, whose handler can reenter this batch.
+  focusAutofocus();
   for (const { args, selectText } of focusCommands) {
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
-    // A focus that cannot be delivered is a journal line with its reason,
-    // never silence (LLP 1035.001 D6); the reasons are the iOS host's.
     const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled") ? "disabled"
       : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
       : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
@@ -1078,6 +1082,7 @@ function tree() {
   const reply = ask({ op: "tree" });
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
+    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
     node.loading = iframeLoading.get(el) !== false;
@@ -1184,8 +1189,6 @@ async function waitForInflight(deadline) {
   return true;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-// A surface pending creation is in flight (LLP 1016): the reply waits for it. With
-// none pending the reply stays synchronous, as the page's own tests call it.
 function agent(request) { return agentMode && globalThis.exact.pendingSurfaces.length ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
@@ -1194,9 +1197,6 @@ function agentReply(request) {
     if (request.entity !== undefined || request.world === true) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     switch (request.op) {
       case "state": {
-        // The runner's state, then what the page observes (LLP 1035.002
-        // D2): the focused element, the software keyboard as the visual
-        // viewport reports it, and the routes as the DOM declares them.
         const st = ask(request);
         if (st.error) return st;
         const r2 = (x) => Math.round(x * 100) / 100;

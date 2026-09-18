@@ -124,7 +124,7 @@ public final class ExactView: NSView {
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
-        if window != nil { fit() }
+        if window != nil { fit(); session.presenter.syncAccessibility() }
     }
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own

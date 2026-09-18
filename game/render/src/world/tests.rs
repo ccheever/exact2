@@ -244,14 +244,17 @@ fn materials_repack_pages_only_on_revision_and_default_missing_values() {
     let mut w = World::new(60, 0);
     let a = w.spawn((
         Transform::default(),
-        Material::rgb(0.2, 0.3, 0.4).emissive(2., 3., 4.),
+        Material::grid([0.2, 0.3, 0.4], 2.0).emissive(2., 3., 4.),
     ));
     let b = w.spawn((Transform::default(), Mesh::cube(1.0)));
     let mut f = Feed::default();
     let mut r = Recording::default();
     f.feed_to(&w, &mut r).unwrap();
     assert!(r.calls.contains(&Call::Material(0, PAGE * 12)));
-    assert_eq!(&r.materials[..9], &[0.2, 0.3, 0.4, 1., 0., 0.5, 2., 3., 4.]);
+    assert_eq!(
+        &r.materials[..9],
+        &[0.2, 0.3, 0.4, -2., 0., 0.5, 2., 3., 4.]
+    );
     assert_eq!(
         &r.materials[b.index() as usize * 12..][..12],
         &material_floats(Material::default())
@@ -376,7 +379,10 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
     assert_eq!(input.points[15].position.x, 16.25);
     assert!(input.sun.unwrap().shadows.is_some());
     assert!(input.bloom.is_some());
-    assert!(input.environment.fog.is_none());
+    assert_eq!(
+        input.environment.fog,
+        exact_game::Environment::default().fog
+    );
     sim.world().get_mut::<Transform>(camera).unwrap().rotation = Quat::from_rotation_y(1.0);
     f.feed_to(sim.world(), &mut r).unwrap();
     let input = f.frame(sim.world(), 0.5, 2.);

@@ -504,6 +504,7 @@ final class Presenter {
             }
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }
+        syncAccessibility()
         navigation.sync(batch)
         segments.sync()
         menus.sync()

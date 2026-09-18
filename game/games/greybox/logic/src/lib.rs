@@ -49,7 +49,7 @@ impl Game for Greybox {
             (
                 Transform::default(),
                 Mesh::plane(40.0, 40.0),
-                Material::rgb(0.25, 0.27, 0.3),
+                Material::grid([0.25, 0.27, 0.3], 1.0),
             ),
         );
         let player = world.spawn_named(

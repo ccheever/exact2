@@ -29,7 +29,7 @@ fn movement_jump_seed_and_save() {
         a.world().hash()
     );
     assert_eq!(position, Vec3::new(0.0, 0.9, -5.3666644));
-    assert_eq!(a.world().hash(), 0x7b36bcac0b3dfb2e);
+    assert_eq!(a.world().hash(), 0x0619e292b3d08094);
     assert_eq!(a.save(), b.save());
     a.key_up("KeyW");
     a.tap("Space");

@@ -1087,3 +1087,24 @@ fn router_batches_follow_launch_and_committed_actions() {
     assert!(home.runner().data_ref().asked.is_empty());
     assert!(!home.agent("{\"op\":\"logs\"}").contains("loadQuestions"));
 }
+
+#[test]
+fn live_regions_and_autofocus_use_html_attributes() {
+    let plan = contract::compile(include_str!(
+        "../../../contract/corpus/accessibility.contract"
+    ))
+    .unwrap();
+    let (host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(batch.contains("\"aria-live\":\"polite\""), "{batch}");
+    assert!(batch.contains("\"aria-live\":\"assertive\""), "{batch}");
+    assert!(batch.contains("\"autofocus\":\"true\""), "{batch}");
+    assert!(host
+        .agent("{\"op\":\"tree\"}")
+        .contains("accessibilityLive"));
+}

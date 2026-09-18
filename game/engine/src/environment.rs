@@ -18,7 +18,7 @@ pub struct Environment {
     pub sun_disc: f32,
     /// Linear exposure before tonemapping.
     pub exposure: f32,
-    /// None disables fog (the default).
+    /// Gentle horizon fog by default; None disables it.
     pub fog: Option<Fog>,
     /// Gentle HDR bloom by default; None disables its passes.
     pub bloom: Option<Bloom>,
@@ -33,7 +33,7 @@ impl Default for Environment {
             ambient: 0.5,
             sun_disc: 0.00465,
             exposure: 1.0,
-            fog: None,
+            fog: Some(Fog::default()),
             bloom: Some(Bloom::default()),
         }
     }
@@ -52,7 +52,7 @@ impl Default for Fog {
     fn default() -> Self {
         Self {
             color: None,
-            density: 0.02,
+            density: 0.012,
             height_falloff: 0.1,
         }
     }
@@ -71,8 +71,8 @@ impl Default for Bloom {
     fn default() -> Self {
         Self {
             threshold: 1.0,
-            intensity: 0.08,
-            radius: 1.0,
+            intensity: 0.16,
+            radius: 1.5,
         }
     }
 }

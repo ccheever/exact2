@@ -1162,6 +1162,20 @@ impl Parser {
                             value,
                             span: aspan,
                         });
+                    } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus")
+                    {
+                        let aspan = self.next().span;
+                        if attrs.iter().any(|a: &Attr| a.name == "autofocus") {
+                            return self.err(
+                                "syntax-duplicate-attr",
+                                "attribute `autofocus` appears twice",
+                            );
+                        }
+                        attrs.push(Attr {
+                            name: "autofocus".into(),
+                            value: Expr::Bool(true, aspan),
+                            span: aspan,
+                        });
                     } else {
                         positional.push(self.expr()?);
                     }

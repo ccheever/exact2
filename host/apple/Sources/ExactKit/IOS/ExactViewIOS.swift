@@ -76,6 +76,7 @@ public final class ExactView: UIView {
                 guard let self, window != nil, session.state != .destroyed else { return }
                 fit()
                 session.presenter.navigation.mounted()
+                session.presenter.syncAccessibility()
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted

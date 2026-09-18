@@ -35,7 +35,7 @@ impl Game for Beacons {
             (
                 Transform::default(),
                 Mesh::plane(40.0, 40.0),
-                Material::rgb(0.16, 0.23, 0.24),
+                Material::grid([0.16, 0.23, 0.24], 1.0),
             ),
         );
         let player = w.spawn_named(

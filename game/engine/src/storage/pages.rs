@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 pub unsafe trait Plain: Component + Copy {}
 // SAFETY: scalar-math Vec3/Quat and repr(C) Transform contain ten contiguous f32s.
 unsafe impl Plain for Transform {}
-// SAFETY: repr(C) Material contains ten contiguous f32s, including an explicit pad.
+// SAFETY: repr(C) Material contains ten contiguous f32s, including grid spacing.
 unsafe impl Plain for Material {}
 
 /// Shared lease over a storage's allocated pages. Page views borrow this lease.

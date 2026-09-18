@@ -18,7 +18,7 @@ impl Game for SmallGame {
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::default()));
+        w.spawn((Transform::default(), Mesh::plane(40.0, 40.0), Material::grid([0.16, 0.23, 0.24], 1.0)));
         let player = w.spawn_named("player", (Transform::at(0.0, 0.9, 0.0), Mesh::capsule(0.4, 1.8), Material::rgb(0.8, 0.4, 0.1)));
         w.spawn_named("camera", (Transform::default(), Camera::default(),
             Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15)));

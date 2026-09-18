@@ -1,7 +1,7 @@
 //! Slot-indexed, opaque PBR rendering over plain buffers; no simulation ownership.
 //!
 //! Transforms are ten floats (position xyz, quaternion xyzw, scale xyz), materials
-//! twelve (linear base rgba, metallic, roughness, linear emissive rgb, primitive dimensions xyz).
+//! twelve (linear base rgb, alpha/negative grid spacing, metallic, roughness, linear emissive rgb, primitive dimensions xyz).
 //! Rotations must be unit quaternions. New slots must be initialized in both ticks.
 //! Matrices use WebGPU's 0–1 depth range, with near at zero (for example
 //! [`glam::camera::rh::proj::directx::perspective`]). All lights and environment colours are linear.

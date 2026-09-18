@@ -1026,6 +1026,15 @@ impl<'a> Lowerer<'a> {
         scope: &Scope,
     ) -> Result<(), LowerError> {
         let want = tags::prop_ty(prop);
+        if prop == PropId::AccessibilityLive
+            && !matches!(value, Expr::Str(s, _) if s == "polite" || s == "assertive")
+        {
+            return err(
+                "lower-attr-value",
+                "`aria-live` takes \"polite\" or \"assertive\"",
+                span,
+            );
+        }
         if prop == PropId::ImageSource {
             if let Expr::Str(source, _) = value {
                 if let Some(role) = source.strip_prefix("symbol:") {

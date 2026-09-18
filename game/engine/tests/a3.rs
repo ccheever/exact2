@@ -413,7 +413,7 @@ fn a17_material_builders_preserve_defaults_and_each_other() {
             emissive: [1.0, 2.0, 3.0],
             metallic: 0.5,
             roughness: 0.3,
-            pad: 0.0
+            grid_spacing: 0.0
         }
     );
     assert_eq!(Material::rgb(1.0, 1.0, 1.0), Material::default());

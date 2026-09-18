@@ -19,12 +19,12 @@ component Beacons
     main width="100%" height="100%" background-color="#17282d" color="#ffffff"
       when playing
         canvas surface=world(7, paused, round) testId="world" width="100%" height="100%" position="relative" overflow="hidden"
-          text `Beacons ${hud.beacons} / 3` testId="hud-beacons" position="absolute" top=24 left=24 padding=16 border-radius=8 background-color="#17282d" color="#ffffff" font-size=20 font-weight=600
+          text `Beacons ${hud.beacons} / 3` aria-live="polite" testId="hud-beacons" position="absolute" top=24 left=24 padding=16 border-radius=8 background-color="#17282d" color="#ffffff" font-size=20 font-weight=600
           button press=togglePause testId="pause" position="absolute" top=24 right=24 padding=16 border-radius=8 background-color="#17282d"
             text (paused ? "Resume" : "Pause") color="#ffffff" font-size=18
           text "WASD / arrows to move   ·   Space to jump   ·   E near a beacon" position="absolute" bottom=24 left=24 padding=12 border-radius=8 background-color="#17282d" color="#ffffff" font-size=16
           when hud.beacons == 3
-            column testId="win" position="absolute" top="35%" left="25%" width="50%" padding=24 box-sizing="border-box" align-items="center" gap=20 border-radius=12 background-color="#17282d"
+            column testId="win" position="absolute" inset=0 justify-content="center" padding=24 box-sizing="border-box" align-items="center" gap=20 border-radius=12 background-color="#17282d"
               text "All beacons lit" font-size=36 font-weight=600 color="#ffffff"
               button press=restart testId="play-again" padding=16 border-radius=8 background-color="#edbd72"
                 text "Play again" font-size=20 color="#17282d"
@@ -33,5 +33,5 @@ component Beacons
           text "BEACONS" font-size=64 font-weight=600 color="#edbd72"
           text "Find three lights. Bring them to life." font-size=22 color="#ffffff"
           text "WASD / arrows · Space to jump · E to light" font-size=16 color="#bcd4d5"
-          button press=play testId="play" padding=20 border-radius=8 background-color="#edbd72"
+          button press=play autofocus testId="play" padding=20 border-radius=8 background-color="#edbd72"
             text "Play" font-size=22 font-weight=600 color="#17282d"

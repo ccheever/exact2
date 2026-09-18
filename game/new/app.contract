@@ -12,9 +12,9 @@ component SmallGame
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
         canvas surface=world(7, false) testId="world" width="100%" height="100%" position="relative"
-          text `Lit ${hud.lit}` testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+          text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
       else
         column height="100%" align-items="center" justify-content="center" gap=24
           text "Small game" font-size=48 color="#ffffff"
-          button press=play testId="play" padding=16 background-color="#e8ad61"
+          button press=play autofocus testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"

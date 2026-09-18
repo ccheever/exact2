@@ -269,3 +269,53 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
     surface.agent(r#"{"op":"clock","now":1000}"#);
     assert_eq!(surface.sim().unwrap().world().tick(), 0);
 }
+
+#[test]
+fn beacons_designed_defaults() {
+    use beacons_logic::{Beacons, Options};
+    let Some(gpu) = gpu() else { return };
+    let mut sim = exact_game::Sim::<Beacons>::new(Options {
+        seed: 7,
+        paused: false,
+        round: 0,
+    })
+    .unwrap();
+    let player = sim.world().named("player").unwrap();
+    sim.world_mut()
+        .teleport(player, Transform::at(8.0, 0.9, 0.0));
+    sim.tap("KeyE");
+    sim.run(1000.0);
+    let mut surface = WorldSurface::<Beacons>::default();
+    surface
+        .bind(&[Value::Number(7.0), Value::Bool(false), Value::Number(0.0)])
+        .unwrap();
+    surface.restore(&sim.save()).unwrap();
+    let pixels = render(&gpu, &mut surface, 0.0, "beacons-defaults");
+    assert!(pixels.data.chunks_exact(4).any(|p| p[0] > 200));
+    assert_eq!(
+        surface
+            .sim()
+            .unwrap()
+            .world()
+            .get::<Material>("ground")
+            .unwrap()
+            .grid_spacing,
+        1.0
+    );
+    sim.world_mut()
+        .get_mut::<Material>("ground")
+        .unwrap()
+        .grid_spacing = 0.0;
+    surface.restore(&sim.save()).unwrap();
+    let plain = render(&gpu, &mut surface, 0.0, "beacons-without-grid");
+    let changed = pixels
+        .data
+        .chunks_exact(4)
+        .zip(plain.data.chunks_exact(4))
+        .filter(|(a, b)| (i16::from(a[0]) - i16::from(b[0])).abs() > 3)
+        .count();
+    assert!(
+        changed > 1000,
+        "grid must add visible detail: {changed} pixels"
+    );
+}

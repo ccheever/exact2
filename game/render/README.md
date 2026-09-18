@@ -46,14 +46,21 @@ linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
   cast; back faces are culled. Supported direct sun fades over N·L 0.01→0.005;
   at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
   Shadow-disabled lighting is unfaded. Ambient/emission/point lights are unaffected.
-- Bloom defaults to threshold 1, intensity 0.08, radius 1: one-sided knee, 13-tap
+- Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
 - Sky and hemisphere illumination share zenith/horizon/ground colours. A constant
   sky without disc or differing fog colour uses the clear directly. `sun_disc` is
   angular radius in radians. Fog integrates exponential distance and Y-height
   density analytically, including a stable near-horizontal limit; sky uses 10 km.
-  Default density is 0.02/m and height falloff 0.1/m; absent fog colour uses horizon.
+  Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
+
+`Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
+projected onto any face in the existing forward shader. Positive saved spacing
+reuses the material's former padding; its GPU flag/spacing uses the opaque alpha
+slot (negative spacing). Uploads stay twelve floats per instance and there is no
+extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
+bench explicitly disables fog/bloom to retain its effects-off fast path.
 
 Eleven pipeline variants compile on first world render, including effect-free
 entry points. Optional loading after app first pixel does not remove this Play
@@ -150,6 +157,29 @@ shared-machine variance precludes a tight speedup claim. Optional GPU timestamp
 intervals overlap on Metal: **do not sum them**. `GPU_PASS_NAMES` maps sixteen
 query pairs; disabled passes leave theirs unwritten. Resolve after completion;
 invalid/reversed pairs are NaN.
+
+## U1 UI/default-look measurements (2026-09-17)
+
+Paired local release executables, original source versus U1, alternating order,
+three runs each, 60 warmup + 240 measured frames at 2560×1440. Effects are off.
+Medians of run p50s below; this shared Mac varies substantially. The 500k
+numbers rose, including simulation time where the render change adds no tick
+work, so these measurements **do not establish the no-regression gate**.
+
+| Cubes | Motion | Feed before / after ms | Encode before / after ms |
+|---|---|---|---|
+| 200,000 | all | 1.3054 / 0.9518 | 0.0669 / 0.0445 |
+| 200,000 | one-percent | 0.0500 / 0.0511 | 0.0392 / 0.0391 |
+| 200,000 | still | 0.0313 / 0.0270 | 0.0406 / 0.0357 |
+| 500,000 | all | 2.7262 / 2.9332 | 0.0743 / 0.0841 |
+| 500,000 | one-percent | 0.0925 / 0.1198 | 0.0508 / 0.0683 |
+| 500,000 | still | 0.0415 / 0.0485 | 0.0420 / 0.0515 |
+
+The Beacons fixture (`beacons_designed_defaults`) now renders the lit scene,
+asserts saved grid spacing survives restore, and compares it against the same
+scene without the grid. Before/after inspection: the grid gives scale and depth;
+fog softens distant crates and the ground into the horizon; bloom is restrained.
+The victory overlay is a full-canvas centred Contract column.
 
 ## Reproduce
 

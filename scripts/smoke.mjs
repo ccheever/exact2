@@ -1096,6 +1096,34 @@ if (deckFixture) {
 
 }
 
+// Live regions, DOM/native names, and focus survive updates but reset on remount.
+if ((host === 'web' || apple) && !argv.includes('--app-only')) {
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-accessibility-'));
+  const plan = resolve(tmp, 'accessibility.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  check(c.status === 0, 'accessibility fixture compiles: ' + c.stderr);
+  if (c.status === 0) {
+    const f = await open({host, plan});
+    try {
+      let t = await f.tree();
+      check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
+      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text');
+      check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
+      check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
+      await f.tap('first');
+      t = await f.tree();
+      check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
+      await f.tap('other');
+      check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
+      await f.tap('toggle'); await f.tap('toggle');
+      t = await f.tree();
+      check(byTestId(t, 'first')?.focused === true, 'newly shown node autofocuses');
+      check((await f.state()).focus.logical === byTestId(t, 'first')?.id, 'state agrees with tree focus');
+    } finally { await f.close(); }
+  }
+  rmSync(tmp, {recursive:true, force:true});
+}
+
 // 13. The resolved app's own tests (LLP 1017 P7), when it declares them:
 // its `test` blocks driven through a fresh session by the same operations.
 const appTests = resolve(app.dir, 'app.test.contract');

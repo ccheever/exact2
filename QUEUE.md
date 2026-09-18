@@ -509,3 +509,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - macOS canvas descendant keys: route keydown from non-editable HUD descendants to the nearest input canvas, excluding button Space/Enter, composition, Tab and Command/Control chords; track forwarded codes for matching keyup and blur on editable focus. `CanvasInputMac` still requires the canvas as first responder; `NodeViewMac.resignFirstResponder` clears held input, so Pause prevents stuck keys but subsequent movement keys remain deaf. Cover native control dispatch and the agent's direct NSWindow route together.
 
 - Game proof JSON equality: `game/proof.mjs` compares object key order via JSON.stringify; native dictionaries can reorder keys. Beacons capsule values are checked by name now; make shared JSON-value equality order-independent before adding more object assertions.
+
+- Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
+- U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.

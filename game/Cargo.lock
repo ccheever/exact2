@@ -529,6 +529,7 @@ dependencies = [
 name = "exact-game-render"
 version = "0.1.0"
 dependencies = [
+ "beacons-logic",
  "exact-game",
  "exact-gpu",
  "glam 0.33.7",

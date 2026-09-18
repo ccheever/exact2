@@ -352,6 +352,7 @@ final class Presenter {
             default: break
             }
         }
+        syncAccessibility()
         navigation.sync()
         fitDocument()
         // The page's canvas colour is the first root's background — what

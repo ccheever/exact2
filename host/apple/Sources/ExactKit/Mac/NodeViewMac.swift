@@ -180,6 +180,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
+    var didAutofocus = false
+    var liveText: String?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
     var clipPath: CGPath?
@@ -253,7 +255,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
         if isParagraph { return true }
-        return canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+        return kind == "button" || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise

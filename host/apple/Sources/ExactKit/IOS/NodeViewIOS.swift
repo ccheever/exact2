@@ -94,6 +94,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
+    var didAutofocus = false
+    var liveText: String?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
     var clipPath: CGPath?
@@ -271,7 +273,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
+    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (kind == "button" || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()

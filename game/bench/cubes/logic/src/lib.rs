@@ -75,6 +75,7 @@ impl Game for Cubes {
             ambient: 1.0,
             sun_disc: 0.0,
             bloom: None,
+            fog: None,
             ..Default::default()
         });
     }

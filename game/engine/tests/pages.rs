@@ -15,7 +15,7 @@ fn renderer_layouts_are_ten_contiguous_floats() {
     assert_eq!(offset_of!(Material, metallic), 16);
     assert_eq!(offset_of!(Material, roughness), 20);
     assert_eq!(offset_of!(Material, emissive), 24);
-    assert_eq!(offset_of!(Material, pad), 36);
+    assert_eq!(offset_of!(Material, grid_spacing), 36);
     let mut world = World::new(60, 0);
     world.spawn((
         Transform {
@@ -28,7 +28,7 @@ fn renderer_layouts_are_ten_contiguous_floats() {
             metallic: 5.0,
             roughness: 6.0,
             emissive: [7.0, 8.0, 9.0],
-            pad: 10.0,
+            grid_spacing: 10.0,
         },
     ));
     let expected: Vec<u8> = (1..=10).flat_map(|i| (i as f32).to_ne_bytes()).collect();
