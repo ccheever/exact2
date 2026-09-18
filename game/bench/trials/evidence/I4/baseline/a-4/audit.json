@@ -1,0 +1,32 @@
+{
+  "selfRepairRounds": 1,
+  "repairLoops": [
+    {
+      "name": "route around new platform",
+      "repairs": 1,
+      "items": [
+        "item_17",
+        "item_19",
+        "item_20"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "recurrence": {
+    "repinUsed": false,
+    "pinFiles": 0,
+    "pinLinesAdded": 0,
+    "pinLinesDeleted": 0,
+    "unexpectedRouteStalls": true,
+    "diagnosticNamedBlocker": false,
+    "actedOnUnexpectedStall": "inferred new platform; routed around north edge",
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "missingLanternsSimTestDiscovery": true,
+    "taskBPhaseContract": "not applicable"
+  },
+  "captureCoverage": "Live terminal assertion retained and passed; action helpers voluntarily changed to keyboard taps after green verification.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps."
+}
