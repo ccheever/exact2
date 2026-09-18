@@ -363,7 +363,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     let setup = module
         .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
         .unwrap();
-    assert!(setup.contains("0x8876f762b6cdb5cb"), "{setup}");
+    assert!(setup.contains("0x7df5e5a89b4d0207"), "{setup}");
     assert!(setup.contains("\"device\":false"));
     assert!(module.input_json(
         id,
@@ -371,14 +371,14 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
     assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains("0x71f8eb47fa04a70c"), "{tick}");
+    assert!(tick.contains("0x0f14b8b231091d12"), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap();
     module.lose_device();
     assert!(module.restore(id, &save));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
-    assert!(state.contains("0x71f8eb47fa04a70c"), "{state}");
+    assert!(state.contains("0x0f14b8b231091d12"), "{state}");
 }
 
 #[test]
@@ -425,4 +425,69 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         at_ms: 34.,
     });
     assert_eq!(s.presentation.gestures, 1);
+}
+
+#[test]
+fn fresh_touch_region_matches_rendered_and_headless_worlds() {
+    struct Touch;
+    impl Game for Touch {
+        const ID: &'static str = "touch-parity";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", Transform::default());
+        }
+        fn actions() -> exact_game::Actions {
+            exact_game::Actions::new().button_touch("act", exact_game::Region::Right)
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            if i.held("act") {
+                w.get_mut::<Transform>("player").unwrap().position.x += 1.;
+            }
+        }
+    }
+    let Some(gpu) = gpu() else { return };
+    let mut rendered = WorldSurface::<Touch>::default();
+    let mut headless = WorldSurface::<Touch>::default();
+    for s in [&mut rendered, &mut headless] {
+        s.bind_at(&[], Some(0.)).unwrap();
+        s.sim.as_mut().unwrap().advance(0., Clock::Seekable);
+        s.input(&InputEvent::Pointer {
+            id: 1,
+            phase: exact_gpu::PointerPhase::Down,
+            x: 48.,
+            y: 32.,
+            kind: exact_gpu::PointerKind::Touch,
+            buttons: 1,
+            at_ms: 0.,
+        });
+    }
+    fixture::render(&gpu, &mut rendered, &frame(17.)).unwrap();
+    headless
+        .agent(r#"{"op":"state","now":17,"width":64,"height":64}"#)
+        .unwrap();
+    assert_eq!(rendered.sim().unwrap().position("player").unwrap().x, 1.);
+    assert_eq!(
+        rendered.sim().unwrap().world().hash(),
+        headless.sim().unwrap().world().hash()
+    );
+}
+
+#[test]
+fn device_state_reports_target_before_first_draw_and_after_loss() {
+    let mut s = surface();
+    assert!(s
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains("\"device\":false"));
+    s.device_ready();
+    assert!(s.render.is_none());
+    assert!(s
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains("\"device\":true"));
+    s.device_lost();
+    assert!(s
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains("\"device\":false"));
 }

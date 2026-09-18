@@ -38,7 +38,7 @@ await proof(import.meta, async ({open, check, equal, out, say}) => {
     check('W exactly 1.5 s: [0, 0.9, -5.3666644] within 1 mm', p.every((v,i)=>Math.abs(v-[0,0.9,-5.3666644][i])<0.001), p);
     check('exactly 90 ticks', (await s.state()).world[0].tick === 90);
     const forward = await s.world('world').snapshot();
-    check('W for 1500 ms equals native hash', forward.hash === '0xdf4c4b907c6e216a', forward.hash);
+    check('W for 1500 ms equals native hash', forward.hash === '0x7379ac5210e92317', forward.hash);
     if (!run) first = forward;
     else check('two runs after W are identical', equal(first,forward));
     await s.world('world').tap('KeyE'); await s.world('world').run(100);

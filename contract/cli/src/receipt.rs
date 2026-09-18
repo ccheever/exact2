@@ -25,6 +25,7 @@ pub(crate) fn emit(
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_ASSET_ROOTS",
+        "EXACT_GPU_PRODUCT",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -69,6 +70,21 @@ pub(crate) fn emit(
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    // The GPU product is built (and on Apple, signed) before the host. Its
+    // exact bytes belong to this app/cohort; a sibling filename is not identity.
+    if platform != "web" {
+        if let Some(path) = std::env::var_os("EXACT_GPU_PRODUCT") {
+            let path = PathBuf::from(path);
+            println!("cargo:rerun-if-changed={}", path.display());
+            let bytes =
+                std::fs::read(&path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+            compat.embedded["gpu"] = json!({
+                "name":path.file_name().and_then(|n| n.to_str()).ok_or("GPU product filename is not UTF-8")?,
+                "sha256":hash(&bytes), "app":manifest.id, "cohort":compat.id,
+                "trust":std::env::var("EXACT_UPDATE_TRUST").unwrap_or("production".into())
+            });
+        }
+    }
     // A binary without an updater has no stream or rollback floor.
     // Native L=A artifacts still require authenticated sequence provenance.
     let development = compat.inputs["trust"] == "development";

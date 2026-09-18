@@ -422,6 +422,12 @@ function main(args) {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
+  let ph, prof;
+  const sha1 = device ? (() => {
+    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
+    prof = profile(ph.udid, app.id);
+    return identity(prof.team);
+  })() : ios ? '-' : macIdentity();
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise
@@ -452,7 +458,9 @@ function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development';
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, capture(buildReceipt) {
+  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, prepareGpu(product) {
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', product], {stdio:'ignore'});
+  }, capture(buildReceipt) {
     const composition = buildReceipt.compat.inputs?.store?.L === '0' ? 'embedded' : 'updating';
     paths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST });
     mkdirSync(paths.namespace, { recursive: true });
@@ -592,7 +600,7 @@ function main(args) {
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
     // the keychain asks again — before the first frame.
-    const sha1 = macIdentity();
+
     // The bundle's plist — what a `.app` would carry when one is assembled —
     // is written beside the bare executable under its product's name, never
     // as `Info.plist`: codesign treats an `Info.plist` adjacent to a bare
@@ -631,7 +639,7 @@ function main(args) {
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
-      for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -665,12 +673,7 @@ function main(args) {
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
-  let ph, prof;
-  const sha1 = device ? (() => {
-    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
-    prof = profile(ph.udid, app.id);
-    return identity(prof.team);
-  })() : '-';
+
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');
@@ -696,7 +699,7 @@ function main(args) {
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
       entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null }));
-    for (const f of readdirSync(resolve(assembled, 'Frameworks'))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
+    for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName)) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
   publishProducts();

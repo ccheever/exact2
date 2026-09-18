@@ -311,3 +311,13 @@ extension Agent {
         return reply
     }
 }
+
+extension Canvases.Entry {
+    func rendered(_ result: UInt32) {
+        if result == 3 { presentable = false }
+        wants = presentable && result == 1
+    }
+    func needsFrame(dirty: Bool, editing: Bool = false) -> Bool {
+        id != 0 && presentable && (wants || dirty || editing)
+    }
+}

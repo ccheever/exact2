@@ -22,6 +22,7 @@ pub struct WorldSurface<G: Game, P: Presentation = ()> {
     presentation: P,
     render: Option<(Renderer, Feed)>,
     format: Option<wgpu::TextureFormat>,
+    device: bool,
     perf: Perf,
     trace: Option<crate::trace::Trace>,
     error: Option<SurfaceError>,
@@ -36,6 +37,7 @@ impl<G: Game, P: Presentation> Default for WorldSurface<G, P> {
             presentation: P::default(),
             render: None,
             format: None,
+            device: false,
             perf: Perf::default(),
             trace: None,
             error: None,
@@ -145,7 +147,11 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         self.perf = Perf::default();
         Ok(())
     }
+    fn device_ready(&mut self) {
+        self.device = true;
+    }
     fn device_lost(&mut self) {
+        self.device = false;
         self.render = None;
         self.format = None;
         self.dirty = true;
@@ -169,6 +175,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         if self.error.is_some() {
             return false;
         }
+        self.device = true;
         let Some(sim) = &mut self.sim else {
             return false;
         };
@@ -397,7 +404,7 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
                 self.perf.reset();
             }
             reply.truncate(reply.len() - 2);
-            reply.push_str(if self.render.is_some() {
+            reply.push_str(if self.device {
                 ",\"device\":true"
             } else {
                 ",\"device\":false"

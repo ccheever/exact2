@@ -38,6 +38,7 @@ final class Canvases {
         let name: String
         var values: [Any]
         var id: UInt32 = 0
+        var presentable = true
         var wants = false
         var wantsInput = false
         var logCursor = 0
@@ -88,8 +89,7 @@ final class Canvases {
 
     /// Where the module lives: EXACT_GPU_DYLIB, or the bundle's Frameworks.
     static func modulePath() -> String {
-        if let p = ProcessInfo.processInfo.environment["EXACT_GPU_DYLIB"] { return p }
-        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_gpu.dylib"
+        return GpuModule.modulePath(defaultPath:(Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_gpu.dylib", compat:GpuModule.bakedCompatibility, environment:ProcessInfo.processInfo.environment)
     }
 
     /// A shader's text changed (the asset row, LLP 1030 D10): the module
@@ -179,6 +179,7 @@ final class Canvases {
         let ptr = Unmanaged.passUnretained(layer).toOpaque()
         let bytes = Array(e.name.utf8)
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
+        e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
         bindNow(m, e)
         e.each = m.wantsChildrenEach(e.id) != 0
@@ -231,7 +232,7 @@ final class Canvases {
     /// arrive outside one (D4 b, c).
     func captureIfNeeded() {
         guard let m = module else { return }
-        for e in Array(entries.values) where live(e.view.id) === e && e.through && e.view.needsCapture { capture(m, e) }
+        for e in Array(entries.values) where live(e.view.id) === e && e.presentable && e.through && e.view.needsCapture { capture(m, e) }
     }
 
     /// A capture on this run-loop turn, coalesced.
@@ -249,7 +250,7 @@ final class Canvases {
 
     private func capture(_ m: GpuModule, _ e: Entry) {
         // A nested readback can post a message and apply another batch here.
-        guard live(e.view.id) === e, !e.capturing else { return }
+        guard live(e.view.id) === e, e.presentable, !e.capturing else { return }
         e.capturing = true
         defer { e.capturing = false }
         guard let overlay = e.view.overlay, e.view.window != nil, let metal = e.view.metal else { return }
@@ -313,7 +314,7 @@ final class Canvases {
     /// readback while the module reports nothing dirty on it and its
     /// surface wants no frame at a new clock, else a fresh one.
     func picture(of view: NodeView) -> CGImage? {
-        guard let m = module, let e = live(view.id), e.view === view else { return nil }
+        guard let m = module, let e = live(view.id), e.presentable, e.view === view else { return nil }
         if let p = e.picture, m.dirty(e.id) == 0, !(e.wants && (frameNow ?? session?.now() ?? 0) != e.readAt) { return p }
         e.picture = readback(view: view)?.cgImage
         return e.picture
@@ -323,7 +324,7 @@ final class Canvases {
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> UIImage? {
-        guard let m = module, let e = live(view.id), e.view === view, let metal = view.metal else { return nil }
+        guard let m = module, let e = live(view.id), e.presentable, e.view === view, let metal = view.metal else { return nil }
         let scale = CGFloat(metal.layer.contentsScale)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard let bitmap = Bitmap.blank(width: w, height: h), let data = bitmap.bytes else { return nil }
@@ -331,6 +332,7 @@ final class Canvases {
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data.assumingMemoryBound(to: UInt8.self), w * h * 4)
         defer { messages(e) }
         e.readAt = at
+        if r == 3 { e.rendered(3); return nil }
         if r == 1 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return nil
@@ -356,7 +358,7 @@ final class Canvases {
     var wantsFrames: Bool {
         guard let m = module, visible else { return false }
         return entries.values.contains { e in
-            e.id != 0 && (e.wants || m.dirty(e.id) != 0 || (e.through && e.view.overlay.map { editing(under: $0) } == true))
+            e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { editing(under: $0) } == true)
         }
     }
 
@@ -387,7 +389,7 @@ final class Canvases {
         frameNow = now
         defer { frameNow = previous }
         var more = false
-        for e in Array(entries.values) where live(e.view.id) === e {
+        for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
             // Nested under a canvas painted through its surface (LLP 1014):
             // its Metal layer is never composited, so presenting to it would
             // block on a drawable nobody takes. It is only ever read back into
@@ -412,7 +414,7 @@ final class Canvases {
             windowRenders += 1
             windowRenderSeconds += CACurrentMediaTime() - t0
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
-            e.wants = r == 1
+            e.rendered(r)
             rendered += 1
             more = more || e.wants
             readPlacements(m, e)

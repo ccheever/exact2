@@ -3,6 +3,8 @@
 // after the first painted frame. Shared by the AppKit and UIKit presenters;
 // what each does with a surface (its `Canvases`) is its own.
 import Foundation
+import CryptoKit
+import CExact
 
 /// Why the module could not be loaded.
 struct GpuLoadError: Error { let message: String }
@@ -19,6 +21,36 @@ final class GpuModule {
         let r = load(path: path)
         shared = r
         return r
+    }
+
+    static var bakedCompatibility: [String: Any] {
+        let runtime = Runtime()
+        defer { runtime.destroy() }
+        let length = exact_baked_compat(runtime.rt)
+        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
+    }
+    static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {
+        let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any]
+        return gpu?["trust"] as? String == "development" ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
+    }
+    static func verify(path: String, compat: [String: Any]) -> GpuLoadError? {
+        func refusal(_ reason: String) -> GpuLoadError { GpuLoadError(message:"GPU module \(path): \(reason)") }
+        guard let card = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any] else {
+            return refusal("missing baked identity")
+        }
+        guard let app = (compat["inputs"] as? [String: Any])?["app"] as? String, card["app"] as? String == app else {
+            return refusal("app identity mismatch")
+        }
+        guard let cohort = compat["id"] as? String, card["cohort"] as? String == cohort else {
+            return refusal("cohort identity mismatch")
+        }
+        do {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath:path))
+            let digest = SHA256.hash(data:bytes).map { String(format:"%02x", $0) }.joined()
+            if card["sha256"] as? String != digest { return refusal("digest mismatch") }
+        } catch { return refusal(error.localizedDescription) }
+        return nil
     }
 
     typealias LoadFn = @convention(c) () -> UInt32
@@ -84,6 +116,7 @@ final class GpuModule {
     /// dlopen the module and create its device; nil (with a reason) when
     /// the library is missing, incomplete, or has no device.
     static func load(path: String) -> Result<GpuModule, GpuLoadError> {
+        if let error = verify(path:path, compat:bakedCompatibility) { return .failure(error) }
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             return .failure(GpuLoadError(message: "dlopen \(path): \(String(cString: dlerror()))"))
         }

@@ -136,14 +136,14 @@ impl<G: Game> Sim<G> {
         }
     }
     fn reply(&mut self, q: Request, after: impl FnMut(&World, u32)) -> Result<String, String> {
-        if let Some(now) = q.now {
-            self.advance_with(now, Clock::Seekable, after);
-        }
         if q.width.is_some() != q.height.is_some() {
             return Err("width and height must be supplied together".into());
         }
         if let (Some(w), Some(h)) = (q.width, q.height) {
             self.viewport(w, h);
+        }
+        if let Some(now) = q.now {
+            self.advance_with(now, Clock::Seekable, after);
         }
         let w = &self.world;
         let tick = w.tick();

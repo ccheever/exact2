@@ -119,7 +119,14 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     if let Some(view) = id() {
-        if q["entity"].is_string() || field_bool(line, "world") || (q["op"] == "state") {
+        if q["entity"].is_string()
+            || field_bool(line, "world")
+            || (q["op"] == "state"
+                && p.host()
+                    .kernel()
+                    .node(view)
+                    .is_some_and(|n| n.node_type == exact_kernel::NodeType::Canvas))
+        {
             return p.surface_request(view, q).to_string();
         }
     }

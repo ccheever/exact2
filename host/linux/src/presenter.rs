@@ -50,7 +50,7 @@ pub struct Presenter<D: DataSource> {
     assets: Assets,
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
-    compat: String,
+    pub(crate) compat: String,
     focus: Option<ViewId>,
     autofocus_processed: bool,
     pointer: Option<(f32, f32)>,

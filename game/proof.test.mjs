@@ -203,14 +203,14 @@ test('world convenience keeps simulation fields only and dispatches the existing
   const raw = {
     world(name) { return worldView(this, name); },
     async clock(value) { return {settled:value === 'settle'}; },
-    async state(target) { return {entity: target === 'arena:player' ? entities[0] : undefined, tick:90, hash:'0x123', entities, truncated:false, clock, epoch, incarnation}; },
+    async state(target) { if (target === 'arena:missing') throw Object.assign(new Error('state: no entity named `missing`'), {reply:{tick:90,error:'no entity named `missing`'}}); return {entity: target === 'arena:player' ? entities[0] : undefined, tick:90, hash:'0x123', entities, truncated:false, clock, epoch, incarnation}; },
     async type(...args) { return {clock, epoch, incarnation, args}; },
     async screenshot(...args) { return {clock, epoch, incarnation, args}; },
   };
   // Like proof's proxy, every underlying operation is recorded with its full reply.
   const session = new Proxy(raw, {get(target, method) {
     if (method === 'world') return target[method];
-    return async (...args) => { const reply=await target[method](...args); calls.push({method,args,reply}); return reply; };
+    return async (...args) => { try { const reply=await target[method](...args); calls.push({method,args,reply}); return reply; } catch (error) { calls.push({method,args,reply:error.reply}); throw error; } };
   }});
   const w=session.world('arena'), before=await w.snapshot();
   clock+=2000;
@@ -253,8 +253,21 @@ test('author examples and documentation describe current motion, placement and p
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');
   expect(greybox).not.toContain('math::ease');
   const proof = read('games/greybox/proof.mjs');
-  for (const pin of ['0x5a3d65cc31e5a69d', '0x517bc794475cb853', '[0, 0.9, -5.3666644]']) {
+  for (const pin of ['0x7df5e5a89b4d0207', '0x0f14b8b231091d12', '[0, 0.9, -5.3666644]']) {
     expect(proof).toContain(pin);
     expect(greybox).toContain(pin);
   }
+});
+
+ test('world get translates only the named missing-entity refusal', async () => {
+   for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
+     const w = worldView({state: async () => {throw Object.assign(new Error(`state: ${error}`), {reply:{tick:0,error}});}}, 'arena');
+     await expect(w.get('missing', 'Transform')).rejects.toThrow(error);
+   }
+   const failure = new Error('no entity named `missing`');
+   await expect(worldView({state: async () => {throw failure;}}, 'arena').get('missing', 'Transform')).rejects.toBe(failure);
+ });
+
+test('queue no longer lists the repaired Beacons designed-defaults fixture', () => {
+  expect(readFileSync(resolve(import.meta.dir, '../QUEUE.md'), 'utf8')).not.toContain('`render/tests/world.rs::beacons_designed_defaults` still expects');
 });

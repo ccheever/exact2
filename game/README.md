@@ -180,7 +180,9 @@ agent hears. Capture the complete simulation with `s.screenshot('run.world', 'wo
 `--world run.world` holds the bytes until Play creates the first carrying surface,
 then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
 same forms. Linux loads the same module with no device: simulation reads, input,
-clock, publications and saves work; canvas pixels and picks report unavailable.
+clock, publications, saves and CPU point picks work; canvas pixels report unavailable.
+The native bake binds the GPU product digest to the app and cohort before loading.
+`EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.
 Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers refuse input files and captures above 256 MiB before
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;

@@ -689,3 +689,12 @@ fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
         1
     );
 }
+
+#[test]
+fn ordinary_node_state_is_not_routed_to_a_surface() {
+    let mut p = fixture("scroll");
+    let id = 1;
+    let plain = handle(&mut p, r#"{"op":"state"}"#);
+    let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
+    assert_eq!(targeted, plain);
+}
