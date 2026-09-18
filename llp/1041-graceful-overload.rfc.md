@@ -4223,3 +4223,41 @@ offline closure `f70889298a7c765542c005ca3164429c47ece70994ed2dc3a3831527f0bb1bd
 Independent raw reconstruction agrees on the clipped stages and late publication.
 The next source investigation targets full worker shaping and stale-job delay;
 the existing ordered-worker boundary and full paragraph remain the workload.
+
+### 8.65 Linux viewport witnesses and idle resize correction, 2026-09-18
+
+The Linux presenter now retains viewport size and scale with each acknowledged
+picture's existing source, bounds and scroll witness. While B is submitted and C
+is live, root scroll limits and pointer admission follow acknowledged A; after
+B's acknowledgment they follow B until C is presented. Direct DRM pointer
+mapping refuses mismatched extents/scales. A mismatched physical release cancels
+the held interaction rather than dispatching a successful drop; keys and cancel
+remain available. Headless presentation keeps immediate behavior.
+
+Review found a second idle-resize case: A at scroll60 can submit B using that
+offset, then B's acknowledgment clamps the offset to0. With no C, timer or input,
+clearing dirty left B's old-offset pixels indefinitely. Clamp now reports actual
+offset changes/removals and acknowledgment preserves dirty when needed. A plain
+root regression proves one correction reaches rootY0 and clean state, retaining
+A60 while pending and immutable B pixels. The original failed version is sealed.
+
+Validation is29 scoped Mac tests plus4 actual Ubuntu AArch64 pointer tests
+(two new viewport/scale/cancel cases and two existing controls). The reviewed
+five-file patch also passes strict all-target package Clippy on both platforms.
+Original4 behavioral failures/two controls and the later idle-clamp failure are
+preserved. Actual Linux uses one fresh release test ELF with exact staged source
+and unchanged dependency/tool identities; it is not a display or compositor run.
+No additional whole-package test or performance result is claimed.
+
+MAIN's five source hashes exactly match the tested freeze. Package formatting,
+caps and boot checks pass. Workspace-wide formatting fails in61 external
+Snapback files, with no differences under MAIN; that output is retained, not
+reported as a passing workspace check. A real Linux window configure/resize path
+remains separate from this presentation and interaction foundation.
+
+Source manifest `b39638ede05d34f0f97a3d460cd18e96f75a6578ae30069f8a9bcf2569170350`,
+patch `6514a26298a41c33ad17819ed7f4230480ec15745f9e22cbdbe2af12c891317b`, archived
+under `target/linux-presented-viewport-validation/freeze-v2/`. Actual Linux
+evidence is `target/presented-viewport-linux-execution-v2/`,68 files/18,990,611B,
+manifest `a70930b8961f30fe2b207ef2c6da41981d9f5c3d8f5ecaa27601430b5cf8b286` and
+report `aee7213b0ee337fcca2b1c36488893636a9cc5853087f148ff0e037ac3c1838f`.

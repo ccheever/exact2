@@ -25,13 +25,15 @@ struct Witness {
     scroll: BTreeMap<ViewId, ScrollBounds>,
     parents: BTreeMap<ViewId, Option<ViewId>>,
     document: (f32, f32),
+    viewport: (f32, f32),
+    #[cfg(any(target_os = "linux", test))]
+    scale: u32,
 }
 #[cfg(any(target_os = "linux", test))]
 struct Picture {
     paint: Presentation,
     boxes: Vec<PaintedBox>,
     witness: Witness,
-    scale: u32,
 }
 
 /// The pending pixel owner. ACK consumes its metadata even if a caller retains
@@ -137,9 +139,30 @@ impl State {
         self.active
             .then(|| self.witness().map_or((0., 0.), |a| a.document))
     }
+    pub(super) fn viewport(&self) -> Option<(f32, f32)> {
+        self.active
+            .then(|| self.witness().map_or((0., 0.), |a| a.viewport))
+    }
+    pub(super) fn contains(&self, x: f32, y: f32) -> bool {
+        self.viewport().is_none_or(|(w, h)| {
+            x.is_finite() && y.is_finite() && x >= 0. && y >= 0. && x < w && y < h
+        })
+    }
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Direct DRM uses a fixed zero-origin surface. A different extent or
+    /// scale needs a carrier-provided mapping; never guess from live layout C.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn display_input_mapping(&self, viewport: (f32, f32), scale: f32) -> bool {
+        !self.display.active
+            || self.display.witness().is_some_and(|a| {
+                a.viewport.0.to_bits() == viewport.0.to_bits()
+                    && a.viewport.1.to_bits() == viewport.1.to_bits()
+                    && a.scale == scale.to_bits()
+            })
+    }
+
     #[cfg(any(target_os = "linux", test))]
     pub(crate) fn display_frame(&mut self) -> Option<SubmittedFrame> {
         if self.display.blocked() {
@@ -166,6 +189,8 @@ impl<D: DataSource> Presenter<D> {
             scroll: BTreeMap::new(),
             parents: BTreeMap::new(),
             document: self.live_document(),
+            viewport: self.viewport,
+            scale: self.brush.scale.to_bits(),
         };
         if self.last_frame_succeeded {
             for b in &self.boxes {
@@ -188,7 +213,6 @@ impl<D: DataSource> Presenter<D> {
             paint: self.brush.replace_presentation(old_paint),
             boxes: std::mem::replace(&mut self.boxes, old_boxes),
             witness,
-            scale: self.brush.scale.to_bits(),
         };
         self.display.pending = Some(identity.clone());
         Some(SubmittedFrame {
@@ -213,16 +237,18 @@ impl<D: DataSource> Presenter<D> {
         let picture = frame.picture.borrow_mut().take();
         if Rc::ptr_eq(&self.display.origin, &frame.identity.origin) && frame.identity.succeeded {
             if let Some(picture) = picture {
+                let scale = picture.witness.scale;
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
                 self.display.acknowledged = Some(picture.witness);
                 // Clamp the newest queued intent using B's numeric bounds, not
-                // live C and not B's older scroll intent. Do not clear dirty.
-                self.clamp_scroll();
+                // live C and not B's older scroll intent. If the clamp changes
+                // an offset, B's pixels need a correction even with no live C.
+                self.dirty |= self.clamp_scroll();
                 if self.host.content_region().is_some() {
                     let before = self.host.content_region().unwrap().publication_painted();
                     self.last_region_frame = Some((*frame.pixels).clone());
-                    self.last_region_scale = Some(picture.scale);
+                    self.last_region_scale = Some(scale);
                     if let Some(e) = self.host.content_region_painted(&self.brush) {
                         self.host.log(e);
                     }

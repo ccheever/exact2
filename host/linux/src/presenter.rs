@@ -892,15 +892,16 @@ impl<D: DataSource> Presenter<D> {
         size
     }
 
-    fn clamp_scroll(&mut self) {
+    fn clamp_scroll(&mut self) -> bool {
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         let region = self.host.content_region();
         let mut gone = Vec::new();
+        let mut changed = false;
         for (id, off) in self.scroll.iter_mut() {
             match kernel.node(*id) {
                 Some(n) => {
-                    *off = self
+                    let next = self
                         .display
                         .bounds(kernel, *id)
                         .unwrap_or_else(|| {
@@ -912,16 +913,22 @@ impl<D: DataSource> Presenter<D> {
                             )
                         })
                         .clamp(*off);
+                    changed |= *off != next;
+                    *off = next;
                 }
                 None => gone.push(*id),
             }
         }
+        changed |= !gone.is_empty();
         for id in gone {
             self.scroll.remove(&id);
         }
         let doc = self.document();
-        self.page.0 = self.page.0.clamp(0.0, (doc.0 - self.viewport.0).max(0.0));
-        self.page.1 = self.page.1.clamp(0.0, (doc.1 - self.viewport.1).max(0.0));
+        let viewport = self.display.viewport().unwrap_or(self.viewport);
+        let page = self.page;
+        self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
+        self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        changed || self.page != page
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).
@@ -1026,6 +1033,9 @@ impl<D: DataSource> Presenter<D> {
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        if !self.display.contains(x, y) {
+            return None;
+        }
         self.boxes();
         self.boxes
             .iter()
@@ -1114,7 +1124,7 @@ impl<D: DataSource> Presenter<D> {
     /// LLP 1010 §3: the innermost scroll container under the point that can
     /// take the dominant axis takes what it can of both; otherwise the page.
     pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
-        if dx == 0.0 && dy == 0.0 {
+        if (dx == 0.0 && dy == 0.0) || !self.display.contains(x, y) {
             return;
         }
         if let Err(error) = self.pointer_cancel(self.pointer_now()) {
@@ -1169,10 +1179,8 @@ impl<D: DataSource> Presenter<D> {
             at = self.display.parent(kernel, id);
         }
         let doc = self.document();
-        let max = (
-            (doc.0 - self.viewport.0).max(0.0),
-            (doc.1 - self.viewport.1).max(0.0),
-        );
+        let viewport = self.display.viewport().unwrap_or(self.viewport);
+        let max = ((doc.0 - viewport.0).max(0.0), (doc.1 - viewport.1).max(0.0));
         let next = (
             (self.page.0 + dx).clamp(0.0, max.0),
             (self.page.1 + dy).clamp(0.0, max.1),

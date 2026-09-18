@@ -134,8 +134,11 @@ impl Backend for CountPaint {
 }
 type Fixture = (Presenter<Empty>, Rc<Cell<usize>>, Rc<Cell<bool>>);
 fn boot() -> Fixture {
+    boot_app(APP)
+}
+fn boot_app(app: &str) -> Fixture {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &contract::compile(app).unwrap().encode(),
         Empty,
         (320., 240.),
         1.,
@@ -437,4 +440,238 @@ fn foreign_receipt_does_not_release_or_acknowledge_another_presenter() {
     assert_eq!(paints.get(), 1);
     assert!(complete(&mut b, &second));
     assert!(b.painted);
+}
+
+const VIEWPORT_APP: &str = r##"component App
+  state extent = 600
+  state draft = ""
+  state count = 0
+  action edit(value) writes draft
+    draft = value
+  action press writes count
+    count = count + 1
+  action shorten writes extent
+    extent = 100
+  action lengthen writes extent
+    extent = 700
+  view
+    column testId="root" width="100%" height=extent background-color="#225599"
+      input testId="input" value=draft change=edit height=24
+      box testId="shorten" press=shorten height=24
+      box testId="lengthen" press=lengthen height=24
+      box testId="target" press=press height=32 background-color="#cc3300"
+      text `${count}` testId="count" height=20
+"##;
+
+fn viewport_action(p: &mut Presenter<Empty>, name: &str) {
+    let view = id(p, name);
+    assert!(p
+        .host
+        .dispatch_at(view, Event::Press, p.host.now())
+        .is_none());
+    assert!(p.after_commit().is_none());
+}
+
+fn acknowledged_root_page() -> (Fixture, SubmittedFrame) {
+    let (mut p, paints, fail) = boot_app(VIEWPORT_APP);
+    p.frame(); // Existing immediate/headless frame for the initial scroll intent.
+    p.wheel_at(300., 200., 0., 60.);
+    assert_eq!(p.page.1, 60.);
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert_eq!(a.pixels.height(), 240);
+    ((p, paints, fail), a)
+}
+
+#[test]
+fn viewport_resize_during_pending_b_keeps_a_root_scroll_then_b_after_ack() {
+    let ((mut p, paints, _), a) = acknowledged_root_page();
+    let key = p.host.kernel().node(id(&p, "root")).unwrap().key;
+    viewport_action(&mut p, "shorten");
+    assert!(p.resize(240., 160.).is_none());
+    let b = submit(&mut p).unwrap();
+    let b_pixels = b.pixels.data().to_vec();
+    let painted = paints.get();
+    assert_eq!((b.pixels.width(), b.pixels.height()), (240, 160));
+    assert_eq!(p.page.1, 60.);
+
+    // C changes both axes while A is still the acknowledged picture.
+    assert!(p.resize(900., 900.).is_none());
+    assert_eq!(p.viewport(), (900., 900.));
+    assert_eq!(p.host.kernel().node(id(&p, "root")).unwrap().key, key);
+    assert_eq!(p.page.1, 60., "C viewport must not clamp A's scroll intent");
+    p.type_text(id(&p, "input"), "EXACT_🧪漢字").unwrap();
+    p.wheel_at(300., 200., 0., 30.);
+    assert_eq!(
+        p.page.1, 90.,
+        "A's viewport and document jointly bound input"
+    );
+    assert!(submit(&mut p).is_none());
+    assert_eq!(paints.get(), painted);
+    assert_eq!(b.pixels.data(), b_pixels);
+    assert!(complete(&mut p, &b));
+    assert_eq!(p.page.1, 0., "B ACK installs B's captured viewport/extent");
+    assert!(p.dirty(), "C remains pending after B acknowledgement");
+    assert!(p.box_of(id(&p, "root")).is_some());
+    p.wheel_at(20., 120., 0., 30.);
+    assert_eq!(p.page.1, 0., "between ACK and next submit still uses B");
+    assert_eq!(paints.get(), painted);
+    assert!(
+        !complete(&mut p, &a),
+        "old ACK cannot reinstall A's viewport"
+    );
+    assert_eq!(b.pixels.data(), b_pixels);
+    let c = submit(&mut p).unwrap();
+    assert_eq!((c.pixels.width(), c.pixels.height()), (900, 900));
+    assert!(complete(&mut p, &c));
+}
+
+#[test]
+fn viewport_short_a_cannot_gain_root_overflow_from_pending_resize() {
+    let (mut p, paints, _) = boot_app(VIEWPORT_APP);
+    viewport_action(&mut p, "shorten");
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert_eq!(p.page.1, 0.);
+    viewport_action(&mut p, "lengthen");
+    assert!(p.resize(300., 400.).is_none());
+    let b = submit(&mut p).unwrap();
+    assert!(p.resize(80., 80.).is_none());
+    let before = paints.get();
+    p.wheel_at(10., 10., 0., 30.);
+    assert_eq!(p.page.1, 0., "A has no overflow; C cannot manufacture it");
+    assert_eq!(paints.get(), before);
+    assert!(complete(&mut p, &b));
+    p.wheel_at(200., 200., 0., 1000.);
+    assert_eq!(
+        p.page.1, 300.,
+        "700 document minus B's 400 viewport, not C's 80"
+    );
+    assert!(p.dirty());
+}
+
+#[test]
+fn viewport_input_outside_acknowledged_surface_cannot_hit_or_scroll() {
+    let (mut p, paints, _) = boot_app(VIEWPORT_APP);
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert!(p.resize(100., 100.).is_none());
+    let before = paints.get();
+    // Root content is 600 tall, but only the acknowledged 240px viewport exists.
+    assert_eq!(p.hit(10., 300.), None);
+    p.wheel_at(10., 300., 0., 40.);
+    assert_eq!(
+        p.page.1, 0.,
+        "outside the visible surface is not root scrolling"
+    );
+    for (x, y) in [(320., 20.), (20., 240.), (-1., 10.), (f32::NAN, 10.)] {
+        assert_eq!(p.hit(x, y), None);
+        p.wheel_at(x, y, 0., 40.);
+        assert_eq!(p.page.1, 0.);
+    }
+    assert_eq!(paints.get(), before);
+}
+
+#[test]
+fn viewport_failed_b_and_rejected_resize_keep_a_until_valid_ack() {
+    let ((mut p, paints, fail), a) = acknowledged_root_page();
+    assert!(p.resize(f32::NAN, 160.).is_some());
+    assert_eq!(p.viewport(), (320., 240.));
+    assert!(p.resize(900., 900.).is_none());
+    fail.set(true);
+    let b = submit(&mut p).unwrap();
+    assert!(!p.last_frame_succeeded);
+    assert!(complete(&mut p, &b));
+    assert_eq!(p.page.1, 60.);
+    let before = paints.get();
+    p.wheel_at(300., 200., 0., 30.);
+    assert_eq!(p.page.1, 90., "failed B does not install its viewport");
+    assert!(p.reload(b"invalid", Empty).is_err());
+    assert_eq!(paints.get(), before);
+    assert!(!complete(&mut p, &a));
+    fail.set(false);
+    let c = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &c));
+    assert_eq!(p.page.1, 0.);
+}
+
+#[test]
+fn viewport_reload_old_receipt_releases_without_installing_geometry() {
+    let ((mut p, _, _), a) = acknowledged_root_page();
+    assert!(p.resize(240., 160.).is_none());
+    let b = submit(&mut p).unwrap();
+    assert!(p.resize(900., 900.).is_none());
+    p.reload(&contract::compile(VIEWPORT_APP).unwrap().encode(), Empty)
+        .unwrap();
+    let before = p.page;
+    assert_eq!(p.hit(10., 10.), None);
+    p.wheel_at(10., 10., 0., 30.);
+    assert_eq!(p.page, before);
+    assert!(complete(&mut p, &b));
+    assert_eq!(
+        p.hit(10., 10.),
+        None,
+        "old runtime's B is released, not adopted"
+    );
+    assert!(!complete(&mut p, &a));
+    let c = submit(&mut p).unwrap();
+    let weak_pixels = Arc::downgrade(&c.pixels);
+    let weak_identity = Rc::downgrade(&c.identity);
+    assert!(complete(&mut p, &c));
+    assert_eq!(p.viewport(), (900., 900.));
+    drop(c);
+    assert!(weak_pixels.upgrade().is_none());
+    assert!(
+        weak_identity.upgrade().is_none(),
+        "no acknowledged receipt history"
+    );
+}
+
+#[test]
+fn viewport_idle_resize_corrects_clamped_root_pixels_after_ack_without_c() {
+    let ((mut p, paints, _), _) = acknowledged_root_page();
+    let root = id(&p, "root");
+    assert_eq!(p.box_of(root).unwrap().rect.1, -60.);
+    assert!(p.resize(900., 900.).is_none());
+    let b = submit(&mut p).unwrap();
+    let b_pixels = b.pixels.data().to_vec();
+    let count = paints.get();
+    assert_eq!(p.page.1, 60., "pending resize keeps acknowledged A intent");
+    assert_eq!(p.box_of(root).unwrap().rect.1, -60.);
+    assert!(
+        !p.dirty(),
+        "no C, collection, input or timer keeps this alive"
+    );
+    assert!(complete(&mut p, &b));
+    assert_eq!(p.page.1, 0.);
+    let b_root = p.box_of(root).unwrap();
+    assert!(
+        b_root.rect.1 == 0. || p.dirty(),
+        "ACK clamp must not leave permanent old-offset pixels in idle B"
+    );
+    if b_root.rect.1 != 0. {
+        let correction = submit(&mut p).expect("dirty correction is paintable");
+        assert!(complete(&mut p, &correction));
+        assert_eq!(paints.get(), count + 1);
+    }
+    assert_eq!(p.box_of(root).unwrap().rect.1, 0.);
+    assert!(p.hit(10., 10.).is_some());
+    assert!(
+        !p.dirty(),
+        "one correction converges without a repaint loop"
+    );
+    assert_eq!(b.pixels.data(), b_pixels, "submitted pixels stay immutable");
+}
+
+#[test]
+fn viewport_headless_resize_keeps_immediate_root_scroll_semantics() {
+    let (mut p, _, _) = boot_app(VIEWPORT_APP);
+    p.frame();
+    p.wheel_at(300., 200., 0., 60.);
+    assert_eq!(p.page.1, 60.);
+    assert!(p.resize(900., 900.).is_none());
+    assert_eq!(p.page.1, 0.);
+    let pixels = p.frame();
+    assert_eq!((pixels.width(), pixels.height()), (900, 900));
+    assert!(!p.dirty());
 }

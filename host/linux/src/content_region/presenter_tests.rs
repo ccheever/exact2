@@ -674,6 +674,8 @@ fn pending_flip_keeps_acknowledged_a_scroll_and_source_until_b_ack_with_c_live()
 
     natural_replace(&mut p, "shorten");
     assert_eq!(p.host.kernel().node(port).unwrap().key, port_key);
+    assert!(p.resize(360., 460.).is_none());
+    ready(&mut p);
     let b = p.display_frame().unwrap();
     let b_bytes = b.pixels.data().to_vec();
     assert!(p.last_frame_succeeded);
@@ -696,6 +698,9 @@ fn pending_flip_keeps_acknowledged_a_scroll_and_source_until_b_ack_with_c_live()
     );
 
     natural_replace(&mut p, "lengthen"); // C is live/ready, never submitted.
+    assert!(p.resize(900., 900.).is_none());
+    ready(&mut p);
+    assert_eq!(p.viewport(), (900., 900.));
     assert_eq!(p.host.kernel().node(port).unwrap().key, port_key);
     let c_stamp = p
         .host
