@@ -4653,3 +4653,59 @@ Independent inverse checks recover exact baseline/candidate production from all
 recorded process groups are absent. Neither prior native pair nor the separately
 prepared numeric-index experiment includes this fix. Visible continuity and the
 remaining full-shape/index costs require their own evidence.
+
+### 8.75 First native comparison of numeric paint-index reuse, 2026-09-18
+
+A fresh viewport-hit control579581d8 followed by numeric-index candidate3f8f5741
+isolates §8.72's RegionRaster change. The candidate's one optimized build exits0;
+all1405 source cards and1471 actual compiled inputs differ only in that path.
+The75 Swift inputs,78 normalized configuration units, toolchain/SDK, actual
+Bridge dependency/header proof and generated entry/plan/compat remain matched.
+Neither arm includes §8.74's stale-raster fix or retained-image work. Old native
+timing cells are not substituted for the fresh control.
+
+Both cells admit actual980×852 windows/content980×820, backing1, and the same
+18 resize dimensions. The unchanged1MiB workload contains a1,048,499-byte,
+999,569-UTF16-unit paragraph. Its accepted width/line count changes940/8155 to
+856/8988, with equal full source before, first after and final. Each cell has
+six typing and six alternating40-unit wheel inputs; handlers and ACK brackets
+are inside the real resize edge. Timed progress and edge durations differ.
+
+| Recorded worker index scope | Control ms | Candidate ms |
+|---|---:|---:|
+| Initial full-publication index |74.033792|0.706542|
+| Final full-publication index |76.837125|0.731792|
+| All stage101 scopes, including short attempts |150.873125|1.441876|
+
+There are3→4 index scopes, including1→2 tiny attempts; these counts are not
+counts of full constructions. Identical stage boundaries include traversal,
+index storage and sorting, not just the removed CoreText calls. Retained index
+bytes719,120 and sampled index charge peak1,371,600 match; no RSS reduction or
+total allocation bound follows. Full shape work remains: largest scopes at
+940/927/856 are124.373/138.368/120.927→125.122/123.590/118.439ms.
+
+First qualified layer assignment after the edge is273.808792→183.802208ms.
+The exact joins are control frame601/source602/acceptance616→layer622 and
+candidate645/646/659→665, with generation, publication, serial, artifact and
+scroll matched. Acceptance-to-first-assignment worsens0.365375→16.387750ms;
+latest repeats649/692 occur1150.033500/1091.613500ms after the edge and are
+reported separately. Both in-edge/new-width layer outcomes remain
+NOTESTABLISHED. Sparse snapshots do not establish a continuous blank interval.
+
+Unequal work and negative observations remain: source captures4→5 and captured
+UTF8 bytes1,048,617→2,097,116; shape scopes57→61 and summed wall1951.868→2059.693ms;
+raster scopes4→7 and summed wall16.211→30.169ms. Region-UI clipped union rises
+16.062→16.673ms and worker union1683.419→1693.514ms. Inclusive scopes overlap and
+are not additive CPU. All18 resize envelopes per arm are below8.333ms, but
+this does not establish frame pacing without in-edge publication. Typing ACK
+maximum rises4.051→4.093ms and wheel ACK maximum0.334→2.690ms. Passive mode
+remains NOTESTABLISHED; primary/reflow probes have no omissions. One run order
+on the60Hz display proves neither repeated latency benefit nor physical120Hz.
+
+Both cells exit0 once without retries; eight recorded PIDs/four groups are
+absent with two owned mouse-ups before release. The archive at
+`target/apple-giant-viewport-index-execution-v1/` contains209files/71,335,760B,
+manifest `c75bd47a389ba1eb41c48f491bcbaadf6578159e3ae01c456b751c61e5e94905`.
+Independent raw reconstruction reproduces the index scopes, first/current
+publication joins, source equality,18 resize chains and clipped unions. A
+reversed confirmation and continuous visible reflow remain separate work.
