@@ -1,6 +1,6 @@
 # exact-game-render
 
-Opaque PBR over slot-indexed floats. `WorldSurface<G>` connects a simulation to an
+PBR over slot-indexed floats and separate model draw instances. `WorldSurface<G>` connects a simulation to an
 Exact canvas; the simulation crate owns no GPU or host. Geometry draws once per
 mesh batch **per geometry pass**: each shadow cascade draws its casters again,
 then forward rendering draws the scene. There is no frustum rejection in those loops.
@@ -62,7 +62,7 @@ slot (negative spacing). Uploads stay twelve floats per instance and there is no
 extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
 bench explicitly disables fog/bloom to retain its effects-off fast path.
 
-Eleven pipeline variants compile on first world render, including effect-free
+Twenty-nine pipeline variants compile on first world render, including effect-free
 entry points. Optional loading after app first pixel does not remove this Play
 latency. Disabling effects skips their passes and releases their attachments.
 HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
@@ -93,7 +93,29 @@ generations force both histories to refresh even without a tick. Revisions and
 presentation histories are excluded from saves/hashes. Parented TRS decomposition
 is exact under uniform ancestor scale; shear is approximated. Each primitive kind
 shares one unit mesh; dimensions are instance data. Capsules translate cap
-hemispheres instead of stretching them. Asset meshes are refused by name.
+hemispheres instead of stretching them. Models use `DrawInstance { transform, geometry, material, local }`: the feed
+allocates render slots from `RENDER_SLOT_BASE`, above entity indices. The transform
+slot still addresses the unchanged ten-float page upload. Geometry/material form
+batch keys, and composed node matrices plus inverse-transpose normals live in a
+separate instance buffer. Primitive records retain their compact identity encoding
+in the existing slot lists: transform/material = slot, geometry = batch, offset =
+identity. A primitive world binds no model group and samples no material texture.
+
+Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
+with opaque/mask/blend and culled/double-sided variants created at construction.
+Five texture slots (base colour, normal, metallic-roughness, emission, occlusion)
+have 1x1 defaults. Colour/emission textures use sRGB texture formats; data maps are
+linear. Mips arrive baked, with trilinear and 4x anisotropic sampling and authored
+wrap modes. Normal mapping derives a cotangent frame from screen-space world/UV
+derivatives (including models without tangents); baked tangents are retained for
+S3b, not uploaded. Material UV transforms apply separately to every texture.
+
+Opaque batches stay retained. Only transparent draws are sorted each displayed
+frame, back-to-front in camera depth, using retained tick poses and local centers.
+They keep depth testing, disable depth writes, and do not cast shadows. A model's
+own materials are multiplied by entity base colour and have entity emission added.
+The environment's hemisphere approximation supplies ambient metallic reflection;
+this is not image-based lighting.
 At 200k slots materials cost 9.6 MB, two transform histories 16 MB.
 
 Camera/sun/point rotations use normalized slerp histories. The first posed sun

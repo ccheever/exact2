@@ -1,0 +1,151 @@
+use exact_game::{asset::MeshData, Vec3};
+pub fn primitive(
+    p: &gltf::Primitive<'_>,
+    buffers: &[gltf::buffer::Data],
+    default: u32,
+) -> Result<MeshData, String> {
+    if p.morph_targets().next().is_some() {
+        return Err(format!(
+            "primitive {}: morph targets unsupported",
+            p.index()
+        ));
+    }
+    if p.mode() != gltf::mesh::Mode::Triangles {
+        return Err(format!(
+            "primitive {}: {:?} unsupported",
+            p.index(),
+            p.mode()
+        ));
+    }
+    for (semantic, _) in p.attributes() {
+        if !matches!(
+            semantic,
+            gltf::Semantic::Positions
+                | gltf::Semantic::Normals
+                | gltf::Semantic::Tangents
+                | gltf::Semantic::TexCoords(0)
+                | gltf::Semantic::Joints(0)
+                | gltf::Semantic::Weights(0)
+        ) {
+            return Err(format!("primitive {}: {semantic:?} unsupported", p.index()));
+        }
+    }
+    let r = p.reader(|b| Some(buffers[b.index()].0.as_slice()));
+    let positions: Vec<f32> = r
+        .read_positions()
+        .ok_or("missing POSITION")?
+        .flatten()
+        .collect();
+    let count = positions.len() / 3;
+    let indices: Vec<u32> = r
+        .read_indices()
+        .map(|v| v.into_u32().collect())
+        .unwrap_or_else(|| (0..count as u32).collect());
+    if indices.iter().any(|&i| i as usize >= count) || !indices.len().is_multiple_of(3) {
+        return Err("invalid triangle indices".into());
+    }
+    let uvs: Vec<f32> = r
+        .read_tex_coords(0)
+        .map(|v| v.into_f32().flatten().collect())
+        .unwrap_or_else(|| vec![0.; count * 2]);
+    let normals = r
+        .read_normals()
+        .map(|v| v.flatten().collect())
+        .unwrap_or_else(|| normals(&positions, &indices));
+    let tangents = r
+        .read_tangents()
+        .map(|v| v.flatten().collect())
+        .unwrap_or_else(|| tangents(&positions, &normals, &uvs, &indices));
+    let mut mesh = MeshData {
+        positions,
+        normals,
+        uvs,
+        tangents,
+        joints: r
+            .read_joints(0)
+            .map(|v| v.into_u16().flatten().collect())
+            .unwrap_or_default(),
+        weights: r
+            .read_weights(0)
+            .map(|v| v.into_f32().flatten().collect())
+            .unwrap_or_default(),
+        indices,
+        material: p.material().index().map_or(default, |i| i as u32),
+        ..Default::default()
+    };
+    bounds(&mut mesh);
+    Ok(mesh)
+}
+fn bounds(m: &mut MeshData) {
+    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    for p in m.positions.chunks_exact(3) {
+        let p = Vec3::from_slice(p);
+        lo = lo.min(p);
+        hi = hi.max(p);
+    }
+    m.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
+}
+pub fn merge(a: &mut MeshData, b: MeshData) {
+    let base = (a.positions.len() / 3) as u32;
+    a.positions.extend(b.positions);
+    a.normals.extend(b.normals);
+    a.uvs.extend(b.uvs);
+    a.tangents.extend(b.tangents);
+    a.joints.extend(b.joints);
+    a.weights.extend(b.weights);
+    a.indices.extend(b.indices.into_iter().map(|i| base + i));
+    bounds(a);
+}
+fn normals(p: &[f32], indices: &[u32]) -> Vec<f32> {
+    let mut n = vec![Vec3::ZERO; p.len() / 3];
+    for tri in indices.chunks_exact(3) {
+        let [a, b, c] = [tri[0] as usize, tri[1] as usize, tri[2] as usize];
+        let v = |i| Vec3::from_slice(&p[i * 3..i * 3 + 3]);
+        let normal = (v(b) - v(a)).cross(v(c) - v(a));
+        for i in [a, b, c] {
+            n[i] += normal;
+        }
+    }
+    n.into_iter()
+        .flat_map(|n| n.try_normalize().unwrap_or(Vec3::Y).to_array())
+        .collect()
+}
+fn tangents(p: &[f32], normals: &[f32], uv: &[f32], indices: &[u32]) -> Vec<f32> {
+    let mut t = vec![Vec3::ZERO; p.len() / 3];
+    let mut b = t.clone();
+    for tri in indices.chunks_exact(3) {
+        let [i, j, k] = [tri[0] as usize, tri[1] as usize, tri[2] as usize];
+        let v = |a| Vec3::from_slice(&p[a * 3..a * 3 + 3]);
+        let e1 = v(j) - v(i);
+        let e2 = v(k) - v(i);
+        let du1 = uv[j * 2] - uv[i * 2];
+        let dv1 = uv[j * 2 + 1] - uv[i * 2 + 1];
+        let du2 = uv[k * 2] - uv[i * 2];
+        let dv2 = uv[k * 2 + 1] - uv[i * 2 + 1];
+        let det = du1 * dv2 - du2 * dv1;
+        if det.abs() < 1e-12 {
+            continue;
+        }
+        let tangent = (e1 * dv2 - e2 * dv1) / det;
+        let bitangent = (e2 * du1 - e1 * du2) / det;
+        for a in [i, j, k] {
+            t[a] += tangent;
+            b[a] += bitangent;
+        }
+    }
+    t.into_iter()
+        .enumerate()
+        .flat_map(|(i, t)| {
+            let n = Vec3::from_slice(&normals[i * 3..i * 3 + 3]);
+            let t = (t - n * n.dot(t))
+                .try_normalize()
+                .unwrap_or_else(|| n.any_orthonormal_vector());
+            [
+                t.x,
+                t.y,
+                t.z,
+                if n.cross(t).dot(b[i]) < 0. { -1. } else { 1. },
+            ]
+        })
+        .collect()
+}

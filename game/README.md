@@ -18,6 +18,7 @@ canvas children are the HUD, a placement is a sign in the world.
 | | |
 |---|---|
 | `engine/` | `exact-game` — the simulation: world, data, ticks, input, scene, the agent's reads. **No GPU, no host.** |
+| `bake/` | `exact-game-bake` — build-time glTF, PNG/JPEG decode, geometry preparation and mip generation. Never linked into a running game. |
 | `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
 | `scene/` | `exact-game-scene` — [typed JSON authoring](scene/README.md), native content bake and the same runtime World. |
 | `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`, `#[derive(Args)]`. No `syn`. |
@@ -198,8 +199,7 @@ Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
-reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
-arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
+reports `restored: true` until the next tick or setup-argument rebuild. Current live bindings win; saved setup arguments retain the world’s construction identity; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
 then `truncated: true`); `state world:* under world:player` narrows to a subtree.
@@ -239,6 +239,23 @@ game/games/my-game/
 Add `"audio": true` to `game` to include the sound executor; omit it for a silent
 GPU module with no audio dependency. Audio games define sounds in setup and call
 `audio::step(world)` in tick (see `audio/README.md`).
+
+Audio integration is verified on macOS and the web; iOS is built but not driven
+(this machine cannot run iOS today), and interruptions are not handled. AU3c owes
+an `exact_gpu::Surface` visible/hidden lifecycle hook, reached through a GPU module
+entry point after the assets slice lands, so hidden surfaces stop device work and
+Apple suspend/resume and `AVAudioSession` policy can be wired. AU3c also owes the
+`sim.rs` dev-carry fix: preserve the fresh `Sounds` registry and overlay it after
+carry, leaving each serialized voice definition untouched; the regression must
+carry old voice A alongside registry B and prove a new voice uses B. Journal/state
+proof alone does not verify sound: the web needs a trusted gesture, an
+`AudioContext` in `running` state with advancing `currentTime`, and nonzero analyser
+RMS while wind is active; Apple needs stereo frames captured from the real render
+callback, as in `apple_tests`. The opt-in greybox web probe (`EXACT_AUDIO_PROBE=1`)
+now observes trusted resume, a running clock advancing 2.784 s, and wind RMS up to
+0.00280; input before the first frame still needs the live/seekable input plumbing
+outside this slice's permitted edits.
+
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
 `game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored
@@ -289,7 +306,34 @@ remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true
 hemispheres without stretching them. Normals use inverse dimension scale.
 Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
-`Mesh::Asset(name)` is refused by the surface until asset meshes are implemented.
+`Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
+The nodes keep their own materials; an optional entity `Material` multiplies base
+colour and adds emission. Models supply layout/pick bounds after arrival; absent
+models have no stand-in geometry.
+
+Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
+Setup and tick zero wait for all declared bytes, on headless hosts too. Missing or
+malformed files refuse by name through the surface error. `state.world.loading`
+lists outstanding names. Later `Mesh::asset` references request on first sight and
+pop in when delivered; declare them up front if simulation reads their data.
+`world.model(name)` reads immutable Data. Asset caches are excluded from saves and
+hashes; restore and module carry re-request declarations before continuing.
+
+Put `.glb`/`.gltf` sources and their image/buffer dependencies in a game's `art/`.
+The synthesized GPU shell's `build.rs` calls `exact_game_bake::bake_art`; Cargo builds
+the GPU product before the app bake and host asset copy. Each model becomes
+`assets/<stem>.model`; add `/assets/*.model` to that game's `.gitignore`. Stems must
+be unique even across art subdirectories. The standalone equivalent is
+`cargo run -p exact-game-bake -- art/fox.glb assets/fox.model` (from `game/`).
+
+The runtime decodes only `bin` Data and uploads plain vertices/RGBA8 mip chains.
+No glTF, JSON asset parser or image decoder enters the module. The existing typed
+bulk `Vec<f32/u32/u16/u8>` codec is unchanged: EXGAME v3 and EXSIM v5 remain current,
+and existing saves retain identical bytes. The baker refuses sparse accessors,
+morph targets, non-triangle primitives, unsupported vertex channels and extensions
+other than `KHR_materials_emissive_strength`/`KHR_texture_transform` by name. UV0
+transforms are baked per material texture; additional UV sets are currently refused.
+Skins and TRS animation tracks round-trip as Data but are not played until S3b.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
 to delete it and try again, not to configure it.

@@ -47,7 +47,7 @@ pub struct Presenter<D: DataSource> {
     scroll: BTreeMap<ViewId, (f32, f32)>,
     page: (f32, f32),
     images: Images,
-    assets: Assets,
+    pub(crate) assets: Assets,
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,

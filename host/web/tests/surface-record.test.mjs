@@ -28,7 +28,9 @@ export async function fixture(options = {}) {
     gpu_error: () => "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
     gpu_agent: (id, json) => JSON.parse(json).reload ? JSON.stringify({reload:{values:options.values ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
-    gpu_shader: () => true, ...options.gpu,
+    gpu_shader: () => true,
+    gpu_assets: () => '[]', gpu_asset: () => true,
+    ...options.gpu,
   };
   const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
@@ -39,6 +41,7 @@ export async function fixture(options = {}) {
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replaceAll('import.meta.url', '"http://fixture/"')
+    .replace('import { pacer } from "./pace.js";', 'const pacer = () => now => now;') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
     .replace('await import(`./gpu.js${query}`)', 'await candidate(0)')
     .replaceAll('await loadModule(version)', 'await candidate(version)');

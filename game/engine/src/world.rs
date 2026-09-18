@@ -151,6 +151,7 @@ impl Eq for WorldId {}
 
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
+    pub(crate) assets: crate::asset::Assets,
     id: WorldId,
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
@@ -191,6 +192,7 @@ impl World {
         let mut rng = storage::Singleton::new("Rng", epoch.clone());
         rng.insert(Rng::new(seed));
         Self {
+            assets: Default::default(),
             id: WorldId(std::rc::Rc::new(())),
             epoch,
             observed_epoch: 0,
@@ -743,6 +745,7 @@ impl World {
         }
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
+        next.assets = self.assets.clone();
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;

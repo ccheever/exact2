@@ -801,17 +801,13 @@ fn animated_dimensions_never_grow_geometry_and_all_spheres_batch_together() {
     assert_eq!(r.materials[9], 2.0 * (0.5 + 4099.0 * 0.001));
 }
 #[test]
-fn undeclared_asset_mesh_is_a_named_surface_refusal() {
+fn asset_mesh_waits_without_inventing_geometry() {
     let mut w = World::new(60, 0);
     w.spawn((Transform::default(), Mesh::asset("castle")));
-    let error = Feed::default()
-        .feed_to(&w, &mut Recording::default())
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("castle") && error.contains("no declared asset has that name"),
-        "{error}"
-    );
+    let mut feed = Feed::default();
+    let mut r = Recording::default();
+    feed.feed_to(&w, &mut r).unwrap();
+    assert!(feed.batches.is_empty());
 }
 
 #[test]

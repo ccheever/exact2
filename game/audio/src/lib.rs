@@ -59,6 +59,19 @@ pub trait Output {
         offset: usize,
         pitch: f32,
     );
+    /// Accept a start, or leave it inactive so the Player retries next sync.
+    fn try_start_at(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) -> bool {
+        self.start_at(id, pcm, rate, looping, offset, pitch);
+        true
+    }
     fn set(&mut self, id: u64, gain_l: f32, gain_r: f32);
     fn stop(&mut self, id: u64);
 }
@@ -354,16 +367,23 @@ impl<O: Output> Player<O> {
                 .entry(revision)
                 .or_insert_with(|| render(&w.synth, self.rate).into());
             keep.push(revision);
-            let active = self.active.entry(w.key.clone()).or_insert_with(|| {
-                let id = self.next_id;
-                self.next_id += 1;
-                self.output
-                    .start_at(id, pcm, self.rate, w.looping, w.offset, w.pitch);
-                Active {
-                    output_id: id,
-                    signature: signature(w),
+            let active = match self.active.entry(w.key.clone()) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let id = self.next_id;
+                    self.next_id += 1;
+                    if !self
+                        .output
+                        .try_start_at(id, pcm, self.rate, w.looping, w.offset, w.pitch)
+                    {
+                        continue;
+                    }
+                    entry.insert(Active {
+                        output_id: id,
+                        signature: signature(w),
+                    })
                 }
-            });
+            };
             self.output.set(active.output_id, w.gains.0, w.gains.1);
         }
         keep.sort_unstable();

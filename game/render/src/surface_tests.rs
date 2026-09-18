@@ -245,7 +245,11 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     assert_eq!(restored.sim().unwrap().world().tick(), 6);
     assert!(restored.sim().unwrap().generation() > generation);
     assert!(!restored.sim().unwrap().args().r#move);
-    assert_eq!(restored.sim().unwrap().args().run, 9);
+    assert_eq!(
+        restored.sim().unwrap().args().run,
+        original.sim().unwrap().args().run,
+        "saved setup identity is retained while current live bindings win"
+    );
     assert_eq!(restored.published().as_deref(), Some(r#"{"score":7}"#));
     assert!(restored
         .agent(r#"{"op":"state"}"#)
@@ -279,9 +283,11 @@ fn undeclared_asset_refusal_reaches_the_surface_error_with_its_name() {
     let w = s.sim.as_mut().unwrap().world_mut();
     *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle");
     fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
-    let error = s.take_error().expect("an asset is refused").0;
+    assert_eq!(s.assets(), ["castle"]);
+    s.asset("castle", None);
+    let error = s.take_error().expect("a missing asset is refused").0;
     assert!(
-        error.contains("castle") && error.contains("no declared asset has that name"),
+        error.contains("castle") && error.contains("missing file"),
         "{error}"
     );
 }
@@ -463,7 +469,7 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
     }
     fixture::render(&gpu, &mut rendered, &frame(17.)).unwrap();
     headless
-        .agent(r#"{"op":"state","now":17,"width":64,"height":64}"#)
+        .agent(r#"{"op":"clock","now":17,"width":64,"height":64}"#)
         .unwrap();
     assert_eq!(rendered.sim().unwrap().position("player").unwrap().x, 1.);
     assert_eq!(

@@ -1,0 +1,11 @@
+component AssetFixture
+  state playing = false
+  action play writes playing
+    playing = true
+  view
+    main width="100%" height="100%" background-color="#202731"
+      when playing
+        canvas surface=world() testId="world" width="100%" height="100%"
+      else
+        button press=play autofocus testId="play" padding=24
+          text "Play"

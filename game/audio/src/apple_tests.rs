@@ -244,3 +244,173 @@ fn cancelling_unpublished_shared_pcm_does_not_release_a_pending_stop() {
     p.flush();
     assert!(weak.upgrade().is_none());
 }
+
+#[test]
+fn stalled_churn_bounds_retained_bytes_to_device_windows() {
+    let (mut p, mut m) = Pending::new();
+    const SAMPLES: usize = 60 * 48000;
+    const BYTES: usize = SAMPLES * std::mem::size_of::<f32>();
+    for id in 0..70 {
+        let pcm: Arc<[f32]> = vec![0.25; SAMPLES].into();
+        start(&mut p, id, &pcm, 48000);
+        p.flush();
+        let retained: usize = p
+            .retained
+            .values()
+            .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
+            .sum();
+        assert!(
+            retained <= 33 * BYTES,
+            "retained {retained} bytes during stalled churn"
+        );
+        p.stop(id);
+    }
+    for id in 70..102 {
+        let pcm: Arc<[f32]> = vec![0.5; SAMPLES].into();
+        start(&mut p, id, &pcm, 48000);
+    }
+    p.flush();
+    let retained: usize = p
+        .retained
+        .values()
+        .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
+        .sum();
+    assert!(
+        retained <= 64 * BYTES,
+        "retained {retained} bytes with new winners"
+    );
+    for _ in 0..5 {
+        m.commands();
+        p.flush();
+    }
+    assert_eq!(m.voices.iter().flatten().count(), 32);
+    for id in 70..102 {
+        p.stop(id);
+    }
+    p.flush();
+    m.commands();
+    p.flush();
+    assert!(p.retained.is_empty());
+}
+
+#[test]
+fn unsupported_callback_layouts_advance_phase_and_finish_voices() {
+    use std::ptr;
+    for case in 0..5 {
+        let (mut p, mut m) = Pending::new();
+        m.rate = 4.0;
+        let pcm: Arc<[f32]> = vec![0.1, 0.2, 0.3, 0.4].into();
+        p.start(1, &pcm, 4, false, 0, 1.0);
+        p.set(1, 1.0, 1.0);
+        p.flush();
+        let mut samples = [9.0f32; 4];
+        let mut buffers = Buffers {
+            count: if case == 4 { 0 } else { 1 },
+            first: Buffer {
+                channels: if case == 1 { 1 } else { 2 },
+                bytes: if case == 2 { 4 } else { 16 },
+                data: if case == 3 {
+                    ptr::null_mut()
+                } else {
+                    samples.as_mut_ptr().cast()
+                },
+            },
+        };
+        let output = if case == 0 {
+            ptr::null_mut()
+        } else {
+            &mut buffers
+        };
+        // SAFETY: live mixer and buffers with the advertised storage.
+        unsafe {
+            render(
+                (&mut m as *mut Mixer).cast(),
+                ptr::null_mut(),
+                ptr::null(),
+                0,
+                2,
+                output,
+            );
+        }
+        assert_eq!(m.frame(), (0.3, 0.3), "layout {case} lost phase");
+        // SAFETY: same live callback context, discarding the next quantum.
+        unsafe {
+            render(
+                (&mut m as *mut Mixer).cast(),
+                ptr::null_mut(),
+                ptr::null(),
+                0,
+                2,
+                ptr::null_mut(),
+            );
+        }
+        assert!(m.voices.iter().all(Option::is_none));
+    }
+}
+
+#[test]
+fn full_mixer_does_not_ack_or_lose_a_start() {
+    let (mut p, mut m) = Pending::new();
+    let pcm: Arc<[f32]> = vec![0.25; 2].into();
+    for id in 0..32 {
+        start(&mut p, id, &pcm, 48000);
+    }
+    p.flush();
+    m.commands();
+    while p.acknowledgements.pop().is_some() {}
+    p.commands
+        .push(Packet {
+            sequence: 9999,
+            command: Command::Start {
+                id: 99,
+                pcm: Samples {
+                    ptr: pcm.as_ptr(),
+                    len: pcm.len(),
+                },
+                rate: 48000,
+                looping: true,
+                offset: 0,
+                pitch: 1.0,
+            },
+        })
+        .ok()
+        .unwrap();
+    m.commands();
+    assert_eq!(
+        p.acknowledgements.pop(),
+        None,
+        "unaccepted start was acknowledged"
+    );
+    m.voices[0] = None;
+    m.commands();
+    assert!(m.voices.iter().flatten().any(|v| v.id == 99));
+    assert_eq!(p.acknowledgements.pop(), Some(9999));
+}
+
+#[test]
+fn full_producer_reports_rejection_and_stops_pass_unpublished_starts() {
+    let (mut p, mut m) = Pending::new();
+    let pcm: Arc<[f32]> = vec![0.25; 48000].into();
+    for id in 0..32 {
+        assert!(p.start(id, &pcm, 48000, true, 0, 1.0));
+    }
+    assert!(!p.start(32, &pcm, 48000, true, 0, 1.0));
+    p.flush();
+    m.commands();
+    p.flush();
+    p.stop(0);
+    assert!(p.start(32, &pcm, 48000, true, 0, 1.0));
+    p.flush(); // Stop(0) is published; Start(32) waits for acknowledgement.
+    p.stop(1); // Must pass that blocked start so it can release another slot.
+    assert!(p.start(33, &pcm, 48000, true, 0, 1.0));
+    p.flush();
+    m.commands();
+    p.flush();
+    m.commands();
+    p.flush();
+    let ids: Vec<_> = m.voices.iter().flatten().map(|v| v.id).collect();
+    assert_eq!(ids.len(), 32);
+    assert!(ids.contains(&32) && ids.contains(&33));
+    assert!(!ids.contains(&0) && !ids.contains(&1));
+    assert!(p.controls.is_empty() && p.stopping.is_empty());
+}

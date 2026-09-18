@@ -1166,7 +1166,7 @@ async function waitForInflight(deadline) {
   return true;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-function agent(request) { return agentMode && globalThis.exact.pendingSurfaces.length ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agent(request) { return agentMode && (globalThis.exact.pendingSurfaces.length || request.op === "clock") ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {

@@ -6,9 +6,9 @@
 extern crate self as exact_game;
 
 mod agent;
-mod capture;
 #[doc(hidden)]
 pub mod args;
+mod capture;
 pub mod character;
 pub mod data;
 mod environment;
@@ -47,3 +47,6 @@ pub use values::Published;
 pub use world::{Bundle, Component, Entity, Event, Resource, Target, World, WorldId};
 
 pub mod audio;
+
+/// Baked GPU-ready assets, independent of the renderer.
+pub mod asset;

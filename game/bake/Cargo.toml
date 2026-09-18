@@ -1,0 +1,11 @@
+[package]
+name = "exact-game-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game.workspace = true
+gltf = { version = "1.4.1", features = ["import", "KHR_materials_emissive_strength", "KHR_texture_transform", "extensions"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde_json = "1"

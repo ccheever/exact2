@@ -1,0 +1,8 @@
+{
+  "name": "Asset fixture", "id": "com.exact.asset-fixture",
+  "app": {"id": "com.exact.asset-fixture", "name": "Asset fixture"},
+  "host": {"macos": {"minimumOS": "14.0", "window": {"width": 960, "height": 640}}, "web": {}},
+  "game": {"crate": "asset-fixture-logic", "type": "AssetFixture"},
+  "rust": false,
+  "deploy": {"store": {"web": "0", "macos": "0", "ios": "0", "linux": "0"}}
+}

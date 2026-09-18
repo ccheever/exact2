@@ -118,3 +118,19 @@ and browser work runs unsandboxed and path-scoped, and every GPU test a sandboxe
 wrote gets run by the orchestrator afterwards (one had never executed and aborted on
 a thread-local drop). A bench runner that `kill()`ed Chrome and exited leaked 28
 Chromes and made an unrelated smoke look hung: kill, then wait for the exit.
+
+**AU3b — acknowledgements own the memory.** The audio review became five failing
+regressions and fixes: maximum-duration PCM churn is bounded to a published
+32-voice window plus 32 coalescible winners, stops keep their slots and ownership
+until acknowledged, unsupported Apple buffer layouts still advance every sample,
+unaccepted starts remain retryable, malformed saved synths return `DataError`
+without changing the world, and failed device creation retries every 300 live
+frames with one warning. The first-gesture fix is still blocked by scope: surface
+input receives no live/seekable flag, so the permitted single unlock line cannot
+safely create a device before the first frame. The greybox has an opt-in live web
+analyser probe without a module entry point: trusted resume, a running clock
+advancing 2.784 seconds, and wind RMS reaching 0.00280; journal evidence alone is
+not sound verification. Apple lifecycle/session wiring and fresh sound registries on dev
+carry remain AU3c work after the assets slice. Audio regressions, clippy and fmt
+pass; shared greybox snapshots currently disagree on the assets lane's new
+`loading` field, and macOS proof hits the installed SDK/linker mismatch.

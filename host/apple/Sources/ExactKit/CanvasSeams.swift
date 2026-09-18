@@ -221,6 +221,25 @@ extension Canvases {
     }
 
     func messages(_ e: Entry) {
+        if live(e.view.id) === e, let m = module, let take = m.assets, let deliver = m.asset {
+            while let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty {
+                for name in names {
+                    let bytes = session?.app.assetBytes("assets/" + name)
+                    let chars = Array(name.utf8)
+                    let ok = chars.withUnsafeBufferPointer { chars in
+                        if let bytes {
+                            return bytes.withUnsafeBytes { raw in
+                                // Non-null with zero length distinguishes an empty file from missing.
+                                var empty: UInt8 = 0
+                                return withUnsafePointer(to: &empty) { deliver(e.id, chars.baseAddress, chars.count, raw.bindMemory(to: UInt8.self).baseAddress ?? $0, bytes.count) }
+                            }
+                        }
+                        return deliver(e.id, chars.baseAddress, chars.count, nil, 0)
+                    }
+                    if !ok { fputs("exact gpu: \(m.error())\n", stderr) }
+                }
+            }
+        }
         if live(e.view.id) === e, publishers[e.name] === e, let m = module, let take = m.published {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {

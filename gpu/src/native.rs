@@ -21,6 +21,15 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
     MODULE.with(|m| m.borrow_mut().as_mut().map(f))
 }
 
+/// Drain requested asset paths as JSON.
+pub fn assets(id: u32) -> String {
+    with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
+}
+/// Deliver named bytes, including a missing file, without requiring a device.
+pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+    with(|m| m.asset(id, name, bytes)).unwrap_or(false)
+}
+
 /// Record a refusal made by the ABI itself, before the module was reached.
 pub fn refuse(why: &str) {
     ERROR.with(|s| *s.borrow_mut() = why.to_string());
@@ -598,6 +607,26 @@ macro_rules! module {
             let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return 1 };
             let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return 1 };
             u32::from(!$crate::native::input(id, text))
+        }
+
+        /// Requested paths as JSON in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn gpu_assets(id: u32) -> u32 {
+            let text = $crate::native::assets(id);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+        /// Deliver requested bytes; null data with zero length means missing. True on success.
+        /// # Safety
+        /// name and non-null data point to readable ranges of the supplied lengths.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_asset(id: u32, name: *const u8, name_len: usize, data: *const u8, len: usize) -> bool {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_asset name", name, name_len) }) else { return false };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_asset: invalid UTF-8 name"); return false };
+            let bytes = if data.is_null() && len == 0 { None } else {
+                let Some(bytes) = (unsafe { $crate::native::bytes("gpu_asset", data, len) }) else { return false };
+                Some(bytes)
+            };
+            $crate::native::asset(id, name, bytes)
         }
 
         /// Carry in the output buffer; u32::MAX means nothing, zero is an empty carry.

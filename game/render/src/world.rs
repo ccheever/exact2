@@ -1,8 +1,11 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
-use exact_game::{Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{
+    Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE,
+};
 use std::collections::BTreeMap;
 
+mod assets;
 mod scene;
 mod upload;
 pub(crate) use scene::snap as trace_snap;
@@ -10,6 +13,18 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
+    fn model(
+        &mut self,
+        _: &exact_game::asset::Model,
+    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
+        Err(RenderError::scene(
+            "recording backend has no model support".into(),
+        ))
+    }
+    fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        Ok(())
+    }
+    fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
@@ -28,6 +43,18 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl Writes for Renderer {
+    fn model(
+        &mut self,
+        model: &exact_game::asset::Model,
+    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
+        self.add_model(model)
+    }
+    fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        self.set_draw_instances(records)
+    }
+    fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
+        self.model_poses(w, entities, initial);
+    }
     fn max_slots(&self) -> u32 {
         self.max_slots()
     }
@@ -132,6 +159,7 @@ struct AssetInstance {
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 struct Versions {
+    assets: u64,
     transform: u64,
     parent: u64,
     material: u64,
@@ -144,6 +172,7 @@ struct Versions {
 impl Versions {
     fn of(w: &World) -> Self {
         Self {
+            assets: w.assets_revision(),
             transform: w.revision::<Transform>(),
             parent: w.revision::<Parent>(),
             material: w.revision::<Material>(),
@@ -162,6 +191,7 @@ impl Versions {
 /// Decomposed globals are exact TRS for uniform ancestor scale; shear is approximated.
 /// Storage, batches and meshes grow only when scene structure changes.
 pub struct Feed {
+    assets: assets::Assets,
     versions: Option<Versions>,
     filter_same_values: bool,
     tick: u64,
@@ -181,13 +211,14 @@ pub struct Feed {
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
     scene: Scene,
-    assets: BTreeMap<String, crate::assets::Model>,
+    embedded_assets: BTreeMap<String, crate::assets::Model>,
     asset_instances: BTreeMap<Entity, AssetInstance>,
     asset_vertices: Vec<Vertex>,
 }
 impl Default for Feed {
     fn default() -> Self {
         Self {
+            assets: Default::default(),
             versions: None,
             filter_same_values: true,
             tick: 0,
@@ -207,7 +238,7 @@ impl Default for Feed {
             parents: Vec::new(),
             overrides: Vec::new(),
             scene: Scene::default(),
-            assets: BTreeMap::new(),
+            embedded_assets: BTreeMap::new(),
             asset_instances: BTreeMap::new(),
             asset_vertices: Vec::new(),
         }
@@ -218,10 +249,13 @@ impl Feed {
     pub fn with_assets(assets: &[Asset]) -> Result<Self, RenderError> {
         let mut feed = Self::default();
         for asset in assets {
-            let model = crate::assets::Model::parse(asset.bytes).map_err(|e| {
-                RenderError::scene(format!("asset `{}`: {e}", asset.name))
-            })?;
-            if feed.assets.insert(asset.name.to_owned(), model).is_some() {
+            let model = crate::assets::Model::parse(asset.bytes)
+                .map_err(|e| RenderError::scene(format!("asset `{}`: {e}", asset.name)))?;
+            if feed
+                .embedded_assets
+                .insert(asset.name.to_owned(), model)
+                .is_some()
+            {
                 return Err(RenderError::scene(format!(
                     "asset `{}` is declared twice",
                     asset.name
@@ -276,6 +310,7 @@ impl Feed {
             || next.membership != old.membership
             || next.mesh != old.mesh;
         let batches = initial
+            || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
             || next.live != old.live
@@ -394,6 +429,9 @@ impl Feed {
             }
             for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
                 mesh.validate().map_err(RenderError::scene)?;
+                if matches!(mesh, Mesh::Asset(name) if !self.embedded_assets.contains_key(name)) {
+                    continue;
+                }
                 let slot = e.index() as usize;
                 if self.dimensions.len() <= slot {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
@@ -405,7 +443,7 @@ impl Feed {
                 let group = match mesh {
                     Mesh::Asset(name) => {
                         if !self.asset_instances.contains_key(&e) {
-                            let model = self.assets.get(name).ok_or_else(|| {
+                            let model = self.embedded_assets.get(name).ok_or_else(|| {
                                 RenderError::scene(format!(
                                     "Mesh.Asset({name}): no declared asset has that name"
                                 ))
@@ -426,12 +464,10 @@ impl Feed {
                                 .sample(clip, seconds, looped)
                                 .map_err(RenderError::scene)?;
                             self.asset_vertices.clear();
-                            self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
-                            let mesh_id = r.textured_mesh(
-                                &self.asset_vertices,
-                                &model.indices,
-                                &model.image,
-                            );
+                            self.asset_vertices
+                                .extend(sampled.into_iter().map(asset_vertex));
+                            let mesh_id =
+                                r.textured_mesh(&self.asset_vertices, &model.indices, &model.image);
                             let group = self.groups.len();
                             self.groups.push(Group {
                                 mesh: mesh_id,
@@ -478,14 +514,20 @@ impl Feed {
         if initial || next.animation != old.animation || self.tick != w.tick() {
             for (e, (mesh, animation)) in w.query::<(&Mesh, Option<&Animation>)>().iter() {
                 let Mesh::Asset(name) = mesh else { continue };
-                let Some(instance) = self.asset_instances.get(&e) else { continue };
-                if instance.name != *name { continue; }
-                let model = &self.assets[name];
+                let Some(instance) = self.asset_instances.get(&e) else {
+                    continue;
+                };
+                if instance.name != *name {
+                    continue;
+                }
+                let model = &self.embedded_assets[name];
                 let clip = animation
                     .as_ref()
                     .map(|a| a.clip.as_str())
                     .or_else(|| model.clip_names().next())
-                    .ok_or_else(|| RenderError::scene(format!("Mesh.Asset({name}): asset has no animation")))?;
+                    .ok_or_else(|| {
+                        RenderError::scene(format!("Mesh.Asset({name}): asset has no animation"))
+                    })?;
                 let sampled = model
                     .sample(
                         clip,
@@ -494,7 +536,8 @@ impl Feed {
                     )
                     .map_err(RenderError::scene)?;
                 self.asset_vertices.clear();
-                self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
+                self.asset_vertices
+                    .extend(sampled.into_iter().map(asset_vertex));
                 r.update_mesh(instance.mesh, &self.asset_vertices);
             }
         }
@@ -567,7 +610,14 @@ impl Feed {
             }
         }
         if batches {
+            if next.assets != 0 || !self.assets.records.is_empty() {
+                self.assets
+                    .batches(w, r, &mut self.batches, &mut self.slots)?;
+            }
             r.batches(&self.batches, &self.slots)?;
+        }
+        if !self.assets.records.is_empty() && (moved || batches) {
+            r.model_poses(w, &self.assets.entities, initial || batches);
         }
         self.scene.feed(
             w,

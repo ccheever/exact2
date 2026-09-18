@@ -1,11 +1,12 @@
 // Opt-in observer only. Game/simulation source and its live clock are untouched.
 import * as THREE from 'three';
+import { inputRecorder } from '../../../bench/probes/input.mjs';
+const inputs = inputRecorder();
 
 const STRIDE = 8; // rAF ms, render-boundary ms, player xyz, camera xyz
-let frames, events, count = 0, eventCount = 0, active = false, overflow = false;
-let stamp = -1, lastStamp = -1, armedTrial = -1, hidden = 0, unfocused = 0;
+let frames, count = 0, active = false, overflow = false;
+let stamp = -1, lastStamp = -1, hidden = 0, unfocused = 0;
 let width = 0, height = 0;
-const codes = { Enter: 13, KeyW: 87, KeyD: 68, KeyS: 83, KeyA: 65, Space: 32 };
 function frameTime(t) { stamp = t; requestAnimationFrame(frameTime); }
 requestAnimationFrame(frameTime);
 
@@ -27,28 +28,19 @@ THREE.Mesh.prototype.onBeforeRender = function(renderer, scene, camera, geometry
   }
   beforeRender.call(this, renderer, scene, camera, geometry, material, group);
 };
-function input(e) {
-  if (!active || !(e.code in codes) || e.repeat) return;
-  if ((eventCount + 1) * 4 > events.length) { overflow = true; return; }
-  const i = eventCount++ * 4;
-  events[i] = performance.now(); events[i + 1] = codes[e.code];
-  events[i + 2] = +(e.type === 'keydown'); events[i + 3] = armedTrial;
-  armedTrial = -1;
-}
-addEventListener('keydown', input, true);
-addEventListener('keyup', input, true);
-
 window.feel = {
   begin(durationMs) {
     frames = new Float64Array(Math.ceil((durationMs / 1000 + 10) * 1000) * STRIDE);
-    events = new Float64Array(128 * 4);
+    inputs.begin();
+    count = 0; lastStamp = -1; hidden = 0; unfocused = 0; overflow = false;
     active = true;
   },
-  arm(trial) { armedTrial = trial; },
+  arm(trial) { inputs.arm(trial); },
   end() {
     active = false;
+    const delivered = inputs.end();
     return { schema: 1, stride: STRIDE, frames: Array.from(frames.subarray(0, count * STRIDE)),
-      events: Array.from(events.subarray(0, eventCount * 4)), overflow,
+      ...delivered, overflow: overflow || delivered.overflow,
       hidden_frames: hidden, unfocused_frames: unfocused,
       window_pixels: [width, height], viewport_css: [innerWidth, innerHeight],
       device_pixel_ratio: devicePixelRatio, engine_version: `three.js r${THREE.REVISION}`,

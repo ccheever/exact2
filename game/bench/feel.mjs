@@ -5,26 +5,27 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { loadavg, platform } from 'node:os';
 import { extname, join, resolve, relative } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { pathToFileURL } from 'node:url';
+import { edge, keys } from './probes/input.mjs';
 
 const here = import.meta.dir, resultsDir = join(here, 'results');
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // Adapters provide a page and the window.feel protocol; scheduling/analysis are shared.
 export const adapters = {
-  exact: { transport: 'web', variants: [process.env.FEEL_EXACT_HZ === '120' ? '120hz' : 'shipped'],
-    hz: process.env.FEEL_EXACT_HZ === '120' ? 120 : 60,
-    root: resolve(process.env.FEEL_EXACT_DIST ?? resolve(here, '../games/beacons/dist')),
-    page: '/index.html?feel=1', probe: resolve(here, '../games/beacons/feel.mjs'),
+  exact: { transport: 'web', variants: ['60hz'], hz: 60,
+    root: resolve(here, '../games/beacons/dist'),
+    page: '/index.html?feel=1', probe: resolve(here, 'probes/exact.mjs'),
     started: '!!document.querySelector("[data-gpu-input]")' },
   three: { transport: 'web', variants: ['shipped'], root: resolve(here, '../twins/three'),
     page: '/beacons/index.html?feel=1', ready: '!!window.beacons && !!window.feel',
     started: 'beacons.state().mode === "playing"' },
   godot: { transport: 'godot', variants: ['shipped', 'interpolation'] },
 };
-let interrupted = false;
+let interrupted = false, machineError;
 export function cancel() { interrupted = true; }
 const delay = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
-function check() { if (interrupted) throw new Error('Interrupted; cleaning up owned processes'); }
+function check() { if (machineError) throw machineError; if (interrupted) throw new Error('Interrupted; cleaning up owned processes'); }
 async function until(predicate, ms, label) {
   const end = performance.now() + ms;
   while (performance.now() < end) { check(); const value = await predicate(); if (value) return value; await delay(50); }
@@ -33,7 +34,7 @@ async function until(predicate, ms, label) {
 
 export function script(seconds = 12) {
   const schedule = [];
-  const key = (at_ms, code, down, trial = -1) => schedule.push({ at_ms, code, down, trial });
+  const key = (at_ms, code, down, trial = -1) => schedule.push({ at_ms, ...edge(code, down, trial) });
   key(0, 13, true); key(20, 13, false); // Play through the focused real button.
   key(500, 87, true); key(3000, 87, false);
   key(3000, 68, true); key(4500, 68, false);
@@ -46,7 +47,8 @@ export function script(seconds = 12) {
     const at = start + trial * 3600, code = trial % 2 ? 83 : 87;
     key(at, code, true, trial); key(at + 100, code, false);
   }
-  return { schedule, duration_ms: start + 19 * 3600 + 500 };
+  return { schedule, codes: Object.values(keys).map(([code]) => edge(code, false).code),
+    duration_ms: start + 19 * 3600 + 500 };
 }
 
 export function quantile(values, q) {
@@ -69,11 +71,12 @@ function unpack(array, stride) {
   return Array.from({ length: array.length / stride }, (_, i) => array.slice(i * stride, (i + 1) * stride));
 }
 export function analyze(raw, plan) {
-  if (raw.schema !== 1 || raw.stride !== 8 || raw.overflow) throw new Error('Invalid/overflowed probe buffer');
+  if (raw.schema !== 1 || raw.stride !== 8 || raw.overflow || raw.events.length % 4 || raw.frames.length % 8
+      || !raw.events.every(Number.isFinite)) throw new Error('Invalid/overflowed probe buffer');
   const events = unpack(raw.events, 4), allFrames = unpack(raw.frames, 8);
-  if (events.length !== plan.schedule.length) throw new Error(`Expected ${plan.schedule.length} delivered events, got ${events.length}`);
+  if (events.length !== plan.schedule.length) throw new Error(`Expected ${plan.schedule.length} delivered events, got ${events.length}; extra/missing input invalidates this attempt (no deduplication)`);
   events.forEach((e, i) => {
-    const wanted = plan.schedule[i];
+    const wanted = edge(plan.schedule[i].code, plan.schedule[i].down, plan.schedule[i].trial);
     if (e[1] !== wanted.code || e[2] !== +wanted.down || e[3] !== wanted.trial) throw new Error(`Event ${i} differs from schedule: ${e}`);
   });
   const frames = allFrames.filter(f => f[1] >= events[0][0]);
@@ -98,7 +101,7 @@ export function analyze(raw, plan) {
   }
   const valid = latency.filter(x => x.latency_ms !== null).map(x => x.latency_ms);
   const hitches = intervals.filter(x => x > median * 1.5).length;
-  return { frames: frames.length, duration_ms: frames.at(-1)[1] - frames[0][1],
+  return { delivered_events: events.length, expected_events: plan.schedule.length, frames: frames.length, duration_ms: frames.at(-1)[1] - frames[0][1],
     refresh_interval_ms: median, observed_refresh_hz: 1000 / median,
     frame_ms: pacing, hitches, hitch_percent: hitches / frames.length * 100,
     player, camera, latency: { trials: latency, valid_trials: valid.length,
@@ -107,6 +110,25 @@ export function analyze(raw, plan) {
       p95_intervals: valid.length ? quantile(valid, .95) / median : null },
     input_schedule_error_ms: events.map((e, i) => e[0] - events[0][0] - plan.schedule[i].at_ms),
     w_hold_ms: events[3][0] - events[2][0] };
+}
+
+export function consoleState(root, hid, idleSeconds = 30) {
+  const locked = root.match(/"IOConsoleLocked"\s*=\s*(Yes|No)/)?.[1];
+  const ns = hid.match(/"HIDIdleTime"\s*=\s*(\d+)/)?.[1];
+  if (!locked || !ns) throw new Error('Feel preflight: cannot read IOConsoleLocked / HIDIdleTime; refusing measurement');
+  const idle = Number(ns) / 1e9;
+  if (locked !== 'No') throw new Error('Feel preflight: display is locked; unlock it, then leave the console idle for 30 seconds');
+  if (idle < idleSeconds) throw new Error(`Feel preflight: console active (HID idle ${idle.toFixed(1)} s; need ${idleSeconds} s). Leave keyboard/mouse untouched, then rerun`);
+  return { locked: false, idle_seconds: idle };
+}
+export function preflight() {
+  if (platform() !== 'darwin') throw new Error('Feel preflight requires macOS IOConsoleLocked / HIDIdleTime');
+  const read = args => {
+    const r = spawnSync('ioreg', args, { encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024 });
+    if (r.status !== 0) throw new Error(`Feel preflight: ioreg failed: ${r.error?.message ?? r.stderr}`);
+    return r.stdout;
+  };
+  return consoleState(read(['-n', 'Root', '-d1']), read(['-r', '-c', 'IOHIDSystem']));
 }
 
 // AppKit activation needs no Accessibility permission and targets the recorded PID.
@@ -176,10 +198,11 @@ export async function web(plan, temp, adapter) {
   mkdirSync(profile);
   const server = adapter.url ? null : Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
     const url = new URL(req.url);
-    if (adapter.probe && url.pathname === '/__feel.mjs') return new Response(Bun.file(adapter.probe), { headers: { 'content-type': 'text/javascript' } });
+    if (url.pathname === '/bench/probes/input.mjs' || url.pathname === '/__feel/input.mjs') return new Response(Bun.file(join(here, 'probes/input.mjs')), { headers: { 'content-type': 'text/javascript' } });
+    if (adapter.probe && url.pathname === '/__feel/exact.mjs') return new Response(Bun.file(adapter.probe), { headers: { 'content-type': 'text/javascript' } });
     const path = resolve(root, '.' + decodeURIComponent(url.pathname));
     if (adapter.probe && url.pathname === '/index.html') return new Response(
-      await Bun.file(path).text() + '<script type="module" src="/__feel.mjs"></script>',
+      await Bun.file(path).text() + `<script type="module">import { install } from '/__feel/exact.mjs'; await install(${JSON.stringify(adapter.options ?? {}).replaceAll('<', '\\u003c')});</script>`,
       { headers: { 'content-type': 'text/html' } });
     if (!path.startsWith(root + '/')) return new Response('Forbidden', { status: 403 });
     const file = Bun.file(path);
@@ -217,7 +240,7 @@ export async function web(plan, temp, adapter) {
     const display = desktop(owned.pid), version = await cdp.send('Browser.getVersion');
     await cdp.evaluate(`feel.begin(${plan.duration_ms})`);
     const epoch = performance.now();
-    const codes = { 13: ['Enter', 'Enter'], 87: ['KeyW', 'w'], 68: ['KeyD', 'd'], 83: ['KeyS', 's'], 32: ['Space', ' '] };
+    const codes = Object.fromEntries(Object.entries(keys).map(([code, [vk, key]]) => [vk, [code, key]]));
     for (const item of plan.schedule) {
       await delay(epoch + item.at_ms - performance.now()); check();
       if (cdp.errors.length) throw new Error(JSON.stringify(cdp.errors));
@@ -260,7 +283,7 @@ export async function godot(plan, variant, temp) {
 const fmt = (n, digits = 2) => n === null ? 'INVALID' : n.toFixed(digits);
 const judderText = n => n !== null && n > 0 && n < .001 ? n.toExponential(2) : fmt(n, 3);
 export function table(rows) {
-  const cells = row => [row.variant, row.label ?? `${row.run}${row.attempt > 1 ? `.${row.attempt}` : ''}`,
+  const cells = row => [`${row.engine ?? ''}/${row.variant}`, row.label ?? `${row.run}${row.attempt > 1 ? `.${row.attempt}` : ''}`,
     `${row.valid === false ? 'INVALID ' : ''}${row.provisional ? 'PROVISIONAL' : 'quiet'}`,
     fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), fmt(row.frame_ms.p50), fmt(row.frame_ms.p95),
     fmt(row.frame_ms.p99), fmt(row.frame_ms.max), `${row.hitches} (${fmt(row.hitch_percent)}%)`,
@@ -270,9 +293,11 @@ export function table(rows) {
     row.frontmost_visible_confirmed ? 'yes' : 'NO'];
   const lines = [['variant', 'run', 'status', 'load1', 'Hz seen', 'p50 ms', 'p95', 'p99', 'max',
     'hitches', 'player J', 'zero %', 'camera J', 'zero %', 'input p50', 'p95', 'input intervals', 'front/visible']];
-  for (const variant of [...new Set(rows.map(r => r.variant))]) {
-    const all = rows.filter(r => r.variant === variant);
-    all.forEach(r => lines.push(cells(r)));
+  for (const variant of [...new Set(rows.map(r => `${r.engine}/${r.variant}`))]) {
+    const all = rows.filter(r => `${r.engine}/${r.variant}` === variant);
+    all.forEach(r => lines.push(r.error
+      ? [variant, `${r.run}.${r.attempt}`, `INVALID ${r.provisional ? 'PROVISIONAL ' : ''}${r.error.replace(/[|\r\n]/g, '/')}`, fmt(r.load1, 1), ...Array(14).fill('—')]
+      : cells(r)));
     const group = all.filter(r => r.valid);
     if (!group.length) continue;
     const best = [...group].sort((a, b) => a.hitch_percent - b.hitch_percent || a.frame_ms.p99 - b.frame_ms.p99)[0];
@@ -293,21 +318,33 @@ export function table(rows) {
 
 export async function measure(engine, variant, run, seconds = 12, options = {}) {
   check();
+  const consoleStart = preflight();
   mkdirSync(resultsDir, { recursive: true });
   const day = new Date().toISOString().slice(0, 10), batch = options.batch ?? new Date().toISOString().replace(/[:.]/g, '-');
   const attempt = options.attempt ?? 1, jsonl = join(resultsDir, `feel-${day}.jsonl`), plan = script(seconds);
   const temp = mkdtempSync(join(here, '.feel-')), loads = [loadavg()[0]];
-  const timer = setInterval(() => loads.push(loadavg()[0]), 1000);
-  console.error(`${engine} ${variant} ${run}/3 attempt ${attempt}: ${(plan.duration_ms / 1000).toFixed(1)} s live script + warmup; load1=${fmt(loads[0], 1)}`);
+  let polls = 0;
+  const timer = setInterval(() => {
+    loads.push(loadavg()[0]);
+    if (++polls % 5 === 0) try { preflight(); } catch (error) { machineError = error; }
+  }, 1000);
+  console.error(`${engine} ${variant} ${run}/${options.attempts ?? 3} attempt ${attempt}: ${(plan.duration_ms / 1000).toFixed(1)} s live script + warmup; load1=${fmt(loads[0], 1)}`);
+  let trace;
+  const adapter = options.adapter ?? adapters[engine];
   try {
-    const capture = adapters[engine].transport === 'web' ? await web(plan, temp, adapters[engine]) : await godot(plan, variant, temp);
+    const capture = adapter.transport === 'web' ? await web(plan, temp, adapter) : await godot(plan, variant, temp);
     loads.push(loadavg()[0]); clearInterval(timer);
     const raw = capture.raw;
-    if (engine === 'exact' && raw.tick_hz !== adapters.exact.hz) throw new Error(`Exact build is ${raw.tick_hz} Hz, expected ${adapters.exact.hz} Hz; refusing a mislabeled row`);
-    const trace = `feel-${batch}-${engine}-${variant}-${run}-attempt${attempt}.json.gz`;
+    trace = `feel-${batch}-${engine}-${variant}-${run}-attempt${attempt}.json.gz`;
     writeFileSync(join(resultsDir, trace), gzipSync(JSON.stringify({ ...raw, schedule: plan.schedule })));
+    if (engine === 'exact' && raw.tick_hz !== adapter.hz) throw new Error(`Exact build is ${raw.tick_hz} Hz, expected ${adapter.hz} Hz; refusing a mislabeled row`);
+    check();
+    let consoleEnd;
+    try { consoleEnd = preflight(); } catch (error) { machineError = error; throw error; }
     const metrics = analyze(raw, plan);
     const row = { schema: 1, batch, date: new Date().toISOString(), engine, variant, run, attempt, seconds,
+      game: options.game ?? 'beacons', console_start: consoleStart, console_end: consoleEnd,
+      build: adapter.build ?? null, tick_hz: raw.tick_hz ?? null,
       engine_version: raw.engine_version, browser_version: capture.browser_version ?? null,
       display_refresh_hz: capture.display.display_refresh_hz || raw.display_refresh_hz || null,
       display_pixels: capture.display.display_pixels, window_pixels: raw.window_pixels,
@@ -321,30 +358,128 @@ export async function measure(engine, variant, run, seconds = 12, options = {}) 
     const line = JSON.stringify(row); appendFileSync(jsonl, line + '\n'); console.log(line);
     console.error(`${engine}/${variant} #${run}: J=${fmt(row.player.judder, 3)}, input=${fmt(row.latency.median_ms)} ms, valid=${row.valid}`);
     return row;
+  } catch (error) {
+    const row = { schema: 1, batch, date: new Date().toISOString(), engine, variant, run, attempt,
+      game: options.game ?? 'beacons', valid: false, error: error.message,
+      load1: Math.max(...loads), provisional: loads.some(x => x > 8), trace: trace ? `results/${trace}` : null };
+    appendFileSync(jsonl, JSON.stringify(row) + '\n'); console.log(JSON.stringify(row));
+    if (machineError || interrupted) { error.row = row; throw error; }
+    return row;
   } finally { clearInterval(timer); rmSync(temp, { recursive: true, force: true }); }
 }
 
-async function main() {
-  const [engine, ...args] = process.argv.slice(2);
-  const seconds = args.length ? Number(args[1]) : 12;
-  if (!Object.hasOwn(adapters, engine) || (args.length && (args.length !== 2 || args[0] !== '--seconds')) || !Number.isFinite(seconds) || seconds < 7.02 || seconds > 300) {
-    throw new Error('usage: bun game/bench/feel.mjs <exact|three|godot> [--seconds 12] (7.02–300; minimum main-script window, plus 20 latency trials)');
+export function cli(args) {
+  const [engine, ...rest] = args;
+  const options = { engine, seconds: 12, game: 'beacons', entity: 'player', play: '[data-testid="play"]', noBuild: false, attempts: 3, hz: Number(process.env.FEEL_EXACT_HZ ?? 60) };
+  const known = { '--seconds': 'seconds', '--game': 'game', '--entity': 'entity', '--play': 'play', '--hz': 'hz', '--attempts': 'attempts' };
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === '--no-build') { options.noBuild = true; continue; }
+    const flag = rest[i], key = known[flag], value = rest[++i];
+    if (!key || !value) throw new Error(`Unknown/incomplete feel option: ${flag}`);
+    options[key] = ['seconds', 'hz', 'attempts'].includes(key) ? Number(value) : value;
   }
-  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
-  const batch = new Date().toISOString().replace(/[:.]/g, '-'), rows = [];
-  // Alternate variants; a focus loss gets a bounded retake, never a hidden discard.
-  for (let run = 1; run <= 3; run++) for (const variant of adapters[engine].variants) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const row = await measure(engine, variant, run, seconds, { batch, attempt }); rows.push(row);
-      if (row.valid) break;
-      console.error(`Invalid run retained; ${attempt < 3 ? 'retaking this slot' : 'three attempts exhausted'}`);
+  if ((!Object.hasOwn(adapters, engine) && engine !== 'compare') || !Number.isFinite(options.seconds)
+      || options.seconds < 7.02 || options.seconds > 300 || ![60, 120].includes(options.hz)
+      || ![1, 2, 3].includes(options.attempts) || !/^[a-z][a-z0-9_-]*$/.test(options.game)) {
+    throw new Error('usage: bun game/bench/feel.mjs <exact|three|godot|compare> [--game beacons] [--entity player] [--play selector] [--hz 60|120] [--no-build] [--attempts 1|2|3] [--seconds 12]');
+  }
+  if (engine !== 'exact' && options.game !== 'beacons') throw new Error('The twins/compare currently implement Beacons only');
+  return options;
+}
+
+export function exactAdapter(options) {
+  const app = resolve(here, '../games', options.game);
+  return { ...adapters.exact, hz: options.hz, variants: [`${options.hz}hz`],
+    root: resolve(process.env.FEEL_EXACT_DIST ?? join(app, options.hz === 120 ? 'target/feel120' : 'dist')),
+    options: { entity: options.entity, play: options.play } };
+}
+
+// Ordinary builds reuse the proof's content/artifact-digest gate. --no-build
+// deliberately trusts the supplied bake, without calling its staleness/build path.
+export async function prepareExact(options) {
+  const app = resolve(here, '../games', options.game), adapter = exactAdapter(options);
+  if (options.noBuild || options.hz === 120 || process.env.FEEL_EXACT_DIST) {
+    for (const name of ['index.html', 'exact.json', 'gpu_bg.wasm']) {
+      if (!existsSync(join(adapter.root, name))) throw new Error(`Missing baked ${options.hz} Hz artifact: ${join(adapter.root, name)}`);
+    }
+    const { artifactDigest } = await import('../proof.mjs');
+    const digest = artifactDigest('web', adapter.root);
+    if (!digest) throw new Error(`Cannot fingerprint bake: ${adapter.root}`);
+    adapter.build = { source: options.noBuild ? '--no-build' : 'prebuilt experiment',
+      freshness_checked: false, dist: adapter.root, artifact_sha256: digest };
+    console.error(`Reusing ${options.hz} Hz bake ${adapter.root}; freshness skipped, actual Hz checked in every trace`);
+    return adapter;
+  }
+  const code = `import { proof } from ${JSON.stringify(resolve(here, '../proof.mjs'))}; process.argv[2] = 'web'; await proof({url:${JSON.stringify(pathToFileURL(join(app, 'proof.mjs')).href)}}, async () => {});`;
+  check();
+  const child = spawn('bun', ['-e', code], { cwd: resolve(here, '../..'),
+    env: { ...process.env, EXACT_APP_DIR: app, CARGO_TARGET_DIR: join(app, 'target'),
+      EXACT_UPDATE_TRUST: 'development', DEVELOPER_DIR: process.env.DEVELOPER_DIR ?? '/Library/Developer/CommandLineTools' },
+    stdio: ['ignore', 'pipe', 'pipe'] });
+  console.error(`Build PID ${child.pid} (proof.mjs cache/build path)`);
+  let lastOutput = performance.now(), stalled = false;
+  const recorded = new Set([child.pid]);
+  const output = data => { lastOutput = performance.now(); process.stderr.write(data); };
+  child.stdout.on('data', output); child.stderr.on('data', output);
+  const monitor = setInterval(() => {
+    const ps = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' });
+    const rows = ps.stdout.trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
+    for (let more = true; more;) {
+      more = false;
+      for (const [pid, parent] of rows) if (recorded.has(parent) && !recorded.has(pid)) { recorded.add(pid); more = true; }
+    }
+    if (performance.now() - lastOutput > 60000 || interrupted) {
+      stalled = !interrupted;
+      for (const pid of [...recorded].reverse()) try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  }, 1000);
+  let status;
+  try { status = await new Promise((ok, reject) => { child.once('exit', ok); child.once('error', reject); }); }
+  finally { clearInterval(monitor); }
+  if (stalled) throw new Error('Build silent for 60 seconds; stopped recorded build processes. Use the provisioned Linux builder for this build step');
+  check();
+  if (status === 0) { adapter.build = { source: 'proof.mjs', receipt: JSON.parse(readFileSync(join(app, 'artifacts/build-web.sha256'), 'utf8')) }; return adapter; }
+  throw new Error('Build failed in the shared proof path; no measurement taken');
+}
+
+function saveTable(batch, rows) {
+  const report = table(rows);
+  writeFileSync(join(resultsDir, `feel-${batch}.md`), report + '\n');
+  console.error(report); console.error(`Saved JSONL, table and raw traces under ${resultsDir}`);
+}
+
+export async function runFeel(options, { ready = preflight, prepare = prepareExact, take = measure, save = saveTable } = {}) {
+  console.error(`Feel preflight: ${JSON.stringify(ready())}`);
+  const batch = new Date().toISOString().replace(/[:.]/g, '-'), rows = [], jobs = [];
+  if (['exact', 'compare'].includes(options.engine)) {
+    for (const hz of options.engine === 'compare' ? [60, 120] : [options.hz]) {
+      jobs.push({ engine: 'exact', variant: `${hz}hz`, adapter: await prepare({ ...options, hz }) });
     }
   }
-  console.error(table(rows)); console.error(`Saved JSONL and raw traces under ${resultsDir}`);
-  if (rows.filter(r => r.valid).length !== 3 * adapters[engine].variants.length) process.exitCode = 1;
+  for (const engine of options.engine === 'compare' ? ['three', 'godot'] : ['three', 'godot'].filter(e => e === options.engine)) {
+    for (const variant of adapters[engine].variants) jobs.push({ engine, variant, adapter: adapters[engine] });
+  }
+  ready(); // A long build must not turn an earlier idle check into permission.
+  try {
+    for (let run = 1; run <= options.attempts; run++) for (const job of jobs) {
+      const row = await take(job.engine, job.variant, run, options.seconds, { ...options, batch, attempt: 1, adapter: job.adapter });
+      rows.push(row); // Exactly three attempts by default, including invalid rows; no hidden retakes.
+    }
+  } catch (error) {
+    if (error.row) rows.push(error.row);
+    throw error;
+  } finally { if (rows.length) save(batch, rows); }
+  return rows;
+}
+
+async function main() {
+  const options = cli(process.argv.slice(2));
+  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+  const rows = await runFeel(options);
+  if (rows.some(r => !r.valid)) process.exitCode = 1;
 }
 // Bun can retain signal/CDP handles after the last browser has exited. Cleanup
 // above has already awaited every owned process before either completion path.
 if (import.meta.main) main().then(() => process.exit(process.exitCode ?? 0), error => {
-  console.error(error.stack); process.exit(1);
+  console.error(error.message); process.exit(1);
 });

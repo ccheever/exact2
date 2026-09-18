@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { proof } from '../../proof.mjs';
+import { audioProof } from './audio-proof.mjs';
 
 await proof(import.meta, async ({open, check, equal, out, host, say}) => {
 const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
@@ -184,4 +185,8 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const refusedLogs = await session.logs();
   check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines.some(line=>line.includes('restore refused'))), refusedLogs.world);
 
+  if (host === 'web' && process.env.EXACT_AUDIO_PROBE === '1') {
+    await session.close(); session = null;
+    await audioProof({out, check, say});
+  }
 });

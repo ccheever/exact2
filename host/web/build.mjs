@@ -170,6 +170,7 @@ if (app.hasGpu) {
     const bg = resolve(stage, 'gpu_bg.wasm');
     const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
     copyFileSync(resolve(root, 'host/web/gpu-glue.js'), resolve(stage, 'gpu-glue.js'));
+    copyFileSync(resolve(root, 'host/web/pace.js'), resolve(stage, 'pace.js'));
     const gw = readFileSync(bg);
     gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
   }

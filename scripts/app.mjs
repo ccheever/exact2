@@ -379,7 +379,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/gpu-glue.js','host/web/pace.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
@@ -427,7 +427,7 @@ export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   if (app.manifest.game) bakeGameScene(app, {development:env.EXACT_UPDATE_TRUST === 'development'});
-  env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>existsSync(resolve(app.dir,root))).join(',');
+  env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && existsSync(resolve(app.dir,'art'))) || existsSync(resolve(app.dir,root))).join(',');
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);

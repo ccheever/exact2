@@ -14,6 +14,15 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
     MODULE.with(|m| m.borrow_mut().as_mut().map(f))
 }
 
+/// Drain requested asset paths as JSON.
+pub fn assets(id: u32) -> String {
+    with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
+}
+/// Deliver named bytes, including a missing file, without requiring a device.
+pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+    with(|m| m.asset(id, name, bytes)).unwrap_or(false)
+}
+
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -302,6 +311,17 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_input(id: u32, event_json: &str) -> bool {
             $crate::web::input(id, event_json)
+        }
+
+        /// Drain requested asset paths as JSON.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_assets(id: u32) -> String {
+            $crate::web::assets(id)
+        }
+        /// Deliver one requested asset, or null/undefined for a missing file.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_asset(id: u32, name: &str, bytes: Option<Vec<u8>>) -> bool {
+            $crate::web::asset(id, name, bytes.as_deref())
         }
 
         /// Capture state, or undefined when this surface carries nothing.
