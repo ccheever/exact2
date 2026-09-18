@@ -292,7 +292,7 @@ impl DataSource for Module {
             .collect();
         match call(
             json!({"op":"dispatch", "id":self.id, "token":token, "store":snapshot, "grants":granted}),
-        ) {
+        ).and_then(|bytes| serde_json::from_slice::<Json>(&bytes).map_err(|e| unavailable(e.to_string()))) {
             Ok(response) if response["ok"] == true => Dispatch::Host(token),
             _ => Dispatch::Missing,
         }
