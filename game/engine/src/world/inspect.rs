@@ -639,6 +639,8 @@ mod measurements {
             ("still", 0, 1),
             ("clustered", 100, 1),
             ("spread", 100, 2000),
+            ("every-word", 200_000_usize.div_ceil(64), 64),
+            ("all-slots", 200_000, 1),
         ] {
             for operation in ["observe", "hash", "observe+hash", "seek-pair"] {
                 let mut w = World::new(60, 0);

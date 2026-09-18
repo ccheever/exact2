@@ -20,10 +20,9 @@ const WORDS: usize = PAGE / 64;
 type Slots<C> = UnsafeCell<[MaybeUninit<C>; PAGE]>;
 
 #[derive(Default)]
-struct ObservedPage {
-    generation: Option<u64>,
-    mask: [u64; WORDS],
-    skip: [u64; WORDS],
+struct ObservedWord {
+    // None also protects against a panicking Data::write during a rebuild.
+    mask: Option<u64>,
     entries: Vec<(usize, u64)>,
 }
 
@@ -110,7 +109,8 @@ pub(crate) struct Storage<C> {
     borrowed: Cell<isize>,
     revision: Cell<u64>,
     membership: u64,
-    observation: RefCell<Vec<ObservedPage>>,
+    observation: RefCell<Vec<ObservedWord>>,
+    observation_dirty: Vec<Cell<u64>>,
     pub(super) epoch: std::rc::Rc<Cell<u64>>,
 }
 impl<C> Default for Storage<C> {
@@ -126,6 +126,7 @@ impl<C> Default for Storage<C> {
             revision: Cell::new(0),
             membership: 0,
             observation: RefCell::new(Vec::new()),
+            observation_dirty: Vec::new(),
             epoch: Default::default(),
         }
     }
@@ -181,6 +182,15 @@ impl<C> Storage<C> {
             generation.set(self.revision.get());
         }
     }
+    fn mark_observation(&self, word: usize, bits: u64) {
+        if let Some(dirty) = self.observation_dirty.get(word) {
+            dirty.set(dirty.get() | bits);
+        }
+    }
+    fn mark_slot(&self, index: usize) {
+        self.mark_page(index / PAGE);
+        self.mark_observation(index / 64, 1 << (index % 64));
+    }
     fn edited(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
         self.revision.set(self.revision.get().wrapping_add(1));
@@ -197,7 +207,7 @@ impl<C: Data> Storage<C> {
     pub(crate) fn insert(&mut self, index: usize, c: C) {
         self.edited();
         if self.has(index) {
-            self.mark_page(index / PAGE);
+            self.mark_slot(index);
             // SAFETY: the bit proves initialization; &mut self excludes all leases.
             // Replace before dropping, so even a panicking destructor leaves a live slot.
             drop(unsafe { self.ptr(index).replace(c) });
@@ -210,8 +220,10 @@ impl<C: Data> Storage<C> {
             self.counts.resize(page + 1, 0);
             self.generations.resize_with(page + 1, || Cell::new(0));
             self.mask.resize((page + 1) * WORDS, 0);
+            self.observation_dirty
+                .resize_with((page + 1) * WORDS, || Cell::new(0));
         }
-        self.mark_page(page);
+        self.mark_slot(index);
         self.pages[page].get_or_insert_with(|| {
             // MaybeUninit accepts zero bits for every C, including zero-sized types.
             // Zero backing bytes also make absent Plain slots safe to upload.
@@ -230,7 +242,7 @@ impl<C: Data> Storage<C> {
         }
         self.edited();
         self.membership = self.membership.wrapping_add(1);
-        self.mark_page(index / PAGE);
+        self.mark_slot(index);
         let ptr = self.ptr(index);
         self.mask[index / 64] &= !(1 << (index % 64));
         self.len -= 1;
@@ -262,7 +274,7 @@ impl<C: Data> Storage<C> {
             return None;
         }
         let lease = self.lease(true);
-        self.mark_page(index / PAGE);
+        self.mark_slot(index);
         Some(RefMut {
             ptr: self.ptr(index),
             _lease: lease,
@@ -385,62 +397,64 @@ impl<C: Data> Erased for Storage<C> {
     ) {
         // Even a cache hit must honor an outstanding mutable lease.
         let _lease = self.lease(false);
-        let mut pages = self.observation.borrow_mut();
-        pages.resize_with(self.page_count(), ObservedPage::default);
+        let mut words = self.observation.borrow_mut();
+        words.resize_with(self.mask.len(), ObservedWord::default);
         if let Some(w) = &mut full {
             w.begin_seq(self.len);
         }
-        for (page, cached) in pages.iter_mut().enumerate() {
-            let generation = self.page_generation(page);
-            let mask = self.page_mask(page);
-            let mut skipped = skip.map_or([0; WORDS], |s| s.page_mask(page));
-            for (skip, present) in skipped.iter_mut().zip(mask) {
-                *skip &= present;
-            }
-            let dirty = cached.generation != Some(generation)
-                || cached.mask != mask
-                || cached.skip != skipped;
-            if dirty {
-                // A panicking Data::write must not leave a partially valid page.
-                cached.generation = None;
+        for (word, cached) in words.iter_mut().enumerate() {
+            let mask = self.mask[word];
+            let observed = mask & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
+            let rebuild = cached.mask != Some(observed);
+            let dirty = observed
+                & if rebuild {
+                    u64::MAX
+                } else {
+                    self.observation_dirty[word].get()
+                };
+            if rebuild {
+                cached.mask = None;
                 cached.entries.clear();
             }
-            if dirty || full.is_some() {
-                for (word, &bits) in mask.iter().enumerate() {
-                    let mut bits = bits;
-                    while bits != 0 {
-                        let bit = bits.trailing_zeros() as usize;
-                        let i = page * PAGE + word * 64 + bit;
-                        bits &= bits - 1;
-                        let observe = skipped[word] & (1 << bit) == 0;
-                        if !observe && full.is_none() {
-                            continue;
-                        }
-                        // SAFETY: presence proves initialization; the shared lease excludes writers.
-                        let value = unsafe { &*self.ptr(i) };
-                        if let Some(w) = &mut full {
-                            w.item();
-                            w.begin_seq(2);
-                            w.item();
-                            entity(i).write(*w);
-                            w.item();
-                            if dirty && observe {
-                                cached.entries.push((i, w.with_observation(value)));
-                            } else {
-                                value.write(*w);
-                            }
-                            w.end_seq();
-                        } else {
-                            cached.entries.push((i, crate::hash::of(value)));
-                        }
+            // Clean observation-only words never dereference or serialize a value.
+            // Fused samples still stream all values, in the original entity order.
+            let mut bits = if full.is_some() { mask } else { dirty };
+            while bits != 0 {
+                let bit = bits.trailing_zeros() as usize;
+                let index = word * 64 + bit;
+                bits &= bits - 1;
+                let rehash = dirty & (1 << bit) != 0;
+                // SAFETY: presence proves initialization; the shared lease excludes writers.
+                let value = unsafe { &*self.ptr(index) };
+                let digest = if let Some(w) = &mut full {
+                    w.item();
+                    w.begin_seq(2);
+                    w.item();
+                    entity(index).write(*w);
+                    w.item();
+                    let digest = if rehash {
+                        Some(w.with_observation(value))
+                    } else {
+                        value.write(*w);
+                        None
+                    };
+                    w.end_seq();
+                    digest
+                } else {
+                    Some(crate::hash::of(value))
+                };
+                if let Some(digest) = digest {
+                    if rebuild {
+                        cached.entries.push((index, digest));
+                    } else {
+                        let rank = (observed & ((1u64 << bit) - 1)).count_ones() as usize;
+                        cached.entries[rank].1 = digest;
                     }
                 }
             }
-            if dirty {
-                cached.mask = mask;
-                cached.skip = skipped;
-                cached.generation = Some(generation);
-            }
+            cached.mask = Some(observed);
+            // Clear only after all writes succeed; a panic cannot bless stale rows.
+            self.observation_dirty[word].set(0);
             out.extend_from_slice(&cached.entries);
         }
         if let Some(w) = &mut full {
@@ -595,6 +609,7 @@ impl<C: Data> Erased for Storage<C> {
                 crate::data::limits::reserve(r, &mut self.counts, counts)?;
                 crate::data::limits::reserve(r, &mut self.generations, pages)?;
                 crate::data::limits::reserve(r, &mut self.mask, words)?;
+                crate::data::limits::reserve(r, &mut self.observation_dirty, words)?;
             }
             if self.pages.get(page).is_none_or(Option::is_none) {
                 r.claim(std::mem::size_of::<Slots<C>>())?;

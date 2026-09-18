@@ -324,7 +324,7 @@ fn writes(w: &World, sample: &mut Observation) -> usize {
 }
 
 #[test]
-fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
+fn only_dirty_slots_are_hashed_and_context_changes_reset_them() {
     let mut w = World::new(60, 0);
     let entities: Vec<_> = (0..storage::PAGE * 2 + 1)
         .map(|_| w.spawn(Measured(0)))
@@ -333,11 +333,11 @@ fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
     assert_eq!(writes(&w, &mut sample), entities.len());
     assert_eq!(writes(&w, &mut sample), 0);
     drop(w.get_mut::<Measured>(entities[0]));
-    assert_eq!(writes(&w, &mut sample), storage::PAGE);
+    assert_eq!(writes(&w, &mut sample), 1);
     w.get_mut::<Measured>(*entities.last().unwrap()).unwrap().0 = 1;
     assert_eq!(writes(&w, &mut sample), 1);
     w.insert(entities[0], crate::Ambient);
-    assert_eq!(writes(&w, &mut sample), storage::PAGE - 1);
+    assert_eq!(writes(&w, &mut sample), 63);
     assert_eq!(writes(&w, &mut sample), 0);
     w.presentation_generation += 1;
     assert_eq!(writes(&w, &mut sample), entities.len() - 1);
@@ -361,7 +361,38 @@ fn only_dirty_pages_are_hashed_and_context_changes_reset_them() {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.observe(&mut sample))).is_err()
     );
     drop(guard);
-    assert_eq!(writes(&w, &mut sample), storage::PAGE - 1);
+    assert_eq!(writes(&w, &mut sample), 1);
+}
+
+#[test]
+fn spread_every_word_and_all_slots_have_bounded_hash_work() {
+    let mut w = World::new(60, 0);
+    let entities: Vec<_> = (0..200_000).map(|i| w.spawn(Measured(i))).collect();
+    let mut sample = Observation::default();
+    assert_eq!(writes(&w, &mut sample), 200_000);
+    for stride in [2000, 64, 1] {
+        let mut count = 0;
+        for &e in entities.iter().step_by(stride) {
+            w.get_mut::<Measured>(e).unwrap().0 += 1;
+            count += 1;
+        }
+        assert_eq!(writes(&w, &mut sample), count);
+        let mut oracle = Observation::default();
+        w.observe_uncached(&mut oracle, false);
+        assert_eq!(sample.entries, oracle.entries);
+        assert_eq!(writes(&w, &mut sample), 0);
+    }
+    // Partial, owning query: only yielded slots are dirtied, including on a
+    // second iteration over the same leased query after an earlier sample.
+    let mut query = w.query::<&mut Measured>().into_iter();
+    for _ in 0..3 {
+        query.next().unwrap().0 += 1;
+    }
+    drop(query);
+    assert_eq!(writes(&w, &mut sample), 3);
+    let mut oracle = Observation::default();
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(sample.entries, oracle.entries);
 }
 
 #[test]
