@@ -3785,3 +3785,63 @@ Evidence: `target/pending-flip-span-budget-runtime-before-1m-v1/`, manifest
 `5ebe63eb69c72c788f0f708013044406f0cbac34514b09a21a892f2b87f83b91`;
 `target/pending-flip-span-budget-runtime-after-1m-v1/`, manifest
 `db3194ff997555c2571dddc7491f5cca23b432e6c25d9c0bb45d1703720f44fc`.
+
+### 8.57 Linux pending-flip confirmation with reversed order, 2026-09-18
+
+A second fresh 1MiB pair runs treatment before control, reusing §8.56's four
+immutable binaries and receivers. Only output namespaces and the prerequisite
+between arms change: the second control requires this new treatment's full
+pass and completed cleanup. Both arms again pass two independent reference
+renders and the cold candidate, once, with the same address-space, time and
+observer limits. The first pair and §8.54's failed recorder remain unchanged.
+
+The treatment again handles actual input during pending flips: nine input
+records, inputs31–37 during picture21 and43–44 during picture29. The control
+again has none. All30 treatment page-flip acknowledgments arrive in later UI
+turns; the initial modeset is synchronous. Each acknowledgment retains its
+submitted picture's stamp, separately identifying later live state. All32
+control and31 treatment paint→submit→ready→publication joins close, including
+the final desired picture and no later pending C.
+
+| Reversed pair, semantic arm | Control | Treatment |
+| --- | ---: | ---: |
+| Blocking KMS waits | 31; 306.894ms total; 20.064ms max | None |
+| KMS readiness handler | No separate handler | 30; 0.066ms total; 0.006334ms max |
+| Publication spans | 32; 0.541ms total | 31; 5.474ms total |
+| Complete UI turns / spans / pictures | 67 / 2,777 / 32 | 172 / 4,160 / 31 |
+| Whole turns above8.333ms | 32/67 | 1/172 |
+| Initial whole turn | 34.382ms | 37.546ms |
+| Largest later whole turn | 26.416ms | 8.135ms |
+
+The same-width giant reuse handoffs are16.083/10.002ms in the control and
+5.247/6.199ms in the treatment. They include scheduling and overlapping
+observer work; they are not pure queue or CPU costs. Readiness and publication
+remain counted UI work. The loop structure, turn counts and small-job
+admissions differ, so the table is not a matched-turn latency distribution.
+The treatment's initial submit still takes21.095ms. Its first-pair8.447ms
+post-startup miss remains part of the evidence; this second pair does not
+establish a general steady-state bound.
+
+Independent reconstruction matches all724/1,009 raw journal records, all26
+A/B reference fields, each1,228,800-byte accepted crop and both532,224-byte40px
+overlaps per arm. Final control frame32/input48 joins turn66/seq724; treatment
+frame31/input48 joins turn171/seq1009. Both end with the same final pixel hash
+as the first pair. Four private jobs, two numeric layouts/indexes, one shape,
+zero giant UI construction, retained-A interaction and A retirement remain
+verified. Accessible capacity again peaks at345,492,154 bytes; sampled AS/RSS
+are1,224,856/546,456KiB versus1,221,116/542,816KiB, with no isolated saving or
+strict peak claim.
+
+Both wrappers exit0, reference processes exit0 and candidate SIGTERM occurs
+intentionally after observations. All recorded runtime and copy owners retire.
+Across two orders, this confirms removal of blocking display waits while
+preserving the tested pixels and interaction ownership. Both runs retain
+`nonquiet:true`, fixed60Hz VKMS, authored600→984 content width and censored final
+trace-flush cost. No4MiB confirmation, physical120Hz, broad latency-tail or
+individual-input visibility claim follows.
+
+Evidence: `target/pending-flip-span-budget-runtime-reverse-before-1m-v1/`,
+manifest `dd38c02be40113a301cdbc4ee700e89373ce73da3cbc4c66d3723fcb515ae6ed`;
+`target/pending-flip-span-budget-runtime-reverse-after-1m-v1/`, manifest
+`03eb94b89b3f49b4ee21ef3ef9a0922c6b2a92e0795d7740700d81cfd60d4bf1`;
+paired summary manifest `94e2f44c534c3d1f40923f3cfdd4549f75b3959f3b67603609c0108fe4c027d4`.
