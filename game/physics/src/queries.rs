@@ -26,6 +26,7 @@ impl Revisions {
     }
 }
 pub(crate) struct Cached {
+    world: exact_game::WorldId,
     revisions: Revisions,
     scene: Scene,
     #[cfg(test)]
@@ -59,10 +60,14 @@ impl Queries<'_> {
         )>();
         let revisions = Revisions::of(self.world);
         let mut cache = self.physics.executor.1.borrow_mut();
-        if cache.as_ref().is_none_or(|c| c.revisions != revisions) {
+        if cache
+            .as_ref()
+            .is_none_or(|c| c.world != self.world.id() || c.revisions != revisions)
+        {
             #[cfg(test)]
             let builds = cache.as_ref().map_or(1, |c| c.builds + 1);
             *cache = Some(Cached {
+                world: self.world.id(),
                 revisions,
                 scene: Scene::new(self.world),
                 #[cfg(test)]
@@ -252,6 +257,51 @@ pub fn sweep(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retained_queries_follow_physics_into_an_equal_revision_world() {
+        let mut a = World::new(60, 0);
+        let mut b = World::new(60, 0);
+        crate::register(&mut a);
+        crate::register(&mut b);
+        a.spawn((Collider::default(), Transform::at(3., 0., 0.)));
+        b.spawn((Collider::default(), Transform::at(9., 0., 0.)));
+        assert!(Revisions::of(&a) == Revisions::of(&b));
+        assert!(raycast(&a, Vec3::ZERO, Vec3::X, 4., 1).is_some());
+        let physics = std::mem::take(&mut *a.resource_mut::<crate::Physics>());
+        drop(a); // The cached identity must keep the original token alive.
+        b.insert_resource(physics);
+        let hash = b.hash();
+        let saved = b.save();
+        assert!(raycast(&b, Vec3::ZERO, Vec3::X, 4., 1).is_none());
+        assert!(raycast(&b, Vec3::ZERO, Vec3::X, 10., 1).is_some());
+        assert_eq!(
+            queries(&b)
+                .physics
+                .executor
+                .1
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .builds,
+            2
+        );
+        let moved = Box::new(b);
+        assert!(raycast(&moved, Vec3::ZERO, Vec3::X, 10., 1).is_some());
+        assert_eq!(
+            queries(&moved)
+                .physics
+                .executor
+                .1
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .builds,
+            2
+        );
+        assert_eq!(moved.hash(), hash);
+        assert_eq!(moved.save(), saved);
+    }
+
     #[test]
     fn retained_queries_refresh_after_same_tick_edits_and_restore() {
         let mut w = World::new(60, 0);

@@ -43,6 +43,18 @@ export async function closeSessions(monitor, record, sessions, check) {
     }
   }
 }
+export function equal(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+      && a.every((value, i) => equal(value, b[i]));
+  }
+  const keys = Object.keys(a).sort(), other = Object.keys(b).sort();
+  return keys.length === other.length
+    && keys.every((key, i) => key === other[i] && equal(a[key], b[key]));
+}
+
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
@@ -58,7 +70,6 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
-  const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   // Record this process's descendants while they exist; never signal an unrelated PID.
   const recorded = new Map();
   const inventory = () => {

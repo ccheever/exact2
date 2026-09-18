@@ -33,7 +33,7 @@ fn main() {
         seed: 7,
         paused: false,
     });
-    card::<beacons::Beacons>(beacons::BeaconsArgs {
+    card::<beacons::Beacons>(beacons::Options {
         seed: 7,
         ..Default::default()
     });

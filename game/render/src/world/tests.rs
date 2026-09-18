@@ -688,7 +688,7 @@ fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
 }
 
 #[test]
-fn dirty_pages_coalesce_overrides_and_dense_mode_reprobes() {
+fn identical_parent_writes_stop_uploading_settled_transform_pages() {
     let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();
     let root = w.spawn(Transform::default());

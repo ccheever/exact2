@@ -120,6 +120,7 @@ struct State {
 struct Registration {
     id: TypeId,
     make: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
+    resource_size: usize,
     make_resource: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
     ambient: bool,
 }
@@ -137,8 +138,20 @@ pub struct Event {
     pub line: String,
 }
 
+/// Retained, opaque identity for derived caches. Moves keep it; new worlds differ.
+/// Holding a token prevents its identity from being recycled after the world drops.
+#[derive(Clone, Debug)]
+pub struct WorldId(std::rc::Rc<()>);
+impl PartialEq for WorldId {
+    fn eq(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for WorldId {}
+
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
+    id: WorldId,
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
@@ -178,6 +191,7 @@ impl World {
         let mut rng = storage::Singleton::new("Rng", epoch.clone());
         rng.insert(Rng::new(seed));
         Self {
+            id: WorldId(std::rc::Rc::new(())),
             epoch,
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
@@ -207,6 +221,10 @@ impl World {
             presentation_generation: 0,
         }
     }
+    /// Identity of this world instance, excluded from saves and hashes.
+    pub fn id(&self) -> WorldId {
+        self.id.clone()
+    }
     /// Replacement epoch for presentation caches, excluded from saves and hashes.
     pub fn presentation_generation(&self) -> u64 {
         self.presentation_generation
@@ -230,6 +248,7 @@ impl World {
                     id,
                     make: storage::make::<C>,
                     make_resource: storage::make_cell::<C>,
+                    resource_size: std::mem::size_of::<storage::Singleton<C>>(),
                     ambient,
                 },
             );
@@ -765,6 +784,7 @@ impl World {
                             })?;
                         let resource = field == "resources";
                         let make = if resource {
+                            r.claim(reg.resource_size).map_err(|e| e.at(&name))?;
                             reg.make_resource
                         } else {
                             reg.make

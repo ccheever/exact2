@@ -91,3 +91,47 @@ fn save_entity_limit_is_checked_before_reserving_slots() {
     assert!(err.contains("slots") && err.contains("limit"), "{err}");
     assert_eq!(w.save(), before);
 }
+
+#[test]
+fn singleton_load_claims_inline_allocation_before_factory() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static MADE: AtomicBool = AtomicBool::new(false);
+    #[derive(Default, crate::Resource)]
+    struct LargeInline {
+        #[data(skip)]
+        _bytes: [[[u8; 32]; 32]; 32],
+    }
+    let mut source = World::new(60, 0);
+    source.insert_resource(LargeInline::default());
+    let bytes = source.save();
+    for remaining in [4096, 65536] {
+        let mut target = World::new(60, 0);
+        target.register_resource::<LargeInline>();
+        target
+            .registry
+            .get_mut("LargeInline")
+            .unwrap()
+            .make_resource = |name, epoch| {
+            MADE.store(true, Ordering::SeqCst);
+            storage::make_cell::<LargeInline>(name, epoch)
+        };
+        MADE.store(false, Ordering::SeqCst);
+        let mut reader = bin::Decoder::new(&bytes[MAGIC.len()..]);
+        reader
+            .claim(crate::data::MAX_LOAD_BYTES - remaining)
+            .unwrap();
+        let result = target.read(&mut reader);
+        if remaining == 4096 {
+            let error = result.expect_err("inline singleton bypassed allocation budget");
+            assert!(error.to_string().contains("budget"), "{error}");
+            assert!(error.to_string().contains("LargeInline"), "{error}");
+            assert!(!MADE.load(Ordering::SeqCst), "factory ran before claim");
+        } else {
+            result.unwrap();
+            reader.finish().unwrap();
+            assert!(MADE.load(Ordering::SeqCst));
+            assert_eq!(source.save(), target.save());
+            assert_eq!(source.hash(), target.hash());
+        }
+    }
+}

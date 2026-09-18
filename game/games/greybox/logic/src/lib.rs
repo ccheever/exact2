@@ -6,6 +6,9 @@ use exact_game::{
     Spring, Stick, Transform, Vec3, World,
 };
 
+// Seconds for horizontal velocity to close 1 - 1/e of the remaining gap.
+const MOVE_LAG: f32 = 0.074690334;
+
 /// Horizontal acceleration and a ballistic hop, in meters and seconds.
 #[derive(Default, Component)]
 pub struct Player {
@@ -106,8 +109,8 @@ impl Game for Greybox {
         let desired = input.stick_xz("move") * 4.0;
         let mut position = Vec3::ZERO;
         if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
-            player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
-            player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
+            player.velocity.x = math::ease(player.velocity.x, desired.x, MOVE_LAG, dt);
+            player.velocity.z = math::ease(player.velocity.z, desired.z, MOVE_LAG, dt);
             if input.pressed("jump") && pose.position.y <= 0.9 {
                 player.velocity.y = 5.0;
             }

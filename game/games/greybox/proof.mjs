@@ -31,6 +31,8 @@ const position = state => state?.entity?.components?.Transform?.position;
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.clock('+1500');
   const player = await s.state('world:player');
+  check('player has the exact authored capsule', equal(player?.entity?.components?.Mesh,
+    {Capsule:{height:1.8, radius:0.4}}), player?.entity?.components?.Mesh);
   check('W for 1500 ms equals the native pinned position', equal(position(player), [0, 0.9, -5.7333384]), position(player));
   const forward = await s.state();
   const hash = forward?.world?.[0]?.hash;

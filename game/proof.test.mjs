@@ -2,7 +2,7 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {artifactDigest, closeSessions} from './proof.mjs';
+import {artifactDigest, closeSessions, equal} from './proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
@@ -184,4 +184,14 @@ test('native receipt cache misses when only the standalone game dylib changes', 
     rmSync(dylib);
     expect(stamp()).not.toBe(cached);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('proof equality compares complete nested objects independently of key order', () => {
+  expect(equal({Mesh:{Capsule:{radius:0.4,height:1.8}}, rows:[{a:1,b:null},2]},
+    {rows:[{b:null,a:1},2], Mesh:{Capsule:{height:1.8,radius:0.4}}})).toBe(true);
+  for (const [a,b] of [
+    [{Capsule:{radius:0.4,height:1.8}}, {Capsule:{radius:0.4,height:1.8,extra:0}}],
+    [{a:null}, {}], [[1,2], [2,1]], [[1], [1,2]], [[], {}], [null, {}], [1, '1'],
+  ]) expect(equal(a,b)).toBe(false);
+  expect(equal([null,true,{a:[]}], [null,true,{a:[]}])).toBe(true);
 });
