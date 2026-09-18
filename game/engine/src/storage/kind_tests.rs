@@ -181,3 +181,85 @@ fn sparse_200k_one_percent_timing() {
     );
     assert!(typed <= raw * 110 / 100, "kind exceeds raw query by 10%");
 }
+
+fn bound_sparse_world() -> World {
+    let mut w = World::new(60, 0);
+    for group in 0..2000 {
+        for _ in 0..98 {
+            let e = w.spawn(Transform::default());
+            if group % 7 == 0 {
+                w.despawn(e);
+                w.spawn(Transform::default());
+            }
+        }
+        let parent = w.spawn_named(format!("lamp-{group}"), Wick::default());
+        w.spawn_named(
+            format!("lamp-{group}/bulb"),
+            (PointLight::default(), Parent(parent)),
+        );
+        w.bind::<Lamp>(parent).unwrap();
+    }
+    w
+}
+fn bound_typed(w: &World) -> u64 {
+    w.rows_mut::<Lamp>()
+        .map(|r| u64::from(r.wick.bulb.entity().index()))
+        .sum()
+}
+fn bound_raw(w: &World) -> u64 {
+    // Equivalent semantics: validate saved children before taking mutable leases,
+    // then traverse the same column. No kind iteration is used in either pass.
+    for (e, (wick,)) in w.query::<(&Wick,)>().iter() {
+        w.kind_child::<Lamp, Bulb>(e, "bulb", "wick.bulb", wick.bulb, false, "raw")
+            .unwrap();
+    }
+    w.query::<(&mut Wick,)>()
+        .into_iter()
+        .map(|(r,)| u64::from(r.bulb.entity().index()))
+        .sum()
+}
+#[test]
+fn child_bearing_sparse_200k_never_diagnoses_nonmembers() {
+    let mut w = bound_sparse_world();
+    let expected = (0..2000u64).map(|i| i * 100 + 99).sum();
+    assert_eq!(allocations(|| assert_eq!(bound_typed(&w), expected)), 0);
+    assert_eq!(bound_raw(&w), expected);
+    // Last child is invalid: refuse before dirtying any of the 2,000 parent rows.
+    let child = w.named("lamp-1999/bulb").unwrap();
+    w.remove::<PointLight>(child);
+    let before = w.mutation_epoch();
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bound_typed(&w)));
+    assert!(error.is_err());
+    assert_eq!(before, w.mutation_epoch());
+}
+#[test]
+#[ignore = "manual child-bearing sparse 200k timing with equivalent validation"]
+fn child_bearing_sparse_200k_timing() {
+    let w = bound_sparse_world();
+    let expected = (0..2000u64).map(|i| i * 100 + 99).sum();
+    let mut samples = [Vec::new(), Vec::new()];
+    for sample in 0..5 {
+        for mode in [sample % 2, 1 - sample % 2] {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                let sum = if mode == 0 {
+                    bound_raw(&w)
+                } else {
+                    bound_typed(&w)
+                };
+                assert_eq!(std::hint::black_box(sum), expected);
+            }
+            samples[mode].push(start.elapsed().as_nanos() / 1000);
+        }
+    }
+    for sample in &mut samples {
+        sample.sort_unstable();
+    }
+    println!(
+        "200k slots / 1% child-bearing members ns/pass: raw {:?}, typed {:?}; ratio {:.4}",
+        samples[0],
+        samples[1],
+        samples[1][2] as f64 / samples[0][2] as f64
+    );
+    assert!(samples[1][2] <= samples[0][2] * 110 / 100);
+}

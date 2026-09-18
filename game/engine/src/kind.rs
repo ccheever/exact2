@@ -304,9 +304,18 @@ impl World {
         mutable: bool,
     ) -> Result<(), KindError> {
         if let Some(conflict) = self.storage::<C>().and_then(|s| s.lease_conflict(mutable)) {
-            return Err(KindError(format!("{operation} {} {}: component {} is already borrowed {conflict}; inside [{}]; drop the row before another overlapping operation", std::any::type_name::<K>(), entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self)), C::NAME, self.kind_operations.borrow().iter().map(|context| context.describe(self)).collect::<Vec<_>>().join(" -> "))));
+            return Err(self.kind_conflict::<K>(entity, operation, C::NAME, conflict));
         }
         Ok(())
+    }
+    pub(crate) fn kind_conflict<K: Kind>(
+        &self,
+        entity: Option<Entity>,
+        operation: &str,
+        component: &str,
+        conflict: &str,
+    ) -> KindError {
+        KindError(format!("{operation} {} {}: component {component} is already borrowed {conflict}; inside [{}]; drop the row before another overlapping operation", std::any::type_name::<K>(), entity.map_or_else(|| "entity-ordered rows".into(), |e| e.describe(self)), self.kind_operations.borrow().iter().map(|context| context.describe(self)).collect::<Vec<_>>().join(" -> ")))
     }
     fn checked<K: Kind>(&self, target: impl Target, operation: &str) -> Result<Id<K>, KindError> {
         K::preflight()?;
@@ -490,10 +499,7 @@ impl World {
     pub fn edit_resource<T: Resource, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         f(&mut self.resource_mut::<T>())
     }
-    fn prepare_kind<K: Kind>(&self, operation: &str, mutable: bool) {
-        K::preflight().expect("kind preflight");
-        self.kind_work_bound(operation);
-        K::leases(self, None, operation, mutable).expect("kind lease preflight");
+    pub(crate) fn prepare_kind_bindings<K: Kind>(&self, operation: &str) {
         if !K::HAS_BINDINGS {
             return;
         }
@@ -503,13 +509,11 @@ impl World {
     }
     /// Shared entity-ordered rows. Saved child bindings are validated before leases.
     pub fn rows<K: Kind>(&self) -> KindRows<'_, K> {
-        self.prepare_kind::<K>("rows", false);
-        KindRows(self.query::<K::Read>().into_iter())
+        KindRows(crate::QueryBorrow::<K::Read>::for_kind::<K>(self, "rows").into_iter())
     }
     /// Editing rows with one lease per column; preflight precedes every mutable lease.
     pub fn rows_mut<K: Kind>(&self) -> KindRowsMut<'_, K> {
-        self.prepare_kind::<K>("rows_mut", true);
-        KindRowsMut(self.query::<K::Write>().into_iter())
+        KindRowsMut(crate::QueryBorrow::<K::Write>::for_kind::<K>(self, "rows_mut").into_iter())
     }
     /// Exactly one structural match. No implicit binding initialization.
     pub fn the<K: Kind>(&self) -> Id<K> {
