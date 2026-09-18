@@ -511,6 +511,87 @@ simulation fields only. These helpers dispatch the existing eight agent operatio
 The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
 
+## Proving that state is saved
+
+**Paranoid execution is THE way to show a new component/resource is saved
+correctly.** Run its scripted simulation normally, then with every-tick
+reconstruction; compare final world hash, tick, published record and journal.
+A round-trip hash alone cannot detect a skipped field that affects the *next* tick.
+The consumer tests in `paranoid-test.rs` compare complete EXSIM saves as well.
+They include physics, input, clock remainder, publications and journal cursors.
+
+`Sim::paranoid(self, mode: Paranoid) -> Self` overrides the driver environment.
+`Paranoid::{Off, Save, FreshGame}` default to `Off`; `EXACT_GAME_PARANOID=1`
+selects `Save`, and `EXACT_GAME_PARANOID=fresh-game` selects `FreshGame` for
+native simulations, including tests and Linux proof modules. No Cargo features,
+save format changes or altered deterministic pins are involved.
+
+```rust
+# use exact_game::*;
+# struct Example;
+# impl Game for Example {
+# const ID: &'static str = "paranoid-example";
+# type Args = ();
+# fn setup(w: &mut World, _: &()) { w.spawn(Transform::default()); }
+# fn tick(_: &mut World, _: &Input, _: &()) {}
+# }
+let mut sim = Sim::<Example>::new(())?.paranoid(Paranoid::FreshGame);
+sim.run(1000.0); // Every completed tick saves, rebuilds and asserts its world hash.
+# Ok::<(), String>(())
+```
+
+```sh
+EXACT_GAME_PARANOID=1 cargo test --manifest-path game/Cargo.toml -p greybox-logic
+EXACT_GAME_PARANOID=fresh-game cargo test --manifest-path game/Cargo.toml -p lanterns-logic
+bun game/games/greybox/proof.mjs linux --paranoid
+# Likewise beacons, lanterns, asset-fixture, and game/bench/cubes/proof.mjs.
+```
+
+`--paranoid` runs the actual proof once normally, once in each paranoid mode,
+and compares every session's final hash, tick, publications and complete retained
+world journal. Ordinary proof assertions run in all three modes. The flag requires
+Linux: browser Wasm cannot read a native process environment. Direct environment
+runs exercise reconstruction but do not themselves supply a normal-run comparison.
+
+Both modes use the production `restore` path: freshly decoded arguments, actions,
+setup/registration, component/resource values (including skipped fields), hierarchy,
+spatial/hash caches, and physics executor reconstructed from its saved snapshot.
+`Game` is a type with static functions, not an owned instance; there is no `G` value
+to clone or retain. FreshGame additionally drops the old world *before* setup and
+re-encodes/decodes immutable model assets instead of sharing their Arcs.
+Statics are deliberately outside this instrument.
+
+The surrounding driver retains the seek horizon and host epoch, capture recorder,
+ownership/contamination, undelivered messages/publication notification, asset I/O
+request bookkeeping, and observation samples/backoff. These are transport outputs
+or the test observer, not inputs available to `Game::tick`; the observation result
+is recomputed on the rebuilt world. The checkpoint uses the completed tick boundary,
+then restores the seek horizon, so large seeks and future input remain meaningful.
+Restore intentionally clears consumed input edges; the next tick clears them in a
+normal run too. Comparisons at script completion include held/future input.
+
+Static audit (`rg "static |thread_local|OnceLock|lazy" game/`, 2026-09-18):
+`'static` lifetimes, comments about static geometry/lazy evaluation and archived
+`artifacts/d7/d7.patch` are not storage declarations. No OnceLock/lazy singleton was
+found. Every actual declaration is accounted for below; none supplies hidden
+simulation state in shipped games.
+
+| Declaration (under game/) | Verdict |
+| --- | --- |
+| `games/lanterns/logic/src/lib.rs`: `ASSETS` | Harmless immutable asset table. |
+| `render/src/lib.rs`: generated `REGISTRY`; `render/src/surface_tests.rs`: both `REGISTRY` fixtures | Harmless immutable surface factory tables. |
+| `render/src/perf.rs`: `PERFORMANCE` | Harmless browser timer handle cache; presentation timing only. |
+| `render/src/perf.rs`: `CLOCK_READS` | Harmless test instrumentation counter. |
+| `engine/src/capture.rs`: `EXECUTED_TICKS` | Harmless test instrumentation counter. |
+| `engine/src/world/tests.rs`: `MADE` | Harmless test-only allocation/laziness observation. |
+| `engine/tests/g1c.rs`: `MOVES`, `WRITES`; `engine/tests/ergonomics.rs`: `WRITES` | Harmless test-only serialization/cost counters. |
+| `engine/tests/ecs.rs`: `DROPS` | Harmless test-only destructor counter. |
+| `engine/examples/memory.rs`: `BYTES`, `ALLOCATOR` | Harmless memory measurement instrumentation. |
+| `render/src/world/tests.rs`: `COUNT`, `ALLOCATOR` | Harmless test-only allocation instrumentation. |
+| `audio/src/surface.rs`: `ATTEMPTS`, `FAIL`, `UNLOCKS` | Test-only executor counters/failure injection; hidden test fixture state, not shipped simulation state. |
+| `scene/tests/authoring.rs`: `SERIAL` | Harmless test scratch-name allocator. |
+| `render/tests/timing/mod.rs`: `REPORTED` | Harmless one-time test diagnostic flag. |
+
 ## Linux proof baseline (T0c, 2026-09-18)
 
 The original converged trunk (`8189f90`) was compared by running both merge parents:

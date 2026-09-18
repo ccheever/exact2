@@ -82,6 +82,26 @@ struct Saved {
     overflow_logged: bool,
     published: std::collections::BTreeMap<String, Value>,
 }
+/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Paranoid {
+    /// Normal execution.
+    #[default]
+    Off,
+    /// Rebuild through the production restore path after every tick.
+    Save,
+    /// Also discard and decode immutable assets before reconstructing the world.
+    FreshGame,
+}
+impl Paranoid {
+    fn environment() -> Self {
+        match std::env::var("EXACT_GAME_PARANOID").as_deref() {
+            Ok("1") => Self::Save,
+            Ok("fresh-game") => Self::FreshGame,
+            _ => Self::Off,
+        }
+    }
+}
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
@@ -104,6 +124,7 @@ pub struct Sim<G: Game> {
     pub(crate) agent_owned: bool,
     pub(crate) contamination: u64,
     pub(crate) source_tagged: bool,
+    paranoid: Paranoid,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -111,6 +132,11 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
+    /// Override the test driver's EXACT_GAME_PARANOID setting for this simulation.
+    pub fn paranoid(mut self, mode: Paranoid) -> Self {
+        self.paranoid = mode;
+        self
+    }
     fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
@@ -242,6 +268,7 @@ impl<G: Game> Sim<G> {
             agent_owned: false,
             contamination: 0,
             source_tagged: false,
+            paranoid: Paranoid::environment(),
             game: PhantomData,
         })
     }
@@ -654,6 +681,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            self.paranoid_rebuild();
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
                 if left == 1 {
@@ -682,6 +710,66 @@ impl<G: Game> Sim<G> {
             );
         }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
+    }
+    fn paranoid_rebuild(&mut self) {
+        if self.paranoid == Paranoid::Off {
+            return;
+        }
+        let tick = self.world.tick();
+        let hash = self.world.hash();
+        // advance_with owns the seek horizon, but EXSIM checkpoints describe a
+        // completed boundary. Retain the horizon outside the reconstructed Sim.
+        let horizon = self.world_us;
+        self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
+        let bytes = self.save();
+        let host = self.last_us;
+        let recorder = self.recorder.take();
+        let observations = std::mem::take(&mut self.observations);
+        let delay = self.settle_delay.get();
+        let pending = self.world.published_pending.get();
+        let messages = self.take_messages();
+        // These are driver outputs/ownership, not dependencies of Game::tick.
+        // Keep them outside the rebuild just like advance_with's callback.
+        if self.paranoid == Paranoid::FreshGame {
+            let mut assets = std::mem::take(&mut self.world.assets);
+            let models = assets
+                .models
+                .iter()
+                .map(|(name, model)| (name.clone(), bin::to_vec(model.as_ref())))
+                .collect::<Vec<_>>();
+            assets.models.clear();
+            // Drop all old component/resource values (including skipped fields
+            // and physics executors) before invoking setup for the replacement.
+            self.world = World::new(G::HZ, 0);
+            for (name, bytes) in models {
+                assets.models.insert(
+                    name,
+                    std::sync::Arc::new(bin::from_slice(&bytes).expect("paranoid asset decode")),
+                );
+            }
+            self.world.assets = assets;
+        }
+        self.restore(&bytes)
+            .unwrap_or_else(|error| panic!("paranoid {} tick {tick}: {error}", G::ID));
+        if let Some(host) = host {
+            self.rebase(host as f64 / 1000.0, false)
+                .expect("paranoid clock rebase");
+        }
+        assert_eq!(
+            hash,
+            self.world.hash(),
+            "paranoid {} tick {tick}: world hash",
+            G::ID
+        );
+        self.world_us = horizon;
+        self.recorder = recorder;
+        self.observations = observations;
+        self.settle_delay.set(delay);
+        self.last_epoch.set(self.world.mutation_epoch());
+        self.world.published_pending.set(pending);
+        *self.world.messages.borrow_mut() = messages;
+        self.restored = false;
+        self.restored_from = None;
     }
     /// Fraction of a tick remaining after the last completed boundary, in [0,1).
     pub fn alpha(&self) -> f32 {
@@ -1031,6 +1119,7 @@ impl<G: Game> Sim<G> {
         }
         self.capture_fail("world restored during recording; start a new capture window");
         next.recorder = self.recorder.take();
+        next.paranoid = self.paranoid;
         next.agent_owned = self.agent_owned;
         next.contamination = self.contamination;
         next.source_tagged = self.source_tagged;

@@ -40,7 +40,7 @@ pub use input::{Actions, Input, InputEvent, PointerPhase, PointerState, Region, 
 pub use kind::{Id, Kind, KindError, KindRows, KindRowsMut};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
-pub use sim::{Clock, Game, Now, Sim};
+pub use sim::{Clock, Game, Now, Paranoid, Sim};
 pub use spring::Spring;
 pub use storage::{
     Page, Pages, Plain, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE,
