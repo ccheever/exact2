@@ -333,6 +333,51 @@ impl World {
 mod measurements {
     use super::*;
     #[test]
+    fn name_index_is_not_saved_hashed_or_observed() {
+        let mut w = World::new(60, 0);
+        w.spawn_named("name", crate::Transform::default());
+        let bytes = w.save();
+        let hash = w.hash();
+        let mut before = Observation::default();
+        w.observe(&mut before);
+        w.names.clear();
+        w.mutated(); // Force hash recomputation instead of consulting its cache.
+        let mut after = Observation::default();
+        w.observe(&mut after);
+        assert_eq!(before.entries, after.entries);
+        assert_eq!(w.save(), bytes);
+        assert_eq!(w.hash(), hash);
+        w.load(&bytes).unwrap();
+        assert!(w.named("name").is_some());
+    }
+
+    #[test]
+    #[ignore = "release name lookup cost diagnostic"]
+    fn named_cost() {
+        use std::{hint::black_box, time::Instant};
+        for count in [1_000, 10_000, 200_000] {
+            let mut w = World::new(60, 0);
+            for i in 0..count {
+                w.spawn_named(format!("entity-{i:06}"), ());
+            }
+            let name = format!("entity-{:06}", count - 1);
+            let reps = 1_000;
+            let start = Instant::now();
+            for _ in 0..reps {
+                let name = black_box(name.as_str());
+                black_box(w.entities().find(|&e| w.name(e) == Some(name)));
+            }
+            let before = start.elapsed().as_nanos() as f64 / reps as f64;
+            let start = Instant::now();
+            for _ in 0..100_000 {
+                black_box(w.named(black_box(&name)));
+            }
+            let after = start.elapsed().as_nanos() as f64 / 100_000.0;
+            println!("named {count}: scan={before:.1} ns lookup={after:.1} ns");
+        }
+    }
+
+    #[test]
     #[ignore = "release stillness cost diagnostic"]
     fn stillness_hash_cost() {
         for count in [1_000, 10_000, 200_000] {
