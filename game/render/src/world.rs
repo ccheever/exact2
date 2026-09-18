@@ -13,13 +13,11 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
-    fn model(
-        &mut self,
-        _: &exact_game::asset::Model,
-    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
-        Err(RenderError::scene(
-            "recording backend has no model support".into(),
-        ))
+    fn model(&self, _: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
+        None
+    }
+    fn assets_revision(&self) -> u64 {
+        0
     }
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
@@ -43,11 +41,11 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl Writes for Renderer {
-    fn model(
-        &mut self,
-        model: &exact_game::asset::Model,
-    ) -> Result<(Vec<MeshId>, Vec<crate::MaterialId>), RenderError> {
-        self.add_model(model)
+    fn model(&self, name: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
+        self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+    }
+    fn assets_revision(&self) -> u64 {
+        self.models.revision
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         self.set_draw_instances(records)
@@ -170,9 +168,9 @@ struct Versions {
     membership: u64,
 }
 impl Versions {
-    fn of(w: &World) -> Self {
+    fn of(w: &World, assets: u64) -> Self {
         Self {
-            assets: w.assets_revision(),
+            assets,
             transform: w.revision::<Transform>(),
             parent: w.revision::<Parent>(),
             material: w.revision::<Material>(),
@@ -301,7 +299,7 @@ impl Feed {
             self.reset();
             self.generation = w.presentation_generation();
         }
-        let next = Versions::of(w);
+        let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
         let moved = initial || next.transform != old.transform || next.parent != old.parent;

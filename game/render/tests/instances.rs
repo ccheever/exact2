@@ -37,6 +37,14 @@ impl Game for Test {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 fn image(model: &Model, eye: Vec3, tint: Option<Material>) -> Option<fixture::Pixels> {
+    image_with_sun(model, eye, tint, None)
+}
+fn image_with_sun(
+    model: &Model,
+    eye: Vec3,
+    tint: Option<Material>,
+    sun: Option<exact_game_render::Sun>,
+) -> Option<fixture::Pixels> {
     let gpu = fixture::device().ok()?;
     let mut sim = Sim::<Test>::new(()).unwrap();
     sim.asset("panels.model", Some(&bin::to_vec(model)))
@@ -45,7 +53,19 @@ fn image(model: &Model, eye: Vec3, tint: Option<Material>) -> Option<fixture::Pi
         let e = sim.world().named("model").unwrap();
         sim.world_mut().insert(e, tint);
     }
+    if sun.is_some() {
+        sim.world_mut().spawn((
+            Transform {
+                position: Vec3::new(0., 0., -1.),
+                scale: Vec3::new(4., 4., 0.05),
+                ..Default::default()
+            },
+            Mesh::cube(1.),
+            Material::rgb(1., 1., 1.),
+        ));
+    }
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", model).unwrap();
     let mut feed = Feed::default();
     feed.feed(sim.world(), &mut renderer).unwrap();
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -66,7 +86,7 @@ fn image(model: &Model, eye: Vec3, tint: Option<Material>) -> Option<fixture::Pi
         view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
         proj: directx::orthographic(-2., 2., -2., 2., 0.1, 20.),
         camera_position: eye,
-        sun: None,
+        sun,
         bloom: None,
         ..Default::default()
     };
@@ -75,13 +95,20 @@ fn image(model: &Model, eye: Vec3, tint: Option<Material>) -> Option<fixture::Pi
         zenith: [1.; 3],
         horizon: [1.; 3],
         ground: [1.; 3],
-        ambient: 1.,
+        ambient: if sun.is_some() { 0.05 } else { 1. },
         fog: None,
         sun_disc: 0.,
     };
     let stats = renderer.draw(&texture.create_view(&Default::default()), (256, 256), &f);
-    assert_eq!(stats.instances, model.nodes.len() as u64);
-    assert_eq!(sim.world().len(), 2, "mesh nodes never become entities");
+    assert_eq!(
+        stats.instances,
+        model.nodes.len() as u64 + u64::from(sun.is_some())
+    );
+    assert_eq!(
+        sim.world().len(),
+        2 + usize::from(sun.is_some()),
+        "mesh nodes never become entities"
+    );
     Some(fixture::read(&gpu, &texture).unwrap())
 }
 #[test]
@@ -143,4 +170,105 @@ fn model_local_offsets_materials_tint_glow_and_alpha_mask() {
         "entity tint and glow: {left:?}"
     );
     assert_eq!(right, [0, 0, 0, 255], "alpha mask removes right mesh node");
+}
+
+#[test]
+fn mirrored_single_sided_nodes_keep_their_front_face() {
+    let mut m = Model {
+        meshes: vec![panel(0)],
+        materials: vec![MaterialData {
+            base_color: [1., 0., 0., 1.],
+            metallic: 0.,
+            ..Default::default()
+        }],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+        ..Default::default()
+    };
+    let Some(front) = image(&m, Vec3::new(0., 0., 5.), None) else {
+        return;
+    };
+    m.nodes[0].transform = glam::Mat4::from_scale(Vec3::new(-1., 1., 1.)).to_cols_array();
+    assert_eq!(front, image(&m, Vec3::new(0., 0., 5.), None).unwrap());
+    let back = image(&m, Vec3::new(0., 0., -5.), None).unwrap();
+    assert_eq!(back.at(128, 128), [0, 0, 0, 255]);
+
+    let sun = exact_game_render::Sun {
+        direction: Vec3::new(1., 0., -1.),
+        illuminance: 8.,
+        ..Default::default()
+    };
+    let eye = Vec3::new(0., 0., 5.);
+    let mirrored = image_with_sun(&m, eye, None, Some(sun)).unwrap();
+    m.nodes[0].transform = glam::Mat4::IDENTITY.to_cols_array();
+    let normal = image_with_sun(&m, eye, None, Some(sun)).unwrap();
+    let unshadowed = image_with_sun(
+        &m,
+        eye,
+        None,
+        Some(exact_game_render::Sun {
+            shadows: None,
+            ..sun
+        }),
+    )
+    .unwrap();
+    let a = normal.at(210, 128);
+    let b = mirrored.at(210, 128);
+    let c = unshadowed.at(210, 128);
+    assert!(
+        c[0] > a[0] + 20,
+        "panel must cast onto the receiver: {a:?} / {c:?}"
+    );
+    assert!(
+        (0..3).all(|i| a[i].abs_diff(b[i]) <= 2),
+        "mirrored shadow must match: {a:?} / {b:?}"
+    );
+}
+
+#[test]
+fn models_and_materials_share_named_textures_defaults_and_samplers() {
+    let Ok(gpu) = fixture::device() else { return };
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    assert_eq!(renderer.asset_work(), (0, 0));
+    let m = Model {
+        meshes: vec![panel(0), panel(1)],
+        materials: vec![
+            MaterialData {
+                base_color_texture: Some(0),
+                ..Default::default()
+            };
+            2
+        ],
+        textures: vec!["shared.tex".into()],
+        nodes: vec![
+            Node {
+                mesh: Some(0),
+                ..Default::default()
+            },
+            Node {
+                mesh: Some(1),
+                ..Default::default()
+            },
+        ],
+        bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+        ..Default::default()
+    };
+    renderer.prepare_model("a.model", &m).unwrap();
+    let texture = TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![240, 0, 0, 255]],
+        srgb: true,
+        filter: [Filter::Nearest; 3],
+        ..Default::default()
+    };
+    renderer.add_texture("shared.tex", &texture).unwrap();
+    let work = renderer.asset_work();
+    assert_eq!(work, (5, 4));
+    renderer.prepare_model("b.model", &m).unwrap();
+    renderer.add_texture("shared.tex", &texture).unwrap();
+    assert_eq!(renderer.asset_work(), work);
 }

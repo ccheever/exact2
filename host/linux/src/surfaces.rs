@@ -180,6 +180,7 @@ struct Canvas {
     held: BTreeSet<String>,
     ownership_initialized: bool,
     restore_error: Option<String>,
+    restore_input: bool,
     restore_logged: bool,
 }
 #[derive(Default)]
@@ -270,6 +271,7 @@ impl Surfaces {
                         held: BTreeSet::new(),
                         ownership_initialized: false,
                         restore_error: None,
+                        restore_input: false,
                         restore_logged: false,
                     },
                 );
@@ -310,7 +312,9 @@ impl Surfaces {
                         })
                 });
             }
-            if self.restore.is_some() && abi.read(b"gpu_carry", c.id).is_some() {
+            if self.restore.is_some()
+                && abi.agent(c.id, &json!({"op":"state"}))["world"].is_object()
+            {
                 let result = self.restore.take().unwrap().and_then(|bytes| {
                     let ok = unsafe {
                         abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize) -> bool>(
@@ -318,13 +322,7 @@ impl Surfaces {
                         )(c.id, bytes.as_ptr(), bytes.len())
                     };
                     if ok {
-                        let state = abi.agent(c.id, &json!({"op":"state"}));
-                        c.held = state["world"]["input"]["forwarded"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|v| v.as_str().map(str::to_owned))
-                            .collect();
+                        c.restore_input = true;
                         Ok(())
                     } else {
                         Err(abi.error().unwrap_or("surface refused save".into()))
@@ -337,8 +335,9 @@ impl Surfaces {
                 }
             }
         }
-        for (&view, c) in &self.canvases {
-            loop {
+        for (&view, c) in &mut self.canvases {
+            let mut delivered = false;
+            for _ in 0..16 {
                 let names = abi
                     .read(b"gpu_assets", c.id)
                     .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
@@ -347,6 +346,7 @@ impl Surfaces {
                     break;
                 }
                 for name in names {
+                    delivered = true;
                     let bytes = assets.read(&format!("assets/{name}"));
                     let (ptr, len) = bytes
                         .as_ref()
@@ -357,6 +357,23 @@ impl Surfaces {
                     if !ok {
                         self.error = abi.error();
                     }
+                }
+            }
+            if delivered {
+                // Headless has no first frame to establish the ready world's
+                // epoch. Do it after delivery, at the unchanged host clock.
+                abi.agent(c.id, &json!({"op":"clock","now":host.now()}));
+            }
+            if c.restore_input {
+                let state = abi.agent(c.id, &json!({"op":"state"}));
+                if state["world"]["restored"] == true {
+                    c.held = state["world"]["input"]["forwarded"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect();
+                    c.restore_input = false;
                 }
             }
             if let Some(bytes) = abi.read(b"gpu_published", c.id) {
@@ -748,6 +765,7 @@ const unsigned char* gpu_out_ptr(void) { return out; }
                 held: BTreeSet::new(),
                 ownership_initialized: false,
                 restore_error: None,
+                restore_input: false,
                 restore_logged: false,
             },
         );
@@ -780,6 +798,7 @@ const unsigned char* gpu_out_ptr(void) { return out; }
                     held: BTreeSet::new(),
                     ownership_initialized: true,
                     restore_error: None,
+                    restore_input: false,
                     restore_logged: false,
                 },
             );

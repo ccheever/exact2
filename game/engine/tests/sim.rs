@@ -202,7 +202,10 @@ fn live_restore_rebases_without_counting_paused_wall_time() {
         original.run(500.0);
         key(&mut original, "KeyE", true, 550.0);
         let saved = original.save();
-        original.run(100.0);
+        // Compare like clocks: live accepts input exactly on its deadline;
+        // seekable keeps the strict tick-stamped rule.
+        original.frame_period(1000.0 / 60.0);
+        original.advance(600.0, Clock::Live);
 
         let mut restored = sim();
         restored.advance(100.0, Clock::Live);
@@ -216,6 +219,7 @@ fn live_restore_rebases_without_counting_paused_wall_time() {
         assert!(state.contains(r#""owner":"human""#), "{state}");
         assert_eq!(restored.world().tick(), 30);
         assert_eq!(restored.save(), saved);
+        restored.frame_period(1000.0 / 60.0);
         assert_eq!(restored.advance(900_000.0, Clock::Live), 0);
         assert_eq!(restored.world().tick(), 30, "paused wall time is discarded");
         assert_eq!(restored.advance(900_100.0, Clock::Live), 6);
@@ -562,29 +566,40 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
     }
 }
 
-#[test]
-fn live_lookahead_uses_strict_next_frame_and_horizon_alpha() {
+fn live(hz: f64) -> Sim<Counter> {
     let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
-    assert_eq!(s.advance(1000.0, Clock::Live), 0);
-    assert_eq!(s.alpha(), 0.0);
-    assert_eq!(s.advance(1010.0, Clock::Live), 1);
-    assert!((s.alpha() - 0.2).abs() < 1e-6);
-    assert_eq!(s.ticks_due(1020.0, Clock::Live), 0);
-    assert_eq!(s.advance(1020.0, Clock::Live), 0);
-    assert!((s.alpha() - 0.8).abs() < 1e-6);
-    // The next frame is exactly tick 3's deadline: it must not run yet.
-    assert_eq!(s.advance(1035.0, Clock::Live), 1);
-    assert_eq!(s.world().tick(), 2);
-    assert_eq!(s.advance(1035.001, Clock::Live), 0);
-    assert_eq!(s.ticks_due(1030.0, Clock::Live), 0);
-    assert_eq!(s.advance(1030.0, Clock::Live), 0);
+    s.frame_period(1000.0 / hz);
+    s.advance(0.0, Clock::Live);
+    s
 }
-
+fn drawn_counter(s: &Sim<Counter>) -> f64 {
+    if s.world().tick() == 0 {
+        0.0
+    } else {
+        (s.world().tick() - 1) as f64 + f64::from(s.alpha())
+    }
+}
+#[test]
+fn unknown_period_has_no_lookahead_and_duplicates_preserve_the_pose() {
+    let mut s = sim();
+    s.advance(10.0, Clock::Live);
+    assert_eq!(s.world().tick(), 0);
+    s.frame_period(1000.0 / 120.0);
+    s.advance(10.0, Clock::Live);
+    assert_eq!(s.world().tick(), 1);
+    let pose = drawn_counter(&s);
+    for _ in 0..10 {
+        assert_eq!(s.ticks_due(10.0, Clock::Live), 0);
+        assert_eq!(s.advance(10.0, Clock::Live), 0);
+        assert_eq!(drawn_counter(&s), pose);
+    }
+}
 #[test]
 fn synthetic_live_frames_have_no_equal_rate_beats() {
     for hz in [60.0, 59.94, 120.0] {
         for epoch in [0.0, 1234.567, 1_000_000.123] {
             let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+            s.frame_period(1000.0 / hz);
             s.advance(epoch, Clock::Live);
             let mut extra = 0;
             for frame in 1..=3600 {
@@ -603,15 +618,384 @@ fn synthetic_live_frames_have_no_equal_rate_beats() {
                 }
             }
             if hz == 59.94 {
-                assert_eq!(extra, 4); // One early tick, then three ~16.7 s catch-ups.
+                assert_eq!(extra, 4);
             }
         }
     }
 }
+#[test]
+fn jittered_sixty_hz_stays_within_one_tick_over_six_hundred_frames() {
+    let mut s = live(60.0);
+    let mut now = 0.0;
+    // The five deltas total five nominal periods, without making individual
+    // raw callbacks a lattice. Counts can straddle a boundary by at most one.
+    for frame in 1..=600 {
+        now += [16.0, 17.5, 16.4, 16.2, 1000.0 / 12.0 - 66.1][(frame - 1) % 5];
+        let due = s.ticks_due(now, Clock::Live);
+        assert_eq!(s.advance(now, Clock::Live), due);
+        assert!((s.world().tick() as i64 - frame as i64).abs() <= 1);
+    }
+}
+#[test]
+fn live_stall_and_its_first_recovery_frame_keep_the_same_period() {
+    for hz in [60.0, 120.0, 144.0] {
+        let delta = 1000.0 / hz;
+        let mut s = live(hz);
+        for frame in 1..=10 {
+            s.advance(frame as f64 * delta, Clock::Live);
+        }
+        let mut previous = drawn_counter(&s);
+        let now = 10.0 * delta + 40.0;
+        s.advance(now, Clock::Live);
+        assert!((drawn_counter(&s) - previous - 40.0 * 60.0 / 1000.0).abs() < 1e-6);
+        previous = drawn_counter(&s);
+        for frame in 1..=10 {
+            s.advance(now + frame as f64 * delta, Clock::Live);
+            let drawn = drawn_counter(&s);
+            assert!(
+                (drawn - previous - 60.0 / hz).abs() < 1e-6,
+                "{hz} recovery {frame}"
+            );
+            previous = drawn;
+        }
+    }
+}
+#[test]
+fn every_starting_phase_aligns_within_four_seconds_and_holds() {
+    for hz in [60.0, 120.0, 240.0] {
+        let period = 1000.0 / hz;
+        for phase in 0..=100 {
+            let mut s = live(hz);
+            let offset = phase as f64 / 100.0 * period;
+            let mut previous = 0.0;
+            for frame in 1..=(hz as usize * 6) {
+                let now = offset + frame as f64 * period;
+                let due = s.ticks_due(now, Clock::Live);
+                let ticks = s.advance(now, Clock::Live);
+                assert_eq!(due, ticks);
+                let drawn = drawn_counter(&s);
+                if frame > 3 {
+                    let delta = (drawn - previous) * 1000.0 / 60.0;
+                    assert!(
+                        (delta - period).abs() <= period * 0.0025 + 0.00002,
+                        "{hz}/{phase}/{frame}: {delta}"
+                    );
+                }
+                if frame as f64 * period >= 4000.0 {
+                    // T/step = drawn + 1 - L/step; the origin meets this lattice.
+                    let time = (drawn + 1.0) * 1000.0 / 60.0 - period;
+                    let error = (time / period - (time / period).round()).abs() * period;
+                    assert!(error < 0.0001, "{hz}/{phase}/{frame}: {error}");
+                    if ticks > 0 {
+                        assert!((s.alpha() as f64 - 60.0 / hz).abs() < 1e-6);
+                    }
+                }
+                previous = drawn;
+            }
+        }
+    }
+}
+#[test]
+fn aligned_ticks_consume_input_delivered_after_the_preceding_frame() {
+    for hz in [60.0, 120.0, 240.0] {
+        let period = 1000.0 / hz;
+        let mut s = live(hz);
+        let offset = period * 0.37;
+        let mut last = 0.0;
+        for frame in 1..=(hz as usize * 4) {
+            last = offset + frame as f64 * period;
+            s.advance(last, Clock::Live);
+        }
+        let mut edges = 0;
+        for frame in 1..=hz as usize {
+            let now = last + frame as f64 * period;
+            let due = s.ticks_due(now, Clock::Live);
+            if due > 0 {
+                // Delivery really happens after the previous advance, including
+                // an event exactly at this frame's stamp. No prequeued future input.
+                key(
+                    &mut s,
+                    "KeyE",
+                    edges % 2 == 0,
+                    now - if edges % 3 == 0 { 0.0 } else { period / 3.0 },
+                );
+                edges += 1;
+            }
+            assert_eq!(s.advance(now, Clock::Live), due);
+            let c = s.world().resource::<Counts>();
+            assert_eq!(c.pressed + c.released, edges, "display {hz}, frame {frame}");
+        }
+    }
+}
+#[test]
+fn tick_phase_is_one_at_sixty_and_half_at_one_twenty() {
+    for hz in [60.0, 120.0] {
+        let mut s = live(hz);
+        let (mut total, mut count) = (0.0, 0);
+        for frame in 1..=600 {
+            if s.advance(frame as f64 * 1000.0 / hz, Clock::Live) > 0 {
+                total += s.alpha() as f64;
+                count += 1;
+            }
+        }
+        assert!((total / count as f64 - 60.0 / hz).abs() < 1e-6);
+    }
+}
+#[test]
+fn submicrosecond_backwards_stamps_cannot_add_time_or_change_lookahead() {
+    let mut s = live(120.0);
+    s.advance(10.0004, Clock::Live);
+    let pose = drawn_counter(&s);
+    let saved = s.save();
+    for _ in 0..1000 {
+        s.frame_period(1000.0 / 60.0);
+        assert_eq!(s.ticks_due(9.9996, Clock::Live), 0);
+        assert_eq!(s.advance(9.9996, Clock::Live), 0);
+        assert_eq!(drawn_counter(&s), pose);
+        s.frame_period(1000.0 / 120.0);
+        assert_eq!(s.advance(10.0004, Clock::Live), 0);
+        assert_eq!(drawn_counter(&s), pose);
+        assert_eq!(s.save(), saved);
+    }
+}
+#[test]
+fn early_live_save_and_switch_catch_the_exact_clock_up_without_a_tick() {
+    let mut s = live(120.0);
+    s.advance(10.0, Clock::Live);
+    assert_eq!(s.world().tick(), 1);
+    key(&mut s, "KeyE", true, 12.0); // A future input survives save and switch.
+    let saved = s.save();
+    let hash = s.world().hash();
+    let mut restored = sim();
+    restored.restore(&saved).unwrap();
+    assert_eq!(restored.save(), saved);
+    assert_eq!(restored.world().hash(), hash);
+    assert!(restored.alpha() < 0.0001); // ceil(1e6/60) us, exact seekable convention.
+    assert_eq!(s.ticks_due(10.0, Clock::Seekable), 0);
+    assert_eq!(s.advance(10.0, Clock::Seekable), 0);
+    assert_eq!(s.save(), saved);
+    assert_eq!(s.world().hash(), hash);
+    restored.advance(10.0, Clock::Seekable);
+    for now in [12.0, 26.667, 43.334, 100.0] {
+        s.advance(now, Clock::Seekable);
+        restored.advance(now, Clock::Seekable);
+        assert_eq!(s.save(), restored.save());
+        assert_eq!(s.world().hash(), restored.world().hash());
+    }
+    assert_eq!(s.world().resource::<Counts>().pressed, 1);
+}
+#[test]
+fn unpause_seeds_live_time_and_drops_the_pause_gap() {
+    let mut s = live(120.0);
+    s.advance(10.0, Clock::Live);
+    s.bind(&CounterArgs { paused: true }.values(), None)
+        .unwrap();
+    s.advance(2000.0, Clock::Live);
+    s.bind(&CounterArgs::default().values(), None).unwrap();
+    assert_eq!(s.ticks_due(50_000.0, Clock::Live), 0);
+    assert_eq!(s.advance(50_000.0, Clock::Live), 0);
+    assert_eq!(s.world().tick(), 1);
+    assert_eq!(s.advance(50_000.0 + 1000.0 / 60.0, Clock::Live), 1);
+}
+#[test]
+fn live_three_tick_catchup_spreads_input_by_stamp_and_caps_a_large_gap() {
+    let mut s = live(60.0);
+    // Acquire the origin on a normal frame before the stall.
+    s.advance(1000.0 / 60.0, Clock::Live);
+    key(&mut s, "KeyE", true, 35.0);
+    key(&mut s, "KeyE", false, 52.0);
+    let mut seen = Vec::new();
+    assert_eq!(
+        s.advance_with(1000.0 / 60.0 + 40.0, Clock::Live, |w, _| {
+            let c = w.resource::<Counts>();
+            seen.push((w.tick(), c.held, c.pressed, c.released));
+        }),
+        3
+    );
+    assert_eq!(seen, [(2, 0, 0, 0), (3, 1, 1, 0), (4, 1, 1, 1)]);
+    assert_eq!(s.advance(10_056.667, Clock::Live), 15);
+}
+#[test]
+fn slew_and_period_are_absent_from_save_state_snapshot_and_seekable_continuation() {
+    let mut s = live(120.0);
+    for frame in 1..=480 {
+        s.advance(3.0 + frame as f64 * 1000.0 / 120.0, Clock::Live);
+    }
+    let mut plain = sim();
+    plain.restore(&s.save()).unwrap();
+    assert_eq!(s.world().hash(), plain.world().hash());
+    assert_eq!(s.world().save(), plain.world().save());
+    assert!(plain
+        .agent(r#"{"op":"state"}"#)
+        .contains(r#""hostMicros":null"#));
+    // Trunk exposes the host anchor. Establish the same epoch before comparing
+    // full states; restoring deliberately never carries a live host epoch.
+    plain.rebase(4003.0, false).unwrap();
+    let state = s.agent(r#"{"op":"state"}"#);
+    let restored_state = plain.agent(r#"{"op":"state"}"#).replace(
+        r#""restored":true,"restoredFrom":{"paused":false},"#,
+        r#""restored":false,"#,
+    );
+    assert_eq!(state, restored_state);
+    for forbidden in ["lookahead", "slew", "period", "live_time"] {
+        assert!(!state.contains(forbidden));
+    }
+    let now = 4003.0;
+    s.advance(now, Clock::Seekable);
+    plain.advance(now, Clock::Seekable);
+    // The restored host has never had a period or a slew. Continuation is exact.
+    for delta in [0.0, 1.0, 16.667, 100.0, 1000.0] {
+        s.advance(now + delta, Clock::Seekable);
+        plain.advance(now + delta, Clock::Seekable);
+        assert_eq!(s.save(), plain.save());
+        assert_eq!(s.world().hash(), plain.world().hash());
+    }
+}
 
+#[test]
+fn aligned_live_input_is_drawn_one_frame_before_seekable_interpolation() {
+    struct Mover;
+    impl Game for Mover {
+        const ID: &'static str = "latency";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", Transform::default());
+        }
+        fn actions() -> Actions {
+            Actions::new().button("move", &["KeyE"])
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            if i.held("move") {
+                w.get_mut::<Transform>("player").unwrap().position.x += 1.0;
+            }
+        }
+    }
+    let period = 1000.0 / 120.0;
+    let mut first = Vec::new();
+    for clock in [Clock::Live, Clock::Seekable] {
+        let mut s = Sim::<Mover>::new(()).unwrap();
+        s.frame_period(period);
+        s.advance(0.0, clock);
+        let (mut previous, mut current) = (0.0, 0.0);
+        let mut first_frame = None;
+        for frame in 1..=6 {
+            if frame == 4 {
+                // Delivered after frame 3 (25 ms), before tick 2's deadline.
+                s.input(InputEvent::Key {
+                    code: "KeyE".into(),
+                    down: true,
+                    at_ms: 30.0,
+                });
+            }
+            s.advance_with(frame as f64 * period, clock, |w, _| {
+                previous = current;
+                current = w.get::<Transform>("player").unwrap().position.x;
+                if current == 1.0 {
+                    assert_eq!(w.tick(), 2);
+                }
+            });
+            if previous + (current - previous) * s.alpha() > 0.01 && first_frame.is_none() {
+                first_frame = Some(frame);
+            }
+        }
+        first.push(first_frame.unwrap());
+    }
+    assert_eq!(first, [4, 5]);
+}
+
+#[test]
+fn live_frame_history_does_not_cross_handoff_or_rebase() {
+    for release in [false, true] {
+        let mut s = sim();
+        s.advance(0.0, Clock::Live);
+        s.advance(20.0, Clock::Live);
+        let saved = s.world().save();
+        s.rebase(900_000.0, release).unwrap();
+        // Releasing input logs the handoff; persistent world state is unchanged.
+        assert_eq!(s.world().save(), saved);
+        assert_eq!(s.ticks_due(900_000.0, Clock::Live), 0);
+        assert_eq!(s.advance(900_000.0, Clock::Live), 0);
+        assert_eq!(s.advance(900_100.0, Clock::Live), 6);
+        assert_eq!(s.world().tick(), 7); // Unknown period has no early tick.
+        assert!((s.alpha() - 0.2).abs() < 1e-6);
+    }
+    let mut s = sim();
+    s.advance(0.0, Clock::Live);
+    s.advance(20.0, Clock::Live);
+    s.handoff(true);
+    s.rebase(500.0, false).unwrap();
+    assert_eq!(s.advance(600.0, Clock::Seekable), 6);
+    s.handoff(false);
+    assert_eq!(s.ticks_due(900_000.0, Clock::Live), 0);
+    assert_eq!(s.advance(900_000.0, Clock::Live), 0);
+    assert_eq!(s.advance(900_100.0, Clock::Live), 6);
+    assert_eq!(s.world().tick(), 13);
+}
+
+#[test]
+fn bound_restore_keeps_tick_registered_types_without_replacing_setup_registration() {
+    #[derive(Default, Component)]
+    struct Late {
+        value: u32,
+    }
+    struct Dynamic;
+    impl Game for Dynamic {
+        const ID: &'static str = "carried-registry";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("late", (Transform::default(),));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            let e = w.named("late").unwrap();
+            w.insert(
+                e,
+                Late {
+                    value: w.tick() as u32 + 1,
+                },
+            );
+        }
+    }
+    let mut s = Sim::<Dynamic>::new(()).unwrap();
+    s.run(500.0);
+    let saved = s.save();
+    let mut fresh = Sim::<Dynamic>::new(()).unwrap();
+    assert!(fresh
+        .restore_bound(&saved)
+        .unwrap_err()
+        .to_string()
+        .contains("unregistered"));
+    s.restore_bound(&saved).unwrap();
+    assert_eq!(s.world().get::<Late>("late").unwrap().value, 30);
+    assert_eq!(s.save(), saved);
+}
+
+// Retained trunk regression, with an explicit F2d host period.
+#[test]
+fn live_lookahead_uses_strict_next_frame_and_horizon_alpha() {
+    let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+    s.frame_period(10.0);
+    assert_eq!(s.advance(1000.0, Clock::Live), 0);
+    assert_eq!(s.alpha(), 0.0);
+    assert_eq!(s.advance(1010.0, Clock::Live), 1);
+    assert!((s.alpha() - 0.2).abs() < 1e-6);
+    assert_eq!(s.ticks_due(1020.0, Clock::Live), 0);
+    assert_eq!(s.advance(1020.0, Clock::Live), 0);
+    assert!((s.alpha() - 0.8).abs() < 1e-6);
+    // The fixed 10 ms lookahead has not reached tick 3 yet.
+    assert_eq!(s.advance(1035.0, Clock::Live), 1);
+    assert_eq!(s.world().tick(), 2);
+    assert_eq!(s.advance(1035.001, Clock::Live), 0);
+    assert_eq!(s.ticks_due(1030.0, Clock::Live), 0);
+    assert_eq!(s.advance(1030.0, Clock::Live), 0);
+    assert_eq!(s.advance(1040.0, Clock::Live), 0); // T + L == 50 ms: strict horizon.
+    assert_eq!(s.advance(1040.001, Clock::Live), 1);
+}
+
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_inputs_follow_stamps_and_future_stamps_wait() {
     let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+    s.frame_period(1000.0 / 60.0);
     s.advance(0.0, Clock::Live);
     key(&mut s, "KeyE", true, 18.0); // After deadline, before the frame.
     key(&mut s, "KeyE", false, 25.0); // Beyond this frame's host stamp.
@@ -620,22 +1004,24 @@ fn live_inputs_follow_stamps_and_future_stamps_wait() {
     assert_eq!((c.held, c.pressed, c.released), (1, 1, 0));
     drop(c);
     assert_eq!(s.advance(30.0, Clock::Live), 0);
-    assert_eq!(s.advance(40.0, Clock::Live), 0); // Strict next deadline is 50 ms.
-    assert_eq!(s.advance(50.0, Clock::Live), 1);
+    assert_eq!(s.advance(40.0, Clock::Live), 1); // Fixed period reaches tick 3.
+    assert_eq!(s.advance(50.0, Clock::Live), 0);
     assert_eq!(s.world().resource::<Counts>().released, 1);
 }
 
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_catchup_pause_save_and_seekable_transition() {
     let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+    s.frame_period(10.0);
     s.advance(0.0, Clock::Live);
     s.advance(10.0, Clock::Live);
-    let saved = s.save(); // Tick 1 is ahead of world time (10 ms).
+    let saved = s.save(); // F2d saves at tick 1's deadline, rounded up to a microsecond.
     let mut restored = sim();
     restored.restore(&saved).unwrap();
     assert_eq!(restored.save(), saved);
     // Presentation lookahead is not saved; restore has no live history yet.
-    assert_eq!(restored.alpha(), 0.0);
+    assert!((restored.alpha() - 0.00002).abs() < 1e-7);
     assert!((s.alpha() - 0.2).abs() < 1e-6);
     assert_eq!(restored.advance(5000.0, Clock::Live), 0);
     assert_eq!(s.advance(10_010.0, Clock::Live), 15); // 250 ms, plus bounded lookahead.
@@ -652,44 +1038,41 @@ fn live_catchup_pause_save_and_seekable_transition() {
     assert_eq!(exact.advance(32.0, Clock::Seekable), 1);
 }
 
-fn drawn_counter(s: &Sim<Counter>) -> f64 {
-    if s.world().tick() == 0 {
-        0.0
-    } else {
-        (s.world().tick() - 1) as f64 + f64::from(s.alpha())
-    }
-}
-
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_half_step_frames_draw_equal_deltas_at_every_phase() {
     let step = 1000.0 / 60.0;
     for phase in [0.0, 0.1, 0.25, 0.4] {
         let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+        s.frame_period(step / 2.0);
         s.advance(0.0, Clock::Live);
         let mut previous = 0.0;
         for frame in 0..600 {
             let now = (2.0 + phase + frame as f64 * 0.5) * step;
             s.advance(now, Clock::Live);
             let drawn = drawn_counter(&s);
-            if frame >= 2 {
+            if frame >= 480 {
                 assert!(
                     (drawn - previous - 0.5).abs() < 1e-6,
                     "phase {phase}, frame {frame}: {}",
                     drawn - previous
                 );
-                // L = step/2; x = R/step = T/step - 1/2.
-                assert!((drawn - (now / step - 0.5)).abs() < 1e-6);
+                // After acquisition, F2d holds the nearest frame-aligned origin.
+                let origin = if phase <= 0.25 { -phase } else { 0.5 - phase };
+                assert!((drawn - (now / step - 0.5 + origin)).abs() < 1e-6);
             }
             previous = drawn;
         }
     }
 }
 
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_stall_returns_to_steady_deltas_after_one_recovery_frame() {
     for hz in [60.0, 120.0] {
         let delta = 1000.0 / hz;
         let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+        s.frame_period(delta);
         for frame in 0..=10 {
             s.advance(frame as f64 * delta, Clock::Live);
         }
@@ -699,9 +1082,8 @@ fn live_stall_returns_to_steady_deltas_after_one_recovery_frame() {
         for frame in 1..=10 {
             s.advance(now + frame as f64 * delta, Clock::Live);
             let drawn = drawn_counter(&s);
-            // The first post-stall frame replaces the capped L with delta.
-            // From the very next interval, R advances by delta again.
-            if frame >= 2 {
+            // The fixed period keeps even the first recovery interval steady.
+            if frame >= 1 {
                 assert!((drawn - previous - 60.0 / hz).abs() < 1e-6);
             }
             previous = drawn;
@@ -709,9 +1091,11 @@ fn live_stall_returns_to_steady_deltas_after_one_recovery_frame() {
     }
 }
 
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_three_tick_catchup_spreads_input_by_stamp() {
     let mut s = Sim::<Counter>::new(CounterArgs::default()).unwrap();
+    s.frame_period(1000.0 / 60.0);
     s.advance(0.0, Clock::Live);
     key(&mut s, "KeyE", true, 18.0);
     key(&mut s, "KeyE", false, 35.0);
@@ -726,6 +1110,7 @@ fn live_three_tick_catchup_spreads_input_by_stamp() {
     assert_eq!(seen, [(1, 0, 0, 0), (2, 1, 1, 0), (3, 1, 1, 1)]);
 }
 
+// Retained trunk regression, with an explicit F2d host period.
 #[test]
 fn live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead() {
     struct Mover;
@@ -748,6 +1133,7 @@ fn live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead() {
     let mut first = Vec::new();
     for clock in [Clock::Live, Clock::Seekable] {
         let mut s = Sim::<Mover>::new(()).unwrap();
+        s.frame_period(step / 2.0);
         s.advance(0.0, clock);
         s.input(InputEvent::Key {
             code: "KeyE".into(),
@@ -768,7 +1154,13 @@ fn live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead() {
             });
             let drawn = prev + (curr - prev) * s.alpha();
             if drawn > 0.0 && drawn_at.is_none() {
-                assert!((drawn - 0.25).abs() < 1e-6);
+                // F2d slews at most 0.25% while acquiring its initial origin.
+                let slew = if clock == Clock::Live {
+                    now / step * 0.0025
+                } else {
+                    0.0
+                };
+                assert!((drawn - 0.25).abs() <= slew as f32 + 1e-6);
                 drawn_at = Some(frame);
             }
         }
@@ -781,36 +1173,6 @@ fn live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead() {
     }
     assert_eq!(first, [3, 4]); // T = 1.75 / 2.25 steps, R = 1.25 steps for both.
 }
-
-#[test]
-fn live_frame_history_does_not_cross_handoff_or_rebase() {
-    for release in [false, true] {
-        let mut s = sim();
-        s.advance(0.0, Clock::Live);
-        s.advance(20.0, Clock::Live);
-        let saved = s.world().save();
-        s.rebase(900_000.0, release).unwrap();
-        // Releasing input logs the handoff; persistent world state is unchanged.
-        assert_eq!(s.world().save(), saved);
-        assert_eq!(s.ticks_due(900_000.0, Clock::Live), 0);
-        assert_eq!(s.advance(900_000.0, Clock::Live), 0);
-        assert_eq!(s.advance(900_100.0, Clock::Live), 6);
-        assert_eq!(s.world().tick(), 8);
-        assert!((s.alpha() - 0.2).abs() < 1e-6);
-    }
-    let mut s = sim();
-    s.advance(0.0, Clock::Live);
-    s.advance(20.0, Clock::Live);
-    s.handoff(true);
-    s.rebase(500.0, false).unwrap();
-    assert_eq!(s.advance(600.0, Clock::Seekable), 5);
-    s.handoff(false);
-    assert_eq!(s.ticks_due(900_000.0, Clock::Live), 0);
-    assert_eq!(s.advance(900_000.0, Clock::Live), 0);
-    assert_eq!(s.advance(900_100.0, Clock::Live), 7);
-    assert_eq!(s.world().tick(), 14);
-}
-
 #[derive(Default, Component)]
 struct ReloadProbe {
     authored: u32,

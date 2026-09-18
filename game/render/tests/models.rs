@@ -51,9 +51,26 @@ impl Game for ModelGame {
 }
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
     let mut surface = WorldSurface::<ModelGame>::default();
+    surface.device_ready();
     surface.bind(&[]).unwrap();
     assert_eq!(surface.assets(), ["sample.model"]);
     surface.asset("sample.model", Some(&bin::to_vec(model)));
+    surface.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    for texture in surface.assets() {
+        let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
+            .join("Library/Caches/exact2-game/gltf-samples")
+            .join(&texture);
+        surface.asset(&texture, Some(&std::fs::read(path).unwrap()));
+    }
+    surface.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
     assert!(surface.error().is_none(), "{:?}", surface.error());
     let frame = Frame {
         width: 800.,
@@ -61,6 +78,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
         scale: 1.,
         now_ms: 0.,
         seekable: true,
+        period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
     };

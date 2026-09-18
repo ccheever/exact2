@@ -239,7 +239,7 @@ fn procedural_entities_report_named_generator_with_seed() {
 }
 
 #[test]
-fn walking_fox_behind_wall_changes_geometric_eyes_headlessly() {
+fn walking_fox_with_authored_bounds_behind_wall_changes_geometric_eyes_headlessly() {
     let mut sim = Sim::<Lanterns>::new(Options {
         scene: bake_scene().content,
         started: true,
@@ -258,6 +258,13 @@ fn walking_fox_behind_wall_changes_geometric_eyes_headlessly() {
     sim.world_mut()
         .teleport(player, Transform::at(-2.0, 0.65, 1.0));
     sim.world_mut().propagate();
+    // The embedded cosmetic GLB has no declared simulation model. Give this
+    // geometric probe explicit authored bounds instead of relying on a unit fallback.
+    let fox = sim.world().named("fox").unwrap();
+    sim.world_mut().insert(
+        fox,
+        exact_game::asset::ModelBounds([-0.5, -0.5, -0.5, 0.5, 0.5, 0.5]),
+    );
     let request = r#"{"op":"layout","entity":"fox","to":"lantern-2"}"#;
     let before = sim.agent(request);
     sim.hold("KeyS", 900.0);

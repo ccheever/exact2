@@ -222,11 +222,15 @@ fn facing_uses_parent_pose_and_segment_blocks_only_between_endpoints() {
 }
 
 #[test]
-fn model_bounds_replace_unit_fallback_for_layout_pick_and_occlusion() {
+fn declared_model_bounds_replace_authored_bounds_for_layout_pick_and_occlusion() {
     let mut s = Sim::<Eyes>::new(()).unwrap();
     s.viewport(800.0, 600.0);
     let subject = s.world().named("subject").unwrap();
     s.world_mut().insert(subject, Mesh::asset("subject.model"));
+    s.world_mut().insert(
+        subject,
+        asset::ModelBounds([-0.5, -0.5, -0.5, 0.5, 0.5, 0.5]),
+    );
     let layout = r#"{"op":"layout","entity":"subject"}"#;
     let pick = r#"{"op":"layout","x":400,"y":300}"#;
     assert!(s
@@ -237,6 +241,21 @@ fn model_bounds_replace_unit_fallback_for_layout_pick_and_occlusion() {
         bounds: [-2.0, -2.0, -2.0, 2.0, 2.0, 2.0],
         ..Default::default()
     };
+    struct DeclaredEyes;
+    impl Game for DeclaredEyes {
+        const ID: &'static str = "declared-eyes";
+        const ASSETS: &'static [&'static str] = &["subject.model"];
+        type Args = ();
+        fn setup(w: &mut World, args: &()) {
+            Eyes::setup(w, args);
+            let subject = w.named("subject").unwrap();
+            w.insert(subject, Mesh::asset("subject.model"));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut s = Sim::<DeclaredEyes>::new(()).unwrap();
+    assert!(s.is_loading());
+    s.viewport(800.0, 600.0);
     s.asset("subject.model", Some(&bin::to_vec(&model)))
         .unwrap();
     assert!(s
@@ -248,4 +267,41 @@ fn model_bounds_replace_unit_fallback_for_layout_pick_and_occlusion() {
         reply.contains(r#""occluded":1,"occluders":["subject"]"#),
         "{reply}"
     );
+}
+
+#[test]
+fn unbounded_cosmetic_never_blocks_pick_occlusion_or_facing_even_after_arrival() {
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800.0, 600.0);
+    let subject = s.world().named("subject").unwrap();
+    s.world_mut().insert(subject, Mesh::asset("subject.model"));
+    let layout = r#"{"op":"layout","entity":"subject"}"#;
+    let target = r#"{"op":"layout","entity":"target","to":"camera"}"#;
+    let pick = r#"{"op":"layout","x":400,"y":300}"#;
+    let before = [s.agent(layout), s.agent(target), s.agent(pick)];
+    assert!(before[0].contains(r#""bounds":null,"screen":{"unavailable":true},"depth":null,"visible":{"unavailable":true}"#), "{}", before[0]);
+    assert!(
+        before[1].contains(r#""occluded":0,"occluders":[]"#),
+        "{}",
+        before[1]
+    );
+    assert!(before[1].contains(r#""lineOfSight":true"#), "{}", before[1]);
+    assert!(!before[2].contains(r#""name":"subject""#), "{}", before[2]);
+    s.asset(
+        "subject.model",
+        Some(&bin::to_vec(&asset::Model {
+            bounds: [-20., -20., -20., 20., 20., 20.],
+            ..Default::default()
+        })),
+    )
+    .unwrap();
+    assert_eq!([s.agent(layout), s.agent(target), s.agent(pick)], before);
+    // Negative control: authored bounds must actually make the same entity obstruct.
+    s.world_mut()
+        .insert(subject, asset::ModelBounds([-2., -2., -2., 2., 2., 2.]));
+    assert!(s
+        .agent(target)
+        .contains(r#""occluded":1,"occluders":["subject"]"#));
+    assert!(s.agent(target).contains(r#""lineOfSight":false"#));
+    assert!(s.agent(pick).contains(r#""name":"subject""#));
 }

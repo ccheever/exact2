@@ -30,6 +30,22 @@ pub fn primitive(
             return Err(format!("primitive {}: {semantic:?} unsupported", p.index()));
         }
     }
+    let material = p.material();
+    let pbr = material.pbr_metallic_roughness();
+    let textured = pbr.base_color_texture().is_some()
+        || pbr.metallic_roughness_texture().is_some()
+        || material.normal_texture().is_some()
+        || material.emissive_texture().is_some()
+        || material.occlusion_texture().is_some();
+    if textured && p.get(&gltf::Semantic::TexCoords(0)).is_none() {
+        return Err(format!(
+            "material {:?}: texture requires TEXCOORD_0",
+            material.index()
+        ));
+    }
+    if p.get(&gltf::Semantic::Joints(0)).is_some() != p.get(&gltf::Semantic::Weights(0)).is_some() {
+        return Err("JOINTS_0/WEIGHTS_0 mismatch".into());
+    }
     let r = p.reader(|b| Some(buffers[b.index()].0.as_slice()));
     let positions: Vec<f32> = r
         .read_positions()

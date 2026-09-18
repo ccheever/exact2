@@ -48,6 +48,11 @@ pub struct Frame {
     /// The agent owns time: honour every millisecond, including time off screen.
     /// Otherwise the display owns time and a surface may drop unseen time.
     pub seekable: bool,
+    /// The display's frame period in milliseconds as the host knows it (the web
+    /// host's paced clock, CADisplayLink's duration); 0 while unknown or headless.
+    /// Any animated surface may pace or look ahead by it; a world schedules its
+    /// ticks and draws its interpolated pose against it.
+    pub period_ms: f64,
     /// How many times the canvas's children texture has been uploaded (LLP
     /// 1014): a surface that keeps the previous children crossfades when
     /// this changes. The module sets it; a host passes `0`.
@@ -110,6 +115,16 @@ pub trait Surface {
     }
     /// Deliver GPU-ready bytes, or None when the host has no such file.
     fn asset(&mut self, _name: &str, _bytes: Option<&[u8]>) {}
+    /// A terminal host transport failure, distinct from a missing file.
+    fn asset_failed(&mut self, _name: &str, _reason: &str) {}
+    /// Complete device preparation inside asset delivery, before reporting readiness.
+    fn prepare_assets(
+        &mut self,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        _format: wgpu::TextureFormat,
+    ) {
+    }
     /// State as bytes this surface can later restore: a save or a dev reload's carry.
     /// None means this surface has nothing worth carrying.
     fn carry(&mut self) -> Option<Vec<u8>> {
@@ -238,6 +253,7 @@ pub struct Module {
     next: u32,
     error: String,
     seekable: bool,
+    period_ms: f64,
 }
 
 /// The wgpu device.
@@ -258,6 +274,7 @@ struct Instance {
     published: Option<String>,
     presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     outstanding: BTreeSet<String>,
+    answered: BTreeSet<String>,
     bound: bool,
     dirty: bool,
     children: Option<Children>,
@@ -307,6 +324,7 @@ impl Module {
             next: 0,
             error: String::new(),
             seekable: false,
+            period_ms: 0.0,
         }
     }
 
@@ -452,6 +470,7 @@ impl Module {
                 published: None,
                 presentation,
                 outstanding: BTreeSet::new(),
+                answered: BTreeSet::new(),
                 bound: false,
                 dirty: false,
                 children: None,
@@ -481,6 +500,15 @@ impl Module {
                 .instances
                 .get(&id)
                 .is_some_and(|i| i.presentation.is_some())
+    }
+
+    /// The display's frame period, from the host, for every frame that follows.
+    pub fn set_period(&mut self, period_ms: f64) {
+        self.period_ms = if period_ms.is_finite() && period_ms > 0.0 {
+            period_ms
+        } else {
+            0.0
+        };
     }
 
     /// Set once by an agent host: every frame honours the seekable clock.
@@ -836,7 +864,7 @@ impl Module {
             if !asset_name(&name) {
                 self.error =
                     format!("asset `{name}`: expected a relative asset path without .. segments");
-            } else if inst.outstanding.insert(name.clone()) {
+            } else if !inst.answered.contains(&name) && inst.outstanding.insert(name.clone()) {
                 wanted.push(name);
             }
         }
@@ -857,13 +885,33 @@ impl Module {
             self.error = format!("asset `{name}`: not requested by this surface");
             return false;
         }
+        inst.answered.insert(name.into());
         inst.surface.asset(name, bytes);
+        if let (Some(gpu), Some((_, config))) = (&self.gpu, &inst.presentation) {
+            inst.surface
+                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+        }
         inst.drain();
         inst.dirty = true;
         if let Some(SurfaceError(error)) = inst.surface.take_error() {
             self.error = error;
             return false;
         }
+        true
+    }
+
+    /// Answer a requested name with a terminal transport failure, outside sticky errors.
+    pub fn asset_failed(&mut self, id: u32, name: &str, reason: &str) -> bool {
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return false;
+        };
+        if !asset_name(name) || !inst.outstanding.remove(name) {
+            return false;
+        }
+        inst.answered.insert(name.into());
+        inst.surface.asset_failed(name, reason);
+        inst.drain();
+        inst.dirty = true;
         true
     }
 
@@ -945,6 +993,7 @@ impl Module {
         let view = texture.texture.create_view(&Default::default());
         let frame = Frame {
             seekable: self.seekable,
+            period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
             ..*frame
@@ -1151,6 +1200,7 @@ impl Module {
         }
         let frame = Frame {
             seekable: self.seekable,
+            period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
             ..*frame
@@ -1245,15 +1295,8 @@ pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
-/// A relative path under assets/, using the portable ASCII filename vocabulary.
-pub fn asset_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with('/')
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
-        && name.split('/').all(|part| part != "..")
-}
+mod asset_name;
+pub use asset_name::asset_name;
 
 #[cfg(test)]
 mod device_loss_tests {
@@ -1303,6 +1346,7 @@ mod device_loss_tests {
                             scale: 1.,
                             now_ms: 0.,
                             seekable: true,
+                            period_ms: 0.,
                             children_generation: 0,
                             shader_generation: 0
                         }

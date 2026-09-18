@@ -1166,7 +1166,7 @@ async function waitForInflight(deadline) {
   return true;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-function agent(request) { return agentMode && (globalThis.exact.pendingSurfaces.length || request.op === "clock") ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agent(request) { return agentMode ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1343,7 +1343,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
   shaderCommit?.();
-  if (transaction) stagedGpu = globalThis.exact.gpu.stagePlan(batch, beforeSlots, ask({op:"state"}).slots);
+  if (transaction) stagedGpu = globalThis.exact.gpu.stagePlan(batch, beforeSlots, ask({op:"state"}).slots, assets);
   } catch (error) {
     stagedGpu?.abort(); shaderCommit?.rollback?.();
     if (transaction) wasm.exact_finish_boot(0);
