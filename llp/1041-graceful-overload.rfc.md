@@ -4622,3 +4622,34 @@ separate reverse archive is `target/apple-giant-viewport-hit-reverse-execution-v
 The first310-file archive and its separate first-assignment correction remain
 unchanged. Independent selected raw joins reproduce the new source, resize,
 shape/index and first-layer endpoints; no screenshot or memory-bound claim is added.
+
+### 8.74 Retire a rejected raster's own pending desire, 2026-09-18
+
+RegionController previously cleared the submitted serial when a raster returned,
+then rejected its old publication and scheduled again while the same desired
+raster remained. This could resubmit the identical stale raster until an AppKit
+surface update supplied a new intent. The rejection branch now clears that desire
+only when serial, generation and publication all match the rejected answer.
+A newer intent keeps its scheduling ownership; accepted pixels, appearance and
+phase checks, batch deferral and the serial worker are unchanged.
+
+The focused actual-controller/service/surface fixture blocks raster B, advances
+the candidate publication while holding display updates, then releases B. A
+submit-site counter and second worker barrier prove the recurrence without an
+unbounded failure loop. Baseline has96 assertions/two expected behavioral failures;
+candidate has99/zero, including three successor-recovery assertions reached only
+after successful retirement. Different-serial successors, accepted-A cache return,
+deferred answers, wrong ownership tuples, appearance/refusal and reset controls pass.
+Both copied-source builds use Swift5 optimized compilation with warnings as errors.
+Runtime/Presenter/session are fixture doubles; the worker, raster paths and small
+AppKit windows are real. This is no fullhost, OS-input or native speedup result.
+
+The one production path and115 artifacts/2,596,657B are preserved in
+`target/apple-stale-raster-validation/freeze-v1/`, manifest
+`e93a4ae6ca41ab93844b853c35dd8e632c53242d5c80bb0c0e2e92a7e76cac06`, patch
+`13fe372d1a5e5acc12ae630b2b126a5fac0d9d0b7fbafa4e2620fc8ddce0012f`.
+Independent inverse checks recover exact baseline/candidate production from all
+13 copied production inputs; both compiler/run pairs are terminal and all four
+recorded process groups are absent. Neither prior native pair nor the separately
+prepared numeric-index experiment includes this fix. Visible continuity and the
+remaining full-shape/index costs require their own evidence.

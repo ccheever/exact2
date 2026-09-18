@@ -158,7 +158,14 @@ final class RegionController {
             if submittedRaster == value.request.serial { submittedRaster = 0 }
             guard desiredRaster?.serial == value.request.serial,
                   candidate?.snapshot.publication == value.request.publication,
-                  value.request.generation == generation else { schedule(); return }
+                  value.request.generation == generation else {
+                // A rejected old publication must not make its own desire
+                // runnable again. A newer intent still owns its scheduling.
+                if let desired = desiredRaster, desired.serial == value.request.serial,
+                   desired.generation == value.request.generation,
+                   desired.publication == value.request.publication { desiredRaster = nil }
+                schedule(); return
+            }
             // Bounds notifications need not have reached updateInk yet. Sample
             // actual geometry/palette/selection again at the delivery boundary.
             guard surface?.accepts(value.intent) == true else {
