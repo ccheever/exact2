@@ -61,7 +61,7 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     }
     let view = queries(world);
     let mut scene_guard = view.scene();
-    let scene = &mut *scene_guard;
+    let scene = scene_guard.controller();
     let own = scene
         .entities
         .iter()

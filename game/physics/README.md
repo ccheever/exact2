@@ -5,7 +5,10 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
-  Synchronization visits the union of Body/Collider membership, not every living entity.
+  Synchronization visits bodies and changed 1,024-slot static pages. A bodyless
+  collider's own page and all ancestor Transform/Parent pages determine dirtiness;
+  component membership, world identity and load invalidate the derived page cache.
+  Dirty rows still merge in entity order before Rapier insertion or mutation.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
@@ -18,9 +21,12 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
 - `let q = physics::queries(world); q.raycast(..); q.sweep(..);` shares a lazy
   query scene retained in the world's physics executor, outside Data and hashes.
   Drop the scope before structural edits or `step`; the next scope reuses it.
-  Body/Collider/Transform/Parent write revisions (including membership and load)
-  invalidate it, so same-tick edits are visible on the next operation. Unchanged
-  queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
+  Body/Collider/Transform/Parent write revisions gate page-generation checks, so
+  same-tick edits are visible on the next operation. Bodyless colliders retain a
+  separate static BVH; only their membership, collider data or global poses rebuild
+  it. Bodies (including explicit static/kinematic bodies) use the dynamic partition.
+  A moving body sharing a page with scenery does not rebuild unchanged static shapes.
+  Raycasts, overlaps and sweeps visit both BVHs with the same entity-order ties.
   The free query functions are thin one-shot calls through this same cache.
   `move_character` uses the shared scene. Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
@@ -44,11 +50,35 @@ without a solver step between movements. The pile timings separately include
 | Linux, pile active | 7.978 / 8.367 | 3.32/3.37/3.18 | 7.830 / 8.166 | 1.85/1.78/1.78 |
 | Linux, pile asleep | 0.046 / 0.050 | 3.32/3.37/3.18 | 0.045 / 0.048 | 1.85/1.78/1.78 |
 
-Character movement still invalidates the query scene after relevant edits; the
-remaining O(n) rebuild is once per changed revision set, not once per ray/sweep.
+Rapier's character controller requires a single concrete query pipeline. Its
+combined view is assembled lazily from retained shapes, with the original ordered
+handles and binned BVH to preserve traversal ties and pinned crate pushes. This
+controller-only assembly remains O(n) after relevant geometry changes; ordinary
+ray/overlap/sweep calls do not assemble it.
 A view cannot ignore same-tick edits merely to enforce one rebuild per tick.
 Repeated unchanged scopes/ticks reuse the scene. These reads do not serialize
 or advance the saved solver. `pile -- 2000 --queries` reproduces the timings.
+
+The ignored `tests/timing.rs` diagnostic measures 600 moving ticks after 20 warmup
+ticks for (static boxes, dynamic bodies) = (100,10), (2,000,10), (20,000,100).
+It reports median step, 1,000-ray and 1,000-overlap batch times separately; the ray
+batch includes the first scene refresh after each step. Run from `game/` with
+`cargo test -p exact-game-physics --release --test timing -- --ignored --nocapture --test-threads=1`.
+
+T1b, 2026-09-18, shared x86-64 Linux host, release; each cell is **before → after**
+in microseconds, from that same diagnostic (query batches include both partitions):
+
+| Static / dynamic | Step | 1,000 rays | 1,000 overlaps |
+|---|---:|---:|---:|
+| 100 / 10 | 16.885 → 17.827 | 265.253 → 278.462 | 463.670 → 491.126 |
+| 2,000 / 10 | 189.729 → 108.838 | 1,132.437 → 528.216 | 618.537 → 632.323 |
+| 20,000 / 100 | 2,399.926 → 133.330 | 8,040.879 → 656.344 | 675.241 → 705.503 |
+
+The extra query partition has a small fixed cost; the large-world savings are
+reflection and scene reconstruction. Cached Lanterns Linux proof wall time was
+0.613 → 0.618 s (single runs, builds excluded); no measured proof speedup.
+The saved-pile tick-600 hash remains `0x5ba7691abdc98058`; static edits, ancestor
+edits, membership/recycling, cache identity/load and query ties have regression tests.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
