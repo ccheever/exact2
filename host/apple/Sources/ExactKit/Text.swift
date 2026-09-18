@@ -675,8 +675,9 @@ final class TextEngine {
         let started = CACurrentMediaTime()
         let identity = residency.identity(spec)
         let intrinsic = request.width < 0
-        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
-        if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent
+            : intrinsic ? .maxContent : .definite(Double(request.width == 0 ? 0 : request.width).bitPattern)
+        if let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1
             measureSeconds += CACurrentMediaTime() - started
             return metrics

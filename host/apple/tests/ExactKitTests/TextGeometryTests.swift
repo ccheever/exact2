@@ -853,6 +853,43 @@ extension TextGeometryTests {
         }
         XCTAssertEqual(engine.residencyStats.scalarEntries, 3)
     }
+
+    func testRevisitedMeasurementWidthsReuseScalarsWithoutRetainingOldParagraphs() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let bytes = Array(String(repeating: "Café e\u{301} 🦀 東京 paragraph. ", count: 20).utf8)
+        bytes.withUnsafeBufferPointer { bytes in
+            var run = ExactTextRun()
+            run.text = bytes.baseAddress; run.len = bytes.count
+            run.font_size = 13.25; run.font_weight = 400
+            run.has_line_height = 1; run.line_height = 18.125
+            withUnsafePointer(to: &run) { pointer in
+                var request = ExactMeasureRequest()
+                request.runs = pointer; request.count = 1; request.strut = pointer.pointee
+                request.strut.text = nil; request.strut.len = 0
+                var expected: [Float: ExactMetrics] = [:]
+                for width: Float in [640, 0, 180] {
+                    request.width = width
+                    expected[width] = engine.measure(request)
+                    XCTAssertLessThanOrEqual(engine.residencyStats.liveParagraphs, 1)
+                }
+                let hits = engine.measureHits
+                for width: Float in [640, 0, 180, 640, 0, 180] {
+                    request.width = width
+                    let actual = engine.measure(request), first = expected[width]!
+                    XCTAssertEqual(actual.width, first.width)
+                    XCTAssertEqual(actual.height, first.height)
+                    XCTAssertEqual(actual.baseline, first.baseline)
+                    XCTAssertLessThanOrEqual(engine.residencyStats.liveParagraphs, 1)
+                }
+                XCTAssertEqual(engine.measureHits, hits + 6, "Exploratory widths need scalar reuse, not full CTLine history")
+                engine.install(nil)
+                let before = engine.measureHits
+                request.width = 640
+                _ = engine.measure(request)
+                XCTAssertEqual(engine.measureHits, before, "A replacement font catalog must not reuse old scalars")
+            }
+        }
+    }
 }
 
 

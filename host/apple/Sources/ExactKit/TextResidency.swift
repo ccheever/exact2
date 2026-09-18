@@ -78,7 +78,10 @@ private struct TextGeometryKey: Hashable {
     let widthBits: UInt64
 }
 
-enum TextScalarKind { case minimumWidth, minContent, maxContent }
+enum TextScalarKind: Hashable {
+    case minimumWidth, minContent, maxContent
+    case definite(UInt64)
+}
 
 final class TextShape {
     let key: TextShapeKey
@@ -307,7 +310,16 @@ struct TextResidency {
         for old in coldGroups[key.shape.token] ?? [] {
             maintenanceVisits &+= 1
             switch old {
-            case .paragraph(let p) where p != key: removeCold(old)
+            case .paragraph(let p) where p != key:
+                // Layout can revisit an exploratory width after its CTLines
+                // were retired. Keep its tiny answer under the same bounded
+                // cold policy, without retaining another full paragraph.
+                if case .paragraph(let paragraph) = entries[old]?.weak.value {
+                    let metrics = ExactMetrics(width: Float(paragraph.width), height: Float(paragraph.height),
+                                               baseline: Float(paragraph.firstBaseline))
+                    removeCold(old)
+                    put(paragraph.shape!.identity, kind: .definite(p.widthBits), metrics: metrics)
+                } else { removeCold(old) }
             case .shape(let s) where s != key.shape: removeCold(old)
             default: break
             }
