@@ -599,13 +599,15 @@ is skipped by Rapier's serde implementation, but the engine's post-kinematic
 broad-phase update executes the deferred optimization; the restored one loses it.
 The dynamic-stack fixture does not take that extra collision pass and agrees.
 
-Three diagnostic rounds ended with a local dependency experiment: including that
-one bool in serialization makes both Lanterns paranoid comparisons pass, but
-changes the existing tick-60 pin `0x99071d4692d75e6f` to `0x72c4c497e0d9a2dc`.
-The dependency experiment is **not applied**: this task forbids changing pinned
-hashes. The new Lanterns regression remains red instead of ignoring the divergence.
-An engine snapshot/determinism decision is required before claiming all state is
-saved correctly. Existing game fields and pins are unchanged.
+Decision (owner, T4 follow-up, 2026-09-18): a world restored from its save must
+continue exactly like uninterrupted execution; this outranks old hash pins.
+Rapier 0.35.3 is now vendored with `deferred_optimize_pending` serialized, and the
+game-only Cargo patch makes that dependency reproducible. The physics envelope is
+**EXPHYS v2**. Nonempty v1/unversioned physics snapshots are refused explicitly
+(`expected EXPHYS v2 ... snapshots incomplete; start a new world`), atomically.
+There is no migration: v1 omitted the bit, so a correct continuation cannot be
+recovered reliably. Worlds without a populated physics snapshot are unaffected;
+EXGAME v3 and EXSIM v5 do not change. No new engine unsafe code is introduced.
 
 T4 verification (2026-09-18): the game workspace reports **415 passed, 1 failed,
 11 ignored**. The failure is the newly added Lanterns normal/paranoid comparison;
