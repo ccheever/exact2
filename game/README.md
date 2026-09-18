@@ -1697,3 +1697,61 @@ all unrelated hitch assertions still apply. The ignored regression
 `restoring_fox_uploads_zero_asset_bytes_after_ready` requires a normal restore to
 upload zero mesh plus texture bytes; its comment points to the engine asset-path
 follow-up in `QUEUE.md`. This integration does not fix or conceal that defect.
+
+
+M5 verification: **553 game Rust tests pass, 0 fail, 24 ignored** (including the
+new known-defect regression); affected core builds and passes **261/0, 1 ignored**.
+Game and affected-core Clippy pass with `-D warnings`, and both workspaces pass
+formatting. The initial new-fixture Clippy initializer warning was corrected;
+its six focused tests pass again. Standalone web fixtures pass **68/0, 2 skipped**;
+the two real-Bridge cases run through `exact-web`. Game Bun is **55/2**, exactly
+the expected missing-Chrome and missing-feel-bakes failures; the generated game
+builds and its three Rust tests pass. Full-root build/test/Clippy were attempted
+and cannot bake TypeScript apps without the lean Hermes executor.
+
+Linux proof counts in Off / Save / FreshGame are Beacons **57/58/58**, Greybox
+**68/69/69**, Lanterns **9/10/10**, asset-fixture **9/10/10**, and cubes **3/4/4**:
+**15 runs, 448 assertions, zero failures**. The cubes fixture has 100,002 entities.
+Every paranoid final hash/tick/publication/journal comparison passes. Lanterns
+Off reports zero after-ready violations; each paranoid mode reports eight restore
+events, 152,064 mesh bytes and 8,388,608 texture bytes, still included in the total
+violations. Explicitly running the ignored normal-restore regression fails with
+**4,270,336 asset bytes** instead of zero, preserving the engine owner's reproducer.
+
+Tick diagnostics each ran once as the existing five-fresh-simulation benchmark,
+10,000 ticks per sample, W held, optimized dev/test profiles, debug info and
+incremental compilation disabled. Lanterns retains sound. Results in µs/tick:
+
+| Game | K1 lane median | M5 median | M5 range |
+| --- | ---: | ---: | ---: |
+| Lanterns | 36.988 | 37.231 | 37.190–37.358 |
+| Beacons | 0.888 | 0.900 | 0.897–0.909 |
+
+Observation and settle diagnostics each ran once in release, with 200k Transform
+entities and 100 measured samples after five warmups. Values are ms median / p95:
+
+| Operation | T1a2 lane | M5 |
+| --- | ---: | ---: |
+| Observe, still | 0.746 / 0.811 | 0.748 / 0.798 |
+| Observe, 100 clustered movers | 1.035 / 1.090 | 0.774 / 0.791 |
+| Observe, 100 spread movers | 0.797 / 0.813 | 0.784 / 0.801 |
+| Observe, every word dirty (3,125 movers) | 1.346 / 1.366 | 1.459 / 1.474 |
+| Observe, all 200k slots dirty | 39.440 / 40.435 | 39.840 / 40.171 |
+| Settle after an unwritten lease | 63.276 / 65.138 | 69.761 / 70.700 |
+
+Initial settle is 126.981 ms. Tick medians differ by +0.66% / +1.35%, and
+still/spread/fully-dirty observation stays close to the lane samples. Every-word
+observation is +8.4% and settle +10.2%; these single, unpaired shared-host runs
+do not establish that those two differences are noise, or attribute them to a
+merge interaction. The observation implementation and storage dirty tracking
+are unchanged from T1a2; the diff of adjacent paths is retained with the logs.
+A paired performance follow-up is in `QUEUE.md`; no full-parity claim is made.
+The complete hash/fused/seek-pair timing rows and sample arrays are in scratch.
+
+Caps and boot pass (two JavaScript modules, one Wasm reference). No GPU adapter,
+Chrome or Apple SDK is available: GPU pixels/pipelines, browser execution,
+physical presentation/audio and Swift runtime behavior remain unverified;
+device-dependent Rust tests can return early. The game remains a separate Cargo
+workspace. No remote commands or pushes were used; local bundles imported the
+four lane heads. Commands, outputs and the known-defect failure are retained in
+`~/lanes/gamenext/scratch/M5/`.
