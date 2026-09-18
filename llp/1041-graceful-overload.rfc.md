@@ -2655,15 +2655,18 @@ Per-export inclusive durations retain zero-length calls. The union below counts
 only fully contained observed-call intervals, deduplicating any overlap; it
 excludes JavaScript batch application, DOM layout and painting outside them.
 
-| Pair | Loaded boundary revisions, control / reuse | Observed call union, control / reuse | Comparison eligibility |
+| Pair | Comparator revision snapshots, control / reuse | Observed call union, control / reuse | Comparison eligibility |
 | --- | --- | --- | --- |
 | 1 | 8→16 / 8→16 | 188.4 / 107.3 ms | Equal boundary progress |
 | 2 | 8→16 / 8→17 | 176.5 / 123.6 ms | NOT_ESTABLISHED |
 | 3 | 7→16 / 8→16 | 147.8 / 96.4 ms | NOT_ESTABLISHED |
 
-Only pair 1 satisfies the predeclared equal-progress rule. Boundary snapshots
-still do not count exact commits inside the scored window, so these are observed
-coverage totals, not a repeated speedup or per-update cost estimate. In pair 2,
+Only pair 1 satisfies the predeclared equal-progress rule. Pair 3's control
+already reaches revision 8 at the later loaded-phase snapshot; the comparator
+still refuses its earlier workload snapshot of 7. These reads are not atomic
+with the score endpoints. They do not count exact commits inside the window,
+so the totals measure observed coverage, not repeated speedup or per-update
+cost. In pair 2,
 reuse performs its expensive work predominantly inside `exact_resize`; ignoring
 that export would again misattribute the cost. Across all six cells, 46 timer
 entry calls exceed 8.33 ms. The reusable source therefore does not yet establish
@@ -2675,5 +2678,7 @@ intervals. No default entry activation, native gain or 120 Hz claim follows.
 All six children and the supervisor exit successfully; all 13 recorded PIDs,
 six process groups and six private listeners retire. Raw data, separate boundary
 and unscored summaries, comparison decisions and cleanup receipts are under
-`target/messages-row-reuse-web/70668a3/cells-resize-v3/`. The original six-cell
-archive and the supervisor's reproduced cleanup failure remain intact.
+`target/messages-row-reuse-web/70668a3/cells-resize-v3/`: 56 artifacts/2,158,143
+bytes, manifest `b19d8b75edcf123c7a92f430b830c980d70b55f37d972ed04fb85020522d7853`.
+The original six-cell archive and the supervisor's reproduced cleanup failure
+remain intact.
