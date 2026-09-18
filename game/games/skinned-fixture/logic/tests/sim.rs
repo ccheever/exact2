@@ -28,6 +28,7 @@ fn pinned_pose_and_hash() {
     let pose = s.agent(r#"{"op":"state","entity":"fox","pose":true}"#);
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
+    assert_eq!(hash, 0xb863e854ca85b74e);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
     if std::env::var_os("EXACT_PIN_POSE").is_some() {
         std::fs::write(&path, &pose).unwrap();
@@ -40,36 +41,31 @@ fn pinned_pose_and_hash() {
 }
 #[test]
 fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
-    let mut reference = sim();
-    let mut paranoid = sim();
-    for tick in 1..=120 {
-        reference.run(1000. / 60. + 0.0001);
-        paranoid.run(1000. / 60. + 0.0001);
-        assert_eq!(
-            reference.world().hash(),
-            paranoid.world().hash(),
-            "tick {tick}"
+    for mode in [Paranoid::Save, Paranoid::FreshGame] {
+        let mut reference = sim().paranoid(Paranoid::Off);
+        let mut paranoid = sim().paranoid(mode);
+        let start = std::time::Instant::now();
+        for tick in 1..=120 {
+            reference.run(1000. / 60. + 0.0001);
+            paranoid.run(1000. / 60. + 0.0001);
+            assert_eq!(
+                reference.world().hash(),
+                paranoid.world().hash(),
+                "{mode:?} tick {tick}"
+            );
+            assert_eq!(
+                *reference.get::<Pose>("fox").unwrap().local,
+                *paranoid.get::<Pose>("fox").unwrap().local
+            );
+            assert!(
+                reference.save().unwrap() == paranoid.save().unwrap(),
+                "{mode:?} bytes at {tick}"
+            );
+        }
+        println!(
+            "PARANOID skinned-fixture {mode:?} 120 tick pairs: {:?}",
+            start.elapsed()
         );
-        let saved = paranoid.save().unwrap();
-        let mut fresh = sim();
-        fresh.restore(&saved).unwrap();
-        assert_eq!(
-            reference.world().hash(),
-            fresh.world().hash(),
-            "restore {tick}"
-        );
-        assert_eq!(
-            *reference.get::<Pose>("fox").unwrap().local,
-            *fresh.get::<Pose>("fox").unwrap().local
-        );
-        let expected = reference.save().unwrap();
-        let restored = fresh.save().unwrap();
-        assert!(
-            expected == restored,
-            "bytes at {tick}: first difference {:?}",
-            expected.iter().zip(&restored).position(|(a, b)| a != b)
-        );
-        paranoid = fresh;
     }
     let mut a = sim();
     a.run(750.);
@@ -308,7 +304,7 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
         }
     }
     let gpu = fixture::device().unwrap();
-    fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu) -> fixture::Pixels {
+    fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
         let mut s = WorldSurface::<Birth<H>, (), true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -330,50 +326,87 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
         };
         fixture::render(gpu, &mut s, &f).unwrap();
         f.now_ms = 1000. / 240.;
-        let (image, _) = fixture::render(gpu, &mut s, &f).unwrap();
+        let (mut image, _) = fixture::render(gpu, &mut s, &f).unwrap();
+        if event != "birth" {
+            match event {
+                "restore" | "carry" => {
+                    let saved = s.carry().unwrap();
+                    s.restore(
+                        &saved,
+                        if event == "restore" {
+                            exact_game_render::exact_gpu::Restore::Open
+                        } else {
+                            exact_game_render::exact_gpu::Restore::Carry
+                        },
+                    )
+                    .unwrap();
+                }
+                "model arrival" => {
+                    s.device_lost();
+                    s.device_ready();
+                    for _ in 0..16 {
+                        for n in s.assets() {
+                            s.asset(&n, Ok(&assets()[&n]));
+                        }
+                        s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+                    }
+                }
+                _ => unreachable!(),
+            }
+            // Restore rebases at the saved tick. A quarter-tick horizon keeps that
+            // tick intact while exercising a nonzero interpolation alpha.
+            f.period_ms = 1000. / 240.;
+            image = fixture::render(gpu, &mut s, &f).unwrap().0;
+        }
         assert_eq!(s.sim().unwrap().world().tick(), 1);
         assert!(s.take_error().is_none());
         image
     }
-    let actual = first::<0>(&gpu);
-    let reference = first::<1>(&gpu);
-    let bind_flash = first::<2>(&gpu);
-    let differs = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).any(|(a, b)| a.abs_diff(b) > 2);
-    // The deliberately corrupted history locates the Fox's affected rectangle;
-    // background pixels cannot dilute the tolerance.
-    let (mut x0, mut y0, mut x1, mut y1) = (reference.width, reference.height, 0, 0);
-    let mut bind_changes = 0;
-    for y in 0..reference.height {
-        for x in 0..reference.width {
-            if differs(reference.at(x, y), bind_flash.at(x, y)) {
-                x0 = x0.min(x);
-                y0 = y0.min(y);
-                x1 = x1.max(x);
-                y1 = y1.max(y);
-                bind_changes += 1;
+    for event in ["birth", "restore", "carry", "model arrival"] {
+        let actual = if event == "birth" {
+            first::<0>(&gpu, event)
+        } else {
+            first::<2>(&gpu, event)
+        };
+        let reference = first::<1>(&gpu, event);
+        let bind_flash = first::<2>(&gpu, "birth");
+        let differs = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).any(|(a, b)| a.abs_diff(b) > 2);
+        // The deliberately corrupted history locates the Fox's affected rectangle;
+        // background pixels cannot dilute the tolerance.
+        let (mut x0, mut y0, mut x1, mut y1) = (reference.width, reference.height, 0, 0);
+        let mut bind_changes = 0;
+        for y in 0..reference.height {
+            for x in 0..reference.width {
+                if differs(reference.at(x, y), bind_flash.at(x, y)) {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                    bind_changes += 1;
+                }
             }
         }
-    }
-    assert!(
-        bind_changes > 50,
-        "the oracle must detect a small Fox bind flash"
-    );
-    let area = (x1 - x0 + 1) * (y1 - y0 + 1);
-    assert!(
-        area < reference.width * reference.height / 10,
-        "Fox rectangle is local: {area}"
-    );
-    let mut changed = 0;
-    for y in y0..=y1 {
-        for x in x0..=x1 {
-            changed += u32::from(differs(actual.at(x, y), reference.at(x, y)));
+        assert!(
+            bind_changes > 50,
+            "the oracle must detect a small Fox bind flash"
+        );
+        let area = (x1 - x0 + 1) * (y1 - y0 + 1);
+        assert!(
+            area < reference.width * reference.height / 10,
+            "Fox rectangle is local: {area}"
+        );
+        let mut changed = 0;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                changed += u32::from(differs(actual.at(x, y), reference.at(x, y)));
+            }
         }
+        println!("{event}: Fox rectangle {x0},{y0}..{x1},{y1}: changes {changed}/{area}, bind flash {bind_changes}");
+        assert!(
+            changed <= area / 1000,
+            "{event} must match current/current within 0.1% of the Fox rectangle"
+        );
     }
-    println!("Fox rectangle {x0},{y0}..{x1},{y1}: first-frame changes {changed}/{area}, bind flash {bind_changes}");
-    assert!(
-        changed <= area / 1000,
-        "first presentation must match current/current within 0.1% of the Fox rectangle"
-    );
 }
 
 #[test]

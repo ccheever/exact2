@@ -226,3 +226,14 @@ fn soundscape_journals_ground_distance_beacon_and_camera_wind() {
         before
     );
 }
+
+#[path = "../../../../physics/tests/compare.rs"]
+mod paranoid;
+#[test]
+fn shared_paranoid_continuation() {
+    paranoid::compare(sim, |sim| {
+        sim.hold("KeyW", 1500.0);
+        sim.tap("KeyE");
+        sim.run(1000.0);
+    });
+}

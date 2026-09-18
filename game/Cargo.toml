@@ -50,6 +50,7 @@ debug = true
 opt-level = 3
 
 [patch.crates-io]
+rapier3d = { path = "../vendor/rapier3d" }
 taffy = { path = "../vendor/taffy" }
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.

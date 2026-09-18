@@ -315,7 +315,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         initial: bool,
     ) {
         if let Some(skinning) = &mut self.models.skinning {
-            skinning.feed(&self.queue, world, entities);
+            skinning.feed(&self.queue, world, entities, initial);
         }
         for ((record, history), &entity) in self
             .models

@@ -17,6 +17,7 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   writeFileSync(resolve(out,`pose-60-${host}.json`), JSON.stringify(pose.pose));
   const pinned = JSON.parse(readFileSync(resolve(import.meta.dir,'logic/tests/tick60.json'),'utf8'));
   check('all 24 joint world transforms match the native tick-60 pin', pose.tick===60 && equal(pose.pose,pinned.pose));
+  check('tick-60 cross-host hash', (await s.world('world').snapshot()).hash==='0xb863e854ca85b74e');
   const layout = await s.layout('world:fox');
   check('animated bounds are available through layout', !!layout.entity?.bounds, layout.entity?.bounds);
   if(host !== 'linux') await s.screenshot(resolve(out,`fox-mid-stride-${host}.png`));

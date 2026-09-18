@@ -891,8 +891,10 @@ impl World {
                         };
                         let make = make.ok_or_else(|| {
                             DataError::new(format!(
-                                "unregistered {} `{name}`",
-                                if resource { "resource" } else { "component" }
+                                "`{name}` is registered as a {}; call world.{}::<{name}>() in setup to load {}",
+                                if resource { "component" } else { "resource" },
+                                if resource { "register_resource" } else { "register" },
+                                if resource { "resources" } else { "components" }
                             ))
                         })?;
                         let mut s = make(key, self.epoch.clone());

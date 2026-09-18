@@ -57,11 +57,18 @@ fn bounce_height() {
 }
 #[test]
 fn resume_and_replay_every_tick() {
-    let mut a = scene("pile");
-    let mut b = scene("pile");
+    let mut a = scene("pile").paranoid(Paranoid::Off);
+    let mut b = scene("pile").paranoid(Paranoid::Save);
+    let mut fresh = scene("pile").paranoid(Paranoid::FreshGame);
     for t in 1..=90 {
         tick(&mut a, t);
         tick(&mut b, t);
+        tick(&mut fresh, t);
+        assert_eq!(
+            a.world().hash(),
+            fresh.world().hash(),
+            "fresh-game tick {t}"
+        );
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
     }
     let save = a.save().unwrap();
@@ -77,11 +84,22 @@ fn resume_and_replay_every_tick() {
         tick(&mut a, t);
         tick(&mut b, t);
         tick(&mut restored, t);
+        tick(&mut fresh, t);
+        assert_eq!(
+            a.world().hash(),
+            fresh.world().hash(),
+            "fresh-game tick {t}"
+        );
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
         assert_eq!(a.world().hash(), restored.world().hash(), "resume tick {t}");
     }
-    assert_eq!(a.world().hash(), 0x5ba7691abdc98058);
-    eprintln!("PILE_HASH_600=0x{:016x}", a.world().hash());
+    let bytes = a.save().unwrap();
+    assert!(bytes == b.save().unwrap() && bytes == fresh.save().unwrap());
+    eprintln!(
+        "PILE_HASH_600 continuous=save=fresh-game=0x{:016x}",
+        a.world().hash()
+    );
+    assert_eq!(a.world().hash(), 0x129ba6d92f9ac217);
 }
 #[test]
 fn slopes_box_static_and_sliding() {

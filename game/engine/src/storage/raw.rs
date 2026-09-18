@@ -11,7 +11,9 @@ use std::{
 
 struct Descriptor {
     layout: Layout,
-    drop: unsafe fn(*mut u8),
+    move_to: unsafe fn(*mut u8, *mut u8),
+    swap: unsafe fn(*mut u8, *mut u8),
+    drop_in_place: unsafe fn(*mut u8),
     write: unsafe fn(*mut u8, &mut dyn Writer),
     read_new: unsafe fn(*mut u8, &mut dyn Reader) -> Result<(), DataError>,
     moving: unsafe fn(*mut u8, Now) -> bool,
@@ -22,7 +24,12 @@ impl Descriptor {
         Self {
             layout: Layout::new::<C>(),
             // SAFETY: callers supply a live C with the matching layout and lease.
-            drop: |p| unsafe { p.cast::<C>().drop_in_place() },
+            move_to: |src, dst| unsafe { dst.cast::<C>().write(src.cast::<C>().read()) },
+            swap: |a, b| unsafe {
+                let old = a.cast::<C>().replace(b.cast::<C>().read());
+                b.cast::<C>().write(old);
+            },
+            drop_in_place: |p| unsafe { p.cast::<C>().drop_in_place() },
             write: |p, w| unsafe { &*p.cast::<C>() }.write(w),
             read_new: |p, r| {
                 let mut value = C::default();
@@ -74,7 +81,7 @@ impl Drop for Value {
     fn drop(&mut self) {
         if self.live {
             // SAFETY: read_new initialized this value and insert has not consumed it.
-            unsafe { (self.desc.drop)(self.bytes.get()) };
+            unsafe { (self.desc.drop_in_place)(self.bytes.get()) };
         }
     }
 }
@@ -160,8 +167,8 @@ impl RawStorage {
             // SAFETY: disjoint initialized values of the descriptor's type. Swap
             // before dropping so a panicking destructor leaves the slot live.
             unsafe {
-                std::ptr::swap_nonoverlapping(self.ptr(index), value, self.desc.layout.size());
-                (self.desc.drop)(value);
+                (self.desc.swap)(self.ptr(index), value);
+                (self.desc.drop_in_place)(value);
             }
             return;
         }
@@ -177,7 +184,7 @@ impl RawStorage {
         self.pages[page].get_or_insert_with(|| Bytes::new(self.page_layout));
         // SAFETY: exclusive vacant aligned slot, matching size; transfers ownership
         // including any owned fields, without interpreting potentially padded bytes.
-        unsafe { std::ptr::copy_nonoverlapping(value, self.ptr(index), self.desc.layout.size()) };
+        unsafe { (self.desc.move_to)(value, self.ptr(index)) };
         self.mask[index / 64] |= 1 << (index % 64);
         self.counts[page] += 1;
         self.len += 1;
@@ -204,7 +211,7 @@ impl RawStorage {
         }
         self.removed(index);
         // SAFETY: caller supplies aligned vacant storage for the same type.
-        unsafe { std::ptr::copy_nonoverlapping(self.ptr(index), out, self.desc.layout.size()) };
+        unsafe { (self.desc.move_to)(self.ptr(index), out) };
         self.clear_slot(index);
         true
     }
@@ -213,7 +220,7 @@ impl RawStorage {
             self.removed(index);
             // SAFETY: removing the presence bit transfers ownership to this drop.
             // If it panics, later walks cannot touch the partially dropped value.
-            unsafe { (self.desc.drop)(self.ptr(index)) };
+            unsafe { (self.desc.drop_in_place)(self.ptr(index)) };
             self.clear_slot(index);
         }
     }
@@ -413,7 +420,7 @@ impl Drop for RawStorage {
                 bits &= bits - 1;
                 // SAFETY: each presence bit owns one initialized value; no lease
                 // survives the owner. Bytes subsequently deallocates the pages.
-                unsafe { (self.desc.drop)(self.ptr(index)) };
+                unsafe { (self.desc.drop_in_place)(self.ptr(index)) };
             }
         }
     }
@@ -423,6 +430,69 @@ impl Drop for RawStorage {
 mod tests {
     use crate::{Component, World};
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[test]
+    fn padded_values_move_replace_remove_and_load() {
+        #[repr(C)]
+        #[derive(Default, Component)]
+        struct Padded {
+            byte: u8,
+            owned: String,
+            word: u64,
+        }
+        assert!(std::mem::size_of::<Padded>() > 1 + std::mem::size_of::<String>() + 8);
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Padded {
+            byte: 1,
+            owned: "first".into(),
+            word: 2,
+        });
+        w.insert(
+            e,
+            Padded {
+                byte: 3,
+                owned: "second".into(),
+                word: 4,
+            },
+        );
+        let saved = w.save();
+        w.load(&saved).unwrap();
+        assert_eq!(w.save(), saved);
+        let removed = w.remove::<Padded>(e).unwrap();
+        assert_eq!(
+            (removed.byte, removed.owned.as_str(), removed.word),
+            (3, "second", 4)
+        );
+        assert!(!w.has::<Padded>(e));
+    }
+    #[test]
+    fn zero_sized_drop_ownership_survives_replace_remove_and_load() {
+        thread_local! { static DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+        #[derive(Default, Component)]
+        struct Guard;
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                DROPS.set(DROPS.get() + 1);
+            }
+        }
+        assert_eq!(std::mem::size_of::<Guard>(), 0);
+        DROPS.set(0);
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Guard);
+        assert_eq!(DROPS.get(), 0);
+        w.insert(e, Guard);
+        assert_eq!(DROPS.get(), 1);
+        let value = w.remove::<Guard>(e).unwrap();
+        assert_eq!(DROPS.get(), 1, "remove transfers ownership to its caller");
+        drop(value);
+        assert_eq!(DROPS.get(), 2);
+        w.insert(e, Guard);
+        let saved = w.save();
+        w.load(&saved).unwrap();
+        assert_eq!(DROPS.get(), 3, "load drops the old world");
+        drop(w);
+        assert_eq!(DROPS.get(), 4);
+    }
 
     #[test]
     fn over_aligned_owned_values_survive_pages_and_decode_scratch() {

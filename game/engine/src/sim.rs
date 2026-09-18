@@ -78,6 +78,32 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
+/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Paranoid {
+    /// Normal execution.
+    #[default]
+    Off,
+    /// Rebuild through the production restore path after every tick.
+    Save,
+    /// Also discard and decode immutable assets before reconstructing the world.
+    FreshGame,
+}
+impl Paranoid {
+    fn environment() -> Self {
+        // wasm has no process environment; proof builds select the same mode.
+        let mode = if cfg!(target_arch = "wasm32") {
+            option_env!("EXACT_GAME_PARANOID").map(str::to_owned)
+        } else {
+            std::env::var("EXACT_GAME_PARANOID").ok()
+        };
+        match mode.as_deref() {
+            Some("1") => Self::Save,
+            Some("fresh-game") => Self::FreshGame,
+            _ => Self::Off,
+        }
+    }
+}
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
@@ -105,6 +131,7 @@ pub struct Sim<G: Game> {
     paused_clock: bool,
     // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
     lookahead_us_hz: i128,
+    paranoid: Paranoid,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -112,6 +139,12 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
+    /// Override EXACT_GAME_PARANOID for this simulation.
+    pub fn paranoid(mut self, mode: Paranoid) -> Self {
+        self.paranoid = mode;
+        self
+    }
+
     fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
@@ -411,6 +444,7 @@ impl<G: Game> Sim<G> {
             period_ms: 0.0,
             paused_clock: false,
             lookahead_us_hz: 0,
+            paranoid: Paranoid::environment(),
             game: PhantomData,
         })
     }
@@ -866,6 +900,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            self.paranoid_rebuild();
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
                 if left == 1 {
@@ -885,6 +920,77 @@ impl<G: Game> Sim<G> {
             );
         }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
+    }
+    fn paranoid_rebuild(&mut self) {
+        if self.paranoid == Paranoid::Off {
+            return;
+        }
+        let tick = self.world.tick();
+        let hash = self.world.hash();
+        // advance_with owns the seek horizon, but EXSIM checkpoints describe a
+        // completed boundary. Retain the horizon outside the reconstructed Sim.
+        let horizon = self.world_us;
+        self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
+        let bytes = self.save().expect("paranoid save");
+        let host = self.last_us;
+        let queue = self.queue.clone();
+        let last_ms = self.last_ms;
+        let live_time = self.live_time;
+        let period_ms = self.period_ms;
+        let lookahead = self.lookahead_us_hz;
+        let paused_clock = self.paused_clock;
+        let rebase_queue = self.rebase_queue;
+        let observations = std::mem::take(&mut self.observations);
+        let delay = self.settle_delay.get();
+        let pending = self.world.published_pending.get();
+        let messages = self.take_messages();
+        // These are driver outputs/ownership, not dependencies of Game::tick.
+        // Keep them outside the rebuild just like advance_with's callback.
+        if self.paranoid == Paranoid::FreshGame {
+            let mut assets = std::mem::take(&mut self.world.assets);
+            let models = assets
+                .models
+                .iter()
+                .map(|(name, model)| (name.clone(), bin::to_vec(model.as_ref())))
+                .collect::<Vec<_>>();
+            assets.models = Default::default();
+            // Drop all old component/resource values (including skipped fields
+            // and physics executors) before invoking setup for the replacement.
+            let generation = self.world.presentation_generation;
+            self.world = World::new(G::HZ, 0);
+            self.world.presentation_generation = generation;
+            for (name, bytes) in models {
+                assets.models.insert(
+                    name,
+                    std::sync::Arc::new(bin::from_slice(&bytes).expect("paranoid asset decode")),
+                );
+            }
+            self.world.assets = assets;
+        }
+        self.restore(&bytes)
+            .unwrap_or_else(|error| panic!("paranoid {} tick {tick}: {error}", G::ID));
+        assert_eq!(
+            hash,
+            self.world.hash(),
+            "paranoid {} tick {tick}: world hash",
+            G::ID
+        );
+        self.world_us = horizon;
+        self.last_us = host;
+        self.last_ms = last_ms;
+        self.live_time = live_time;
+        self.period_ms = period_ms;
+        self.lookahead_us_hz = lookahead;
+        self.paused_clock = paused_clock;
+        self.rebase_queue = rebase_queue;
+        self.queue = queue;
+        self.observations = observations;
+        self.settle_delay.set(delay);
+        self.last_epoch.set(self.world.mutation_epoch());
+        self.world.published_pending.set(pending);
+        *self.world.messages.borrow_mut() = messages;
+        self.restored = false;
+        self.restored_from = None;
     }
     fn alpha_numerator(&self) -> i128 {
         let world = self
@@ -1223,6 +1329,7 @@ impl<G: Game> Sim<G> {
         // A deferred restore may commit on the last texture's content delivery,
         // before the presenter has drained that payload into the current device.
         next.textures = std::mem::take(&mut self.textures);
+        next.paranoid = self.paranoid;
         *self = next;
         Ok(())
     }

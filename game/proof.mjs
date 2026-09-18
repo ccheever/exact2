@@ -1,7 +1,7 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
@@ -61,8 +61,26 @@ export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
   const host = process.argv[2] ?? 'web', out = resolve(app, 'artifacts');
+  const appPrefix = relative(root, app) + '/';
   const dist = resolve(app, 'dist');
   mkdirSync(out, {recursive:true});
+  // Re-execute the actual proof, comparing every session's final simulation state.
+  if (process.argv.includes('--paranoid')) {
+    if (!['web', 'linux'].includes(host)) throw new Error('--paranoid supports web and linux');
+    let failed = false;
+    for (const mode of ['0', '1', 'fresh-game']) {
+      const started = performance.now();
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
+        env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
+      });
+      const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
+      failed ||= code !== 0;
+    }
+    process.exit(failed ? 1 : 0);
+  }
+  const finalWorlds = [];
+  const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
   Object.assign(process.env, {EXACT_APP_DIR:app, EXACT_WEB_DIST:dist,
     EXACT_UPDATE_TRUST:'development'});
   const started = performance.now(), failures = [], transcript = [], replies = [], sessions = new Set();
@@ -97,7 +115,25 @@ export async function proof(meta, script) {
     const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, ...options});
     sample();
     let closed = false;
-    const close = async () => { if (!closed) { try { sample(); } finally { await raw.close(); closed = true; } } };
+    const close = async () => { if (!closed) {
+      try {
+        if (compareParanoid) {
+          const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
+          const world = state.world;
+          const logs = (await raw.logs()).world ?? [];
+          finalWorlds.push({session:id, tick:world?.tick, hash:world?.hash,
+            published:world?.published,
+            // Native hosts own incremental journal cursors, even for since:0.
+            // Include the chunks this script already read as well as the tail.
+            journal:[...replies.filter(r => r.session === id && r.method === 'logs')
+              .flatMap(r => r.reply?.world ?? []), ...logs]
+              .map(({from, next, lines, tick}) => Object.fromEntries(
+                Object.entries({from, next, lines, tick}).filter(([,value]) => value !== undefined)))});
+          if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
+        }
+        sample();
+      } finally { await raw.close(); closed = true; }
+    } };
     sessions.add({close});
     const id = sessions.size;
     return new Proxy(raw, {get(target, method) {
@@ -130,9 +166,10 @@ export async function proof(meta, script) {
       files.stdout = walk(root).join('\n');
     }
     const hash = createHash('sha256').update(host).update(resolveApp(name).target);
+    if (host === 'web') hash.update(process.env.EXACT_GAME_PARANOID ?? '0');
     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
-      if (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file)
-        || (file.startsWith('game/games/') && !file.startsWith(`game/games/${name}/`))
+      if ((/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
+        || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
         || /(^|\/)(artifacts|dist|target|node_modules|tests|examples)\//.test(file)
         || file.startsWith('apps/')
         || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
@@ -150,6 +187,9 @@ export async function proof(meta, script) {
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
+      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
+      say(disk.stdout.trim());
+      if (disk.status !== 0) throw new Error('disk check failed before build');
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
         buildBake(appInfo, 'linux', linuxTarget);
@@ -178,6 +218,15 @@ export async function proof(meta, script) {
       await new Promise(ok => setTimeout(ok,50));
     }
     check('all recorded children exited', remaining.length === 0, remaining);
+    if (compareParanoid) {
+      finalWorlds.sort((a,b) => a.session - b.session);
+      const baseline = resolve(out, `paranoid-${host}-normal.json`);
+      writeFileSync(resolve(out, `paranoid-${host}-${process.env.EXACT_GAME_PARANOID}.json`), JSON.stringify(finalWorlds));
+      if (process.env.EXACT_GAME_PARANOID === '0') writeFileSync(baseline, JSON.stringify(finalWorlds));
+      else check('paranoid final hash, tick, published record and journal equal normal',
+        equal(finalWorlds, JSON.parse(readFileSync(baseline, 'utf8'))),
+        finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
+    }
     writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining},null,2)+'\n');
     say(`PROOF ${failures.length ? 'FAIL' : 'PASS'} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');

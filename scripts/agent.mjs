@@ -728,7 +728,9 @@ export function worldView(session, name) {
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
       if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
-      return session.clock(`+${ms}`);
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
     },
     settle: async () => (await session.clock('settle')).settled === true,
     tap: code => session.type(name, {key:code}),

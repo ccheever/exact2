@@ -8,7 +8,7 @@ use rapier3d::{pipeline::PhysicsWorld, prelude::*};
 use std::{cell::RefCell, collections::BTreeMap};
 
 // Bump when Rapier, its serde representation, or bincode options change.
-const SNAPSHOT: &[u8] = b"EXPHYS\0\x01";
+const SNAPSHOT: &[u8] = b"EXPHYS\0\x02";
 
 #[derive(Clone, Debug, Default, Data)]
 pub(crate) struct Entry {
@@ -66,7 +66,7 @@ impl Saved {
         }
         let payload = self.bytes.strip_prefix(SNAPSHOT).ok_or_else(|| {
             DataError::new(format!(
-                "physics: expected EXPHYS v1 (unversioned snapshots obsolete); saw {:02x?}",
+                "physics: expected EXPHYS v2 (v1/unversioned snapshots incomplete; start a new world); saw {:02x?}",
                 &self.bytes[..self.bytes.len().min(8)]
             ))
         })?;
@@ -185,7 +185,7 @@ mod tests {
         };
         let error = saved.decode().unwrap_err().to_string();
         assert!(
-            error.contains("EXPHYS v1") && error.contains("unversioned snapshots obsolete"),
+            error.contains("EXPHYS v2") && error.contains("snapshots incomplete"),
             "{error}"
         );
         assert!(error.contains(&format!("{:02x?}", saved.bytes)), "{error}");
@@ -196,6 +196,7 @@ mod tests {
         for bytes in [
             b"old rapier snapshot".to_vec(),
             b"EXPHYS\0\x01broken".to_vec(),
+            b"EXPHYS\0\x02broken".to_vec(),
         ] {
             let saved = Saved {
                 bytes,

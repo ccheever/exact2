@@ -525,3 +525,17 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - **R1 Apple delivered-`.tex` bytes owed:** the generation store retains the delivered Data; move it to private reloadable files. review-S3ac-sol.md (`Session.swift:214`, `PlanURL.swift:583,604`, `Assets.swift:37`) explains why skipping the resolver’s secondary cache does not release the original payload.
 - S3a-c macOS fixture proof: three build attempts stopped on mixed SDK/toolchain selection (SDK 27 versus the required SDK 26, then incompatible Swift tools); rerun the full native proof once the local toolchain is coherent.
 - **S3b macOS Fox is white:** the skinned fixture's textures do not arrive on macOS (`fox-mid-stride-macos.png` is untextured; the web is textured, `fox-mid-stride-web.png`). The model itself, its pins and hashes agree across hosts, so it is the Apple `.tex` delivery path after R1's consumable-bytes change or a name/path mismatch in `Assets.swift` — drive `bun game/games/skinned-fixture/proof.mjs macos` with `state world:*` and the module's asset states before touching the renderer.
+
+- Sibling `next/t4` live capture checkpoint: reproduce there with a live
+  `screenshot run.world world save`, reopen `--world run.world`, then continue;
+  the seekable control passes but the reported live replay refuses checkpoint
+  validation because the capture hashes before save-time catch-up. Lane/game's
+  save does not catch up or mutate tick/hash; PX1's 144 Hz live / 60 Hz physics
+  regression passes all modes and byte-identical resumed continuation. Keep the
+  correction in the sibling capture path (catch up before recording its hash).
+
+- PX1 root verification: `cargo build --workspace` stalls in native JS baking
+  (`weatherlight-web` on the serial retry), with child Bun processes not finishing.
+  Standard, task-owned TMPDIR, and `-j 1` attempts were stopped after three rounds;
+  do not report the root build green. Root Cargo metadata confirms Rapier is absent.
+  Re-run after resolving the local bake/process stall; game workspace checks pass.

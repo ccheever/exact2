@@ -50,3 +50,17 @@ fn movement_seed_jump_and_save() {
     assert!((peak - 2.1).abs() < 0.002);
     assert_eq!(a.position("player").unwrap().y, 0.9);
 }
+
+#[path = "../../../../physics/tests/compare.rs"]
+mod paranoid;
+#[test]
+fn shared_paranoid_continuation() {
+    paranoid::compare(
+        || sim(7),
+        |sim| {
+            sim.hold("KeyW", 1500.0);
+            sim.tap("Space");
+            sim.run(1000.0);
+        },
+    );
+}

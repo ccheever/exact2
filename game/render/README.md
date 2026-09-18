@@ -334,11 +334,13 @@ or transform writes are involved. The optional seventeenth GPU timestamp pair is
 
 The compute regression distinguishes a quarter-turn interpolation from a lerp of
 composed matrices and checks inverse binds. The warm local-pose packing path has
-an allocator-counting regression. Pose histories survive restore; the existing
-entity/camera history reset can still change a few pixels in a restored moving
-scene. The first sampled frame duplicates current locals. A separate birth pixel
-test uses the Fox's affected rectangle, with a 0.1% tolerance against an explicit
-current/current oracle; the old bind-history behavior fails by 11,205 pixels.
+an allocator-counting regression. Saved pose histories survive restore, while the
+presentation buffers prime current/current on restore, carry, teleport and model or
+batch arrival. Initial feeds propagate the same reset signal to skinning and entity
+histories. The Fox pixel regression compares birth, restore, carry and model arrival
+with an explicit current/current oracle within 0.1% of the affected rectangle; its
+injected bind-history control detects a flash without diluting it in the background.
+The packing test checks exact local arrays and confirms priming does not mutate saves.
 
 Original S3b measurements before the reviewed fixes, Apple M5 Max / Metal, 2026-09-18:
 

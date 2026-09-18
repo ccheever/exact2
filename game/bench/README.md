@@ -717,3 +717,22 @@ then unstaged them; the shared index stayed untouched.
 Measurements and validation logs: `/tmp/d3-*.log`,
 paired raw output `/tmp/d3-pairs.jsonl`; retained executables `/tmp/d3-before-cubes`
 and `/tmp/d3-after-cubes`. No commit, clone, stash, sub-agent or shared-index edit.
+
+
+R2 storage-only remeasurement at `284ea691` (2026-09-18), using the same normal
+Beacons build with successful `wasm-opt` and gzip-9: **765,274 / 325,962 →
+766,003 / 326,394** raw/gzip bytes (+729 / +432, 0.095% / 0.133%). The before and
+after `--no-build` receipts are `target/d3-size/r2-before.json` and
+`r2-after-storage.json` under Beacons; this isolates typed descriptor moves before
+any animation production edits. Crate/module attribution is **pre-bindgen and
+pre-wasm-opt**, not a breakdown of the shipped bytes printed beside it.
+
+The float comparison now checks exact Display as well as Debug against std for
+100,000 f32/f64 bit samples, plus both signs of zero, NaN/infinities, subnormals,
+notation boundaries and decimal ties. **Std Display stays decimal; Debug uses
+scientific notation outside exponents [-4, 16).** `Float` follows Display, while
+unrounded Data JSON follows Debug. Rounded agent JSON follows Display after the
+existing four-place rounding. Special-value tests also check the two existing
+JSON policies: the Data encoder refuses nonfinite numbers, while Contract values
+emit null. No float spelling or pin needed changing; the review's claim that std
+Display shares Debug's exponent window was disproved by these comparisons.

@@ -198,7 +198,7 @@ impl Skinning {
         }
         Ok(())
     }
-    fn pack(&mut self, w: &World, entities: &[Entity]) {
+    fn pack(&mut self, w: &World, entities: &[Entity], initial: bool) {
         let mut offset = 0;
         for &(record, template) in &self.records {
             let t = &self.templates[template];
@@ -211,17 +211,19 @@ impl Skinning {
                 .map_or((&t.rest[..], &t.rest[..]), |p| {
                     (&p.previous[..], &p.local[..])
                 });
-            self.pose_words[offset..offset + len].copy_from_slice(if w.fresh().contains(&e) {
-                curr
-            } else {
-                prev
-            });
+            self.pose_words[offset..offset + len].copy_from_slice(
+                if initial || w.fresh().contains(&e) {
+                    curr
+                } else {
+                    prev
+                },
+            );
             self.pose_words[offset + len..offset + 2 * len].copy_from_slice(curr);
             offset += 2 * len;
         }
     }
-    pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity]) {
-        self.pack(w, entities);
+    pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity], initial: bool) {
+        self.pack(w, entities, initial);
         self.poses.write(queue, 0, bytes(&self.pose_words));
     }
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::QuerySet>) {
@@ -327,11 +329,11 @@ mod tests {
             }],
         )
         .unwrap();
-        skin.feed(&gpu.queue, &w, &[e]);
+        skin.feed(&gpu.queue, &w, &[e], false);
         assert_eq!(
             crate::world::tests::allocations::count(|| {
                 for _ in 0..300 {
-                    skin.pack(&w, &[e]);
+                    skin.pack(&w, &[e], false);
                 }
             }),
             0
@@ -352,6 +354,17 @@ mod tests {
             actual[12] > 0.7,
             "a lerp of composed matrices would give 0.5"
         );
+        // Restore/carry and new batches prime current/current without changing saves.
+        let saved = w.save();
+        skin.pack(&w, &[e], true);
+        let len = model.nodes.len() * 10;
+        assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
+        assert_eq!(w.save(), saved);
+        skin.pack(&w, &[e], false);
+        assert_ne!(&skin.pose_words[..len], &skin.pose_words[len..]);
+        w.teleport(e, Transform::at(3., 0., 0.));
+        skin.pack(&w, &[e], false);
+        assert_eq!(&skin.pose_words[..len], &skin.pose_words[len..]);
     }
     #[test]
     #[ignore = "100 Fox palette GPU timestamp diagnostic"]
@@ -395,7 +408,7 @@ mod tests {
         gpu.queue.write_buffer(&uniform, 0, bytes(&values));
         skin.set(&gpu.device, &gpu.queue, &uniform, &records)
             .unwrap();
-        skin.feed(&gpu.queue, &w, &entities);
+        skin.feed(&gpu.queue, &w, &entities, false);
         let queries = gpu.device.create_query_set(&wgpu::QuerySetDescriptor {
             label: None,
             ty: wgpu::QueryType::Timestamp,

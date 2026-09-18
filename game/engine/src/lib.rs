@@ -40,7 +40,7 @@ pub use glam::{Affine3A, Quat, Vec2, Vec3, Vec4};
 pub use input::{Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
-pub use sim::{Clock, Game, Now, Sim};
+pub use sim::{Clock, Game, Now, Paranoid, Sim};
 pub use spring::Spring;
 pub use storage::{
     Page, Pages, Plain, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE,

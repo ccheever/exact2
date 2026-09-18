@@ -124,3 +124,13 @@ named pending assets or failed declarations; failed cosmetics do not block savin
 migration hook is gone: the format and game identity are checked before loading.
 The template's non-live `restart_generation` is incremented to reconstruct setup
 through the existing argument-binding path.
+
+
+Erased component pages own values through typed descriptor operations: `read`/
+`write` moves, `replace` swaps, and `drop_in_place`, instantiated for the component
+at registration. Allocation and masks remain erased. Padded owned components and
+zero-sized components with destructors cover insert, replacement, removal and
+load; the existing panic-on-drop test protects occupied-slot ownership. Loading
+an opposite-kind registration names the registered kind and the setup declaration
+required to load it. The storage tests are suitable for Miri; neither installed
+nightly on the R2 machine includes Miri, so that run remains owed.

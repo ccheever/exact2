@@ -35,12 +35,7 @@ impl Playback {
         self.motion_root
             .as_ref()
             .map(|name| {
-                model
-                    .nodes
-                    .iter()
-                    .position(|n| &n.name == name)
-                    .map(|i| i as u32)
-                    .ok_or_else(|| format!("unknown motion root `{name}`"))
+                named_node(model, name).ok_or_else(|| format!("unknown motion root `{name}`"))
             })
             .transpose()
     }
@@ -349,6 +344,7 @@ impl Animator {
         dt: f32,
         scratch: &mut Vec<f32>,
         rest: &[f32],
+        ik: Option<&Ik>,
     ) -> Result<(), String> {
         let state = self
             .states
@@ -392,20 +388,28 @@ impl Animator {
             Play::Blend(b) => b.pair(model, &self.params)?,
         };
         let root = self.playback.root(model)?;
-        if let Some(next) = next {
-            self.from.clone_from(&pose.local);
-            self.from_motion = self.playback.root_motion();
-            self.current = next as u32;
-            self.since = 0.;
-            self.fade_time = 0.;
-            self.fade_duration = state.fade;
+        // Stage the transition and fade; IK must succeed before the machine commits.
+        let from = next.map(|_| pose.local.clone());
+        let from_motion = if next.is_some() {
+            self.playback.root_motion()
+        } else {
+            self.from_motion
+        };
+        let mut since = if next.is_some() { 0. } else { self.since };
+        let mut fade_time = if next.is_some() { 0. } else { self.fade_time };
+        let fade_duration = if next.is_some() {
+            state.fade
+        } else {
+            self.fade_duration
+        };
+        if next.is_some() {
             // Looping locomotion retains phase; entering/leaving a one-shot starts afresh.
             if !state.looping || !was_looping {
                 pose.phase = if state.speed < 0. { 1. } else { 0. };
             }
         }
         if !state.paused {
-            self.since += dt;
+            since += dt;
         }
         advance_pair(
             pair,
@@ -417,22 +421,40 @@ impl Animator {
             root,
             state.looping,
         );
-        if self.fade_time < self.fade_duration && self.from.len() == pose.local.len() {
+        if !state.paused
+            && !state.looping
+            && (state.speed == 0. || math::lerp(pair.0.duration(), pair.1.duration(), pair.2) == 0.)
+        {
+            pose.phase = if state.speed < 0. { 0. } else { 1. };
+        }
+        let outgoing = from.as_ref().unwrap_or(&self.from);
+        if fade_time < fade_duration && outgoing.len() == pose.local.len() {
             if !state.paused {
-                self.fade_time = (self.fade_time + dt).min(self.fade_duration);
+                fade_time = (fade_time + dt).min(fade_duration);
             }
-            let weight = self.fade_time / self.fade_duration;
-            mix_pose(&self.from, &mut pose.local, weight);
+            let weight = fade_time / fade_duration;
+            mix_pose(outgoing, &mut pose.local, weight);
             pose.root_motion = if state.paused {
                 Vec3::ZERO
             } else {
-                self.from_motion.lerp(pose.root_motion, weight)
+                from_motion.lerp(pose.root_motion, weight)
             };
             // Frozen outgoing pose emits no markers. Incoming events become audible above half weight.
             if weight <= 0.5 {
                 pose.crossed.clear();
             }
         }
+        if let Some(ik) = ik {
+            solve_ik(model, &mut pose.local, ik)?;
+        }
+        if let Some(next) = next {
+            self.current = next as u32;
+            self.from = from.unwrap();
+        }
+        self.from_motion = from_motion;
+        self.since = since;
+        self.fade_time = fade_time;
+        self.fade_duration = fade_duration;
         Ok(())
     }
 }
@@ -481,9 +503,16 @@ pub(crate) struct Runtime {
     rigs: BTreeMap<String, Rig>,
     scratch: Vec<f32>,
     pending: Pose,
-    errors: BTreeMap<Entity, String>,
+    errors: BTreeMap<(Entity, ErrorSource), String>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ErrorSource {
+    Sample,
+    Socket,
+    Follower,
 }
 struct Rig {
+    model: std::sync::Weak<Model>,
     rest: Vec<f32>,
     bounds: [f32; 6],
     sockets: BTreeMap<String, Result<u32, String>>,
@@ -504,8 +533,9 @@ pub(crate) fn register<C: Component>(w: &mut World) {
     }
 }
 impl Rig {
-    fn new(model: &Model) -> Self {
+    fn new(model: &std::sync::Arc<Model>) -> Self {
         Self {
+            model: std::sync::Arc::downgrade(model),
             rest: bind_pose(model),
             bounds: animated_bounds(model),
             sockets: BTreeMap::new(),
@@ -593,6 +623,21 @@ pub fn node_order(model: &Model) -> Vec<u32> {
     }
     order
 }
+// glTF names need not be unique. Resolve the first match in parent-first order.
+fn named_node(model: &Model, name: &str) -> Option<u32> {
+    let mut matches = model
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.name == name);
+    let first = matches.next()?.0 as u32;
+    if matches.next().is_none() {
+        return Some(first);
+    }
+    node_order(model)
+        .into_iter()
+        .find(|&i| model.nodes[i as usize].name == name)
+}
 fn mix_pose(from: &[f32], to: &mut [f32], weight: f32) {
     for (a, b) in from.chunks_exact(10).zip(to.chunks_exact_mut(10)) {
         let a = at(a);
@@ -674,7 +719,11 @@ fn crossed(mark: f32, old: f32, new: f32, duration: f32, looping: bool) -> bool 
         return false;
     }
     if looping && duration > 0. {
-        math::floor((old - mark) / duration) != math::floor((new - mark) / duration)
+        if new > old {
+            math::floor((old - mark) / duration) != math::floor((new - mark) / duration)
+        } else {
+            math::floor((mark - old) / duration) != math::floor((mark - new) / duration)
+        }
     } else if new > old {
         old < mark && new >= mark
     } else {
@@ -816,11 +865,7 @@ pub fn solve_ik(model: &Model, local: &mut [f32], ik: &Ik) -> Result<(), String>
     }
     let mut ids = [0u32; 3];
     for (i, name) in ik.chain.iter().enumerate() {
-        ids[i] = model
-            .nodes
-            .iter()
-            .position(|n| &n.name == name)
-            .ok_or_else(|| format!("unknown IK joint `{name}`"))? as u32;
+        ids[i] = named_node(model, name).ok_or_else(|| format!("unknown IK joint `{name}`"))?;
     }
     if model.nodes[ids[1] as usize].parent != Some(ids[0])
         || model.nodes[ids[2] as usize].parent != Some(ids[1])
@@ -988,15 +1033,17 @@ pub fn step(w: &mut World) {
     runtime
         .entities
         .extend(w.query::<&Ik>().iter().map(|(e, _)| e));
-    runtime.errors.retain(|e, _| w.contains(*e));
+    runtime.errors.retain(|&(e, source), _| {
+        w.contains(e)
+            && match source {
+                ErrorSource::Sample => runtime.entities.contains(&e),
+                ErrorSource::Socket => w.has::<Socket>(e),
+                ErrorSource::Follower => w.has::<SocketFollow>(e),
+            }
+    });
     runtime.entities.sort_unstable();
     runtime.entities.dedup();
     for &e in &runtime.entities {
-        if w.get::<Pose>(e)
-            .is_some_and(|p| p.stepped == Some(w.tick()))
-        {
-            continue;
-        }
         let result = (|| {
             let mesh = w.get::<Mesh>(e).ok_or("animation needs a mesh")?;
             let Mesh::Asset(name) = &*mesh else {
@@ -1018,6 +1065,21 @@ pub fn step(w: &mut World) {
                 .rigs
                 .entry(name.clone())
                 .or_insert_with(|| Rig::new(&model));
+            let redelivered = rig.model.as_ptr() != std::sync::Arc::as_ptr(&model);
+            if redelivered {
+                *rig = Rig::new(&model);
+            }
+            if !redelivered
+                && w.get::<Pose>(e)
+                    .is_some_and(|p| p.stepped == Some(w.tick()))
+            {
+                return Ok(());
+            }
+            if w.get::<Pose>(e).is_some_and(|p| {
+                p.local.len() != rig.rest.len() || p.previous.len() != rig.rest.len()
+            }) {
+                return Err(format!("saved pose does not match model `{name}`"));
+            }
             drop(mesh);
             if !w.has::<Pose>(e) {
                 w.insert(
@@ -1031,9 +1093,6 @@ pub fn step(w: &mut World) {
                 );
             }
             let mut pose = w.get_mut::<Pose>(e).unwrap();
-            if pose.local.len() != rig.rest.len() || pose.previous.len() != rig.rest.len() {
-                return Err("saved pose does not match model".into());
-            }
             let p = &mut runtime.pending;
             p.local.clone_from(&pose.local);
             p.phase = pose.phase;
@@ -1047,16 +1106,26 @@ pub fn step(w: &mut World) {
                     rig.sockets
                         .entry(s.0.clone())
                         .or_insert_with(|| {
-                            model
-                                .nodes
-                                .iter()
-                                .position(|n| n.name == s.0)
-                                .map(|i| i as u32)
+                            named_node(&model, &s.0)
                                 .ok_or_else(|| format!("unknown socket `{}`", s.0))
                         })
                         .clone()
                 })
-                .transpose()?;
+                .transpose();
+            let socket_node = match socket_node {
+                Ok(node) => {
+                    runtime.errors.remove(&(e, ErrorSource::Socket));
+                    node
+                }
+                Err(error) => {
+                    let key = (e, ErrorSource::Socket);
+                    if runtime.errors.get(&key) != Some(&error) {
+                        w.log(format_args!("animation #{}: {error}", e.index()));
+                        runtime.errors.insert(key, error);
+                    }
+                    None
+                }
+            };
             if let Some(mut a) = w.get_mut::<Animation>(e) {
                 if !a.time.is_finite() || !a.speed.is_finite() {
                     return Err("non-finite animation clock".into());
@@ -1064,7 +1133,11 @@ pub fn step(w: &mut World) {
                 let c = clip(&model, &a.clip)?;
                 let root = a.playback.root(&model)?;
                 let duration = c.duration();
-                let old = a.time;
+                let old = if pose.stepped.is_none() && !a.looping && a.speed < 0. && a.time == 0. {
+                    duration
+                } else {
+                    a.time
+                };
                 let next = old + w.dt() * a.speed;
                 let time = if a.looping {
                     wrap(next, duration)
@@ -1106,10 +1179,14 @@ pub fn step(w: &mut World) {
                 }
                 b.playback.record(p);
             } else if let Some(mut a) = w.get_mut::<Animator>(e) {
-                a.advance(p, &model, w.dt(), &mut runtime.scratch, &rig.rest)?;
-                if let Some(ik) = w.get::<Ik>(e) {
-                    solve_ik(&model, &mut p.local, &ik)?;
-                }
+                a.advance(
+                    p,
+                    &model,
+                    w.dt(),
+                    &mut runtime.scratch,
+                    &rig.rest,
+                    w.get::<Ik>(e).as_deref(),
+                )?;
                 a.playback.record(p);
             } else {
                 p.local.copy_from_slice(&rig.rest);
@@ -1118,13 +1195,14 @@ pub fn step(w: &mut World) {
                 }
             }
             // Commit history only after successful sampling/IK. Birth has no bind predecessor.
-            if pose.stepped.is_none() {
+            if pose.stepped.is_none() || redelivered {
                 pose.previous.clone_from(&p.local);
             } else {
                 let pose = &mut *pose;
                 pose.previous.clone_from(&pose.local);
             }
             std::mem::swap(&mut pose.local, &mut p.local);
+            pose.bounds = rig.bounds;
             pose.phase = p.phase;
             pose.root_motion = p.root_motion;
             pose.crossed.clone_from(&p.crossed);
@@ -1173,12 +1251,12 @@ pub fn step(w: &mut World) {
             if let Some(mut a) = w.get_mut::<Animator>(e) {
                 a.playback.clear();
             }
-            if runtime.errors.get(&e) != Some(&error) {
+            if runtime.errors.get(&(e, ErrorSource::Sample)) != Some(&error) {
                 w.log(format_args!("animation #{}: {error}", e.index()));
-                runtime.errors.insert(e, error);
+                runtime.errors.insert((e, ErrorSource::Sample), error);
             }
         } else {
-            runtime.errors.remove(&e);
+            runtime.errors.remove(&(e, ErrorSource::Sample));
         }
     }
     for (e, follow) in w.query::<&mut SocketFollow>().iter() {
@@ -1211,7 +1289,9 @@ pub fn step(w: &mut World) {
             })
         });
         if result.is_none() {
-            if let std::collections::btree_map::Entry::Vacant(entry) = runtime.errors.entry(e) {
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                runtime.errors.entry((e, ErrorSource::Follower))
+            {
                 w.log(format_args!(
                     "socket follower #{}: missing socket",
                     e.index()
@@ -1219,7 +1299,7 @@ pub fn step(w: &mut World) {
                 entry.insert("missing socket".into());
             }
         } else {
-            runtime.errors.remove(&e);
+            runtime.errors.remove(&(e, ErrorSource::Follower));
         }
         *w.get_mut::<Transform>(e).unwrap() = result.unwrap_or(authored);
     }
@@ -1241,6 +1321,9 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
         bind = bind_pose(model);
         &bind
     };
+    if local.len() != model.nodes.len() * 10 {
+        return Err(format!("saved pose does not match model `{name}`"));
+    }
     let global = Mat4::from(w.current_global(e).unwrap_or(crate::Affine3A::IDENTITY));
     let mut rows = Vec::new();
     let joints: std::collections::BTreeSet<_> = model

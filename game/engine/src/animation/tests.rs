@@ -520,3 +520,190 @@ fn failed_playback_contributes_no_stale_motion_or_events() {
     assert!(!w.get::<Animation>(e).unwrap().crossed("step"));
     assert_eq!(w.get::<Pose>(e).unwrap().root_motion, Vec3::ZERO);
 }
+
+#[test]
+fn reverse_loop_markers_include_landing_exclude_departure_and_span_loops() {
+    assert!(crossed(0.3, 0.4, 0.3, 1., true));
+    assert!(!crossed(0.3, 0.3, 0.2, 1., true));
+    assert!(crossed(0.3, 0.4, -2.7, 1., true));
+    assert!(crossed(0., 0.1, 0., 1., true));
+    assert!(!crossed(0., 0., -0.1, 1., true));
+}
+#[test]
+fn standalone_reverse_once_starts_at_end() {
+    let mut w = world();
+    let e = w.spawn((
+        Mesh::asset("rig.model"),
+        Animation::play("slow").once().speed(-1.).motion_root(""),
+    ));
+    w.step_clock();
+    let a = w.get::<Animation>(e).unwrap();
+    assert!((a.time - (1. - 1. / 60.)).abs() < 1e-6);
+    assert!((a.root_motion().x + 1. / 60.).abs() < 1e-6);
+    drop(a);
+    for _ in 0..65 {
+        w.step_clock();
+    }
+    assert_eq!(w.get::<Animation>(e).unwrap().time, 0.);
+    assert_eq!(w.get::<Animation>(e).unwrap().root_motion(), Vec3::ZERO);
+}
+#[test]
+fn zero_length_and_zero_speed_once_finish_but_pause_waits() {
+    for (duration, speed) in [(0., 1.), (0., -1.), (1., 0.)] {
+        let mut w = world();
+        let mut m = w.model("rig.model").unwrap().clone();
+        m.clips[0] = Clip {
+            name: "still".into(),
+            tracks: vec![Track {
+                times: vec![duration],
+                values: vec![0.; 3],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        w.assets
+            .models
+            .insert("rig.model".into(), std::sync::Arc::new(m));
+        let mut a = Animator::new([
+            State::new("once", Play::Clip("still".into()))
+                .once()
+                .speed(speed)
+                .paused(true)
+                .to("done", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+            State::new("done", Play::Clip("fast".into())),
+        ]);
+        a.set("go", true);
+        let e = w.spawn((Mesh::asset("rig.model"), a));
+        w.step_clock();
+        assert_eq!(w.get::<Animator>(e).unwrap().state(), "once");
+        w.get_mut::<Animator>(e)
+            .unwrap()
+            .state_mut("once")
+            .unwrap()
+            .paused = false;
+        w.step_clock();
+        assert_eq!(w.get::<Animator>(e).unwrap().state(), "once");
+        w.step_clock();
+        assert_eq!(
+            w.get::<Animator>(e).unwrap().state(),
+            "done",
+            "duration {duration}, speed {speed}"
+        );
+    }
+}
+#[test]
+fn bad_socket_does_not_stop_locomotion_and_each_error_source_logs_once() {
+    let mut w = world();
+    let e = w.spawn((
+        Transform::default(),
+        Mesh::asset("rig.model"),
+        Animator::new([State::new("walk", Play::Clip("slow".into()))]).motion_root(""),
+        Socket("missing".into()),
+        SocketFollow::new("absent"),
+    ));
+    for _ in 0..3 {
+        w.step_clock();
+        assert!(w.get::<Animator>(e).unwrap().root_motion().x > 0.);
+        assert!(!w.has::<SocketPose>(e));
+    }
+    let count = |w: &World, s: &str| w.journal().iter().filter(|e| e.line.contains(s)).count();
+    assert_eq!(count(&w, "unknown socket"), 1);
+    assert_eq!(count(&w, "socket follower"), 1);
+    // Successful controller processing must not clear a follower's error.
+    w.remove::<Socket>(e);
+    for _ in 0..3 {
+        w.step_clock();
+    }
+    assert_eq!(count(&w, "socket follower"), 1);
+    w.insert(e, Socket("missing".into()));
+    w.step_clock();
+    assert_eq!(
+        count(&w, "unknown socket"),
+        2,
+        "removal ends the first error episode"
+    );
+}
+#[test]
+fn failed_ik_does_not_commit_animator_transition_or_clock() {
+    let mut w = world();
+    let a = Animator::new([
+        State::new("walk", Play::Clip("slow".into()))
+            .to("run", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+        State::new("run", Play::Clip("fast".into())).fade(0.1),
+    ]);
+    let e = w.spawn((Mesh::asset("rig.model"), a));
+    w.step_clock();
+    w.get_mut::<Animator>(e).unwrap().set("go", true);
+    let before = crate::bin::to_vec(&*w.get::<Animator>(e).unwrap());
+    let pose = crate::bin::to_vec(&*w.get::<Pose>(e).unwrap());
+    w.insert(
+        e,
+        Ik {
+            chain: ["missing".into(), "mid".into(), "tip".into()],
+            weight: 1.,
+            ..Default::default()
+        },
+    );
+    w.step_clock();
+    assert_eq!(crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()), before);
+    assert_eq!(crate::bin::to_vec(&*w.get::<Pose>(e).unwrap()), pose);
+    w.remove::<Ik>(e);
+    w.step_clock();
+    assert_eq!(w.get::<Animator>(e).unwrap().state(), "run");
+}
+#[test]
+fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
+    let mut w = world();
+    let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+    w.step_clock();
+    let mut m = w.model("rig.model").unwrap().clone();
+    m.nodes[0].name = "renamed".into();
+    m.nodes[0].transform = Mat4::from_translation(Vec3::Y * 3.).to_cols_array();
+    let expected = Rig::new(&std::sync::Arc::new(m.clone()));
+    w.assets
+        .models
+        .insert("rig.model".into(), std::sync::Arc::new(m));
+    w.step_clock();
+    assert!(!w.has::<SocketPose>(e));
+    assert_eq!(w.get::<Pose>(e).unwrap().local, expected.rest);
+    assert_eq!(w.animation.rigs["rig.model"].bounds, expected.bounds);
+    w.insert(e, Socket("renamed".into()));
+    w.step_clock();
+    assert_eq!(w.get::<SocketPose>(e).unwrap().0.position, Vec3::Y * 3.);
+}
+#[test]
+fn pose_inspection_refuses_model_length_mismatch_by_name() {
+    let mut w = world();
+    let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    w.step_clock();
+    w.get_mut::<Pose>(e).unwrap().local.clear();
+    assert_eq!(
+        pose_json(&w, e).unwrap_err(),
+        "saved pose does not match model `rig.model`"
+    );
+}
+#[test]
+fn duplicate_motion_roots_choose_first_parent_first_match() {
+    let model = Model {
+        nodes: vec![
+            Node {
+                name: "root".into(),
+                parent: Some(1),
+                ..Default::default()
+            },
+            Node {
+                name: "root".into(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(
+        Animation::play("walk")
+            .motion_root("root")
+            .playback
+            .root(&model)
+            .unwrap(),
+        Some(1)
+    );
+}

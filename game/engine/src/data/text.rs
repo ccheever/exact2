@@ -198,6 +198,7 @@ mod tests {
         for _ in 0..100_000 {
             bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
             let n = f32::from_bits(bits as u32);
+            assert_eq!(Float(n).to_string(), format!("{n}"));
             if n.is_finite() {
                 let s = Float(n).to_string();
                 assert_eq!(s.parse::<f32>().unwrap().to_bits(), n.to_bits());
@@ -208,6 +209,7 @@ mod tests {
                 assert_eq!(Fixed(n, 3).to_string(), format!("{n:.3}"));
             }
             let n = f64::from_bits(bits);
+            assert_eq!(Float(n).to_string(), format!("{n}"));
             if n.is_finite() {
                 assert_eq!(
                     Float(n).to_string().parse::<f64>().unwrap().to_bits(),
@@ -224,5 +226,63 @@ mod tests {
                 n.to_bits()
             );
         }
+    }
+    #[test]
+    fn std_notation_boundaries_specials_ties_and_rounded_agent_numbers() {
+        macro_rules! compare {
+            ($ty:ty) => {
+                for n in [
+                    0.0,
+                    -0.0,
+                    <$ty>::NAN,
+                    -<$ty>::NAN,
+                    <$ty>::INFINITY,
+                    <$ty>::NEG_INFINITY,
+                    <$ty>::from_bits(1),
+                    -<$ty>::from_bits(1),
+                    <$ty>::MIN_POSITIVE,
+                    <$ty>::MAX,
+                    1e-5,
+                    1e-4,
+                    1e15,
+                    1e16,
+                    1e17,
+                    1.23445,
+                    -1.23445,
+                    0.00005,
+                    -0.00005,
+                    1.03125,
+                ] {
+                    assert_eq!(Float(n).to_string(), format!("{n}"));
+                    let mut debug = String::new();
+                    shortest(&mut debug, n, true).unwrap();
+                    assert_eq!(debug, format!("{n:?}"));
+                    let mut encoder = crate::json::Encoder::rounded();
+                    crate::Data::write(&n, &mut encoder);
+                    let expected = if !n.is_finite() {
+                        "null".into()
+                    } else {
+                        format!("{}", crate::json::rounded(n as f64))
+                    };
+                    if n.is_finite() {
+                        assert_eq!(encoder.finish().unwrap(), expected);
+                    } else {
+                        assert_eq!(
+                            encoder.finish().unwrap_err().to_string(),
+                            "non-finite number is not JSON"
+                        );
+                    }
+                    assert_eq!(
+                        crate::values::value_json(&crate::Value::Number(n as f64), true),
+                        expected
+                    );
+                }
+            };
+        }
+        compare!(f32);
+        compare!(f64);
+        // Display stays decimal; Debug alone uses this exponent window.
+        assert_eq!(Float(1e-5).to_string(), "0.00001");
+        assert_eq!(format!("{:?}", 1e-5), "1e-5");
     }
 }

@@ -566,6 +566,8 @@ Percentiles are zero before recording; counters still report total work.
 
 A declared `Mesh::asset("fox.model")` plays with
 `Animation::play("Walk").speed(1.5).marker(0.3, "step")`; `.once()` clamps at the end.
+A fresh reverse standalone one-shot starts at the clip end (an explicitly nonzero
+`time` is retained).
 `Animation`, `Blend`, and `Animator` are alternatives; insertion refuses a second
 controller. Each dereferences to the same saved `animation::Playback` interface:
 `crossed("step")` and `root_motion()`. Animation advances once per fixed tick,
@@ -575,6 +577,9 @@ It still refreshes socket followers after the game has applied the owner's motio
 
 Declare the motion root explicitly with `.motion_root("b_Root_00")` on any controller.
 There is no inferred first joint and no motion extraction without a declaration.
+Legal duplicate node names resolve to the first match in parent-first traversal
+(`animation::node_order`), for motion roots, sockets and IK alike. Give gameplay
+nodes unique names when that choice would be ambiguous to the author.
 The selected node's local translation is held at its bind anchor; extracted deltas
 include complete forward or backward loops and are returned in model coordinates
 (through the sampled parent's basis when the node has a parent). Applying
@@ -599,7 +604,9 @@ Use `state_named("run")`, `state_mut("run")`, or `blend_mut("travel")` for named
 access. A state supports `.once()`, `.speed(2.)`, and `.paused(true)`; those saved
 fields can also be changed through `state_mut`. A paused state neither advances
 its clock/fade nor transitions. A one-shot finishes before its first matching edge
-can run, on the following tick. Fades also finish before another edge runs;
+can run, on the following tick. A zero-length clip or zero-speed once state
+finishes on its first unpaused sample; explicit pause still prevents completion
+and transitions. Fades also finish before another edge runs;
 self-edges are ignored. At most one edge runs per tick. Looping locomotion retains
 phase across transitions; entering or leaving a one-shot resets it to the playback
 start (the end for negative speed).
@@ -627,14 +634,18 @@ remain pinned (`0x3f7ffffb` after sixty 60-Hz steps).
 `Ik { chain: [root, mid, tip], target, pole, weight }` also runs without a controller,
 starting from bind pose. It solves a direct two-bone chain in model coordinates;
 zero weight is exact and unreachable targets stretch the chain. Invalid chains or
-targets refuse by name. Sampling/IK failure preserves the last good pose pair.
-The first successful pose pair is current/current, and teleport duplicates current
-at the presentation seam. Bones remain compact arrays, never entities.
+targets refuse by name. Sampling/IK failure preserves the last good pose pair and
+leaves the Animator state, clock and fade uncommitted. The first successful pose
+pair is current/current. Restore, carry, teleport and model/batch arrival duplicate
+current at the presentation seam without rewriting saved history. Bones remain
+compact arrays, never entities.
 
 Declare one `Socket("b_Head_05".into())` per owner; `SocketFollow::new("fox")` drives
-an attachment. Socket names resolve once per loaded rig. Removing or failing a
-socket invalidates `SocketPose`; followers restore their captured authored Transform.
-An unresolved declaration/follower logs once until it recovers or its error changes.
+an attachment. Socket names resolve once per loaded rig. Replacing the loaded model
+rebuilds the cached bind pose, bounds and socket resolutions at the next sample.
+Removing or failing a socket invalidates `SocketPose`; locomotion continues and
+followers restore their captured authored Transform. Sampling, socket and follower
+errors have separate once-only lifetimes, reset by recovery/removal or a changed error.
 The declared socket's ancestor chain runs sim-side, including offscreen/headless.
 The follower is its attachment Transform's writer.
 
@@ -645,7 +656,8 @@ and conservative cubic overshoot. Picking can hit empty space inside it; neither
 sampled vertices nor frame-alpha skinning tighten it. Models cap imported nodes and
 skin joints at 256, with four normalized influences per vertex.
 `state world:fox pose` forwards `pose:true` and returns all unique skin joints in
-imported-node order. There is no silent truncation or duplicate budget consumption.
+imported-node order. A saved pose/model length mismatch refuses with the model name.
+There is no silent truncation or duplicate budget consumption.
 
 Controller definitions, phase, parameters, outgoing pose/motion and fade progress
 are saved/hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays fresh
@@ -667,13 +679,17 @@ pins because the motion tracks, Transform path, playback data, socket home and
 history semantics changed.
 
 Run `bun game/games/skinned-fixture/proof.mjs web` (or `linux`) from the root.
-Web and headless Linux proofs pass on this arm64 Mac (22.276/33.022 s).
+The S3b-b web/headless Linux proof run on this arm64 Mac passed in
+22.276/33.022 s. R2's web proof passes with both tick hashes asserted; the R2
+Linux rerun and wider host sweep remain owed after shared-tree build interruptions
+and stalled process inventory/optimizer children (see the ergonomics diary).
 The proof saves at tick 45 during the fade and resumes in a fresh host through 120;
 its final save must be byte-identical. Both hosts produce the same 15,084 bytes,
 SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The native paranoid test repeats restore into
 a new Sim every tick and compares bytes as well as hashes and local poses. A GPU
-birth test compares the Fox rectangle against a current/current oracle with a 0.1%
-tolerance; deliberately injecting bind history changes 11,205 of its 23,842 pixels.
+pixel test compares birth, restore, carry and model arrival against a current/current
+oracle within 0.1% of the Fox rectangle. Deliberately injecting bind history supplies
+the negative control. Both advertised tick hashes are asserted by the native test.
 The pre-review macOS screenshot showed a white Fox while web was textured; that
 native asset delivery gap remains outside this slice. No new x86-64 run or macOS
 proof is claimed here. Rendering measurements and qualifications are in
@@ -699,3 +715,96 @@ outside the world hash. Dynamic float clamp panics still retain Rust float
 formatting, including through the concurrently maintained animation code.
 The <550 KB Beacons target remains unmet; this cut does not change the existing
 primitive/model boundary or add a core-crate feature.
+
+### Physics snapshot reconstruction (PX1)
+
+Physics snapshots are EXPHYS v2. Vendored Rapier 0.35.3 now persists its deferred
+BVH optimization flag; v1 omitted simulation state and is refused atomically by
+name, including when nested in an EXSIM save. Start a new world. The dependency
+belongs only to the game workspace.
+
+`Sim::paranoid(Paranoid::Off | Paranoid::Save | Paranoid::FreshGame)` reconstructs
+through the production restore path after every completed tick, asserting the
+world hash is unchanged. FreshGame also drops the old world and decodes immutable
+models again. Driver time, queued input and pending output remain with the driver;
+restore still requires exact tick/time agreement. Off is the default. Native
+`EXACT_GAME_PARANOID=1` selects Save and `fresh-game` selects FreshGame; wasm uses
+the same environment variable at build time.
+
+`bun game/games/<name>/proof.mjs <web|linux> --paranoid` runs the actual proof in
+all three modes and compares each session's final hash, tick, publications and
+journal. Web receipts include the compiled mode, so a normal proof rebuilds after
+a paranoid build. Timings report both each full proof and the total including its
+build. This diagnostic intentionally serializes every tick; it is not a performance
+mode. `game/physics/tests/compare.rs` provides the corresponding native comparison.
+
+PX1 native verification (2026-09-18, this lane, optimized dev tests): all game
+workspace tests, clippy and formatting pass. The Linux headless proof passes for
+greybox, Beacons, asset-fixture and skinned-fixture in all three modes, comparing
+hash/tick/publications/journal. Physics pile tick 600 changes
+`5ba7691abdc98058 → 129ba6d92f9ac217`; two-body `simulate(120)` changes
+`9960c10fadbb9c4b → 5608994347e54d28`. Both agree across continuous, Save and
+FreshGame. Greybox setup/forward pins (`7df5e5a89b4d0207` / `0f14b8b231091d12`),
+asset tick 60 (`8f6d518f39634478`), skinned ticks 60/120
+(`b863e854ca85b74e` / `409341e24939d7c2`) are unchanged. Beacons' proof endpoint
+is `331c074e0f135059` at tick 907 in all modes.
+
+| Native script | Off ms | Save ms | FreshGame ms |
+|---|---:|---:|---:|
+| Physics stack, 120 ticks | 1.244 | 41.256 | 44.109 |
+| Beacons, movement/jump | 0.311 | 21.381 | 22.329 |
+| Greybox, movement/action | 0.342 | 26.830 | 25.092 |
+
+Skinned-fixture's 120 pairs of continuous/reconstructed ticks took 33.576 ms
+(Save) and 52.041 ms (FreshGame), including both runs in each pair. These are
+single-run diagnostic timings on a shared Mac. Native host proof wall times
+include process inventory and, where invalidated, builds; they are not tick costs.
+The live-clock regression runs 144 Hz frames against 60 Hz physics in all modes,
+checks capture metadata is unchanged by save, and verifies byte-identical reopened
+continuation. Lane/game has no sibling capture/checkpoint replay layer.
+
+The real browser live-capture check also passes: a live `screenshot … world save`
+reopens with its returned tick/hash and continues identically in two fresh
+processes for another 1,000 ms; the seekable control passes as well. The temporary
+probe exposed the existing agent entry point on a live-clock page without making
+its GPU clock seekable. No lane/game save-path change was needed.
+
+Greybox GPU size, before this task's available dist → PX1 build: **2,106,859 →
+2,175,006 raw bytes (+68,147); 465,027 → 475,963 gzip-9 (+10,936)**. Both retain
+wasm name/producers sections and omit wasm-opt post-processing. The new measurement
+is `bun game/bench/size.mjs px1-unoptimized --app greybox` with wasm-opt absent
+from PATH (the supported fallback; the installed executable stalled before running).
+This is the shared lane's before/after artifact delta, including concurrent R2
+changes, not an isolated Rapier cost. Greybox and Beacons do not link physics;
+the root dependency graph also contains no Rapier package.
+
+The agent's `world.run(ms)` now establishes the current clock with `+0` after
+asset settlement before its positive seek, matching `Sim::run`'s initial epoch.
+Without that initialization the skinned web fixture's first 750 ms seek could
+leave the newly ready world at tick zero. The original tick/pose/hash assertions
+now pass in all three modes. The Chrome wasm physics card also checks both pins
+across all three reconstruction modes.
+
+Verification limits on this Mac: the process-wide `ps` inventory stalled, so the
+proof runs used a temporary libproc inventory retaining parent PID and process
+start identity. Web functional proofs used installed Chrome for Testing and the
+build's supported no-wasm-opt fallback. The root workspace build was attempted
+normally, with a private TMPDIR, and serially; native JS-bake child processes
+stalled each time, so that check is **not green**. Root Cargo metadata nevertheless
+confirms the vendored dependency does not enter its graph. No root build code or
+system configuration was changed to bypass the failure.
+
+Final paranoid proof wall seconds (Off / Save / FreshGame; builds and process
+inventory included, so these are not ratios of simulation cost):
+
+| Game | Web | Linux headless host |
+|---|---|---|
+| greybox | 19.090 / 19.307 / 20.840 | 46.921 / 1.811 / 2.117 |
+| beacons | 30.109 / 21.231 / 21.471 | 27.442 / 35.212 / 1.683 |
+| asset-fixture | 19.608 / 17.078 / 27.088 | 39.639 / 1.338 / 0.946 |
+| skinned-fixture | 24.288 / 22.019 / 20.447 | 24.379 / 1.078 / 0.804 |
+
+All four ordinary proofs also pass on web and Linux, leaving web artifacts in Off
+mode. A cold greybox browser launch timed out in `Page.navigate`, and a cold
+asset-fixture Linux launch timed out before readiness; both passed unchanged on
+cached retry. Every completed proof reports all recorded children exited.

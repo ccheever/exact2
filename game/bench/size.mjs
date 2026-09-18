@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Shipped size plus pre-bindgen twiggy attribution. Diagnostic, never a gate.
-// bun game/bench/size.mjs [label] [--no-build]
+// bun game/bench/size.mjs [label] [--no-build] [--app greybox|beacons]
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -8,14 +8,17 @@ import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 
 const root = resolve(import.meta.dir, '../..');
-const app = resolve(root, 'game/games/beacons');
+const args = process.argv.slice(2);
+const appAt = args.indexOf('--app');
+const name = appAt < 0 ? 'beacons' : args.splice(appAt, 2)[1];
+if (!['beacons', 'greybox'].includes(name)) throw new Error('Use --app beacons or greybox');
+const app = resolve(root, 'game/games', name);
 const output = resolve(app, 'target/d3-size');
 const dist = resolve(output, 'dist');
 const env = { ...process.env, DEVELOPER_DIR: '/Library/Developer/CommandLineTools',
   SDKROOT: '/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk',
   EXACT_UPDATE_TRUST: 'development', EXACT_IDENTITY: '-', EXACT_APP_DIR: app,
   EXACT_WEB_DIST: dist, CARGO_TARGET_DIR: resolve(app, 'target') };
-const args = process.argv.slice(2);
 const label = args.find(arg => !arg.startsWith('--')) ?? 'current';
 if (!/^[a-zA-Z0-9_-]+$/.test(label)) throw new Error('Use a filename-safe label');
 function run(command, args, options = {}) {
@@ -33,7 +36,7 @@ if (!args.includes('--no-build')) {
     throw new Error('Build refused: less than 10 GiB free');
   run('bun', ['host/web/build.mjs'], { stdio: 'inherit' });
 }
-const preopt = resolve(app, 'target/wasm32-unknown-unknown/web/beacons_gpu.wasm');
+const preopt = resolve(app, `target/wasm32-unknown-unknown/web/${name}_gpu.wasm`);
 const shipped = readFileSync(resolve(dist, 'gpu_bg.wasm'));
 const rows = JSON.parse(run('twiggy', ['top', '-n', '20000', '-f', 'json', preopt]));
 // Drop metadata only, never code/data. Trait impl names are attributed to their
@@ -62,6 +65,7 @@ writeFileSync(resolve(output, `${label}.json`), JSON.stringify(result, null, 2) 
 writeFileSync(resolve(output, `${label}-twiggy.json`), JSON.stringify(rows) + '\n');
 console.log('| build | shipped bytes | gzip bytes |\n|---|---:|---:|');
 console.log(`| ${label} | ${result.raw.toLocaleString('en-US')} | ${result.gzip.toLocaleString('en-US')} |`);
+console.log('\nCrate/module attribution is pre-bindgen and pre-`wasm-opt`; it is not a breakdown of the shipped bytes above.');
 console.log('\n| pre-opt crate / section | bytes |\n|---|---:|');
 for (const [name, bytes] of Object.entries(totals).filter(([name]) => name !== 'metadata').sort((a,b) => b[1]-a[1]))
   console.log(`| ${name} | ${bytes.toLocaleString('en-US')} |`);
