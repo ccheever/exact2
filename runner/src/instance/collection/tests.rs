@@ -117,6 +117,9 @@ impl Harness {
             Value::Number(16.0),
             Value::Unit,
         ];
+        Self::from_parts(plan, slots)
+    }
+    fn from_parts(plan: Plan, slots: Vec<Value>) -> Self {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
         let mut u = Update {
@@ -839,14 +842,14 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
     assert!(old_row.measured);
     let key = h.collection().index.key(old_row.index).unwrap().to_owned();
     let old_token = h.collection().index.measurement_token(&key).unwrap();
-    // New immutable source allocation forces the normal key pass, although all
-    // keys remain equal. Changed text still needs body and layout invalidation.
+    // Fresh list with unchanged scalar items can reuse certified keys. Changed
+    // text still needs body and layout invalidation in this same update.
     h.slots[0] = values(100);
     h.slots[1] = Value::Number(9.);
     h.update().unwrap();
     assert_eq!(
-        h.tree.last_work.rows_keyed, 100,
-        "this change does not skip key evaluation"
+        h.tree.last_work.rows_keyed, 0,
+        "key reuse must not suppress body or measurement invalidation"
     );
     assert!(h.tree.last_work.nodes_visited > 0);
     let after = h.snapshot();
@@ -897,4 +900,442 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
         .rows
         .iter()
         .any(|row| row.measured && row.height == 24.));
+}
+
+// Key reuse must be earned by immutable item identity AND key-environment
+// equality, not by the fresh outer list or by unchanged rendered row bodies.
+fn key_reuse_row(id: f64, text: &str) -> Value {
+    Value::record(vec![
+        Value::Number(id),
+        Value::some(Value::Number(0.)),
+        Value::str(text),
+    ])
+}
+
+fn key_reuse_harness(clock_key: bool) -> Harness {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let string = b.primitive(TypeKind::String);
+    let optional = b.option(number);
+    let row = b.record(
+        "KeyReuseRow",
+        &[("id", number), ("gate", optional), ("text", string)],
+    );
+    let list = b.list(row);
+    let items = Value::list((0..128).map(|i| key_reuse_row(i as f64, "old")).collect());
+    // Harness supplies the live records directly; the typed slot's unused
+    // initializer is empty (record constants require explicit Asm::record).
+    let initial = b.constant(&Value::list(Vec::new()));
+    let zero = b.constant(&Value::Number(0.));
+    let data = b.slot("items", list, initial);
+    let dep = b.slot("keyDependency", number, zero);
+    let enabled = b.constant(&Value::Bool(true));
+    let root = b.node(
+        NodeType::List as u8,
+        None,
+        None,
+        0,
+        &[binding(
+            BindingKind::Prop,
+            PropId::Virtualized as u16,
+            enabled,
+        )],
+        &[],
+        None,
+    );
+    let subject = code(&mut b, |a| {
+        a.load_slot(data);
+    });
+    let key = code(&mut b, |a| {
+        // A later row can trap, so duplicate-vs-trap precedence is observable.
+        a.load_item(0)
+            .field(1)
+            .simple(Opcode::Unwrap)
+            .simple(Opcode::Pop);
+        a.load_item(0).field(0).load_slot(dep).simple(Opcode::Add);
+        if clock_key {
+            a.call(exact_plan::Stdlib::Now).simple(Opcode::Add);
+        }
+    });
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    let body = code(&mut b, |a| {
+        a.load_item(0).field(2);
+    });
+    b.node(
+        NodeType::Text as u8,
+        None,
+        Some(arms[0]),
+        0,
+        &[binding(BindingKind::Prop, PropId::Text as u16, body)],
+        &[],
+        None,
+    );
+    Harness::from_parts(b.finish().unwrap(), vec![items, Value::Number(0.)])
+}
+
+fn key_reuse_items(h: &Harness) -> Vec<Value> {
+    let Value::List(items) = &h.slots[0] else {
+        panic!("list fixture")
+    };
+    items.as_ref().clone()
+}
+
+#[test]
+fn key_reuse_fresh_outer_list_retains_keys_without_key_vm_calls() {
+    let mut h = key_reuse_harness(false);
+    let keys = h.collection().keys.as_ptr();
+    let index_key = h.collection().index.key(0).unwrap().as_ptr();
+    let revision = h.snapshot().revision;
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    assert_eq!(h.collection().index.key(0).unwrap().as_ptr(), index_key);
+    assert!(
+        h.snapshot().revision > revision,
+        "ordinary refinement still runs"
+    );
+}
+
+#[test]
+fn key_reuse_one_changed_record_evaluates_once_and_updates_measured_body() {
+    let mut h = key_reuse_harness(false);
+    h.send(h.feedback(0.));
+    let mut measured = h.feedback(0.);
+    measured.measurements = h
+        .snapshot()
+        .rows
+        .iter()
+        .map(|r| RowMeasurement {
+            view: r.view,
+            epoch: r.epoch,
+            height: 20.,
+        })
+        .collect();
+    h.send(measured);
+    let old = h.snapshot().rows[0].clone();
+    let keys = h.collection().keys.as_ptr();
+    let mut items = key_reuse_items(&h);
+    items[0] = key_reuse_row(0., "new body");
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 1);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    let new = h.snapshot().rows[0].clone();
+    assert_eq!(new.root, old.root);
+    assert_ne!(new.epoch, old.epoch);
+    assert!(!new.measured);
+    assert_eq!(
+        h.kernel.node(new.root).unwrap().props.str(PropId::Text),
+        Some("new body")
+    );
+    h.kernel
+        .compute_layout(h.snapshot().view, exact_kernel::Offer::definite(640., 320.))
+        .unwrap();
+    assert!(h.kernel.node(new.root).unwrap().frame.height > 0.);
+    h.send(h.feedback(0.));
+    assert_eq!(
+        h.tree.last_work.rows_keyed, 0,
+        "feedback has its own zero-key Update"
+    );
+}
+
+#[test]
+fn key_reuse_equal_content_fresh_records_still_evaluate_every_key() {
+    let mut h = key_reuse_harness(false);
+    let keys = h.collection().keys.as_ptr();
+    h.slots[0] = Value::list((0..128).map(|i| key_reuse_row(i as f64, "old")).collect());
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 128);
+    assert_eq!(
+        h.collection().keys.as_ptr(),
+        keys,
+        "ordered uniqueness proof remains valid"
+    );
+}
+
+#[test]
+fn key_reuse_external_slot_change_invalidates_all_identical_items() {
+    let mut h = key_reuse_harness(false);
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    h.slots[1] = Value::Number(500.);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 128);
+    assert_eq!(h.collection().index.key(0), Some("n:500"));
+    assert_eq!(h.collection().index.key(127), Some("n:627"));
+}
+
+#[test]
+fn key_reuse_clock_change_invalidates_all_identical_items() {
+    let mut h = key_reuse_harness(true);
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    let mut input = env(&h.plan, &h.slots);
+    input.now_ms = 500.;
+    let mut u = Update {
+        env: input,
+        ids: &mut h.ids,
+        ops: vec![],
+        surfaces: vec![],
+        work: Default::default(),
+    };
+    h.tree.update(&mut u).unwrap();
+    assert_eq!(u.work.rows_keyed, 128);
+    assert_eq!(h.collection().index.key(0), Some("n:500"));
+}
+
+#[test]
+fn key_reuse_is_positional_not_a_cross_position_identity_cache() {
+    let mut h = key_reuse_harness(false);
+    let old = h.snapshot();
+    let mut items = key_reuse_items(&h);
+    items.swap(0, 1);
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 2);
+    assert_eq!(h.collection().index.key(0), Some("n:1"));
+    assert_eq!(h.collection().index.key(1), Some("n:0"));
+    assert_eq!(h.snapshot().rows[0].root, old.rows[1].root);
+    let mut items = key_reuse_items(&h);
+    items.push(key_reuse_row(500., "inserted"));
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 129);
+    let mut items = key_reuse_items(&h);
+    items.remove(0);
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 128);
+    assert_eq!(h.collection().index.position("n:1"), None);
+}
+
+#[test]
+fn key_reuse_duplicate_prefix_precedes_later_vm_trap_without_publication() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let keys = h.collection().keys.as_ptr();
+    let items = Rc::clone(&h.collection().items);
+    let mut next = key_reuse_items(&h);
+    next[2] = key_reuse_row(0., "duplicate reused prefix");
+    next[3] = Value::record(vec![Value::Number(3.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::DuplicateKey { .. })
+    ));
+    assert_eq!(h.snapshot(), before);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    assert!(Rc::ptr_eq(&h.collection().items, &items));
+}
+
+#[test]
+fn key_reuse_duplicate_reused_suffix_precedes_later_vm_trap() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let mut next = key_reuse_items(&h);
+    next[0] = key_reuse_row(2., "collides with unchanged row two");
+    next[3] = Value::record(vec![Value::Number(3.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::DuplicateKey { .. })
+    ));
+    assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn key_reuse_changed_row_trap_is_not_hidden_by_unchanged_key_field() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let mut next = key_reuse_items(&h);
+    next[127] = Value::record(vec![Value::Number(127.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+    ));
+    assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn key_reuse_repeated_answers_do_not_retain_historical_records() {
+    let mut h = key_reuse_harness(false);
+    h.send(h.feedback(0.));
+    for turn in 0..16 {
+        let old = Rc::downgrade(&h.collection().items);
+        let Value::Record(row) = &h.collection().items[100] else {
+            panic!()
+        };
+        let old_row = Rc::downgrade(row);
+        let mut next = key_reuse_items(&h);
+        next[100] = key_reuse_row(100., &format!("answer {turn}"));
+        h.slots[0] = Value::list(next);
+        h.update().unwrap();
+        assert_eq!(h.tree.last_work.rows_keyed, 1);
+        assert!(old.upgrade().is_none());
+        assert!(old_row.upgrade().is_none());
+        assert_eq!(h.collection().keys.len(), 128);
+        assert!(h.collection().mounted.len() <= 31);
+    }
+}
+
+#[test]
+fn key_reuse_environment_distinguishes_absent_item_and_bound_from_unit() {
+    let p = plan(4, false, false);
+    let slots = [
+        values(4),
+        Value::Number(0.),
+        Value::Number(0.),
+        Value::Number(16.),
+    ];
+    let input = env(&p, &slots);
+    for field in [0, 1] {
+        let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
+        let absent = Frame::default();
+        memo.remember(&input, std::slice::from_ref(&absent));
+        assert!(memo.unchanged(&input, std::slice::from_ref(&absent)));
+        let mut present = absent;
+        if field == 0 {
+            present.item = Some(Value::Unit);
+        } else {
+            present.bound = Some(Value::Unit);
+        }
+        assert!(!memo.unchanged(&input, &[present]));
+    }
+}
+
+#[test]
+fn key_reuse_environment_preserves_frame_scope_and_resolved_mutable_slot() {
+    let mut p = plan(4, false, false);
+    p.slots[2].owner = Some(RegionsId(0));
+    let slots = [
+        values(4),
+        Value::Number(0.),
+        Value::Number(0.),
+        Value::Number(16.),
+    ];
+    let input = env(&p, &slots);
+    let local = Rc::new(std::cell::RefCell::new(BTreeMap::from([(
+        2,
+        Value::Number(7.),
+    )])));
+    let frame = Frame {
+        region: Some(0),
+        row: Some(Rc::clone(&local)),
+        ..Frame::default()
+    };
+    let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
+    memo.remember(&input, std::slice::from_ref(&frame));
+    assert!(memo.unchanged(&input, std::slice::from_ref(&frame)));
+    local.borrow_mut().insert(2, Value::Number(8.));
+    assert!(!memo.unchanged(&input, std::slice::from_ref(&frame)));
+    local.borrow_mut().insert(2, Value::Number(7.));
+    let mut changed = frame.clone();
+    changed.region = Some(1);
+    assert!(!memo.unchanged(&input, &[changed]));
+    assert!(!memo.unchanged(&input, &[Frame::default(), frame]));
+}
+
+fn key_reuse_dependency_plan(which: u8) -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let zero = b.constant(&Value::Number(0.));
+    b.slot("dep", number, zero);
+    let derive = b.derive("derived", number, zero);
+    let resource = b.resource("answer", "answer", &[], number, Some(&Value::Number(0.)));
+    let optional = b.option(number);
+    let none = b.constant(&Value::NONE);
+    let reply = b.slot("reply", optional, none);
+    let mutation = b.mutation("write", reply, number);
+    let subject = b.constant(&values(1));
+    let key = code(&mut b, |a| match which {
+        0 => {
+            a.load_derive(derive);
+        }
+        1 => {
+            a.load_resource(resource);
+        }
+        2 => {
+            a.pending_resource(resource);
+        }
+        3 => {
+            a.pending_mutation(mutation);
+        }
+        4 => {
+            a.simple(Opcode::Unit).call(exact_plan::Stdlib::Depth);
+        }
+        5 => {
+            a.load_param(0);
+        }
+        _ => unreachable!(),
+    });
+    b.region(RegionKind::Each, None, None, 0, subject, key, 1);
+    b.finish().unwrap()
+}
+
+#[test]
+fn key_reuse_certificate_tracks_derive_resource_and_pending_variants() {
+    for kind in 0..4 {
+        let p = key_reuse_dependency_plan(kind);
+        let slots = [Value::Number(0.)];
+        let before = [Some(Value::Number(1.))];
+        let after = [Some(Value::Number(2.))];
+        let pending = [false];
+        let changed_pending = [true];
+        let mut input = env(&p, &slots);
+        input.derives = &before;
+        input.resources = &before;
+        input.pending_resources = &pending;
+        input.pending_mutations = &pending;
+        let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
+        memo.remember(&input, &[]);
+        assert!(memo.unchanged(&input, &[]));
+        match kind {
+            0 => input.derives = &after,
+            1 => input.resources = &after,
+            2 => input.pending_resources = &changed_pending,
+            3 => input.pending_mutations = &changed_pending,
+            _ => unreachable!(),
+        }
+        assert!(!memo.unchanged(&input, &[]), "dependency {kind}");
+    }
+}
+
+#[test]
+fn key_reuse_unsupported_router_call_and_action_param_decline_certificate() {
+    for kind in [4, 5] {
+        let p = key_reuse_dependency_plan(kind);
+        assert!(KeyMemo::new(&p, RegionsId(0)).is_none());
+    }
+}
+
+#[test]
+fn key_reuse_certificate_tracks_outer_values_and_unreferenced_scope_structure() {
+    let p = plan(4, false, false);
+    let slots = [
+        values(4),
+        Value::Number(0.),
+        Value::Number(0.),
+        Value::Number(16.),
+    ];
+    let input = env(&p, &slots);
+    let frame = Frame {
+        item: Some(Value::str("outer")),
+        bound: Some(Value::str("bound")),
+        ..Frame::default()
+    };
+    let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
+    memo.remember(&input, std::slice::from_ref(&frame));
+    assert!(memo.unchanged(&input, std::slice::from_ref(&frame)));
+    let mut changed = frame.clone();
+    changed.item = Some(Value::str("different"));
+    assert!(!memo.unchanged(&input, &[changed]));
+    let mut changed = frame.clone();
+    changed.bound = Some(Value::str("different"));
+    assert!(!memo.unchanged(&input, &[changed]));
+    let mut changed = frame.clone();
+    changed.region = Some(0);
+    assert!(!memo.unchanged(&input, &[changed]));
+    let mut changed = frame;
+    changed.row = Some(Rc::new(std::cell::RefCell::new(BTreeMap::new())));
+    assert!(!memo.unchanged(&input, &[changed]));
 }

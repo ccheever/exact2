@@ -354,7 +354,7 @@ fn layout<D: DataSource>(r: &mut Runner<D>, width: f32) -> Vec<(usize, Frame)> {
 }
 
 #[test]
-fn actual_contract_typing_and_width_do_zero_queries_and_each_tick_keeps_full_key_work_explicit() {
+fn actual_contract_typing_and_width_do_zero_queries_and_ticks_key_only_changed_rows() {
     let (mut cached, calls) = runner(Candidate::default());
     let (mut control, control_calls) = runner(MessagesStress);
     assert_eq!(layout(&mut cached, 640.0), layout(&mut control, 640.0));
@@ -383,8 +383,13 @@ fn actual_contract_typing_and_width_do_zero_queries_and_each_tick_keeps_full_key
         assert_eq!(shared_rows(&old, cached.resource("history").unwrap()), 9968);
         assert_eq!(
             cached.last_instance_work().rows_keyed,
+            32,
+            "only changed immutable records need key evaluation"
+        );
+        assert_eq!(
+            control.last_instance_work().rows_keyed,
             10_000,
-            "immutable row sharing does not remove all-N key reconciliation"
+            "fresh control records still require every key evaluation"
         );
         assert_eq!(layout(&mut cached, 640.0), layout(&mut control, 640.0));
         assert!(!cached.is_poisoned());

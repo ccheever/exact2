@@ -42,6 +42,7 @@ pub(crate) struct Collection {
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
     key_memo: Option<KeyMemo>,
+    key_environment: Option<KeyMemo>,
     body_memo: Option<dependencies::Memo>,
     revision: u64,
     next_epoch: u64,
@@ -55,6 +56,16 @@ fn index_error(e: index::IndexError) -> InstanceError {
 }
 fn invalid(message: &str) -> InstanceError {
     InstanceError::Collection(message.into())
+}
+// Only valid scalar keys may carry the prior ordered uniqueness proof. Keep
+// signed-zero changes on the normal path so the stored Value stays exact.
+fn same_key(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Str(a), Value::Str(b)) => a == b,
+        (Value::Number(a), Value::Number(b)) => a.is_finite() && a.to_bits() == b.to_bits(),
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        _ => false,
+    }
 }
 fn advance(n: &mut u64) -> Result<u64, InstanceError> {
     *n = n
@@ -149,6 +160,7 @@ impl Collection {
             spacers: Vec::new(),
             children: Vec::new(),
             key_memo: KeyMemo::new(plan, region),
+            key_environment: KeyMemo::key_only(plan, region),
             // Unchanged `when` arms add empty frames, not contextual values.
             // Keep the global dependency memo through those arms; an item,
             // match binding or row-local state still needs normal evaluation.
@@ -192,15 +204,52 @@ impl Collection {
                     region: self.region,
                 });
             };
-            let mut keys = Vec::with_capacity(items.len());
-            let mut text_keys = Vec::with_capacity(items.len());
+            let compare_previous =
+                items.len() == self.items.len() && self.key_environment.is_some();
+            let reuse_items = compare_previous
+                && self
+                    .key_environment
+                    .as_ref()
+                    .is_some_and(|m| m.unchanged(&u.env, frames));
+            // No candidate N-vector or canonical strings until an actual key
+            // mismatch. All equal results reuse the existing uniqueness proof.
+            let mut changed = !compare_previous;
+            let mut keys = Vec::new();
+            let mut text_keys = Vec::new();
+            if changed {
+                keys.reserve(items.len());
+                text_keys.reserve(items.len());
+            }
             let mut unique = std::collections::BTreeSet::new();
             let mut inner = frames.to_vec();
             inner.push(Frame::default());
-            for item in items.iter() {
-                u.work.rows_keyed += 1;
-                inner.last_mut().unwrap().item = Some(item.clone());
-                let key = u.eval(descriptor.key, &inner)?;
+            for (position, item) in items.iter().enumerate() {
+                let key = if reuse_items && memo::same(item, &self.items[position]) {
+                    if !changed {
+                        continue;
+                    }
+                    self.keys[position].clone()
+                } else {
+                    u.work.rows_keyed += 1;
+                    inner.last_mut().unwrap().item = Some(item.clone());
+                    u.eval(descriptor.key, &inner)?
+                };
+                if !changed && same_key(&key, &self.keys[position]) {
+                    continue;
+                }
+                if !changed {
+                    // Seed only the already-validated prefix. Checking each
+                    // following row now preserves duplicate-before-later-trap.
+                    keys.reserve(items.len());
+                    text_keys.reserve(items.len());
+                    for prefix in 0..position {
+                        let text = self.index.key(prefix).unwrap().to_owned();
+                        unique.insert(text.clone());
+                        text_keys.push(text);
+                        keys.push(self.keys[prefix].clone());
+                    }
+                    changed = true;
+                }
                 let text = key_text(&key).ok_or(InstanceError::KeyKind {
                     region: self.region,
                 })?;
@@ -212,10 +261,12 @@ impl Collection {
                 keys.push(key);
                 text_keys.push(text);
             }
-            self.index.replace_keys(text_keys).map_err(index_error)?;
+            if changed {
+                self.index.replace_keys(text_keys).map_err(index_error)?;
+                self.string_keys = keys.iter().all(|key| key.as_str().is_some());
+                self.keys = keys;
+            }
             self.items = items;
-            self.string_keys = keys.iter().all(|key| key.as_str().is_some());
-            self.keys = keys;
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
         self.invalidate_height_estimates()?;
@@ -223,6 +274,9 @@ impl Collection {
         self.realize_window(u, frames, true)?;
         advance(&mut self.revision)?;
         if let Some(m) = &mut self.key_memo {
+            m.remember(&u.env, frames);
+        }
+        if let Some(m) = &mut self.key_environment {
             m.remember(&u.env, frames);
         }
         if let Some(m) = &mut self.body_memo {

@@ -2805,3 +2805,36 @@ The failed control is preserved under `target/collection-stage-web-pair-706/runt
 `33ddcb51ec6f153f0bc470d2e03f9b084fee130335f923b0bd96fc8337d4cf06`.
 The separate continuation is under `runtime-b1-continuation-v1/`, 21 artifacts/
 848,495 bytes, manifest `d6fbbef39bdcd44a5ad9b9f7885656bc44c490fb831b215f4c6980bc745ebaa9`.
+
+The follow-up Runner change reuses keys for same-position immutable items only
+when a separate key-environment certificate is unchanged. It tracks actual
+slot/derive/resource values, pending flags, clock and outer-frame structure;
+unsupported dependencies decline reuse. Changed records still execute the key
+VM. If every ordered key matches, the prior keys, uniqueness proof and index
+remain. A mismatch restores ordinary canonicalization and duplicate checks in
+original order, including duplicate-before-later-trap behavior. Body updates,
+height invalidation and collection feedback remain active.
+
+There is no extra per-row history or cross-position cache. The certificate is
+bounded by dependencies and frame depth, and O(N) positional item scanning
+remains. Fresh record identities still require all-N key evaluation; changed
+keys or length use normal replacement work. Exact scalar bits distinguish item
+identity; numeric key canonicalization, including signed-zero normalization,
+is unchanged.
+
+Integrated validation passes 117 Runner tests (15 new) and 13 existing Messages
+reuse tests, plus strict all-targets Clippy for both crates. The actual Messages
+Contract now performs 32 key evaluations per 10,000-row/32-change tick, while
+the stateless control performs 10,000. Three ticks retain full result equality,
+9,968 shared records and matching layout; typing/width changes still issue no
+history query. The old test's explicit 10,000-key expectation failed with the
+observed value 32 and is preserved before updating that expectation and adding
+the explicit control assertion. The private Runner baseline has eight behavioral
+failures after a separately preserved fixture construction correction.
+
+These are counter/correctness results, not new browser or native timing samples.
+Query/shape validation, scanning, body/layout and host work remain; shipped
+Messages entry defaults are unchanged. The exact three-file Runner freeze and
+raw evidence are at `target/collection-key-reuse-validation/freeze-v1/`, source
+manifest `b545aa098845048334e07170292930188b73add19b90282c37747f7f33e4bfa5`.
+Adjacent integration logs retain the additional consumer-test adjustment.
