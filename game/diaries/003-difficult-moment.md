@@ -18,7 +18,7 @@ current implementation, not a successful demonstration of the full proposed mome
 
 ## Reproduction and boundaries
 
-The fixtures are in [`../games/lanterns/fixtures/`](../games/lanterns/fixtures/):
+The fixtures are in [`../verification/lanterns/fixtures/`](../verification/lanterns/fixtures/):
 
 - `difficult-moment.script.json`: executable sequence from tick zero, seed
   `1041003`, started and sound enabled. `key_down`/`key_up` dispatch the existing

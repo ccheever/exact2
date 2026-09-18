@@ -2,7 +2,10 @@
 // Each second build needs its own kinds bound to that build's component types.
 #![allow(clippy::duplicate_mod)]
 use exact_game::{Args, Game, InputEvent, Sim};
-use lanterns_logic::{Lanterns, Options};
+#[allow(dead_code)]
+#[path = "../../../../verification/lanterns/game.rs"]
+mod historical;
+use historical::{Lanterns, Options};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -20,7 +23,7 @@ mod appearance_edit {
     include!(concat!(env!("OUT_DIR"), "/i3_appearance.rs"));
 }
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../verification/lanterns")
 }
 fn options() -> Options {
     Options {
@@ -29,7 +32,7 @@ fn options() -> Options {
         sound: true,
         scene: exact_game_scene::bake::compile(
             root().join("scene.json"),
-            &lanterns_logic::scene_types(),
+            &historical::scene_types(),
             Lanterns::assets(),
         )
         .unwrap()
@@ -72,8 +75,10 @@ fn snapshot<G: Game>(s: &mut Sim<G>) -> Value {
 fn route() -> (Sim<Lanterns>, Vec<u8>, Value) {
     let mut s = Sim::<Lanterns>::new(options()).unwrap();
     read(&mut s, json!({"op":"clock","owner":"agent","now":0}));
-    let script: Vec<Value> =
-        serde_json::from_str(include_str!("../../fixtures/difficult-moment.script.json")).unwrap();
+    let script: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../verification/lanterns/fixtures/difficult-moment.script.json"
+    ))
+    .unwrap();
     let mut moving = Vec::new();
     let mut launch = Value::Null;
     for op in script {
@@ -117,7 +122,7 @@ fn edited_scene(edit: &str) -> Options {
     for path in scene["fragments"].as_object_mut().unwrap().values_mut() {
         *path = json!(root.join(path.as_str().unwrap()));
     }
-    scene["assets"]["fox"]["path"] = json!(root.join("assets/Fox.glb"));
+    scene["assets"]["fox"]["path"] = json!(root.join("../../games/lanterns/assets/Fox.glb"));
     let rows = scene["entities"].as_array_mut().unwrap();
     if edit == "placement" {
         rows.iter_mut().find(|r| r["id"] == "ledge").unwrap()["parameters"]["position"][0] =
@@ -130,7 +135,7 @@ fn edited_scene(edit: &str) -> Options {
         PathBuf::from(env!("OUT_DIR")).join(format!("i3-{edit}-{}.json", std::process::id()));
     std::fs::write(&path, scene.to_string()).unwrap();
     let result =
-        exact_game_scene::bake::compile(&path, &lanterns_logic::scene_types(), Lanterns::assets());
+        exact_game_scene::bake::compile(&path, &historical::scene_types(), Lanterns::assets());
     std::fs::remove_file(path).unwrap();
     options.scene = result.unwrap().content;
     options
@@ -217,13 +222,11 @@ fn assert_report(row: &Value, kind: &str, entity: &str, component: &str, field: 
 }
 fn artifact(name: &str, bytes: &[u8]) {
     let path = root().join("fixtures").join(name);
-    if std::env::var_os("EXACT_I3_RECORD").is_some() {
-        std::fs::write(path, bytes).unwrap();
-    } else {
+    {
         assert_eq!(
             std::fs::read(path).unwrap(),
             bytes,
-            "fixture {name} changed"
+            "engine evidence {name} changed; bun game/proof.mjs lanterns --repin checks current-game pins only; historical evidence requires engine review"
         );
     }
 }
@@ -242,10 +245,7 @@ fn difficult_moment_repeats_and_continues_under_four_compiled_edits() {
         .get::<exact_game_physics::Character>("player")
         .unwrap();
     assert!(!c.grounded && c.velocity.y.abs() < 0.00001);
-    let lamp = a
-        .world()
-        .get::<lanterns_logic::Lantern>("lantern-12")
-        .unwrap();
+    let lamp = a.world().get::<historical::Lantern>("lantern-12").unwrap();
     let glow = lamp.glow.value(a.world().now());
     let velocity = lamp.glow.velocity(a.world().now());
     assert!(glow > 0.0 && glow < 1.0 && velocity > 0.0);
