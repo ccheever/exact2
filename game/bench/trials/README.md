@@ -83,3 +83,10 @@ build receipt correctly refused. Invalidate copied Cargo fingerprints and warm
 at the new archive path before dispatch. This can recompile dependencies during
 setup; no setup time is charged to the model. If this repair fails, do not add a
 fourth repair or manufacture timed trial results.
+
+A1 launch audit found `/etc/resolv.conf` resolves to
+`/run/systemd/resolve/stub-resolv.conf`; the first Landlock policy denied reading
+that symlink target. A1 is retained, never replaced or timed from a reset point.
+Subsequent attempts permit the resolver's exact real path and probe that it is
+readable alongside evaluator denial. This is an instrument defect, not evidence
+about Lanterns authoring difficulty. Agent parameters and evaluator remain fixed.
