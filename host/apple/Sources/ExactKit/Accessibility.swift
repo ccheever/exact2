@@ -83,6 +83,15 @@ extension Agent {
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
+                if node.placedAncestor != nil {
+                    #if os(macOS)
+                    let frame = node.accessibilityFrame()
+                    #else
+                    let frame = node.accessibilityFrame
+                    #endif
+                    row["accessibilityFrame"] = [frame.minX, frame.minY, frame.width, frame.height]
+                    row["accessibilityHidden"] = node.placedAncestor?.placementHidden == true
+                }
                 if node.props["accessibilityRole"] == "button" || node.props["accessibilityRole"] == "link" {
                     row["accessibleName"] = node.accessibleName
                 }

@@ -319,7 +319,7 @@ extension Agent {
         // Who hides or inerts it is named: a reader must not guess which
         // ancestor did.
         let describe = { (view: UIView) -> String in (view as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: view)) }
-        var hiddenBy: String? = host.isHidden || host.alpha == 0 ? describe(host) : nil
+        var hiddenBy: String? = host.isHidden || (host.alpha == 0 && host.placement == nil) ? describe(host) : nil
         var inertBy: String? = host.isUserInteractionEnabled ? nil : describe(host)
         var clipped = b.isEmpty
         var chain: [[String: Any]] = []
@@ -335,7 +335,7 @@ extension Agent {
                 above = s.superview
                 continue
             }
-            if hiddenBy == nil, s.isHidden || s.alpha == 0 { hiddenBy = describe(s) }
+            if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
                 if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
@@ -387,6 +387,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if let reply = canvasTap(req) { return reply }
         // A held contact (LLP 1035.003 D1) needs a touch UIKit does not
         // offer publicly: the iOS carrier says so rather than activating a

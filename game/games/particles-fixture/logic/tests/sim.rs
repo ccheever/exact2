@@ -9,7 +9,7 @@ fn tick300_and_restore() {
     a.run(2500.);
     let hash = a.world().hash();
     println!("particles tick300 0x{hash:016x}");
-    assert_eq!(hash, 0x7b8d9188b32e7d5c);
+    assert_eq!(hash, 0x8dc0cac2d2645d93);
     assert_eq!(a.world().len(), 21);
     let count: u32 = a
         .world()

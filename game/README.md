@@ -758,7 +758,7 @@ quarter/three-quarter-phase step markers.
 The controller explicitly names that root. Heading is authored; travel comes from
 the clips. Tick-60 joint JSON is pinned in
 [`tick60.json`](games/skinned-fixture/logic/tests/tick60.json), and the tick-120 hash
-is `0x409341e24939d7c2` (tick 60: `0xb863e854ca85b74e`). These replace S3b's circle
+is `0x0960f8999dd20662` (tick 60: `0x749639d3ffa1be59`). These replace S3b's circle
 pins because the motion tracks, Transform path, playback data, socket home and
 history semantics changed.
 
@@ -834,11 +834,11 @@ hash/tick/publications/journal. Physics pile tick 600 changes
 `5ba7691abdc98058 → 129ba6d92f9ac217`; two-body `simulate(120)` changes
 `9960c10fadbb9c4b → 5608994347e54d28`. Both agree across continuous, Save and
 FreshGame. The pre-E5 Greybox setup/forward pins were `7df5e5a89b4d0207` /
-`0f14b8b231091d12`; Character moved them to `7544ef30a82fdcdc` /
-`a655423c9a442bce`. The asset tick 60 (`8f6d518f39634478`), skinned ticks 60/120
-(`b863e854ca85b74e` / `409341e24939d7c2`) are unchanged. Beacons' proof endpoint
+`0f14b8b231091d12`; Character moved them to `9a871d8582d905e7` /
+`71f43e51a13cc49f`. The asset tick 60 (`b1365b0eb9a7c59d`), skinned ticks 60/120
+(`749639d3ffa1be59` / `0960f8999dd20662`) are unchanged. Beacons' proof endpoint
 was `331c074e0f135059` at tick 907 for pre-E5/PX1. HEAD's standalone Character already
-changed it to `7dde46ef4bc4bdb6`; the proof now asserts that tick/hash before reset.
+changed it to `ce6c7b72a5ced1e2`; the proof now asserts that tick/hash before reset.
 
 | Native script | Off ms | Save ms | FreshGame ms |
 |---|---:|---:|---:|
@@ -1129,51 +1129,276 @@ snapshots and save bytes. Linux here is the headless host on this arm64 Mac.
 
 | Proof | Tick | World hash | Live particles |
 |---|---:|---|---:|
-| particles-fixture, web + Linux | 300 | `0x7b8d9188b32e7d5c` | 20,000 |
-| sprites-fixture, web + Linux | 300 | `0xf598d0032d70cce5` | 200 |
-| Greybox web, setup | 0 | `0x7544ef30a82fdcdc` | — |
-| Greybox web, forward | 90 | `0xa655423c9a442bce` | — |
-| asset-fixture web | 60 | `0x8f6d518f39634478` | — |
-| skinned-fixture web | 60 / 120 | `0xb863e854ca85b74e` / `0x409341e24939d7c2` | — |
+| particles-fixture, web + Linux | 300 | `0x8dc0cac2d2645d93` | 20,000 |
+| sprites-fixture, web + Linux | 300 | `0x2e3d805eb6c89e55` | 200 |
+| Greybox web, setup | 0 | `0x9a871d8582d905e7` | — |
+| Greybox web, forward | 90 | `0x71f43e51a13cc49f` | — |
+| asset-fixture web | 60 | `0xb1365b0eb9a7c59d` | — |
+| skinned-fixture web | 60 / 120 | `0x749639d3ffa1be59` / `0x0960f8999dd20662` | — |
 
-The existing three games' pins did not move. Particle tick-300 save size is
-187,124 bytes for 21 entities; its birth batches explain why this is larger than
-a seed/age pair. Sprite saves are 17,872 bytes mid-fall and 17,792 at tick 300.
-The sprite proof checks all seven sampled front/behind leaf overlaps in the web
-screenshot. Native GPU tests compare the mid-fall frame across Open and Carry,
-exercise mask/blend/layer/slot/negative-scale behavior, and verify layout/pick and
-integer projection. The budget test requests 80,000, admits 65,536 and records
-14,464 refused births; finite-burst and Ambient settling both pass.
+Camera now derives its complete representation and always encodes `projection`.
+That pre-1.0 serialization correction changes the pins above, plus Beacons tick
+907 (`ce6c7b72a5ced1e2`). Greybox setup/forward moved from `7544ef30a82fdcdc` /
+`a655423c9a442bce`; particles from `7b8d9188b32e7d5c`; sprites from
+`f598d0032d70cce5`; asset from `8f6d518f39634478`; skinned from
+`b863e854ca85b74e` / `409341e24939d7c2`; Beacons from `7dde46ef4bc4bdb6`.
+No pin changed for a particle arithmetic or gameplay correction.
 
-Web screenshots and save/performance receipts are in each fixture's `artifacts/`.
-The macOS proof remains incomplete after three build attempts: the default SDK
-failed in linking, and explicitly selecting MacOSX26 reached a SwiftPM dyld
-missing-symbol failure in BuildServerProtocol. No macOS screenshot is claimed.
-Performance, size deltas and reproduction commands are in
-[the renderer README](render/README.md#p1-particle-and-sprite-rendering).
+The seven front/behind sprite samples run in both the web proof and the headless
+GPU fixture; behind samples require the walker's blue, not merely blue > red.
+Native tests pin the same-owner sprite/particle order, compatible run batching,
+invalid-component journaling, aspect-only integer cameras and 32-slot trace content.
+Particle float-bit receipts cover Point/Sphere/Cone before and after invariant
+hoisting. Sprite layer affects Blend only; Opaque/Mask use depth. The strip now
+uses six draws for 264 instances; see the retained measurement receipts in the
+[renderer README](render/README.md#measured-on-2026-09-18).
 
-Save byte SHA-256 receipts (original and continued saves agree on each host):
+### R6 regression coverage
 
-| Fixture | Tick 150 | Tick 300 |
+| Finding | Fix | Regression / evidence |
 |---|---|---|
-| particles | `f043e8aead566ff740892b2cdfa4e939598c5d054daff2b704ca30cf8528b0b2` | `a3d8dd8b2c5c0725c3fa209c8bab9354313fcc10ea826c491537a8e779be26fc` |
-| sprites | `e4e7471798bb44fa9c1ab7745aefb60be52d2d1710e3513d71ec03e263baf9fa` | `16cdf75d04a1b4ce577932af2891e742f87b5d6933784b9b9a3f36125d06e501` |
+| 1 | Aspect-only Feed disables integer quantization | `aspect_only_feed_preserves_authored_integer_camera_height` |
+| 2 | Perspective replaces orthographic on patch | `perspective_patch_replaces_orthographic_projection` (JSON and binary) |
+| 3 | Particle/sprite pipelines and quad capacity prepare early | `pipelines_and_particle_capacity_are_ready_before_first_emitter`; both fixture proofs assert zero after-ready work |
+| 4 | Unsupported exact timing/size claims removed | Two retained `bench/results/r6-*-perf.json` receipts bind measurements to build digests and hardware |
+| 5 | Behind samples require walker blue | Seven samples in sprite web proof and native fixture GPU test |
+| 6 | Cross-kind translucent ties have a rank | `same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch` pins pixels |
+| 7 | Invalid quads skip and journal | `invalid_quads_are_journaled_without_refusing_valid_neighbors` |
+| 8 | Scale magnitude, flip, layer and batching documented | Signed-scale/mask/layer GPU test and six-draw sprite receipt |
+| 9 | Host-draw callback join, repeated-time inheritance, overflow refusal | Feel recorder causality/intervening-callback and overflow tests |
+| 10 | Legacy traces retain every drawn row | `legacy Exact retains distinct rows at the same drawn time`; archived reanalysis |
+| 11 | Canonical clip-depth rejection | Feel orthographic behind-camera projection test |
+| 12 | Three cited compressed batches unignored | 30 retained traces; checkout-relative `reanalyze` commands run successfully |
+| 13 | Trace row pixels and matrix contents pinned | `presentation_trace_is_opt_in_read_once_and_never_advances_the_clock` |
+| 14 | Landmark pixel motion; player remains diagnostic | `landmark motion measures the world under a player-follow camera`; CLI reanalysis with `--landmark 8,1,0` |
+| 15 | Sitting #2 table and adversarial interpretation | All 15 saved attempts reanalyzed; winner withdrawn; `best` noise tie-break named |
+| 16 | Real GPU retirement accounting; live handles/history survive | Pending-name/cosmetic-stream test, oversized GPU-arena packing test, existing 20-model and same-name skin replacement tests |
+| 17 | Restart counter survives reconstruction | `restart_counter_survives_carry_and_paranoid_reconstruction` |
+| 18 | Authored Cargo package survives directory rename | Bun `authored Cargo package survives a generated app directory rename` |
+| 19 | New Linux host clears autofocus bookkeeping | Linux host reload regression |
+| 20 | Valid explicit focus precedes autofocus | Bun test executes the commit focus block and checks autofocus side effects |
+| 21 | Unpinned save assertions and stale ready warning removed | Beacons byte-identical continuation proof; asset-fixture web ready check passes |
+| 22 | Nearest-one Greybox gameplay explicitly retained | Game README and diary record the intentional change; gameplay pins/proofs pass |
+| 23 | Fade clock advances across topology replacement | `topology_change_during_fade_completes_and_allows_later_edge`; overlapping same-tick tests merged |
+| 24 | Fixed-width inventory parser; survivors fail without being killed | Sep 8, Sep 18 and zombie tests; `process-cleanup.json` records remaining processes |
+| 25 | No-device skip is Linux-only | Bun host/device matrix; web fixture readiness proofs |
+| 26 | KeyP checks texture and pipeline counts too | Bun regression injects each forbidden counter independently; live asset/skinned proofs |
+| 27 | Skinning device errors fail except classified no-adapter | `only_classified_no_adapter_may_skip` rejects device-loss/limits errors; native same-name redelivery passes |
+| 28 | Retry cooldown contract pinned | Both Apple fixture tests assert 299 frames, retry on 300, and one hidden→visible refresh retry |
+| 29 | Closed QUEUE/stale validation text removed | Final checks below; survivor-fails contract retained |
+| 30 | Retained quad values, batching, texture-root stability, particle hoisting | Retained pointer/membership test; atlas-frame root test; old-evaluator float-bit pins; 20,000-particle receipt |
+| 31 | Shared textures; sprite bindings only for consumers; quad counters included | Cosmetic-stream test refuses accidental sprite bindings; all four GPU fixtures' after-ready counters |
+| 32 | Camera manual representation removed | Derived representation and finding 2 regression; all moved pins listed above |
+| 33 | Primitive-only CPU claim and interpolation terminology corrected | Renderer README and the added bake README describe the actual implementation |
 
-P1's full `cargo test --workspace --no-fail-fast` run exposed an obsolete test:
-`engine/tests/assets.rs::texture_is_not_a_model_declaration_or_mesh` asserts that
-all `.tex` declarations fail. The sprite API intentionally allows declared `.tex`
-assets; Mesh still rejects them. That test is outside this brief's `engine/src`
-edit scope, so its update awaits explicit scope approval. README example doctest
-failures from the same run were corrected and all 23 engine doctests pass.
-`bun test ./new.test.mjs ./proof.test.mjs` passes 24 tests. Without `./`, Bun's
-filename filter also includes Greybox's audio-proof tests: that broader invocation
-hit an obsolete source-regex check and two Swift runtime failures. No audio tests
-were changed. Process descendant auditing was unavailable where this Mac's ps
-stalled; proofs still awaited their recorded host carriers and reported that limit.
+R6: `cargo test --workspace --no-fail-fast` passes 516 tests (11 ignored diagnostics), plus the added device-error classification regression;
+workspace all-target clippy, fmt and scoped caps pass. All six affected games pass
+web proofs, including the asset ready check and zero after-ready quad residency
+work. All seven games, including placement-fixture, pass Linux `--paranoid`.
+`bun test ./new.test.mjs ./proof.test.mjs ./bench/feel.test.mjs ./games/greybox/audio-proof.test.mjs`
+passes all 61 tests, including generated-game Linux/web proofs.
+Process audits on this Mac may report `ps` unavailable; proofs still await every recorded carrier.
+Any inventoried survivor fails and is recorded in `process-cleanup.json`; discovery
+never authorizes killing it. No macOS screenshot is claimed.
 
-Final all-target workspace clippy, fmt and caps pass. Caps staged only the explicit
-P1 paths in a temporary index and then unstaged them; the shared index was unchanged.
-The final sprite and skinned web rechecks pass. Asset-fixture's earlier web retry
-passed, but its final recheck again failed the readiness part of `after-ready ticks
-do no recorded GPU residency work`, while all four after-ready work counters were
-zero and its tick-60 pin was unchanged. That shared proof assertion remains open.
+
+## Placed Contract children (U1, 2026-09-18)
+
+`Placed::child(1).width(1.2)` is a sign in the world: child 1 is the
+canvas's second direct Contract child, with real text, focus, accessibility and
+Contract actions. Child 0 can remain a HUD at its kernel frame. `width` is in
+world units; height follows the child's kernel aspect ratio. `anchor` defaults
+to `[0.5, 0]`, bottom-centre measured from the lower-left, `offset` is local to
+the entity, and `Facing::Camera` is the default. `Facing::Fixed` follows the
+entity's local +Z front and hides when seen from behind. Each child has one owner;
+duplicate ownership and invalid geometry are named refusals. `Placed` is saved and
+hashed. Its derived homography, visibility and depth are not.
+
+`state world:sign` adds `entity.placed: {child, hidden, depth}`. `snapshot()`
+contains only the component. Displayed camera and entity poses use the same
+interpolation/history as meshes and sprites. A `Parent` attachment follows that
+shared displayed transform. Socket followers still interpolate their tick-boundary
+resolved transforms: the current socket path does not recompose the displayed
+bone/socket pose between ticks. This slice does not claim to repair that limitation.
+
+The browser supplies child frames without textures and composites CSS homographies.
+Its ordinary `getBoundingClientRect` and browser pointer dispatch supply agent
+geometry; a tap guard reports an explicit hidden/inert refusal rather than claiming
+that an undelivered click succeeded. Apple captures each child and draws it in the
+same depth-tested translucent pass as the other world quads; an opaque wall can
+occlude it. Captured children work in primitive and model-capable native modules.
+Both hosts rank depth larger-nearer, with later Contract children on top at equal
+depth. HUD-only games request no per-child captures. Browser composition has no
+world depth buffer and cannot hide text behind an arbitrary mesh.
+
+`placement-fixture` was generated with `bun game/new.mjs placement-fixture --assets`,
+then set to the primitive module (`game.assets: false`). The setup below includes
+the optional 40-plate capture scene selected from the title screen. This is its
+literal author API:
+
+```rust
+# use exact_game::*;
+# struct Options { plates: u32 }
+# #[derive(Default, Resource)]
+# struct Lamp { lit: bool }
+# #[derive(Default, Data)]
+# struct Hud { lit: bool }
+    fn setup(w: &mut World, args: &Options) {
+        w.insert_resource(Environment {
+            background: Some([0.04, 0.08, 0.12]),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.insert_resource(Lamp::default());
+        if args.plates > 0 {
+            w.spawn_named(
+                "camera",
+                (
+                    Transform::at(0., 3., 8.).looking_at(Vec3::new(0., 1., 0.), Vec3::Y),
+                    Camera::default(),
+                ),
+            );
+            for i in 0..args.plates.min(40) {
+                w.spawn_named(
+                    format!("plate-{i}"),
+                    (
+                        Transform::at((i % 8) as f32 - 3.5, (i / 8) as f32 * 0.6, -2.),
+                        Placed::child(i as u16).width(0.7),
+                    ),
+                );
+            }
+            return;
+        }
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(20., 20.),
+            Material::grid([0.12, 0.18, 0.2], 1.),
+        ));
+        w.spawn((
+            Transform::at(0., 0.01, 0.),
+            Mesh::plane(2., 20.),
+            Material::rgb(0.35, 0.3, 0.2),
+        ));
+        w.spawn_named(
+            "sign",
+            (
+                Transform::at(-1.8, 1.4, 0.),
+                Placed::child(1).width(1.8).facing(Facing::Fixed),
+            ),
+        );
+        w.spawn_named(
+            "cube",
+            (
+                Transform::at(0., 0.5, 0.),
+                Mesh::cube(1.),
+                Material::rgb(0.15, 0.5, 0.7),
+            ),
+        );
+        w.spawn_named(
+            "name",
+            (
+                Transform::at(0., 1.2, 0.),
+                Parent(w.named("cube").unwrap()),
+                Placed::child(2).width(1.2),
+            ),
+        );
+        w.spawn_named(
+            "pull",
+            (Transform::at(1.8, 1.2, 0.), Placed::child(3).width(1.2)),
+        );
+        w.spawn_named(
+            "lamp",
+            (
+                Transform::at(2.5, 0.5, -1.),
+                Mesh::sphere(0.3),
+                Material::rgb(0.3, 0.2, 0.1),
+            ),
+        );
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 3., 8.).looking_at(Vec3::new(0., 1., 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.publish_record(&Hud::default());
+    }
+```
+
+The Contract canvas block, verbatim:
+
+```contract
+        canvas surface=world(pulls, plates) testId="world" width="100%" height="100%"
+          when plates == 40
+            text "Name 0" width=100 padding=4 background-color="#174663"
+            text "Name 1" width=100 padding=4 background-color="#174663"
+            text "Name 2" width=100 padding=4 background-color="#174663"
+            text "Name 3" width=100 padding=4 background-color="#174663"
+            text "Name 4" width=100 padding=4 background-color="#174663"
+            text "Name 5" width=100 padding=4 background-color="#174663"
+            text "Name 6" width=100 padding=4 background-color="#174663"
+            text "Name 7" width=100 padding=4 background-color="#174663"
+            text "Name 8" width=100 padding=4 background-color="#174663"
+            text "Name 9" width=100 padding=4 background-color="#174663"
+            text "Name 10" width=100 padding=4 background-color="#174663"
+            text "Name 11" width=100 padding=4 background-color="#174663"
+            text "Name 12" width=100 padding=4 background-color="#174663"
+            text "Name 13" width=100 padding=4 background-color="#174663"
+            text "Name 14" width=100 padding=4 background-color="#174663"
+            text "Name 15" width=100 padding=4 background-color="#174663"
+            text "Name 16" width=100 padding=4 background-color="#174663"
+            text "Name 17" width=100 padding=4 background-color="#174663"
+            text "Name 18" width=100 padding=4 background-color="#174663"
+            text "Name 19" width=100 padding=4 background-color="#174663"
+            text "Name 20" width=100 padding=4 background-color="#174663"
+            text "Name 21" width=100 padding=4 background-color="#174663"
+            text "Name 22" width=100 padding=4 background-color="#174663"
+            text "Name 23" width=100 padding=4 background-color="#174663"
+            text "Name 24" width=100 padding=4 background-color="#174663"
+            text "Name 25" width=100 padding=4 background-color="#174663"
+            text "Name 26" width=100 padding=4 background-color="#174663"
+            text "Name 27" width=100 padding=4 background-color="#174663"
+            text "Name 28" width=100 padding=4 background-color="#174663"
+            text "Name 29" width=100 padding=4 background-color="#174663"
+            text "Name 30" width=100 padding=4 background-color="#174663"
+            text "Name 31" width=100 padding=4 background-color="#174663"
+            text "Name 32" width=100 padding=4 background-color="#174663"
+            text "Name 33" width=100 padding=4 background-color="#174663"
+            text "Name 34" width=100 padding=4 background-color="#174663"
+            text "Name 35" width=100 padding=4 background-color="#174663"
+            text "Name 36" width=100 padding=4 background-color="#174663"
+            text "Name 37" width=100 padding=4 background-color="#174663"
+            text "Name 38" width=100 padding=4 background-color="#174663"
+            text "Name 39" width=100 padding=4 background-color="#174663"
+          else
+            text `Lamp ${hud.lit}` testId="hud" width=120 aria-live="polite" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+            text "The lantern path" testId="sign" width=200 padding=12 background-color="#4c3828" font-size=22
+            text "Moving cube" testId="name" width=140 padding=8 background-color="#174663"
+            button press=pull testId="pull" aria-label="Pull" width=120 padding=12 background-color="#e8ad61"
+              text "Pull" color="#202731" font-size=22
+```
+
+Run `bun game/games/placement-fixture/proof.mjs web` or `linux`; use `macos`
+for the Apple placement/accessibility assertions, and add `--capture40` for the
+capture sample. The browser proof drives the placed Pull button, checks its lamp
+and HUD publication, camera orbit, explicit back-face hiding and tap refusal,
+then saves and restores all three placements. Web and Linux agree at tick 330:
+`0x61007363bd681d3c`. Linux currently proves simulation, Contract actions and
+save/hash parity only: its headless presenter has no placement consumer. The
+requested extension into Linux surface/painter code is outside the named edit
+scope and awaits clarification. It does not yet prove Linux placed drawing,
+layout or input.
+
+The macOS Rust artifacts built, but `build.mjs --run` could not get through the
+installed Swift package tool: it aborts loading `BuildServerProtocol` before
+source compilation, including with the temporary `--build-system native` wrapper.
+The wrapper was removed. The macOS fixture, accessibility assertion and measured
+40-name-plate capture cost remain unverified; no capture cost is claimed. Renderer
+GPU tests do verify captured texture pixels, premultiplied blending, equal-depth
+Contract order, near-plane hiding and opaque wall occlusion. Measured browser
+frame/projection/module-size results are in [the render README](render/README.md).
+
+Beacons is unchanged by U1. Its conditional prompt and nearest-beacon choice need
+stable child ownership plus component transfer when the nearest beacon changes;
+that is more than the allowed one Contract line and one component.

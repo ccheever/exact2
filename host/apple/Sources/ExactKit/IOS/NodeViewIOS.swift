@@ -241,6 +241,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// Hit-testing inverts it, nearest child first; accessibility reports the
     /// mapped box.
     var placement: [Double]?
+    private var hiddenBeforePlacement = false
+    var placementHidden = false {
+        didSet {
+            if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
+            if placementHidden { isHidden = true }
+            else if oldValue { isHidden = hiddenBeforePlacement }
+            accessibilityElementsHidden = placementHidden || props["inert"] == "true"
+        }
+    }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
@@ -618,7 +627,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var placedAncestor: NodeView? {
         var v: UIView? = self
         while let n = v {
-            if let node = n as? NodeView, node.placement != nil { return node }
+            if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
             if let s = n.superview as? PlainView, let c = s.superview as? NodeView, c.overlay === s { return nil }
             v = n.superview
         }
@@ -672,6 +681,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if placedAncestor?.placementHidden == true { return nil }
         if let clipPath, !clipPath.contains(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         // UIKit's default rejects a view when alpha is near zero. CSS opacity
@@ -700,18 +710,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             return bounds.contains(point) ? self : nil
         }
         guard let overlay else { return ordinary() }
-        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
+        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Nearest first: what is seen on top is what a tap reaches.
-        for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
+        for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
             let p = NodeView.map(inv, point)
             guard child.bounds.contains(p) else { continue }
             if let hit = child.hitTest(p, with: event) { return hit }
         }
         let inOverlay = overlay.convert(point, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil {
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
             if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
         }
         return self
@@ -722,6 +732,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// agent's `layout` reports.
     override var accessibilityFrame: CGRect {
         get {
+            if placedAncestor?.placementHidden == true { return .zero }
             guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
             let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
             let xs = corners.map { $0.x }, ys = corners.map { $0.y }

@@ -289,3 +289,58 @@ builders are in the tree as this is written — the residency and ergonomics fix
 particles as emitters with sprites and an orthographic camera, and the feel probe's
 honesty round — with the in-world placement brief waiting for the translucent pass
 they will leave behind.
+
+## 2026-09-18, 12:40–14:10 — four slices at once, nine reviews, the second sitting, the third whole review
+
+Four builders in one tree this time — the residency and ergonomics fixes, particles as
+emitters with sprites and an orthographic camera, the feel probe's honesty round, and
+the closing fixes of the physics port — and the concurrency rule held at four as it
+had at two: small hunks in shared files, re-read and retry once, wait a minute when a
+cargo step fails on someone else's half-written code. All four landed as e0ab1904
+with one message in four paragraphs, and the reviewers audited a paragraph each.
+The orchestrator's own share of that commit was found the same way it finds the
+builders' work: the Apple audio fixtures had been red since a cooldown was added two
+rounds ago and nobody had run them because every brief names its test files; the
+proof harness's process audit, once `ps` stopped hanging, found a real leak (the
+static server's resident filesystem reader outliving every session) and I first
+"fixed" it by killing recorded strays — which one reviewer correctly called a pass
+that hides a leak, so a survivor fails again and nothing is signalled by pid; and a
+Bun 1.3.12 trap that had been mislabelled for a day — at the repository root a bare
+test path is a filter whose tree scan leaves every later `spawnSync` with dead
+pipes — cost an hour to isolate and one line to route around.
+
+Nine reviews of e0ab1904: two DO NOT SHIPs among eight (the retired-residency budget
+is neither enforced nor GPU bytes and its compaction rebuilds live models and resets
+their pose history; a topology change during an Animator fade freezes it), the rest
+SHIP WITH FIXES, and the pattern is the same as every round — the builder's own proof
+asks the question its design can answer, and the reviewer asks the one it cannot.
+The particles slice is a good example: the derivation is deterministic and the
+saved/derived boundary is clean, and the first emitter still compiles its pipelines
+mid-play, the translucent key is not a total order across kinds, and one invalid
+emitter blacks the whole scene.
+
+The second sitting ran during the reviews (nine read-only processes; load 9–19, so
+every row is provisional) with the probe's new columns. What it says: Exact's raw
+rAF cadence is three.js's cadence — both are Chrome on this display: p50/p95/p99
+8.30/10.00/10.30 ms, zero raw hitches — and its drawn clock is the paced lattice,
+8.34/8.35/8.36 with one drawn hitch in ten thousand frames; world-space judder
+0.001–0.002 against three.js 0.37–0.63 and Godot 0.994 shipped, 0.004–0.061
+interpolated. And what it exposes: the new "screen-space displacement of the
+player" column reads 0.0007 px for every engine because the camera follows the
+player. What a player sees move is the world; the next round projects a fixed
+landmark instead. The winner stays withdrawn until that column and a quiet sitting
+exist.
+
+The third whole-engine review (astra, `review-ASTRA-whole-3.md`): "Keep the engine.
+Cut the remaining coupling and compatibility machinery." Its five changes in order —
+displayed socket attachments from the interpolated chain (a charm cuts across the arc
+today), optional capability out of the primitive artifact (859 KB for a game with no
+models; the target needs reachability removed, not bytes shaved), asset-only
+compaction, the quad path finished, animation advanced explicitly — and a deletion
+list I recognise as the engine paying compatibility costs to itself at one day old: a
+formatter tie-breaker, a hand-written Camera codec preserving old pins, unused
+tangents, a duplicated physics clone, a legacy manifest fallback, a fourth paranoid
+run. It also judged the fourth-score idioms the right shape and not a local optimum,
+and named what must be protected. The fix round for the nine reviews and the
+in-world UI slice are in the tree as this is written; the deletions and the
+attachment fix are briefed behind them.

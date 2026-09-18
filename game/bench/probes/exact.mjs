@@ -16,39 +16,29 @@ export function tickPhase(trace) {
   return count ? sum / count : null;
 }
 
-// Capture the actual rAF argument without changing the clock passed to any callback.
-// Join after capture by draw-boundary wall time. Resize draws inherit the latest
-// callback stamp and are dropped as duplicates by the analyzer.
-export function callbackRecorder(target = globalThis, now = () => performance.now()) {
-  const request = target.requestAnimationFrame.bind(target);
-  let stamps, walls, count = 0, active = false, overflow = false;
-  const wrappers = new WeakMap();
-  target.requestAnimationFrame = callback => {
-    let wrapped = wrappers.get(callback);
-    if (!wrapped) {
-      wrapped = stamp => {
-        if (active) {
-          if (count === stamps.length) overflow = true;
-          else { stamps[count] = stamp; walls[count++] = now(); }
-        }
-        callback(stamp);
-      };
-      wrappers.set(callback, wrapped);
-    }
-    return request(wrapped);
+// Only the host's draw callback supplies (raw, paced). Unrelated rAFs never
+// participate; out-of-callback resize draws inherit the same paced generation.
+export function callbackRecorder(target = globalThis) {
+  let stamps, paced, count = 0, active = false, overflow = false;
+  target.exact.drawCallback = (raw, drawn) => {
+    if (!active) return;
+    if (count === stamps.length) { overflow = true; return; }
+    stamps[count] = raw; paced[count++] = drawn;
   };
   return {
-    begin(capacity) { stamps = new Float64Array(capacity * 8); walls = new Float64Array(capacity * 8); count = 0; overflow = false; active = true; },
+    begin(capacity) { stamps = new Float64Array(capacity); paced = new Float64Array(capacity); count = 0; overflow = false; active = true; },
     end(frames) {
       active = false;
+      if (overflow) return {overflow:true};
       let at = 0;
       const raw = [];
       for (let i = 0; i < frames.length; i += 8) {
-        while (at + 1 < count && walls[at + 1] <= frames[i + 1]) at++;
-        if (!count || walls[at] > frames[i + 1]) throw new Error('Exact draw has no recorded raw callback');
+        if (i && frames[i] === frames[i - 8]) { raw.push(raw.at(-1)); continue; }
+        while (at < count && paced[at] < frames[i]) at++;
+        if (at === count || paced[at] !== frames[i]) throw new Error('Exact draw has no recorded raw callback');
         raw.push(stamps[at]);
       }
-      return { raw_callback_ms: raw, overflow };
+      return {raw_callback_ms:raw, overflow:false};
     },
   };
 }
@@ -107,6 +97,7 @@ async function installOnce({ entity = 'player', play: selector = '[data-testid="
       const camera_projection = trace.stride === 32 ? [] : null;
       if (camera_projection) for (let i = 0; i < trace.frames.length; i += trace.stride) camera_projection.push(...trace.frames.slice(i + 14, i + 32));
       return { schema: 1, stride: 8, frames, raw_callback_ms: callback.raw_callback_ms,
+        landmark_xyz: [8, 1, 0], clip_depth: 'zero-to-one',
         drawn_clock_ms: frames.filter((_, i) => i % 8 === 0), camera_projection,
         ...delivered, overflow: delivered.overflow || trace.overflow || callback.overflow,
         hidden_frames: hidden, unfocused_frames: unfocused,

@@ -854,8 +854,7 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
-  // Newly mounted autofocus controls; mark before focus handlers can reenter.
-  focusAutofocus();
+  // Newly mounted autofocus follows explicit commands in this commit.
   for (const { args, selectText } of focusCommands) {
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
@@ -867,14 +866,13 @@ function apply(batch) {
     el.focus();
     if (selectText && document.activeElement === el) el.select();
   }
+  focusAutofocus();
   positionContexts();
   return batch.timers;
 }
 
-// Apply a batch; in agent mode, freeze what it started: every animation the
-// batch created is registered at the clock it began and seeked there, so
-// nothing plays between two operations. The clock lands where the runner
-// says (`batch.clock`: an advance a timer refused stops early).
+// Agent batches register and seek animations at the supplied clock; nothing plays
+// between operations. A refused timer advance stops early at `batch.clock`.
 function applyBatch(batch) {
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
@@ -886,7 +884,7 @@ function applyBatch(batch) {
     seek(agentClock);
   }
   return { timers, batch };
-  } finally { if (--globalThis.exact.applyDepth === 0) globalThis.exact.gpu?.drainRecords(); }
+  } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }
 }
 
 function send(len) {
@@ -1247,6 +1245,8 @@ function agentReply(request) {
       case "tap": {
         const frame = views.get(request.id);
         if (request.history !== undefined) return navigation.travel(frame, request.history);
+        if (frame && (frame.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
+          return { handled: true, error: `view ${request.id} is hidden or inert` };
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
       }
       case "type": {

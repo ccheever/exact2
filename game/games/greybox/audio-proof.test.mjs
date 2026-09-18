@@ -155,7 +155,9 @@ audio.gesture()
 RunLoop.main.run(until:Date().addingTimeInterval(0.02))
 precondition(attempts == 2 && calls.map { $0.0 } == [2], "a gesture retries at once and holds Interrupted")
 allowed = true
-for _ in 0..<300 { audio.frame() }
+for _ in 0..<299 { audio.frame() }
+precondition(attempts == 2, "no retry on frames 1 through 299")
+audio.frame()
 precondition(attempts == 3 && calls.map { $0.0 } == [2,3], "the cooldown's end retries and emits Resumed")
 calls.removeAll()
 let done = DispatchSemaphore(value: 0)
@@ -175,6 +177,14 @@ precondition(calls.map { $0.0 } == [2], "failed reactivation cannot emit Resumed
 allowed = true
 for _ in 0..<300 { audio.frame() }
 precondition(calls.map { $0.0 } == [2,3])
+// Hidden -> visible is the one refresh exception inside the cooldown.
+allowed = false
+audio.interruption(began: true, shouldResume: false)
+audio.interruption(began: false, shouldResume: true)
+let beforeShow = attempts
+owner.visible = false; audio.refresh()
+owner.visible = true; audio.refresh(); audio.refresh()
+precondition(attempts == beforeShow + 1, "show retries exactly once inside cooldown")
 try "PASS aggregate visibility, activation retry, ordered interruptions and shouldResume".write(toFile:CommandLine.arguments[1], atomically:true, encoding:.utf8)
 `;
     const file = resolve(dir, 'main.swift'), binary = resolve(dir, 'fixture');
@@ -255,7 +265,10 @@ lifecycle.gesture()
 RunLoop.main.run(until:Date().addingTimeInterval(0.02))
 precondition(calls == [2] && AVAudioSession.instance.attempts == 3, "a gesture retries at once")
 AVAudioSession.instance.fails = false
-for _ in 0..<300 { lifecycle.frame() }
+for _ in 0..<299 { lifecycle.frame() }
+precondition(AVAudioSession.instance.attempts == 3 && calls == [2], "no retry on frames 1 through 299")
+lifecycle.frame()
+precondition(AVAudioSession.instance.attempts == 4)
 precondition(calls == [2,3], "the cooldown's end retries and emits Resumed")
 calls.removeAll()
 background {
@@ -271,6 +284,13 @@ precondition(calls == [2], "failed setActive cannot emit Resumed")
 AVAudioSession.instance.fails = false
 for _ in 0..<300 { lifecycle.frame() }
 precondition(calls == [2,3])
+AVAudioSession.instance.fails = true
+lifecycle.interruption(began: true, shouldResume: false)
+lifecycle.interruption(began: false, shouldResume: true)
+let beforeShow = AVAudioSession.instance.attempts
+owner.visible = false; lifecycle.refresh()
+owner.visible = true; lifecycle.refresh(); lifecycle.refresh()
+precondition(AVAudioSession.instance.attempts == beforeShow + 1, "show retries exactly once inside cooldown")
 try "PASS iOS background notification order, main-thread activation, retries, shouldResume".write(toFile:CommandLine.arguments[1], atomically:true, encoding:.utf8)
 `;
     const file = resolve(dir, 'main.swift'), binary = resolve(dir, 'fixture');

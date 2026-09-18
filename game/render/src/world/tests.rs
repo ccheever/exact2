@@ -884,3 +884,17 @@ fn renderer_defaults_match_world_and_negative_alpha_does_not_enable_grid() {
     material.grid_spacing = 2.0;
     assert_eq!(material_floats(material)[3], -2.0);
 }
+
+#[test]
+fn aspect_only_feed_preserves_authored_integer_camera_height() {
+    let mut w = World::new(60, 0);
+    w.spawn((
+        Transform::default(),
+        Camera::orthographic(180.).integer_scale(),
+    ));
+    w.propagate();
+    let mut f = Feed::default();
+    f.feed_to(&w, &mut Recording::default()).unwrap();
+    assert!((f.frame(&w, 1., 2.).proj.y_axis.y - 2. / 180.).abs() < 1e-7);
+    assert!((f.frame_pixels(&w, 1., (800., 400.)).proj.y_axis.y - 2. / 200.).abs() < 1e-7);
+}

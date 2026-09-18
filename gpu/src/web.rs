@@ -179,6 +179,34 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
     .unwrap_or(2)
 }
 
+/// Whether the host should supply per-child kernel frames.
+pub fn wants_children_each(id: u32) -> bool {
+    with(|m| m.wants_children_each(id)).unwrap_or(false)
+}
+/// Host-composited child: no pixel texture on the browser.
+pub fn child(id: u32, index: u32, frame: [f32; 4]) -> bool {
+    with(|m| m.child(id, index as usize, frame, 0, 0, &[])).unwrap_or(false)
+}
+/// Retire departed direct children.
+pub fn children_count(id: u32, count: u32) -> bool {
+    with(|m| m.children_count(id, count as usize)).unwrap_or(false)
+}
+/// Same encoding as native: 0 kernel frame, 1 ten floats, 2 hidden (out untouched).
+pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
+    if out.len() < 10 {
+        return 0;
+    }
+    match with(|m| m.placement(id, index as usize)).flatten() {
+        Some(p) if p.hidden => 2,
+        Some(p) => {
+            out[..9].copy_from_slice(&p.homography);
+            out[9] = p.depth;
+            1
+        }
+        None => 0,
+    }
+}
+
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
@@ -326,6 +354,25 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::web::render(id, width, height, scale, now_ms)
+        }
+
+        /// Supply child frames when requested; the browser composites their elements.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_wants_children_each(id: u32) -> bool {
+            $crate::web::wants_children_each(id)
+        }
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_child(id: u32, index: u32, x: f32, y: f32, w: f32, h: f32) -> bool {
+            $crate::web::child(id, index, [x, y, w, h])
+        }
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_children_count(id: u32, count: u32) -> bool {
+            $crate::web::children_count(id, count)
+        }
+        /// 0 kernel frame, 1 homography/depth, 2 hidden with out untouched.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
+            $crate::web::placement(id, index, out)
         }
 
         /// Whether a canvas wants raw input.

@@ -305,4 +305,24 @@ mod restart_edge_regression {
             assert_eq!(sim.restarted, count);
         }
     }
+    #[test]
+    fn restart_counter_survives_carry_and_paranoid_reconstruction() {
+        for mode in [
+            crate::Paranoid::Off,
+            crate::Paranoid::Save,
+            crate::Paranoid::FreshGame,
+        ] {
+            let mut sim = Sim::<Example>::new(Options::default())
+                .unwrap()
+                .paranoid(mode);
+            sim.bind(&[Value::Number(0.), Value::Bool(true)], None)
+                .unwrap();
+            let save = sim.save().unwrap();
+            sim.restore_bound(&save).unwrap();
+            assert_eq!(sim.restarted, 1, "carry");
+            sim.advance(0., crate::Clock::Seekable);
+            sim.advance(100., crate::Clock::Seekable);
+            assert_eq!(sim.restarted, 1, "paranoid {mode:?}");
+        }
+    }
 }

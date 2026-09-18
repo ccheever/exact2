@@ -82,7 +82,7 @@ fn tick300_and_restore() {
     let save = a.save().unwrap();
     a.run(2500.);
     println!("sprites tick300 0x{:016x}", a.world().hash());
-    assert_eq!(a.world().hash(), 0xf598d0032d70cce5);
+    assert_eq!(a.world().hash(), 0x2e3d805eb6c89e55);
     assert_eq!(a.world().tick(), 300);
     assert_eq!(a.get::<Emitter>("leaves").unwrap().state.alive, 200);
     let mut b = sim();
@@ -188,6 +188,23 @@ fn rendered_atlas_and_mid_fall_restore() {
         assert!(
             falling == restored,
             "restore/carry pixels differ in {changed} channels"
+        );
+    }
+    let mut end = sim();
+    end.hold("KeyD", 2500.);
+    end.run(2500.);
+    s.restore(&end.save().unwrap(), Restore::Open).unwrap();
+    f.now_ms = 0.;
+    let pixels = fixture::render(&gpu, &mut s, &f).unwrap().0;
+    let rect = s.sim().unwrap().layout("player").unwrap().screen;
+    let samples: Vec<[f32; 3]> = json::from_str(include_str!("leaf-pixels.json")).unwrap();
+    for [x, y, z] in samples {
+        let px = (rect.x + rect.w / 2. + x * rect.w / 24.).round() as u32;
+        let py = (rect.y + rect.h / 2. - y * rect.h / 32.).round() as u32;
+        let [r, _, b, _] = pixels.at(px, py);
+        assert!(
+            if z > 0. { r > b } else { b > 100 && r < 80 },
+            "leaf {x},{y},{z}: {r},{b}"
         );
     }
     assert!(s.take_error().is_none());

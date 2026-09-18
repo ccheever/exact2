@@ -178,14 +178,13 @@ Feel row is scored from the first full sitting (`game/bench/README.md`) for all 
 | **of 35** | **24** | **31** | **30** | | **26** | **31** | **30** |
 
 19 → 20/24 → 24/25 → **30/30 of 35** across four builds; one point behind three.js on
-both cards, four and six ahead of Godot; Feel is the row this engine now wins outright.
+both cards, four and six ahead of Godot; the historical Feel score is withdrawn pending comparable perceptual evidence.
 **F3 footnote to Feel:** these historical cards used world-space displacement,
 and Exact's paced intervals were compared with the twins' raw callbacks. The
 [same-trace re-score](../bench/README.md#f3--re-scored-from-the-same-traces)
-keeps world CV and event-to-drawn-pose milliseconds unchanged, but withdraws a
+recomputes world CV and event-to-drawn-pose milliseconds with every legacy drawn row retained, and withdraws a
 raw-pacing or perceptual winner: Exact's archived raw rAF stamps and every
-engine's camera projection are absent (`—`). Pixel displacement and comparable
-raw pacing await the next sitting; all existing rows remain provisional.
+engine's camera projection are absent (`—`). Sitting #2 now records raw callbacks and cameras; its landmark re-score is in the README. All rows remain provisional, and a quiet sitting is still required.
 
 The asks, concrete on both cards:
 
@@ -205,5 +204,5 @@ The asks, concrete on both cards:
    (sol); task-defining numbers visible at the call site even when they equal the
    defaults (sol — copy three.js's auditability).
 
-Kept, again: the proof through the product's agent, the save, the Contract HUD, and now
-the pacing.
+Kept, again: the proof through the product's agent, the save, and the Contract HUD.
+Raw pacing and landmark motion are measured provisionally; neither establishes a perceptual winner.

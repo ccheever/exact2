@@ -66,7 +66,7 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
     return {checkpoint,final};
   };
   const first=await run(1), second=await run(2);
-  check('advertised cross-host endpoint: tick 907, 7dde46ef4bc4bdb6', first.final.tick === 907 && first.final.hash === '0x7dde46ef4bc4bdb6');
+  check('advertised cross-host endpoint: tick 907, ce6c7b72a5ced1e2', first.final.tick === 907 && first.final.hash === '0xce6c7b72a5ced1e2');
   check('two full input runs produce identical state',equal(first.final,second.final));
   check('two full runs produce identical save bytes',bytes('final-1.world').equals(bytes('final-2.world')));
   say('Original host processes closed; restoring mid-glow with W held and jump queued in a fresh process.');

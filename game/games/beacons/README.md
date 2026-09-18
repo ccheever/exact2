@@ -31,9 +31,7 @@ native rendering parity or live hot-swap measurement is claimed.
 
 E5 retains r4's 60 Hz movement and plain ground. Character is now its own saved
 component, so the tick-907 endpoint hash moves from the pre-E5 `0x331c074e0f135059` to
-`0x7dde46ef4bc4bdb6`; restart is a `#[restart]` boolean edge through setup.
-The final save is 5,505 bytes, SHA-256
-`e388bd748ade00ee7d4a4c50fcaba89024842005d200bef9697a5faae4e75a15`, identical
-across both hosts and fresh-process restore. Warm Linux: 0.47–0.53 s external wall; one internal run was 0.506 s; the two-host repeated proof reports Linux 1.389/0.503 s and web 5.447/5.879 s.
+`0xce6c7b72a5ced1e2`; restart is a `#[restart]` boolean edge through setup.
+Continuation saves are byte-identical across both hosts and fresh-process restore. Warm Linux: 0.47–0.53 s external wall; one internal run was 0.506 s; the two-host repeated proof reports Linux 1.389/0.503 s and web 5.447/5.879 s.
 Those Linux runs use the headless host on this arm64 Mac, not a new x86-64 sweep.
 The global process audit stalled in ps on web; owned carrier processes were awaited.

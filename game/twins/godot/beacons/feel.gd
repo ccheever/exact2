@@ -162,6 +162,7 @@ func _finish() -> void:
 	raw_clocks.resize(count)
 	var size := DisplayServer.window_get_size()
 	var report := {"schema": 1, "stride": STRIDE, "frames": frames, "events": events,
+		"landmark_xyz": [8, 1, 0], "clip_depth": "negative-one-to-one",
 		"raw_callback_ms": raw_clocks, "drawn_clock_ms": raw_clocks, "camera_projection": projection,
 		"overflow": overflow, "hidden_frames": hidden, "unfocused_frames": unfocused,
 		"first_unfocused_ms": first_unfocused, "last_unfocused_ms": last_unfocused,

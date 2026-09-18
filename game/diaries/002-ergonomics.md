@@ -697,3 +697,31 @@ R3 (2026-09-18, uncommitted): removed the macOS disk gate; paranoid proofs now f
 
 
 **R5 — 2026-09-18, closing review fixes; uncommitted.** Same-tick model redelivery rebuilds pose histories at the existing controller clock, preserving this tick's markers/root motion without another transition or journal entry. Two regressions cover Animation, Blend and Animator, shared-model entities, repeated redelivery and an active fade; both fail against the pre-R5 implementation and pass with the fix. The kinematic diagnostic was deleted after two attempts: 256 static/32 kinematic colliders moving vertically and 512 static/64 kinematic colliders moving horizontally after tick one each matched Off/Save/FreshGame saves through 32 ticks, but neither reached a non-initial pending optimization boundary; the pin remains owed in QUEUE. Paranoid lifecycle tests now use actual dist files and receipts, reject paranoid artifacts on ordinary runs, reuse successful trailing-Off output, and rebuild after a trailing Off dies before its receipt; removing mode hashing or accepting the failed build makes these tests fail. Headless steady residency reports SKIP, device runs assert readiness and zero work, and the asset proof establishes its first draw before steady ticks. Both fixtures pass Linux/web with unchanged pins, and KeyR/KeyC/KeyP all run; R4 made `delta` used, so it stays. Beacons/greybox pass all Linux paranoid modes and the trailing Off run with unchanged pins. README pins, cache behavior, current probes and the non-ZST companion/Miri limitation now agree. The size helper's disk gate is deleted (stubbed-command regression fails before, passes after); the skinning test skips an unavailable adapter (injected no-adapter path panics before and exits cleanly after; the real GPU test passes). Clippy, fmt, explicit-file caps and all 23 proof tests pass. P1 corrected the old texture-declaration refusal test during validation; the final workspace rerun passes 497 tests with ten ignored. The combined Bun suite's generated game passes gameplay/Linux and its web screenshot but fails the existing descendant audit, after three attempts including an initial empty discovery result. The unqualified Bun command also selected audio-proof tests whose digest-source regex and two native notification fixtures failed; the explicit two-file run finished 25 passed/one failed. The Bun gate failures are recorded, not green. No commit, clone, stash or sub-agent was used; caps staging used a temporary index and was undone.
+
+
+**U1 — placed Contract children, 2026-09-18.** `Placed::child(1).width(1.2)`
+puts an existing Contract child on an entity plane; the engine saves its intent,
+while the surface derives the displayed homography, larger-nearer depth and an
+explicit hidden outcome. The browser uses CSS and native captures use the ordered
+premultiplied quad pass, including the primitive module. The fixture's real Pull
+button drives a lamp and HUD, survives save/restore, and hides/refuses the fixed
+sign from behind on web. Its tick-330 web/Linux hash is `0x61007363bd681d3c`.
+Linux still has no placement consumer; its painter/surface extension awaits scope
+clarification. The macOS package loader failed before Swift compilation with a
+missing BuildServerProtocol symbol, so native tap/accessibility and forty-child
+capture measurements remain owed; the temporary wrappers were removed. Release
+projection measured 40.594 ns/child/frame; browser encode p50/p95 was 0.100/0.200 ms
+and GPU p50/p95 0.508701/0.784862 ms at 1280×720. Shared-tree wasm grew 29,880 raw
+and 12,396 gzip bytes, including concurrent R6 work. Native GPU pixels prove
+premultiplied overlap, equal-depth Contract order and wall occlusion. Browser tests
+also caught and fixed unchanged frame delivery during module replacement and
+preserved placement on a failed swap. Beacons remains untouched by this slice:
+its conditional nearest prompt needs stable child identity and ownership transfer,
+more than one Contract line plus one component. Displayed sockets still use the
+existing tick-resolved follower interpolation. Final game tests: 516 passed,
+11 ignored; all-target clippy, both fmt checks, root build, 51 browser tests and
+caps pass. All six prior fixtures pass web/Linux with their working-tree pins;
+U1 did not edit those pins. No commit or sub-agent.
+
+
+**R6 — 2026-09-18, uncommitted.** Camera now derives and always saves its projection, moving the enumerated pre-1.0 pins once; aspect-only feeds retain authored orthographic height. Quad pipelines/capacity prepare before interaction, compatible sprite runs coalesce (the strip is six draws), mixed-kind ties are total, and invalid components journal without blacking out neighbors. Particle invariant hoisting preserves the old evaluator's float bits and measures 2.80 ms median encode for 20 × 1,000 on this M5 Max; both timing receipts are retained outside build directories. Texture residency is shared, atlas frames do not rediscover dependencies, and retired assets are charged from GPU allocation sizes, including pending same-name replacements; slot reclamation keeps live hero handles/history, with GPU arena packing reserved for the remaining capacity excess. Restart counters survive Carry/paranoid reconstruction, authored Cargo package names survive directory renames, explicit focus precedes autofocus, host replacement clears autofocus history, and topology replacement cannot freeze an Animator fade. Greybox intentionally keeps the nearest-one interaction introduced earlier: one press lights one eligible beacon, a gameplay change documented in its README, not disguised as an equivalent query idiom. Process survivors fail and remain in the cleanup receipt; inventory parsing covers both day widths and zombies. Device skips are Linux-only in residency proofs, KeyP checks textures/pipelines too, and Apple fixtures pin 299/300-frame cooldown plus visibility refresh. Feel records only the host draw callback, refuses overflow, retains every legacy drawn row and projects the first beacon as a fixed landmark; the three cited trace batches and their reanalysis are retained. Sitting #2 remains provisional under shared load, with landmark CV distinct from world CV; no perceptual winner or new sitting is claimed. Final validation and the finding-to-regression map are in the game README.

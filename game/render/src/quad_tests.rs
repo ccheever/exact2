@@ -182,3 +182,159 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         "{state}"
     );
 }
+
+#[test]
+fn invalid_quads_are_journaled_without_refusing_valid_neighbors() {
+    let gpu = fixture::device().unwrap();
+    let mut w = World::new(60, 0);
+    w.spawn((
+        Transform::default(),
+        Emitter {
+            rate: -1.,
+            ..Emitter::default()
+        },
+    ));
+    w.spawn((Transform::default(), Sprite::new("bad.tex", [0., 1.])));
+    w.spawn((Transform::default(), Sprite::new("white.tex", [1., 1.])));
+    w.propagate();
+    let mut r = crate::renderer::RendererWithAssets::<true>::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    crate::Feed::default().feed(&w, &mut r).unwrap();
+    assert!(w.journal().iter().any(|l| l.line.contains("Emitter:")));
+    assert!(w
+        .journal()
+        .iter()
+        .any(|l| l.line.contains("Sprite `bad.tex`")));
+}
+
+#[test]
+fn pipelines_and_particle_capacity_are_ready_before_first_emitter() {
+    let gpu = fixture::device().unwrap();
+    let mut r = crate::renderer::RendererWithAssets::<true>::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    let before = r.residency_work();
+    assert_eq!(r.quads.pipeline_count(), 5);
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Emitter::default()));
+    w.propagate();
+    crate::Feed::default().feed(&w, &mut r).unwrap();
+    assert_eq!(r.residency_work().since(before).pipeline_creations, 0);
+    assert_eq!(
+        r.quads.particle_capacity(),
+        emitter::PARTICLE_BUDGET as usize
+    );
+}
+
+#[test]
+fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
+    struct Mixed;
+    impl Game for Mixed {
+        const ID: &'static str = "mixed-quad";
+        const ASSETS: &'static [&'static str] = &["white.tex"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.insert_resource(Environment {
+                background: Some([0.; 3]),
+                bloom: None,
+                fog: None,
+                ..Default::default()
+            });
+            w.spawn((Transform::at(0., 0., 10.), Camera::orthographic(10.)));
+            w.spawn((
+                Transform::default(),
+                Sprite {
+                    color: [0., 0., 1., 0.5],
+                    ..Sprite::new("white.tex", [2., 2.])
+                },
+                Emitter {
+                    rate: 0.,
+                    speed: 0.,
+                    gravity: Vec3::ZERO,
+                    additive: false,
+                    size: [2.; 2],
+                    color: [[1., 0., 0., 0.5]; 2],
+                    state: emitter::EmitterState {
+                        age: 1,
+                        births: vec![emitter::Birth {
+                            count: 1,
+                            lifetime: 10.,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            ));
+            for i in 0..60 {
+                w.spawn((
+                    Transform::at(20. + i as f32, 0., 0.),
+                    Sprite::new("white.tex", [1., 1.]),
+                ));
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let gpu = fixture::device().unwrap();
+    let mut s = WorldSurface::<Mixed, (), true>::default();
+    s.device_ready();
+    s.bind(&[], None).unwrap();
+    s.assets();
+    s.asset(
+        "white.tex",
+        Ok(&bin::to_vec(&TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        })),
+    );
+    let f = Frame {
+        width: 100.,
+        height: 100.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let pixels = fixture::render(&gpu, &mut s, &f).unwrap().0;
+    let [r, _, b, _] = pixels.at(50, 50);
+    assert!(
+        r > b && b > 80,
+        "sprite first, red particle second: {r},{b}"
+    );
+    let mut r = crate::renderer::RendererWithAssets::<true>::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    r.add_texture(
+        "white.tex",
+        &TextureData {
+            width: 1,
+            height: 1,
+            mips: vec![vec![255; 4]],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let w = s.sim().unwrap().world();
+    let mut feed = crate::Feed::default();
+    feed.feed(w, &mut r).unwrap();
+    let input = feed.frame(w, 1., 1.);
+    r.quads.frame::<true>(&gpu.device, &gpu.queue, &input);
+    r.quads.order(&gpu.device, &gpu.queue);
+    assert_eq!(
+        r.quads.draws.len(),
+        3,
+        "sprite + particle + adjacent 60 sprites"
+    );
+    assert_eq!(r.quads.reallocations(), 0);
+}

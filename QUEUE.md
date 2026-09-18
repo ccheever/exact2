@@ -555,13 +555,16 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Paranoid reconstruction resets `asset_mesh_revision`, causing another asset-root
   scan each tick; evaluate preserving that driver cache.
 
-- Generated-game browser cleanup: `bun test ./proof.test.mjs ./new.test.mjs`
-  completed the generated Linux proof and web screenshot, but twice failed the
-  existing descendant audit with one recorded browser child remaining. The
-  initial attempt also returned empty Cargo-discovery output. Three attempts
-  stopped; investigate owned browser cleanup without adding machine gates.
-- The unqualified `bun test proof.test.mjs new.test.mjs` also selects
-  `game/games/greybox/audio-proof.test.mjs`: its source-exclusion regex no longer
-  matches the proof condition, and its two Apple notification fixtures failed
-  during R5 validation. The explicit `./proof.test.mjs ./new.test.mjs` selection
-  isolates the requested files; it does not close those audio-test findings.
+- Generated-game browser cleanup: any recorded descendant surviving the two-second
+  grace fails the proof and remains in `process-cleanup.json`. The audit never kills
+  discovered PIDs; only spawn-owned handles may be signalled. Recheck browser leaks
+  when this machine's process inventory is available.
+
+- **Placed UI (U1) owed:** Linux needs a direct-child frame/placement consumer in
+  `surfaces.rs` and projective composition/hit geometry in its painter/presenter;
+  the named U1 scope did not include those paths, and scope clarification is pending.
+  Its fixture currently proves only state/actions/save/hash parity. Re-run the
+  macOS placement/accessibility proof and `--capture40` when `swift-package` can
+  load BuildServerProtocol; no 40-plate capture number is claimed. Socket followers
+  still interpolate tick-resolved transforms instead of recomposing the displayed
+  socket pose. Browser host-composited children do not participate in mesh depth.

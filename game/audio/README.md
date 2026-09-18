@@ -224,7 +224,7 @@ AU3 diagnostic (64 distinct two-second voices, macOS arm64 dev profile):
 
 Run `cargo test -p exact-game-audio --test player sixty_four_voice_sync_timing -- --ignored --nocapture`.
 The timing is diagnostic, not a threshold. Greybox's 1.5 s forward pin is
-`0xa655423c9a442bce` (moved with Character from `0x0f14b8b231091d12`),
+`0x71f43e51a13cc49f` (moved with Character from `0x0f14b8b231091d12`),
 position `(0, 0.9, -5.3666644)`, matching the current
 native golden and AU3c web deterministic proof.
 

@@ -70,11 +70,12 @@ function motion(frames, offset) {
     judder: mean > 0 ? stddev / mean : null, repeated_fraction: ds.filter(d => d === 0).length / ds.length };
 }
 // Column-major world-to-clip matrix and physical canvas dimensions, from the draw.
-export function projectPixels(position, projection) {
+export function projectPixels(position, projection, clipDepth = 'zero-to-one') {
   if (!projection) return null;
   const [x, y, z] = position, m = projection;
   const w = m[3] * x + m[7] * y + m[11] * z + m[15];
-  if (!(w > 0)) return null;
+  const depth = m[2] * x + m[6] * y + m[10] * z + m[14];
+  if (!(w > 0) || depth < (clipDepth === 'negative-one-to-one' ? -w : 0) || depth > w) return null;
   return [(1 + (m[0] * x + m[4] * y + m[8] * z + m[12]) / w) * m[16] / 2,
     (1 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / w) * m[17] / 2];
 }
@@ -109,9 +110,9 @@ export function analyze(raw, plan) {
     const wanted = edge(plan.schedule[i].code, plan.schedule[i].down, plan.schedule[i].trial);
     if (e[1] !== wanted.code || e[2] !== +wanted.down || e[3] !== wanted.trial) throw new Error(`Event ${i} differs from schedule: ${e}`);
   });
-  // A redraw at an unchanged frame time (a resize, a swap) is the same presented
-  // frame drawn again, not a frame interval: keep the first row of each time.
-  const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => i === 0 || f[0] !== all[i - 1][0]);
+  // Deduplicate only real raw callbacks. Legacy paced clocks cannot distinguish
+  // resize redraws from different callbacks that share a drawn time.
+  const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => !hasRaw || i === 0 || f[0] !== all[i - 1][0]);
   if (frames.length < 100 || frames.some(f => !f.every(Number.isFinite))) throw new Error('Missing/nonfinite frame samples');
   const intervals = frames.slice(1).map((f, i) => f[0] - frames[i][0]);
   if (hasRaw && intervals.some(x => x <= 0)) throw new Error('Nonmonotonic frame timestamps');
@@ -120,7 +121,10 @@ export function analyze(raw, plan) {
   const drawnPacing = distribution(drawnIntervals), drawnMedian = drawnPacing.p50;
   const steady = frames.filter(f => f[1] >= events[2][0] + 1000 && f[1] < events[3][0]);
   const player = motion(steady, 2), camera = motion(steady, 5);
-  const screen_player = screenMotion(steady.map(f => projectPixels(f.slice(2, 5), raw.camera_projection?.slice(f[9] * 18, (f[9] + 1) * 18))));
+  const clipDepth = raw.clip_depth ?? (raw.exact_trace ? 'zero-to-one' : 'negative-one-to-one');
+  const pixels = (f, point) => projectPixels(point, raw.camera_projection?.slice(f[9] * 18, (f[9] + 1) * 18), clipDepth);
+  const screen_player = screenMotion(steady.map(f => pixels(f, f.slice(2, 5))));
+  const screen_landmark = raw.landmark_xyz ? screenMotion(steady.map(f => pixels(f, raw.landmark_xyz))) : null;
   if (player.samples < 10 || player.judder === null) throw new Error('No constant-velocity W motion measured');
   const latency = [];
   const same = (a, b) => a[2] === b[2] && a[3] === b[3] && a[4] === b[4];
@@ -141,7 +145,7 @@ export function analyze(raw, plan) {
     refresh_interval_ms: median, observed_refresh_hz: median ? 1000 / median : null,
     frame_ms: pacing, hitches, hitch_percent: hitches === null ? null : hitches / frames.length * 100,
     drawn_clock_ms: drawnPacing, drawn_hitches: drawnHitches, drawn_hitch_percent: drawnHitches / frames.length * 100,
-    player, camera, screen_player, latency: { trials: latency, valid_trials: valid.length,
+    player, camera, screen_player, screen_landmark, legacy_clock_caveat: hasRaw ? null : 'Legacy Exact: every drawn row retained; resize redraws cannot be distinguished from callbacks.', latency: { trials: latency, valid_trials: valid.length,
       median_ms: quantile(valid, .5), p95_ms: quantile(valid, .95),
       median_intervals: valid.length && median ? quantile(valid, .5) / median : null,
       p95_intervals: valid.length && median ? quantile(valid, .95) / median : null },
@@ -327,14 +331,14 @@ export function table(rows) {
     `${row.valid === false ? 'INVALID ' : ''}${row.provisional ? 'PROVISIONAL' : 'quiet'}`,
     fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), intervals(row.frame_ms), hitches(row.hitches, row.hitch_percent),
     intervals(row.drawn_clock_ms), hitches(row.drawn_hitches, row.drawn_hitch_percent),
-    row.screen_player ? judderText(row.screen_player.judder) : '—', percent(row.screen_player?.change_fraction), percent(row.screen_player?.repeated_fraction),
+    row.screen_landmark ? judderText(row.screen_landmark.judder) : '—', percent(row.screen_landmark?.change_fraction), percent(row.screen_landmark?.repeated_fraction), row.screen_player ? judderText(row.screen_player.judder) : '—',
     judderText(row.player.judder), percent(row.player.repeated_fraction), judderText(row.camera.judder), percent(row.camera.repeated_fraction),
     `${fmt(row.latency.median_ms)}/${fmt(row.latency.p95_ms)}`, `${fmt(row.latency.median_intervals)}/${fmt(row.latency.p95_intervals)}`,
     row.engine === 'godot' ? '_input → _process pose; after sample' : 'listener → draw pose; CDP between callbacks',
     fmt(row.tick_phase, 4), `${row.latency.valid_trials}/20; ${row.delivered_events}/${row.expected_events}`,
     row.frontmost_visible_confirmed ? 'yes' : 'NO'];
   const lines = [['variant', 'run / trace', 'status', 'load1', 'raw Hz', 'raw callback intervals p50/p95/p99/max ms', 'raw hitches',
-    'drawn-clock intervals p50/p95/p99/max ms', 'drawn hitches', 'screen player CV (px)', 'Δ change >0.5 px %', 'screen zero %',
+    'drawn-clock intervals p50/p95/p99/max ms', 'drawn hitches', 'landmark CV (px)', 'landmark Δ change >0.5 px %', 'landmark zero %', 'player screen CV (diagnostic)',
     'world player CV (m)', 'world player zero %', 'world camera CV (m)', 'world camera zero %',
     'event delivery → first drawn pose p50/p95 ms', 'latency / raw interval p50/p95', 'endpoints; injection phase', 'tick_phase', 'trials; edges', 'front/visible']];
   for (const variant of [...new Set(rows.map(r => `${r.engine}/${r.variant}`))]) {
@@ -350,6 +354,7 @@ export function table(rows) {
     for (const key of ['load1', 'observed_refresh_hz', 'hitches', 'hitch_percent', 'drawn_hitches', 'drawn_hitch_percent']) middle[key] = group.some(r => r[key] == null) ? null : quantile(group.map(r => r[key]), .5);
     for (const [key, fields] of Object.entries({ frame_ms: ['p50', 'p95', 'p99', 'max'], drawn_clock_ms: ['p50', 'p95', 'p99', 'max'],
       screen_player: ['judder', 'change_fraction', 'repeated_fraction'],
+      screen_landmark: ['judder', 'change_fraction', 'repeated_fraction'],
       player: ['judder', 'repeated_fraction'], camera: ['judder', 'repeated_fraction'],
       latency: ['median_ms', 'p95_ms', 'median_intervals', 'p95_intervals'] })) {
       if (group.some(r => !r[key])) { middle[key] = null; continue; }
@@ -522,10 +527,12 @@ export async function runFeel(options, { ready = preflight, prepare = prepareExa
 // `reanalyze <trace.json.gz>…` scores saved raw traces with the current analyzer and
 // prints one table; the rows say which trace they came from. A row scored this way
 // is labelled "reanalyzed" and is never appended to the sitting's JSONL.
-export function reanalyze(paths) {
+export function reanalyze(paths, landmark) {
+  if (landmark && (landmark.length !== 3 || !landmark.every(Number.isFinite))) throw new Error("--landmark requires x,y,z");
   const { gunzipSync } = require('node:zlib');
   return paths.map(path => {
     const raw = JSON.parse(gunzipSync(readFileSync(path)).toString());
+    if (landmark) raw.landmark_xyz = landmark;
     const name = path.replace(/^.*feel-/, '').replace(/\.json\.gz$/, '');
     const [, engine, variant, run, attempt] = name.match(/Z-([a-z]+)-([a-z0-9]+)-(\d+)-attempt(\d+)$/) ?? [, 'trace', name, 1, 1];
     const log = join(dirname(path), `feel-${name.slice(0, 10)}.jsonl`);
@@ -544,7 +551,12 @@ export function reanalyze(paths) {
 }
 
 async function main() {
-  if (process.argv[2] === 'reanalyze') { console.log(table(reanalyze(process.argv.slice(3)))); return; }
+  if (process.argv[2] === 'reanalyze') {
+    const args = process.argv.slice(3), at = args.indexOf('--landmark');
+    const landmark = at < 0 ? undefined : args.splice(at, 2)[1]?.split(',').map(Number);
+    if (at >= 0 && !landmark) throw new Error('--landmark requires x,y,z');
+    console.log(table(reanalyze(args, landmark))); return;
+  }
   const options = cli(process.argv.slice(2));
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   const rows = await runFeel(options);

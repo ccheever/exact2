@@ -808,6 +808,7 @@ enum Capture {
         var hidden: [UIView] = []
         func hide(_ v: UIView) {
             for s in v.subviews {
+                if let n = s as? NodeView, n.placement != nil, !n.isHidden { n.isHidden = true; hidden.append(n); continue }
                 // A nested canvas paints its readback in `draw` (LLP 1014):
                 // drop the layer's cached picture so the render calls `draw`
                 // instead of copying what it drew last time (its placements

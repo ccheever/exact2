@@ -226,7 +226,8 @@ pub trait Surface {
     }
     /// The `index`th direct child's texture (created or resized; contents
     /// update in place) and its frame in the canvas's points — `x, y, width,
-    /// height`. `None` when the child is gone.
+    /// height`. A `None` texture with a non-empty frame means the host composites
+    /// this child (web/Linux). `None` with an empty frame means it is gone.
     fn child(&mut self, _index: usize, _texture: Option<&wgpu::TextureView>, _frame: [f32; 4]) {}
     /// How many direct children there are now (children past it are gone).
     fn children_count(&mut self, _count: usize) {}
@@ -236,7 +237,8 @@ pub trait Surface {
     /// larger nearer the eye, which orders hit-testing where children
     /// overlap (the browser's hit-test stack follows draw order). `None` is
     /// the kernel's frame, untouched. The host inverts the homography to
-    /// hit-test and reports the mapped box to accessibility.
+    /// hit-test and reports the mapped box to accessibility. A hidden placement
+    /// excludes the subtree from painting, hit-testing and accessibility.
     fn placement(&self, _index: usize) -> Option<Placement> {
         None
     }
@@ -251,6 +253,8 @@ pub trait Surface {
 /// Where a surface put a child (LLP 1014 D5): see [`Surface::placement`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
+    /// Explicitly absent from presentation; `None` still means the kernel frame.
+    pub hidden: bool,
     /// Child points to canvas points, row major, projective.
     pub homography: [f32; 9],
     /// Larger nearer the eye.
@@ -671,6 +675,25 @@ impl Module {
         bytes: &[u8],
     ) -> bool {
         self.check_device();
+        if !frame.iter().all(|n| n.is_finite()) || frame[2] < 0. || frame[3] < 0. {
+            self.error = format!("child {index}: invalid frame");
+            return false;
+        }
+        if width == 0 && height == 0 && bytes.is_empty() {
+            let Some(inst) = self.instances.get_mut(&id) else {
+                return false;
+            };
+            if index > inst.each.len() {
+                return false;
+            }
+            if index == inst.each.len() {
+                inst.each.push(None);
+            }
+            inst.each[index] = None;
+            inst.surface.child(index, None, frame);
+            inst.dirty = true;
+            return true;
+        }
         let expected = (width as usize)
             .checked_mul(height as usize)
             .and_then(|n| n.checked_mul(4));

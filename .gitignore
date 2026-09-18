@@ -21,3 +21,8 @@ game/twins/godot/**/.godot/
 
 # Raw per-frame traces from the feel probe: kept locally, summarized in feel-*.jsonl
 game/bench/results/*.json.gz
+
+# Cited sittings are reproducible evidence; uncited captures remain local.
+!game/bench/results/feel-2026-09-18T11-56-12-978Z-*.json.gz
+!game/bench/results/feel-2026-09-18T12-27-35-105Z-*.json.gz
+!game/bench/results/feel-2026-09-18T20-36-09-882Z-*.json.gz

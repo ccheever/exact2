@@ -49,6 +49,7 @@ window.feel = {
     return { schema: 1, stride: STRIDE, frames: Array.from(frames.subarray(0, count * STRIDE)),
       raw_callback_ms: Array.from(frames.subarray(0, count * STRIDE)).filter((_, i) => i % STRIDE === 0),
       drawn_clock_ms: Array.from(frames.subarray(0, count * STRIDE)).filter((_, i) => i % STRIDE === 0),
+      landmark_xyz: [8, 1, 0], clip_depth: 'negative-one-to-one',
       camera_projection: Array.from(projection.subarray(0, count * 18)),
       ...delivered, overflow: overflow || delivered.overflow,
       hidden_frames: hidden, unfocused_frames: unfocused,

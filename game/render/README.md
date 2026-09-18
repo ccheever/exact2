@@ -82,7 +82,7 @@ true` selects `module!(MyGame, assets)` and its concrete model adapter. The prim
 module links neither model decoding nor the model shader family. Bind constructs Sim;
 the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
-records, without per-instance CPU work.
+records, without per-instance CPU work on the primitive retained path.
 
 Feed checks storage write generations against each target history and reads only
 changed pages. It patches parented global poses into retained scratch, coalesces
@@ -132,7 +132,7 @@ The environment's hemisphere approximation supplies ambient metallic reflection;
 this is not image-based lighting.
 At 200k slots materials cost 9.6 MB, two transform histories 16 MB.
 
-Camera/sun/point rotations use normalized slerp histories. The first posed sun
+Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
 wins. Point-light selection is feed-only, at most sixteen lights, with a 10%
 incumbent distance margin and entity-order ties. Engine illuminance is lux:
 10,000 lux maps to renderer radiance 3. Missing materials/environment use defaults.
@@ -161,16 +161,17 @@ is the engine's noncryptographic content hash, not an authentication digest.
 `presentation_generation` invalidates world-derived transform histories, material
 pages, draw records, instance lists and skin pose histories. It does not invalidate
 asset residency or palette capacity. `Feed::reset` clears old entity identities
-before inspecting the replacement world. Retiring a host request likewise resets
-the feed without destroying the renderer; shared textures and pipelines survive.
-Retired residency is inactive until model delivery and the full prepared dependency closure. Device loss, a format change or
-a full module replacement needs a new renderer and new uploads. Retired content has a 64 MiB conservative byte budget (rounded texture allocations,
-four times serialized model bytes for arena capacity, expanded per-skin node
-hierarchies/rest poses, plus per-entry metadata).
-Crossing it compacts the renderer to live assets. A same-name changed model also
-compacts, reclaiming old geometry, materials and skin templates. Live texture views
-survive compaction; live geometry is uploaded again and cumulative counters include
-that work. Live content is not bounded by the retired-content budget.
+before inspecting the replacement world. Retiring host requests deactivates their
+content without resetting unrelated entities' histories. Re-requested Pending names
+remain retired until their bytes are digest-accepted. Device loss, format change
+or full module replacement still requires a new renderer.
+
+The 64 MiB retired budget charges texture mip dimensions and allocated buffer sizes,
+including unused mesh-arena capacity. Compaction drops retired loaded entries and
+orphan material/skin slots while keeping live pipelines, meshes and pose histories.
+Same-name replacement reuses the old slots after digest acceptance. Only shared
+mesh-arena pressure triggers GPU-to-GPU packing; live meshes are not re-uploaded
+from CPU data. Live content is not bounded by this retired-content budget.
 
 `state.world` includes `{ready, readyReasons, gpu: {beforeReady, afterReady,
 bufferScope}}`. Each work record has `textureUploads`, `meshUploads`,
@@ -178,9 +179,9 @@ bufferScope}}`. Each work record has `textureUploads`, `meshUploads`,
 after preparation fixes `beforeReady`; later work accumulates in `afterReady`.
 Restore and retirement do not reset that boundary. A device replacement resets it; budget/replacement compaction preserves it.
 Texture counts include the three default maps; mesh counts include primitives;
-pipelines include the eleven primitive/effect pipelines and skin compute pipelines.
+pipelines include primitive/effect, model, skin and quad pipelines.
 `bufferScope` explicitly limits reallocation counts to model instance, weight,
-hierarchy, local-pose, job and palette buffers; core transform/geometry arena
+hierarchy, local-pose, job, palette and quad buffers; core transform/geometry arena
 instrumentation is outside this slice. `ready` is exactly an empty `readyReasons` set; named declaration and render
 failures are included. Headless state has `ready: false`, reason
 `no device`, and zero GPU work; it is simulation evidence only.
@@ -469,7 +470,7 @@ physical widths with nearest sampling.
 Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
 depth; the ordered translucent pass follows the sky, depth-tests and does not
 write depth. Ordering is descending view depth, ascending layer and entity slot,
-then sub-instance index. Models use layer zero. Sprites and particles cast no
+then kind rank and stable per-owner ordinal. Models use layer zero. Sprites and particles cast no
 shadows. Soft circular particles choose additive or straight-alpha blending;
 sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
 Billboard extents use scale magnitudes to preserve front-facing winding; texture
@@ -479,8 +480,9 @@ the measured primitive wasm contains neither the sprite texture shader marker no
 the sprite texture binding label, and a GPU test verifies named Sprite refusal.
 Retirement removes a sprite's drawable binding while retaining its resident
 texture for digest-checked redelivery. Compaction preserves only active bindings.
-The existing residency counters cover primitive/model/skin pipelines and model/
-skin buffer reallocations; they do not count quad pipelines or quad buffer growth.
+The residency counters include quad pipelines and quad buffer growth. Particle
+pipelines and the full 65,536-particle arena prepare with the renderer; sprite
+pipelines prepare with the asset-capable renderer before its ready boundary.
 
 ### Measured on 2026-09-18
 
@@ -494,33 +496,21 @@ it is not total frame wall time. Tick/feed columns are per-sample means. Browser
 clock quantization produces zero p50 tick/feed samples; those operations are not
 free. These are single shared-machine runs, not isolated performance guarantees.
 
-| Scene | Samples | CPU encode p50 / p95 ms | Tick / feed mean ms | GPU p50 / p95 ms | Draws / instances |
-|---|---:|---:|---:|---:|---:|
-| 20 emitters × 1,000 particles | 181 | 3.600 / 4.200 | 0.04807 / 0.02376 | 0.282579 / 0.459493 | 2 / 20,000 |
-| Walking sprites + 200 leaves | 184 | 0.200 / 0.300 | 0.02989 / 0.07120 | 0.304995 / 0.309746 | 67 / 264 |
+The previous exact timing and size tables were removed: their referenced receipts
+were absent from the tracked tree. They cannot support a reproducible claim.
+The R6 receipts retain every sample, base commit `e0ab1904`, measured build input/
+artifact digests, and hardware (Apple M5 Max, 128 GiB, macOS 26.6.2). They measure
+the uncommitted R6/U1 working build, not an isolated committed revision.
 
-Mean CPU encode is 3.67017 ms and 0.17500 ms respectively. Both measurement
-windows average one tick/frame. Summing mean tick, feed and encode gives
-3.74199 ms and 0.27609 ms; that excludes the rest of the host and browser.
-No timestamp query errors were reported. Raw samples and the full distributions:
-[particles](../games/particles-fixture/artifacts/perf-web.json),
-[sprites](../games/sprites-fixture/artifacts/perf-web.json).
-The emitter implementation is 344 engine lines including its unit test; the
-shared sprite/particle path is 500 render lines, plus shaders and device tests.
+| Fixture | Instances | Draws | Encode p50 / p95 ms | GPU p50 / p95 ms |
+|---|---:|---:|---:|---:|
+| [20 × 1,000 particles](../bench/results/r6-particles-fixture-perf.json) | 20,000 | 2 | 2.80 / 3.50 | 0.283 / 0.312 |
+| [moving sprite strip](../bench/results/r6-sprites-fixture-perf.json) | 264 | 6 | 0.20 / 0.30 | 0.289 / 0.298 |
 
-The same Beacons module measured by `bun game/bench/size.mjs`:
-
-| Shared-tree build | Shipped raw bytes | Gzip bytes |
-|---|---:|---:|
-| p1-before | 801,209 | 337,824 |
-| p1-final | 858,785 | 358,320 |
-| Difference | +57,576 | +20,496 |
-
-The snapshots include concurrent R4 work and subsequent shared-tree edits; this
-is not an isolated P1 attribution. Baseline/final receipts and pre-opt attribution
-are `games/beacons/target/d3-size/p1-before.json` and `p1-final.json`; pre-opt attribution
-is not a breakdown of shipped bytes. The normal web build produced both modules;
-size.mjs was run with `--no-build` to measure those exact artifacts.
+The old 3.6 ms particle encode claim lacked its receipt; the new 2.80 ms median
+is a measured value, not a controlled speedup ratio. Compatible sprite runs reduce
+the strip from 67 draws to 6. Both captures report zero after-ready texture/mesh
+uploads, pipeline creations and tracked buffer reallocations.
 
 Reproduce from the repository root with the required build environment:
 
@@ -548,3 +538,92 @@ mask cutoff, negative scale, sprite retirement/redelivery, and exact pixels afte
 Open/Carry. The macOS screenshot remains owed: after two SDK linker failures, the
 third build used MacOSX26 successfully for Rust but SwiftPM failed on a missing
 BuildServerProtocol symbol. The three-round limit stopped that host loop.
+
+Sprite scale uses magnitudes; `Sprite.flip` changes UV orientation. `Sprite.layer`
+affects blended ordering only; Opaque/Mask use the depth buffer. Adjacent compatible
+sprite runs coalesce without crossing intervening translucent records. Translucent
+keys are depth, layer, entity slot, kind (model, sprite, particle, placed child), then
+stable per-owner ordinal. Particle trajectories use the emitter's **current**
+parameters and transform: local-space smoke. Detached sparks would retain spawn
+pose/configuration per birth batch; that behavior is not built.
+
+
+## Placed children (U1, 2026-09-18)
+
+Plane geometry is `Placed::project` in the engine. The render adapter retains
+child frames and texture views, follows the same displayed camera/entity histories
+as sprites, and exposes `Placement {homography, depth, hidden}`. The closed-form
+homography uses the clip-space top-left corner and its right/down differences;
+no matrix solve is needed. A hand-computed square regression checks all four
+mapped corners. Near-plane, off-canvas and Fixed back-face hiding return an
+explicit hidden placement, never None. Invisible owners keep that hidden outcome.
+There is no saved presentation cache.
+
+`Placement.depth` is negative view distance (larger nearer). `Quads::frame`
+converts it once to positive view distance with `-placement.depth` for the shared
+back-to-front translucent order. UI uses an explicit `Kind::Child(u16)` identity;
+its owner key is the Contract child index, so equal-depth children draw in the
+same order that Apple inverse-hit-testing and browser z-index use. Captured child
+views share the quad texture lifetime, arena submission and ordered pass, with
+premultiplied blending and depth testing. This native capture path is present in
+primitive modules as well as model-capable modules. It is compiled out on wasm,
+where the host supplies frames without textures and composites the real elements.
+Unplaced children, including the HUD, remain ordinary host UI. A HUD-only world
+returns false from `wants_children_each` and pays no per-child capture cost.
+
+Measurements on the shared Mac, 2026-09-18:
+
+| Measurement | Result | Scope |
+| --- | ---: | --- |
+| Plane geometry + homography + visibility + ABI adapter | 40.594 ns/child/frame | 400,000 release calls, `homography_cost` ignored diagnostic |
+| Fixture tick CPU mean | 0.023889 ms | 180 live browser frames, 1280×720, DPR 1 |
+| Fixture feed CPU mean | 0.074444 ms | Same sample |
+| Fixture renderer encode p50 / p95 / mean | 0.100000 / 0.200000 / 0.115556 ms | Same sample; excludes DOM composition |
+| Fixture GPU p50 / p95 | 0.508701 / 0.784862 ms | WebGPU timestamps, forward + ACES; no timestamp errors |
+| Frame interval p50 / p95 | 16.666040 / 16.667620 ms | Browser callback cadence; not GPU time or scanout |
+| Retained baseline module raw / gzip | 858,785 / 358,320 bytes | `bun game/bench/size.mjs u1-before --no-build` |
+| Final shared-tree module raw / gzip | 888,665 / 370,716 bytes | `bun game/bench/size.mjs u1-after` |
+| Module delta raw / gzip | +29,880 / +12,396 bytes | Includes concurrent R6 changes; not isolated U1 attribution |
+| macOS capture of 40 name-plates | unavailable | Swift package loader aborts before compilation |
+
+The browser sample is `games/placement-fixture/artifacts/perf-web.json`; size
+attribution is `games/beacons/target/d3-size/u1-{before,after}.json`. The baseline
+was the retained P1 build, not a fresh isolated checkout. The fixture's `--capture40`
+mode prepares forty real Contract text children for the native capture log. The
+three-round native attempt stopped at a missing `BuildServerProtocol` symbol in
+`swift-package`, including with the required temporary native-build wrapper;
+there is no measured macOS capture number, tap proof or accessibility result yet.
+The pure native GPU pixel test passes and covers premultiplied overlap, equal-depth
+Contract order, opaque wall occlusion and explicit near-plane hiding.
+
+The fixture's browser proof passes placed layout, camera orbit, Pull → lamp/HUD,
+back-face hiding and failed hidden tap, save/restore and a stationary HUD. Its
+Linux proof covers state, ordinary Contract input and save/hash parity, not placed
+composition: Linux's headless host has no child-placement consumer, and extending
+its painter/surface scope awaits clarification. Socket attachments use the existing
+interpolated tick-resolved socket follower transform; displayed bone/socket
+recomposition is not implemented by this slice.
+
+Pins exercised without U1 editing the existing fixtures' pins:
+
+| Fixture | Tick / checkpoint | Hash |
+| --- | --- | --- |
+| Greybox | setup | `0x9a871d8582d905e7` |
+| Greybox | W for 1500 ms | `0x71f43e51a13cc49f` |
+| Beacons | 907, three lights | `0xce6c7b72a5ced1e2` |
+| Asset | 60 | `0xb1365b0eb9a7c59d` |
+| Skinned | 60 | `0x749639d3ffa1be59` |
+| Skinned | 120 | `0x0960f8999dd20662` |
+| Particles | 300 | `0x8dc0cac2d2645d93` |
+| Sprites | 300 | `0x2e3d805eb6c89e55` |
+| Placement | 330 | `0x61007363bd681d3c` |
+
+Final verification: game workspace tests **516 passed, 11 ignored**; all-target
+clippy and game/root fmt pass. Root `cargo build --workspace` passes. Web tests
+**51 passed**; the native device-free ABI test confirms 0/1/2 and untouched output
+on hidden. Greybox, Beacons, asset, skinned, particles and sprites proofs pass on
+web and Linux. The sprites web build first met a concurrent Rust-edition error;
+the retry after the required wait passed. The placement proof passes on web and
+Linux with the limitations above. Caps passes with only explicitly named U1 files
+staged in a temporary index, removed afterward; the shared index is untouched.
+Logs are `/tmp/u1-*.log`. No commit, clone, stash or sub-agent.

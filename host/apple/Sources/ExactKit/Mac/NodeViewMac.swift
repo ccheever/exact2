@@ -217,6 +217,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Hit-testing inverts it, nearest child first; accessibility reports the
     /// mapped box.
     var placement: [Double]?
+    private var hiddenBeforePlacement = false
+    var placementHidden = false {
+        didSet {
+            if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
+            if placementHidden { isHidden = true }
+            else if oldValue { isHidden = hiddenBeforePlacement }
+            setAccessibilityHidden(placementHidden || inert)
+        }
+    }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
@@ -685,7 +694,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var placedAncestor: NodeView? {
         var v: NSView? = self
         while let n = v {
-            if let node = n as? NodeView, node.placement != nil { return node }
+            if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
             if let s = n.superview as? FlippedView, s.superview is NodeView, (s.superview as? NodeView)?.overlay === s { return nil }
             v = n.superview
         }
@@ -738,19 +747,19 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !inert, !isHiddenOrHasHiddenAncestor else { return nil }
+        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
         func ordinary() -> NSView? {
             let hit = super.hitTest(point)
             return hit != nil && hit === overlay ? self : hit
         }
         guard let overlay, let sup = superview else { return ordinary() }
-        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
+        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
         let inCanvas = convert(point, from: sup)
         guard !isHidden, bounds.contains(inCanvas) else { return nil }
         // Nearest first: what is seen on top is what a tap reaches.
-        for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
+        for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
             let p = NodeView.map(inv, inCanvas)
             guard child.bounds.contains(p) else { continue }
@@ -759,7 +768,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if let hit = child.hitTest(inOverlay) { return hit }
         }
         let inOverlay = overlay.convert(inCanvas, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil {
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
             if let hit = child.hitTest(inOverlay) { return hit }
         }
         return self
@@ -769,6 +778,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// node is (or is under), for assistive technology — the same box the
     /// agent's `layout` reports.
     override func accessibilityFrame() -> NSRect {
+        if placedAncestor?.placementHidden == true { return .zero }
         guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
         let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
         let xs = corners.map { $0.x }, ys = corners.map { $0.y }

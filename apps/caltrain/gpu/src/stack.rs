@@ -424,6 +424,7 @@ impl Surface for StackSurface {
                 homography[2] += 100_000.0;
             }
             card.placement = Some(Placement {
+                hidden: false,
                 homography,
                 depth: card.pose.z,
             });

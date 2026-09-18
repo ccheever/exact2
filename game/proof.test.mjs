@@ -258,10 +258,10 @@ test('author examples and documentation describe current motion, placement and p
   expect(read('render/README.md')).not.toContain('ready || no device');
   expect(engine).toContain('without Miri');
   expect(engine).toContain('not\na ZST');
-  expect(read('audio/README.md')).toContain('0xa655423c9a442bce');
+  expect(read('audio/README.md')).toContain('0x71f43e51a13cc49f');
 
   const proof = read('games/greybox/proof.mjs');
-  for (const pin of ['0x7544ef30a82fdcdc', '0xa655423c9a442bce', '[0, 0.9, -5.3666644]']) {
+  for (const pin of ['0x9a871d8582d905e7', '0x71f43e51a13cc49f', '[0, 0.9, -5.3666644]']) {
     expect(proof).toContain(pin);
     expect(greybox).toContain(pin);
   }
@@ -320,7 +320,7 @@ for (const failure of ['none', 'save', 'fresh-throw', 'off-before-receipt']) tes
 test('steady residency skips no-device worlds and asserts only device-backed work', () => {
   const checks = [], lines = [], check = (...args) => checks.push(args), say = line => lines.push(line);
   const gpu = {afterReady:{textureUploads:0, meshUploads:0, pipelineCreations:0, modelSkinBufferReallocations:0}};
-  checkSteadyResidency({device:false, ready:false, gpu}, check, say);
+  checkSteadyResidency({device:false, ready:false, gpu}, check, say, "linux");
   expect(checks).toEqual([]);
   expect(lines).toEqual(['SKIP: no device — after-ready GPU residency']);
   checkSteadyResidency({device:true, ready:true, gpu}, check, say);
@@ -329,4 +329,41 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
   expect(checks.at(-1)[1]).toBe(false);
   checkSteadyResidency({device:true, ready:true, gpu:{afterReady:{textureUploads:1}}}, check, say);
   expect(checks.at(-1)[1]).toBe(false);
+});
+
+ test('inventory parses both lstart day widths and ignores zombies', async () => {
+  const {parseInventoryLine} = await import('./proof.mjs');
+  for (const stamp of ['Tue Sep  8 12:34:56 2026','Fri Sep 18 12:34:56 2026']) {
+    expect(parseInventoryLine(` 123 45 S ${stamp} /path/app --flag`)).toEqual({pid:123,parent:45,stamp,command:'/path/app --flag'});
+    expect(parseInventoryLine(` 123 45 Z+ ${stamp} <defunct>`)).toBeNull();
+  }
+});
+ test('only linux may skip missing GPU residency', () => {
+  for (const host of ['web','macos','ios']) for (const device of [false,undefined]) {
+    const checks=[], lines=[];
+    checkSteadyResidency({device,ready:false,gpu:{afterReady:{}}},(...args)=>checks.push(args),line=>lines.push(line),host);
+    expect(lines).toEqual([]);
+    expect(checks[0][1]).toBe(false);
+  }
+});
+
+test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
+  const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
+  const code=source.slice(source.indexOf('  // Newly mounted autofocus'),source.indexOf('  positionContexts();\n  return batch.timers;'));
+  const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
+  const document={activeElement:null};
+  new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
+    ()=>{if(!document.activeElement) calls.push('autofocus side effect');},[{args:['chosen']}],true,{querySelectorAll:()=>[explicit]},()=>false,()=>({visibility:'visible'}),()=>{},document);
+  expect(calls).toEqual(['explicit']);
+});
+
+test('KeyP forbids texture uploads and pipeline creation as well as requiring new geometry', async () => {
+  const {checkResidency}=await import('./games/asset-fixture/residency.mjs');
+  const state=(textureUploads=0,meshUploads=0,pipelineCreations=0)=>({ready:true,gpu:{afterReady:{textureUploads,meshUploads,pipelineCreations,modelSkinBufferReallocations:0}}});
+  for (const error of ['none','texture','pipeline']) {
+    const checks=[], responses=[{before:state(),after:state()}, {before:state(),after:state(1)}, {before:state(1),after:state(1)},
+      {before:state(1),after:state(error==='texture'?2:1,1,error==='pipeline'?1:0)}];
+    await checkResidency({run:async()=>responses.shift()}, {}, (name,ok)=>checks.push([name,ok]), ()=>{});
+    expect(checks.find(([name])=>name==='new model name reuses textures and pipelines')[1]).toBe(error==='none');
+  }
 });

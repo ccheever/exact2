@@ -81,7 +81,12 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
     embed: resolve(namespace, 'embed') };
 }
 /** Explicit Swift scratch directory; no shared publication path. */
-const productPath = (product, triple, buildRoot) => resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
+// SwiftPM's native build system nests products under the triple; the classic
+// one (Xcode's toolchain) writes them straight into `release/`.
+const productPath = (product, triple, buildRoot) => {
+  const nested = resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
+  return existsSync(nested) ? nested : resolve(buildRoot, 'release', product);
+};
 
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */

@@ -1,0 +1,73 @@
+shape Hud
+  lit: bool
+
+component SmallGame
+  state playing = false
+  state pulls = 0
+  state plates = 0
+  resource hud = exactSurface("world") as shape Hud
+  action play writes playing
+    playing = true
+  action crowd writes plates, playing
+    plates = 40
+    playing = true
+  action pull writes pulls
+    pulls = pulls + 1
+  view
+    main width="100%" height="100%" background-color="#101725" color="#ffffff"
+      when playing
+        canvas surface=world(pulls, plates) testId="world" width="100%" height="100%"
+          when plates == 40
+            text "Name 0" width=100 padding=4 background-color="#174663"
+            text "Name 1" width=100 padding=4 background-color="#174663"
+            text "Name 2" width=100 padding=4 background-color="#174663"
+            text "Name 3" width=100 padding=4 background-color="#174663"
+            text "Name 4" width=100 padding=4 background-color="#174663"
+            text "Name 5" width=100 padding=4 background-color="#174663"
+            text "Name 6" width=100 padding=4 background-color="#174663"
+            text "Name 7" width=100 padding=4 background-color="#174663"
+            text "Name 8" width=100 padding=4 background-color="#174663"
+            text "Name 9" width=100 padding=4 background-color="#174663"
+            text "Name 10" width=100 padding=4 background-color="#174663"
+            text "Name 11" width=100 padding=4 background-color="#174663"
+            text "Name 12" width=100 padding=4 background-color="#174663"
+            text "Name 13" width=100 padding=4 background-color="#174663"
+            text "Name 14" width=100 padding=4 background-color="#174663"
+            text "Name 15" width=100 padding=4 background-color="#174663"
+            text "Name 16" width=100 padding=4 background-color="#174663"
+            text "Name 17" width=100 padding=4 background-color="#174663"
+            text "Name 18" width=100 padding=4 background-color="#174663"
+            text "Name 19" width=100 padding=4 background-color="#174663"
+            text "Name 20" width=100 padding=4 background-color="#174663"
+            text "Name 21" width=100 padding=4 background-color="#174663"
+            text "Name 22" width=100 padding=4 background-color="#174663"
+            text "Name 23" width=100 padding=4 background-color="#174663"
+            text "Name 24" width=100 padding=4 background-color="#174663"
+            text "Name 25" width=100 padding=4 background-color="#174663"
+            text "Name 26" width=100 padding=4 background-color="#174663"
+            text "Name 27" width=100 padding=4 background-color="#174663"
+            text "Name 28" width=100 padding=4 background-color="#174663"
+            text "Name 29" width=100 padding=4 background-color="#174663"
+            text "Name 30" width=100 padding=4 background-color="#174663"
+            text "Name 31" width=100 padding=4 background-color="#174663"
+            text "Name 32" width=100 padding=4 background-color="#174663"
+            text "Name 33" width=100 padding=4 background-color="#174663"
+            text "Name 34" width=100 padding=4 background-color="#174663"
+            text "Name 35" width=100 padding=4 background-color="#174663"
+            text "Name 36" width=100 padding=4 background-color="#174663"
+            text "Name 37" width=100 padding=4 background-color="#174663"
+            text "Name 38" width=100 padding=4 background-color="#174663"
+            text "Name 39" width=100 padding=4 background-color="#174663"
+          else
+            text `Lamp ${hud.lit}` testId="hud" width=120 aria-live="polite" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+            text "The lantern path" testId="sign" width=200 padding=12 background-color="#4c3828" font-size=22
+            text "Moving cube" testId="name" width=140 padding=8 background-color="#174663"
+            button press=pull testId="pull" aria-label="Pull" width=120 padding=12 background-color="#e8ad61"
+              text "Pull" color="#202731" font-size=22
+      else
+        column height="100%" align-items="center" justify-content="center" gap=24
+          text "The lantern path" font-size=40
+          button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
+            text "Play" color="#202731"
+          button press=crowd testId="crowd" padding=12
+            text "40 name-plates"

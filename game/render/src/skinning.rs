@@ -7,6 +7,8 @@ use exact_game::{animation, asset::Model, Entity, Pose, World};
 use exact_gpu::wgpu;
 struct Template {
     meta: u32,
+    words: usize,
+    fresh: bool,
     rest: Vec<f32>,
     joints: usize,
 }
@@ -112,6 +114,8 @@ impl Skinning {
             ids.push(self.templates.len() as u32);
             self.templates.push(Template {
                 meta: self.metadata.len() as u32,
+                fresh: false,
+                words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
             });
@@ -132,6 +136,76 @@ impl Skinning {
         ));
         self.meta.write(queue, 0, bytes(&self.metadata));
         ids
+    }
+    pub(crate) fn mark_fresh(&mut self, skins: &[u32]) {
+        for &id in skins {
+            self.templates[id as usize].fresh = true;
+        }
+    }
+    pub(crate) fn retired_bytes(
+        &self,
+        loaded: &std::collections::BTreeMap<String, crate::models::Uploaded>,
+        live: &std::collections::BTreeSet<String>,
+    ) -> u64 {
+        let retained: std::collections::BTreeSet<_> = loaded
+            .iter()
+            .filter(|(n, m)| m.active && live.contains(*n))
+            .flat_map(|(_, m)| m.skins.iter().copied())
+            .collect();
+        let used: u64 = self
+            .templates
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| retained.contains(&(*i as u32)))
+            .map(|(_, t)| t.words as u64 * 4)
+            .sum();
+        self.meta.raw.size().saturating_sub(used)
+    }
+    pub(crate) fn compact_metadata(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        trim: bool,
+    ) {
+        let mut words = Vec::new();
+        for t in &mut self.templates {
+            let start = t.meta as usize;
+            t.meta = words.len() as u32;
+            words.extend_from_slice(&self.metadata[start..start + t.words]);
+        }
+        if words == self.metadata && !trim {
+            return;
+        }
+        self.metadata = words;
+        if trim || self.meta.raw.size() > 64 * 1024 * 1024 {
+            self.meta = Buffer::new(
+                device,
+                (self.metadata.len() as u64 * 4).max(64),
+                wgpu::BufferUsages::STORAGE,
+                "game packed skin hierarchy",
+            );
+            self.reallocations += 1;
+        }
+        self.meta.write(queue, 0, bytes(&self.metadata));
+    }
+    pub(crate) fn reclaim(
+        &mut self,
+        loaded: &std::collections::BTreeMap<String, crate::models::Uploaded>,
+    ) {
+        let retained: std::collections::BTreeSet<_> = loaded
+            .values()
+            .flat_map(|m| m.skins.iter().copied())
+            .collect();
+        for (i, t) in self.templates.iter_mut().enumerate() {
+            if !retained.contains(&(i as u32)) {
+                t.rest.clear();
+                t.words = 0;
+                t.joints = 0;
+            }
+        }
+        while self.templates.last().is_some_and(|t| t.words == 0) {
+            self.templates.pop();
+        }
     }
     pub fn set(
         &mut self,
@@ -223,7 +297,7 @@ impl Skinning {
                     (&p.previous[..], &p.local[..])
                 });
             self.pose_words[offset..offset + len].copy_from_slice(
-                if initial || w.fresh().contains(&e) {
+                if initial || t.fresh || w.fresh().contains(&e) {
                     curr
                 } else {
                     prev
@@ -235,6 +309,9 @@ impl Skinning {
     }
     pub fn feed(&mut self, queue: &wgpu::Queue, w: &World, entities: &[Entity], initial: bool) {
         self.pack(w, entities, initial);
+        for template in &mut self.templates {
+            template.fresh = false;
+        }
         self.poses.write(queue, 0, bytes(&self.pose_words));
     }
     pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::QuerySet>) {
@@ -284,9 +361,30 @@ mod tests {
         read.unmap();
         bytes
     }
+    fn device_or_skip<T>(result: Result<T, String>) -> Option<T> {
+        match result {
+            Ok(gpu) => Some(gpu),
+            Err(reason) if reason.starts_with("no adapter:") => {
+                eprintln!("SKIP skinning redelivery: {reason}");
+                None
+            }
+            Err(reason) => panic!("GPU device request failed: {reason}"),
+        }
+    }
+    #[test]
+    fn only_classified_no_adapter_may_skip() {
+        assert_eq!(device_or_skip(Ok(7)), Some(7));
+        assert_eq!(
+            device_or_skip::<()>(Err("no adapter: unavailable".into())),
+            None
+        );
+        for reason in ["device lost", "request device: unsupported limits"] {
+            assert!(std::panic::catch_unwind(|| device_or_skip::<()>(Err(reason.into()))).is_err());
+        }
+    }
     #[test]
     fn same_name_redelivery_rebuilds_gpu_rig_and_all_instance_batches() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut model: Model = exact_game::bin::from_slice(include_bytes!(
@@ -322,9 +420,9 @@ mod tests {
         assert_eq!(renderer.models.revision, revision + 1);
         let after = &renderer.models.loaded["fox.model"].nodes;
         let new_skin = after.iter().find_map(|n| n.3).unwrap();
-        assert_ne!(old_skin, new_skin);
-        assert_ne!(before[0].0, after[0].0, "new geometry handles");
-        assert_ne!(before[0].1, after[0].1, "new material handles");
+        assert_eq!(old_skin, new_skin, "retired skin slot reused");
+        assert_eq!(before[0].0, after[0].0, "retired geometry slot reused");
+        assert_eq!(before[0].1, after[0].1, "retired material slot reused");
         feed.feed(&w, &mut renderer).unwrap();
         assert_eq!(renderer.models.records.len(), before.len() * 2);
         assert!(renderer

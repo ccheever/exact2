@@ -21,7 +21,8 @@ pub(crate) fn model_digest(model: &Model) -> u64 {
 }
 
 pub(crate) struct Material {
-    pub bind: wgpu::BindGroup,
+    pub bind: Option<wgpu::BindGroup>,
+    bytes: u64,
     pub alpha: AlphaMode,
     pub double_sided: bool,
     data: MaterialData,
@@ -32,10 +33,13 @@ pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
     digest: u64,
     pub active: bool,
-    pub bytes: u64,
+    pub meshes: Vec<MeshId>,
+    pub materials: Vec<MaterialId>,
+    pub skins: Vec<u32>,
 }
 pub(crate) struct Texture {
     bytes: u64,
+    active: bool,
     pub digest: u64,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -58,6 +62,7 @@ pub(crate) struct Models {
     pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[exact_game::Transform; 2]>,
+    pose_history: BTreeMap<exact_game::Entity, (u64, u64, [exact_game::Transform; 2])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
 }
@@ -206,6 +211,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     })
                     .collect();
                 let id = self.add_mesh(&vertices, &mesh.indices);
+
                 if !mesh.joints.is_empty() {
                     let start = self.meshes[id.0].base_vertex as u64 * 32;
                     let mut words = Vec::with_capacity(mesh.joints.len() * 2);
@@ -230,16 +236,27 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .collect();
         let mut materials = Vec::new();
         for material in &model.materials {
-            materials.push(MaterialId(self.models.materials.len()));
+            let slot = self
+                .models
+                .materials
+                .iter()
+                .position(|m| m.bind.is_none())
+                .unwrap_or(self.models.materials.len());
+            materials.push(MaterialId(slot));
             let names = texture_names(material, &model.textures);
-            self.models.materials.push(material_bind(
+            let material = material_bind(
                 &self.device,
                 &self.queue,
                 &self.pipelines.models.as_ref().unwrap().material,
                 material,
                 &names,
                 &self.models.textures,
-            ));
+            );
+            if slot == self.models.materials.len() {
+                self.models.materials.push(material);
+            } else {
+                self.models.materials[slot] = material;
+            }
         }
         Ok((meshes, materials))
     }
@@ -261,13 +278,24 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         {
             return Ok(());
         }
+        model.validate().map_err(RenderError::scene)?;
+        let replaced = self.models.loaded.remove(name).is_some();
+        if replaced {
+            self.reclaim_orphan_slots();
+        }
         let (meshes, materials) = self.add_model(model)?;
+        for id in &meshes {
+            self.meshes[id.0].asset = true;
+        }
         let skins = self
             .models
             .skinning
             .as_mut()
             .unwrap()
             .add(&self.device, &self.queue, model);
+        if replaced {
+            self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
+        }
         let nodes = model
             .nodes
             .iter()
@@ -293,63 +321,149 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 nodes,
                 digest,
                 active: true,
-                // Conservative arena charge: capacity growth plus per-entry metadata.
-                bytes: (exact_game::bin::to_vec(model).len() as u64 * 4)
-                    // Each skin expands the full node hierarchy and a retained rest pose.
-                    + model.nodes.len() as u64 * model.skins.len() as u64 * 96
-                    + (model.meshes.len() + model.materials.len() + model.skins.len() + 1) as u64
-                        * 1024,
+                meshes,
+                materials,
+                skins,
             },
         );
+        self.reclaim_orphan_slots();
         self.models.revision += 1;
         Ok(())
     }
-    pub(crate) fn model_changed(&self, name: &str, digest: u64) -> bool {
-        self.models
-            .loaded
-            .get(name)
-            .is_some_and(|m| m.digest != digest)
-    }
     pub(crate) fn retired_bytes(&self, live: &std::collections::BTreeSet<String>) -> u64 {
-        self.models
+        let retained: std::collections::BTreeSet<_> = self
+            .models
             .loaded
             .iter()
-            .filter(|(n, _)| !live.contains(*n))
-            .map(|(_, m)| m.bytes)
-            .sum::<u64>()
+            .filter(|(n, m)| m.active && live.contains(*n))
+            .flat_map(|(_, m)| m.meshes.iter().map(|m| m.0))
+            .collect();
+        let live_mesh_bytes: u64 = self
+            .meshes
+            .iter()
+            .enumerate()
+            .filter(|(i, m)| !m.asset || retained.contains(i))
+            .map(|(_, m)| m.vertex_bytes + u64::from(m.indices.end - m.indices.start) * 4)
+            .sum();
+        // Shared arenas are charged at their actual buffer capacity. Unused tails
+        // and orphan spans remain retired until a GPU-to-GPU packing pass.
+        self.mesh_buffer_bytes().saturating_sub(live_mesh_bytes)
+            + self
+                .models
+                .loaded
+                .iter()
+                .filter(|(n, m)| !m.active || !live.contains(*n))
+                .flat_map(|(_, m)| m.materials.iter())
+                .map(|id| self.models.materials[id.0].bytes)
+                .sum::<u64>()
             + self
                 .models
                 .textures
                 .iter()
-                .filter(|(n, _)| !n.starts_with('\0') && !live.contains(*n))
+                .filter(|(n, t)| !n.starts_with('\0') && (!t.active || !live.contains(*n)))
                 .map(|(_, t)| t.bytes)
                 .sum::<u64>()
+            + self.models.skinning.as_ref().map_or(0, |s| {
+                let live_weights: u64 = self
+                    .models
+                    .loaded
+                    .iter()
+                    .filter(|(n, m)| m.active && live.contains(*n))
+                    .flat_map(|(_, m)| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .iter()
+                    .map(|&i| self.meshes[i].vertex_bytes)
+                    .sum();
+                s.retired_bytes(&self.models.loaded, live)
+                    + s.weights.raw.size().saturating_sub(live_weights)
+            })
     }
-    /// Rebuild arenas from the live CPU models after this call. Texture views survive,
-    /// but geometry, materials and skin templates (including replacements) are reclaimed.
+    /// Reclaim retired asset slots, preserving every live handle and pose history.
     pub(crate) fn compact_assets(
         &mut self,
-        format: wgpu::TextureFormat,
+        _format: wgpu::TextureFormat,
         live: &std::collections::BTreeSet<String>,
     ) {
-        let before = self.residency_work();
-        let mut fresh = Self::new(&self.device, &self.queue, format);
-        fresh.models.textures = std::mem::take(&mut self.models.textures);
-        fresh
-            .models
+        self.models
+            .loaded
+            .retain(|n, m| m.active && live.contains(n));
+        self.models
             .textures
-            .retain(|n, _| n.starts_with('\0') || live.contains(n));
-        if ASSETS {
-            for (name, texture) in &fresh.models.textures {
-                if !name.starts_with('\0') && self.quads.has_texture(name) {
-                    fresh.quads.texture(&fresh.device, name, texture);
-                }
+            .retain(|n, t| n.starts_with('\0') || (t.active && live.contains(n)));
+        self.quads
+            .retain_textures(|n| self.models.textures.contains_key(n));
+        self.reclaim_orphan_slots();
+        if let Some(skin) = &mut self.models.skinning {
+            skin.compact_metadata(&self.device, &self.queue, false);
+        }
+        if self.retired_bytes(live) > 64 * 1024 * 1024 {
+            if let Some(skin) = &mut self.models.skinning {
+                skin.compact_metadata(&self.device, &self.queue, true);
+            }
+            self.pack_mesh_buffers();
+            if let (Some(family), Some(instances), Some(skin)) = (
+                &self.pipelines.models,
+                &self.models.instances,
+                &self.models.skinning,
+            ) {
+                self.models.bind = Some(instance_bind(
+                    &self.device,
+                    &family.instance,
+                    instances,
+                    skin,
+                ));
             }
         }
-        fresh.models.samplers = std::mem::take(&mut self.models.samplers);
-        fresh.models.prior_work = before;
-        fresh.models.revision = self.models.revision + 1;
-        *self = fresh;
+        self.models.revision += 1;
+    }
+    fn reclaim_orphan_slots(&mut self) {
+        let meshes: std::collections::BTreeSet<_> = self
+            .models
+            .loaded
+            .values()
+            .flat_map(|m| m.meshes.iter().map(|id| id.0))
+            .collect();
+        let materials: std::collections::BTreeSet<_> = self
+            .models
+            .loaded
+            .values()
+            .flat_map(|m| m.materials.iter().map(|id| id.0))
+            .collect();
+        for (i, m) in self.meshes.iter_mut().enumerate() {
+            if m.asset && !meshes.contains(&i) {
+                m.indices = 0..0;
+                m.vertex_bytes = 0;
+            }
+        }
+        for (i, m) in self.models.materials.iter_mut().enumerate() {
+            if !materials.contains(&i) {
+                m.bind = None;
+                m.bytes = 0;
+                m.names = Default::default();
+            }
+        }
+        while self
+            .models
+            .materials
+            .last()
+            .is_some_and(|m| m.bind.is_none())
+        {
+            self.models.materials.pop();
+        }
+        if let Some(s) = &mut self.models.skinning {
+            s.reclaim(&self.models.loaded);
+        }
+    }
+    pub(crate) fn retire_texture(&mut self, name: &str) {
+        if let Some(t) = self.models.textures.get_mut(name) {
+            t.active = false;
+        }
+        self.quads.retire_texture(name);
+    }
+    pub(crate) fn sprite_texture(&mut self, name: &str) {
+        if let Some(texture) = self.models.textures.get(name).filter(|t| t.active) {
+            self.quads.texture(&self.device, name, texture);
+        }
     }
     /// Reuse a name only when its content digest matches. CPU mips may be dropped.
     pub fn add_texture(&mut self, name: &str, data: &TextureData) -> Result<(), RenderError> {
@@ -357,10 +471,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if let Some(texture) = self
             .models
             .textures
-            .get(name)
+            .get_mut(name)
             .filter(|t| t.digest == digest)
         {
-            if ASSETS {
+            texture.active = true;
+            if self.quads.has_texture(name) {
                 self.quads.texture(&self.device, name, texture);
             }
             return Ok(());
@@ -369,13 +484,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         let mut texture =
             upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
         texture.digest = digest;
-        if ASSETS {
+        if self.quads.has_texture(name) {
             self.quads.texture(&self.device, name, &texture);
         }
         self.models.textures.insert(name.into(), texture);
         self.models.uploads += 1;
         for material in &mut self.models.materials {
-            if material.names.iter().flatten().any(|n| n == name)
+            if material.bind.is_some()
+                && material.names.iter().flatten().any(|n| n == name)
                 && material
                     .names
                     .iter()
@@ -409,9 +525,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         let skin = self.models.skinning.as_ref();
         crate::world::assets::Work {
             texture_uploads: textures,
-            mesh_uploads: self.meshes.len() as u64,
-            pipeline_creations: 11 + pipelines as u64 + skin.map_or(0, |s| s.pipeline_creations),
-            buffer_reallocations: self.models.reallocations + skin.map_or(0, |s| s.reallocations),
+            mesh_uploads: self.mesh_uploads,
+            pipeline_creations: 11
+                + pipelines as u64
+                + skin.map_or(0, |s| s.pipeline_creations)
+                + self.quads.work_pipelines(),
+            buffer_reallocations: self.models.reallocations
+                + skin.map_or(0, |s| s.reallocations)
+                + self.quads.reallocations(),
         }
         .plus(self.models.prior_work)
     }
@@ -440,6 +561,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
         }
+        self.models.pose_history.retain(|e, _| entities.contains(e));
         for ((record, history), &entity) in self
             .models
             .records
@@ -450,13 +572,30 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             if self.models.materials[record.material.0].alpha != AlphaMode::Blend {
                 continue;
             }
+            let digest = world
+                .get::<exact_game::Mesh>(entity)
+                .and_then(|m| match &*m {
+                    exact_game::Mesh::Asset(name) => self.models.loaded.get(name).map(|m| m.digest),
+                    _ => None,
+                })
+                .unwrap_or(0);
             if let Some(pose) = crate::world::scene::pose(world, entity) {
-                history[0] = if initial || crate::world::scene::snap(world, entity, false) {
-                    pose
+                let saved = self.models.pose_history.entry(entity).or_insert((
+                    digest,
+                    world.tick(),
+                    [pose; 2],
+                ));
+                if initial || saved.0 != digest || crate::world::scene::snap(world, entity, false) {
+                    saved.2 = [pose; 2];
                 } else {
-                    history[1]
-                };
-                history[1] = pose;
+                    if saved.1 != world.tick() {
+                        saved.2[0] = saved.2[1];
+                    }
+                    saved.2[1] = pose;
+                }
+                saved.0 = digest;
+                saved.1 = world.tick();
+                *history = saved.2;
             }
         }
     }
@@ -529,11 +668,12 @@ fn material_bind(
         });
     }
     Material {
-        bind: device.create_bind_group(&wgpu::BindGroupDescriptor {
+        bytes: uniform.size(),
+        bind: Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game material textures"),
             layout,
             entries: &entries,
-        }),
+        })),
         alpha: m.alpha_mode,
         double_sided: m.double_sided,
         data: m.clone(),
@@ -631,13 +771,15 @@ fn upload_texture(
         })
     });
     Texture {
+        active: true,
         size: [data.width, data.height],
-        bytes: data
-            .mips
-            .iter()
-            .map(|m| m.len() as u64)
-            .sum::<u64>()
-            .next_power_of_two(),
+        bytes: (0..texture.mip_level_count())
+            .map(|level| {
+                u64::from((texture.width() >> level).max(1))
+                    * u64::from((texture.height() >> level).max(1))
+                    * 4
+            })
+            .sum(),
         digest: 0,
         view: texture.create_view(&Default::default()),
         sampler: sampler.clone(),
@@ -678,9 +820,9 @@ mod arrival_tests {
         assert_eq!(before.json(), renderer.residency_work().json());
         model.meshes[0].positions[0] = 0.5;
         renderer.prepare_model("resident.model", &model).unwrap();
-        assert_ne!(
-            old_mesh,
-            renderer.models.loaded["resident.model"].nodes[0].0
+        assert_eq!(
+            old_mesh, renderer.models.loaded["resident.model"].nodes[0].0,
+            "replacement reuses the retired slot after accepting its digest"
         );
         let delta = renderer.residency_work().since(before);
         assert_eq!(delta.mesh_uploads, 1);
@@ -782,5 +924,96 @@ mod arrival_tests {
         assert_ne!(final_bind, initial);
         renderer.add_texture("normal.tex", &texture).unwrap();
         assert_eq!(renderer.models.materials[0].bind, final_bind);
+    }
+}
+
+#[cfg(test)]
+mod retirement_regressions {
+    use super::*;
+    #[test]
+    fn pending_names_count_retired_bytes_and_compaction_keeps_hero_handles() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        let mut r = crate::renderer::RendererWithAssets::<true>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let mut model: Model = exact_game::bin::from_slice(include_bytes!(
+            "../../games/asset-fixture/assets/crate.model"
+        ))
+        .unwrap();
+        model.materials[0].alpha_mode = AlphaMode::Blend;
+        r.prepare_model("hero.model", &model).unwrap();
+        struct Moving;
+        impl exact_game::Game for Moving {
+            type Args = ();
+            const ID: &'static str = "retirement-motion";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                w.spawn_named(
+                    "hero",
+                    (
+                        exact_game::Transform::default(),
+                        exact_game::Mesh::asset("hero.model"),
+                    ),
+                );
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.get_mut::<exact_game::Transform>("hero")
+                    .unwrap()
+                    .position
+                    .x += 1.;
+            }
+        }
+        let mut sim = exact_game::Sim::<Moving>::new(()).unwrap();
+        let w = sim.world_mut();
+        w.propagate();
+        let mut feed = crate::Feed::default();
+        feed.feed(w, &mut r).unwrap();
+        sim.run(1000. / 60.);
+        let w = sim.world_mut();
+        feed.feed(w, &mut r).unwrap();
+        let history = r.models.poses.clone();
+        assert_ne!(history[0][0], history[0][1]);
+        let hero = r.models.loaded["hero.model"].nodes.clone();
+        let bind = r.models.materials[hero[0].1 .0].bind.clone();
+        let mut live = std::collections::BTreeSet::from(["hero.model".to_owned()]);
+        let texture = TextureData {
+            width: 1024,
+            height: 1024,
+            mips: (0..11)
+                .map(|level| vec![255; (1024usize >> level).pow(2) * 4])
+                .collect(),
+            ..Default::default()
+        };
+        for i in 0..17 {
+            let name = format!("cosmetic-{i}.model");
+            let tex = format!("cosmetic-{i}.tex");
+            r.prepare_model(&name, &model).unwrap();
+            r.add_texture(&tex, &texture).unwrap();
+            assert!(
+                !r.quads.has_texture(&tex),
+                "model textures do not become sprite consumers"
+            );
+            r.models.loaded.get_mut(&name).unwrap().active = false;
+            r.retire_texture(&tex);
+            live.insert(name);
+            live.insert(tex); // immediately re-requested, still Pending
+        }
+        assert!(r.retired_bytes(&live) > 64 * 1024 * 1024);
+        let before = r.residency_work();
+        r.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live);
+        assert!(r.retired_bytes(&live) <= 64 * 1024 * 1024);
+        assert_eq!(r.models.loaded["hero.model"].nodes, hero);
+        assert_eq!(r.models.materials[hero[0].1 .0].bind, bind);
+        assert_eq!(
+            r.residency_work().since(before).json(),
+            crate::world::assets::Work::default().json()
+        );
+        assert_eq!(r.models.loaded.len(), 1);
+        feed.feed(w, &mut r).unwrap();
+        assert_eq!(
+            r.models.poses, history,
+            "compaction preserves the moving hero history"
+        );
     }
 }

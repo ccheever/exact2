@@ -95,11 +95,13 @@ export async function checkResidency(probe, session, check, say) {
   check('same texture bytes redelivered reuse residency', repeated.after.ready && unchanged(repeated.before,repeated.after), repeated.after.gpu);
   const popped = await probe.run(session, 'KeyP');
   if(popped.error) throw new Error(popped.error);
+  check('new model name reuses textures and pipelines',
+    ['textureUploads','pipelineCreations'].every(key=>delta(popped.before,popped.after,key)===0), popped.after.gpu);
   check('new model name uploads geometry after arrival', popped.after.ready && delta(popped.before,popped.after,'meshUploads') > 0, popped.after.gpu);
 }
 
-export function checkSteadyResidency(world, check, say) {
-  if (world.device === false) {
+export function checkSteadyResidency(world, check, say, host) {
+  if (host === 'linux' && world.device !== true) {
     say('SKIP: no device — after-ready GPU residency');
     return;
   }

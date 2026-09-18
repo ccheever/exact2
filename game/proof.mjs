@@ -9,6 +9,11 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 
+export function parseInventoryLine(line) {
+  const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.{24})\s+(.+)$/);
+  return m && !m[3].startsWith('Z') ? {pid:Number(m[1]), parent:Number(m[2]), stamp:m[4], command:m[5]} : null;
+}
+
 export function artifactDigest(host, dist, artifacts) {
   try {
     const manifest = [];
@@ -150,10 +155,7 @@ export async function proof(meta, script) {
     child.stdout.on('data', data => output += data);
     child.on('error', () => { auditUnavailable = true; finish(null); });
     // A zombie is dead: killed with its group, not yet reaped by launchd.
-    child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(line => {
-      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+ \S+ +\d+ [\d:]+ \d+)\s+(.+)$/);
-      return m && !m[3].startsWith('Z') && {pid:Number(m[1]), parent:Number(m[2]), stamp:m[4], command:m[5]};
-    }).filter(Boolean) : null));
+    child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(parseInventoryLine).filter(Boolean) : null));
   });
   const sample = () => {
     if (host === 'linux' || auditUnavailable || inventoryPending) return;
@@ -256,17 +258,13 @@ export async function proof(meta, script) {
       .map(child => ({pid:child.pid}));
     if (host !== 'linux' && !auditUnavailable) {
       // A killed process group reaps its helpers a few milliseconds after the
-      // carrier's exit event, and a helper outside the group outlives it by
-      // seconds: a recorded descendant (pid and start stamp) still alive after a
-      // short grace is killed by that record and reported; only a survivor fails.
+      // carrier's exit event: recorded descendants (pid and start stamp) get a
+      // short grace, then any survivor is a leak and fails the proof by name.
+      // Nothing here signals a discovered pid — only handles owned at spawn are killed.
       const stale = async () => (await inventory())?.filter(row => recorded.get(row.pid) === row.stamp) ?? [];
       let rows = await stale();
       for (const deadline = Date.now() + 2000; rows.length && Date.now() < deadline; rows = await stale()) await new Promise(r => setTimeout(r, 100));
-      for (const row of rows) {
-        say(`STRAY recorded descendant killed after close: ${row.pid} ${row.command}`);
-        try { process.kill(row.pid, 'SIGKILL'); } catch { /* Gone between the inventory and the kill. */ }
-      }
-      if (rows.length) { await new Promise(r => setTimeout(r, 500)); remaining.push(...await stale()); }
+      remaining.push(...rows);
     }
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);

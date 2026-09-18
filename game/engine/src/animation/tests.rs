@@ -873,73 +873,38 @@ fn same_tick_redelivery_resamples_without_advancing_any_controller() {
 }
 
 #[test]
-fn same_tick_redelivery_resamples_without_advancing_controllers() {
-    for controller in 0..3 {
-        let mut w = world();
-        let mut model = w.model("rig.model").unwrap().clone();
-        model.clips[0].markers = vec![(0.01, "step".into()), (0.02, "step".into())];
-        w.assets
-            .models
-            .insert("rig.model".into(), std::sync::Arc::new(model.clone()));
-        let e = w.spawn_named("actor", Mesh::asset("rig.model"));
-        match controller {
-            0 => w.insert(e, Animation::play("slow").motion_root("")),
-            1 => w.insert(
-                e,
-                Blend::across([(0., "slow"), (1., "fast")]).motion_root(""),
-            ),
-            _ => w.insert(
-                e,
-                Animator::new([
-                    State::new("walk", Play::Clip("slow".into()))
-                        .to("run", Condition::Arg("go".into(), Cmp::Eq, true.into())),
-                    State::new("run", Play::Clip("fast".into())).fade(0.1),
-                ])
-                .motion_root(""),
-            ),
-        };
+fn topology_change_during_fade_completes_and_allows_later_edge() {
+    let mut w = world();
+    let e = w.spawn((
+        Mesh::asset("rig.model"),
+        Animator::new([
+            State::new("walk", Play::Clip("slow".into()))
+                .to("run", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+            State::new("run", Play::Clip("fast".into()))
+                .fade(0.1)
+                .to("walk", Condition::Arg("go".into(), Cmp::Eq, false.into())),
+        ]),
+    ));
+    step(&mut w);
+    w.get_mut::<Animator>(e).unwrap().set("go", true);
+    w.step_clock();
+    step(&mut w);
+    assert_eq!(w.get::<Animator>(e).unwrap().current, 1);
+    let mut model = w.model("rig.model").unwrap().clone();
+    model.nodes.push(Node::default());
+    w.assets
+        .models
+        .insert("rig.model".into(), std::sync::Arc::new(model));
+    step(&mut w);
+    for _ in 0..10 {
+        w.step_clock();
         step(&mut w);
-        if let Some(mut a) = w.get_mut::<Animator>(e) {
-            a.set("go", true);
-        }
-        let clock = |w: &World| match controller {
-            0 => crate::bin::to_vec(&*w.get::<Animation>(e).unwrap()),
-            1 => crate::bin::to_vec(&*w.get::<Blend>(e).unwrap()),
-            _ => crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()),
-        };
-        // Repeat during an active Animator fade as well as before its transition.
-        for delivery in 0..3 {
-            step(&mut w);
-            let before = w.get::<Pose>(e).unwrap().clone();
-            let saved_clock = clock(&w);
-            let logs = w.journal().len();
-            if delivery == 0 {
-                model.nodes.push(Node {
-                    transform: Mat4::from_translation(Vec3::Y * 3.).to_cols_array(),
-                    ..Default::default()
-                });
-            }
-            w.assets
-                .models
-                .insert("rig.model".into(), std::sync::Arc::new(model.clone()));
-            step(&mut w);
-            assert_eq!(clock(&w), saved_clock, "controller {controller}");
-            let after = w.get::<Pose>(e).unwrap();
-            assert_eq!(after.phase, before.phase);
-            assert_eq!(after.crossed, before.crossed);
-            assert_eq!(after.root_motion, before.root_motion);
-            assert_eq!(after.local.len(), model.nodes.len() * 10);
-            assert_eq!(after.local[after.local.len() - 9], 3.);
-            assert_eq!(after.local, after.previous);
-            assert_eq!(
-                w.journal().len(),
-                logs,
-                "redelivery must not re-emit markers"
-            );
-            drop(after);
-            step(&mut w);
-            assert_eq!(clock(&w), saved_clock);
-            w.step_clock();
-        }
     }
+    let a = w.get::<Animator>(e).unwrap();
+    assert_eq!(a.fade_time, a.fade_duration);
+    drop(a);
+    w.get_mut::<Animator>(e).unwrap().set("go", false);
+    w.step_clock();
+    step(&mut w);
+    assert_eq!(w.get::<Animator>(e).unwrap().current, 0);
 }

@@ -28,7 +28,7 @@ fn pinned_pose_and_hash() {
     let pose = s.agent(r#"{"op":"state","entity":"fox","pose":true}"#);
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
-    assert_eq!(hash, 0xb863e854ca85b74e);
+    assert_eq!(hash, 0x749639d3ffa1be59);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
     if std::env::var_os("EXACT_PIN_POSE").is_some() {
         std::fs::write(&path, &pose).unwrap();
@@ -37,7 +37,7 @@ fn pinned_pose_and_hash() {
     s.run(1000.);
     println!("tick120 0x{:016x}", s.world().hash());
     assert_eq!(s.world().tick(), 120);
-    assert_eq!(s.world().hash(), 0x409341e24939d7c2);
+    assert_eq!(s.world().hash(), 0x0960f8999dd20662);
 }
 #[test]
 fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {

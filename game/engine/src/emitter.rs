@@ -44,7 +44,7 @@ pub struct Birth {
     pub lifetime: f32,
 }
 /// Saved, hashed emitter state. The renderer never mutates it.
-#[derive(Clone, Debug, Default, Data)]
+#[derive(Debug, Default, Data)]
 pub struct EmitterState {
     /// Completed emission ticks.
     pub age: u64,
@@ -63,8 +63,33 @@ pub struct EmitterState {
     /// Compact live birth batches, including one tick of interpolation history.
     pub births: Vec<Birth>,
 }
+impl Clone for EmitterState {
+    fn clone(&self) -> Self {
+        Self {
+            age: self.age,
+            stream: self.stream,
+            fraction: self.fraction,
+            burst: self.burst,
+            bursts: self.bursts,
+            alive: self.alive,
+            dropped: self.dropped,
+            births: self.births.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.age = source.age;
+        self.stream = source.stream;
+        self.fraction = source.fraction;
+        self.burst = source.burst;
+        self.bursts = source.bursts;
+        self.alive = source.alive;
+        self.dropped = source.dropped;
+        self.births.clone_from(&source.births);
+    }
+}
+
 /// A texture-free particle emitter. Add Ambient to exclude it from clock settling.
-#[derive(Clone, Debug, Component)]
+#[derive(Debug, Component)]
 pub struct Emitter {
     /// Local spawn volume.
     pub shape: Shape,
@@ -99,6 +124,47 @@ pub struct Emitter {
     /// Saved emission history, independent of renderer residency.
     pub state: EmitterState,
 }
+impl Clone for Emitter {
+    fn clone(&self) -> Self {
+        Self {
+            shape: self.shape,
+            rate: self.rate,
+            lifetime: self.lifetime,
+            speed: self.speed,
+            spread: self.spread,
+            gravity: self.gravity,
+            drag: self.drag,
+            size: self.size,
+            color: self.color,
+            ease: self.ease,
+            seed: self.seed,
+            bound: self.bound,
+            layer: self.layer,
+            additive: self.additive,
+            running: self.running,
+            state: self.state.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.shape = source.shape;
+        self.rate = source.rate;
+        self.lifetime = source.lifetime;
+        self.speed = source.speed;
+        self.spread = source.spread;
+        self.gravity = source.gravity;
+        self.drag = source.drag;
+        self.size = source.size;
+        self.color = source.color;
+        self.ease = source.ease;
+        self.seed = source.seed;
+        self.bound = source.bound;
+        self.layer = source.layer;
+        self.additive = source.additive;
+        self.running = source.running;
+        self.state.clone_from(&source.state);
+    }
+}
+
 impl Default for Emitter {
     fn default() -> Self {
         Self {
@@ -184,6 +250,7 @@ impl Emitter {
             } else {
                 alpha.clamp(0., 1.) as f64
             };
+        let spread_cos = math::cos(self.spread);
         let mut remaining = PARTICLE_BUDGET;
         for birth in &self.state.births {
             let seconds = (age - birth.tick as f64) / hz as f64;
@@ -191,6 +258,15 @@ impl Emitter {
                 continue;
             }
             let t = seconds as f32;
+            let (travel, gravity) = if self.drag > 0.0001 {
+                let travel = (1. - math::exp(-self.drag * t)) / self.drag;
+                (travel, (t - travel) / self.drag)
+            } else {
+                (t, 0.5 * t * t)
+            };
+            let u = self.ease.at((t / birth.lifetime).clamp(0., 1.));
+            let size = math::lerp(self.size[0], self.size[1], u);
+            let color = std::array::from_fn(|i| math::lerp(self.color[0][i], self.color[1][i], u));
             for i in 0..birth.count.min(remaining) {
                 let mut key = birth.key.wrapping_add(u64::from(i) * 8);
                 let mut random = || {
@@ -199,33 +275,28 @@ impl Emitter {
                 };
                 let z = 2. * random() - 1.;
                 let angle = random() * std::f32::consts::TAU;
-                let radial = math::sqrt((1. - z * z).max(0.));
-                let direction = Vec3::new(radial * math::cos(angle), z, radial * math::sin(angle));
+
                 let origin = match self.shape {
                     Shape::Point => Vec3::ZERO,
-                    Shape::Sphere(r) => direction * (r * math::powf(random(), 1. / 3.)),
+                    Shape::Sphere(r) => {
+                        let radial = math::sqrt((1. - z * z).max(0.));
+                        let direction =
+                            Vec3::new(radial * math::cos(angle), z, radial * math::sin(angle));
+                        direction * (r * math::powf(random(), 1. / 3.))
+                    }
                     Shape::Cone(r, h) => {
                         let y = random();
                         let r = r * y * math::sqrt(random());
                         Vec3::new(r * math::cos(angle), h * y, r * math::sin(angle))
                     }
                 };
-                let y = 1. - random() * (1. - math::cos(self.spread));
+                let y = 1. - random() * (1. - spread_cos);
                 let r = math::sqrt((1. - y * y).max(0.));
                 let v = Vec3::new(r * math::cos(angle), y, r * math::sin(angle)) * self.speed;
-                let (travel, gravity) = if self.drag > 0.0001 {
-                    let travel = (1. - math::exp(-self.drag * t)) / self.drag;
-                    (travel, (t - travel) / self.drag)
-                } else {
-                    (t, 0.5 * t * t)
-                };
-                let u = self.ease.at((t / birth.lifetime).clamp(0., 1.));
                 visit(Particle {
                     position: origin + v * travel + self.gravity * gravity,
-                    size: math::lerp(self.size[0], self.size[1], u),
-                    color: std::array::from_fn(|i| {
-                        math::lerp(self.color[0][i], self.color[1][i], u)
-                    }),
+                    size,
+                    color,
                 });
             }
             remaining -= birth.count.min(remaining);
@@ -313,6 +384,49 @@ pub fn step(w: &World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn particle_invariant_hoisting_preserves_pre_r6_float_bits() {
+        // Receipts from e0ab1904's evaluator, including the random draws discarded by Point.
+        for (shape, expected) in [
+            (Shape::Point, 0x726f3ee0098bb673),
+            (Shape::Sphere(2.), 0xf45aa92ab410079c),
+            (Shape::Cone(2., 3.), 0x638294ccb7850105),
+        ] {
+            let e = Emitter {
+                shape,
+                drag: 0.4,
+                ease: Ease::Smooth,
+                state: EmitterState {
+                    age: 4,
+                    births: vec![
+                        Birth {
+                            tick: 0,
+                            count: 8,
+                            key: 99,
+                            lifetime: 0.1,
+                        },
+                        Birth {
+                            tick: 2,
+                            count: 7,
+                            key: 123,
+                            lifetime: 0.2,
+                        },
+                    ],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut values = Vec::new();
+            for alpha in [0., 0.5, 1.] {
+                e.particles(60, alpha, |p| {
+                    values.extend(p.position.to_array());
+                    values.push(p.size);
+                    values.extend(p.color);
+                });
+            }
+            assert_eq!(crate::hash::of(&values), expected);
+        }
+    }
     #[test]
     fn saved_batches_derive_identical_shapes_drag_and_lifetime_edges() {
         for shape in [Shape::Point, Shape::Sphere(2.), Shape::Cone(2., 3.)] {

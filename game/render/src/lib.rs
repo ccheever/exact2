@@ -15,6 +15,7 @@ mod model_pipeline;
 mod models;
 mod perf;
 mod pipeline;
+mod placed;
 #[cfg(test)]
 mod quad_tests;
 mod quads;

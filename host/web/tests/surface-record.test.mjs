@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
-async function fixture(options = {}) {
+export async function fixture(options = {}) {
   const views = new Map(), records = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [], restored = new Set();
-  let mutations = Promise.resolve();
+  let mutations = Promise.resolve(), frame;
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
@@ -69,14 +69,14 @@ async function fixture(options = {}) {
     'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
     source
   )({ exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
-    class { observe() {} disconnect() {} }, () => 1, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {} });
+    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
   return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element,
-    expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
+    frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
 test('destroy/create publications wait for the outermost apply and drain before return', async () => {

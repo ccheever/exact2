@@ -281,7 +281,7 @@ test('known perspective camera projects world pose into physical canvas pixels',
   expect(projectPixels([1,1,3], projection)).toEqual([500,100]);
   expect(projectPixels([0,0,6], projection)).toBeNull();
   const { raw, plan } = fixture();
-  const identity = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1, 800,400];
+  const identity = [1,0,0,0, 0,1,0,0, 0,0,0,0, 0,0,.5,1, 800,400];
   raw.camera_projection = [];
   for (let i = 0; i < raw.frames.length; i += 8) {
     raw.frames[i + 2] = raw.frames[i + 4];
@@ -316,21 +316,64 @@ test('missing projection and historical Exact raw clock stay unavailable, never 
   expect(() => analyze({...raw, camera_projection:[1]}, plan)).toThrow('camera_projection');
 });
 
-test('Exact recorder retains callback arguments and maps same-time redraws without changing callbacks', async () => {
+test('Exact recorder joins host draws causally and ignores intervening callbacks', async () => {
   const { callbackRecorder } = await import('./probes/exact.mjs');
-  const queue = [], target = { requestAnimationFrame: cb => queue.push(cb) };
-  let wall = 0, received;
-  const recorder = callbackRecorder(target, () => wall);
+  const target = {exact:{}, requestAnimationFrame: cb => cb(999)};
+  const recorder = callbackRecorder(target);
   recorder.begin(10);
-  target.requestAnimationFrame(stamp => { received = stamp; });
-  wall = 102; queue.shift()(100);
+  target.exact.drawCallback(100, 99);
   target.requestAnimationFrame(() => {});
-  wall = 112; queue.shift()(110);
-  expect(received).toBe(100);
-  const result = recorder.end([99,103,0,0,0,0,0,0, 99,104,0,0,0,0,0,0, 109,113,0,0,0,0,0,0]);
+  target.exact.drawCallback(110, 109);
+  const result = recorder.end([99,103,0,0,0,0,0,0, 99,112,0,0,0,0,0,0, 109,113,0,0,0,0,0,0]);
   expect(result).toEqual({raw_callback_ms:[100,100,110], overflow:false});
 });
 
+test('Exact recorder overflow skips the join and is refused by analysis', async () => {
+  const { callbackRecorder } = await import('./probes/exact.mjs');
+  const target = {exact:{}, requestAnimationFrame: () => {}};
+  const recorder = callbackRecorder(target);
+  recorder.begin(1);
+  target.exact.drawCallback(10, 9);
+  target.exact.drawCallback(20, 19);
+  const result = recorder.end([19,21,0,0,0,0,0,0]);
+  expect(result).toEqual({overflow:true});
+  const {raw, plan} = fixture();
+  expect(() => analyze({...raw,...result},plan)).toThrow('overflowed');
+});
+
+test('legacy Exact retains distinct rows at the same drawn time', () => {
+  const {raw,plan} = fixture();
+  raw.exact_trace = {};
+  const before = analyze(raw,plan);
+  raw.frames[8] = raw.frames[0];
+  const after = analyze(raw,plan);
+  expect(after.frames).toBe(before.frames);
+  expect(after.legacy_clock_caveat).toContain('every drawn row');
+});
+
+test('orthographic clip depth rejects behind-camera points', () => {
+  const projection = [1,0,0,0, 0,1,0,0, 0,0,-.1,0, 0,0,0,1, 800,400];
+  expect(projectPixels([0,0,1],projection)).toBeNull();
+  expect(projectPixels([0,0,-1],projection)).toEqual([400,200]);
+  expect(projectPixels([0,0,-11],projection)).toBeNull();
+  expect(projectPixels([0,0,0],undefined)).toBeNull();
+});
+
+test('landmark motion measures the world under a player-follow camera', () => {
+  const {raw,plan} = fixture();
+  raw.landmark_xyz = [0,0,-1];
+  raw.camera_projection = [];
+  for (let i=0;i<raw.frames.length;i+=8) {
+    const z=raw.frames[i+4];
+    raw.camera_projection.push(1,0,0,0, 0,0,0,0, 0,1,0,0, 0,-z,.5,1, 800,400);
+  }
+  const m=analyze(raw,plan);
+  expect(m.screen_player.judder).toBeNull();
+  expect(m.screen_landmark.mean_displacement_px).toBeGreaterThan(1);
+  expect(m.screen_landmark.judder).toBeLessThan(1e-10);
+  expect(m.screen_landmark.repeated_fraction).toBe(0);
+  expect(table([{...m,engine:'exact',variant:'60hz',valid:true}])).toContain('landmark CV');
+});
 
 test('reanalyze retains focus, trial, edge and provisional rules from saved evidence', () => {
   const dir = mkdtempSync(join(tmpdir(), 'f3-reanalyze-'));

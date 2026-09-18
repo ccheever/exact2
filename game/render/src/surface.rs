@@ -36,6 +36,7 @@ const RETIRED_BUDGET: u64 = 64 * 1024 * 1024;
 pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = false> {
     sim: Option<Sim<G>>,
     pending_restore: Option<(Vec<u8>, Restore)>,
+    placed: crate::placed::Placements,
     refusal: Option<SurfaceError>,
     presentation: P,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
@@ -60,6 +61,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
         Self {
             sim: None,
             pending_restore: None,
+            placed: Default::default(),
             refusal: None,
             presentation: P::default(),
             render: None,
@@ -110,6 +112,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
 }
 fn observer<'a, const ASSETS: bool>(
     render: &'a mut Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
+    placed: &'a mut crate::placed::Placements,
     perf: &'a mut Perf,
     trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
@@ -128,6 +131,9 @@ fn observer<'a, const ASSETS: bool>(
             }
         }
         if left < 2 && error.is_none() {
+            if let Err(e) = placed.feed(world) {
+                *error = Some(SurfaceError(e.to_string()));
+            }
             if let Some((renderer, feed)) = render {
                 if let Some(trace) = trace {
                     trace.feed(world);
@@ -177,6 +183,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 at_ms,
                 observer(
                     &mut self.render,
+                    &mut self.placed,
                     &mut self.perf,
                     &mut self.trace,
                     &mut self.error,
@@ -254,15 +261,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             for name in &retired {
                 self.model_digests.remove(name);
             }
-            if let Some((renderer, feed)) = &mut self.render {
+            if let Some((renderer, _feed)) = &mut self.render {
                 for name in &retired {
-                    renderer.quads.retire_texture(name);
+                    renderer.retire_texture(name);
                     if let Some(model) = renderer.models.loaded.get_mut(name) {
                         model.active = false;
                     }
                 }
                 renderer.models.revision += 1;
-                feed.reset();
             }
             self.assets_dirty = true;
             self.dirty = true;
@@ -321,16 +327,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             ));
             self.format = Some(format);
         }
-        let (renderer, feed) = self.render.as_mut().unwrap();
+        let (renderer, _feed) = self.render.as_mut().unwrap();
         let live = sim.presentation_assets().map(str::to_owned).collect();
-        let replaced = sim.presentation_models().any(|(name, _)| {
-            self.model_digests
-                .get(name)
-                .is_some_and(|&digest| renderer.model_changed(name, digest))
-        });
-        if replaced || renderer.retired_bytes(&live) > RETIRED_BUDGET {
+        if renderer.retired_bytes(&live) > RETIRED_BUDGET {
             renderer.compact_assets(format, &live);
-            feed.reset();
         }
         let prepared: Vec<_> = sim
             .presentation_models()
@@ -352,6 +352,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 .add_texture(&name, &texture)
                 .map_err(|e| e.to_string());
             sim.asset_prepared(&name, result);
+        }
+        if renderer.retired_bytes(&live) > RETIRED_BUDGET {
+            renderer.compact_assets(format, &live);
         }
         self.finish_restore();
         self.assets_dirty = false;
@@ -390,6 +393,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.device = true;
     }
     fn device_lost(&mut self) {
+        for child in &mut self.placed.children {
+            child.texture = None;
+        }
         self.device = false;
         self.render = None;
         self.ready_work = None;
@@ -449,6 +455,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                     Clock::Seekable,
                     observer(
                         &mut self.render,
+                        &mut self.placed,
                         &mut self.perf,
                         &mut self.trace,
                         &mut self.error,
@@ -505,6 +512,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if let Some(trace) = &mut self.trace {
                 trace.feed(sim.world());
             }
+            if let Err(e) = self.placed.feed(sim.world()) {
+                self.error = Some(SurfaceError(e.to_string()));
+                return false;
+            }
             let (renderer, feed) = self.render.as_mut().unwrap();
             if let Err(e) = feed.feed(sim.world(), renderer) {
                 self.error = Some(SurfaceError(e.to_string()));
@@ -523,6 +534,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             },
             observer(
                 &mut self.render,
+                &mut self.placed,
                 &mut self.perf,
                 &mut self.trace,
                 &mut self.error,
@@ -543,6 +555,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         let (renderer, feed) = self.render.as_mut().unwrap();
         let start = (!frame.seekable).then(Stamp::now);
         let input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
+        self.placed
+            .frame(&input, exact_game::Vec2::new(frame.width, frame.height));
+        #[cfg(not(target_arch = "wasm32"))]
+        renderer.quads.children(&renderer.device, &self.placed);
         self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
         self.ready_work
             .get_or_insert_with(|| renderer.residency_work());
@@ -571,6 +587,25 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;
         wants
+    }
+    fn wants_children_each(&self) -> bool {
+        self.sim.as_ref().is_some_and(|sim| {
+            sim.world()
+                .query::<&exact_game::Placed>()
+                .iter()
+                .next()
+                .is_some()
+        })
+    }
+    fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+        self.placed.child(index, texture, frame);
+        self.dirty = true;
+    }
+    fn children_count(&mut self, count: usize) {
+        self.placed.children.truncate(count);
+    }
+    fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
+        self.placed.placement(index)
     }
     fn wants_input(&self) -> bool {
         true
@@ -675,6 +710,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             request,
             observer(
                 &mut self.render,
+                &mut self.placed,
                 &mut self.perf,
                 &mut self.trace,
                 &mut self.error,
@@ -682,6 +718,21 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 0,
             ),
         );
+        if self.render.is_none() {
+            let _ = self.placed.feed(sim.world());
+            #[derive(Default, exact_game::Data)]
+            struct Size {
+                width: f32,
+                height: f32,
+            }
+            if let Ok(size) = exact_game::json::from_str::<Size>(request) {
+                if size.width > 0. && size.height > 0. {
+                    self.placed
+                        .headless(sim.world(), exact_game::Vec2::new(size.width, size.height));
+                }
+            }
+        }
+        self.placed.status(sim.world(), request, &mut reply);
         // Engine world-state replies have this fixed suffix. Parse the reply using
         // its own Data decoder to distinguish state from tree/error/entity replies.
         let state = world_state(&reply);
@@ -726,7 +777,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 reasons.push("first draw pending".into());
             }
             let ready = reasons.is_empty();
-            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances and skin buffers only; excludes vertex/index, primitive pages and slots\"}}",
+            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
                 exact_game::json::to_string(&reasons).unwrap(),
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));

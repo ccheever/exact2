@@ -94,9 +94,9 @@ pub enum Projection {
     },
 }
 /// Perspective or orthographic camera, sharing projection math with spatial reads.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct Camera {
-    /// Projection choice; perspective is the compact default.
+    /// Projection choice; always encoded, including perspective.
     pub projection: Projection,
     /// Vertical field of view in degrees.
     pub fov_y_degrees: f32,
@@ -119,43 +119,6 @@ impl Default for Camera {
     }
 }
 
-impl Component for Camera {
-    const NAME: &'static str = "Camera";
-}
-// Default projection contributes no new save/hash field: existing perspective worlds
-// retain their canonical representation and pins. Nondefault state is always encoded.
-impl crate::Data for Camera {
-    fn write(&self, w: &mut dyn crate::Writer) {
-        w.begin_struct();
-        w.field("fov_y_degrees");
-        self.fov_y_degrees.write(w);
-        w.field("near");
-        self.near.write(w);
-        w.field("far");
-        self.far.write(w);
-        w.field("active");
-        self.active.write(w);
-        if self.projection != Projection::Perspective {
-            w.field("projection");
-            self.projection.write(w);
-        }
-        w.end_struct();
-    }
-    fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
-        r.begin_struct()?;
-        while let Some(f) = r.field()? {
-            match f.as_str() {
-                "fov_y_degrees" => self.fov_y_degrees.read(r)?,
-                "near" => self.near.read(r)?,
-                "far" => self.far.read(r)?,
-                "active" => self.active.read(r)?,
-                "projection" => self.projection.read(r)?,
-                _ => r.skip()?,
-            }
-        }
-        Ok(())
-    }
-}
 impl Camera {
     /// Orthographic vertical extent in world units, looking along negative Z.
     pub fn orthographic(height: f32) -> Self {
@@ -459,6 +422,7 @@ impl World {
             .register::<crate::Emitter>()
             .register::<crate::Sprite>()
             .register::<crate::SpriteAnimation>()
+            .register::<crate::Placed>()
             .register_resource::<crate::Environment>()
     }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
@@ -839,5 +803,23 @@ fn follow_inner(world: &World, placement_only: bool) {
             *transform = pose;
         }
         follow.initialized = true;
+    }
+}
+
+#[cfg(test)]
+mod camera_patch_regression {
+    use super::*;
+    #[test]
+    fn perspective_patch_replaces_orthographic_projection() {
+        let mut camera = Camera::orthographic(180.).integer_scale();
+        crate::bin::read_into(&crate::bin::to_vec(&Camera::default()), &mut camera).unwrap();
+        assert_eq!(camera, Camera::default());
+        camera = Camera::orthographic(180.);
+        crate::json::read_into(
+            &crate::json::to_string(&Camera::default()).unwrap(),
+            &mut camera,
+        )
+        .unwrap();
+        assert_eq!(camera, Camera::default());
     }
 }

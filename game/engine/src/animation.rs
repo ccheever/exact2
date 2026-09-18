@@ -434,20 +434,22 @@ impl Animator {
             pose.phase = if state.speed < 0. { 0. } else { 1. };
         }
         let outgoing = from.as_ref().unwrap_or(&self.from);
-        if fade_time < fade_duration && outgoing.len() == pose.local.len() {
+        if fade_time < fade_duration {
             if !state.paused {
                 fade_time = (fade_time + dt).min(fade_duration);
             }
-            let weight = fade_time / fade_duration;
-            mix_pose(outgoing, &mut pose.local, weight);
-            pose.root_motion = if state.paused {
-                Vec3::ZERO
-            } else {
-                from_motion.lerp(pose.root_motion, weight)
-            };
-            // Frozen outgoing pose emits no markers. Incoming events become audible above half weight.
-            if weight <= 0.5 {
-                pose.crossed.clear();
+            if outgoing.len() == pose.local.len() {
+                let weight = fade_time / fade_duration;
+                mix_pose(outgoing, &mut pose.local, weight);
+                pose.root_motion = if state.paused {
+                    Vec3::ZERO
+                } else {
+                    from_motion.lerp(pose.root_motion, weight)
+                };
+                // Frozen outgoing pose emits no markers. Incoming events become audible above half weight.
+                if weight <= 0.5 {
+                    pose.crossed.clear();
+                }
             }
         }
         if let Some(ik) = ik {

@@ -12,7 +12,9 @@ use glam::Vec3;
 use std::ops::Range;
 
 pub(crate) struct Mesh {
-    indices: Range<u32>,
+    pub(crate) indices: Range<u32>,
+    pub(crate) vertex_bytes: u64,
+    pub(crate) asset: bool,
     pub(crate) base_vertex: i32,
     center: Vec3,
 }
@@ -36,6 +38,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
+    pub(crate) mesh_uploads: u64,
     batches: Vec<Batch>,
     targets: Targets,
     counts: Stats,
@@ -54,7 +57,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
-    /// Starts small; all arenas grow on demand and never shrink.
+    /// Reserves quad capacity up front; asset arenas may compact retired spans.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -95,7 +98,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
             models: crate::models::Models::default(),
-            quads: crate::quads::Quads::new(device, &uniform),
+            quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
             model_batches: Vec::new(),
             slot_list: Vec::new(),
             device: device.clone(),
@@ -110,6 +113,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
+            mesh_uploads: 0,
             batches: Vec::new(),
             targets,
             shadows: None,
@@ -301,13 +305,119 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             high = high.max(p);
         }
         let center = (low + high) * 0.5;
-        let id = MeshId(self.meshes.len());
-        self.meshes.push(Mesh {
+        self.mesh_uploads += 1;
+        let id = MeshId(
+            self.meshes
+                .iter()
+                .position(|m| m.asset && m.vertex_bytes == 0)
+                .unwrap_or(self.meshes.len()),
+        );
+        let mesh = Mesh {
+            vertex_bytes: size_of_val(vertices) as u64,
+            asset: false,
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
             base_vertex: (vertex_start / 32) as i32,
             center,
-        });
+        };
+        if id.0 == self.meshes.len() {
+            self.meshes.push(mesh);
+        } else {
+            self.meshes[id.0] = mesh;
+        }
         id
+    }
+
+    pub(crate) fn mesh_buffer_bytes(&self) -> u64 {
+        self.vertices.raw.size() + self.indices.raw.size()
+    }
+    pub(crate) fn pack_mesh_buffers(&mut self) {
+        let vertices = self.meshes.iter().map(|m| m.vertex_bytes).sum::<u64>();
+        let indices = self
+            .meshes
+            .iter()
+            .map(|m| u64::from(m.indices.end - m.indices.start) * 4)
+            .sum::<u64>();
+        let mut v = Buffer::new(
+            &self.device,
+            vertices.max(32),
+            wgpu::BufferUsages::VERTEX,
+            "game packed vertices",
+        );
+        let mut i = Buffer::new(
+            &self.device,
+            indices.max(4),
+            wgpu::BufferUsages::INDEX,
+            "game packed indices",
+        );
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let skinned: std::collections::BTreeSet<_> = self
+            .models
+            .loaded
+            .values()
+            .flat_map(|m| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+            .collect();
+        let weight_bytes = skinned
+            .iter()
+            .map(|&i| self.meshes[i].vertex_bytes)
+            .sum::<u64>();
+        let mut weights = self.models.skinning.as_ref().map(|_| {
+            Buffer::new(
+                &self.device,
+                weight_bytes.max(64),
+                wgpu::BufferUsages::STORAGE,
+                "game packed weights",
+            )
+        });
+        // Skin weights share vertex offsets. Pack skinned meshes first so live
+        // unskinned geometry cannot leave arbitrarily large holes in that arena.
+        let mut order: Vec<_> = (0..self.meshes.len()).collect();
+        order.sort_by_key(|i| (!skinned.contains(i), *i));
+        for index in order {
+            let mesh = &mut self.meshes[index];
+            if mesh.vertex_bytes == 0 {
+                continue;
+            }
+            let n = u64::from(mesh.indices.end - mesh.indices.start) * 4;
+            encoder.copy_buffer_to_buffer(
+                &self.vertices.raw,
+                mesh.base_vertex as u64 * 32,
+                &v.raw,
+                v.live,
+                mesh.vertex_bytes,
+            );
+            encoder.copy_buffer_to_buffer(
+                &self.indices.raw,
+                u64::from(mesh.indices.start) * 4,
+                &i.raw,
+                i.live,
+                n,
+            );
+            if let (Some(s), Some(target)) = (&self.models.skinning, &mut weights) {
+                let start = mesh.base_vertex as u64 * 32;
+                let bytes = mesh.vertex_bytes.min(s.weights.live.saturating_sub(start));
+                if bytes > 0 && skinned.contains(&index) {
+                    encoder.copy_buffer_to_buffer(
+                        &s.weights.raw,
+                        start,
+                        &target.raw,
+                        v.live,
+                        bytes,
+                    );
+                    target.live = v.live + bytes;
+                }
+            }
+            mesh.base_vertex = (v.live / 32) as i32;
+            mesh.indices = (i.live / 4) as u32..((i.live + n) / 4) as u32;
+            v.live += mesh.vertex_bytes;
+            i.live += n;
+        }
+        self.queue.submit([encoder.finish()]);
+        self.vertices = v;
+        self.indices = i;
+        if let Some(weights) = weights {
+            self.models.skinning.as_mut().unwrap().weights = weights;
+            self.models.reallocations += 1;
+        }
     }
 
     /// Upload fixed-size frame data and submit the enabled passes.
@@ -457,7 +567,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                             .as_ref()
                             .unwrap(),
                         );
-                        pass.set_bind_group(2, &material.bind, &[]);
+                        pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                         pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                     } else {
                         pass.set_pipeline(&self.pipelines.shadow);
@@ -538,7 +648,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                             .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
                         &[],
                     );
-                    pass.set_bind_group(2, &material.bind, &[]);
+                    pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 } else {
                     pass.set_pipeline(&self.pipelines.forward[variant]);
@@ -576,7 +686,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                             .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
                         &[],
                     );
-                    pass.set_bind_group(2, &material.bind, &[]);
+                    pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                     pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                     let mesh = &self.meshes[batch.mesh.0];
@@ -713,4 +823,47 @@ fn scene_binds(
 pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
     pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, 0.0, 1.0);
     pass.set_scissor_rect(0, 0, size.0, size.1);
+}
+
+#[cfg(test)]
+mod packing_tests {
+    use super::*;
+    #[test]
+    fn oversized_retired_arenas_pack_without_reuploading_live_meshes() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        let mut renderer = RendererWithAssets::<true>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let model = exact_game::bin::from_slice(include_bytes!(
+            "../../games/asset-fixture/assets/crate.model"
+        ))
+        .unwrap();
+        renderer.prepare_model("hero.model", &model).unwrap();
+        renderer.prepare_model("retired.model", &model).unwrap();
+        renderer
+            .models
+            .loaded
+            .get_mut("retired.model")
+            .unwrap()
+            .active = false;
+        let live =
+            std::collections::BTreeSet::from(["hero.model".to_owned(), "retired.model".to_owned()]);
+        let handles = renderer.models.loaded["hero.model"].nodes.clone();
+        let uploads = renderer.mesh_uploads;
+        // Actual GPU capacity, including unused tails, must be charged and trimmed.
+        renderer
+            .vertices
+            .grow(&gpu.device, &gpu.queue, 65 * 1024 * 1024);
+        assert!(renderer.retired_bytes(&live) > 64 * 1024 * 1024);
+        renderer.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live);
+        assert!(renderer.retired_bytes(&live) <= 64 * 1024 * 1024);
+        assert_eq!(renderer.mesh_uploads, uploads);
+        assert_eq!(renderer.models.loaded["hero.model"].nodes, handles);
+        assert!(renderer.meshes[handles[0].0 .0].vertex_bytes > 0);
+        gpu.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+    }
 }

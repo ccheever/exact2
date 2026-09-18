@@ -21,7 +21,7 @@ test('asset fetches have at most eight simultaneous requests', async () => {
 });
 test('a failed cosmetic never gets a first-frame stamp or repeated state serialization', () => {
   let reads = 0;
-  const body = source.slice(source.indexOf('function render(entry, now)'), source.indexOf('// The live frame clock'));
+  const body = source.slice(source.indexOf('function childFrames(entry)'), source.indexOf('// The live frame clock'));
   const gpu = {gpu_render:()=>0, gpu_agent:()=>{reads++; return JSON.stringify({world:{assets:[{name:'bad.model',state:'Failed'}]}})}};
   const render = new Function('gpu','hidden','exact','size','clockFor','messages','requestAnimationFrame',body+'return render;')(
     gpu, false, {}, ()=>({w:10,h:10,s:1}), x=>x, ()=>{}, ()=>{});

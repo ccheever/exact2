@@ -22,6 +22,9 @@ export function gameDefaults(dir) {
     const declaration = /impl\s+(?:exact_game::)?Game\s+for\s+(\w+)\s*\{[^{}]*?\bconst\s+ID\s*:\s*&'static\s+str\s*=\s*"([a-z][a-z0-9-]*)"/.exec(rust);
     if (!declaration) return null;
     const [, type, id] = declaration, name = basename(dir);
+    const cargoPath = resolve(dir, 'logic/Cargo.toml');
+    const cargo = existsSync(cargoPath) ? readFileSync(cargoPath, 'utf8') : null;
+    const crate = cargo && !cargo.startsWith(cargoHeader) ? Bun.TOML.parse(cargo).package.name : `${name}-logic`;
     const title = name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
     app = {
       _generated: generated,
@@ -29,7 +32,7 @@ export function gameDefaults(dir) {
       theme_color:'#202731', background_color:'#202731',
       app:{id:`com.exact.${id}`, name:title},
       host:{macos:{minimumOS:'14.0', window:{width:1280,height:720}}, ios:{minimumOS:'17.0',deviceFamily:['iphone','ipad']},web:{}},
-      game:{crate:`${name}-logic`, type}, rust:false,
+      game:{crate, type}, rust:false,
       deploy:{store:{web:'0',macos:'0',ios:'0',linux:'0'}},
     };
     writeChanged(path, JSON.stringify(app, null, 2) + '\n');

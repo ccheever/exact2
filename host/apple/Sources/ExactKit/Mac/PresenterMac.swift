@@ -484,6 +484,7 @@ enum Capture {
         var hidden: [NSView] = []
         func hide(_ v: NSView) {
             for s in v.subviews {
+                if let n = s as? NodeView, n.placement != nil, !n.isHidden { n.isHidden = true; hidden.append(n); continue }
                 if let n = s as? NodeView, let o = n.overlay, o.alphaValue == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
                 hide(s)
             }

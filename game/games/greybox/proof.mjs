@@ -29,7 +29,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
   const initial = await s.state();
-  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7544ef30a82fdcdc', initial?.world?.[0]?.hash);
+  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x9a871d8582d905e7', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.world('world').run(1500);
@@ -40,7 +40,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('W for 1500 ms equals the native pinned position', equal(position, [0, 0.9, -5.3666644]), position);
   const forward = await s.state();
   const hash = forward?.world?.[0]?.hash;
-  check('W for 1500 ms equals the current native hash', hash === '0xa655423c9a442bce', hash);
+  check('W for 1500 ms equals the current native hash', hash === '0x71f43e51a13cc49f', hash);
   check('1500 ms advances exactly 90 ticks', forward?.world?.[0]?.tick === 90, forward?.world?.[0]?.tick);
   const layout = await s.layout('world:player');
   const box = layout?.entity?.screen;

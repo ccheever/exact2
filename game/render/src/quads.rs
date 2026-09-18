@@ -13,6 +13,21 @@ pub(crate) enum Kind {
     Model(usize, u32),
     Particle(bool),
     Sprite(usize),
+    #[cfg(not(target_arch = "wasm32"))]
+    Child(u16),
+}
+impl Kind {
+    // Cross-kind identity is part of the total translucent order. Placed children
+    // join after model, sprite, particle; each owner keeps its own stable ordinal.
+    fn rank(self) -> u8 {
+        match self {
+            Self::Model(..) => 0,
+            Self::Sprite(_) => 1,
+            Self::Particle(_) => 2,
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Child(_) => 3,
+        }
+    }
 }
 #[derive(Clone, Copy)]
 pub(crate) struct Order {
@@ -26,27 +41,35 @@ pub(crate) struct Draw {
     pub kind: Kind,
     pub range: Range<u32>,
 }
-struct Item<T> {
-    entity: Entity,
-    poses: [Transform; 2],
-    value: T,
+pub(crate) struct Item<T> {
+    pub entity: Entity,
+    pub poses: [Transform; 2],
+    pub value: T,
+    revision: u64,
 }
 struct Quad {
     words: [f32; 20],
 }
 struct Arena {
+    reallocations: u64,
     buffer: Buffer,
     words: Vec<f32>,
 }
 impl Arena {
-    fn new(d: &wgpu::Device) -> Self {
+    fn new(d: &wgpu::Device, capacity: usize) -> Self {
         Self {
-            buffer: Buffer::new(d, 80, wgpu::BufferUsages::VERTEX, "game quad instances"),
-            words: Vec::new(),
+            reallocations: 0,
+            buffer: Buffer::new(
+                d,
+                (capacity.max(1) * 80) as u64,
+                wgpu::BufferUsages::VERTEX,
+                "game quad instances",
+            ),
+            words: Vec::with_capacity(capacity * 20),
         }
     }
     fn upload(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
-        self.buffer.grow(d, q, (self.words.len() * 4) as u64);
+        self.reallocations += u64::from(self.buffer.grow(d, q, (self.words.len() * 4) as u64));
         self.buffer.write(q, 0, bytes(&self.words));
     }
 }
@@ -54,6 +77,7 @@ pub(crate) struct Quads {
     particles: Vec<Item<Emitter>>,
     sprites: Vec<Item<Sprite>>,
     particle_data: Vec<Quad>,
+    sprite_data: Vec<Quad>,
     particle_arena: Arena,
     sprite_arena: Arena,
     pub order: Vec<Order>,
@@ -65,9 +89,37 @@ pub(crate) struct Quads {
     texture_layout: Option<wgpu::BindGroupLayout>,
     textures: BTreeMap<String, (u64, wgpu::BindGroup, [u32; 2])>,
     hz: u32,
+    #[cfg(not(target_arch = "wasm32"))]
+    children: Vec<(u16, crate::placed::Plane)>,
+    #[cfg(not(target_arch = "wasm32"))]
+    child_textures: BTreeMap<u16, (wgpu::TextureView, wgpu::BindGroup)>,
+    #[cfg(not(target_arch = "wasm32"))]
+    child_pipeline: Option<wgpu::RenderPipeline>,
 }
 impl Quads {
-    pub fn new(d: &wgpu::Device, uniform: &wgpu::Buffer) -> Self {
+    #[cfg(test)]
+    pub fn pipeline_count(&self) -> u64 {
+        self.work_pipelines()
+    }
+    #[cfg(test)]
+    pub fn particle_capacity(&self) -> usize {
+        self.particle_data.capacity()
+    }
+    pub fn reallocations(&self) -> u64 {
+        self.particle_arena.reallocations + self.sprite_arena.reallocations
+    }
+    pub fn work_pipelines(&self) -> u64 {
+        let count = u64::from(self.particle_pipelines.is_some()) * 2
+            + u64::from(self.sprite_pipelines.is_some()) * 3;
+        #[cfg(not(target_arch = "wasm32"))]
+        let count = count + u64::from(self.child_pipeline.is_some());
+        count
+    }
+    pub fn new<const ASSETS: bool>(
+        d: &wgpu::Device,
+        q: &wgpu::Queue,
+        uniform: &wgpu::Buffer,
+    ) -> Self {
         let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("game quad frame"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -89,14 +141,15 @@ impl Quads {
                 resource: uniform.as_entire_binding(),
             }],
         });
-        Self {
+        let mut result = Self {
             particles: Vec::new(),
             sprites: Vec::new(),
-            particle_data: Vec::new(),
-            particle_arena: Arena::new(d),
-            sprite_arena: Arena::new(d),
-            order: Vec::new(),
-            draws: Vec::new(),
+            sprite_data: Vec::with_capacity(4096),
+            particle_data: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize),
+            particle_arena: Arena::new(d, exact_game::emitter::PARTICLE_BUDGET as usize),
+            sprite_arena: Arena::new(d, if ASSETS { 4096 } else { 0 }),
+            order: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
+            draws: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
             layout,
             bind,
             particle_pipelines: None,
@@ -104,7 +157,18 @@ impl Quads {
             texture_layout: None,
             textures: BTreeMap::new(),
             hz: 60,
+            #[cfg(not(target_arch = "wasm32"))]
+            children: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            child_textures: BTreeMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            child_pipeline: None,
+        };
+        result.prepare(d, q);
+        if ASSETS {
+            result.prepare_sprites(d);
         }
+        result
     }
     pub fn feed<const ASSETS: bool>(
         &mut self,
@@ -115,14 +179,22 @@ impl Quads {
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
-        for item in &self.particles {
-            item.value.validate().map_err(RenderError::scene)?;
-        }
+        self.particles.retain(|item| match item.value.validate() {
+            Ok(()) => true,
+            Err(error) => {
+                w.log(format!("{error} #{}", item.entity.index()));
+                false
+            }
+        });
         if ASSETS {
             feed(w, &mut self.sprites, initial, next_tick, parent_changed);
-            for item in &self.sprites {
-                item.value.validate().map_err(RenderError::scene)?;
-            }
+            self.sprites.retain(|item| match item.value.validate() {
+                Ok(()) => true,
+                Err(error) => {
+                    w.log(format!("{error} #{}", item.entity.index()));
+                    false
+                }
+            });
         } else if let Some((_, s)) = w.query::<&Sprite>().iter().next() {
             return Err(RenderError::scene(format!(
                 "Sprite `{}` requires game.assets: true",
@@ -155,6 +227,66 @@ impl Quads {
             ],
         });
         self.textures.insert(name.into(), (t.digest, bind, t.size));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn children(&mut self, d: &wgpu::Device, placed: &crate::placed::Placements) {
+        self.children.clear();
+        self.child_textures.retain(|i, _| {
+            placed
+                .children
+                .get(usize::from(*i))
+                .is_some_and(|c| c.texture.is_some())
+        });
+        for (i, child) in placed.children.iter().enumerate() {
+            let Ok(i) = u16::try_from(i) else {
+                break;
+            };
+            let Some(texture) = &child.texture else {
+                continue;
+            };
+            let Some(plane) = child.plane.filter(|p| !p.placement.hidden) else {
+                continue;
+            };
+            self.prepare_sprites(d);
+            if self.child_pipeline.is_none() {
+                self.child_pipeline = Some(pipeline(
+                    d,
+                    &source(d, include_str!("shaders/sprite.wgsl")),
+                    &[&self.layout, self.texture_layout.as_ref().unwrap()],
+                    4,
+                ));
+            }
+            if self
+                .child_textures
+                .get(&i)
+                .is_none_or(|(view, _)| view != texture)
+            {
+                let sampler = d.create_sampler(&wgpu::SamplerDescriptor {
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                });
+                let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("game captured child"),
+                    layout: self.texture_layout.as_ref().unwrap(),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(texture),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
+                self.child_textures.insert(i, (texture.clone(), bind));
+            }
+            self.children.push((i, plane));
+        }
+    }
+    pub fn retain_textures(&mut self, mut keep: impl FnMut(&str) -> bool) {
+        self.textures.retain(|n, _| keep(n));
     }
     pub fn retire_texture(&mut self, name: &str) {
         self.textures.remove(name);
@@ -193,8 +325,17 @@ impl Quads {
         }));
         self.texture_layout = Some(texture);
     }
-    pub fn prepare(&mut self, d: &wgpu::Device) {
-        if !self.particles.is_empty() && self.particle_pipelines.is_none() {
+    pub fn prepare(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
+        // Membership-sized sprite capacity is reserved in feed preparation, not draw.
+        let sprites = self.sprites.len();
+        self.sprite_arena.reallocations +=
+            u64::from(self.sprite_arena.buffer.grow(d, q, (sprites * 80) as u64));
+        self.sprite_data
+            .reserve(sprites.saturating_sub(self.sprite_data.len()));
+        self.sprite_arena
+            .words
+            .reserve((sprites * 20).saturating_sub(self.sprite_arena.words.len()));
+        if self.particle_pipelines.is_none() {
             let shader = source(d, include_str!("shaders/particle.wgsl"));
             self.particle_pipelines = Some(std::array::from_fn(|i| {
                 pipeline(d, &shader, &[&self.layout], i + 2)
@@ -203,13 +344,14 @@ impl Quads {
     }
     pub fn frame<const ASSETS: bool>(
         &mut self,
-        d: &wgpu::Device,
-        q: &wgpu::Queue,
+        _d: &wgpu::Device,
+        _q: &wgpu::Queue,
         f: &FrameInput<'_>,
     ) {
         self.order.clear();
         self.draws.clear();
         self.particle_data.clear();
+        self.sprite_data.clear();
         self.particle_arena.words.clear();
         self.sprite_arena.words.clear();
         let inv = f.view.inverse();
@@ -276,10 +418,9 @@ impl Quads {
                     AlphaMode::Mask => 1.,
                     AlphaMode::Blend => 2.,
                 };
-                let at = self.sprite_arena.words.len() / 20;
-                self.sprite_arena
-                    .words
-                    .extend(quad(center, x, y, s.color, uv, mode, s.cutoff).words);
+                let at = self.sprite_data.len();
+                self.sprite_data
+                    .push(quad(center, x, y, s.color, uv, mode, s.cutoff));
                 if s.alpha == AlphaMode::Blend {
                     self.order.push(Order {
                         kind: Kind::Sprite(index),
@@ -289,13 +430,25 @@ impl Quads {
                         index: at,
                     });
                 } else {
-                    self.draws.push(Draw {
-                        kind: Kind::Sprite(index),
-                        range: at as u32..at as u32 + 1,
-                    });
+                    let start = (self.sprite_arena.words.len() / 20) as u32;
+                    self.sprite_arena.words.extend(self.sprite_data[at].words);
+                    push_draw(&mut self.draws, &self.sprites, Kind::Sprite(index), start);
                 }
             }
-            self.sprite_arena.upload(d, q);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        for &(child, p) in &self.children {
+            let index = self.sprite_arena.words.len() / 20;
+            self.sprite_arena
+                .words
+                .extend(quad(p.center, p.x, p.y, [1.; 4], [0., 0., 1., 1.], 4., 0.).words);
+            self.order.push(Order {
+                kind: Kind::Child(child),
+                depth: -p.placement.depth,
+                layer: 0,
+                slot: u32::from(child),
+                index,
+            });
         }
     }
     pub fn order(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
@@ -304,6 +457,7 @@ impl Quads {
                 .total_cmp(&a.depth)
                 .then(a.layer.cmp(&b.layer))
                 .then(a.slot.cmp(&b.slot))
+                .then(a.kind.rank().cmp(&b.kind.rank()))
                 .then(a.index.cmp(&b.index))
         });
         for o in &self.order {
@@ -315,25 +469,18 @@ impl Quads {
                         .extend(self.particle_data[o.index].words);
                     at as u32
                 }
+                Kind::Sprite(_) => {
+                    let at = self.sprite_arena.words.len() / 20;
+                    self.sprite_arena
+                        .words
+                        .extend(self.sprite_data[o.index].words);
+                    at as u32
+                }
                 _ => o.index as u32,
             };
-            if let Kind::Particle(blend) = o.kind {
-                if let Some(Draw {
-                    kind: Kind::Particle(b),
-                    range,
-                }) = self.draws.last_mut()
-                {
-                    if blend == *b && range.end == at {
-                        range.end += 1;
-                        continue;
-                    }
-                }
-            }
-            self.draws.push(Draw {
-                kind: o.kind,
-                range: at..at + 1,
-            });
+            push_draw(&mut self.draws, &self.sprites, o.kind, at);
         }
+        self.sprite_arena.upload(d, q);
         self.particle_arena.upload(d, q);
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, draw: &Draw) {
@@ -356,6 +503,12 @@ impl Quads {
                 pass.set_bind_group(1, &self.textures[&s.texture].1, &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.buffer.raw.slice(..));
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Kind::Child(i) => {
+                pass.set_pipeline(self.child_pipeline.as_ref().unwrap());
+                pass.set_bind_group(1, &self.child_textures[&i].1, &[]);
+                pass.set_vertex_buffer(0, self.sprite_arena.buffer.raw.slice(..));
+            }
             Kind::Model(..) => unreachable!(),
         }
         pass.draw(0..6, draw.range.clone());
@@ -367,48 +520,77 @@ impl Quads {
         ((self.particle_arena.words.len() + self.sprite_arena.words.len()) / 20) as u64
     }
 }
-fn feed<T: exact_game::Component + Clone>(
+fn push_draw(draws: &mut Vec<Draw>, sprites: &[Item<Sprite>], kind: Kind, at: u32) {
+    if let Some(previous) = draws.last_mut() {
+        let compatible = match (previous.kind, kind) {
+            (Kind::Particle(a), Kind::Particle(b)) => a == b,
+            (Kind::Sprite(a), Kind::Sprite(b)) => {
+                let (a, b) = (&sprites[a].value, &sprites[b].value);
+                a.texture == b.texture && a.alpha == b.alpha
+            }
+            _ => false,
+        };
+        if compatible && previous.range.end == at {
+            previous.range.end += 1;
+            return;
+        }
+    }
+    draws.push(Draw {
+        kind,
+        range: at..at + 1,
+    });
+}
+pub(crate) fn feed<T: exact_game::Component + Clone>(
     w: &World,
     items: &mut Vec<Item<T>>,
     initial: bool,
     next_tick: bool,
     parent_changed: bool,
 ) {
-    let mut at = 0;
-    for (entity, value) in w.query::<&T>().iter() {
-        if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
-            continue;
+    let revision = w.revision::<T>();
+    // Compact once, then append arrivals. Never shift the tail for each removal.
+    items.retain(|i| {
+        w.get::<T>(i.entity).is_some()
+            && !w.get::<Visible>(i.entity).is_some_and(|v| !v.0)
+            && crate::world::scene::pose(w, i.entity).is_some()
+    });
+    for i in items.iter_mut() {
+        let pose = crate::world::scene::pose(w, i.entity).unwrap();
+        if next_tick {
+            i.poses[0] = i.poses[1];
         }
-        let Some(pose) = crate::world::scene::pose(w, entity) else {
-            continue;
-        };
-        while at < items.len() && items[at].entity.index() < entity.index() {
-            items.remove(at);
+        i.poses[1] = pose;
+        if initial || crate::world::scene::snap(w, i.entity, parent_changed) {
+            i.poses[0] = pose;
         }
-        if items.get(at).is_some_and(|i| i.entity == entity) {
-            let i = &mut items[at];
-            if next_tick {
-                i.poses[0] = i.poses[1];
-            }
-            i.poses[1] = pose;
-            if initial || crate::world::scene::snap(w, entity, parent_changed) {
-                i.poses[0] = pose;
-            }
-            i.value.clone_from(value);
-        } else {
-            items.insert(
-                at,
-                Item {
-                    entity,
-                    poses: [pose; 2],
-                    value: value.clone(),
-                },
-            );
+        if initial || i.revision != revision {
+            i.value.clone_from(&*w.get::<T>(i.entity).unwrap());
+            i.revision = revision;
         }
-        at += 1;
     }
-    items.truncate(at);
+    let existing = items.len();
+    for (entity, value) in w.query::<&T>().iter() {
+        if items[..existing]
+            .binary_search_by_key(&entity.index(), |i| i.entity.index())
+            .is_ok()
+            || w.get::<Visible>(entity).is_some_and(|v| !v.0)
+        {
+            continue;
+        }
+        if let Some(pose) = crate::world::scene::pose(w, entity) {
+            items.push(Item {
+                entity,
+                poses: [pose; 2],
+                value: value.clone(),
+                revision,
+            });
+        }
+    }
+    if items.len() != existing {
+        items.sort_unstable_by_key(|i| i.entity.index());
+    }
 }
+
 fn quad(p: Vec3, x: Vec3, y: Vec3, c: [f32; 4], uv: [f32; 4], mode: f32, cutoff: f32) -> Quad {
     Quad {
         words: [
@@ -444,7 +626,9 @@ fn pipeline(
     });
     let attrs =
         wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4];
-    let blend = if mode == 3 {
+    let blend = if mode == 4 {
+        Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
+    } else if mode == 3 {
         Some(wgpu::BlendState {
             color: wgpu::BlendComponent {
                 src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -497,4 +681,43 @@ fn pipeline(
         multiview_mask: None,
         cache: None,
     })
+}
+
+#[cfg(test)]
+mod retained_tests {
+    use super::*;
+    #[test]
+    fn revisions_reuse_owned_values_and_membership_compacts_in_order() {
+        let mut w = World::new(60, 0);
+        let first = w.spawn((Transform::default(), Emitter::default()));
+        let entity = w.spawn((
+            Transform::default(),
+            Emitter {
+                state: exact_game::emitter::EmitterState {
+                    births: vec![Default::default()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Sprite::new("shared.tex", [1., 1.]),
+        ));
+        w.propagate();
+        let mut emitters = Vec::new();
+        let mut sprites = Vec::new();
+        feed::<Emitter>(&w, &mut emitters, true, false, false);
+        feed::<Sprite>(&w, &mut sprites, true, false, false);
+        let births = emitters[1].value.state.births.as_ptr();
+        let texture = sprites[0].value.texture.as_ptr();
+        w.get_mut::<Emitter>(entity).unwrap().rate = 90.;
+        w.get_mut::<Sprite>(entity).unwrap().frame = [16, 0, 16, 16];
+        feed::<Emitter>(&w, &mut emitters, false, false, false);
+        feed::<Sprite>(&w, &mut sprites, false, false, false);
+        assert_eq!(emitters[1].value.state.births.as_ptr(), births);
+        assert_eq!(sprites[0].value.texture.as_ptr(), texture);
+        w.despawn(first);
+        feed::<Emitter>(&w, &mut emitters, false, false, false);
+        assert_eq!(emitters.len(), 1);
+        assert_eq!(emitters[0].entity, entity);
+        assert_eq!(emitters[0].value.state.births.as_ptr(), births);
+    }
 }

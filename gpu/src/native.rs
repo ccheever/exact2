@@ -265,12 +265,8 @@ pub fn children_count(id: u32, count: u32) -> u32 {
 
 /// Where the surface put a child: the homography (nine floats, row major)
 /// then the depth; `None` when it is the kernel's frame (LLP 1014 D5).
-pub fn placement(id: u32, index: u32) -> Option<[f32; 10]> {
-    let p = with(|m| m.placement(id, index as usize)).flatten()?;
-    let mut out = [0.0; 10];
-    out[..9].copy_from_slice(&p.homography);
-    out[9] = p.depth;
-    Some(out)
+pub fn placement(id: u32, index: u32) -> Option<crate::Placement> {
+    with(|m| m.placement(id, index as usize)).flatten()
 }
 
 /// Whether a canvas's surface samples its children (LLP 1014 D2).
@@ -555,7 +551,7 @@ macro_rules! module {
         /// Where the surface put a child (LLP 1014 D5): ten floats into
         /// `out`, which is `len` floats long (at least ten) — the homography,
         /// row major, then the depth; 1 when placed, 0 when it is the
-        /// kernel's frame or `out` cannot hold it.
+        /// kernel's frame or `out` cannot hold it; 2 means hidden, with `out` untouched.
         ///
         /// # Safety
         /// `out`, when non-null, points at `len` writable floats, at any
@@ -564,8 +560,9 @@ macro_rules! module {
         pub unsafe extern "C" fn gpu_placement(id: u32, index: u32, out: *mut f32, len: usize) -> u32 {
             if out.is_null() || len < 10 { $crate::native::refuse("gpu_placement: out is null or shorter than ten floats"); return 0 }
             match $crate::native::placement(id, index) {
+                Some(p) if p.hidden => 2,
                 Some(p) => {
-                    for (i, v) in p.iter().enumerate() {
+                    for (i, v) in p.homography.iter().chain(std::iter::once(&p.depth)).enumerate() {
                         // SAFETY: the caller's contract — `len` ≥ 10 floats at `out`, checked above.
                         unsafe { out.add(i).write_unaligned(*v) }
                     }
@@ -755,4 +752,70 @@ macro_rules! module {
             EXACT_GPU_OUT.with(|b| b.borrow().as_ptr())
         }
     };
+}
+
+#[cfg(test)]
+mod placement_abi_tests {
+    use crate::{wgpu, Frame, Placement, Registry, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Sign {
+        frame: [f32; 4],
+    }
+    impl Surface for Sign {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+        fn wants_children_each(&self) -> bool {
+            true
+        }
+        fn child(&mut self, _: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+            assert!(texture.is_none());
+            self.frame = frame;
+        }
+        fn placement(&self, index: usize) -> Option<Placement> {
+            (index != 0).then_some(Placement {
+                hidden: index == 2,
+                homography: [self.frame[2]; 9],
+                depth: -3.,
+            })
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("sign", 0, || Box::<Sign>::default())],
+        shaders: &[],
+    };
+    crate::module!(REGISTRY);
+    #[test]
+    fn frame_only_child_and_explicit_hidden_out_do_not_need_a_device() {
+        gpu_load_headless();
+        // SAFETY: name bytes and output arrays live across these synchronous ABI calls.
+        unsafe {
+            let id = gpu_create_headless(b"sign".as_ptr(), 4);
+            assert_ne!(id, 0);
+            assert_eq!(gpu_wants_children_each(id), 1);
+            assert_eq!(
+                gpu_child(id, 0, 10., 20., 100., 50., 0, 0, std::ptr::null(), 0),
+                0
+            );
+            let mut out = [77.; 10];
+            assert_eq!(gpu_placement(id, 0, out.as_mut_ptr(), out.len()), 0);
+            assert_eq!(out, [77.; 10]);
+            assert_eq!(gpu_placement(id, 2, out.as_mut_ptr(), out.len()), 2);
+            assert_eq!(out, [77.; 10]);
+            assert_eq!(gpu_placement(id, 1, out.as_mut_ptr(), out.len()), 1);
+            assert_eq!(out[..9], [100.; 9]);
+            assert_eq!(out[9], -3.);
+        }
+        gpu_unload();
+    }
 }

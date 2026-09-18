@@ -66,9 +66,14 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         next_tick: bool,
         parent_changed: bool,
     ) -> Result<(), RenderError> {
+        if ASSETS {
+            for (_, sprite) in w.query::<&exact_game::Sprite>().iter() {
+                self.sprite_texture(&sprite.texture);
+            }
+        }
         self.quads
             .feed::<ASSETS>(w, initial, next_tick, parent_changed)?;
-        self.quads.prepare(&self.device);
+        self.quads.prepare(&self.device, &self.queue);
         Ok(())
     }
     fn max_slots(&self) -> u32 {
@@ -273,7 +278,8 @@ impl Feed {
     /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
     /// No world queries, allocation, or entity scans occur here.
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
-        self.scene.frame(world, alpha, glam::Vec2::new(aspect, 1.))
+        self.scene
+            .frame(world, alpha, glam::Vec2::new(aspect, 1.), false)
     }
     /// Frame projection at the CSS-pixel viewport size, including integer scaling.
     pub fn frame_pixels(
@@ -283,7 +289,7 @@ impl Feed {
         size: (f32, f32),
     ) -> crate::FrameInput<'_> {
         self.scene
-            .frame(world, alpha, glam::Vec2::new(size.0, size.1))
+            .frame(world, alpha, glam::Vec2::new(size.0, size.1), true)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
         if self.generation != w.presentation_generation() {
@@ -543,11 +549,7 @@ impl Feed {
             r.batches(&self.batches, &self.slots)?;
         }
         if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
-            r.model_poses(
-                w,
-                &self.assets.entities,
-                initial || batches || parent_changed,
-            );
+            r.model_poses(w, &self.assets.entities, initial || parent_changed);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         self.scene.feed(

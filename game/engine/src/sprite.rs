@@ -1,8 +1,8 @@
 //! Camera-facing textured quads and saved atlas animation; no second simulation.
 use crate::{asset::AlphaMode, Component, Vec2, World};
 
-/// A textured quad. Negative Transform scale changes geometry, not texture flip.
-#[derive(Clone, Debug, Component)]
+/// A textured quad. Transform scale is magnitude-only; Sprite.flip flips the texture.
+#[derive(Debug, Component)]
 pub struct Sprite {
     /// Baked .tex asset name. Declare in Game::ASSETS when setup must wait for it.
     pub texture: String,
@@ -24,6 +24,33 @@ pub struct Sprite {
     /// Alpha-mask threshold.
     pub cutoff: f32,
 }
+impl Clone for Sprite {
+    fn clone(&self) -> Self {
+        Self {
+            texture: self.texture.clone(),
+            size: self.size,
+            anchor: self.anchor,
+            flip: self.flip,
+            color: self.color,
+            layer: self.layer,
+            frame: self.frame,
+            alpha: self.alpha,
+            cutoff: self.cutoff,
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.texture.clone_from(&source.texture);
+        self.size = source.size;
+        self.anchor = source.anchor;
+        self.flip = source.flip;
+        self.color = source.color;
+        self.layer = source.layer;
+        self.frame = source.frame;
+        self.alpha = source.alpha;
+        self.cutoff = source.cutoff;
+    }
+}
+
 impl Default for Sprite {
     fn default() -> Self {
         Self {
@@ -118,8 +145,44 @@ pub fn step(w: &World) {
         } else {
             frame.min(a.frames.len() as u64 - 1) as u32
         };
-        if let Some(mut sprite) = w.get_mut::<Sprite>(entity) {
-            sprite.frame = a.frames[a.frame as usize];
+        let frame = a.frames[a.frame as usize];
+        if w.get::<Sprite>(entity).is_some_and(|s| s.frame != frame) {
+            w.get_mut::<Sprite>(entity).unwrap().frame = frame;
         }
+    }
+}
+
+pub(crate) fn texture_names_changed(w: &World, names: &mut Vec<(crate::Entity, String)>) -> bool {
+    if w.query::<&Sprite>()
+        .iter()
+        .map(|(e, s)| (e, s.texture.as_str()))
+        .eq(names.iter().map(|(e, n)| (*e, n.as_str())))
+    {
+        return false;
+    }
+    names.clear();
+    names.extend(
+        w.query::<&Sprite>()
+            .iter()
+            .map(|(e, s)| (e, s.texture.clone())),
+    );
+    true
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn atlas_frames_do_not_invalidate_texture_roots() {
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Sprite::new("one.tex", [1., 1.]));
+        let mut names = Vec::new();
+        assert!(texture_names_changed(&w, &mut names));
+        let pointer = names[0].1.as_ptr();
+        w.get_mut::<Sprite>(e).unwrap().frame = [16, 0, 16, 16];
+        assert!(!texture_names_changed(&w, &mut names));
+        assert_eq!(names[0].1.as_ptr(), pointer);
+        w.get_mut::<Sprite>(e).unwrap().texture = "two.tex".into();
+        assert!(texture_names_changed(&w, &mut names));
+        assert_eq!(names[0].1, "two.tex");
     }
 }

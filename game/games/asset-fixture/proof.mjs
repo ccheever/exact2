@@ -81,7 +81,7 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
     check('setup and exactly 30 ticks after settlement', at30.tick===30 && at30.loading.length===0 && at30.assets.every(a=>a.state==='Loaded'),at30);
     await s.world('world').key_down('KeyW');
     const saved=resolve(out,'crate.world'); await s.screenshot(saved,'world','save');
-    checkSteadyResidency(at30, check, say);
+    checkSteadyResidency(at30, check, say, host);
     await s.close();
     const restored=await start(saved);
     const loaded=(await restored.state()).world[0];
@@ -92,7 +92,7 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
     const clock = await restored.clock(500);
     check('publication-only changes keep clock changing', JSON.stringify(clock).includes('published.tick'), clock);
     const world=(await restored.state()).world[0];
-    check('native and web simulation hash agrees at 60', world.tick===60 && world.hash==='0x8f6d518f39634478',world.hash);
+    check('native and web simulation hash agrees at 60', world.tick===60 && world.hash==='0xb1365b0eb9a7c59d',world.hash);
     if(web) await checkResidency(residency,restored,check,say);
     if(web) {
       const beforeLoss=resolve(out,'before-loss.png'), afterLoss=resolve(out,'after-loss.png');

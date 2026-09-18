@@ -189,14 +189,17 @@ final class Canvases {
     }
 
     /// Each direct child of the overlay captured on its own and uploaded with
-    /// its frame (LLP 1014 D5); the overlay composites at alpha 0 as for a
-    /// whole capture, and hit-testing goes through the placements the
-    /// surface reports after each frame.
+    /// its frame (LLP 1014 D5). Placed children composite through the surface;
+    /// unplaced HUD children keep their ordinary overlay. Hit-testing follows
+    /// the placements the surface reports after each frame.
     private func captureEach(_ m: GpuModule, _ e: Entry, overlay: NSView, scale: CGFloat) -> Bool {
         let children = overlay.subviews.compactMap { $0 as? NodeView }
         var uploaded = 0
         let t0 = CACurrentMediaTime()
         for (i, child) in children.enumerated() {
+            let hidden = child.isHidden
+            if child.placementHidden { child.isHidden = false }
+            defer { child.isHidden = hidden }
             guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
             guard live(e.view.id) === e else { return false }
             let f = child.frame
@@ -223,9 +226,13 @@ final class Canvases {
         guard e.each, let overlay = e.view.overlay else { return }
         var h = [Float](repeating: 0, count: 10)
         for (i, child) in overlay.subviews.compactMap({ $0 as? NodeView }).enumerated() {
-            let placed = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) } != 0
-            let next: [Double]? = placed ? h.map { Double($0) } : nil
-            if next != child.placement { child.placement = next; child.placementChanged() }
+            let outcome = h.withUnsafeMutableBufferPointer { m.placement(e.id, UInt32(i), $0.baseAddress, $0.count) }
+            let next: [Double]? = outcome == 1 ? h.map { Double($0) } : nil
+            let changed = next != child.placement || child.placementHidden != (outcome == 2)
+            child.placement = next
+            child.placementHidden = outcome == 2
+            child.alphaValue = outcome == 0 ? 1 : 0
+            if changed { child.placementChanged() }
         }
     }
 
@@ -265,7 +272,7 @@ final class Canvases {
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
         let scale = win.backingScaleFactor
         if e.each {
-            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alphaValue = 0; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
+            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alphaValue = 1; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
             return
         }
         let t0 = CACurrentMediaTime()
@@ -290,12 +297,28 @@ final class Canvases {
         }
     }
 
+    private func refreshChildren(_ m: GpuModule, _ e: Entry) {
+        let each = m.wantsChildrenEach(e.id) != 0
+        if each != e.each {
+            e.each = each
+            e.through = each || m.wantsChildren(e.id) != 0
+            e.view.needsCapture = e.through
+            if !each, let overlay = e.view.overlay {
+                for case let child as NodeView in overlay.subviews {
+                    child.placement = nil; child.placementHidden = false; child.alphaValue = 1
+                }
+                overlay.alphaValue = e.through ? 0 : 1
+            }
+        }
+    }
+
     private func bindNow(_ m: GpuModule, _ e: Entry) {
         if bindSurface(m, e) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return
         }
         restoreWorld(m, e)
+        refreshChildren(m, e)
         messages(e)
     }
 
@@ -375,6 +398,8 @@ final class Canvases {
         defer { frameNow = previous }
         var more = false
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
+            refreshChildren(m, e)
+            if e.through && e.view.needsCapture { capture(m, e) }
             // Nested under a canvas painted through its surface (LLP 1014):
             // its Metal layer is never composited, so presenting to it would
             // block on a drawable nobody takes. It is only ever read back into

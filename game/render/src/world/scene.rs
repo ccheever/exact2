@@ -211,13 +211,26 @@ impl Scene {
         }
         self.versions = Some(versions);
     }
-    pub fn frame(&mut self, w: &World, alpha: f32, size: glam::Vec2) -> FrameInput<'_> {
+    pub fn frame(
+        &mut self,
+        w: &World,
+        alpha: f32,
+        size: glam::Vec2,
+        pixels: bool,
+    ) -> FrameInput<'_> {
         let alpha = alpha.clamp(0.0, 1.0);
-        let (camera_pose, camera) = self
+        let (camera_pose, mut camera) = self
             .camera
             .map_or((Transform::default(), Camera::default()), |(h, c)| {
                 (h.at(alpha), c)
             });
+        if !pixels {
+            if let exact_game::Projection::Orthographic { integer_scale, .. } =
+                &mut camera.projection
+            {
+                *integer_scale = false;
+            }
+        }
         // Only the selected sixteen histories are touched per frame.
         for i in 0..self.count {
             let l = &self.lights[self.selected[i]];

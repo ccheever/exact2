@@ -26,8 +26,8 @@ a zero-lag `Follow` retains the original camera offset. The engine places the ca
 0.9 metres and clamps XZ to ±19.6 metres. `near_xz` selects beacons by player name. Seekable Sim
 observes changed components, springs and explicitly reported work when settling.
 
-E5 pins checked in Chrome wasm and the Linux headless host on this arm64 Mac: setup `0x7544ef30a82fdcdc`, W for 1,500 ms
-`0xa655423c9a442bce`, player `[0, 0.9, -5.3666644]`. Read all components with
+E5 pins checked in Chrome wasm and the Linux headless host on this arm64 Mac: setup `0x9a871d8582d905e7`, W for 1,500 ms
+`0x71f43e51a13cc49f`, player `[0, 0.9, -5.3666644]`. Read all components with
 `state world:*`; hold a key with `type world KeyW for 1500`. These are forms of the
 existing eight operations.
 
@@ -52,3 +52,8 @@ Sound playback uses `&World` inside the beacon loop, and wind is
 The boolean restart edge uses the setup reconstruction path. The Character component
 changes the old setup/forward hashes, while the 60 Hz movement and sound sequence stay
 the same. No new x86-64 or macOS GUI sweep is claimed here.
+
+The nearest-beacon idiom intentionally changed the interaction to light one unlit
+beacon per press. Previously every unlit beacon within the radius lit together.
+The single target makes each press match the visible nearest-target interaction;
+`near_xz` remains available for games that want the original all-in-radius behavior.

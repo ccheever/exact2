@@ -544,6 +544,7 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
+        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = text.clone();
@@ -658,6 +659,7 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         self.host = host;
+        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = candidate_text.clone();

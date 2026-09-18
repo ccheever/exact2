@@ -162,7 +162,18 @@ async function settled() {
   const deadline = performance.now() + ASSET_DEADLINE_MS;
   for (let round = 0; round < 16; round++) {
     for (const entry of surfaces.values()) assets(entry);
-    if (!assetFlights.size) return [];
+    if (!assetFlights.size) {
+      // Agent operations return after presentation reaches the committed clock,
+      // including a child-text update published by the rendered world.
+      if (exact.now) for (let pass = 0; pass < 3; pass++) {
+        let drew = false;
+        for (const entry of surfaces.values()) if (entry.id && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
+          render(entry, exact.now()); drew = true;
+        }
+        if (!drew) break;
+      }
+      return [];
+    }
     const left = deadline - performance.now();
     if (left <= 0) break;
     let timer;
@@ -197,12 +208,64 @@ document.addEventListener("visibilitychange", () => lifecycle(document.hidden ? 
 window.addEventListener("pagehide", () => lifecycle(0));
 window.addEventListener("pageshow", event => lifecycle(event.persisted || !document.hidden ? 1 : 0));
 
+// A homography maps child-local points to canvas points. CSS adds the child's
+// kernel offset after its transform, so subtract that offset in homogeneous space.
+function childFrames(entry) {
+  const children = [...entry.host.children].filter(el => !el.hasAttribute("data-surface"));
+  return children.map(el => ({el, frame:[el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight]}));
+}
+function restoreChild(row) {
+  if (!row.original) return;
+  Object.assign(row.el.style, row.original.style); row.el.inert = row.original.inert;
+  delete row.original;
+}
+function supplyChildren(entry, module = gpu, staging = false) {
+  if (!module.gpu_wants_children_each?.(entry.id)) {
+    if (!staging) for (const row of entry.children ?? []) restoreChild(row);
+    entry.children = undefined; return;
+  }
+  const previous = entry.children ?? [];
+  const rows = childFrames(entry);
+  if (!staging) for (const row of previous) if (!rows.some(next => next.el === row.el)) restoreChild(row);
+  for (const [i, row] of rows.entries()) {
+    const old = previous.find(old => old.el === row.el);
+    row.original = old?.original;
+    if (staging || previous[i]?.el !== row.el || row.frame.some((n, j) => n !== previous[i].frame[j]))
+      module.gpu_child(entry.id, i, ...row.frame);
+  }
+  if (staging || !entry.children || previous.length !== rows.length) module.gpu_children_count(entry.id, rows.length);
+  entry.children = rows;
+}
+function placeChildren(entry) {
+  const h = new Float32Array(10), placed = [];
+  for (const [i, row] of (entry.children ?? []).entries()) {
+    const outcome = gpu.gpu_placement(entry.id, i, h), el = row.el;
+    if (outcome === 0) { restoreChild(row); continue; }
+    row.original ??= {style:Object.fromEntries(["transform","transformOrigin","zIndex","visibility","position"].map(k => [k, el.style[k]])), inert:el.inert};
+    el.style.visibility = outcome === 2 ? "hidden" : row.original.style.visibility;
+    el.inert = outcome === 2 || row.original.inert;
+    if (outcome === 2) continue;
+    const [x,y] = row.frame;
+    el.style.transformOrigin = "0 0";
+    // Relative positioning makes z-index apply to ordinary block children too.
+    if (!row.original.style.position || row.original.style.position === "static") el.style.position = "relative";
+    el.style.transform = `matrix3d(${[h[0]-x*h[6],h[3]-y*h[6],0,h[6],h[1]-x*h[7],h[4]-y*h[7],0,h[7],0,0,1,0,h[2]-x*h[8],h[5]-y*h[8],0,h[8]].join(",")})`;
+    placed.push({el, depth:h[9], index:i});
+  }
+  // Integer CSS ranks preserve the full float ordering. At equal depth the later
+  // Contract child draws/hits last, on native and web alike.
+  placed.sort((a,b) => a.depth-b.depth || a.index-b.index);
+  placed.forEach((row,i) => { row.el.style.zIndex = String(i+1); });
+}
+
 function render(entry, now) {
   if (hidden && !exact.now) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
+  supplyChildren(entry);
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
+  if (r < 2) { placeChildren(entry); entry.renderedAt = clockFor(now); }
   if (r === 3) {
     entry.wants = false;
     if (!recoveringDevice) {
@@ -239,6 +302,7 @@ function frame(now) {
   raf = null;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
+  exact.drawCallback?.(now, at); // Optional bench observer: only this callback draws.
   // Bootstrap and subsequent stable fits reach the module once per real change.
   const period = pace.period_ms;
   if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
@@ -542,7 +606,7 @@ exact.gpu = {
   },
   destroy(view) {
     const entry = surfaces.get(view);
-    if (entry) cancelAssets(entry);
+    if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); }
     if (entry?.id) gpu.gpu_destroy(entry.id);
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
@@ -591,6 +655,7 @@ exact.gpu = {
       replaceShaders(rows, module);
     };
   },
+  layout() { for (const entry of surfaces.values()) if (entry.id) { supplyChildren(entry); } schedule(); },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
@@ -656,6 +721,7 @@ async function swap(version) {
       create(entry, next, carry);
       restorePending(entry, next, carrier);
       const {w,h,s} = size(old.host);
+      supplyChildren(entry, next, true);
       if (next.gpu_render(entry.id, w, h, s, clockFor(frameAt ?? performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
     }
   } catch (error) {
@@ -672,6 +738,10 @@ async function swap(version) {
     if (old.id) oldModule.gpu_destroy(old.id);
   }
   oldModule?.gpu_unload(); gpu = next; loaded = true;
+  for (const [old, entry] of staged) {
+    for (const row of old.children ?? []) if (!entry.children?.some(next => next.el === row.el)) restoreChild(row);
+    placeChildren(entry);
+  }
   for (const [, entry] of staged) if (entry.pendingRestore?.carrier === carrier) entry.pendingRestore.carrier = exact;
   exact.gpu.version = version;
   if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }

@@ -698,3 +698,18 @@ fn ordinary_node_state_is_not_routed_to_a_surface() {
     let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
     assert_eq!(targeted, plain);
 }
+
+#[test]
+fn autofocus_starts_again_in_a_reloaded_host_generation() {
+    pin_font();
+    let plan = contract::compile(
+        "component Test\n  view\n    button autofocus testId=\"play\"\n      text \"Play\"\n",
+    )
+    .unwrap()
+    .encode();
+    let (mut p, error) = Presenter::boot(&plan, NoData, (390., 844.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    assert_eq!(p.focus(), Some(view(&p, "play")));
+    p.reload(&plan, NoData).unwrap();
+    assert_eq!(p.focus(), Some(view(&p, "play")));
+}

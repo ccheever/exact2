@@ -109,6 +109,7 @@ pub struct Sim<G: Game> {
     pub(crate) world: World,
     setup_pending: bool,
     asset_mesh_revision: u64,
+    asset_sprite_names: Vec<(crate::Entity, String)>,
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
@@ -175,11 +176,10 @@ impl<G: Game> Sim<G> {
         if self.setup_pending && !self.assets_pending() {
             return Vec::new();
         }
-        let revision = self
-            .world
-            .revision::<crate::Mesh>()
-            .wrapping_add(self.world.revision::<crate::Sprite>());
-        if revision != self.asset_mesh_revision {
+        let revision = self.world.revision::<crate::Mesh>();
+        let sprites_changed =
+            crate::sprite::texture_names_changed(&self.world, &mut self.asset_sprite_names);
+        if revision != self.asset_mesh_revision || sprites_changed {
             let names: Vec<_> = self
                 .world
                 .query::<&crate::Mesh>()
@@ -437,6 +437,7 @@ impl<G: Game> Sim<G> {
             world: Self::build(&args, Default::default()),
             setup_pending: !G::ASSETS.is_empty(),
             asset_mesh_revision: u64::MAX,
+            asset_sprite_names: Vec::new(),
             defer_assets: false,
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,
@@ -1356,6 +1357,7 @@ impl<G: Game> Sim<G> {
         // before the presenter has drained that payload into the current device.
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
+        next.restarted = self.restarted;
         *self = next;
         Ok(())
     }

@@ -141,8 +141,10 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
     for measure in [false, true] {
         CLOCK_READS.with(|n| n.set(0));
         let mut trace = None;
+        let mut placed = crate::placed::Placements::default();
         let mut after = observer::<false>(
             &mut render,
+            &mut placed,
             &mut perf,
             &mut trace,
             &mut error,
@@ -362,6 +364,14 @@ fn presentation_trace_is_opt_in_read_once_and_never_advances_the_clock() {
     for (row, x) in rows.iter().zip([0.02, 0.5, 1.04]) {
         assert!((row[2] - x).abs() < 1e-6);
         assert_eq!(&row[5..8], &[0., 0., 8.]);
+        assert_eq!(&row[30..32], &[64., 64.]);
+        // Column-major projection, exactly the analyzer's homogeneous divide.
+        let m = &row[14..30];
+        let clip_w = m[3] + m[15]; // known world point (1,0,0)
+        let px = (1. + (m[0] + m[12]) / clip_w) * row[30] / 2.;
+        let py = (1. - (m[1] + m[13]) / clip_w) * row[31] / 2.;
+        assert!((px - (32. + 4. * 3_f64.sqrt())).abs() < 1e-5, "{px}");
+        assert!((py - 32.).abs() < 1e-5);
     }
     assert_eq!(s.sim().unwrap().world().tick(), tick);
     assert!(s.trace.is_none());
@@ -405,7 +415,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     let setup = module
         .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
         .unwrap();
-    assert!(setup.contains("0x7544ef30a82fdcdc"), "{setup}");
+    assert!(setup.contains("0x9a871d8582d905e7"), "{setup}");
     assert!(setup.contains("\"device\":false"));
     assert!(module.input_json(
         id,
@@ -413,14 +423,14 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
     assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains("0xa655423c9a442bce"), "{tick}");
+    assert!(tick.contains("0x71f43e51a13cc49f"), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap();
     module.lose_device();
     assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
-    assert!(state.contains("0xa655423c9a442bce"), "{state}");
+    assert!(state.contains("0x71f43e51a13cc49f"), "{state}");
 }
 
 #[test]
