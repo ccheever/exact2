@@ -24,6 +24,9 @@ struct SourceVertex {
     weights: [f32; 4],
 }
 
+/// Skinned position, normal and texture coordinates for one sampled vertex.
+type SkinnedVertex = ([f32; 3], [f32; 3], [f32; 2]);
+
 #[derive(Clone, Copy)]
 struct Node {
     translation: Vec3,
@@ -268,7 +271,7 @@ impl Model {
         clip: &str,
         seconds: f32,
         looped: bool,
-    ) -> Result<Vec<([f32; 3], [f32; 3], [f32; 2])>, String> {
+    ) -> Result<Vec<SkinnedVertex>, String> {
         let clip = self
             .clips
             .get(clip)
