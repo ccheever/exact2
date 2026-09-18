@@ -1,0 +1,9494 @@
+BUILD beacons web
+   Compiling beacons-logic v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/games/beacons/logic)
+   Compiling beacons-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-gpu)
+    Finished `web` profile [optimized] target(s) in 2.29s
+   Compiling beacons-web v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-web)
+    Finished `web` profile [optimized] target(s) in 2.02s
+host/web/dist: app.wasm 621 KiB (264 KiB gzip; wasm-opt -Oz), index.html, glue.js, app.plan 4 KiB, exact.json; GPU: gpu_bg.wasm 666 KiB (268 KiB gzip, wasm-opt), gpu.js 73 KiB, on demand
+tree 
+epoch 1 · incarnation 1 · clock 0 ms · 7 nodes
+View#1
+  View#2
+    Text#3 "BEACONS"
+    Text#4 "Find three lights. Bring the clearing to life."
+    Text#5 "WASD or arrows to move · Space to jump · E to light"
+    Pressable#6 [play] [focused] name="Play" (press)
+      Text#7 "Play"
+PASS title has focused accessible Play
+PASS world waits for Play
+tap play
+{"at":[640,452],"tapped":6,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+type world {"key":"KeyW","for":1500}
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+clock +1500
+{"clock":1500,"world":[{"canvas":8,"tick":90,"hash":"0xfe8d70a16822564c","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+state world:player
+{
+  "tick": 90,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -5.3666644
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+PASS W exactly 1.5 s: [0, 0.9, -5.3666644] within 1 mm: [0,0.9,-5.3666644]
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false,
+    "round": 0
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "a632955d36c4418ab507c1e39f2b605a",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 8,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 90,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0xfe8d70a16822564c",
+      "entities": 13,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false,
+        "round": 0
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          },
+          "light": {
+            "name": "light",
+            "keys": [
+              "KeyE"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          }
+        },
+        "held": [
+          "KeyW"
+        ],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 0
+      },
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 5,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 11,
+        "triangles": 2235,
+        "navigationToFirstContentfulPaintMs": 176,
+        "gpuMs": 74.9,
+        "inputMs": 283.19999980926514,
+        "firstFrameSubmittedMs": 401.09999990463257,
+        "firstFrameMs": 412.7999999523163,
+        "inputToFirstFrameMs": 129.60000014305115,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 110,
+            "endMs": 139.19999980926514,
+            "bytes": 635411
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 312.89999985694885,
+            "endMs": 315.5,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 316.2999999523163,
+            "endMs": 319.39999985694885,
+            "bytes": 74418
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 320.5,
+            "endMs": 381.19999980926514,
+            "bytes": 682340
+          }
+        ]
+      },
+      "canvas": 8
+    }
+  ]
+}
+PASS exactly 90 ticks
+state world:*
+{
+  "tick": 90,
+  "hash": "0xfe8d70a16822564c",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -5.3666644
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            12.9,
+            12.200529
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+PASS entity snapshot is complete
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+clock +100
+{"clock":1600,"world":[{"canvas":8,"tick":96,"hash":"0xf4b9fa1968f79332","quiescent":false}],"epoch":2,"incarnation":1}
+tree 
+epoch 2 · incarnation 1 · clock 1600 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 96
+    Text#9 [hud-beacons] "Beacons 0 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS E outside range lights nothing
+clock settle
+{"clock":3100,"settled":true,"world":[{"canvas":8,"tick":186,"hash":"0x86afdb9dccf6877b","quiescent":true}],"epoch":2,"incarnation":1}
+PASS brakes and camera settle
+state world:player
+{
+  "tick": 186,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -5.733331
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 3100
+}
+type world {"key":"KeyD","for":2066.666666666667}
+type world {"key":"KeyD","phase":"down"}
+{"typed":8,"key":"KeyD","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":3100}
+clock +2066.666666666667
+{"clock":5166.666666666667,"world":[{"canvas":8,"tick":310,"hash":"0x11e85a8c294aa8b2","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyD","phase":"up"}
+{"typed":8,"key":"KeyD","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":5166.666666666667}
+clock settle
+{"clock":6583.334,"settled":true,"world":[{"canvas":8,"tick":395,"hash":"0x3d20cf9bd0d968ed","quiescent":true}],"epoch":2,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 395,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          7.9999957,
+          0.9,
+          -5.733331
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 6583.334
+}
+type world {"key":"KeyS","for":1500}
+type world {"key":"KeyS","phase":"down"}
+{"typed":8,"key":"KeyS","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":6583.334}
+clock +1500
+{"clock":8083.334,"world":[{"canvas":8,"tick":485,"hash":"0x0c5f33adf7747356","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyS","phase":"up"}
+{"typed":8,"key":"KeyS","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":8083.334}
+clock settle
+{"clock":9500,"settled":true,"world":[{"canvas":8,"tick":570,"hash":"0xd38313dce1f3b51f","quiescent":true}],"epoch":2,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 570,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          7.9999957,
+          0.9,
+          0.0000018797194
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 9500
+}
+PASS walk reaches (8, 0): [7.9999957,0.9,0.0000018797194]
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":9500}
+clock +100
+{"clock":9600,"world":[{"canvas":8,"tick":576,"hash":"0x7360b02910f98eb5","quiescent":false}],"epoch":3,"incarnation":1}
+state world:beacon-1
+{
+  "tick": 576,
+  "entity": {
+    "id": 10,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "start_value": 0,
+          "target": 1,
+          "start_tick": 570,
+          "duration": 0.5
+        }
+      },
+      "Material": {
+        "color": [
+          0.18,
+          0.73,
+          0.79,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.05185185,
+          0.1851852,
+          0.22222222
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 9600
+}
+PASS first beacon lit
+PASS glow partway up after 0.1 s: [0.05185185,0.1851852,0.22222222]
+tree 
+epoch 3 · incarnation 1 · clock 9600 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 576
+    Text#9 [hud-beacons] "Beacons 1 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS HUD reads Beacons 1 / 3, polite live region
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":9600}
+type world {"key":"Space","phase":"down"}
+{"typed":8,"key":"Space","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":9600}
+state world:*
+{
+  "tick": 576,
+  "hash": "0x7360b02910f98eb5",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            0.0000018797194
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            17.000002
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.05185185,
+            0.1851852,
+            0.22222222
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 9600
+}
+PASS entity snapshot is complete
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/checkpoint.world world save
+{"bytes":4572,"hash":"0x7360b02910f98eb5","tick":576,"epoch":3,"incarnation":1,"clock":9600,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/checkpoint.world"}
+clock +900
+{"clock":10500,"world":[{"canvas":8,"tick":630,"hash":"0x5c9c309d3b8ede36","quiescent":false}],"epoch":3,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":10500}
+type world {"key":"Space","phase":"up"}
+{"typed":8,"key":"Space","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":10500}
+state world:beacon-1
+{
+  "tick": 630,
+  "entity": {
+    "id": 10,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "start_value": 0,
+          "target": 1,
+          "start_tick": 570,
+          "duration": 0.5
+        }
+      },
+      "Material": {
+        "color": [
+          0.18,
+          0.73,
+          0.79,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.7,
+          2.5,
+          3
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 10500
+}
+PASS glow fully up at one second after E
+clock settle
+{"clock":13516.667,"settled":true,"world":[{"canvas":8,"tick":811,"hash":"0x95d2927a8997c0d9","quiescent":true}],"epoch":3,"incarnation":1}
+PASS continuation settles
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 13516.667
+}
+PASS entity snapshot is complete
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/run-0.world world save
+{"bytes":4457,"hash":"0x95d2927a8997c0d9","tick":811,"epoch":3,"incarnation":1,"clock":13516.667,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/run-0.world"}
+tap pause
+{"at":[1217.6100000000001,48.5],"tapped":10,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":13516.667}
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 13516.667
+}
+PASS entity snapshot is complete
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":13516.667}
+clock +2000
+{"clock":15516.667,"world":[{"canvas":8,"tick":811,"hash":"0x95d2927a8997c0d9","quiescent":true}],"epoch":4,"incarnation":1}
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 15516.667
+}
+PASS entity snapshot is complete
+PASS paused two seconds with W held: all entities and tick unchanged
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":15516.667}
+tree 
+epoch 4 · incarnation 1 · clock 15516.667 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 811
+    Text#9 [hud-beacons] "Beacons 1 / 3"
+    Pressable#10 [pause] name="Resume" (press)
+      Text#11 "Resume"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS pause button now accessible Resume
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/beacons-playing.png
+{"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/beacons-playing.png","w":1280,"h":720,"epoch":4,"incarnation":1,"clock":15516.667}
+tap pause
+{"at":[1209.625,48.5],"tapped":10,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":15516.667}
+state world:player
+{
+  "tick": 811,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          7.9999957,
+          0.9,
+          -3.3333316
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 5,
+  "incarnation": 1,
+  "clock": 15516.667
+}
+type world {"key":"KeyA","for":3566.666666666667}
+type world {"key":"KeyA","phase":"down"}
+{"typed":8,"key":"KeyA","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":15516.667}
+clock +3566.666666666667
+{"clock":19083.333666666666,"world":[{"canvas":8,"tick":1025,"hash":"0xdecde952dd6bef22","quiescent":false}],"epoch":5,"incarnation":1}
+type world {"key":"KeyA","phase":"up"}
+{"typed":8,"key":"KeyA","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":19083.333666666666}
+clock settle
+{"clock":20500,"settled":true,"world":[{"canvas":8,"tick":1110,"hash":"0x687a8b1ad57b0672","quiescent":true}],"epoch":5,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 1110,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          -5.9999995,
+          0.9,
+          -3.3333316
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 5,
+  "incarnation": 1,
+  "clock": 20500
+}
+type world {"key":"KeyS","for":2650}
+type world {"key":"KeyS","phase":"down"}
+{"typed":8,"key":"KeyS","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":20500}
+clock +2650
+{"clock":23150,"world":[{"canvas":8,"tick":1269,"hash":"0xbcd163cc0469c314","quiescent":false}],"epoch":5,"incarnation":1}
+type world {"key":"KeyS","phase":"up"}
+{"typed":8,"key":"KeyS","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":23150}
+clock settle
+{"clock":24566.667,"settled":true,"world":[{"canvas":8,"tick":1354,"hash":"0x019ec44afee35bed","quiescent":true}],"epoch":5,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 1354,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          -5.9999995,
+          0.9,
+          6.999998
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 5,
+  "incarnation": 1,
+  "clock": 24566.667
+}
+PASS walk reaches (-6, 7): [-5.9999995,0.9,6.999998]
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":24566.667}
+clock +600
+{"clock":25166.667,"world":[{"canvas":8,"tick":1390,"hash":"0x40bdb7dc91944479","quiescent":true}],"epoch":6,"incarnation":1}
+state world:player
+{
+  "tick": 1390,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          -5.9999995,
+          0.9,
+          6.999998
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 6,
+  "incarnation": 1,
+  "clock": 25166.667
+}
+type world {"key":"KeyD","for":2316.666666666667}
+type world {"key":"KeyD","phase":"down"}
+{"typed":8,"key":"KeyD","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":25166.667}
+clock +2316.666666666667
+{"clock":27483.33366666667,"world":[{"canvas":8,"tick":1529,"hash":"0x64dbee6e730bd17c","quiescent":false}],"epoch":6,"incarnation":1}
+type world {"key":"KeyD","phase":"up"}
+{"typed":8,"key":"KeyD","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":27483.33366666667}
+clock settle
+{"clock":28900,"settled":true,"world":[{"canvas":8,"tick":1614,"hash":"0x7f3f2369ec20676a","quiescent":true}],"epoch":6,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 1614,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          3.0000002,
+          0.9,
+          6.999998
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 6,
+  "incarnation": 1,
+  "clock": 28900
+}
+type world {"key":"KeyW","for":4066.666666666667}
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":28900}
+clock +4066.666666666667
+{"clock":32966.666666666664,"world":[{"canvas":8,"tick":1858,"hash":"0xfb2bb0acbeab13d9","quiescent":false}],"epoch":6,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":32966.666666666664}
+clock settle
+{"clock":35983.334,"settled":true,"world":[{"canvas":8,"tick":2039,"hash":"0x887075d22e9e297d","quiescent":true}],"epoch":6,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 2039,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          3.0000002,
+          0.9,
+          -8.999995
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 6,
+  "incarnation": 1,
+  "clock": 35983.334
+}
+PASS walk reaches (3, -9): [3.0000002,0.9,-8.999995]
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":35983.334}
+clock +600
+{"clock":36583.334,"world":[{"canvas":8,"tick":2075,"hash":"0x8496dce7d413f80c","quiescent":true}],"epoch":7,"incarnation":1}
+tree 
+epoch 7 · incarnation 1 · clock 36583.334 ms · 10 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 2075
+    Text#9 [hud-beacons] "Beacons 3 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+    View#13 [victory]
+      Text#14 "All beacons lit"
+      Pressable#15 [again] name="Play again" (press)
+        Text#16 "Play again"
+PASS three lit and centred victory UI
+tap again
+{"at":[663.99,361.5],"tapped":15,"target":"again","delivery":"platform","carrier":"web","mode":"agent","epoch":8,"incarnation":1,"clock":36583.334}
+state world:player
+{
+  "tick": 0,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 8,
+  "incarnation": 1,
+  "clock": 36583.334
+}
+tree 
+epoch 8 · incarnation 1 · clock 36583.334 ms · 6 nodes
+View#1
+  Canvas#8 [world] world{world} · 13 entities · tick 0
+    Text#9 [hud-beacons] "Beacons 0 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS Play again resets player and count
+logs 
+t=0 boot: 7 nodes, epoch 1
+t=0 press view 6 (play) → epoch 2 (+5 −6 ~1)
+t=0 surface world (1 asked again) → epoch 2 (+0 −0 ~0)
+t=9600 surface world (1 asked again) → epoch 3 (+0 −0 ~1)
+t=13516.667 press view 10 (togglePause) → epoch 4 (+0 −0 ~1)
+t=15516.667 press view 10 (togglePause) → epoch 5 (+0 −0 ~1)
+t=25166.667 surface world (1 asked again) → epoch 6 (+0 −0 ~1)
+t=36583.334 surface world (1 asked again) → epoch 7 (+4 −0 ~2)
+t=36583.334 press view 15 (restart) → epoch 7 (+0 −0 ~0)
+t=36583.334 surface world (1 asked again) → epoch 8 (+0 −4 ~2)
+world t=0 tick=0 spawn #0
+world t=0 tick=0 spawn #1
+world t=0 tick=0 spawn #2
+world t=0 tick=0 spawn #3
+world t=0 tick=0 spawn #4
+world t=0 tick=0 spawn #5
+world t=0 tick=0 spawn #6
+world t=0 tick=0 spawn #7
+world t=0 tick=0 spawn #8
+world t=0 tick=0 spawn #9
+world t=0 tick=0 spawn #10
+world t=0 tick=0 spawn #11
+world t=0 tick=0 spawn #12
+world t=0 tick=0 publish beacons: Number(0.0)
+world t=0 tick=0 world restarted: round 0 → 1
+  chrome: [72311:314646042:0917/225320.411645:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 "errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server." (-25308)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+  chrome: [72311:314646044:0917/225320.711487:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+  chrome: [72311:314646042:0917/225320.711632:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+PASS no browser or GPU errors: ["chrome: [72311:314646042:0917/225320.411645:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 \"errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server.\" (-25308)","chrome: Trying to load the allocator multiple times. This is *not* supported.","chrome: [72311:314646044:0917/225320.711487:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.","chrome: [72311:314646042:0917/225320.711632:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available."]
+tree 
+epoch 1 · incarnation 1 · clock 0 ms · 7 nodes
+View#1
+  View#2
+    Text#3 "BEACONS"
+    Text#4 "Find three lights. Bring the clearing to life."
+    Text#5 "WASD or arrows to move · Space to jump · E to light"
+    Pressable#6 [play] [focused] name="Play" (press)
+      Text#7 "Play"
+PASS title has focused accessible Play
+PASS world waits for Play
+tap play
+{"at":[640,452],"tapped":6,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+type world {"key":"KeyW","for":1500}
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+clock +1500
+{"clock":1500,"world":[{"canvas":8,"tick":90,"hash":"0xfe8d70a16822564c","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+state world:player
+{
+  "tick": 90,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -5.3666644
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+PASS W exactly 1.5 s: [0, 0.9, -5.3666644] within 1 mm: [0,0.9,-5.3666644]
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false,
+    "round": 0
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "a632955d36c4418ab507c1e39f2b605a",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 8,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 90,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0xfe8d70a16822564c",
+      "entities": 13,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false,
+        "round": 0
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          },
+          "light": {
+            "name": "light",
+            "keys": [
+              "KeyE"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          }
+        },
+        "held": [
+          "KeyW"
+        ],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 0
+      },
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 5,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 11,
+        "triangles": 2235,
+        "navigationToFirstContentfulPaintMs": 116,
+        "gpuMs": 60.6,
+        "inputMs": 226.90000009536743,
+        "firstFrameSubmittedMs": 327.30000019073486,
+        "firstFrameMs": 358.10000014305115,
+        "inputToFirstFrameMs": 131.20000004768372,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 16,
+            "endMs": 90.30000019073486,
+            "bytes": 635411
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 256.10000014305115,
+            "endMs": 258.30000019073486,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 258.80000019073486,
+            "endMs": 261.80000019073486,
+            "bytes": 74418
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 262.7000000476837,
+            "endMs": 314.5,
+            "bytes": 682340
+          }
+        ]
+      },
+      "canvas": 8
+    }
+  ]
+}
+PASS exactly 90 ticks
+state world:*
+{
+  "tick": 90,
+  "hash": "0xfe8d70a16822564c",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -5.3666644
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            12.9,
+            12.200529
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+PASS entity snapshot is complete
+PASS two runs after W are identical
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+clock +100
+{"clock":1600,"world":[{"canvas":8,"tick":96,"hash":"0xf4b9fa1968f79332","quiescent":false}],"epoch":2,"incarnation":1}
+tree 
+epoch 2 · incarnation 1 · clock 1600 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 96
+    Text#9 [hud-beacons] "Beacons 0 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS E outside range lights nothing
+clock settle
+{"clock":3100,"settled":true,"world":[{"canvas":8,"tick":186,"hash":"0x86afdb9dccf6877b","quiescent":true}],"epoch":2,"incarnation":1}
+PASS brakes and camera settle
+state world:player
+{
+  "tick": 186,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -5.733331
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 3100
+}
+type world {"key":"KeyD","for":2066.666666666667}
+type world {"key":"KeyD","phase":"down"}
+{"typed":8,"key":"KeyD","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":3100}
+clock +2066.666666666667
+{"clock":5166.666666666667,"world":[{"canvas":8,"tick":310,"hash":"0x11e85a8c294aa8b2","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyD","phase":"up"}
+{"typed":8,"key":"KeyD","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":5166.666666666667}
+clock settle
+{"clock":6583.334,"settled":true,"world":[{"canvas":8,"tick":395,"hash":"0x3d20cf9bd0d968ed","quiescent":true}],"epoch":2,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 395,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          7.9999957,
+          0.9,
+          -5.733331
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 6583.334
+}
+type world {"key":"KeyS","for":1500}
+type world {"key":"KeyS","phase":"down"}
+{"typed":8,"key":"KeyS","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":6583.334}
+clock +1500
+{"clock":8083.334,"world":[{"canvas":8,"tick":485,"hash":"0x0c5f33adf7747356","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyS","phase":"up"}
+{"typed":8,"key":"KeyS","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":8083.334}
+clock settle
+{"clock":9500,"settled":true,"world":[{"canvas":8,"tick":570,"hash":"0xd38313dce1f3b51f","quiescent":true}],"epoch":2,"incarnation":1}
+PASS walk comes to rest
+state world:player
+{
+  "tick": 570,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.96,
+          0.65,
+          0.22,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          7.9999957,
+          0.9,
+          0.0000018797194
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 9500
+}
+PASS walk reaches (8, 0): [7.9999957,0.9,0.0000018797194]
+type world {"key":"KeyE"}
+{"typed":8,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":9500}
+clock +100
+{"clock":9600,"world":[{"canvas":8,"tick":576,"hash":"0x7360b02910f98eb5","quiescent":false}],"epoch":3,"incarnation":1}
+state world:beacon-1
+{
+  "tick": 576,
+  "entity": {
+    "id": 10,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "start_value": 0,
+          "target": 1,
+          "start_tick": 570,
+          "duration": 0.5
+        }
+      },
+      "Material": {
+        "color": [
+          0.18,
+          0.73,
+          0.79,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.05185185,
+          0.1851852,
+          0.22222222
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 9600
+}
+PASS first beacon lit
+PASS glow partway up after 0.1 s: [0.05185185,0.1851852,0.22222222]
+tree 
+epoch 3 · incarnation 1 · clock 9600 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 576
+    Text#9 [hud-beacons] "Beacons 1 / 3"
+    Pressable#10 [pause] name="Pause" (press)
+      Text#11 "Pause"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS HUD reads Beacons 1 / 3, polite live region
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":9600}
+type world {"key":"Space","phase":"down"}
+{"typed":8,"key":"Space","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":9600}
+clock +900
+{"clock":10500,"world":[{"canvas":8,"tick":630,"hash":"0x5c9c309d3b8ede36","quiescent":false}],"epoch":3,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":10500}
+type world {"key":"Space","phase":"up"}
+{"typed":8,"key":"Space","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":10500}
+state world:beacon-1
+{
+  "tick": 630,
+  "entity": {
+    "id": 10,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "start_value": 0,
+          "target": 1,
+          "start_tick": 570,
+          "duration": 0.5
+        }
+      },
+      "Material": {
+        "color": [
+          0.18,
+          0.73,
+          0.79,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.7,
+          2.5,
+          3
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 10500
+}
+PASS glow fully up at one second after E
+clock settle
+{"clock":13516.667,"settled":true,"world":[{"canvas":8,"tick":811,"hash":"0x95d2927a8997c0d9","quiescent":true}],"epoch":3,"incarnation":1}
+PASS continuation settles
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 13516.667
+}
+PASS entity snapshot is complete
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/run-1.world world save
+{"bytes":4457,"hash":"0x95d2927a8997c0d9","tick":811,"epoch":3,"incarnation":1,"clock":13516.667,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/run-1.world"}
+PASS two full runs end in identical state
+PASS two full runs have byte-identical saves
+tap pause
+{"at":[1217.6100000000001,48.5],"tapped":10,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":13516.667}
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 13516.667
+}
+PASS entity snapshot is complete
+type world {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":13516.667}
+clock +2000
+{"clock":15516.667,"world":[{"canvas":8,"tick":811,"hash":"0x95d2927a8997c0d9","quiescent":true}],"epoch":4,"incarnation":1}
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 15516.667
+}
+PASS entity snapshot is complete
+PASS paused two seconds with W held: all entities and tick unchanged
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":15516.667}
+tree 
+epoch 4 · incarnation 1 · clock 15516.667 ms · 6 nodes
+View#1
+  Canvas#8 [world] [focused] world{world} · 13 entities · tick 811
+    Text#9 [hud-beacons] "Beacons 1 / 3"
+    Pressable#10 [pause] name="Resume" (press)
+      Text#11 "Resume"
+    Text#12 "WASD / arrows · Move     Space · Jump     E · Light nearby beacon"
+PASS pause button now accessible Resume
+tap pause
+{"at":[1209.625,48.5],"tapped":10,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":15516.667}
+logs 
+t=0 boot: 7 nodes, epoch 1
+t=0 press view 6 (play) → epoch 2 (+5 −6 ~1)
+t=0 surface world (1 asked again) → epoch 2 (+0 −0 ~0)
+t=9600 surface world (1 asked again) → epoch 3 (+0 −0 ~1)
+t=13516.667 press view 10 (togglePause) → epoch 4 (+0 −0 ~1)
+t=15516.667 press view 10 (togglePause) → epoch 5 (+0 −0 ~1)
+world t=0 tick=0 spawn #0
+world t=0 tick=0 spawn #1
+world t=0 tick=0 spawn #2
+world t=0 tick=0 spawn #3
+world t=0 tick=0 spawn #4
+world t=0 tick=0 spawn #5
+world t=0 tick=0 spawn #6
+world t=0 tick=0 spawn #7
+world t=0 tick=0 spawn #8
+world t=0 tick=0 spawn #9
+world t=0 tick=0 spawn #10
+world t=0 tick=0 spawn #11
+world t=0 tick=0 spawn #12
+world t=0 tick=0 publish beacons: Number(0.0)
+world t=9500 tick=570 beacon lit
+world t=9500 tick=570 publish beacons: Number(1.0)
+  chrome: [72701:314646970:0917/225323.274221:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 "errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server." (-25308)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+  chrome: [72701:314646963:0917/225323.435434:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+  chrome: [72701:314646961:0917/225323.435609:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+PASS no browser or GPU errors: ["chrome: [72701:314646970:0917/225323.274221:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 \"errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server.\" (-25308)","chrome: Trying to load the allocator multiple times. This is *not* supported.","chrome: [72701:314646963:0917/225323.435434:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.","chrome: [72701:314646961:0917/225323.435609:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available."]
+Original browsers closed; restoring into a fresh browser process.
+tap play
+{"at":[640,452],"tapped":6,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+state 
+{
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 0,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false,
+    "round": 0
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 1
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "a632955d36c4418ab507c1e39f2b605a",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 8,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 576,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x7360b02910f98eb5",
+      "entities": 13,
+      "paused": false,
+      "restored": true,
+      "restoredFrom": {
+        "seed": 7,
+        "paused": false,
+        "round": 0
+      },
+      "args": {
+        "seed": 7,
+        "paused": false,
+        "round": 0
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          },
+          "light": {
+            "name": "light",
+            "keys": [
+              "KeyE"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          }
+        },
+        "held": [],
+        "forwarded": [
+          "KeyW",
+          "Space"
+        ]
+      },
+      "published": {
+        "beacons": 1
+      },
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 2,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 11,
+        "triangles": 2235,
+        "navigationToFirstContentfulPaintMs": 204,
+        "gpuMs": 158.1,
+        "inputMs": 319,
+        "firstFrameSubmittedMs": 522.9000000953674,
+        "firstFrameMs": null,
+        "inputToFirstFrameMs": null,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 109,
+            "endMs": 185,
+            "bytes": 635411
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 349.60000014305115,
+            "endMs": 352.2000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 352.80000019073486,
+            "endMs": 356.40000009536743,
+            "bytes": 74418
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 357.30000019073486,
+            "endMs": 506.30000019073486,
+            "bytes": 682340
+          }
+        ]
+      },
+      "canvas": 8
+    }
+  ]
+}
+PASS fresh process reports restored
+state world:*
+{
+  "tick": 576,
+  "hash": "0x7360b02910f98eb5",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            0.0000018797194
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            17.000002
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.05185185,
+            0.1851852,
+            0.22222222
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 0
+}
+PASS entity snapshot is complete
+PASS restored checkpoint has every saved entity
+clock +900
+{"clock":900,"world":[{"canvas":8,"tick":630,"hash":"0x5c9c309d3b8ede36","quiescent":false}],"epoch":3,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":900}
+type world {"key":"Space","phase":"up"}
+{"typed":8,"key":"Space","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":3,"incarnation":1,"clock":900}
+state world:beacon-1
+{
+  "tick": 630,
+  "entity": {
+    "id": 10,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "start_value": 0,
+          "target": 1,
+          "start_tick": 570,
+          "duration": 0.5
+        }
+      },
+      "Material": {
+        "color": [
+          0.18,
+          0.73,
+          0.79,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.7,
+          2.5,
+          3
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 900
+}
+PASS glow fully up at one second after E
+clock settle
+{"clock":3916.667,"settled":true,"world":[{"canvas":8,"tick":811,"hash":"0x95d2927a8997c0d9","quiescent":true}],"epoch":3,"incarnation":1}
+PASS continuation settles
+state world:*
+{
+  "tick": 811,
+  "hash": "0x95d2927a8997c0d9",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.96,
+            0.65,
+            0.22,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            0.9,
+            -3.3333316
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            12,
+            17
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0.15,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            7.9999957,
+            12.9,
+            13.666668
+          ],
+          "rotation": [
+            -0.30251622,
+            0,
+            0,
+            0.95314425
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            8,
+            16,
+            10
+          ],
+          "rotation": [
+            -0.4086679,
+            0.2983547,
+            0.14335296,
+            0.8505439
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.5119476,
+            0.5,
+            15.302141
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -2.8830242,
+            0.5,
+            12.395628
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -11.312119,
+            0.5,
+            1.5342407
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "crate-4",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            -6.945545,
+            0.5,
+            -1.616478
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "name": "crate-5",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            15.145346,
+            0.5,
+            13.686558
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "name": "crate-6",
+      "components": {
+        "Material": {
+          "color": [
+            0.44,
+            0.34,
+            0.25,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            1.7558537,
+            0.5,
+            -12.80928
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "start_value": 0,
+            "target": 1,
+            "start_tick": 570,
+            "duration": 0.5
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0.7,
+            2.5,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            8,
+            1,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "name": "beacon-2",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            -6,
+            1,
+            7
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "name": "beacon-3",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "start_value": 0,
+            "target": 0,
+            "start_tick": 0,
+            "duration": 0
+          }
+        },
+        "Material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            3,
+            1,
+            -9
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 3916.667
+}
+PASS entity snapshot is complete
+PASS restored continuation matches original
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/restored.world world save
+{"bytes":4457,"hash":"0x95d2927a8997c0d9","tick":811,"epoch":3,"incarnation":1,"clock":3916.667,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/beacons/artifacts/restored.world"}
+PASS complete continuation save is byte-identical
+PASS all recorded children exited: []
+PROOF PASS beacons web: 0 failures; 14.070 s
