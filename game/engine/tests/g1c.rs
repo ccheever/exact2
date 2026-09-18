@@ -241,6 +241,7 @@ fn typed_scalars_refuse_before_domain_validation() {
 fn bound_restore_validates_only_the_arguments_it_uses() {
     #[derive(Default, Args)]
     struct Volume {
+        #[live]
         volume: f32,
     }
     struct Old;

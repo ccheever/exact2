@@ -86,6 +86,7 @@ pub struct Session {
 pub struct Lanterns;
 
 impl Game for Lanterns {
+    const CAPTURE_SUPPORTED: bool = true;
     const ID: &'static str = "lanterns";
     type Args = Options;
 

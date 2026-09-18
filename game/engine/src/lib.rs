@@ -6,6 +6,7 @@
 extern crate self as exact_game;
 
 mod agent;
+mod capture;
 #[doc(hidden)]
 pub mod args;
 pub mod character;
@@ -26,6 +27,7 @@ mod values;
 mod world;
 
 pub use args::{Args, ArgumentKind};
+pub use capture::{Capture, CaptureLimits};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use environment::{Bloom, Environment, Fog};
 pub use exact_game_derive::{Args, Component, Data, Resource};
