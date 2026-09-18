@@ -11,6 +11,31 @@ use rapier3d::{
 /// Horizontal input is m/s; the game owns Character.velocity.y (gravity/jumps).
 /// Installs a kinematic sensor Body/Collider. Call before physics::step.
 pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
+    move_character_inner(
+        world,
+        e,
+        desired_velocity,
+        #[cfg(test)]
+        false,
+    );
+}
+
+#[cfg(not(test))]
+type Trace = ();
+#[cfg(test)]
+#[derive(Default, Debug, PartialEq)]
+struct Trace {
+    carry: Vec<(Entity, String)>,
+    movement: Vec<(Entity, String)>,
+    carried: Vec3,
+    support: Option<(Entity, String)>,
+}
+fn move_character_inner(
+    world: &mut World,
+    e: Entity,
+    desired_velocity: Vec3,
+    #[cfg(test)] canonical: bool,
+) -> Trace {
     let mut c = world
         .get::<Character>(e)
         .expect("physics: entity needs Character")
@@ -61,6 +86,25 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     }
     let view = queries(world);
     let mut scene_guard = view.scene();
+    #[cfg(test)]
+    let mut single;
+    #[cfg(test)]
+    let mut trace = Trace::default();
+    #[cfg(test)]
+    let scene = if canonical {
+        single = crate::queries::Part::new(
+            world,
+            &world
+                .query::<&Collider>()
+                .iter()
+                .map(|(e, _)| e)
+                .collect::<Vec<_>>(),
+        );
+        &mut single
+    } else {
+        scene_guard.controller()
+    };
+    #[cfg(not(test))]
     let scene = scene_guard.controller();
     let own = scene.handle(e);
     let predicate = |_: ColliderHandle, co: &rapier3d::prelude::Collider| {
@@ -96,9 +140,18 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
                 &*shape,
                 &math::pose(pose),
                 math::vector(delta),
-                |_| {},
+                |_hit| {
+                    #[cfg(test)]
+                    trace
+                        .carry
+                        .push((scene.entity(_hit.handle), format!("{_hit:?}")));
+                },
             );
             pose.position += math::vec3(carry.translation);
+            #[cfg(test)]
+            {
+                trace.carried = math::vec3(carry.translation);
+            }
         }
     }
     if c.grounded && c.velocity.y < 0.0 {
@@ -112,7 +165,13 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
         &*shape,
         &math::pose(pose),
         math::vector(velocity * world.dt()),
-        |hit| collisions.push(hit),
+        |hit| {
+            #[cfg(test)]
+            trace
+                .movement
+                .push((scene.entity(hit.handle), format!("{hit:?}")));
+            collisions.push(hit);
+        },
     );
     pose.position += math::vec3(movement.translation);
     c.grounded = movement.grounded;
@@ -132,7 +191,13 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
             },
         )
         .filter(|(_, h)| h.normal1.y >= exact_game::math::cos(angle))
-        .map(|(h, _)| scene.entity(h));
+        .map(|(h, _hit)| {
+            #[cfg(test)]
+            {
+                trace.support = Some((scene.entity(h), format!("{_hit:?}")));
+            }
+            scene.entity(h)
+        });
     if let Some(s) = c.support {
         c.support_pose = math::world_pose(world, s);
     }
@@ -174,4 +239,12 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     drop(view);
     world.insert(e, pose);
     world.insert(e, c);
+    #[cfg(test)]
+    {
+        trace
+    }
 }
+
+#[cfg(test)]
+#[path = "character_tests.rs"]
+mod tests;

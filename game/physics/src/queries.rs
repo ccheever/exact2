@@ -238,7 +238,7 @@ pub(crate) struct Part {
     pub bodies: Vec<(Entity, ColliderHandle, RigidBodyHandle)>,
 }
 impl Part {
-    fn new(world: &World, members: &[Entity]) -> Self {
+    pub(crate) fn new(world: &World, members: &[Entity]) -> Self {
         let mut generations = Vec::new();
         for p in world.pages::<Collider>().iter() {
             let i = p.first as usize / exact_game::PAGE;
@@ -380,6 +380,7 @@ impl Queries<'_> {
             );
         }
         result.sort();
+        result.dedup();
         result
     }
     /// First hit of a translating convex shape. Distance is metres along `motion`;
@@ -452,6 +453,77 @@ pub fn sweep(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn character_moves_share_the_retained_terrain_shape() {
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        let terrain = w.spawn((
+            Transform::default(),
+            Collider {
+                shape: Shape::Heightfield {
+                    rows: 64,
+                    cols: 64,
+                    heights: vec![0.; 64 * 64],
+                    scale: Vec3::new(100., 1., 100.),
+                },
+                ..Default::default()
+            },
+        ));
+        let player = w.spawn((Transform::at(0., 0.91, 0.), crate::Character::default()));
+        crate::move_character(&mut w, player, Vec3::ZERO);
+        let retained = {
+            let view = queries(&w);
+            let mut guard = view.scene();
+            let scene = guard.controller();
+            scene.rapier.colliders[scene.handle(terrain)]
+                .shared_shape()
+                .clone()
+        };
+        for _ in 0..20 {
+            crate::move_character(&mut w, player, Vec3::X);
+        }
+        let view = queries(&w);
+        let mut guard = view.scene();
+        let scene = guard.controller();
+        assert!(std::ptr::eq(
+            &*retained,
+            scene.rapier.colliders[scene.handle(terrain)].shape()
+        ));
+        drop(guard);
+        drop(view);
+        if let Shape::Heightfield { heights, .. } =
+            &mut w.get_mut::<Collider>(terrain).unwrap().shape
+        {
+            heights[0] = 1.;
+        }
+        let view = queries(&w);
+        let mut guard = view.scene();
+        let scene = guard.controller();
+        assert!(!std::ptr::eq(
+            &*retained,
+            scene.rapier.colliders[scene.handle(terrain)].shape()
+        ));
+    }
+
+    #[test]
+    fn overlap_deduplicates_entity_results() {
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        let a = w.spawn((Transform::default(), Collider::default()));
+        let b = w.spawn((Transform::default(), Collider::default()));
+        let view = queries(&w);
+        {
+            let mut guard = view.scene();
+            let scene = guard.controller();
+            let handle = crate::state::raw(scene.handle(b));
+            scene.entities.insert(handle, a);
+        }
+        assert_eq!(
+            view.overlap(&Shape::default(), Transform::default(), 1),
+            [a]
+        );
+    }
+
     #[test]
     fn unrelated_churn_keeps_the_query_and_character_scene() {
         let mut w = World::new(60, 0);
