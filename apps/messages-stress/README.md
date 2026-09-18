@@ -81,9 +81,17 @@ The data crate also exports opt-in `ReusableMessagesStress` for comparing
 allocation costs. It keeps one latest immutable result and reuses unchanged row
 records: a 10,000-row update changing 32 bodies retains the other 9,968 records.
 It uses the original generator for a temporary 100-row tail page, copies O(N)
-row handles, and still incurs fresh-answer validation and all 10,000 key
-evaluations. All shipped entries and the bake continue to use the stateless
-control. This source has correctness coverage, not a measured host speedup.
+row handles, and still incurs fresh-answer validation and positional scanning.
+The Runner reuses keys for unchanged immutable records: the tested 10,000-row,
+32-change update evaluates 32 keys, while the stateless control evaluates all
+10,000. This stress app's shipped entries and bake still use that control;
+Exact Live opts into row reuse.
+
+Three native comparison pairs observed lower loaded advance/decode medians
+with row reuse. Timer tails still exceed 8.33 ms, resize and input results are
+mixed, and the repeat pairs have different timed revision cohorts. See
+[LLP 1041 §8.42](../../llp/1041-graceful-overload.rfc.md#842-two-alternating-native-messages-repeat-pairs-2026-09-17)
+for the measurements and limits; they do not establish physical 120 Hz.
 
 Use the existing optional browser diagnostic, once the server is ready:
 
