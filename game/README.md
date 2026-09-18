@@ -206,6 +206,83 @@ Pixels are held to a band; simulation state is held exactly. The two game proofs
 and saved physics pile demonstrate this on arm64 macOS, x86-64 Linux and Chrome
 wasm; unexercised engine APIs do not inherit a measured parity claim.
 
+Hashing diagnostic: `cargo test --manifest-path game/Cargo.toml -p exact-game
+--release stillness_hash_cost -- --ignored --nocapture` measures observation at
+1k/10k/200k entities, then advancing ticks at 200k with zero or 100 Transform
+writes. The movers occupy either one page or 100 pages. It reports observation,
+canonical hash, fused observation/hash, and the final seek sample pair separately
+(each extended case uses 100 samples after five warmups). Single-operation timings
+exclude writes; the seek pair includes the intervening tick's writes and comparison.
+
+The canonical hash is a nonlinear stream: each lane depends on the preceding
+state, beginning with the changing tick. Independent page digests cannot replace
+those lanes while preserving pinned hashes. Caching serialized pages would still
+require streaming all their bytes every tick. T1a therefore stops before changing
+the runtime or hash format; incremental observation alone or a versioned paged
+proof hash requires a scope decision.
+
+The proposed observation cache would retain ordered per-entity hashes in immutable
+pages keyed by storage write generation, page membership/incarnations, and Ambient
+membership. Samples would share unchanged pages and compare changed pages in the
+existing category/name/entity order, retaining the same eight reasons. Entity
+existence needs its own page generations on spawn/despawn. Propagation must mark
+global-pose pages for every affected descendant, including descendants of Ambient
+parents; observation must still use the last propagated pose. World identity and
+presentation generation would invalidate all pages, and load would recreate them
+without serializing any cache. A new paged proof hash would additionally need
+ordered digests for the complete slot table, free list, RNG and resources; Ambient
+skips apply only to observation. This design is not implemented in T1a.
+
+T1a baseline on shared x86-64 Linux (EPYC 9454), release profile: the original
+observation diagnostic measured 0.213/1.889/38.468 ms median at 1k/10k/200k entities
+(p95 0.220/1.935/40.686 ms). The extended diagnostic below also runs the unchanged
+engine; milliseconds are median / p95. These are diagnostic costs, not gates or
+an optimization claim.
+
+| 200k entities | Observe | Hash | Observe + hash | Seek pair |
+| --- | ---: | ---: | ---: | ---: |
+| Still | 37.940 / 38.465 | 72.291 / 77.959 | 106.573 / 110.083 | 144.161 / 148.772 |
+| 100 movers, one page | 41.620 / 75.168 | 104.346 / 145.373 | 102.321 / 106.811 | 144.552 / 147.929 |
+| 100 movers, 100 pages | 38.382 / 38.554 | 69.530 / 77.601 | 103.549 / 106.696 | 144.690 / 148.830 |
+
+After the diagnostic/test increment, the same benchmark on the unchanged runtime
+gave the following repeat measurements. There is no optimized-runtime AFTER
+result because the hash compatibility condition stopped implementation. The
+original 1k/10k/200k observation medians were 0.214/2.064/41.524 ms on this repeat.
+
+| 200k entities, repeat | Observe | Hash | Observe + hash | Seek pair |
+| --- | ---: | ---: | ---: | ---: |
+| Still | 40.935 / 44.818 | 69.512 / 70.058 | 100.848 / 103.403 | 150.602 / 153.497 |
+| 100 movers, one page | 43.074 / 44.028 | 73.987 / 77.672 | 106.508 / 107.316 | 149.229 / 153.780 |
+| 100 movers, 100 pages | 41.571 / 42.245 | 68.793 / 71.312 | 104.192 / 105.098 | 150.105 / 153.515 |
+
+At 1,024 slots per page the spread case dirties 100 of 196 pages, so even a page
+cache would rehash 102,400 component values; the clustered case rehashes 1,024.
+
+Linux proofs before / after the diagnostic-only change, in build-inclusive seconds:
+
+| Game | Before | After | Result on both runs |
+| --- | ---: | ---: | --- |
+| Beacons | 85.044 | 75.035 | Same three baseline failures |
+| Lanterns | 78.507 | 52.171 | Same missing `dist/index.html` failure |
+| Greybox | 31.360 | 20.860 | Same three baseline failures |
+| Asset Fixture | 32.347 | 18.808 | Pass; pinned hash unchanged |
+
+Failure lines and printed world-hash sequences matched between the two runs.
+The machine ran out of disk between them; all clone build outputs were removed
+and rebuilt with `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0` and
+`CARGO_INCREMENTAL=0`. These proof timings therefore do not measure a runtime
+speedup. The cubes proof ignores `linux` and launches Chrome; with Chrome absent,
+its cleanup hung and only its recorded benchmark child was stopped.
+
+T1a verification: the full Rust workspace passed 377 tests with 9 ignored,
+including 18 G1c/G1d cases and both new lease/incarnation regressions. Bun
+matched the supplied baseline: 38 passed, 2 failed, 826 assertions. Workspace
+Clippy remains blocked by the existing `type_complexity` warning at
+`render/src/assets.rs:239`; formatting remains red in that file and
+`engine/tests/capture.rs`. Neither file was changed. Engine-only Clippy, caps and
+boot pass. GPU presentation, Chrome, macOS and iOS were not verified on this host.
+
 ## Publications and events
 
 `World::publish("beacons", count)` updates the current public record. Contract reads
