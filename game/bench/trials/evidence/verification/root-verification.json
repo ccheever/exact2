@@ -1,0 +1,18 @@
+{
+  "root-build": {
+    "exitCode": 101,
+    "seconds": 11.244314045179635
+  },
+  "root-test": {
+    "exitCode": 101,
+    "seconds": 4.119512245059013
+  },
+  "root-clippy": {
+    "exitCode": 101,
+    "seconds": 6.81075734901242
+  },
+  "root-fmt": {
+    "exitCode": 0,
+    "seconds": 3.5724471809808165
+  }
+}

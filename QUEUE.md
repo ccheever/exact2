@@ -545,3 +545,4 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Linux proof fixtures (T1b): Beacons has five failures (movement hash, glow and continuation); Greybox has three queued-input/continuation failures, while its setup and movement hash pins pass. Neither game links physics; repair the input/clock and scene expectations without re-pinning to conceal a regression.
 
 
+- I1 Lanterns comparison (Linux): held pointer contacts are unsupported, so BRIEF analog input is quantized to keyboard directions; the direct baseline crate approach stalls at the sign, and the UI Save probe remained at “Saving…”. See `game/bench/trials/README.md` and retained baseline evidence before widening host capability. Both B trials' modified games hit a post-terminal capture semantic hash mismatch: B1 removed the assertion; B2 started that capture from a restored checkpoint. Investigate the retained trial diffs/logs before attributing this to the engine.

@@ -1,0 +1,147 @@
+{
+  "engine": "exact2-linux",
+  "ref": "next/baseline",
+  "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+  "task": "b",
+  "attempt": "2",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T12:18:38.838Z",
+  "humanInterventions": 0,
+  "agentSeconds": 494.90661918499995,
+  "buildSeconds": 17.56621076200006,
+  "proofSeconds": 17.876657708000042,
+  "usage": {
+    "input_tokens": 2898125,
+    "cached_input_tokens": 2775552,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 17719,
+    "reasoning_output_tokens": 8266
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+    "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+    "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 121466668,
+  "setupSeconds": 106.83157173400001,
+  "inputCommit": "097b14717e7b79ee360681d843a4beb1a1a95828",
+  "dispatchedAt": "2026-09-18T12:20:51.979Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T12:29:06.886Z",
+  "invocations": {
+    "build": 0,
+    "proof": 2,
+    "tests": 9,
+    "commands": 26,
+    "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 2,
+      "deleted": 1
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 4,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/assets/lanterns-adapter.mjs",
+      "added": 5,
+      "deleted": 4
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 25,
+      "deleted": 7
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 47,
+      "deleted": 5
+    }
+  ],
+  "filesChanged": 5,
+  "linesAdded": 83,
+  "linesDeleted": 19,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "daad98b546fec0086863334b3d42a5426af1edf170c4d7e1c364598aca6bd7a1",
+    "game/games/lanterns/app.contract": "1f14b06dc8280245b141d46ca7983de474d34d0d91afedd82b954b727de20888",
+    "game/games/lanterns/assets/lanterns-adapter.mjs": "36d574736ccd14ec4d145055af819f2778a3f0f7be7012c2b996c707702a32ea",
+    "game/games/lanterns/logic/src/lib.rs": "3e70cdbce708324035e7e34ba03021ed64d48abaa0289dae7b7f12e2623ebacc",
+    "game/games/lanterns/logic/tests/capture.rs": "c7c78d61dd5dcb00fa0607f39506a2ba3ac0446081b88d2af3e3c5affaef0ba7"
+  },
+  "freeKiBBeforeBuild": 105153772,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T12:29:24.478Z",
+  "evaluatorStartedAt": "2026-09-18T12:29:24.478Z",
+  "taskFunctionalPassed": false,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": 3,
+  "screenshotInspections": 0,
+  "protocolCompliant": false,
+  "finishedAt": "2026-09-18T12:29:42.355Z",
+  "buildOutputDeleted": true,
+  "removedRenderFiles": [
+    "controls/task-a/final.png",
+    "controls/acceptance/won.png",
+    "controls/acceptance/title.png",
+    "controls/acceptance/moving.png",
+    "controls/acceptance/lost.png",
+    "controls/task-b/final.png",
+    "evaluation/title.png",
+    "evaluation/moving.png",
+    "evaluation/final.png",
+    "evaluation/lost.png"
+  ],
+  "instrumentValid": true,
+  "sessionProtocolCompliant": true,
+  "maxRepairsInLoop": 2,
+  "auditNotes": [
+    "Two route/capture fixes plus one separate borrow-lifetime compile fix; diagnostic reruns are included in nine test invocations.",
+    "Changed common inspection phase to returning, outside BRIEF vocabulary. Driver steps only playing; subsequent timer/return failures follow this contract mismatch, not independently demonstrated timer defects.",
+    "Post-terminal capture test now starts from a restored checkpoint rather than the live completed route."
+  ],
+  "preDispatchSeconds": 133.141,
+  "uncachedInputTokens": 122573,
+  "initialEvaluatorHashes": {
+    "command.mjs": "173ec52ae3f33f2c6ed43586219f47011d6adaf072725353abdc9f2f59ce958c",
+    "acceptance.mjs": "94afe49873e485ced95506aee48ab6a3e7d97e1903dce9618504c5bd372fd027",
+    "task-evaluator.mjs": "f88e519d341010bc3303dc138d75d53eaaa2b34b80a7fe056ce7975d11b9fdf2",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "reevaluation": {
+    "version": 3,
+    "build": {
+      "exitCode": 0,
+      "seconds": 98.99441741593182
+    },
+    "proofs": {
+      "acceptance": {
+        "exitCode": 1,
+        "seconds": 11.89836139488034
+      },
+      "task-b": {
+        "exitCode": 1,
+        "seconds": 5.516865593846887
+      }
+    },
+    "recordedAt": "2026-09-18T12:50:14.207350+00:00",
+    "modelRestarted": false,
+    "sourceHashesVerified": true,
+    "buildOutputDeleted": true
+  },
+  "currentInstrumentVersion": 3
+}

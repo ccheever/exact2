@@ -1,0 +1,143 @@
+[
+  {
+    "name": "game-test",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "exitCode": 101,
+    "seconds": 21.407811363926157,
+    "freeBytesBefore": 108498092032
+  },
+  {
+    "name": "game-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exitCode": 101,
+    "seconds": 5.709981178166345,
+    "freeBytesBefore": 107119149056
+  },
+  {
+    "name": "game-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exitCode": 0,
+    "seconds": 4.1384985470213,
+    "freeBytesBefore": 106807767040
+  },
+  {
+    "name": "proof-lanterns",
+    "command": [
+      "bun",
+      "game/games/lanterns/proof.mjs",
+      "linux"
+    ],
+    "exitCode": 0,
+    "seconds": 0.6595759920310229,
+    "freeBytesBefore": 106807115776
+  },
+  {
+    "name": "proof-beacons",
+    "command": [
+      "bun",
+      "game/games/beacons/proof.mjs",
+      "linux"
+    ],
+    "exitCode": 0,
+    "seconds": 51.95596153498627,
+    "freeBytesBefore": 106807103488
+  },
+  {
+    "name": "proof-greybox",
+    "command": [
+      "bun",
+      "game/games/greybox/proof.mjs",
+      "linux"
+    ],
+    "exitCode": 0,
+    "seconds": 21.15123849012889,
+    "freeBytesBefore": 106488283136
+  },
+  {
+    "name": "proof-asset-fixture",
+    "command": [
+      "bun",
+      "game/games/asset-fixture/proof.mjs",
+      "linux"
+    ],
+    "exitCode": 0,
+    "seconds": 18.852911480003968,
+    "freeBytesBefore": 106430541824
+  },
+  {
+    "name": "game-bun",
+    "command": [
+      "bun",
+      "test"
+    ],
+    "exitCode": 1,
+    "seconds": 38.83440736099146,
+    "freeBytesBefore": 106336206848
+  },
+  {
+    "name": "boot",
+    "command": [
+      "bun",
+      "scripts/boot.mjs"
+    ],
+    "exitCode": 0,
+    "seconds": 0.03190517611801624,
+    "freeBytesBefore": 105609543680
+  },
+  {
+    "name": "game-test-round2",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--no-fail-fast"
+    ],
+    "exitCode": 0,
+    "seconds": 56.22758178994991,
+    "freeBytesBefore": 105309499392
+  },
+  {
+    "name": "game-clippy-round2",
+    "command": [
+      "cargo",
+      "clippy",
+      "--manifest-path",
+      "game/Cargo.toml",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exitCode": 0,
+    "seconds": 13.083654544083402,
+    "freeBytesBefore": 104404480000
+  }
+]
