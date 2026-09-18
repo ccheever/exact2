@@ -29,18 +29,48 @@ pub fn sample(name: &str) -> Model {
             .success());
         std::fs::rename(tmp, &path).unwrap();
     }
-    let model = exact_game_bake::model(&path).unwrap();
+    let digest = Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(digest.status.success());
+    let expected = match name {
+        "BoxTextured" => "b510eca2e2ef33f62f9ed57d6e7ce2d10ebb2bdebc4a8e59d347719ba81abdf4",
+        "DamagedHelmet" => "a1e3b04de97b11de564ce6e53b95f02954a297f0008183ac63a4f5974f6b32d8",
+        "Fox" => "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+        _ => panic!("unpinned sample {name}"),
+    };
+    assert_eq!(
+        String::from_utf8(digest.stdout)
+            .unwrap()
+            .split_whitespace()
+            .next()
+            .unwrap(),
+        expected,
+        "sample input changed: {name}"
+    );
+    let (model, textures) = exact_game_bake::assets(&path).unwrap();
     let bytes = bin::to_vec(&model);
     let decoded: Model = bin::from_slice(&bytes).unwrap();
     assert_eq!(exact_game::hash::of(&model), exact_game::hash::of(&decoded));
     assert_eq!(model.skins.len(), decoded.skins.len());
     assert_eq!(model.clips.len(), decoded.clips.len());
-    for t in &model.textures {
+    for (name, t) in &textures {
+        let bytes = bin::to_vec(t);
+        assert!(bytes.len() < 64 * 1024 * 1024);
+        let out = cache.join(name);
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+        std::fs::write(&out, &bytes).unwrap();
+        eprintln!("{name}: {} bytes", bytes.len());
         assert_eq!(t.mips.last().unwrap().len(), 4);
         assert_eq!(
             t.mips.len(),
             (32 - t.width.max(t.height).leading_zeros()) as usize
         );
+    }
+    if name == "DamagedHelmet" {
+        assert!(bytes.len() < 1_000_000);
     }
     assert!(!model.meshes.is_empty());
     assert!(model.bounds[3] > model.bounds[0]);

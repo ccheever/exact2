@@ -205,6 +205,7 @@ mod tests {
     #[test]
     fn live_interpolation_at_144hz_and_tick_bursts_keeps_the_last_two_ticks() {
         let mut sim = Sim::<Walker>::new(()).unwrap();
+        sim.frame_period(1000.0 / 144.0);
         let mut trace = Trace::new(sim.world(), "player", 200).unwrap();
         sim.advance(0., Clock::Live);
         for frame in 1..=144 {
@@ -234,20 +235,28 @@ mod tests {
         });
         assert_eq!(trace.prev[0], 65.);
         assert_eq!(trace.curr[0], 66.);
+        // L remains 1000/144 through the burst: x = 1100*.06 + 5/12 - 1.
+        let previous = mix(trace.prev, trace.curr, sim.alpha())[0];
+        assert!((previous - (66.0 + 5.0 / 12.0 - 1.0)).abs() < 0.0001);
+        sim.advance_with(1100. + 1000. / 144., Clock::Live, |w, _| trace.feed(w));
+        assert!(
+            (mix(trace.prev, trace.curr, sim.alpha())[0] - previous - 5.0 / 12.0).abs() < 0.0001
+        );
     }
     #[test]
     fn same_tick_edits_and_teleports_match_gpu_history_rules() {
         let mut sim = Sim::<Walker>::new(()).unwrap();
+        sim.frame_period(1000.0 / 60.0);
         sim.advance(0., Clock::Live);
         sim.advance(17., Clock::Live);
         let mut trace = Trace::new(sim.world(), "player", 4).unwrap();
         trace.frame(17., sim.alpha(), 0, [0.; 3], [0.; 3]);
         assert_eq!(trace.count, 0); // No invented pre-arm pose.
         sim.advance_with(34., Clock::Live, |w, _| trace.feed(w));
-        // T = [17, 34] ms, L = step = 1000/60 ms, so R = T.
-        // x = [1.02, 2.04]; ticks = [2, 3], and the final history is [2, 3].
+        // L = step, so R = T. Slew contracts each 17 ms by .0025*17 = .0425 ms:
+        // T = [16.9575, 33.915], x = [1.01745, 2.0349], ticks = [2, 3].
         assert_eq!(trace.prev[0], 2.);
-        assert!((mix(trace.prev, trace.curr, sim.alpha())[0] - 2.04).abs() < 1e-6);
+        assert!((mix(trace.prev, trace.curr, sim.alpha())[0] - 2.0349).abs() < 1e-6);
         sim.world()
             .get_mut::<Transform>("player")
             .unwrap()

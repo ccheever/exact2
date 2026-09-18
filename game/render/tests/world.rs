@@ -26,6 +26,7 @@ fn frame(now_ms: f64) -> Frame {
         scale: 1.,
         now_ms,
         seekable: true,
+        period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
     }

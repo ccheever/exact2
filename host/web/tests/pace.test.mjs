@@ -17,6 +17,26 @@ const stats = values => {
 const deltas = values => values.slice(1).map((v, i) => v - values[i]);
 
 describe('the paced frame clock', () => {
+  test('exports zero until fitted, then a stable period through jitter and stall recovery', () => {
+    const pace = pacer(), raw = callbacks(900, P120);
+    expect(pace.period_ms).toBe(0);
+    raw.slice(0, 300).forEach(pace);
+    const period = pace.period_ms;
+    expect(Math.abs(period - P120)).toBeLessThan(0.02);
+    for (let i = 300; i < raw.length; i++) {
+      pace(raw[i] + (i >= 400 ? 40 : 0));
+      expect(pace.period_ms).toBe(period);
+    }
+  });
+  test('publishes a new fitted period after a display-rate change', () => {
+    const pace = pacer(), first = callbacks(400, P120);
+    first.forEach(pace);
+    const period = pace.period_ms;
+    const next = callbacks(800, 1000 / 90, { start: first.at(-1) + 1000 / 90, seed: 11 });
+    next.forEach(pace);
+    expect(pace.period_ms).not.toBe(period);
+    expect(Math.abs(pace.period_ms - 1000 / 90)).toBeLessThan(0.02);
+  });
   test('snaps jittered callbacks to the display lattice: per-frame deltas become uniform', () => {
     const pace = pacer(), raw = callbacks(1200, P120), paced = raw.map(pace);
     const before = stats(deltas(raw.slice(300))), after = stats(deltas(paced.slice(300)));

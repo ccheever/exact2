@@ -2,6 +2,9 @@
 //! Geometry and RGBA8 mip chains are ready to upload; skins/clips are data, not playback.
 #![allow(missing_docs)]
 use crate::Data;
+#[path = "../../../gpu/src/asset_name.rs"]
+mod names;
+pub use names::asset_name;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -11,7 +14,7 @@ use std::{
 pub struct Model {
     pub meshes: Vec<MeshData>,
     pub materials: Vec<MaterialData>,
-    pub textures: Vec<TextureData>,
+    pub textures: Vec<String>,
     pub nodes: Vec<Node>,
     pub skins: Vec<Skin>,
     pub clips: Vec<Clip>,
@@ -83,16 +86,16 @@ pub struct TextureData {
     pub mips: Vec<Vec<u8>>,
     pub srgb: bool,
     pub wrap: [Wrap; 2],
-    pub filter: Filter,
+    pub filter: [Filter; 3],
 }
-#[derive(Data, Default, Clone, Copy, Debug)]
+#[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Wrap {
     #[default]
     Repeat,
     Clamp,
     Mirror,
 }
-#[derive(Data, Default, Clone, Copy, Debug)]
+#[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Filter {
     Nearest,
     #[default]
@@ -165,6 +168,8 @@ impl Model {
                 || (!m.tangents.is_empty() && m.tangents.len() != n * 4)
                 || (!m.joints.is_empty() && m.joints.len() != n * 4)
                 || (!m.weights.is_empty() && m.weights.len() != n * 4)
+                || m.joints.is_empty() != m.weights.is_empty()
+                || !valid_bounds(&m.bounds)
                 || m.indices.is_empty()
                 || !m.indices.len().is_multiple_of(3)
                 || m.indices.iter().any(|&i| i as usize >= n)
@@ -183,7 +188,22 @@ impl Model {
                 return fail("non-finite vertex");
             }
         }
-        for m in &self.materials {
+        for (index, m) in self.materials.iter().enumerate() {
+            if m.base_color
+                .iter()
+                .chain(&m.emissive)
+                .chain(m.uv_transforms.iter().flatten())
+                .chain([
+                    &m.metallic,
+                    &m.roughness,
+                    &m.normal_scale,
+                    &m.occlusion_strength,
+                    &m.alpha_cutoff,
+                ])
+                .any(|v| !v.is_finite())
+            {
+                return Err(format!("model material {index}: non-finite scalar"));
+            }
             if [
                 m.base_color_texture,
                 m.normal_texture,
@@ -198,31 +218,76 @@ impl Model {
                 return fail("invalid material texture");
             }
         }
-        for t in &self.textures {
-            if t.width == 0 || t.height == 0 || t.width > 16384 || t.height > 16384 {
-                return fail("invalid texture dimensions");
-            }
-            let (mut w, mut h) = (t.width, t.height);
-            if t.mips.len() != (32 - w.max(h).leading_zeros()) as usize {
-                return fail("incomplete mip chain");
-            }
-            for mip in &t.mips {
-                if mip.len() as u64 != u64::from(w) * u64::from(h) * 4 {
-                    return fail("invalid mip byte count");
-                }
-                w = (w / 2).max(1);
-                h = (h / 2).max(1);
+        for name in &self.textures {
+            if !asset_name(name) || !name.ends_with(".tex") {
+                return Err(format!(
+                    "model texture `{name}`: invalid texture asset name"
+                ));
             }
         }
         self.offsets()?;
         for s in &self.skins {
             if s.inverse_binds.len() != s.joints.len() * 16
                 || s.joints.iter().any(|&i| i as usize >= self.nodes.len())
+                || s.inverse_binds.iter().any(|v| !v.is_finite())
             {
                 return fail("invalid skin joints/inverse binds");
             }
         }
-        if self.bounds.iter().any(|v| !v.is_finite()) {
+        for node in &self.nodes {
+            if let (Some(mesh), Some(skin)) = (node.mesh, node.skin) {
+                let mesh = &self.meshes[mesh as usize];
+                let skin = &self.skins[skin as usize];
+                if mesh.joints.is_empty()
+                    || mesh.joints.iter().any(|&j| j as usize >= skin.joints.len())
+                {
+                    return Err(format!(
+                        "model node `{}`: invalid mesh joints for skin `{}`",
+                        node.name, skin.name
+                    ));
+                }
+            }
+        }
+        for clip in &self.clips {
+            let mut targets = BTreeSet::new();
+            for track in &clip.tracks {
+                let arity = if matches!(track.path, TrackPath::Rotation) {
+                    4
+                } else {
+                    3
+                };
+                let count = if matches!(track.interpolation, Interpolation::CubicSpline) {
+                    3
+                } else {
+                    1
+                };
+                if track.node as usize >= self.nodes.len()
+                    || !targets.insert((track.node, track.path as u8))
+                    || track.times.is_empty()
+                    || track.times.iter().any(|v| !v.is_finite() || *v < 0.)
+                    || track.times.windows(2).any(|v| v[0] >= v[1])
+                    || track.values.len() != track.times.len() * arity * count
+                    || track.values.iter().any(|v| !v.is_finite())
+                {
+                    return Err(format!(
+                        "model clip `{}` node {}: invalid node, arity, values or times",
+                        clip.name, track.node
+                    ));
+                }
+                if matches!(track.path, TrackPath::Rotation)
+                    && track.values.chunks_exact(arity * count).any(|v| {
+                        v[(if count == 3 { 4 } else { 0 })..][..4]
+                            .iter()
+                            .map(|v| v * v)
+                            .sum::<f32>()
+                            < 1e-12
+                    })
+                {
+                    return Err(format!("model clip `{}`: zero rotation", clip.name));
+                }
+            }
+        }
+        if !valid_bounds(&self.bounds) {
             return fail("invalid bounds");
         }
         Ok(())
@@ -259,33 +324,131 @@ impl Model {
                 let n = &self.nodes[i];
                 out[i] = n.parent.map_or(glam::Mat4::IDENTITY, |p| out[p as usize])
                     * glam::Mat4::from_cols_array(&n.transform);
+                if !out[i].is_finite()
+                    || !out[i].inverse().is_finite()
+                    || n.transform[3] != 0.
+                    || n.transform[7] != 0.
+                    || n.transform[11] != 0.
+                    || n.transform[15] != 1.
+                {
+                    return Err(format!(
+                        "model node `{}` ({i}): singular or non-affine transform",
+                        n.name
+                    ));
+                }
                 done[i] = true;
             }
         }
         Ok(out)
     }
 }
-/// Runtime-owned immutable cache. Excluded from simulation saves and hashes.
+/// Per-name delivery state, outside simulation saves and hashes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetState {
+    Pending,
+    Loaded,
+    Failed(String),
+}
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
     pub models: BTreeMap<String, Arc<Model>>,
-    pub pending: BTreeSet<String>,
+    pub states: BTreeMap<String, AssetState>,
+    pub declared: BTreeSet<String>,
+    pub required: BTreeSet<String>,
     pub requested: BTreeSet<String>,
-    pub failed: BTreeMap<String, String>,
-    pub revision: u64,
+    pub prepared: BTreeSet<String>,
+}
+impl Assets {
+    pub fn ready(&self) -> bool {
+        self.required
+            .iter()
+            .all(|n| self.states.get(n) == Some(&AssetState::Loaded))
+    }
+    pub fn request(&mut self, name: &str) {
+        self.states.entry(name.into()).or_insert_with(|| {
+            if asset_name(name) {
+                AssetState::Pending
+            } else {
+                AssetState::Failed(format!("asset `{name}`: invalid asset name"))
+            }
+        });
+    }
+    pub fn state_json(&self) -> String {
+        let rows: Vec<_> = self
+            .states
+            .iter()
+            .map(|(name, state)| {
+                let (state, reason) = match state {
+                    AssetState::Pending => ("Pending", String::new()),
+                    AssetState::Loaded => ("Loaded", String::new()),
+                    AssetState::Failed(reason) => (
+                        "Failed",
+                        format!(",\"reason\":{}", crate::values::quote(reason)),
+                    ),
+                };
+                format!(
+                    "{{\"name\":{},\"state\":{}{reason}}}",
+                    crate::values::quote(name),
+                    crate::values::quote(state)
+                )
+            })
+            .collect();
+        format!("[{}]", rows.join(","))
+    }
+}
+impl crate::World {
+    /// Only declarations are visible to simulation. Cosmetic arrival cannot change this read.
+    pub fn model(&self, name: &str) -> Option<&Model> {
+        self.assets
+            .declared
+            .contains(name)
+            .then(|| self.assets.models.get(name))
+            .flatten()
+            .map(AsRef::as_ref)
+    }
+    /// Outstanding declared assets (the agent additionally lists presentation requests).
+    pub fn loading(&self) -> impl Iterator<Item = &str> {
+        self.assets
+            .required
+            .iter()
+            .filter(|n| self.assets.states.get(*n) == Some(&AssetState::Pending))
+            .map(String::as_str)
+    }
 }
 
-impl crate::World {
-    /// An arrived model. Declared assets are available before setup runs.
-    pub fn model(&self, name: &str) -> Option<&Model> {
-        self.assets.models.get(name).map(AsRef::as_ref)
+fn valid_bounds(b: &[f32; 6]) -> bool {
+    b.iter().all(|v| v.is_finite()) && (0..3).all(|i| b[i] <= b[i + 3])
+}
+impl TextureData {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.width == 0 || self.height == 0 || self.width > 2048 || self.height > 2048 {
+            return Err("texture dimensions must be 1..=2048".into());
+        }
+        let (mut w, mut h) = (self.width, self.height);
+        if self.mips.len() != (32 - w.max(h).leading_zeros()) as usize {
+            return Err("incomplete mip chain".into());
+        }
+        for mip in &self.mips {
+            if mip.len() as u64 != u64::from(w) * u64::from(h) * 4 {
+                return Err("invalid mip byte count".into());
+            }
+            w = (w / 2).max(1);
+            h = (h / 2).max(1);
+        }
+        Ok(())
     }
-    /// Asset cache revision for retained render feeds.
-    pub fn assets_revision(&self) -> u64 {
-        self.assets.revision
-    }
-    /// Outstanding model names, including later first-sight requests.
-    pub fn loading(&self) -> impl Iterator<Item = &str> {
-        self.assets.pending.iter().map(String::as_str)
+}
+
+/// Authored bounds for a presentation-only model, saved with its entity.
+#[derive(Default, Clone, crate::Component)]
+pub struct ModelBounds(pub [f32; 6]);
+impl crate::Mesh {
+    /// Attach deterministic local bounds to a mesh bundle, independent of delivery.
+    pub fn bounds(self, bounds: [f32; 6]) -> (Self, ModelBounds) {
+        assert!(
+            valid_bounds(&bounds),
+            "mesh bounds must be finite and ordered"
+        );
+        (self, ModelBounds(bounds))
     }
 }

@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 export async function fixture(options = {}) {
   const views = new Map(), records = [], stagedRecords = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
-  const changed = new Map(), events = [], order = [];
+  const changed = new Map(), events = [], order = [], restored = new Set();
   const frames = new Map(), observers = new Set(); let frameId=0;
   class Observer { constructor(callback) { this.callback = callback; } observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve();
@@ -26,12 +26,12 @@ export async function fixture(options = {}) {
     gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
-    gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { return !options.refuse?.(id); },
+    gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { if (options.refuse?.(id)) return false; restored.add(id); return true; },
     gpu_error: () => "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
-    gpu_agent: (id, json) => JSON.parse(json).reload ? JSON.stringify({reload:{values:options.values ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
+    gpu_agent: (id, json) => JSON.parse(json).reload ? JSON.stringify({reload:{values:options.values ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
-    gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true,
+    gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
     ...options.gpu,
   };
   const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
@@ -43,7 +43,7 @@ export async function fixture(options = {}) {
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replaceAll('import.meta.url', '"http://fixture/"')
-    .replace('import { pacer } from "./pace.js";', 'const pacer = () => now => now;') // the frame clock is tested in pace.test.mjs
+    .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
     .replace('await import(`./gpu.js${query}`)', 'await candidate(0)')
     .replaceAll('await loadModule(version)', 'await candidate(version)');

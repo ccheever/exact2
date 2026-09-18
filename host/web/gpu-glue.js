@@ -31,36 +31,81 @@ let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
 
-// Track the entire delivery chain, including names discovered by a delivery.
+// Three attempts, at most 5s each, 250/500ms backoff and a 20s total deadline.
+const ASSET_DEADLINE_MS = 20_000;
 const assetFlights = new Set();
+function assetName(name) {
+  return typeof name === "string" && name.length > 0 && name.length <= 128
+    && /^[\x20-\x7e]+$/.test(name) && !name.includes("\\")
+    && name.split("/").every(p => p && p !== "." && p !== "..");
+}
+function cancelAssets(entry) {
+  for (const flight of assetFlights) if (flight.entry === entry) {
+    flight.cancelled = true; flight.controller.abort();
+    assetFlights.delete(flight);
+  }
+}
 function assets(entry) {
   if (!entry.id || !gpu) return;
   const module = gpu, id = entry.id;
   for (const name of JSON.parse(module.gpu_assets(id))) {
-    const task = (async () => {
-      let bytes = null;
-      try {
-        if (exact.devAssets instanceof Map) bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
-        else {
-          const response = await fetch(new URL(`./assets/${name}`, document.baseURI));
-          if (response.ok) bytes = new Uint8Array(await response.arrayBuffer());
-          else if (response.status !== 404) throw new Error(`asset ${name}: HTTP ${response.status}`);
-        }
-      } catch (error) { console.error("exact gpu:", error); }
-      if (gpu !== module || live(entry.view) !== entry || entry.id !== id) return;
-      if (!module.gpu_asset(id, name, bytes)) console.error("exact gpu:", module.gpu_error());
-      messages(entry); schedule();
-    })();
-    assetFlights.add(task);
-    task.finally(() => assetFlights.delete(task));
+    const flight = {entry, name, controller:new AbortController(), cancelled:false};
+    assetFlights.add(flight);
+    flight.promise = (async () => {
+      let bytes = null, failure;
+      const deadline = performance.now() + ASSET_DEADLINE_MS;
+      if (!assetName(name)) failure = "invalid asset name";
+      else if (exact.devAssets instanceof Map) bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
+      else for (let attempt = 0; attempt < 3 && !flight.cancelled; attempt++) {
+        const left = deadline - performance.now();
+        if (left <= 0) { failure = "fetch deadline exceeded"; break; }
+        const controller = flight.controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), Math.min(5_000, left));
+        let retry = true;
+        try {
+          const path = name.split("/").map(encodeURIComponent).join("/");
+          const response = await fetch(new URL(`./assets/${path}`, document.baseURI), {signal:controller.signal});
+          if (response.status === 404) { failure = undefined; break; }
+          if (!response.ok) {
+            retry = response.status >= 500;
+            throw new Error(`HTTP ${response.status}`);
+          }
+          bytes = new Uint8Array(await response.arrayBuffer());
+          failure = undefined; break;
+        } catch (error) { failure = controller.signal.aborted ? "fetch deadline exceeded" : String(error.message ?? error); }
+        finally { clearTimeout(timer); }
+        if (!retry || attempt === 2 || flight.cancelled) break;
+        const backoff = flight.controller = new AbortController();
+        await new Promise(resolve => {
+          const timer = setTimeout(done, Math.min(250 * (attempt + 1), Math.max(0, deadline - performance.now())));
+          function done() { clearTimeout(timer); backoff.signal.removeEventListener("abort", done); resolve(); }
+          backoff.signal.addEventListener("abort", done, {once:true});
+        });
+      }
+      if (flight.cancelled || gpu !== module || live(entry.view) !== entry || entry.id !== id) return;
+      const ok = failure ? module.gpu_asset_failed(id, name, failure) : module.gpu_asset(id, name, bytes);
+      if (!ok) console.error("exact gpu:", module.gpu_error());
+      messages(entry, false); entry.resampleHeld?.(); schedule();
+    })().finally(() => assetFlights.delete(flight));
   }
 }
 async function settled() {
   await ready;
-  do {
+  const deadline = performance.now() + ASSET_DEADLINE_MS;
+  for (let round = 0; round < 16; round++) {
     for (const entry of surfaces.values()) assets(entry);
-    if (assetFlights.size) await Promise.all([...assetFlights]);
-  } while (assetFlights.size);
+    if (!assetFlights.size) return [];
+    const left = deadline - performance.now();
+    if (left <= 0) break;
+    let timer;
+    const done = await Promise.race([
+      Promise.all([...assetFlights].map(f => f.promise)).then(() => true),
+      new Promise(resolve => { timer = setTimeout(() => resolve(false), left); }),
+    ]);
+    clearTimeout(timer);
+    if (!done) break;
+  }
+  return [...assetFlights].map(f => ({name:f.name, canvas:f.entry.view}));
 }
 
 function size(el) {
@@ -91,7 +136,8 @@ function render(entry, now) {
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
-  if (r !== 2 && entry.firstFrameSubmittedMs === undefined) {
+  const initial = entry.firstFrameSubmittedMs === undefined ? JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world : null;
+  if (r !== 2 && entry.firstFrameSubmittedMs === undefined && !initial?.loading?.length && !initial?.assets?.some(a => a.state === "Failed")) {
     entry.firstFrameSubmittedMs = performance.now();
     entry.inputMs = performance.getEntriesByName('exact-agent-input').at(-1)?.startTime ?? null;
     // A rendering opportunity after submission, not a GPU timestamp or scanout.
@@ -106,10 +152,14 @@ function render(entry, now) {
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
 let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
+let sentPeriod = 0;
 function frame(now) {
   raf = null;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
+  // The pacer's fitted display period reaches the module once per change.
+  const period = pace.period_ms;
+  if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
   let more = false;
   for (const entry of surfaces.values()) {
     if (!entry.id) continue;
@@ -168,7 +218,11 @@ function attach(entry) {
   messages(entry); schedule();
 }
 function restorePending(entry, module = gpu, carrier = exact) {
-  if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry || module.gpu_carry(entry.id) === undefined) return;
+  if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
+  if (module.gpu_carry(entry.id) === undefined) {
+    try { if (!JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world) return; }
+    catch { return; }
+  }
   entry.attemptedCarry = carrier.worldCarry;
   if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry))) {
     delete carrier.worldCarry; delete entry.attemptedCarry;
@@ -220,8 +274,8 @@ function drainRecords() {
     }
   } finally { drainingRecords = false; }
 }
-function messages(entry) {
-  assets(entry);
+function messages(entry, drainAssets = true) {
+  if (drainAssets) assets(entry);
   const record = gpu.gpu_published(entry.id);
   if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
   const texts = gpu.gpu_messages(entry.id);
@@ -315,8 +369,15 @@ function listen(entry) {
     send(event, { t: "wheel", dx: event.deltaX, dy: event.deltaY, ...point(event) });
   }, { passive: false });
   // A restored keydown (including a queued one) still owns its future keyup.
-  const held = new Set(entry.restoredCarry ? agent(entry.view, {op:"state"})?.world?.input?.forwarded ?? [] : []);
-  delete entry.restoredCarry;
+  const held = new Set();
+  entry.resampleHeld = () => {
+    if (!entry.restoredCarry) return;
+    const world = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
+    if (!world?.restored) return;
+    held.clear(); for (const code of world.input?.forwarded ?? []) held.add(code);
+    delete entry.restoredCarry;
+  };
+  entry.resampleHeld();
   const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
   const blur = event => { entry.releaseInput?.(); send(event, { t: "blur" }); };
   on("keydown", event => {
@@ -328,6 +389,7 @@ function listen(entry) {
     send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });
   });
   on("keyup", event => {
+    entry.resampleHeld();
     if (!held.delete(event.code)) return;
     send(event, { t: "key", code: event.code, key: event.key, down: false, repeat: false });
   });
@@ -503,7 +565,7 @@ exact.gpu = {
     const pending = settle && world.some((w) => w.quiescent === false);
     const candidates = world.filter((w) => w.quiescent === false && Number.isFinite(w.settleAt)).map((w) => w.settleAt);
     return { pending, settleAt: candidates.length ? Math.max(...candidates) : undefined,
-      reply: world.length ? { world: world.map(({ canvas, tick, hash, quiescent }) => ({ canvas, tick, hash, quiescent })) } : {} };
+      reply: world.length ? { world: world.map(({ canvas, tick, hash, quiescent, error, assets, changing }) => ({ canvas, tick, hash, quiescent, ...(error ? {error, assets, changing} : {}) })) } : {} };
   },
   surface(view, name, values) {
     // The node's element hosts its surface <canvas> (glue.js, LLP 1014 D2).
@@ -534,6 +596,7 @@ exact.gpu = {
   },
   destroy(view) {
     const entry = surfaces.get(view);
+    if (entry) cancelAssets(entry);
     if (entry?.id) gpu.gpu_destroy(entry.id);
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
@@ -631,11 +694,29 @@ async function loadModule(version) {
 }
 // All calls below the capture boundary are synchronous. No live input, clock,
 // DOM publication, save observer or audio executor can interleave with staging.
-function validateStage(entry, module, at, releaseInput = true) {
+function validateStage(entry, module, at, releaseInput = true, assets = exact.devAssets) {
+  // Candidate declarations (including texture dependencies) must finish before
+  // restore/rebase/publication validation. Verified development bytes are already
+  // resident, so no asynchronous input can cross the capture-to-cutover boundary.
+  for (let round = 0; ; round++) {
+    const names = JSON.parse(module.gpu_assets(entry.id));
+    if (!names.length) break;
+    if (round === 16) throw new Error(`surface ${entry.name}: candidate assets exceeded 16 delivery rounds`);
+    for (const name of names) {
+      if (!assetName(name)) throw new Error(`surface ${entry.name}: invalid asset name ${name}`);
+      const bytes = assets instanceof Map ? assets.get(`assets/${name}`)?.bytes : undefined;
+      if (!bytes) throw new Error(`surface ${entry.name}: candidate asset ${name} is unavailable`);
+      if (bytes.length > 64 * 1024 * 1024) throw new Error(`surface ${entry.name}: asset ${name} exceeds 64 MiB limit`);
+      if (!module.gpu_asset(entry.id, name, bytes)) throw new Error(`surface ${entry.name}: asset ${name}: ${module.gpu_error()}`);
+    }
+  }
   if (entry.restoreError) throw new Error(entry.restoreError);
   const {w,h,s} = size(entry.host);
   const state = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({ op:"state" })) || "null");
   if (state?.error) throw new Error(`surface ${entry.name}: validation: ${state.error}`);
+  const failed = state?.world?.assets?.find(asset => asset.state === "Failed");
+  if (failed) throw new Error(`surface ${entry.name}: asset ${failed.name}: ${failed.reason ?? "preparation failed"}`);
+  if (state?.world?.loading?.length) throw new Error(`surface ${entry.name}: assets still pending: ${state.world.loading.join(", ")}`);
   if (state?.world && releaseInput) {
     const reply = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({ op:"clock", reload:true, now:at, releaseInput:true })) || "null");
     if (!reply?.reload) throw new Error(`surface ${entry.name}: reload input/clock handoff unsupported; rebuild the game module`);
@@ -678,7 +759,7 @@ function rebaseStage(module, entries) {
     if (!reply?.reload || reply.error) throw new Error(`surface ${entry.name}: final clock rebase refused`);
   }
 }
-function validatePublications(batch, staged, module, at, mount = true) {
+function validatePublications(batch, staged, module, at, mount = true, assets = exact.devAssets) {
   const published = new Map(), ops = [...batch.ops];
   for (let round = 0; round < 16; round++) {
     const bindings = new Map();
@@ -707,7 +788,7 @@ function validatePublications(batch, staged, module, at, mount = true) {
       const entry = staged.get(id);
       if (JSON.stringify(values) === JSON.stringify(entry.requestedValues)) continue;
       if (!module.gpu_bind_at(entry.id, JSON.stringify(bindingValues(entry, values)), at)) throw new Error(`surface ${entry.name}: publication bind: ${module.gpu_error()}`);
-      validateStage(entry, module, at, false);
+      validateStage(entry, module, at, false, assets);
     }
     if (![...staged.values()].some(entry => entry.stagedPublication !== undefined)) {
       // Present only the final bindings; intermediate ones were already applied
@@ -738,7 +819,7 @@ function successfulSwap(start, artifact, entries, intent, extra = {}) {
 }
 // A candidate Contract boot has not touched the DOM. Names only identify a
 // world when unique on BOTH sides; duplicates never silently lose their carry.
-function stagePlan(batch, beforeSlots = {}, afterSlots = {}) {
+function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devAssets) {
   if (!loaded) throw new Error("GPU is not ready for a transactional plan restart");
   if (batch.ops.some(op => ["store", "command", "storage"].includes(op.op))) throw new Error("candidate plan has irreversible effects; restart required");
   const rows = batch.ops.filter(op => op.op === "surface"), staged = new Map(), start = performance.now();
@@ -756,12 +837,12 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}) {
       };
       entry.view = row.id; staged.set(row.id, entry);
       create(entry, gpu, previous?.id ? gpu.gpu_carry(previous.id) : undefined);
-      validateStage(entry, gpu, at);
+      validateStage(entry, gpu, at, true, assets);
     }
     for (const entry of old) if (entry.id && gpu.gpu_carry(entry.id) !== undefined && !rows.some(row => row.name === entry.name)) {
       throw new Error(`surface ${entry.name}: participating world removed; explicit restart required`);
     }
-    validatePublications(batch, staged, gpu, at);
+    validatePublications(batch, staged, gpu, at, true, assets);
     rebaseStage(gpu, staged.values());
   } catch (error) { disposeStage(gpu, staged.values()); reload.phase = "failed"; reload.error = String(error); reload.failures++; reload.restoreOutcome = {status:"refused",retained:true,reason:String(error)}; throw error; }
   finally { gpu.gpu_seekable(Boolean(exact.now)); }
@@ -793,6 +874,7 @@ async function swap(version, options) {
     // The game Presentation trait discards audio under this flag. No physical
     // input, durable checkpoint observer or app message ingress is attached.
     next.gpu_seekable(true);
+    if (sentPeriod) next.gpu_period(sentPeriod);
     const rows = await loadShaders(next);
     for (const [name, text] of rows) if (!await next.gpu_shader_check(name, text)) throw new Error(next.gpu_error());
     assertCurrent();
@@ -826,7 +908,7 @@ async function swap(version, options) {
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     const oldModule = gpu;
     for (const [old, entry] of staged) {
-      old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.();
+      cancelAssets(old); old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.();
       old.el.replaceWith(entry.el);
       if (publishers.get(old.name) === old) publishers.set(old.name, entry);
       surfaces.set(entry.view, entry);

@@ -126,7 +126,7 @@ pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
         Vec3::ZERO
     }
 }
-pub(crate) fn bounds(w: &World, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
+pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
     if let Some(Mesh::Asset(name)) = mesh {
         if let Some(model) = w.model(name) {
             let lo = Vec3::from_slice(&model.bounds[..3]);
@@ -134,7 +134,15 @@ pub(crate) fn bounds(w: &World, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);
         }
     }
+    if let Some(b) = w.get::<crate::asset::ModelBounds>(entity) {
+        let lo = Vec3::from_slice(&b.0[..3]);
+        let hi = Vec3::from_slice(&b.0[3..]);
+        return ((hi - lo) * 0.5, (hi + lo) * 0.5);
+    }
     (extent(mesh), center(mesh))
+}
+pub(crate) fn unbounded(w: &World, e: Entity, mesh: Option<&Mesh>) -> bool {
+    matches!(mesh, Some(Mesh::Asset(name)) if w.model(name).is_none() && w.get::<crate::asset::ModelBounds>(e).is_none())
 }
 pub(crate) fn corners(pose: Affine3A, half: Vec3, center: Vec3) -> [Vec3; 8] {
     std::array::from_fn(|i| {
@@ -263,7 +271,7 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
 }
 
 fn ray_hit(w: &World, e: Entity, mesh: &Mesh, origin: Vec3, direction: Vec3) -> Option<f32> {
-    if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+    if unbounded(w, e, Some(mesh)) || w.get::<Visible>(e).is_some_and(|v| !v.0) {
         return None;
     }
     let pose = w.global(e)?;
@@ -279,7 +287,7 @@ fn ray_hit(w: &World, e: Entity, mesh: &Mesh, origin: Vec3, direction: Vec3) -> 
         Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
 
         _ => {
-            let (half, center) = bounds(w, Some(mesh));
+            let (half, center) = bounds(w, e, Some(mesh));
             slab(o - center, d, half)
         }
     }

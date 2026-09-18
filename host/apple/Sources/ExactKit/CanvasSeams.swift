@@ -108,7 +108,12 @@ extension Canvases {
     func restoreWorld(_ m: GpuModule, _ e: Entry) {
         guard !e.restoreAttempted, let bytes = worldInput.bytes else { return }
         e.restoreAttempted = true
-        guard let carry = m.carry, carry(e.id) != UInt32.max else { return }
+        guard m.restore != nil else { return }
+        if m.carry?(e.id) == UInt32.max {
+            let request = Array("{\"op\":\"state\"}".utf8)
+            let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
+            guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
+        }
         let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
         if ok { worldInput.bytes = nil }
         else {
@@ -223,9 +228,10 @@ extension Canvases {
 
     func messages(_ e: Entry) {
         if live(e.view.id) === e, let m = module, let take = m.assets, let deliver = m.asset {
-            while let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty {
+            for _ in 0..<16 {
+                guard let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty else { break }
                 for name in names {
-                    let bytes = session?.app.assetBytes("assets/" + name)
+                    let bytes = AssetResolver.validAssetName(name) ? session?.app.assetBytes("assets/" + name) : nil
                     let chars = Array(name.utf8)
                     let ok = chars.withUnsafeBufferPointer { chars in
                         if let bytes {

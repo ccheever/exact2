@@ -282,7 +282,7 @@ test('world handoff preflights the complete participant set and releases held in
 
 test('controlled creation declares ownership before restoring intentional checkpoint-held input',async()=>{
   const order=[];
-  const f=await fixture({now:()=>9000,input:true,gpu:{gpu_agent:(id,json)=>{const q=JSON.parse(json);if(q.owner){assert.equal(q.now,9000,'ownership must establish the destination clock before restore');order.push('owner');}return '{"world":{"input":{"forwarded":["Space"]}},"ownership":{"owner":"agent"}}';},gpu_restore:()=>{order.push('restore');return true;}}});
+  const f=await fixture({now:()=>9000,input:true,gpu:{gpu_agent:(id,json)=>{const q=JSON.parse(json);if(q.owner){assert.equal(q.now,9000,'ownership must establish the destination clock before restore');order.push('owner');}return JSON.stringify({world:{restored:order.includes("restore"),input:{forwarded:["Space"]}},ownership:{owner:"agent"}});},gpu_restore:()=>{order.push('restore');return true;}}});
   f.exact.worldCarry=new Uint8Array([1]);const host=f.create(1);
   assert.deepEqual(order,['owner','restore']);
   host.listeners.keyup({target:host,code:'Space',timeStamp:0});assert.equal(f.events.at(-1).code,'Space');
@@ -453,5 +453,39 @@ test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host stage
       bridge('press',`${row} 2000`);assert.equal(rowCount(),'3','committed row frame lost its own slot storage');
       assert.equal(f.records.length,recordCount,'validated publications escaped after commit');
     }
+  }
+});
+
+
+test('candidate declarations and textures finish before restore validation and cutover', async()=>{
+  const delivered=[]; let requested=0;
+  const f=await fixture({nextGpu:{
+    gpu_assets:()=>JSON.stringify([['crate.model'],['crate/0.tex'],[]][Math.min(requested++,2)]),
+    gpu_asset:(id,name,bytes)=>{delivered.push([name,...bytes]);return true;},
+    gpu_agent:(id,json)=>{
+      if(JSON.parse(json).reload) {
+        assert.equal(delivered.length,2,'no reload clock before texture readiness');
+        return JSON.stringify({reload:{values:[],setupIndices:[]}});
+      }
+      return JSON.stringify({world:{tick:30,restored:delivered.length===2}});
+    },
+  }});
+  f.create(1);
+  f.exact.devAssets=new Map([['assets/crate.model',{bytes:new Uint8Array([1])}],['assets/crate/0.tex',{bytes:new Uint8Array([2])}]]);
+  await f.exact.gpu.swap(1);
+  assert.deepEqual(delivered,[['crate.model',1],['crate/0.tex',2]]);
+  assert.equal(f.exact.gpu.diagnostics().phase,'committed');
+});
+
+test('candidate asset refusal and excessive dependency rounds retain every old canvas', async()=>{
+  for(const mode of ['missing','failed','rounds']) {
+    let deliveries=0;
+    const f=await fixture({nextGpu:{gpu_assets:()=> '["a.tex"]',gpu_asset:()=>{deliveries++;return mode!=='failed';}}});
+    const a=f.create(1), old=a.canvas;
+    f.exact.devAssets=new Map(mode==='missing'?[]:[['assets/a.tex',{bytes:new Uint8Array([1])}]]);
+    await assert.rejects(f.exact.gpu.swap(1),mode==='rounds'?/16 delivery rounds/:/a.tex/);
+    assert.equal(deliveries,mode==='rounds'?16:mode==='failed'?1:0);
+    assert.equal(a.canvas,old);
+    assert.ok(!f.order.includes('old destroy'));
   }
 });

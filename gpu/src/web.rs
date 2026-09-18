@@ -23,6 +23,11 @@ pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
     with(|m| m.asset(id, name, bytes)).unwrap_or(false)
 }
 
+/// Deliver a terminal host transport failure by name.
+pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
+    with(|m| m.asset_failed(id, name, reason)).unwrap_or(false)
+}
+
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -156,6 +161,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         now_ms,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: 0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
@@ -209,6 +215,11 @@ pub fn lifecycle(id: u32, code: u32) {
 /// Set the host's clock ownership.
 pub fn seekable(on: bool) {
     with(|m| m.set_seekable(on));
+}
+
+/// The display's frame period in milliseconds (0 = unknown), for every frame after.
+pub fn period(period_ms: f64) {
+    with(|m| m.set_period(period_ms));
 }
 
 /// Whether a canvas has unrendered inputs.
@@ -328,6 +339,11 @@ macro_rules! module {
         pub fn gpu_asset(id: u32, name: &str, bytes: Option<Vec<u8>>) -> bool {
             $crate::web::asset(id, name, bytes.as_deref())
         }
+        /// Deliver a terminal host transport failure.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_asset_failed(id: u32, name: &str, reason: &str) -> bool {
+            $crate::web::asset_failed(id, name, reason)
+        }
 
         /// Capture state, or undefined when this surface carries nothing.
         #[::wasm_bindgen::prelude::wasm_bindgen]
@@ -374,6 +390,12 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_seekable(on: bool) {
             $crate::web::seekable(on)
+        }
+
+        /// The display's frame period in milliseconds, 0 while unknown.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_period(period_ms: f64) {
+            $crate::web::period(period_ms)
         }
 
         /// Whether a canvas has unrendered inputs.

@@ -1,0 +1,91 @@
+use std::fs;
+fn temp() -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!(
+        "asset-outputs-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    fs::create_dir_all(p.join("art")).unwrap();
+    p
+}
+const CRATE: &str = include_str!("../../games/asset-fixture/art/crate.gltf");
+#[test]
+fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_authored_assets() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(app.join("assets/crate/0-srgb.tex").exists());
+    fs::write(app.join("assets/authored.bin"), b"keep").unwrap();
+    fs::rename(app.join("art/crate.gltf"), app.join("art/renamed.gltf")).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(!app.join("assets/crate.model").exists());
+    assert!(!app.join("assets/crate/0-srgb.tex").exists());
+    fs::remove_dir_all(app.join("art")).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert!(!app.join("assets/renamed.model").exists());
+    assert!(!app.join("assets/renamed/0-srgb.tex").exists());
+    assert_eq!(fs::read(app.join("assets/authored.bin")).unwrap(), b"keep");
+    fs::remove_dir_all(app).unwrap();
+}
+#[test]
+fn authored_collision_and_invalid_stems_refuse_by_name() {
+    let app = temp();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    fs::create_dir_all(app.join("assets")).unwrap();
+    fs::write(app.join("assets/crate.model"), b"authored").unwrap();
+    let error = exact_game_bake::bake_art(&app).unwrap_err();
+    assert!(
+        error.contains("crate.model") && error.contains("authored"),
+        "{error}"
+    );
+    assert_eq!(
+        fs::read(app.join("assets/crate.model")).unwrap(),
+        b"authored"
+    );
+    fs::rename(app.join("art/crate.gltf"), app.join("art/雪.gltf")).unwrap();
+    assert!(exact_game_bake::bake_art(&app).unwrap_err().contains("雪"));
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../games/asset-fixture/art/crate.gltf");
+    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    assert_eq!(
+        exact_game::bin::to_vec(&model),
+        include_bytes!("fixtures/crate.model")
+    );
+    assert_eq!(textures.len(), 1);
+    assert_eq!(
+        exact_game::bin::to_vec(&textures["crate/0-srgb.tex"]),
+        include_bytes!("fixtures/crate/0-srgb.tex")
+    );
+}
+
+#[test]
+fn oversize_texture_refuses_by_name_and_nearest_filters_survive() {
+    let app = temp();
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    source["images"][0]["uri"] = serde_json::json!("wide.png");
+    image::RgbaImage::new(2049, 1)
+        .save(app.join("art/wide.png"))
+        .unwrap();
+    let path = app.join("art/oversize.gltf");
+    fs::write(&path, source.to_string()).unwrap();
+    let error = exact_game_bake::assets(&path).unwrap_err();
+    assert!(
+        error.contains("oversize/0-srgb.tex") && error.contains("2048"),
+        "{error}"
+    );
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    source["samplers"] = serde_json::json!([{"magFilter":9728,"minFilter":9984}]);
+    source["textures"][0]["sampler"] = serde_json::json!(0);
+    fs::write(&path, source.to_string()).unwrap();
+    let (_, textures) = exact_game_bake::assets(&path).unwrap();
+    assert_eq!(
+        textures.values().next().unwrap().filter,
+        [exact_game::asset::Filter::Nearest; 3]
+    );
+    fs::remove_dir_all(app).unwrap();
+}
