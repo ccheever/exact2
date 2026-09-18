@@ -1,3 +1,4 @@
+use crate::data::limits::LoadBudget;
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
 use crate::{Args, ArgumentKind, PointerPhase};
 use std::{collections::VecDeque, marker::PhantomData};
@@ -976,23 +977,29 @@ impl<G: Game> Sim<G> {
     /// Build a fresh simulation using the checkpoint construction arguments.
     /// Defaults need not be valid construction input for this game.
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
+        Self::from_save_in(bytes, None)
+    }
+    pub(crate) fn from_save_in(
+        bytes: &[u8],
+        budget: Option<&LoadBudget>,
+    ) -> Result<Self, DataError> {
         let payload = bytes
             .strip_prefix(b"EXSIM\0\x05")
             .ok_or_else(|| DataError::new("unsupported simulation save format"))?;
-        let saved: Saved = bin::from_slice(payload)?;
+        let saved: Saved = bin::from_slice_in(payload, budget)?;
         if saved.game != G::ID {
             return Err(DataError::new("save game ID differs"));
         }
-        let args = crate::json::from_str(&saved.args)?;
+        let args = crate::json::from_str_in(&saved.args, budget)?;
         let mut sim = Self::new(args).map_err(DataError::new)?;
-        sim.restore(bytes)?;
+        sim.restore_into(bytes, None, budget)?;
         Ok(sim)
     }
     /// Atomically restore dynamic state onto this binary's actions.
     /// An agent-owned clock retains its established host boundary; a live clock
     /// rebases on its next sample, excluding time spent paused from simulation.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.restore_into(bytes, None)
+        self.restore_into(bytes, None, None)
     }
     /// Continue retains saved construction arguments and takes current live bindings.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
@@ -1001,20 +1008,25 @@ impl<G: Game> Sim<G> {
             .world
             .has_audio()
             .then(|| self.world.resource::<crate::audio::Sounds>().clone());
-        self.restore_into(bytes, Some(&args))?;
+        self.restore_into(bytes, Some(&args), None)?;
         if let Some(sounds) = sounds {
             *self.world.resource_mut::<crate::audio::Sounds>() = sounds;
         }
         Ok(())
     }
-    fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
+    fn restore_into(
+        &mut self,
+        bytes: &[u8],
+        args: Option<&str>,
+        budget: Option<&LoadBudget>,
+    ) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
             DataError::new(format!(
                 "unsupported simulation save format (expected EXSIM v5; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
-        let s: Saved = bin::from_slice(payload)?;
+        let s: Saved = bin::from_slice_in(payload, budget)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(
                 "save belongs to `{}`, expected `{}`",
@@ -1033,9 +1045,9 @@ impl<G: Game> Sim<G> {
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("invalid saved clock or input queue"));
         }
-        let saved_args: G::Args = crate::json::from_str(&s.args)?;
+        let saved_args: G::Args = crate::json::from_str_in(&s.args, budget)?;
         let bound = if let Some(args) = args {
-            let current: G::Args = crate::json::from_str(args)?;
+            let current: G::Args = crate::json::from_str_in(args, budget)?;
             let saved_values = saved_args.values();
             let values: Vec<_> = G::Args::FIELDS
                 .iter()
@@ -1061,7 +1073,7 @@ impl<G: Game> Sim<G> {
         if next.setup_pending {
             return Err(DataError::new("restore awaits declared assets"));
         }
-        next.world.load(&s.world)?;
+        next.world.load_in(&s.world, budget)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if next.world.hz() != G::HZ || !(due..=due + 1).contains(&(next.world.tick() as u128)) {
             return Err(DataError::new("saved world and clock disagree"));

@@ -273,6 +273,7 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
 #[test]
 fn beacons_grid_fog_and_bloom() {
     use beacons_logic::{Beacons, Options};
+    use exact_game::Args;
     let Some(gpu) = gpu() else { return };
     let scene = exact_game_scene::bake::compile(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games/beacons/scene.json"),
@@ -299,14 +300,7 @@ fn beacons_grid_fog_and_bloom() {
     sim.tap("KeyE");
     sim.run(1000.0);
     let mut surface = WorldSurface::<Beacons>::default();
-    surface
-        .bind(&[
-            Value::Number(7.0),
-            Value::Bool(false),
-            Value::Number(0.0),
-            Value::str(&scene),
-        ])
-        .unwrap();
+    surface.bind(&sim.args().values()).unwrap();
     surface.restore(&sim.save()).unwrap();
     let pixels = render(&gpu, &mut surface, 0.0, "beacons-defaults");
     assert!(pixels.data.chunks_exact(4).any(|p| p[0] > 200));

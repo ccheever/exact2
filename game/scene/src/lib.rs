@@ -1,12 +1,19 @@
 //! Typed initial conditions over the existing World/Data authority (LLP 1041.006 §7).
 //! Bake tools call `bake`; game setup only decodes the compiled artifact.
-use exact_game::{bin, Component, Data, DataError, Entity, Mesh, Parent, Resource, World};
+use exact_game::{
+    bin, data::LoadBudget, Component, Data, DataError, Entity, Mesh, Parent, Reader, Resource,
+    World,
+};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod bake;
 mod source;
 const MAX_SCENE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SCENE_ENTITIES: usize = 100_000;
+// One cumulative decoder allowance, including opaque component payloads.
+// Registered Rust checks and construction callbacks are trusted code, not a heap sandbox.
+const MAX_SCENE_ALLOCATIONS: usize = 64 * 1024 * 1024;
 
 /// Saved identity of the initial content; loading a world never reapplies that content.
 #[derive(Default, Resource)]
@@ -42,7 +49,7 @@ impl<C: Component> Insert for C {
 }
 type Prepared = Box<dyn Insert>;
 type BakeValue = dyn Fn(&str) -> Result<Vec<u8>, DataError>;
-type DecodeValue = dyn Fn(&[u8]) -> Result<Prepared, DataError>;
+type DecodeValue = dyn Fn(&[u8], &LoadBudget) -> Result<Prepared, DataError>;
 struct Registration {
     bake: Box<BakeValue>,
     decode: Box<DecodeValue>,
@@ -108,8 +115,8 @@ impl Types {
                     check(&value)?;
                     Ok(bin::to_vec(&value))
                 }),
-                decode: Box::new(move |bytes| {
-                    let value = bin::from_slice::<C>(bytes)?;
+                decode: Box::new(move |bytes, budget| {
+                    let value = bin::from_slice_in::<C>(bytes, Some(budget))?;
                     check(&value)?;
                     Ok(Box::new(value))
                 }),
@@ -149,13 +156,15 @@ impl Types {
         let payload = bytes
             .strip_prefix(b"EXSCENE\0\x01")
             .ok_or("unsupported scene artifact; rebake content")?;
-        let scene: Scene = bin::from_slice(payload).map_err(|e| e.to_string())?;
+        let budget = LoadBudget::new(MAX_SCENE_ALLOCATIONS);
+        check_entity_count(payload, &budget).map_err(|e| e.to_string())?;
+        let scene: Scene = bin::from_slice_in(payload, Some(&budget)).map_err(|e| e.to_string())?;
         let digest = digest(payload);
         let names: BTreeSet<_> = scene.entities.iter().map(|r| r.id.as_str()).collect();
         if names.len() != scene.entities.len() {
             return Err("duplicate scene identity".into());
         }
-        if names.len() > 100_000 {
+        if names.len() > MAX_SCENE_ENTITIES {
             return Err("scene exceeds entity limit".into());
         }
         for (name, expected) in &scene.assets {
@@ -191,10 +200,10 @@ impl Types {
                     .get(name.as_str())
                     .ok_or_else(|| format!("{}: unregistered component {name}", row.id))?;
                 let component =
-                    (ty.decode)(bytes).map_err(|e| format!("{}.{}: {e}", row.id, name))?;
+                    (ty.decode)(bytes, &budget).map_err(|e| format!("{}.{}: {e}", row.id, name))?;
                 if name == Mesh::NAME {
-                    if let Mesh::Asset(name) =
-                        bin::from_slice::<Mesh>(bytes).map_err(|e| e.to_string())?
+                    if let Mesh::Asset(name) = bin::from_slice_in::<Mesh>(bytes, Some(&budget))
+                        .map_err(|e| e.to_string())?
                     {
                         if !scene.assets.contains_key(&name) {
                             return Err(format!("{}: undeclared asset {name}", row.id));
@@ -211,6 +220,26 @@ impl Types {
             rows,
         })
     }
+}
+// Scene uses the normal Data encoding. Check its declared cardinality before
+// that reader allocates the first Row; unknown fields remain safely skippable.
+fn check_entity_count(payload: &[u8], budget: &LoadBudget) -> Result<(), DataError> {
+    let mut reader = bin::Decoder::for_load(payload, Some(budget));
+    reader.begin_struct()?;
+    while let Some(name) = reader.field()? {
+        if name == "entities" {
+            reader.begin_seq()?;
+            if reader
+                .sequence_len()
+                .is_some_and(|n| n > MAX_SCENE_ENTITIES)
+            {
+                return Err(DataError::new("scene exceeds entity limit"));
+            }
+            return Ok(());
+        }
+        reader.skip()?;
+    }
+    reader.finish()
 }
 /// Fully validated data ready to insert through the same World::insert as Rust setup.
 pub struct PreparedScene {

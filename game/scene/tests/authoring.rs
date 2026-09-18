@@ -459,3 +459,113 @@ fn handwritten_nested_data_readers_cannot_silently_discard_authoring_fields() {
     );
     assert!(json::from_str::<Animated>(r#"{"spring":{"typo":1},"tween":{"typo":1}}"#).is_ok());
 }
+
+fn scene_artifact(payload: &[u8]) -> String {
+    b"EXSCENE\0\x01"
+        .iter()
+        .chain(payload)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[derive(Default, Data)]
+struct WireScene {
+    entities: Vec<WireRow>,
+}
+#[derive(Default, Data)]
+struct WireRow {
+    id: String,
+    components: std::collections::BTreeMap<String, Vec<u8>>,
+}
+fn component_scene(name: &str, component: Vec<u8>, count: usize) -> String {
+    scene_artifact(&bin::to_vec(&WireScene {
+        entities: (0..count)
+            .map(|i| WireRow {
+                id: format!("object-{i}"),
+                components: [(name.into(), component.clone())].into(),
+            })
+            .collect(),
+    }))
+}
+
+#[test]
+fn compiled_scene_overcount_refuses_before_reading_the_first_row() {
+    use exact_game::Writer;
+    let mut writer = bin::Encoder::default();
+    writer.begin_struct();
+    writer.field("entities");
+    writer.begin_seq(100_001);
+    let mut payload = writer.finish();
+    // Enough wire bytes for the declared count, but no valid Row at all. The
+    // cardinality error must win before any Row is read or allocated.
+    payload.extend(std::iter::repeat_n(255, 100_001));
+    let error = Types::new()
+        .prepare(&scene_artifact(&payload), &[])
+        .err()
+        .unwrap();
+    assert!(error.contains("scene exceeds entity limit"), "{error}");
+}
+
+#[derive(Default, Component)]
+struct NestedCollection {
+    values: Vec<[u64; 32]>,
+}
+#[test]
+fn opaque_component_collection_refuses_before_decoding_oversized_storage() {
+    use exact_game::Writer;
+    let count = 64 * 1024 * 1024 / std::mem::size_of::<[u64; 32]>() + 1;
+    let mut writer = bin::Encoder::default();
+    writer.begin_struct();
+    writer.field("values");
+    writer.begin_seq(count);
+    let mut component = writer.finish();
+    // A compact invalid first element proves the storage preflight happens
+    // before element decoding, without constructing the large destination.
+    component.extend(std::iter::repeat_n(255, count));
+    let content = component_scene("NestedCollection", component, 1);
+    let mut types = Types::new();
+    types.component::<NestedCollection>();
+    let error = types.prepare(&content, &[]).err().unwrap();
+    assert!(
+        error.contains("decoded size exceeds load budget"),
+        "{error}"
+    );
+    assert!(error.contains("object-0.NestedCollection"), "{error}");
+}
+
+#[derive(Default)]
+struct AccountedComponent;
+impl Component for AccountedComponent {
+    const NAME: &'static str = "AccountedComponent";
+}
+impl Data for AccountedComponent {
+    fn write(&self, writer: &mut dyn exact_game::Writer) {
+        writer.boolean(true);
+    }
+    fn read(&mut self, reader: &mut dyn exact_game::Reader) -> Result<(), exact_game::DataError> {
+        reader.boolean()?;
+        // Exercise shared accounting without allocating a large test payload.
+        reader.claim(40 * 1024 * 1024)
+    }
+}
+#[test]
+fn separate_component_payloads_share_one_scene_allocation_allowance() {
+    let mut types = Types::new();
+    types.component::<AccountedComponent>();
+    let component = bin::to_vec(&AccountedComponent);
+    assert!(types
+        .prepare(
+            &component_scene("AccountedComponent", component.clone(), 1),
+            &[]
+        )
+        .is_ok());
+    let error = types
+        .prepare(&component_scene("AccountedComponent", component, 2), &[])
+        .err()
+        .unwrap();
+    assert!(
+        error.contains("decoded size exceeds load budget"),
+        "{error}"
+    );
+    assert!(error.contains("object-1.AccountedComponent"), "{error}");
+}

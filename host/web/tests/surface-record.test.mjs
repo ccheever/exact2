@@ -5,13 +5,15 @@ import { readFileSync } from 'node:fs';
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
 export async function fixture(options = {}) {
-  const views = new Map(), records = [], diagnostics = [];
+  const views = new Map(), records = [], stagedRecords = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [];
   const frames = new Map(), observers = new Set(); let frameId=0;
   class Observer { constructor(callback) { this.callback = callback; } observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve();
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
+    stageCurrent: options.stageCurrent ?? (()=>({batch:{ops:[]},commit(){order.push('host commit');},abort(){order.push('host abort');},present(){}})),
+    stageSurfaceRecord(name, json) { stagedRecords.push([name, json]); return options.stageSurfaceRecord?.(name, json) ?? {ops:[]}; },
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
       return { ops: [() => {
@@ -73,12 +75,12 @@ export async function fixture(options = {}) {
     source
   )({ exact }, async version => version ? (options.candidate ? options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
     Observer, Observer, cb=>{frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {}, warn() {} }, { addEventListener() {} });
-  function create(id, name = 'world') {
+  function create(id, name = 'world', values = []) {
     const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
-    views.set(id, el); exact.gpu.surface(id, name, []); return el;
+    views.set(id, el); exact.gpu.surface(id, name, values); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, observers,
+  return { exact, records, stagedRecords, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, observers,
     paint(at = performance.now()) { const callbacks=[...frames.values()]; frames.clear(); for(const cb of callbacks) cb(at); },
     expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }

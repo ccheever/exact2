@@ -228,6 +228,9 @@ fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
 #[test]
 fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     let mut original = surface();
+    original
+        .bind(&[Value::Bool(true), Value::Number(3.)])
+        .unwrap();
     original.sim.as_mut().unwrap().advance(0., Clock::Seekable);
     original
         .sim
@@ -244,11 +247,17 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     restored.restore(&saved).unwrap();
     assert_eq!(restored.sim().unwrap().world().tick(), 6);
     assert!(restored.sim().unwrap().generation() > generation);
+    // Continue keeps the saved Setup identity; only current Live bindings win.
     assert!(!restored.sim().unwrap().args().r#move);
     assert_eq!(
         restored.sim().unwrap().args().run,
         original.sim().unwrap().args().run,
         "saved setup identity is retained while current live bindings win"
+    );
+    assert_eq!(restored.sim().unwrap().args().run, 3);
+    assert_eq!(
+        restored.sim().unwrap().world().hash(),
+        original.sim().unwrap().world().hash()
     );
     assert_eq!(restored.published().as_deref(), Some(r#"{"score":7}"#));
     assert!(restored
@@ -256,8 +265,10 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .unwrap()
         .contains(r#""restored":true"#));
     let before = restored.carry().unwrap();
+    let generation = restored.sim().unwrap().generation();
     assert!(restored.restore(b"invalid").unwrap_err().contains("save"));
     assert_eq!(restored.carry().unwrap(), before);
+    assert_eq!(restored.sim().unwrap().generation(), generation);
     restored
         .sim
         .as_mut()
@@ -268,6 +279,21 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .as_mut()
         .unwrap()
         .advance(1017., Clock::Seekable);
+    assert_eq!(restored.sim().unwrap().world().tick(), 7);
+    assert_eq!(
+        restored
+            .sim()
+            .unwrap()
+            .world()
+            .query::<(&Mesh, &Transform)>()
+            .one()
+            .unwrap()
+            .1
+            .position
+            .x,
+        6.,
+        "the current Live move=false binding prevents the next tick from moving"
+    );
     assert!(restored
         .agent(r#"{"op":"state"}"#)
         .unwrap()
@@ -368,25 +394,37 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("world").unwrap();
     assert!(module.bind(id, &[Value::Number(7.), Value::Bool(false)], Some(0.)));
+    let before = module.carry(id).unwrap();
     let setup = module
-        .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
+        .agent(id, r#"{"op":"state","now":1500,"width":1280,"height":720}"#)
         .unwrap();
     assert!(setup.contains("0x7df5e5a89b4d0207"), "{setup}");
     assert!(setup.contains("\"device\":false"));
+    assert_eq!(module.carry(id).unwrap(), before, "inspection is read-only");
+    // A clock operation establishes the epoch and input viewport, not a read.
+    let start = module
+        .agent(id, r#"{"op":"clock","now":0,"width":1280,"height":720}"#)
+        .unwrap();
+    let start: serde_json::Value = serde_json::from_str(&start).unwrap();
+    assert_eq!(start["tick"], 0);
+    assert_eq!(start["hash"], "0x7df5e5a89b4d0207");
     assert!(module.input_json(
         id,
         r#"{"t":"key","code":"KeyW","key":"w","down":true,"repeat":false,"at":0}"#
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
-    assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains("0x0f14b8b231091d12"), "{tick}");
+    let tick: serde_json::Value = serde_json::from_str(&tick).unwrap();
+    assert_eq!(tick["tick"], 90);
+    assert_eq!(tick["hash"], "0x0f14b8b231091d12");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap();
     module.lose_device();
     assert!(module.restore(id, &save));
+    let restored = module.carry(id).unwrap();
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
     assert!(state.contains("0x0f14b8b231091d12"), "{state}");
+    assert_eq!(module.carry(id).unwrap(), restored);
 }
 
 #[test]
@@ -518,10 +556,23 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
         });
     }
     fixture::render(&gpu, &mut rendered, &frame(17.)).unwrap();
-    headless
+    let before = headless.carry().unwrap();
+    let layout = headless
+        .agent(r#"{"op":"layout","entity":"player","now":17,"width":64,"height":64}"#)
+        .unwrap();
+    let layout: serde_json::Value = serde_json::from_str(&layout).unwrap();
+    assert_eq!(layout["tick"], 0);
+    assert_eq!(headless.carry().unwrap(), before, "layout is read-only");
+    // Match the rendered frame's explicit viewport before consuming the touch.
+    let tick = headless
         .agent(r#"{"op":"clock","now":17,"width":64,"height":64}"#)
         .unwrap();
-    assert_eq!(rendered.sim().unwrap().position("player").unwrap().x, 1.);
+    let tick: serde_json::Value = serde_json::from_str(&tick).unwrap();
+    assert_eq!(tick["tick"], 1);
+    for s in [&rendered, &headless] {
+        assert_eq!(s.sim().unwrap().world().tick(), 1);
+        assert_eq!(s.sim().unwrap().position("player").unwrap().x, 1.);
+    }
     assert_eq!(
         rendered.sim().unwrap().world().hash(),
         headless.sim().unwrap().world().hash()

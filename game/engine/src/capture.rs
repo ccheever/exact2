@@ -1,9 +1,20 @@
 //! Opt-in, bounded simulation captures. Imported recordings are data, never code.
-use crate::{bin, hash, json, Clock, Data, DataError, Game, InputEvent, Sim, Value};
+use crate::{
+    bin, hash, json, Clock, Data, DataError, Game, InputEvent, Reader, Sim, Value, Writer,
+};
 
 const MAX_BYTES: u32 = 8 * 1024 * 1024;
 const MAX_EVENTS: u32 = 16_384;
 const MAX_TICKS: u64 = 216_000;
+// Includes destination capacity, nested Values, and the decoder's name/field tables.
+// Scale with the actual wire, not an untrusted declaration. Each pass has its own
+// cumulative budget; the verification pass retains only one record at a time.
+fn decoder(payload: &[u8]) -> bin::Decoder<'_> {
+    bin::Decoder::with_budget(
+        payload,
+        (payload.len() * 32 + 65_536).min(128 * 1024 * 1024),
+    )
+}
 
 /// Explicit bounds for one recording window; exhaustion retains the contiguous prefix.
 #[derive(Clone, Copy, Data)]
@@ -21,6 +32,21 @@ impl Default for CaptureLimits {
             bytes: 2 * 1024 * 1024,
             events: 4096,
             ticks: 36_000,
+        }
+    }
+}
+impl CaptureLimits {
+    fn validate(&self) -> Result<(), DataError> {
+        if self.bytes == 0
+            || self.bytes > MAX_BYTES
+            || self.events == 0
+            || self.events > MAX_EVENTS
+            || self.ticks == 0
+            || self.ticks > MAX_TICKS
+        {
+            Err(DataError::new("capture bounds invalid"))
+        } else {
+            Ok(())
         }
     }
 }
@@ -112,12 +138,24 @@ impl Capture {
         let payload = bytes
             .strip_prefix(b"EXCAP\0\x01")
             .ok_or_else(|| DataError::new("unsupported capture format"))?;
-        let wire: Envelope = bin::from_slice(payload)?;
-        if hash::of(&wire.capture) != wire.checksum {
-            return Err(DataError::new(
-                "capture checksum differs: corrupt checkpoint or dropped event",
-            ));
+        let (header, checksum, records) = read_header(payload)?;
+        header.limits.validate()?;
+        if bytes.len() > header.limits.bytes as usize {
+            return Err(DataError::new("capture exceeds declared byte budget"));
         }
+        if records > header.limits.events as usize {
+            return Err(DataError::new("capture record count exceeds event budget"));
+        }
+        verify_checksum(payload, &header, checksum)?;
+        // V1 hashes typed values (including omitted defaults), not wire bytes.
+        // Only retain the record vector after the streaming checksum has passed.
+        drop(header);
+        #[cfg(test)]
+        tests::COLLECTION_PASSES.with(|n| n.set(n.get() + 1));
+        let mut r = decoder(payload);
+        let mut wire = Envelope::default();
+        wire.read(&mut r)?;
+        r.finish()?;
         wire.capture.validate()?;
         Ok(wire.capture)
     }
@@ -132,15 +170,8 @@ impl Capture {
         if self.records.len() != self.completed_records as usize {
             return refuse("capture has dropped records");
         }
-        if self.limits.bytes == 0
-            || self.limits.bytes > MAX_BYTES
-            || self.limits.events == 0
-            || self.limits.events > MAX_EVENTS
-            || self.limits.ticks == 0
-            || self.limits.ticks > MAX_TICKS
-            || self.records.len() > self.limits.events as usize
-            || self.hz == 0
-        {
+        self.limits.validate()?;
+        if self.records.len() > self.limits.events as usize || self.hz == 0 {
             return refuse("capture bounds invalid");
         }
         let mut tick = self.first_tick;
@@ -168,6 +199,127 @@ impl Capture {
         format!("{{\"scope\":\"world-only\",\"class\":\"simulation\",\"game\":{},\"saveVersion\":{},\"build\":{},\"hz\":{},\"seed\":{},\"firstTick\":{},\"lastReliableTick\":{},\"hash\":\"0x{:016x}\",\"records\":{},\"complete\":{},\"incomplete\":{},\"uiState\":\"omitted\",\"externalResults\":\"unsupported\"}}",
             json::to_string(&self.game).unwrap(), self.version, json::to_string(&self.build).unwrap(), self.hz, self.seed, self.first_tick, self.last_tick(), self.records.last().map_or(self.checkpoint_world_hash, |r| r.world_hash), self.records.len(), self.complete && self.incomplete.is_empty(), json::to_string(&self.incomplete).unwrap())
     }
+}
+
+// Read the small header/checkpoint while walking (never collecting) record payloads.
+// Fields may be reordered or omitted just as in Data; the decoder still detects
+// duplicates and interns names in skipped values. The hard count is checked at
+// the sequence header, even when the declared limits appear after the records.
+fn read_header(payload: &[u8]) -> Result<(Capture, u64, usize), DataError> {
+    let mut r = decoder(payload);
+    let mut c = Capture::default();
+    let mut checksum = 0;
+    let mut records = 0;
+    r.begin_struct()?;
+    while let Some(name) = r.field()? {
+        match name.as_str() {
+            "checksum" => checksum.read(&mut r)?,
+            "capture" => {
+                r.begin_struct()?;
+                while let Some(name) = r.field()? {
+                    match name.as_str() {
+                        "format" => c.format.read(&mut r)?,
+                        "game" => c.game.read(&mut r)?,
+                        "version" => c.version.read(&mut r)?,
+                        "build" => c.build.read(&mut r)?,
+                        "hz" => c.hz.read(&mut r)?,
+                        "seed" => c.seed.read(&mut r)?,
+                        "first_tick" => c.first_tick.read(&mut r)?,
+                        "checkpoint" => c.checkpoint.read(&mut r)?,
+                        "checkpoint_hash" => c.checkpoint_hash.read(&mut r)?,
+                        "checkpoint_world_hash" => c.checkpoint_world_hash.read(&mut r)?,
+                        "limits" => c.limits.read(&mut r)?,
+                        "incomplete" => c.incomplete.read(&mut r)?,
+                        "complete" => c.complete.read(&mut r)?,
+                        "completed_records" => c.completed_records.read(&mut r)?,
+                        "end_state_hash" => c.end_state_hash.read(&mut r)?,
+                        "records" => {
+                            r.begin_seq()?;
+                            records = r.sequence_len().unwrap();
+                            if records > MAX_EVENTS as usize {
+                                return Err(DataError::new(
+                                    "capture record count exceeds event budget",
+                                ));
+                            }
+                            while r.item()? {
+                                r.skip()?;
+                            }
+                        }
+                        _ => r.skip()?,
+                    }
+                }
+            }
+            _ => r.skip()?,
+        }
+    }
+    r.finish()?;
+    Ok((c, checksum, records))
+}
+
+fn verify_checksum(payload: &[u8], c: &Capture, checksum: u64) -> Result<(), DataError> {
+    // Match Capture's declaration-order Data hash without retaining its records.
+    // A round-trip fixture below pins this to the derived v1 schema, including
+    // reordered fields, missing defaults, and nested binding values.
+    let mut h = hash::Hasher::default();
+    h.begin_struct();
+    c.format.write(&mut h);
+    c.game.write(&mut h);
+    c.version.write(&mut h);
+    c.build.write(&mut h);
+    c.hz.write(&mut h);
+    c.seed.write(&mut h);
+    c.first_tick.write(&mut h);
+    c.checkpoint.write(&mut h);
+    c.checkpoint_hash.write(&mut h);
+    c.checkpoint_world_hash.write(&mut h);
+    let mut r = decoder(payload);
+    let mut found = false;
+    r.begin_struct()?;
+    while let Some(name) = r.field()? {
+        if name != "capture" {
+            r.skip()?;
+            continue;
+        }
+        r.begin_struct()?;
+        while let Some(name) = r.field()? {
+            if name != "records" {
+                r.skip()?;
+                continue;
+            }
+            found = true;
+            r.begin_seq()?;
+            let count = r.sequence_len().unwrap();
+            if count > c.limits.events as usize {
+                return Err(DataError::new("capture record count exceeds event budget"));
+            }
+            h.begin_seq(count);
+            while r.item()? {
+                #[cfg(test)]
+                tests::VERIFIED_RECORDS.with(|n| n.set(n.get() + 1));
+                let mut record = Record::default();
+                record.read(&mut r)?;
+                record.write(&mut h);
+            }
+            h.end_seq();
+        }
+    }
+    r.finish()?;
+    if !found {
+        h.begin_seq(0);
+        h.end_seq();
+    }
+    c.limits.write(&mut h);
+    c.incomplete.write(&mut h);
+    c.complete.write(&mut h);
+    c.completed_records.write(&mut h);
+    c.end_state_hash.write(&mut h);
+    h.end_struct();
+    if h.finish() != checksum {
+        return Err(DataError::new(
+            "capture checksum differs: corrupt checkpoint or dropped event",
+        ));
+    }
+    Ok(())
 }
 impl<G: Game> Sim<G> {
     /// Start an explicit capture window. `build` must identify actual loaded artifacts,
@@ -367,7 +519,20 @@ impl<G: Game> Sim<G> {
                 "replay refused: unsupported external game dependencies",
             ));
         }
-        let mut sim = Self::from_save(&capture.checkpoint)?;
+        // The checkpoint is a nested EXSIM/JSON/EXGAME payload. All its decoders
+        // share consumption, including repeated passes and paged world storage.
+        // The floor accommodates sparse component pages in small real saves.
+        // Game setup/migration and custom Data/Default code remain executable
+        // construction code: allocations outside Reader claims are not metered.
+        let budget = crate::data::limits::LoadBudget::new(
+            capture
+                .checkpoint
+                .len()
+                .saturating_mul(32)
+                .saturating_add(8 * 1024 * 1024)
+                .min(128 * 1024 * 1024),
+        );
+        let mut sim = Self::from_save_in(&capture.checkpoint, Some(&budget))?;
         // Isolated replay owns a controlled clock, but intentionally retains the
         // checkpoint's held input. A physical handoff would erase that evidence.
         sim.agent_owned = true;
@@ -474,6 +639,18 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     thread_local! { static EXECUTED_TICKS: Cell<u64> = const { Cell::new(0) }; }
+    thread_local! {
+        pub(super) static COLLECTION_PASSES: Cell<usize> = const { Cell::new(0) };
+        pub(super) static VERIFIED_RECORDS: Cell<usize> = const { Cell::new(0) };
+    }
+    fn refused_before_collection(bytes: &[u8], expected: &str, verified: usize) {
+        COLLECTION_PASSES.with(|n| n.set(0));
+        VERIFIED_RECORDS.with(|n| n.set(0));
+        let error = Capture::from_bytes(bytes).err().unwrap().to_string();
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(COLLECTION_PASSES.with(Cell::get), 0);
+        assert_eq!(VERIFIED_RECORDS.with(Cell::get), verified);
+    }
     struct Fixture;
     impl Game for Fixture {
         const ID: &'static str = "capture-hardening";
@@ -494,6 +671,373 @@ mod tests {
         sim.key_down("KeyW");
         sim.run(100.0);
         sim.stop_capture().unwrap().clone()
+    }
+    #[test]
+    fn compact_record_counts_refuse_before_payload_decode() {
+        #[derive(Default, Data)]
+        struct Empty {}
+        #[derive(Default, Data)]
+        struct Compact {
+            records: Vec<Empty>,
+            limits: CaptureLimits,
+        }
+        #[derive(Default, Data)]
+        struct Wire {
+            capture: Compact,
+            checksum: u64,
+        }
+        for (count, limit) in [(MAX_EVENTS + 1, MAX_EVENTS), (2, 1)] {
+            let capture = Capture {
+                records: (0..count).map(|_| Record::default()).collect(),
+                limits: CaptureLimits {
+                    events: limit,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            // A valid semantic checksum over records encoded as just [8, 0].
+            let mut bytes = b"EXCAP\0\x01".to_vec();
+            bytes.extend(bin::to_vec(&Wire {
+                checksum: hash::of(&capture),
+                capture: Compact {
+                    records: (0..count).map(|_| Empty {}).collect(),
+                    limits: capture.limits,
+                },
+            }));
+            assert!(bytes.len() < 34_000);
+            refused_before_collection(&bytes, "record count exceeds event budget", 0);
+        }
+
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("capture");
+        w.begin_struct();
+        w.field("records");
+        w.begin_seq(MAX_EVENTS as usize + 1);
+        let mut bytes = b"EXCAP\0\x01".to_vec();
+        bytes.extend(w.finish());
+        // Enough bytes for the count check, but the first value tag is invalid.
+        // Refusing the count rather than that tag proves no item was walked.
+        bytes.extend(std::iter::repeat_n(255, MAX_EVENTS as usize + 1));
+        refused_before_collection(&bytes, "record count exceeds event budget", 0);
+    }
+    #[test]
+    fn checksum_and_actual_wire_size_are_checked_before_retaining_records() {
+        let original = capture();
+        let mut corrupt = b"EXCAP\0\x01".to_vec();
+        corrupt.extend(bin::to_vec(&Envelope {
+            checksum: hash::of(&original) ^ 1,
+            capture: original.clone(),
+        }));
+        refused_before_collection(&corrupt, "checksum differs", original.records.len());
+
+        let mut small = original.clone();
+        small.limits.bytes = small.to_bytes().len() as u32 - 1;
+        // Changing the varint width can change the encoded length too.
+        small.limits.bytes = small.to_bytes().len() as u32 - 1;
+        refused_before_collection(&small.to_bytes(), "declared byte budget", 0);
+        small.limits.bytes += 1;
+        assert_eq!(small.to_bytes().len(), small.limits.bytes as usize);
+        Capture::from_bytes(&small.to_bytes()).unwrap();
+
+        #[derive(Default, Data)]
+        struct Padded {
+            checksum: u64,
+            capture: Capture,
+            ignored: Vec<u8>,
+        }
+        let mut padded = b"EXCAP\0\x01".to_vec();
+        padded.extend(bin::to_vec(&Padded {
+            checksum: hash::of(&small),
+            capture: small,
+            ignored: vec![0; 32],
+        }));
+        refused_before_collection(&padded, "declared byte budget", 0);
+    }
+    #[test]
+    fn v1_checksum_preserves_nested_values_reordered_fields_and_defaults() {
+        let mut c = capture();
+        c.records[0].operation = Operation::Bind(vec![
+            Value::Unit,
+            Value::Number(-0.0),
+            Value::Bool(true),
+            Value::str("unicode 🌕"),
+            Value::list(vec![Value::record(vec![Value::Number(7.0)])]),
+            Value::Option(None),
+            Value::Option(Some(std::rc::Rc::new(Value::str("nested")))),
+        ]);
+        let bytes = c.to_bytes();
+        let decoded = Capture::from_bytes(&bytes).unwrap();
+        assert_eq!(decoded.to_bytes(), bytes);
+        assert_eq!(hash::of(&decoded), hash::of(&c));
+
+        #[derive(Default, Data)]
+        struct Compact {
+            limits: CaptureLimits,
+            complete: bool,
+            hz: u32,
+            format: u32,
+        }
+        #[derive(Default, Data)]
+        struct Reordered {
+            capture: Compact,
+            checksum: u64,
+        }
+        let c = Capture {
+            format: 1,
+            hz: 60,
+            complete: true,
+            ..Default::default()
+        };
+        let mut bytes = b"EXCAP\0\x01".to_vec();
+        bytes.extend(bin::to_vec(&Reordered {
+            checksum: hash::of(&c),
+            capture: Compact {
+                format: c.format,
+                hz: c.hz,
+                complete: c.complete,
+                limits: c.limits,
+            },
+        }));
+        assert_eq!(
+            hash::of(&Capture::from_bytes(&bytes).unwrap()),
+            hash::of(&c)
+        );
+    }
+    #[test]
+    fn legitimate_maximum_record_count_and_large_nested_bindings_still_import() {
+        let mut c = Capture {
+            format: 1,
+            hz: 60,
+            complete: true,
+            completed_records: MAX_EVENTS,
+            limits: CaptureLimits {
+                bytes: MAX_BYTES,
+                events: MAX_EVENTS,
+                ..Default::default()
+            },
+            records: (0..MAX_EVENTS)
+                .map(|index| Record {
+                    index,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            Capture::from_bytes(&c.to_bytes()).unwrap().records(),
+            MAX_EVENTS as usize
+        );
+        // Nested collection cardinality is governed by allocation, not the
+        // ingress event count. Large legitimate binding lists remain supported.
+        c.records[0].operation = Operation::Bind(vec![Value::list(vec![Value::Unit; 131_072])]);
+        let bytes = c.to_bytes();
+        assert_eq!(
+            hash::of(&Capture::from_bytes(&bytes).unwrap()),
+            hash::of(&c)
+        );
+        c.records.clear();
+        c.completed_records = 0;
+        c.checkpoint = vec![0; MAX_BYTES as usize - 2048];
+        let bytes = c.to_bytes();
+        assert!(bytes.len() <= MAX_BYTES as usize);
+        assert_eq!(
+            Capture::from_bytes(&bytes).unwrap().checkpoint,
+            c.checkpoint
+        );
+    }
+    #[test]
+    fn malformed_nested_binding_count_refuses_before_any_value() {
+        let count = 6 * 1024 * 1024;
+        assert!(count * std::mem::size_of::<Value>() > 128 * 1024 * 1024);
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("capture");
+        w.begin_struct();
+        w.field("limits");
+        CaptureLimits {
+            bytes: MAX_BYTES,
+            ..Default::default()
+        }
+        .write(&mut w);
+        w.field("records");
+        w.begin_seq(1);
+        w.begin_struct();
+        w.field("operation");
+        w.variant("Bind", 2);
+        w.begin_seq(1);
+        w.begin_seq(count);
+        for _ in 0..count {
+            // Syntactically skippable; cannot decode as a Value. The budget
+            // refusal must precede even this first enum type check/reservation.
+            w.boolean(false);
+        }
+        w.end_seq();
+        w.end_seq();
+        w.end_variant();
+        w.end_struct();
+        w.end_seq();
+        w.end_struct();
+        w.end_struct();
+        let mut bytes = b"EXCAP\0\x01".to_vec();
+        bytes.extend(w.finish());
+        assert!(bytes.len() <= MAX_BYTES as usize);
+        refused_before_collection(&bytes, "decoded size exceeds load budget", 1);
+    }
+    fn checkpoint_envelope(game: &str, world: Vec<u8>, args: &str) -> Vec<u8> {
+        #[derive(Default, Data)]
+        struct Saved {
+            game: String,
+            version: u32,
+            world: Vec<u8>,
+            args: String,
+        }
+        let mut bytes = b"EXSIM\0\x05".to_vec();
+        bytes.extend(bin::to_vec(&Saved {
+            game: game.into(),
+            version: 1,
+            world,
+            args: args.into(),
+        }));
+        bytes
+    }
+    fn import_checkpoint(checkpoint: Vec<u8>, game: &str) -> Capture {
+        let mut forged = capture();
+        forged.checkpoint = checkpoint;
+        forged.game = game.into();
+        forged.limits.bytes = MAX_BYTES;
+        // The outer checksum is valid; the payload reaches checkpoint replay.
+        Capture::from_bytes(&forged.to_bytes()).unwrap()
+    }
+    #[test]
+    fn imported_checkpoint_counts_refuse_before_exsim_or_world_amplification() {
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("queue");
+        w.begin_seq(524_288);
+        let mut checkpoint = b"EXSIM\0\x05".to_vec();
+        checkpoint.extend(w.finish());
+        // The count fits the wire, but its Queued storage cannot fit the budget.
+        // Budget refusal rather than an invalid-tag error proves no item is read.
+        checkpoint.extend(std::iter::repeat_n(255, 524_288));
+        let queued = import_checkpoint(checkpoint, Fixture::ID);
+
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("state");
+        w.begin_struct();
+        w.field("slots");
+        w.begin_seq(5 * 1024 * 1024);
+        let mut world = b"EXGAME\0\x03".to_vec();
+        world.extend(w.finish());
+        world.extend(std::iter::repeat_n(255, 5 * 1024 * 1024));
+        let slots = import_checkpoint(checkpoint_envelope(Fixture::ID, world, "[]"), Fixture::ID);
+
+        let mut live = Sim::<Fixture>::new(()).unwrap();
+        live.advance(0.0, Clock::Seekable);
+        let before = live.world().hash();
+        for (capture, field) in [(queued, "queue"), (slots, "slots")] {
+            let error = Sim::<Fixture>::replay_capture(&capture, "actual", None)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(error.contains(field) && error.contains("budget"), "{error}");
+            // Exercise the existing isolated agent replay path as well: refusal
+            // must leave the retained world intact, not merely the scratch load.
+            let reply = live.agent(&format!(
+                r#"{{"op":"state","capture":"replay","build":"actual","data":"{}"}}"#,
+                hex(&capture.to_bytes())
+            ));
+            assert!(reply.contains(field) && reply.contains("budget"), "{reply}");
+            assert_eq!(live.world().hash(), before);
+        }
+    }
+    #[test]
+    fn imported_checkpoint_component_page_refuses_before_default_or_read() {
+        #[derive(Data)]
+        struct Wide {
+            #[data(skip)]
+            _inline: [[[u32; 32]; 32]; 32],
+        }
+        impl Default for Wide {
+            fn default() -> Self {
+                panic!("constructed an imported component before checking its 128 MiB page")
+            }
+        }
+        impl crate::Component for Wide {
+            const NAME: &'static str = "Wide";
+        }
+        struct Pages;
+        impl Game for Pages {
+            const ID: &'static str = "capture-pages";
+            const CAPTURE_SUPPORTED: bool = true;
+            type Args = ();
+            fn setup(world: &mut crate::World, _: &()) {
+                world.register::<Wide>();
+            }
+            fn tick(_: &mut crate::World, _: &crate::Input, _: &()) {}
+        }
+        let mut source = crate::World::new(60, 0);
+        let entity = source.spawn(());
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("state");
+        w.begin_struct();
+        w.field("hz");
+        60u32.write(&mut w);
+        w.field("slots");
+        w.begin_seq(1);
+        w.begin_struct();
+        w.field("alive");
+        true.write(&mut w);
+        w.end_struct();
+        w.end_seq();
+        w.end_struct();
+        w.field("rng");
+        source.rng().write(&mut w);
+        w.field("components");
+        w.begin_struct();
+        w.field("Wide");
+        w.begin_seq(1);
+        w.begin_seq(2);
+        entity.write(&mut w);
+        w.begin_struct();
+        w.end_struct();
+        w.end_seq();
+        w.end_seq();
+        w.end_struct();
+        w.field("resources");
+        w.begin_struct();
+        w.end_struct();
+        w.end_struct();
+        let mut world = b"EXGAME\0\x03".to_vec();
+        world.extend(w.finish());
+        let mut retained = crate::World::new(60, 0);
+        retained.register::<Wide>();
+        retained.spawn_named("keep", ());
+        let before = retained.save();
+        let error = retained
+            .load_in(
+                &world,
+                Some(&crate::data::limits::LoadBudget::new(8 * 1024 * 1024)),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Wide") && error.contains("budget"),
+            "{error}"
+        );
+        assert_eq!(retained.save(), before);
+        let capture = import_checkpoint(checkpoint_envelope(Pages::ID, world, "[]"), Pages::ID);
+        assert!(capture.checkpoint.len() < 512);
+        let error = Sim::<Pages>::replay_capture(&capture, "actual", None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("Wide") && error.contains("budget"),
+            "{error}"
+        );
     }
     #[test]
     fn dropped_events_wrong_game_schema_and_corrupt_checkpoint_refuse() {

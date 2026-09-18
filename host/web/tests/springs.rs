@@ -174,3 +174,20 @@ fn translate_frames_are_pairs() {
         "{s}"
     );
 }
+
+#[test]
+fn a_current_surface_candidate_preserves_a_spring_already_in_flight() {
+    let (mut host, _) = boot();
+    let toggle = view(&host, "toggle");
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    host.advance(180.0);
+    let (mut candidate, first) = host.fork_surface_records(NoData).unwrap();
+    assert!(first.contains("\"ops\":[]"), "{first}");
+    let before = host.agent(r#"{"op":"state"}"#);
+    let candidate_batch = candidate.dispatch_at(toggle, Event::Press, 200.0);
+    assert_eq!(host.agent(r#"{"op":"state"}"#), before);
+    assert_eq!(
+        candidate_batch,
+        host.dispatch_at(toggle, Event::Press, 200.0)
+    );
+}

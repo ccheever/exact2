@@ -432,11 +432,18 @@ impl<C: Data> Erased for Storage<C> {
         valid: &dyn Fn(Entity) -> bool,
     ) -> Result<(), DataError> {
         r.begin_seq()?;
+        if let Some(count) = r.sequence_len() {
+            r.check_allocation(
+                count
+                    .div_ceil(PAGE)
+                    .checked_mul(std::mem::size_of::<Slots<C>>())
+                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
+            )?;
+        }
         let mut last = None;
         while r.item()? {
             r.begin_seq()?;
             let mut e = Entity::default();
-            let mut c = C::default();
             if !r.item()? {
                 return Err(DataError::new("missing entity"));
             }
@@ -447,6 +454,13 @@ impl<C: Data> Erased for Storage<C> {
             if !r.item()? {
                 return Err(DataError::new("missing component"));
             }
+            let page = e.index() as usize / PAGE;
+            if self.pages.get(page).is_none_or(Option::is_none) {
+                // A tiny default component can require an entire 1024-slot page.
+                // Scoped imports refuse that footprint before running its default/read.
+                r.check_allocation(std::mem::size_of::<Slots<C>>())?;
+            }
+            let mut c = C::default();
             c.read(r).map_err(|err| err.at(e.index()))?;
             if r.item()? {
                 return Err(DataError::new("extra component entry value"));
@@ -455,7 +469,6 @@ impl<C: Data> Erased for Storage<C> {
                 return Err(DataError::new("entities are not strictly ordered"));
             }
             last = Some(e.index());
-            let page = e.index() as usize / PAGE;
             if page >= self.pages.len() {
                 let pages = page + 1 - self.pages.len();
                 let counts = page + 1 - self.counts.len();

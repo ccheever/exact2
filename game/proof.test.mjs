@@ -1,9 +1,11 @@
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {PassThrough} from 'node:stream';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {artifactDigest, closeSessions, equal} from './proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, nativeControl, detachNativeTransport, jsonLines} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -324,3 +326,187 @@ test('world source navigation reports procedural metadata without inventing a li
   expect(calls).toEqual([['world',{world:true}],['world:tree-4',undefined]]);
   expect(await worldView({state:async()=>({world:{resources:{}}})},'world').source('crate')).toEqual({unavailable:'world has no authored scene identity'});
 });
+
+const ownershipAck = owner => ({ownership:{owner,clock:owner === 'agent' ? 'controlled' : 'live',scope:'session'},clock:123,releasedInput:true});
+
+test('Apple ownership requires matching host ACKs and preserves routing; ordinary handoff still cleans up', async () => {
+  for (const host of ['macos', 'host', 'ios', 'host-ios']) {
+    const requests=[], actions=[];
+    const control=nativeControl({host, ask:async (req, label) => {requests.push([req,label]); return req.op === 'state' ? {clock:0} : ownershipAck(req.owner);},
+      close:async()=>actions.push('close'),detach:async()=>actions.push('detach')});
+    await control.ask({op:'state'},'b'); // Observing does not acquire ownership.
+    for (const owner of ['human','agent','human']) expect(await control.ask({op:'clock',owner},'b')).toEqual(ownershipAck(owner));
+    expect(requests.map(([req,label])=>[req.op,req.owner,label])).toEqual([['state',undefined,'b'],['clock','human','b'],['clock','agent','b'],['clock','human','b']]);
+    expect(actions).toEqual([]);
+    await control.close(); await control.close();
+    expect(actions).toEqual(['close']);
+  }
+});
+
+test('native detach waits for ACK even when finally closes concurrently, then never kills or quits', async () => {
+  let acknowledge; const requests=[],actions=[];
+  const control=nativeControl({host:'macos',ask:req=>{requests.push(req);return new Promise(r=>acknowledge=r);},
+    close:async()=>actions.push('kill'),detach:async()=>actions.push('eof')});
+  const pending=control.ask({op:'clock',owner:'human',detach:true});
+  await expect(control.ask({op:'state'})).rejects.toThrow('handoff is in progress');
+  const closing=control.close();
+  await Promise.resolve(); expect(actions).toEqual([]);
+  const reply={...ownershipAck('human'),detached:true,sessions:[{...ownershipAck('human'),session:'a'},{...ownershipAck('human'),session:'b'}]};
+  acknowledge(reply);
+  expect(await pending).toEqual(reply);
+  await closing; await control.close();
+  expect(actions).toEqual(['eof']);
+  expect(requests).toEqual([{op:'clock',owner:'human',detach:true}]);
+  await expect(control.ask({op:'clock',owner:'agent'})).rejects.toThrow('closed');
+});
+
+test('native refusals and incomplete ACKs never detach or perform unsolicited cleanup', async () => {
+  for (const reply of [
+    {error:'world refused',detached:false}, {}, null, ownershipAck('human'),
+    {...ownershipAck('agent'),detached:true},
+    {ownership:{owner:'human',clock:'controlled'},detached:true},
+    {...ownershipAck('human'),detached:true,sessions:{}},
+    {...ownershipAck('human'),detached:true,worldHandoff:{unavailable:true,reason:'old GPU'}},
+    {...ownershipAck('human'),detached:true,sessions:[ownershipAck('agent')]},
+  ]) {
+    const actions=[];
+    const control=nativeControl({host:'host',ask:async()=>reply,close:async()=>actions.push('close'),detach:async()=>actions.push('detach')});
+    let failure;
+    try {await control.ask({op:'clock',owner:'human',detach:true});} catch(error) {failure=error;}
+    expect(failure.reply).toBe(reply); expect(actions).toEqual([]);
+    await control.close(); expect(actions).toEqual(['close']);
+  }
+  for (const options of [{host:'linux'},{host:'ios',device:true}]) {
+    const actions=[],control=nativeControl({...options,ask:async()=>actions.push('request'),close:async()=>actions.push('close'),detach:async()=>actions.push('detach')});
+    for (const owner of ['human','agent']) await expect(control.ask({op:'clock',owner})).rejects.toThrow('unavailable');
+    await expect(control.ask({op:'clock',owner:'human',detach:true})).rejects.toThrow('unavailable');
+    expect(actions).toEqual([]);
+  }
+});
+
+test('native detach refuses invalid intent, lost transport, timeout, and an unreleased Simulator desktop contact', async () => {
+  const actions=[], input=new PassThrough(), output=new PassThrough(), lines=jsonLines(output,input,[]);
+  const control=nativeControl({host:'ios',ask:lines.ask,close:async()=>actions.push('close'),detach:async()=>actions.push('detach')});
+  for (const req of [{detach:true},{owner:'agent',detach:true},{owner:'human',detach:'yes'},{owner:'other'}]) {
+    await expect(control.ask({op:'clock',...req})).rejects.toThrow();
+    expect(input.read()).toBeNull();
+  }
+  const pending=control.ask({op:'clock',owner:'human',detach:true});
+  output.end();
+  await expect(pending).rejects.toThrow('transport ended');
+  expect(actions).toEqual([]); await control.close(); expect(actions).toEqual(['close']);
+  input.destroy(); output.destroy();
+  const stalled=nativeControl({host:'macos',ask:()=>new Promise(()=>{}),close:async()=>actions.push('close'),detach:async()=>actions.push('detach'),timeoutMs:20});
+  await expect(stalled.ask({op:'clock',owner:'human',detach:true})).rejects.toThrow('did not answer');
+  await expect(stalled.ask({op:'state'})).rejects.toThrow('acknowledgement was lost');
+  await stalled.close(); expect(actions).toEqual(['close','close']);
+  const held=nativeControl({host:'ios',beforeHandoff:()=>{throw new Error('release desktop contact');},ask:async()=>actions.push('request'),close:async()=>{},detach:async()=>actions.push('detach')});
+  await expect(held.ask({op:'clock',owner:'human',detach:true})).rejects.toThrow('release desktop contact');
+  expect(actions).toEqual(['close','close']);
+});
+
+test('detach releases every parent handle without destroying output or signalling a child', () => {
+  for (const socket of [false,true]) {
+    const actions=[], handle=name=>({end:()=>actions.push(name+' EOF'),unref:()=>actions.push(name+' unref'),destroy:()=>actions.push(name+' DESTROY')});
+    const child={stdin:handle('stdin'),stdout:handle('stdout'),stderr:handle('stderr'),unref:()=>actions.push('child unref'),kill:()=>actions.push('KILL')};
+    detachNativeTransport(child,socket ? handle('socket') : undefined);
+    expect(actions).toEqual([`${socket?'socket':'stdin'} EOF`,`${socket?'socket':'stdin'} unref`,'stdout unref','stderr unref','child unref']);
+  }
+});
+
+// Protocol fixtures exercise the real driver and OS process lifetime, without
+// building or launching an Apple app, simulator, phone, or user-owned process.
+function nativeFixture(body) {
+  const dir=mkdtempSync(resolve(tmpdir(),'native-driver-')), binary=resolve(dir,'fixture'), events=resolve(dir,'events');
+  const driver=resolve(import.meta.dir,'../scripts/agent.mjs');
+  const source=`
+import {appendFileSync,writeFileSync} from 'node:fs';
+import {createInterface} from 'node:readline';
+const record=value=>appendFileSync(process.env.FIXTURE_EVENTS,JSON.stringify(value)+'\\n');
+let detached=false,owner='agent',clock=0;
+setInterval(()=>writeFileSync(process.env.FIXTURE_EVENTS+'.tick',String(Date.now())),20);
+process.on('SIGTERM',()=>{record({event:'signal'});process.exit(0);});
+const reply=value=>process.stdout.write(JSON.stringify(value)+'\\n');
+reply({ready:true,boot:1,sessions:['a','b']});
+createInterface({input:process.stdin}).on('line',line=>{
+  const req=JSON.parse(line);record(req);
+  if(req.op==='quit') process.exit(0);
+  if(req.op==='clock' && req.owner){
+    owner=req.owner;detached=req.detach===true;
+    const ack={ownership:{owner,clock:owner==='agent'?'controlled':'live'},clock:++clock,releasedInput:true};
+    if(detached && process.env.FIXTURE_MODE!=='missing-ack') ack.detached=true;
+    setTimeout(()=>reply(ack),30);
+  } else reply({clock,ownership:{owner,clock:owner==='agent'?'controlled':'live'}});
+}).on('close',()=>{record({event:'eof',detached});if(!detached)process.exit(0);});
+`;
+  const quote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+  // Record the spawned PID before interpreter startup, including startup failures.
+  writeFileSync(binary,`#!/bin/sh\n# {"id":"00000000000000000000000000000000","inputs":{"app":"com.exact.caltrain"}}\nprintf '{"event":"launch","pid":%s}\\n' "$$" >> "$FIXTURE_EVENTS"\nexec ${quote(process.execPath)} --eval ${quote(source)}\n`,{mode:0o755});
+  const env={...process.env,EXACT_APP_DIR:resolve(import.meta.dir,'../apps/caltrain'),EXACT_MAC_BIN:binary,EXACT_LINUX_BIN:binary,FIXTURE_EVENTS:events};
+  const read=()=>existsSync(events)?readFileSync(events,'utf8').trim().split('\n').map(JSON.parse):[];
+  try {return body({dir,driver,events,env,read});}
+  finally {
+    // The only PID signalled is the fixture's own launch receipt.
+    for (const row of read()) if(row.event==='launch') {try {process.kill(row.pid,'SIGTERM');} catch {}}
+    rmSync(dir,{recursive:true,force:true});
+  }
+}
+
+test('native CLI refuses unsupported ownership/detach before any launch or device tooling', () => nativeFixture(({dir,driver,env,read}) => {
+  const cases=[['linux','clock owner human'],['linux','clock owner human detach'],['ios','--device','clock owner agent'],['ios','--device','clock owner human detach'],['web','clock owner human detach'],['macos','clock owner agent detach'],['macos','clock owner human detach','state']];
+  for(const args of cases) {
+    const result=spawnSync(process.execPath,[driver,...args],{env:{...env,PATH:dir},encoding:'utf8',timeout:4000});
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/unavailable|requires owner human|must be the last/);
+  }
+  expect(read()).toEqual([]);
+}));
+
+test('real stdio handoff/detach keeps the fixture playing after natural parent exit and finally close', () => nativeFixture(({driver,events,env,read}) => {
+  const result=spawnSync(process.execPath,['--eval',`
+    import {open} from ${JSON.stringify(driver)};
+    const s=await open({host:'host',app:'caltrain'});
+    try {
+      const handoff=s.clock({owner:'human'}); s.session='b'; await handoff;
+      if(!s.controlled) throw new Error('ACK applied to a different session');
+      s.session='a'; if(s.controlled) throw new Error('default session ownership lost');
+      s.session='b'; if(!s.controlled) throw new Error('ownership leaked across sessions');
+      await s.clock({owner:'agent'}); if(!s.controlled) throw new Error('unacknowledged agent');
+      s.contact={x:1,y:2}; await s.detach(); if(s.controlled || s.contact) throw new Error('handoff retained contact');
+    } finally {await s.close();}
+  `],{env,encoding:'utf8',timeout:4000});
+  expect(result.stderr).toBe(''); expect(result.status).toBe(0);
+  const rows=read(),pid=rows.find(r=>r.event==='launch').pid;
+  expect(rows.filter(r=>r.op)).toEqual([
+    {op:'clock',owner:'human'}, {op:'clock',owner:'agent',session:'b'},
+    {op:'clock',owner:'human',detach:true,session:'b'},
+  ]);
+  expect(rows).toContainEqual({event:'eof',detached:true});
+  expect(()=>process.kill(pid,0)).not.toThrow();
+  const before=readFileSync(events+'.tick','utf8');
+  // Longer than the old carrier.close force-kill deadline; only this fixture runs.
+  spawnSync(process.execPath,['--eval','await Bun.sleep(2200)'],{timeout:3000});
+  expect(()=>process.kill(pid,0)).not.toThrow();
+  expect(readFileSync(events+'.tick','utf8')).not.toBe(before);
+  expect(read().some(r=>r.event==='signal'||r.op==='quit')).toBe(false);
+}),10000);
+
+test('ordinary native close still ends the isolated app, including a missing detach ACK', () => nativeFixture(({driver,env,read}) => {
+  for(const mode of ['normal','missing-ack']) {
+    const result=spawnSync(process.execPath,['--eval',`
+      import {open} from ${JSON.stringify(driver)};
+      const s=await open({host:'macos',app:'caltrain'});
+      try {
+        if(process.env.FIXTURE_MODE==='missing-ack') {
+          try {await s.detach();throw new Error('accepted missing ACK');}
+          catch(error) {if(!error.message.includes('did not acknowledge'))throw error;}
+          if(!s.controlled) throw new Error('inferred ownership from request');
+        } else await s.clock({owner:'human'});
+      } finally {await s.close();}
+    `],{env:{...env,FIXTURE_MODE:mode},encoding:'utf8',timeout:4000});
+    expect(result.stderr).toBe(''); expect(result.status).toBe(0);
+    const rows=read(),pid=rows.filter(r=>r.event==='launch').at(-1).pid;
+    expect(()=>process.kill(pid,0)).toThrow();
+    expect(rows.some(r=>r.event==='eof' && r.detached===(mode==='missing-ack'))).toBe(true);
+  }
+}),10000);

@@ -223,6 +223,7 @@ struct PendingReq {
     args: Vec<Value>,
 }
 
+#[derive(Clone)]
 struct Timer {
     next_ms: f64,
 }

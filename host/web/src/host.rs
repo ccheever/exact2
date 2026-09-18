@@ -157,13 +157,14 @@ impl<D: DataSource> Host<D> {
             plan, data, kernel, carried, snapshot, delivery, viewport, launch,
         )
         .map_err(HostError::Runner)?;
+        let now_ms = runner.now_ms();
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
             springs: Springs::new(),
-            now_ms: 0.0,
+            now_ms,
             font_names,
             font_catalog,
             location: launch.into(),
@@ -215,6 +216,27 @@ impl<D: DataSource> Host<D> {
         let timers = host.runner.has_timers();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, clock, None)))
+    }
+
+    /// A GPU replacement keeps the current UI identities, row state, timers and
+    /// spring state. Only its host-fact publications run in the isolated copy.
+    pub fn fork_surface_records(&self, data: D) -> Result<(Self, String), &'static str> {
+        let runner = self
+            .runner
+            .fork_surface_records(data, Box::new(exact_kernel::MonospaceMeasurer::default()))?;
+        let mut host = Self {
+            runner,
+            mirror: self.mirror.clone(),
+            keys: self.keys.clone(),
+            roots: self.roots.clone(),
+            springs: self.springs.clone(),
+            now_ms: self.now_ms,
+            font_names: self.font_names.clone(),
+            font_catalog: self.font_catalog.clone(),
+            location: self.location.clone(),
+        };
+        let batch = host.batch_for(&[], None);
+        Ok((host, batch))
     }
 
     /// The latest top URL, also the module re-boot's launch fact.

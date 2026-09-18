@@ -325,7 +325,7 @@ Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
-reports `restored: true` until the next tick or setup-argument rebuild. Current live bindings win; saved setup arguments retain the world’s construction identity; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
+reports `restored: true` until the next tick or setup-argument rebuild. Saved construction arguments are retained; current compatible live bindings win; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS path is implemented but has not been driven in this session.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
 then `truncated: true`); `state world:* under world:player` narrows to a subtree.
@@ -518,15 +518,12 @@ seed; seekable input retains its exact clock-to-tick mapping.
 core dev server as every app. Rust source edits exclusive to the GPU cdylib's
 Cargo dep-info rebuild only that module under `gpu-dev`, then swap it under the
 live canvas with its entire simulation carried. Shared/app inputs still rebuild
-the app. Failed builds leave the old module running; incompatible carries leave a
-fresh world and a dismissible error naming the refused field/type. Agent pages
-never auto-swap.
+the app. Failed builds and incompatible carries retain the old world and report the refusal.
+Agent pages never auto-swap.
 
 A carry keeps the old setup's entities. New component fields default by name;
-changing `setup` does not respawn a carried world. Reload the page or press
-`f` then Enter in the dev server to start fresh. Contract edits carry uniquely
-named surfaces across the plan restart; duplicate surface instances restart fresh
-because their reassigned view ids cannot identify them honestly. A GPU swap stages
+changing `setup` does not respawn a carried world. Use the development Restart control (or reload the page) to instantiate new content. Contract edits carry uniquely
+named surfaces across the plan restart; ambiguous duplicate surface instances refuse transactional continuation. A GPU swap stages
 all replacement canvases before cutover; a create/bind/render failure leaves the
 old worlds running. Dev bindgen glue has function scope so old Wasm instances can
 be collected; production keeps its static ES module loader.
@@ -656,3 +653,154 @@ CPU timing is opt-in:
 It uses the existing recording feed backend, times actual CPU animation sampling
 inside feed, and reports separate simulation, animation and remaining-feed medians
 plus Linux process peak RSS. This cannot measure GPU upload, drawing, or pixels.
+
+## Capturing and reproducing a game problem
+
+`Game::CAPTURE_SUPPORTED` opts a pure-input game into bounded world captures.
+Nothing records until requested. Hidden network/storage/random results remain
+unsupported. A checkpoint preserves intentional held input; ownership handoff
+clears physical keys/contacts and reestablishes the clock epoch.
+
+In an existing `proof` callback receiving `open`, `capture`, `replay` and `out`:
+
+```js
+const s = await open();
+await s.tap('play');
+const recording = await capture(s, 'world', {
+  script: 'hold D for 60 ticks, then release; inspect crate',
+  failure: 'describe the observed failure here',
+});
+await s.world('world').key_down('KeyD');
+await s.world('world').ticks(60);
+await s.world('world').key_up('KeyD');
+const file = `${out}/crate.capture.json`;
+await recording.finish(file);
+await s.close();
+const repeated = await replay(file);
+const earlier = await replay(file, {through: 2}); // ordered record boundary
+```
+
+The helper inventories actual local artifacts before launch/capture, refuses changed
+or unavailable receipts, and replays in a fresh isolated session with scratch world
+storage. Imported captures are bounded data: script descriptions and driver
+transcripts are evidence, never executable input. Sharing is a separate action.
+Decode limits apply before collection allocation, including nested checkpoint
+decoders and scene/component payloads. Registered Rust constructors, validators
+and custom Data implementations remain trusted game code; these limits are not
+a process-memory sandbox.
+
+The checkpoint and ordered normalized input, live bindings, viewport changes and
+clock advances reproduce the simulation. Defaults are 2 MiB, 4,096 records and
+36,000 ticks; maxima are 8 MiB, 16,384 records and 216,000 ticks. Overflow, dropped
+input, direct mutation, lifecycle discontinuity and attested external input during
+agent control mark a capture incomplete. Replay refuses incomplete, corrupt or
+incompatible captures. Hashes are sampled at recorded boundaries; a mismatch names
+that boundary and includes bounded typed state, with truncation explicit.
+
+These bundles are **world-only**: Contract title/HUD slots and external results are
+omitted. Recording resulting bindings does not establish whole-app or physical
+UIKit/Safari gesture reproduction. A carrier reporting input provenance unavailable
+cannot distinguish a person from automation. Changed-build regression replay is
+not implemented: exact replay refuses different artifacts. Phone capture and
+native reconnect remain unavailable.
+
+`world('world').ticks(count)` (CLI `clock ticks world count`) advances the host clock
+and checks actual tick boundaries; paused/unsupported worlds refuse, without retry.
+`world('world').source('crate')` resolves a digest/file-hash-checked development
+scene map. Procedural entities report `GeneratedBy`, not fabricated source lines.
+
+## Returning control to a person
+
+`await s.clock({owner:'human'})` releases held input and resumes live pacing;
+`await s.clock({owner:'agent'})` explicitly reacquires the clock. Read-only
+inspection does not acquire it. On supported Apple carriers, `await s.detach()`
+waits for host acknowledgement, closes the transport and leaves the app playing.
+Calling `s.close()` afterwards is safe; ordinary close without acknowledged detach
+still terminates the isolated test app. Detached carriers cannot reconnect.
+Linux headless and physical-phone driver handoff are explicitly unsupported.
+
+## Choosing reload behavior
+
+The web development controls expose Continue, Restart and Restore. Continue retains
+the running world, its tick and construction arguments; Restart constructs from the
+new scene; Restore accepts a selected compatible checkpoint. The public development
+API is `await exact.reloadGame({intent:"continue"})` (or `"restart"` / `"restore"`,
+with a per-canvas `checkpoints` Map). Failed candidate construction, restore, binding
+or rendering leaves the old participating worlds intact. Both Contract and GPU-only
+reloads validate publications and resulting bindings before committing. GPU-only
+reload retains current UI identities, row-local state, timers and animation state.
+Inspect `state.reload` for
+requested/loaded artifacts, phase, successful replacement and timing. Rendering
+opportunity is reported separately from physical display presentation.
+
+Typed scene usage, fragment semantics and source maps are documented in
+[scene/README.md](scene/README.md). A scene edit rebakes content; Continue deliberately
+retains the instantiated scene, while Restart uses the new one. Source links refuse
+a stale digest or changed source file.
+
+
+## Peer follow-up integration (M1, 2026-09-18)
+
+Merged engine `7d2afe7` first, then DX `af179e2`, on the I3 trunk. F2c and
+controlled restore coexist: `Sim::alpha(&self) -> f32` uses `R = T + L - step`
+for live frames; seekable time has no lookahead. Both
+`restore(&mut self, &[u8]) -> Result<(), DataError>` and
+`restore_bound(&mut self, &[u8]) -> Result<(), DataError>` retain the controlled
+destination anchor and exclude paused wall time on live restore. Handoff/rebase
+clears live-frame history. The new restore assertions pin alpha to 0 under the
+controlled clock and 1 after the live regression's 100 ms continuation.
+
+The defaulted GPU seams are `Surface::lifecycle(&mut self, Lifecycle)` and
+`Surface::clock(&mut self, bool)`. Lifecycle variants are `Hidden`, `Visible`,
+`AudioInterrupted`, and `AudioResumed`; the bool selects seekable time before
+input. Audio retains the fresh sound registry on carry and bounds unique retained
+PCM allocations to 32 MiB. Importers can share `data::LoadBudget::new(usize)`
+through `bin::from_slice_in<T: Data>(&[u8], Option<&LoadBudget>) -> Result<T, DataError>`
+and `bin::Decoder::for_load(&[u8], Option<&LoadBudget>) -> Decoder`; nested
+checkpoint/world and scene-component decoders consume the same allowance.
+
+Conflict decisions (all existing assertions and deterministic pins retained):
+
+| File | Resolution |
+| --- | --- |
+| `game/README.md` | Keep restore/F2c/audio, T0/I3 evidence, and DX capture/reload guidance. |
+| `game/engine/src/sim.rs` | Keep capture/ownership, controlled anchors, F2c, and fresh Sounds; pass decode budgets through asset-backed restores and retain F2c's valid one-tick-ahead saves. |
+| `host/web/gpu-glue.js` | Keep retired-canvas guards and atomic publication staging; resize, staged render and final rebase use the last paced frame time. Lifecycle forwarding survives. |
+| `host/web/tests/surface-record.test.mjs` | Combine lifecycle/clock mocks, DOM listeners, driven observers/frames, candidate host/publication hooks and authored values. |
+| `game/Cargo.lock` | Retain existing renderer bake/scene/Lanterns dependencies; no dependency version or checksum changed. |
+| `game/engine/src/world.rs` | Preserve the asset cache while decoding through the shared budget. |
+| `game/render/Cargo.toml` | Retain bake, scene and Lanterns diagnostic dependencies. |
+| `game/render/src/assets.rs` | Use trunk's existing SampledVertex alias and I3 timing guard; the peer's identical alias is redundant. |
+| `game/render/src/renderer.rs` | Keep model-specific bind groups; DX's formatting-only primitive binding must not overwrite them. |
+| `game/render/src/surface_tests.rs` | Combine setup identity/hash/refusal assertions and read-only layout checks with controlled/deferred-asset restore tests. |
+| `game/render/src/world.rs` | Retain embedded_assets, distinct from baked model records; peer conflicts were formatting-only. |
+| `game/render/tests/world.rs` | Compile Beacons' authored scene and bind the complete Args values. |
+
+Verification: **437 game Rust tests passed, 0 failed, 12 ignored**. The affected
+core packages (`exact-web`, `exact-gpu`, `exact-runner`, `exact-motion`) pass
+**158 Rust tests, 0 failed, 1 ignored**. Game and affected-core clippy with
+`-D warnings`, game/root formatting, caps and boot pass. Boot still reaches two
+JavaScript modules and one Wasm reference. Standalone web fixtures pass **64/0**;
+the two Rust-hosted Bun cases additionally pass through `exact-web`'s real Bridge.
+
+Linux proofs: Beacons **54/0** (42.551 s), Greybox **62/0** (20.972 s), Lanterns
+**8/0** (39.912 s), asset-fixture **6/0** (18.803 s): **130 assertions**, including
+restored continuation save equality. Times include builds. `cd game && bun test`
+passes **49**, with only the two environmental failures: generated-game browser
+launch (no Chrome, surfacing as null CDP output) and absent feel bakes. The
+generated game builds and its three Rust tests pass. Full root build/test/clippy
+were also attempted; TypeScript app bakes require a lean Hermes executor absent
+on this producer. No GPU pixels, physical audio, real browser or Apple runtime
+behavior was verified here; adapter-dependent Rust tests can return early.
+
+One design disagreement remains, reproduced outside the tracked suite:
+F2c's live frame history/precision is deliberately excluded from EXSIM, whereas
+DX capture replay begins a seekable epoch and stores integer-microsecond clock
+records. A tiny supported game captured after live frames at 0/20/40 ms and
+continued at 60/80/100 ms refuses replay with `captured clock does not match
+recorded tick boundary`; the seekable version reproduces tick 6. No capture
+format or clock policy was invented by this merge; the follow-up is in `QUEUE.md`.
+The reproducer and complete verification logs are in
+`~/lanes/gamenext/scratch/M1/`. Continue still retains instantiated setup; a later
+deliberate setup argument change constructs with all requested values. I3's
+separate authored-state policy questions remain as documented in Diary 003.

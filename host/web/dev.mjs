@@ -28,7 +28,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { developmentInstallPage, installNetworkPage, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
@@ -214,11 +214,11 @@ const announcement = () => current ? {
 } : { epoch, ready: false };
 const hello = () => JSON.stringify({ hello: true, ...announcement() });
 let retentionToken = null;
-function captureGeneration(reuseCurrentAssets = false) {
+function captureGeneration(reuseCurrentAssets = false, candidatePlan = null) {
   // A mixed app publishes one complete candidate. A producer may finish
   // first, but neither language may reset the other's last admitted module.
   if (typescript && portableRust && (!currentModule || !currentRust)) return;
-  const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
+  const encodedPlan = currentModule ? null : candidatePlan?.toString('base64') ?? filesystem({ op: 'get', root: dist, path: 'app.plan' });
   if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
   const planBytes = currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
@@ -282,6 +282,7 @@ function captureGeneration(reuseCurrentAssets = false) {
 
 // The resident compiler — started, and started again after a Rust rebuild.
 let dev = null;
+let planCompiler = null;
 let announced = false;
 function startCompiler() {
   if (portableRust) startRustCompiler();
@@ -290,6 +291,7 @@ function startCompiler() {
   const metadata = spawnSync('cargo', ['metadata','--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
   if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
   const hasDev = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
+  planCompiler = resolve(app.target, 'release', hasDev ? 'dev' : 'exact-dev');
   dev = spawn('cargo', ['run', '-q', '--release', '-p', hasDev ? app.crate('web') : 'exact-web', '--bin', hasDev ? 'dev' : 'exact-dev', '--', source, plan], { cwd: hasDev ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
@@ -558,6 +560,40 @@ const killCompiler = () => {
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
+function sceneContractInput(path) {
+  return Boolean(app.manifest.game) && path === resolve(app.dir, '.scene/scene.contract');
+}
+function publishScenePlan(saved, snapshot, inputs) {
+  if (!planCompiler || !existsSync(planCompiler)) throw new Error('scene plan compiler is not ready');
+  const stage = mkdtempSync(resolve(app.target, 'scene-plan-'));
+  const previous = current;
+  let committed = false;
+  try {
+    const candidate = resolve(stage, 'app.plan');
+    const generated = () => reloadInputs([resolve(app.dir, '.scene/scene.contract')]);
+    const before = generated();
+    const result = spawnSync(planCompiler, [source, candidate, '--once'], {cwd:app.workspace, env:buildEnv, encoding:'utf8'});
+    if (result.error || result.status !== 0) throw new Error(`scene plan refused: ${result.error?.message ?? result.stderr}`);
+    // A save during the baker/compiler invalidates the entire candidate. The
+    // old immutable generation and app.plan remain available on any refusal.
+    verifyReloadInputs(snapshot, inputs());
+    verifyReloadInputs(before, generated());
+    const bytes = readFileSync(candidate);
+    seq++;
+    captureGeneration(true, bytes);
+    renameSync(candidate, plan);
+    committed = true;
+    const ready = Date.now();
+    pending.set(seq, {saved, ready});
+    push({...announcement(), bytes:bytes.length});
+    console.log(`scene → candidate plan ready in ${ready-saved} ms; existing behavior module retained`);
+  } catch (error) {
+    // captureGeneration may already have retained immutable files at seq,
+    // even if it or the plan rename failed. Only the accepted head rolls back.
+    if (!committed) current = previous;
+    throw error;
+  } finally { rmSync(stage, {recursive:true, force:true}); }
+}
 // Optional typed scene content follows the Contract producer, never Rust rebuild.
 if (app.manifest.game && existsSync(resolve(root, 'game/app/scenes.mjs'))) {
   const {bakeGameScene, sceneInputs} = await import('../../game/app/scenes.mjs');
@@ -567,7 +603,11 @@ if (app.manifest.game && existsSync(resolve(root, 'game/app/scenes.mjs'))) {
     if (sceneBusy) { sceneAgain = true; return; }
     sceneBusy = true;
     try {
-      await bakeGameScene(app, {development:true});
+      const saved = Date.now();
+      const inputs = () => reloadInputs([source, ...sceneInputs(app)]);
+      const snapshot = inputs();
+      await bakeGameScene(app, {development:true, build:false});
+      publishScenePlan(saved, snapshot, inputs);
       console.log('scene content rebake; Continue retains saved entities; Restart instantiates new content');
       observeScenes();
     } catch (error) { push({error:`scene: ${error.message}`}); }
@@ -771,6 +811,7 @@ function watchCompilerInputs() {
       // source discovery can invalidate the host. Rust additions are reached
       // when their declaring module or build input changes.
       const path = resolve(dir, name);
+      if (sceneContractInput(path)) return; // Its typed baker publishes a plan, never a Cargo build.
       if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
@@ -852,6 +893,12 @@ async function produceGpu(files) {
   try {
     console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
     await run('cargo', ['build','-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
+    // Rust scene types belong to the behavior build. Pure content saves reuse
+    // this refreshed native baker and never enter Cargo themselves.
+    if (app.manifest.game && existsSync(resolve(app.dir, 'scene.json'))) {
+      const logic = app.manifest.game.crate;
+      await run('cargo', ['build','--offline','-p',logic,'--bin',logic.replace(/-logic$/, '-scene')]);
+    }
     const compiled = Date.now();
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
     const compiledInputs = new Set(gpuInputs);
