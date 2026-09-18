@@ -51,6 +51,12 @@ fn generations<C: Component>(world: &World, column: usize, result: &mut Vec<[u64
 }
 
 impl Changes {
+    pub fn collider_generation(&self, e: Entity) -> u64 {
+        self.generations
+            .get(e.index() as usize / PAGE)
+            .map_or(0, |p| p[1])
+    }
+
     pub fn refresh(&mut self, world: &World) -> Changed {
         let identity = (world.id(), world.presentation_generation());
         let membership = [world.membership::<Body>(), world.membership::<Collider>()];

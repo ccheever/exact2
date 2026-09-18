@@ -93,8 +93,8 @@ impl Queries<'_> {
 // Only component values and derived geometry live here; neither partition enters
 // EXPHYS. A dirty page is a candidate, not permission to rebuild static geometry.
 struct Geometry {
-    collider: Collider,
-    body: Option<Body>,
+    collider_generation: u64,
+    body_geometry: Option<(crate::BodyKind, f32)>,
     pose: Transform,
     handle: ColliderHandle,
 }
@@ -136,8 +136,10 @@ impl Scene {
             let c = world.get::<Collider>(e).unwrap();
             let b = world.get::<Body>(e);
             let pose = math::world_pose(world, e);
-            let co_changed = old.collider != *c
-                || old.body.as_ref() != b.as_deref()
+            let generation = changes.collider_generation(e);
+            let body_geometry = b.as_ref().map(|b| (b.kind, b.mass));
+            let co_changed = old.collider_generation != generation
+                || old.body_geometry != body_geometry
                 || old.pose.scale != pose.scale;
             let pose_changed = old.pose != pose;
             let co = &mut part.rapier.colliders[old.handle];
@@ -178,8 +180,8 @@ impl Scene {
                 self.bounds[id as usize] = part.rapier.colliders[old.handle].compute_aabb();
                 moved.push(id);
                 dirty[usize::from(b.is_some())] = true;
-                old.collider = c.clone();
-                old.body = b.as_deref().cloned();
+                old.collider_generation = generation;
+                old.body_geometry = body_geometry;
                 old.pose = pose;
             }
         }
@@ -237,6 +239,12 @@ pub(crate) struct Part {
 }
 impl Part {
     fn new(world: &World, members: &[Entity]) -> Self {
+        let mut generations = Vec::new();
+        for p in world.pages::<Collider>().iter() {
+            let i = p.first as usize / exact_game::PAGE;
+            generations.resize(generations.len().max(i + 1), 0);
+            generations[i] = p.generation;
+        }
         let mut rows = BTreeMap::new();
         let mut rapier = PhysicsWorld::default();
         let mut entities = BTreeMap::new();
@@ -280,8 +288,8 @@ impl Part {
             rows.insert(
                 e,
                 Geometry {
-                    collider: c.clone(),
-                    body: b.cloned(),
+                    collider_generation: generations[e.index() as usize / exact_game::PAGE],
+                    body_geometry: b.map(|b| (b.kind, b.mass)),
                     pose: t,
                     handle: h,
                 },
