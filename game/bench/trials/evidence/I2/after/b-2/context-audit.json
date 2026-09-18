@@ -1,0 +1,10 @@
+{
+  "benchmarkFiles": [
+    "cubes/logic/Cargo.toml",
+    "cubes/logic/src/lib.rs"
+  ],
+  "benchmarkImplementationsAbsent": true,
+  "evaluatorVersion": 3,
+  "packagingCommit": "ac956c4",
+  "scope": "Read-only parent audit; no candidate file changed."
+}

@@ -1,5 +1,5 @@
 {
-  "selfRepairRounds": 3,
+  "selfRepairRounds": 4,
   "repairLoops": [
     {
       "name": "route around signboard",
@@ -23,6 +23,14 @@
       "items": [
         "item_24",
         "item_27"
+      ]
+    },
+    {
+      "name": "Linux proof input tick",
+      "repairs": 1,
+      "items": [
+        "item_29",
+        "item_32"
       ]
     }
   ],
@@ -51,5 +59,8 @@
     ],
     "violation": "An unrelated game consumer remained readable and these lines reached the model. No running session was changed; packaging corrected only before after B2."
   },
-  "coverageCaveat": "Replaces before_change_save_bytes historic fixture comparison with current-world full-save roundtrip; removed historical comparison is not covered by the immutable task evaluator."
+  "coverageCaveat": "Replaces before_change_save_bytes historic fixture comparison with current-world full-save roundtrip; removed historical comparison is not covered by the immutable task evaluator.",
+  "otherTimeSinks": [
+    "Initial Linux proof read the queued E press before a simulation tick; added 34 ms clock advances after E taps."
+  ]
 }
