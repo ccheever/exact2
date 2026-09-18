@@ -17,10 +17,8 @@ pub fn from_slice<T: Data>(bytes: &[u8]) -> Result<T, DataError> {
     read_into(bytes, &mut v)?;
     Ok(v)
 }
-pub(crate) fn from_slice_in<T: Data>(
-    bytes: &[u8],
-    budget: Option<&LoadBudget>,
-) -> Result<T, DataError> {
+/// Read a value using a shared allocation allowance when supplied.
+pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Result<T, DataError> {
     let mut value = T::default();
     let mut r = Decoder::for_load(bytes, budget);
     value
@@ -166,7 +164,8 @@ impl<'a> Decoder<'a> {
             ..Self::new(bytes)
         }
     }
-    pub(crate) fn for_load(bytes: &'a [u8], budget: Option<&LoadBudget>) -> Self {
+    /// Read using a shared allocation allowance, with collection preflight.
+    pub fn for_load(bytes: &'a [u8], budget: Option<&LoadBudget>) -> Self {
         let mut r = Self::new(bytes);
         if let Some(budget) = budget {
             r.budget = Budget::shared(budget);

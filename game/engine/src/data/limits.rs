@@ -11,9 +11,10 @@ pub const MAX_LOAD_BYTES: usize = 2 * 1024 * 1024 * 1024;
 /// One explicit cumulative allowance across nested binary/JSON/world decoders.
 /// Cloning the handle shares consumption; it never replenishes the allowance.
 #[derive(Clone)]
-pub(crate) struct LoadBudget(Rc<Cell<usize>>);
+pub struct LoadBudget(Rc<Cell<usize>>);
 impl LoadBudget {
-    pub(crate) fn new(bytes: usize) -> Self {
+    /// Set the total accounted allocation allowance for cooperating decoders.
+    pub fn new(bytes: usize) -> Self {
         Self(Rc::new(Cell::new(bytes)))
     }
 }
