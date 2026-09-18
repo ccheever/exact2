@@ -1,0 +1,113 @@
+{
+  "engine": "exact2-linux",
+  "ref": "next/baseline",
+  "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+  "task": "a",
+  "attempt": "2",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T11:56:42.592Z",
+  "humanInterventions": 0,
+  "agentSeconds": 516.2278221299999,
+  "buildSeconds": 17.614222833000007,
+  "proofSeconds": 20.49796677300008,
+  "usage": {
+    "input_tokens": 1586781,
+    "cached_input_tokens": 1502976,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 15178,
+    "reasoning_output_tokens": 6966
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "173ec52ae3f33f2c6ed43586219f47011d6adaf072725353abdc9f2f59ce958c",
+    "acceptance.mjs": "94afe49873e485ced95506aee48ab6a3e7d97e1903dce9618504c5bd372fd027",
+    "task-evaluator.mjs": "f88e519d341010bc3303dc138d75d53eaaa2b34b80a7fe056ce7975d11b9fdf2",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 136226960,
+  "setupSeconds": 102.141871478,
+  "dispatchedAt": "2026-09-18T11:58:51.283Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T12:07:27.511Z",
+  "invocations": {
+    "build": 1,
+    "proof": 1,
+    "tests": 3,
+    "commands": 26,
+    "method": "Audited completed commands: one scene-only bake, one Linux proof, three cargo test invocations; incidental file reads excluded."
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 3,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 3,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 11,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/logic/src/scene_tests.rs",
+      "added": 10,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 46,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/proof.mjs",
+      "added": 30,
+      "deleted": 0
+    },
+    {
+      "path": "game/games/lanterns/scene.json",
+      "added": 55,
+      "deleted": 0
+    }
+  ],
+  "filesChanged": 7,
+  "linesAdded": 158,
+  "linesDeleted": 12,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "b37e976ed1e368b392bbad09c4d043df2b66f8b8930ce3075922155f9d892fc5",
+    "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+    "game/games/lanterns/logic/src/lib.rs": "266c0e02f0af4fe85f9b825991902ba39d90436c5211feff0e0bf8464b271871",
+    "game/games/lanterns/logic/src/scene_tests.rs": "8e45eb73489189c04edf909bf33163e1e5bd1fd4aac1eb737a813f028316bc5e",
+    "game/games/lanterns/logic/tests/capture.rs": "f8a54a1214f87eacdd9905eebf97af16f9a1d9a0f297ebb030afe3bd320579f8",
+    "game/games/lanterns/proof.mjs": "13bac3125097e0fc53ab2851ecc1b603e14b7c1224704d3711e6a62a01e3bb71",
+    "game/games/lanterns/scene.json": "3f1cf0f724bfb02f7a11c1da0215e7ad1f00d7ba33693078087cfa864f907646"
+  },
+  "freeKiBBeforeBuild": 127401088,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T12:07:45.153Z",
+  "evaluatorStartedAt": "2026-09-18T12:07:45.153Z",
+  "taskFunctionalPassed": true,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": 1,
+  "screenshotInspections": 0,
+  "protocolCompliant": false,
+  "finishedAt": "2026-09-18T12:08:05.651Z",
+  "buildOutputDeleted": true,
+  "instrumentValid": false,
+  "contextDeviation": "Archive exposed other consumer games; session searched game/games for proof examples.",
+  "instrumentErrors": [
+    "asset gate denied opening /",
+    "Git global config denied",
+    "rg shim denied"
+  ]
+}
