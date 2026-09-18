@@ -10,6 +10,19 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Linux world continuation** (2026-09-18, T0c): DX parent `7b34fc5` and trunk lose
+  the first post-restore clock advance; Beacons and Greybox each fail three continuation
+  assertions. Engine parent `01f4c48` passes. Establish the restored host epoch explicitly.
+- **Lanterns Linux proof** (2026-09-18, T0c): DX parent `7b34fc5` already calls the
+  web adapter unconditionally and fails on absent `dist/index.html`; engine has no Lanterns.
+  Keep the headless proof independent of web artifacts.
+- **Game test prerequisites** (2026-09-18, T0c): the generated-game test launches web
+  on both parents and requires Chrome; engine's feel `--no-build` test requires existing
+  60/120 Hz web bakes. Both remain environmental failures on this headless box.
+- **Game lint baseline** (2026-09-18, T0c): DX parent `7b34fc5` already fails clippy's
+  `type_complexity` at `render/src/assets.rs:239`, and rustfmt in that file and
+  `engine/tests/capture.rs`; these failures persist on trunk. Engine parent passes both.
+
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
