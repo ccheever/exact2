@@ -512,7 +512,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
 
 
-- Game proof JSON equality: `game/proof.mjs` compares object key order via JSON.stringify; native dictionaries can reorder keys. Beacons capsule values are checked by name now; make shared JSON-value equality order-independent before adding more object assertions.
 
 - Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
 - U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.
@@ -537,8 +536,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Rapier coincident-body fixture (T1b2): stepping the initial character parity fixture hit
   `touching pair (edge 0) not linked in the persistent islands`. Minimize the solver case;
   the shipped controller oracle compares movement and resulting state without stepping it.
-- Game verification (T1b, Linux): render's world test omits `Beacons::Options.scene`; assets.rs trips clippy type-complexity and engine/render formatting is red. Two surface library fixtures also fail with baseline physics (clock ownership leaves tick zero; restored run binding stays zero). Bun's feel test imports missing `games/beacons/feel.mjs`.
-- Linux proof fixtures (T1b): Beacons has five failures (movement hash, glow and continuation); Greybox has three queued-input/continuation failures, while its setup and movement hash pins pass. Neither game links physics; repair the input/clock and scene expectations without re-pinning to conceal a regression.
 
 
 - I1 Lanterns comparison (Linux): held pointer contacts are unsupported, so BRIEF analog input is quantized to keyboard directions; the direct baseline crate approach stalls at the sign, and the UI Save probe remained at “Saving…”. See `game/bench/trials/README.md` and retained baseline evidence before widening host capability. Both B trials' modified games hit a post-terminal capture semantic hash mismatch: B1 removed the assertion; B2 started that capture from a restored checkpoint. Investigate the retained trial diffs/logs before attributing this to the engine.

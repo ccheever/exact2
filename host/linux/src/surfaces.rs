@@ -688,6 +688,7 @@ mod tests {
                 held: Default::default(),
                 restore_error: None,
                 restore_input: true,
+                ownership_initialized: false,
                 restore_bytes: Some(vec![1]),
                 restore_logged: false,
             };
@@ -878,6 +879,7 @@ const unsigned char* gpu_out_ptr(void) { return out; }
                     ownership_initialized: true,
                     restore_error: None,
                     restore_input: false,
+                    restore_bytes: None,
                     restore_logged: false,
                 },
             );
