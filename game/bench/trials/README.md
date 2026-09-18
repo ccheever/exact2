@@ -111,3 +111,13 @@ Final launcher repair round: A2's log also showed Git failing to read the global
 for the installed rg directory. This adds no project/history access. These
 instrument failures are quoted separately from game/API difficulties. No fourth
 launcher repair is authorized in this run.
+
+The first B1 context-trim setup failed before dispatch: the renderer declares
+other games as dev-dependencies, and Cargo requires their manifests even for a
+release Lanterns build. Context-packaging repair 1 retains those original
+manifests with empty library targets, without example/game implementation bytes.
+These dev-only crates are not compiled by the release Lanterns build or its
+package-scoped tests. Lanterns and the engine dependency sources remain at the
+selected ref. The failed pre-dispatch setup is retained separately. This is a
+new packaging failure introduced by context trimming, not a fourth repair of the
+previously resolved target relocation or CLI-access failure loops.

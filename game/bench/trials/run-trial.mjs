@@ -56,7 +56,15 @@ try {
   function strip(dir){for(const e of readdirSync(dir,{withFileTypes:true})){const p=resolve(dir,e.name);if(e.isSymbolicLink())continue;if(e.isDirectory())strip(p);else if(['AGENTS.md','CLAUDE.md'].includes(e.name))rmSync(p);}}
   strip(work);
   // Only Lanterns and its shared authored fragments are supplied as games.
-  for(const name of readdirSync(resolve(work,'game/games')))if(!['lanterns','shared'].includes(name))rmSync(resolve(work,'game/games',name),{recursive:true,force:true});
+  for(const name of readdirSync(resolve(work,'game/games')))if(!['lanterns','shared'].includes(name)) {
+    const dir=resolve(work,'game/games',name), manifest=resolve(dir,'logic/Cargo.toml');
+    const metadata=existsSync(manifest)?readFileSync(manifest):null;
+    rmSync(dir,{recursive:true,force:true});
+    // Cargo resolves engine dev-dependency manifests even in a release bake.
+    // Retain only metadata and an empty target: none of these dev-only consumers
+    // is compiled by the Lanterns build or its package-scoped tests.
+    if(metadata){mkdirSync(resolve(dir,'logic/src'),{recursive:true});writeFileSync(manifest,metadata);writeFileSync(resolve(dir,'logic/src/lib.rs'),'// Unavailable consumer fixture; metadata only.\n');}
+  }
   const target=resolve(work,'game/target');mkdirSync(target,{recursive:true});
   // Copy-on-write where supported; never a hardlink or a shared writable target.
   if(existsSync(resolve(root,'game/target')))sync('cp',['-a','--reflink=auto',`${root}/game/target/.`,target]);
