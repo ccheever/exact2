@@ -1,4 +1,5 @@
 {
+  "instrumentVersion": 3,
   "engine": "exact2-linux",
   "task": "extra",
   "unavailable": [],
@@ -6,9 +7,9 @@
     "analog input quantized to nearest eight keyboard directions; Linux held pointer unsupported",
     "world pixels unavailable"
   ],
-  "recordedAt": "2026-09-18T11:55:19.604Z",
+  "recordedAt": "2026-09-18T12:52:52.667Z",
   "renderer": "Linux CPU UI only; world pixels unsupported",
-  "milliseconds": 10160.801325999999,
+  "milliseconds": 10206.689385,
   "cases": [
     {
       "name": "title, level and imported asset",
@@ -129,7 +130,7 @@
         "events": [],
         "assetReady": true
       },
-      "milliseconds": 5.459805000000017
+      "milliseconds": 4.985782999999998
     },
     {
       "name": "actual keyboard movement and active animation",
@@ -139,7 +140,7 @@
       "unsupported": [
         "Linux renders Contract UI with flat world canvas; no world pixels"
       ],
-      "milliseconds": 327.876265
+      "milliseconds": 331.39064800000006
     },
     {
       "name": "fixed movement, jump gravity and landing",
@@ -147,7 +148,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 343.377382
+      "milliseconds": 350.0591589999999
     },
     {
       "name": "pause freezes clock and body",
@@ -155,7 +156,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 327.742785
+      "milliseconds": 328.51821199999995
     },
     {
       "name": "solid wall collision",
@@ -163,7 +164,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 403.8107160000002
+      "milliseconds": 398.441157
     },
     {
       "name": "dynamic crate push and ledge collision",
@@ -284,7 +285,7 @@
         "events": [],
         "assetReady": true
       },
-      "milliseconds": 3175.363079
+      "milliseconds": 3259.63501
     },
     {
       "name": "save survives reload with world and clock restored",
@@ -292,7 +293,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 850.9993450000002
+      "milliseconds": 851.2950000000001
     },
     {
       "name": "complete lantern route and task-specific victory",
@@ -480,13 +481,17 @@
             "id": "lantern-12"
           },
           {
+            "type": "all-lanterns-lit",
+            "tick": 1558
+          },
+          {
             "type": "win",
             "tick": 1558
           }
         ],
         "assetReady": true
       },
-      "milliseconds": 2662.7866829999994
+      "milliseconds": 2611.760076999999
     },
     {
       "name": "night falls and restart works",
@@ -496,7 +501,7 @@
       "unsupported": [
         "Linux renders Contract UI with flat world canvas; no world pixels"
       ],
-      "milliseconds": 722.3170229999996
+      "milliseconds": 722.1115820000014
     },
     {
       "name": "one batch equals many fixed ticks",
@@ -504,7 +509,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 1145.4132559999998
+      "milliseconds": 1152.3705199999986
     }
   ],
   "errors": [],

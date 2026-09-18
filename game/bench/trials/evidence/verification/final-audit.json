@@ -1,0 +1,16 @@
+{
+  "currentInstrumentVersion": 3,
+  "identicalInitialEvaluatorHashes": true,
+  "identicalFinalEvaluatorHashes": true,
+  "allSourceHashesVerified": true,
+  "baseline": {
+    "pass": 5,
+    "fail": 1,
+    "unsupported": 4
+  },
+  "bothNegativeControlsFail": true,
+  "allTrialWorkspacesDeleted": true,
+  "functionalVerdictsUnchanged": true,
+  "b1IntermediateHasNoWinEvent": true,
+  "a2AndB1TerminalWinEventsPresent": true
+}

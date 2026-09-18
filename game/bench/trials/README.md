@@ -125,8 +125,8 @@ previously resolved target relocation or CLI-access failure loops.
 Version 2 corrects event classification globally: “all lanterns lit” is an
 observation, not necessarily victory after Task B. Win events come from the
 world journal's `publish phase: ... "won"` entry and retain its actual tick.
-The four unchanged submissions and baseline are re-evaluated with version 2;
-original timing and version-1 evaluation files remain available. No model is
+The correction is included in the final replay of the four unchanged submissions
+and baseline; original timing and version-1 evaluation files remain available. No model is
 restarted and no requirement is relaxed.
 
 Version 3 also releases every supported key through existing key-up operations

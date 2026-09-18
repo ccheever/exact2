@@ -1,0 +1,22 @@
+{
+  "cargo": {
+    "passed": 406,
+    "failed": 0,
+    "ignored": 11
+  },
+  "cargoResultGroups": 106,
+  "linuxProofAssertions": {
+    "lanterns": 8,
+    "beacons": 54,
+    "greybox": 62,
+    "asset-fixture": 6
+  },
+  "bun": {
+    "passed": 38,
+    "failed": 2,
+    "assertions": 826
+  },
+  "clippyPassed": true,
+  "fmtPassed": true,
+  "bootPassed": true
+}

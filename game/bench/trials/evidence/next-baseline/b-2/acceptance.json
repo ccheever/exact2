@@ -1,4 +1,5 @@
 {
+  "instrumentVersion": 3,
   "engine": "exact2-linux",
   "task": "home",
   "unavailable": [],
@@ -6,9 +7,9 @@
     "analog input quantized to nearest eight keyboard directions; Linux held pointer unsupported",
     "world pixels unavailable"
   ],
-  "recordedAt": "2026-09-18T12:29:34.777Z",
+  "recordedAt": "2026-09-18T12:50:06.683Z",
   "renderer": "Linux CPU UI only; world pixels unsupported",
-  "milliseconds": 10275.780263999999,
+  "milliseconds": 9867.835615,
   "cases": [
     {
       "name": "title, level and imported asset",
@@ -18,7 +19,7 @@
       "unsupported": [
         "Linux renders Contract UI with flat world canvas; no world pixels"
       ],
-      "milliseconds": 22.569472999999988
+      "milliseconds": 27.668101000000007
     },
     {
       "name": "actual keyboard movement and active animation",
@@ -28,7 +29,7 @@
       "unsupported": [
         "Linux renders Contract UI with flat world canvas; no world pixels"
       ],
-      "milliseconds": 323.50611499999997
+      "milliseconds": 317.43294899999995
     },
     {
       "name": "fixed movement, jump gravity and landing",
@@ -36,7 +37,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 342.80441400000007
+      "milliseconds": 351.330066
     },
     {
       "name": "pause freezes clock and body",
@@ -44,7 +45,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 305.169988
+      "milliseconds": 327.10421499999995
     },
     {
       "name": "solid wall collision",
@@ -52,7 +53,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 382.38280499999996
+      "milliseconds": 379.04518700000017
     },
     {
       "name": "dynamic crate push and ledge collision",
@@ -173,7 +174,7 @@
         "events": [],
         "assetReady": true
       },
-      "milliseconds": 3235.515787
+      "milliseconds": 2790.358766
     },
     {
       "name": "save survives reload with world and clock restored",
@@ -181,7 +182,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 839.2279510000008
+      "milliseconds": 850.5860320000002
     },
     {
       "name": "complete lantern route and task-specific victory",
@@ -369,13 +370,13 @@
             "id": "lantern-12"
           },
           {
-            "type": "win",
+            "type": "all-lanterns-lit",
             "tick": 1558
           }
         ],
         "assetReady": true
       },
-      "milliseconds": 2758.179567000001
+      "milliseconds": 2762.3280109999996
     },
     {
       "name": "night falls and restart works",
@@ -385,7 +386,7 @@
       "unsupported": [
         "Linux renders Contract UI with flat world canvas; no world pixels"
       ],
-      "milliseconds": 713.636140999999
+      "milliseconds": 718.6679839999997
     },
     {
       "name": "one batch equals many fixed ticks",
@@ -393,7 +394,7 @@
       "passed": true,
       "mechanicsPassed": true,
       "unsupported": [],
-      "milliseconds": 1155.9487219999992
+      "milliseconds": 1148.665352
     }
   ],
   "errors": [],

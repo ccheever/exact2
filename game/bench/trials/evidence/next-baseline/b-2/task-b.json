@@ -1,7 +1,8 @@
 {
+  "instrumentVersion": 3,
   "task": "b",
   "engine": "exact2-linux",
-  "recordedAt": "2026-09-18T12:29:40.281Z",
+  "recordedAt": "2026-09-18T12:50:12.201Z",
   "cases": [
     {
       "name": "original twelve and positions preserved",
@@ -234,7 +235,7 @@
             "id": "lantern-12"
           },
           {
-            "type": "win",
+            "type": "all-lanterns-lit",
             "tick": 1558
           }
         ],

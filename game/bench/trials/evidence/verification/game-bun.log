@@ -1,0 +1,284 @@
+bun test v1.3.14 (0d9b296a)
+
+new.test.mjs:
+Shared game lockfile unchanged (packages already registered).
+Created game/games/new-proof-3933771
+  bun game/dev.mjs new-proof-3933771
+  bun game/games/new-proof-3933771/proof.mjs web
+   Compiling new-proof-3933771-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/new-proof-3933771/logic)
+    Finished `test` profile [optimized] target(s) in 0.75s
+     Running unittests src/lib.rs (target/debug/deps/new_proof_3933771_logic-ab7fac8ca864b7e6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sim.rs (target/debug/deps/sim-60545c36af0c7533)
+
+running 3 tests
+test movement_and_light ... ok
+test acceleration_braking_and_ballistic_jump ... ok
+test proximity_nearest_unlit_plinths_bounds_and_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests new_proof_3933771_logic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+BUILD new-proof-3933771 web
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling unicode-ident v1.0.26
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling zmij v1.0.23
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling serde_json v1.0.151
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling wasm-bindgen-shared v0.2.127
+   Compiling libm v0.2.16
+   Compiling cpufeatures v0.2.17
+   Compiling crc32fast v1.5.2
+   Compiling rustversion v1.0.23
+   Compiling simd-adler32 v0.3.10
+   Compiling bumpalo v3.20.3
+   Compiling autocfg v1.5.1
+   Compiling adler2 v2.0.1
+   Compiling futures-task v0.3.34
+   Compiling once_cell v1.21.4
+   Compiling futures-core v0.3.34
+   Compiling slab v0.4.12
+   Compiling pin-project-lite v0.2.17
+   Compiling exact-game-derive v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/derive)
+   Compiling foldhash v0.2.0
+   Compiling thiserror v2.0.20
+   Compiling inflections v1.1.1
+   Compiling zune-core v0.5.3
+   Compiling equivalent v1.0.2
+   Compiling bitflags v2.13.2
+   Compiling pxfm v0.1.30
+   Compiling bytemuck v1.25.2
+   Compiling rustc-hash v1.1.0
+   Compiling byteorder-lite v0.1.0
+   Compiling cfg_aliases v0.2.2
+   Compiling litrs v1.0.0
+   Compiling byteorder v1.5.0
+   Compiling static_assertions v1.1.0
+   Compiling urlencoding v2.1.3
+   Compiling log v0.4.34
+   Compiling raw-window-handle v0.6.2
+   Compiling lazy_static v1.5.0
+   Compiling base64 v0.13.1
+   Compiling profiling v1.0.18
+   Compiling arrayvec v0.7.8
+   Compiling fdeflate v0.3.7
+   Compiling generic-array v0.14.7
+   Compiling miniz_oxide v0.9.1
+   Compiling miniz_oxide v0.8.9
+   Compiling wgpu v30.0.1
+   Compiling futures-util v0.3.34
+   Compiling num-traits v0.2.19
+   Compiling hashbrown v0.17.1
+   Compiling zune-jpeg v0.5.15
+   Compiling document-features v0.2.12
+   Compiling flate2 v1.1.10
+   Compiling wasm-bindgen v0.2.127
+   Compiling indexmap v2.14.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling png v0.18.1
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling exact-motion v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/motion)
+   Compiling glam v0.33.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling moxcms v0.8.1
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling bytemuck_derive v1.12.1
+   Compiling naga-types v30.0.1
+   Compiling wasm-bindgen-macro-support v0.2.127
+   Compiling gltf-derive v1.4.1
+   Compiling gltf-json v1.4.1
+   Compiling exact-plan v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/plan)
+   Compiling image v0.25.10
+   Compiling exact-game v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/engine)
+   Compiling wasm-bindgen-macro v0.2.127
+   Compiling js-sys v0.3.104
+   Compiling gltf v1.4.1
+   Compiling exact-game-bake v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/bake)
+   Compiling new-proof-3933771-logic v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/games/new-proof-3933771/logic)
+   Compiling new-proof-3933771-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/77843f93379da7db7568a60d-gpu)
+   Compiling web-sys v0.3.104
+   Compiling wasm-bindgen-futures v0.4.77
+   Compiling wgpu-types v30.0.1
+   Compiling exact-gpu v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu)
+   Compiling exact-game-render v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/render)
+    Finished `web` profile [optimized] target(s) in 24.31s
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.5
+   Compiling serde v1.0.229
+   Compiling cpufeatures v0.2.17
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling libm v0.2.16
+   Compiling semver v1.0.28
+   Compiling arrayvec v0.7.8
+   Compiling autocfg v1.5.1
+   Compiling foldhash v0.2.0
+   Compiling thiserror v2.0.20
+   Compiling zerocopy v0.8.57
+   Compiling equivalent v1.0.2
+   Compiling grid v1.0.1
+   Compiling cfg_aliases v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling subtle v2.6.1
+   Compiling contract-syntax v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/syntax)
+   Compiling rustc-hash v1.1.0
+   Compiling unicode-width v0.2.2
+   Compiling signature v2.2.0
+   Compiling once_cell v1.21.4
+   Compiling log v0.4.34
+   Compiling bitflags v2.13.2
+   Compiling hashbrown v0.17.1
+   Compiling naga v30.0.1
+   Compiling ed25519 v2.2.3
+   Compiling generic-array v0.14.7
+   Compiling slotmap v1.1.1
+   Compiling rustc_version v0.4.1
+   Compiling bit-set v0.10.0
+   Compiling codespan-reporting v0.13.1
+   Compiling num-traits v0.2.19
+   Compiling curve25519-dalek v4.1.3
+   Compiling indexmap v2.14.2
+   Compiling taffy v0.9.2 (/home/ccheever/lanes/gamenext/exact2-i1/vendor/taffy)
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling exact-motion v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/motion)
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling naga-types v30.0.1
+   Compiling zerocopy-derive v0.8.57
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling ed25519-dalek v2.2.0
+   Compiling exact-update v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/update)
+   Compiling exact-route v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/route)
+   Compiling exact-plan v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/plan)
+   Compiling exact-kernel v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/kernel)
+   Compiling contract-types v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/types)
+   Compiling contract-analyze v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/analyze)
+   Compiling contract-lower v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/lower)
+   Compiling exact-runner v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/runner)
+   Compiling half v2.7.1
+   Compiling exact-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/host/web)
+   Compiling exact-gpu-reflect v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/gpu/reflect)
+   Compiling contract v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/contract/cli)
+   Compiling exact-game-app v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/app)
+   Compiling new-proof-3933771-web v0.1.0 (/home/ccheever/lanes/gamenext/exact2-i1/game/.shells/77843f93379da7db7568a60d-web)
+    Finished `web` profile [optimized] target(s) in 9.65s
+host/web/dist: app.wasm 758 KiB (268 KiB gzip; wasm-opt not on PATH (brew install binaryen): shipped unoptimized), index.html, glue.js, app.plan 3 KiB, exact.json; GPU: gpu_bg.wasm 2228 KiB (501 KiB gzip), gpu.js 77 KiB, on demand
+FAIL proof interrupted: "TypeError: null is not an object (evaluating 'output.setEncoding')\n    at new Cdp (/home/ccheever/lanes/gamenext/exact2-i1/scripts/agent.mjs:86:5)\n    at openWeb (/home/ccheever/lanes/gamenext/exact2-i1/scripts/agent.mjs:149:19)\n    at async open (/home/ccheever/lanes/gamenext/exact2-i1/scripts/agent.mjs:804:498)\n    at async <anonymous> (/home/ccheever/lanes/gamenext/exact2-i1/game/proof.mjs:155:23)\n    at async <anonymous> (/home/ccheever/lanes/gamenext/exact2-i1/game/games/new-proof-3933771/proof.mjs:5:19)\n    at async proof (/home/ccheever/lanes/gamenext/exact2-i1/game/proof.mjs:232:11)\n    at processTicksAndRejections (native:7:39)"
+PASS all recorded children exited: []
+PROOF FAIL new-proof-3933771 web: 1 failures; 35.989 s
+20 |       timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 60000);
+21 |     };
+22 |     for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { process.stdout.write(data); reset(); });
+23 |     reset();
+24 |     child.on('error', error => { clearTimeout(timer); fail(error); });
+25 |     child.on('close', (code, signal) => { clearTimeout(timer); code === 0 ? ok() : fail(new Error(`${command} exited ${code ?? signal}`)); });
+                                                                                                 ^
+error: bun exited 1
+      at <anonymous> (/home/ccheever/lanes/gamenext/exact2-i1/game/new.test.mjs:25:93)
+      at emit (node:events:98:22)
+      at #maybeClose (node:child_process:766:16)
+      at #handleOnExit (node:child_process:520:72)
+(fail) a newly generated game builds, tests and proves without editing [37837.16ms]
+(pass) generator preserves an already locked workspace and registers only missing packages [266.08ms]
+
+proof.test.mjs:
+(pass) held keys release the original carrier and retain partial failure steps [0.92ms]
+(pass) a failed down still releases; a failed up keeps the original error and both failures [0.28ms]
+(pass) CLI held key syntax cannot capture an ordinary text suffix [0.07ms]
+(pass) proof receipts bind the web manifest and the actual app executable [1.36ms]
+(pass) inventory failure clears the timer before unconditional session cleanup [16.32ms]
+(pass) browser held key release survives canvas removal (clock failure=false) [0.74ms]
+(pass) browser held key release survives canvas removal (clock failure=true) [0.07ms]
+(pass) native receipt changes with game dylibs and embedded plan/assets [1.41ms]
+(pass) held key receipts await asynchronous tags on success and failure [0.39ms]
+(pass) web receipts bind every dist path and byte in deterministic order [0.78ms]
+(pass) native held key owns release after canvas removal (clock failure=false) [0.47ms]
+(pass) native held key owns release after canvas removal (clock failure=true) [0.06ms]
+(pass) native receipt cache misses when only the standalone game dylib changes [0.89ms]
+(pass) proof equality compares complete nested objects independently of key order [0.21ms]
+(pass) world convenience keeps simulation fields only and dispatches the existing operations [0.92ms]
+(pass) author examples and documentation describe current motion, placement and parity pins [0.28ms]
+(pass) world get translates only the named missing-entity refusal [0.23ms]
+(pass) queue no longer lists the repaired Beacons designed-defaults fixture [0.18ms]
+(pass) exact tick helper uses restored epochs and never silently retries a mismatch [1.21ms]
+(pass) capture replay validates actual artifacts and never executes imported script text [1.41ms]
+(pass) world source navigation reports procedural metadata without inventing a line [0.24ms]
+
+app/scenes.test.mjs:
+scene-only sample n=1: 14.78 ms; native baker SHA unchanged 468dfa8a4c58fb5651ad40e319b0b45504b10ef40d8eb88ee17904e2d6b49a16; Cargo compiled 0 targets
+(pass) content rebake changes initial data with no Rust compilation and never replaces output on error [498.53ms]
+(pass) comparison adapter reads the current roster and retains the scene argument when loading [3.41ms]
+
+bench/feel.test.mjs:
+(pass) the live script keeps all holds, release order, and twenty separated trials [0.48ms]
+(pass) constant velocity has zero judder; alternating move/repeat approaches one [22.16ms]
+(pass) latency uses the draw sample clock, not the older frame timestamp [6.67ms]
+(pass) residual motion invalidates a trial instead of claiming a quick response [7.08ms]
+(pass) quantiles interpolate; corrupt, overflowed, or missing records fail explicitly [3.24ms]
+(pass) exact adapts only the frame layout, preserving both clocks and all precision [17.66ms]
+(pass) shared recorder captures each of the 50 scheduled edges once, including trial labels and stamps [13.88ms]
+(pass) extra delivered input is retained and invalidates the attempt, never deduplicated [4.59ms]
+(pass) exact installation has one explicit entry and is idempotent while warming [2.24ms]
+(pass) console preflight fails closed on locked, active, missing or malformed ioreg state [0.30ms]
+(pass) CLI accepts --game, --no-build and --hz 120 with explicit adapter parameters [0.28ms]
+398 | // deliberately trusts the supplied bake, without calling its staleness/build path.
+399 | export async function prepareExact(options) {
+400 |   const app = resolve(here, '../games', options.game), adapter = exactAdapter(options);
+401 |   if (options.noBuild || options.hz === 120 || process.env.FEEL_EXACT_DIST) {
+402 |     for (const name of ['index.html', 'exact.json', 'gpu_bg.wasm']) {
+403 |       if (!existsSync(join(adapter.root, name))) throw new Error(`Missing baked ${options.hz} Hz artifact: ${join(adapter.root, name)}`);
+                                                                 ^
+error: Missing baked 60 Hz artifact: /home/ccheever/lanes/gamenext/exact2-i1/game/games/beacons/dist/index.html
+      at prepareExact (/home/ccheever/lanes/gamenext/exact2-i1/game/bench/feel.mjs:403:60)
+      at <anonymous> (/home/ccheever/lanes/gamenext/exact2-i1/game/bench/feel.test.mjs:185:27)
+(fail) --no-build reads existing 60 and 120 Hz bakes without running the proof build gate [0.64ms]
+Feel preflight: {"locked":false,"idle_seconds":30}
+(pass) one command preflights before preparation, interleaves three attempts, and labels 120 Hz separately [7.29ms]
+Feel preflight: {}
+(pass) refused preflight never prepares or measures; --attempts 1 never retakes an invalid row [0.23ms]
+Feel preflight: {}
+(pass) a mid-batch refusal saves completed/invalid rows and stops without another attempt [0.39ms]
+
+2 tests failed:
+(fail) a newly generated game builds, tests and proves without editing [37837.16ms]
+(fail) --no-build reads existing 60 and 120 Hz bakes without running the proof build gate [0.64ms]
+
+ 38 pass
+ 2 fail
+ 826 expect() calls
+Ran 40 tests across 4 files. [38.82s]

@@ -1,0 +1,18 @@
+{
+  "a-1": {
+    "matchesRecordedSubmission": true,
+    "filesChecked": 0
+  },
+  "a-2": {
+    "matchesRecordedSubmission": true,
+    "filesChecked": 7
+  },
+  "b-1": {
+    "matchesRecordedSubmission": true,
+    "filesChecked": 5
+  },
+  "b-2": {
+    "matchesRecordedSubmission": true,
+    "filesChecked": 5
+  }
+}
