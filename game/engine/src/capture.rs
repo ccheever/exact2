@@ -519,7 +519,20 @@ impl<G: Game> Sim<G> {
                 "replay refused: unsupported external game dependencies",
             ));
         }
-        let mut sim = Self::from_save(&capture.checkpoint)?;
+        // The checkpoint is a nested EXSIM/JSON/EXGAME payload. All its decoders
+        // share consumption, including repeated passes and paged world storage.
+        // The floor accommodates sparse component pages in small real saves.
+        // Game setup/migration and custom Data/Default code remain executable
+        // construction code: allocations outside Reader claims are not metered.
+        let budget = crate::data::limits::LoadBudget::new(
+            capture
+                .checkpoint
+                .len()
+                .saturating_mul(32)
+                .saturating_add(8 * 1024 * 1024)
+                .min(128 * 1024 * 1024),
+        );
+        let mut sim = Self::from_save_in(&capture.checkpoint, Some(&budget))?;
         // Isolated replay owns a controlled clock, but intentionally retains the
         // checkpoint's held input. A physical handoff would erase that evidence.
         sim.agent_owned = true;
@@ -870,6 +883,161 @@ mod tests {
         bytes.extend(w.finish());
         assert!(bytes.len() <= MAX_BYTES as usize);
         refused_before_collection(&bytes, "decoded size exceeds load budget", 1);
+    }
+    fn checkpoint_envelope(game: &str, world: Vec<u8>, args: &str) -> Vec<u8> {
+        #[derive(Default, Data)]
+        struct Saved {
+            game: String,
+            version: u32,
+            world: Vec<u8>,
+            args: String,
+        }
+        let mut bytes = b"EXSIM\0\x05".to_vec();
+        bytes.extend(bin::to_vec(&Saved {
+            game: game.into(),
+            version: 1,
+            world,
+            args: args.into(),
+        }));
+        bytes
+    }
+    fn import_checkpoint(checkpoint: Vec<u8>, game: &str) -> Capture {
+        let mut forged = capture();
+        forged.checkpoint = checkpoint;
+        forged.game = game.into();
+        forged.limits.bytes = MAX_BYTES;
+        // The outer checksum is valid; the payload reaches checkpoint replay.
+        Capture::from_bytes(&forged.to_bytes()).unwrap()
+    }
+    #[test]
+    fn imported_checkpoint_counts_refuse_before_exsim_or_world_amplification() {
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("queue");
+        w.begin_seq(524_288);
+        let mut checkpoint = b"EXSIM\0\x05".to_vec();
+        checkpoint.extend(w.finish());
+        // The count fits the wire, but its Queued storage cannot fit the budget.
+        // Budget refusal rather than an invalid-tag error proves no item is read.
+        checkpoint.extend(std::iter::repeat_n(255, 524_288));
+        let queued = import_checkpoint(checkpoint, Fixture::ID);
+
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("state");
+        w.begin_struct();
+        w.field("slots");
+        w.begin_seq(5 * 1024 * 1024);
+        let mut world = b"EXGAME\0\x03".to_vec();
+        world.extend(w.finish());
+        world.extend(std::iter::repeat_n(255, 5 * 1024 * 1024));
+        let slots = import_checkpoint(checkpoint_envelope(Fixture::ID, world, "[]"), Fixture::ID);
+
+        let mut live = Sim::<Fixture>::new(()).unwrap();
+        live.advance(0.0, Clock::Seekable);
+        let before = live.world().hash();
+        for (capture, field) in [(queued, "queue"), (slots, "slots")] {
+            let error = Sim::<Fixture>::replay_capture(&capture, "actual", None)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(error.contains(field) && error.contains("budget"), "{error}");
+            // Exercise the existing isolated agent replay path as well: refusal
+            // must leave the retained world intact, not merely the scratch load.
+            let reply = live.agent(&format!(
+                r#"{{"op":"state","capture":"replay","build":"actual","data":"{}"}}"#,
+                hex(&capture.to_bytes())
+            ));
+            assert!(reply.contains(field) && reply.contains("budget"), "{reply}");
+            assert_eq!(live.world().hash(), before);
+        }
+    }
+    #[test]
+    fn imported_checkpoint_component_page_refuses_before_default_or_read() {
+        #[derive(Data)]
+        struct Wide {
+            #[data(skip)]
+            _inline: [[[u32; 32]; 32]; 32],
+        }
+        impl Default for Wide {
+            fn default() -> Self {
+                panic!("constructed an imported component before checking its 128 MiB page")
+            }
+        }
+        impl crate::Component for Wide {
+            const NAME: &'static str = "Wide";
+        }
+        struct Pages;
+        impl Game for Pages {
+            const ID: &'static str = "capture-pages";
+            const CAPTURE_SUPPORTED: bool = true;
+            type Args = ();
+            fn setup(world: &mut crate::World, _: &()) {
+                world.register::<Wide>();
+            }
+            fn tick(_: &mut crate::World, _: &crate::Input, _: &()) {}
+        }
+        let mut source = crate::World::new(60, 0);
+        let entity = source.spawn(());
+        let mut w = bin::Encoder::default();
+        w.begin_struct();
+        w.field("state");
+        w.begin_struct();
+        w.field("hz");
+        60u32.write(&mut w);
+        w.field("slots");
+        w.begin_seq(1);
+        w.begin_struct();
+        w.field("alive");
+        true.write(&mut w);
+        w.end_struct();
+        w.end_seq();
+        w.end_struct();
+        w.field("rng");
+        source.rng().write(&mut w);
+        w.field("components");
+        w.begin_struct();
+        w.field("Wide");
+        w.begin_seq(1);
+        w.begin_seq(2);
+        entity.write(&mut w);
+        w.begin_struct();
+        w.end_struct();
+        w.end_seq();
+        w.end_seq();
+        w.end_struct();
+        w.field("resources");
+        w.begin_struct();
+        w.end_struct();
+        w.end_struct();
+        let mut world = b"EXGAME\0\x03".to_vec();
+        world.extend(w.finish());
+        let mut retained = crate::World::new(60, 0);
+        retained.register::<Wide>();
+        retained.spawn_named("keep", ());
+        let before = retained.save();
+        let error = retained
+            .load_in(
+                &world,
+                Some(&crate::data::limits::LoadBudget::new(8 * 1024 * 1024)),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Wide") && error.contains("budget"),
+            "{error}"
+        );
+        assert_eq!(retained.save(), before);
+        let capture = import_checkpoint(checkpoint_envelope(Pages::ID, world, "[]"), Pages::ID);
+        assert!(capture.checkpoint.len() < 512);
+        let error = Sim::<Pages>::replay_capture(&capture, "actual", None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            error.contains("Wide") && error.contains("budget"),
+            "{error}"
+        );
     }
     #[test]
     fn dropped_events_wrong_game_schema_and_corrupt_checkpoint_refuse() {

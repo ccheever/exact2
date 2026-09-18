@@ -1,6 +1,6 @@
 //! Human-readable streaming JSON. Records are objects, tuples/vectors are arrays,
 //! enums are one-key objects, and options are zero/one-element arrays.
-use super::limits::{allocation, Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
+use super::limits::{allocation, Budget, LoadBudget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
 use super::BulkKind;
 use super::{Data, DataError, Number, Reader, Writer};
 use std::collections::BTreeSet;
@@ -16,6 +16,24 @@ pub fn to_string<T: Data>(value: &T) -> Result<String, DataError> {
 pub fn from_str<T: Data>(text: &str) -> Result<T, DataError> {
     let mut value = T::default();
     read_into(text, &mut value)?;
+    Ok(value)
+}
+pub(crate) fn from_str_in<T: Data>(
+    text: &str,
+    budget: Option<&LoadBudget>,
+) -> Result<T, DataError> {
+    if text.len() > MAX_LOAD_BYTES {
+        return Err(DataError::new("input exceeds load size limit"));
+    }
+    let mut value = T::default();
+    let mut r = Decoder::new(text);
+    if let Some(budget) = budget {
+        r.budget = Budget::shared(budget);
+    }
+    value
+        .read(&mut r)
+        .and_then(|()| r.finish())
+        .map_err(|e| e.at(super::type_name::<T>()))?;
     Ok(value)
 }
 /// Parse authored data using Rust defaults, refusing unknown fields and wrong arity.

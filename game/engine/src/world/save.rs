@@ -17,6 +17,13 @@ impl Data for Free {
         if r.sequence_len().is_some_and(|n| n > MAX_LOAD_ENTITIES) {
             return Err(DataError::new("free count exceeds entity limit"));
         }
+        if let Some(count) = r.sequence_len() {
+            r.check_allocation(
+                count
+                    .checked_mul(64)
+                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
+            )?;
+        }
         self.0.clear();
         let mut last = None;
         while r.item()? {

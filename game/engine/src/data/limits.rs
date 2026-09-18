@@ -1,4 +1,5 @@
 use super::{Data, DataError, Reader};
+use std::{cell::Cell, rc::Rc};
 
 /// Maximum entity slots accepted by a world save: 16 million, including dead slots.
 pub const MAX_LOAD_ENTITIES: usize = 16 * 1024 * 1024;
@@ -7,18 +8,40 @@ pub const MAX_LOAD_STRING: usize = 64 * 1024 * 1024;
 /// Maximum input bytes and accounted decoded allocations per decoder: 2 GiB.
 pub const MAX_LOAD_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
-pub(crate) struct Budget(usize);
+/// One explicit cumulative allowance across nested binary/JSON/world decoders.
+/// Cloning the handle shares consumption; it never replenishes the allowance.
+#[derive(Clone)]
+pub(crate) struct LoadBudget(Rc<Cell<usize>>);
+impl LoadBudget {
+    pub(crate) fn new(bytes: usize) -> Self {
+        Self(Rc::new(Cell::new(bytes)))
+    }
+}
+
+pub(crate) enum Budget {
+    Local(usize),
+    Shared(LoadBudget),
+}
 impl Default for Budget {
     fn default() -> Self {
-        Self(MAX_LOAD_BYTES)
+        Self::Local(MAX_LOAD_BYTES)
     }
 }
 impl Budget {
     pub(crate) fn new(bytes: usize) -> Self {
-        Self(bytes)
+        Self::Local(bytes)
+    }
+    pub(crate) fn shared(budget: &LoadBudget) -> Self {
+        Self::Shared(budget.clone())
+    }
+    fn remaining(&self) -> usize {
+        match self {
+            Self::Local(bytes) => *bytes,
+            Self::Shared(budget) => budget.0.get(),
+        }
     }
     pub(crate) fn check(&self, bytes: usize) -> Result<(), DataError> {
-        if bytes > self.0 {
+        if bytes > self.remaining() {
             Err(DataError::new("decoded size exceeds load budget"))
         } else {
             Ok(())
@@ -48,10 +71,14 @@ impl Budget {
         Ok(())
     }
     pub fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
-        self.0 = self
-            .0
+        let remaining = self
+            .remaining()
             .checked_sub(bytes)
             .ok_or_else(|| DataError::new("decoded size exceeds load budget"))?;
+        match self {
+            Self::Local(bytes) => *bytes = remaining,
+            Self::Shared(budget) => budget.0.set(remaining),
+        }
         Ok(())
     }
 }
@@ -110,6 +137,37 @@ pub(crate) fn read_vec<T: Data>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nested_binary_and_json_decoders_share_one_allowance() {
+        let budget = LoadBudget::new(1600);
+        let first = crate::bin::to_vec(&vec![0u8; 400]);
+        crate::bin::from_slice_in::<Vec<u8>>(&first, Some(&budget)).unwrap();
+        let text = format!("\"{}\"", "a".repeat(400));
+        crate::json::from_str_in::<String>(&text, Some(&budget)).unwrap();
+        let second = crate::bin::to_vec(&vec![0u8; 800]);
+        let error = crate::bin::from_slice_in::<Vec<u8>>(&second, Some(&budget)).unwrap_err();
+        assert!(error.message.contains("budget"), "{error}");
+        assert_eq!(budget.0.get(), 1600 - 400 - 512);
+        assert_eq!(
+            crate::bin::from_slice::<Vec<u8>>(&second).unwrap().len(),
+            800
+        );
+
+        #[derive(crate::Data)]
+        struct Inline {
+            #[data(skip)]
+            _bytes: [u64; 32],
+        }
+        impl Default for Inline {
+            fn default() -> Self {
+                panic!("JSON constructed an item before claiming its vector capacity")
+            }
+        }
+        let error = crate::json::from_str_in::<Vec<Inline>>("[{}]", Some(&LoadBudget::new(768)))
+            .err()
+            .unwrap();
+        assert!(error.message.contains("budget"), "{error}");
+    }
     #[test]
     fn total_budget_refuses_before_allocation() {
         let mut budget = Budget::default();
