@@ -1421,6 +1421,12 @@ globalThis.exact = { mutate, clockNow:now,
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   stageSurfaceRecord: (name, json) => JSON.parse(readOut(wasm.exact_stage_surface_record(writeIn(`${name}\0${json}`)))),
+  stageCurrent() {
+    if (!wasm.exact_begin_surface_boot) throw new Error("GPU reload requires a transactional host; rebuild/relaunch required");
+    const batch = JSON.parse(readOut(wasm.exact_begin_surface_boot()));
+    if (batch.error) throw new Error(batch.error);
+    return {batch, commit:()=>wasm.exact_finish_boot(1), abort:()=>wasm.exact_finish_boot(0), present:()=>applyBatch(batch)};
+  },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };

@@ -12,6 +12,7 @@ export async function fixture(options = {}) {
   class Observer { observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve();
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
+    stageCurrent: options.stageCurrent ?? (()=>({batch:{ops:[]},commit(){order.push('host commit');},abort(){order.push('host abort');},present(){}})),
     stageSurfaceRecord(name, json) { stagedRecords.push([name, json]); return options.stageSurfaceRecord?.(name, json) ?? {ops:[]}; },
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);

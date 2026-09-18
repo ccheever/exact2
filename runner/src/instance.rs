@@ -40,7 +40,7 @@ impl From<Trap> for InstanceError {
 }
 
 /// One realized node.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NodeInst {
     /// The site.
     pub node: NodesId,
@@ -56,20 +56,20 @@ pub struct NodeInst {
     last_children: Vec<ViewId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Child {
     Node(NodeInst),
     Region(RegionInst),
 }
 
 /// One realized region.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Active {
     /// `when` / `match`: the active arm and its roots.
     Arm {
@@ -90,6 +90,22 @@ struct Row {
     /// declared, one value per row, kept across reorders with the key,
     /// dropped with the row, initialized when the row is created.
     slots: RowSlots,
+}
+
+impl Clone for Row {
+    fn clone(&self) -> Self {
+        // Frames in one row share its slots; a candidate must not share the
+        // mutable slots with its predecessor, including nested keyed rows.
+        let slots = Rc::new(RefCell::new(self.slots.borrow().clone()));
+        let mut frame = self.frame.clone();
+        frame.row = Some(slots.clone());
+        Self {
+            key: self.key.clone(),
+            frame,
+            roots: self.roots.clone(),
+            slots,
+        }
+    }
 }
 
 /// One step of the instance path from the plan's roots to a view: the
@@ -115,7 +131,7 @@ pub enum InstanceStep {
 }
 
 /// Allocates kernel view ids; never reuses one within a runner's life.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Ids {
     next: ViewId,
 }
@@ -645,7 +661,7 @@ fn key_text(v: &Value) -> Option<String> {
 }
 
 /// The root of the instance tree: the plan's top-level sites.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tree {
     children: Vec<Child>,
     last_roots: Vec<ViewId>,

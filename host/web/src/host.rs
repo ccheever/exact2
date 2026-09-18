@@ -218,6 +218,27 @@ impl<D: DataSource> Host<D> {
         Ok((host, batch.finish(timers, clock, None)))
     }
 
+    /// A GPU replacement keeps the current UI identities, row state, timers and
+    /// spring state. Only its host-fact publications run in the isolated copy.
+    pub fn fork_surface_records(&self, data: D) -> Result<(Self, String), &'static str> {
+        let runner = self
+            .runner
+            .fork_surface_records(data, Box::new(exact_kernel::MonospaceMeasurer::default()))?;
+        let mut host = Self {
+            runner,
+            mirror: self.mirror.clone(),
+            keys: self.keys.clone(),
+            roots: self.roots.clone(),
+            springs: self.springs.clone(),
+            now_ms: self.now_ms,
+            font_names: self.font_names.clone(),
+            font_catalog: self.font_catalog.clone(),
+            location: self.location.clone(),
+        };
+        let batch = host.batch_for(&[], None);
+        Ok((host, batch))
+    }
+
     /// The latest top URL, also the module re-boot's launch fact.
     /// @ref LLP 1038 D5/D7 — a replacement keeps the host's current location.
     pub fn location(&self) -> &str {
