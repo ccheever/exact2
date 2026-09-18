@@ -108,6 +108,7 @@ name = "beacons-logic"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "exact-game-scene",
 ]
 
 [[package]]
@@ -667,6 +668,7 @@ name = "exact-game"
 version = "0.1.0"
 dependencies = [
  "exact-game-derive",
+ "exact-game-scene",
  "exact-motion",
  "exact-plan",
  "glam 0.33.7",
@@ -719,6 +721,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "exact-game-scene"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1498,6 +1509,7 @@ version = "0.1.0"
 dependencies = [
  "exact-game",
  "exact-game-physics",
+ "exact-game-scene",
 ]
 
 [[package]]

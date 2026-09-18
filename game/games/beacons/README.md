@@ -28,3 +28,9 @@ and XZ bounds of ±19.6 metres. `near_xz` selects beacons around the player by n
 90-tick W hash is `0x7379ac5210e92317` on arm64 macOS, x86-64 Linux and Chrome wasm; the position is `[0, 0.9, -5.3666644]`. Gravity is 9.81 m/s²;
 beacon glow uses a finite 0.5-second smoothstep tween. Scenery has no collisions.
 The glow is material emission, without bloom. No textures or audio are used.
+
+The ground and three beacon positions are now in `scene.json`, reusing Lanterns'
+`../shared/solid.fragment.json`. Run `bun game/dev.mjs beacons --scene-only` to bake
+content. Rust `spawn_crates` keeps procedural generation explicit and seeded.
+See [typed scene usage](../../scene/README.md). Added scene/procedural provenance
+changes world hashes; older comparison hashes above describe the previous artifact.

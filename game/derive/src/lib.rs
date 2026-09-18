@@ -229,9 +229,9 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             let defaults = vec!["::core::default::Default::default()".to_owned(); b.fields.len()];
             let wildcards = vec!["_".to_owned(); b.fields.len()];
             let bind = if arms.len() == 1 {
-                format!("let {pat} = self; {}", read_body(b, &refs))
+                format!("let {pat} = self; (|| -> ::core::result::Result<(), ::exact_game::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?;", read_body(b, &refs))
             } else {
-                format!("if let {pat} = self {{ {} }}", read_body(b, &refs))
+                format!("if let {pat} = self {{ (|| -> ::core::result::Result<(), ::exact_game::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?; }}", read_body(b, &refs))
             };
             read += &format!(
                 "{:?} => {{ if !::core::matches!(self, {}) {{ *self = {}; }} {bind} }},",
@@ -339,14 +339,18 @@ fn read_body(b: &Body, access: &[String]) -> String {
         );
     }
     s += if named {
-        "_ => r.skip().map_err(|e| e.at(&field))?, }"
+        "_ => r.unknown().map_err(|e| e.at(&field))?, }"
     } else {
-        "_ => r.skip().map_err(|e| e.at(index))?, }"
+        "_ => r.unknown().map_err(|e| e.at(index))?, }"
     };
     if !named {
         s += "index += 1;";
     }
     s += "}";
+    if !named {
+        let len = b.fields.iter().filter(|f| !f.skip).count();
+        s += &format!("if r.strict() && index != {len} {{ return ::core::result::Result::Err(::exact_game::DataError::new(\"wrong tuple length\")); }}");
+    }
     s
 }
 

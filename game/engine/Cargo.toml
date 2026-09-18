@@ -10,3 +10,6 @@ libm = "0.2"
 exact-game-derive = { path = "../derive" }
 exact-plan = { path = "../../plan" }
 exact-motion = { path = "../../motion" }
+
+[dev-dependencies]
+exact-game-scene = { path = "../scene" }

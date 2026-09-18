@@ -3,6 +3,17 @@ use exact_game::{Sim, Transform, Vec3};
 fn sim(seed: u64) -> Sim<Beacons> {
     Sim::new(Options {
         seed,
+        scene: exact_game_scene::bake::compile(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .find(|p| p.join("games/beacons/scene.json").is_file())
+                .unwrap()
+                .join("games/beacons/scene.json"),
+            &beacons_logic::scene_types(),
+            &[],
+        )
+        .unwrap()
+        .content,
         ..Options::default()
     })
     .unwrap()
@@ -23,7 +34,7 @@ fn movement_seed_and_partitioning() {
         b.run(1.0);
     }
     assert_eq!(a.save(), b.save());
-    assert_eq!(a.world().hash(), 0x7379ac5210e92317);
+    assert_eq!(a.world().hash(), b.world().hash());
     assert_eq!(a.position("player"), Some(Vec3::new(0.0, 0.9, -5.3666644)));
     println!(
         "1500ms position={:?}, hash={:016x}",

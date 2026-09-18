@@ -213,9 +213,12 @@ where
             if let Some(v) = self.get_mut(i) {
                 v.read(r).map_err(|e| e.at(i))?;
             } else {
-                r.skip()?;
+                r.unknown().map_err(|e| e.at(i))?;
             }
             i += 1;
+        }
+        if r.strict() && i != N {
+            return Err(DataError::new(format!("expected {N} elements, got {i}")));
         }
         Ok(())
     }
@@ -274,9 +277,11 @@ macro_rules! tuple {
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
                 r.begin_seq()?; *self = Self::default(); let mut i = 0;
                 while r.item()? {
-                    match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.skip()?, }
+                    match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.unknown().map_err(|e| e.at(i))?, }
                     i += 1;
-                } Ok(())
+                }
+                if r.strict() && i != $n { return Err(DataError::new("wrong tuple length")); }
+                Ok(())
             }
         }
     };
@@ -289,7 +294,7 @@ impl Data for () {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
         while r.item()? {
-            r.skip()?;
+            r.unknown()?;
         }
         Ok(())
     }

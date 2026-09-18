@@ -19,6 +19,7 @@ canvas children are the HUD, a placement is a sign in the world.
 |---|---|
 | `engine/` | `exact-game` — the simulation: world, data, ticks, input, scene, the agent's reads. **No GPU, no host.** |
 | `app/` | `exact-game-app` — the shared Rust-only bake for game UIs without data sources. |
+| `scene/` | `exact-game-scene` — [typed JSON authoring](scene/README.md), native content bake and the same runtime World. |
 | `derive/` | `exact-game-derive` — `#[derive(Data)]`, `#[derive(Component)]`, `#[derive(Args)]`. No `syn`. |
 | `render/` | `exact-game-render` — the wgpu renderer and `WorldSurface`, the `exact_gpu::Surface` a canvas binds. |
 | `physics/`, `audio/` | Rapier integration and optional synthesis/playback executors |

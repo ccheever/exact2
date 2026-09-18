@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameShells } from '../game/app/shells.mjs';
+import { bakeGameScene } from '../game/app/scenes.mjs';
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -425,6 +426,7 @@ export const appleCargoClaims = (app, target, units) => [...new Set(units.map(un
 export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
+  if (app.manifest.game) bakeGameScene(app, {development:env.EXACT_UPDATE_TRUST === 'development'});
   env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>existsSync(resolve(app.dir,root))).join(',');
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});

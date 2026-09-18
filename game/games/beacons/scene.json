@@ -1,0 +1,120 @@
+{
+  "units": "metres-y-up",
+  "fragments": {
+    "solid": "../shared/solid.fragment.json"
+  },
+  "entities": [
+    {
+      "id": "ground",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "material": {
+          "color": [
+            0.12,
+            0.22,
+            0.24,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "beacon-1",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          8,
+          1,
+          0
+        ],
+        "mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ]
+        }
+      },
+      "overrides": {
+        "": {
+          "Beacon": {}
+        }
+      }
+    },
+    {
+      "id": "beacon-2",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          -6,
+          1,
+          7
+        ],
+        "mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ]
+        }
+      },
+      "overrides": {
+        "": {
+          "Beacon": {}
+        }
+      }
+    },
+    {
+      "id": "beacon-3",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          3,
+          1,
+          -9
+        ],
+        "mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "material": {
+          "color": [
+            0.18,
+            0.73,
+            0.79,
+            1
+          ]
+        }
+      },
+      "overrides": {
+        "": {
+          "Beacon": {}
+        }
+      }
+    }
+  ]
+}
