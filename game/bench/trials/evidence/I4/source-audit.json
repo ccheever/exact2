@@ -1,0 +1,140 @@
+{
+  "records": [
+    {
+      "cohort": "after2",
+      "attempt": "a-1",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "a6e5fd61e94b0e9ad2599332cfd8047cbdce84234ed18de9428d0be6d8f5fe58",
+        "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+        "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+        "game/games/lanterns/logic/src/lib.rs": "23d3a68f43f033a79a513a0fbd9a1baf60c4a37e2da4b47013a8d0bbfb586b43",
+        "game/games/lanterns/logic/tests/capture.rs": "bb813634bb983cec4a424ae712b8b850bc6142243e71df26155bb23577e02174",
+        "game/games/lanterns/pins.json": "6e77985b24d00b7b160301244291611b425cdee261a6daced8c2cc1cbb5a3be5",
+        "game/games/lanterns/proof.mjs": "47bb4232230e6233597e248ce73adcc7076c738432eef535011042b5c9af075b",
+        "game/games/lanterns/scene.json": "443ff52b68daed65b3b549f2642ad46ea24c46838c86a86d8d6e944104c3f632"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 107,
+        "game/games/lanterns/logic/src/kind_tests.rs": 130,
+        "game/games/lanterns/logic/src/lib.rs": 644,
+        "game/games/lanterns/logic/tests/capture.rs": 265,
+        "game/games/lanterns/pins.json": 5,
+        "game/games/lanterns/proof.mjs": 51,
+        "game/games/lanterns/scene.json": 386
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "after2",
+      "attempt": "a-2",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "f87e4be92244a7abc39dd902aa4d9202864bd4769d5bbce3677b085ea8702cc5",
+        "game/games/lanterns/app.contract": "467aa3a7870998d8a47d763cd5d96c903a183d38414cd8d06232849a804ef421",
+        "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+        "game/games/lanterns/logic/src/lib.rs": "372af24f597336943a3fce9fa023749673128bcd2c8065dc1e9009e99c303282",
+        "game/games/lanterns/logic/tests/capture.rs": "70e1679eccd668576a7da3b47d8d389b2f09b1537fe6702baf463104ce0d4e80",
+        "game/games/lanterns/pins.json": "464a4e6b4d2f0ae24656394ee86ea11c619b3b045864d7ef0eaf88c9aff7bd1f",
+        "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 107,
+        "game/games/lanterns/logic/src/kind_tests.rs": 130,
+        "game/games/lanterns/logic/src/lib.rs": 647,
+        "game/games/lanterns/logic/tests/capture.rs": 271,
+        "game/games/lanterns/pins.json": 5,
+        "game/games/lanterns/scene.json": 386
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "after2",
+      "attempt": "b-1",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "daad98b546fec0086863334b3d42a5426af1edf170c4d7e1c364598aca6bd7a1",
+        "game/games/lanterns/app.contract": "9b9c39ac88627ffc957b06f2070b4db887b18b76f9afc5b8bfac94ceac50f129",
+        "game/games/lanterns/assets/lanterns-adapter.mjs": "87a163ce019e1e5a9183070de08dfa89bd5e3eb101c04367acaea6ad3ca4b292",
+        "game/games/lanterns/logic/src/lib.rs": "2584cf2df28d6f3c2f9fff74b08545654306b52b603267a9c39d6e42bc233ee8",
+        "game/games/lanterns/logic/tests/capture.rs": "0cd78dd679db68d52019e9c4bca585095529ae6d21344d89f2a4e62aa7b014a5"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 110,
+        "game/games/lanterns/assets/lanterns-adapter.mjs": 227,
+        "game/games/lanterns/logic/src/lib.rs": 663,
+        "game/games/lanterns/logic/tests/capture.rs": 246
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "after2",
+      "attempt": "b-2",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "62b4e46cd58aaf0ab82c2b14e1fa885176c5ebdb434f28e9157fe69d43024f8f",
+        "game/games/lanterns/app.contract": "14fb46320c50b79f618f121699595c0252ac000f070c8eade371f0c0a139ff87",
+        "game/games/lanterns/assets/lanterns-adapter.mjs": "d5d4ad1f135465c01cfbd3795783ce5c44828717364472a02358a6ead86ddb4c",
+        "game/games/lanterns/logic/src/lib.rs": "6cb8caa195527c5ffecd963d3b7b61f5b2a96bfa79cb0aa101a03f20221f4cb0",
+        "game/games/lanterns/logic/tests/capture.rs": "2baa5d4268bf9d16877002e3245bf169cb8840c7382608ada135e74fc9fc9730"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 111,
+        "game/games/lanterns/assets/lanterns-adapter.mjs": 225,
+        "game/games/lanterns/logic/src/lib.rs": 654,
+        "game/games/lanterns/logic/tests/capture.rs": 257
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "baseline",
+      "attempt": "a-4",
+      "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "b37e976ed1e368b392bbad09c4d043df2b66f8b8930ce3075922155f9d892fc5",
+        "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+        "game/games/lanterns/logic/src/lib.rs": "0b8c022a3b523d43f97f8420d397e42546a711bd18f2ae4f9775349ecf525254",
+        "game/games/lanterns/logic/src/scene_tests.rs": "4867884e8f09ec7b9e355a497b45543c992fafae0d2487f0de0be5381b16e693",
+        "game/games/lanterns/logic/tests/capture.rs": "a440bbeb7dee08610253ed78beb468a1d5a61fa7a685ed6790f3a48f03697d05",
+        "game/games/lanterns/proof.mjs": "b00fc2f275cbea1d83ce6e1571a473d14c0a0f0090ddbbd8d14b11389abeab48",
+        "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 107,
+        "game/games/lanterns/logic/src/lib.rs": 633,
+        "game/games/lanterns/logic/src/scene_tests.rs": 244,
+        "game/games/lanterns/logic/tests/capture.rs": 177,
+        "game/games/lanterns/proof.mjs": 63,
+        "game/games/lanterns/scene.json": 386
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "baseline",
+      "attempt": "b-4",
+      "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "960ac9f35e5458a42312a1a61a70b3acacd30f558d0fed4cd3502a467097502a",
+        "game/games/lanterns/app.contract": "94860e2654eeba116e8f5da47d57f4697bff41a88cb69a1fbab7dbc60655702f",
+        "game/games/lanterns/assets/lanterns-adapter.mjs": "7004ffd0b4b7eebc9aa50bb960b1c49e22f618cd26c19953799b96ca9bb8f30a",
+        "game/games/lanterns/logic/src/lib.rs": "3d524c5d0ca6ef3a9b364f88618cbba2ee8dfece55c48d8d50406dc62fa0ae38",
+        "game/games/lanterns/logic/tests/capture.rs": "942f4d42b4a3923a847b7744ffef302aa2e2736cd003161a61d9850a3101e1a6"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 109,
+        "game/games/lanterns/assets/lanterns-adapter.mjs": 225,
+        "game/games/lanterns/logic/src/lib.rs": 641,
+        "game/games/lanterns/logic/tests/capture.rs": 200
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    }
+  ],
+  "allMatched": true,
+  "sourceCopiesDeleted": true
+}

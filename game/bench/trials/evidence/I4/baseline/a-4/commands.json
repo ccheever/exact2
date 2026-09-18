@@ -1,0 +1,21 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && find game/games/lanterns -maxdepth 2 -type f -print | sort\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/games/lanterns/README.md && sed -n '1,260p' game/games/lanterns/logic/src/lib.rs && sed -n '1,320p' game/games/lanterns/logic/tests/sim.rs && sed -n '1,280p' game/games/lanterns/proof.mjs && sed -n '1,280p' game/games/lanterns/scene.json && sed -n '1,260p' game/games/lanterns/app.contract\"",
+  "/bin/bash -lc \"find game/games/lanterns/logic -type f -maxdepth 4 -print | sort && sed -n '261,700p' game/games/lanterns/logic/src/lib.rs && sed -n '1,360p' game/games/lanterns/proof.mjs && sed -n '1,360p' game/games/lanterns/scene.json && sed -n '1,320p' game/games/lanterns/app.contract && sed -n '1,220p' game/games/lanterns/app.json\"",
+  "/bin/bash -lc \"sed -n '1,360p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,360p' game/games/lanterns/logic/tests/capture.rs && sed -n '1,240p' game/games/lanterns/run.sh && sed -n '1,260p' game/games/lanterns/logic/src/bin/lanterns-scene.rs && sed -n '1,300p' game/games/lanterns/lantern.fragment.json && git status --short game/games/lanterns\"",
+  "/bin/bash -lc \"rg -n \\\"\\\\.world\\\\('world'\\\\)\\\\.(hold|tap|clock|run)|await .*\\\\.clock\\\\(\\\" game/games/*/proof.mjs game/games/*/logic/tests 2>/dev/null | head -120\"",
+  "/bin/bash -lc \"rg -n \\\"class .*World|async hold|hold\\\\(\\\" game/proof.mjs game -g '*.mjs' | head -100 && sed -n '1,300p' game/proof.mjs\"",
+  "/bin/bash -lc \"rg -n \\\"world\\\\(target|hold\\\\(|async tap\\\\(|async clock\\\\(\\\" scripts/agent.mjs | head -100 && sed -n '1540,1660p' scripts/agent.mjs\"",
+  "/bin/bash -lc \"sed -n '820,980p' scripts/agent.mjs && sed -n '980,1060p' scripts/agent.mjs && rg -n \\\"world\\\\(\\\" scripts/agent.mjs | head -30\"",
+  "/bin/bash -lc \"rg -n \\\"function worldView|const worldView\\\" scripts/agent.mjs && sed -n '700,820p' scripts/agent.mjs\"",
+  "/bin/bash -lc \"rg -n \\\"hud-.*\\\\).*text|\\\\.text\\\\?\\\\.includes|props\\\\?\\\\.text\\\" game/games game/new game/proof.test.mjs | head -80 && git diff --check && git diff --stat && git diff -- game/games/lanterns/scene.json game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs\"",
+  "/bin/bash -lc 'bun game/dev.mjs lanterns --scene-only'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"rg -n \\\"press\\\\(&mut sim|fn press|world_mut|teleport\\\" game/games/lanterns/logic/tests/capture.rs game/games/lanterns/proof.mjs && git status --short && find game/games/lanterns -type f -not -path '*/target/*' -not -path '*/artifacts/*' -not -path '*/dist/*' -exec wc -l {} + | sort -nr | head -20\"",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc \"rg -n \\\"twelve|Twelve|12 lanterns|of 12|count\\\\(\\\\), 12|\\\\.count\\\\(\\\\).*12\\\" game/games/lanterns --glob '\"'!artifacts/**'\"' --glob '\"'!target/**'\"' --glob '\"'!dist/**'\"' || true\nrg -n \\\"lantern-13|thirteen|hud.total\\\" game/games/lanterns/README.md game/games/lanterns/app.contract game/games/lanterns/scene.json game/games/lanterns/logic game/games/lanterns/proof.mjs\ngit diff --check\ngit status --short -- game/games/lanterns\ngit diff --numstat -- game/games/lanterns\"",
+  "/bin/bash -lc \"git ls-files -v game/games/lanterns/.scene && rg -n \\\"lantern-13|5e237912\\\" game/games/lanterns/.scene/scene.contract game/games/lanterns/.scene/scene.map.json | head -20 && sed -n '1,40p' game/games/lanterns/.scene/scene.contract\"",
+  "/bin/bash -lc \"cargo fmt --manifest-path game/Cargo.toml --check -p lanterns-logic && git diff --check && git status --short | sed -n '1,120p' && nl -ba game/games/lanterns/scene.json | sed -n '90,165p;360,390p' && nl -ba game/games/lanterns/logic/tests/capture.rs | sed -n '80,175p' && nl -ba game/games/lanterns/app.contract | sed -n '50,105p'\""
+]

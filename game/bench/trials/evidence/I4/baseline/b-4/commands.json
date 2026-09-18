@@ -1,0 +1,15 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && find game/games/lanterns -maxdepth 3 -type f -print | sort\"",
+  "/bin/bash -lc \"wc -l game/games/lanterns/README.md game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/proof.mjs game/games/lanterns/app.contract game/games/lanterns/scene.json && sed -n '1,240p' game/games/lanterns/README.md && sed -n '1,260p' game/games/lanterns/logic/src/lib.rs\"",
+  "/bin/bash -lc \"sed -n '261,700p' game/games/lanterns/logic/src/lib.rs && sed -n '1,280p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,240p' game/games/lanterns/logic/tests/capture.rs && sed -n '1,180p' game/games/lanterns/app.contract && sed -n '1,160p' game/games/lanterns/proof.mjs\"",
+  "/bin/bash -lc \"git status --short && sed -n '1,180p' game/games/lanterns/logic/Cargo.toml && rg -n 'phase|all lanterns lit|won|lost|DURATION_TICKS|SPAWN' game/games/lanterns\"",
+  "/bin/bash -lc \"sed -n '1,280p' game/games/lanterns/assets/lanterns-adapter.mjs && sed -n '1,220p' game/games/lanterns/run.sh && sed -n '1,220p' game/games/lanterns/app.json\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture'",
+  "/bin/bash -lc \"nl -ba game/games/lanterns/logic/tests/capture.rs | sed -n '185,218p' && git diff -- game/games/lanterns\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"git status --short && git diff --check && git diff --stat && rg -n 'PHASE_RETURNING|returned home|return-home|returning' game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs\""
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "from": "game/games/asset-fixture/assets/crate/0-srgb.tex",
+    "preservedAt": "/home/ccheever/lanes/gamenext/scratch/I4/stale-assets/assets/crate/0-srgb.tex",
+    "bytes": 1475,
+    "sha256": "3b3cae93dc51ef24ffaf4608b7384d930f819b187b157d4acaa1ddd69de1cbff"
+  },
+  {
+    "from": "game/games/asset-fixture/assets/crate.model",
+    "preservedAt": "/home/ccheever/lanes/gamenext/scratch/I4/stale-assets/assets/crate.model",
+    "bytes": 2190,
+    "sha256": "65617c488bfee9b1c5946bf8ef97077fe9f72676b2c323cac711337d91adbc89"
+  }
+]

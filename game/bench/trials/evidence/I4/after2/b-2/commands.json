@@ -1,0 +1,16 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && find game/games/lanterns -maxdepth 3 -type f -print | sort\"",
+  "/bin/bash -lc \"wc -l game/README.md game/games/lanterns/README.md game/games/lanterns/logic/src/lib.rs game/games/lanterns/proof.mjs game/games/lanterns/logic/tests/*.rs game/games/lanterns/logic/src/*tests.rs && sed -n '241,520p' game/README.md && sed -n '1,260p' game/games/lanterns/README.md && sed -n '1,320p' game/games/lanterns/logic/src/lib.rs\"",
+  "/bin/bash -lc \"sed -n '321,760p' game/games/lanterns/logic/src/lib.rs && sed -n '1,260p' game/games/lanterns/logic/tests/capture.rs && sed -n '1,540p' game/games/lanterns/logic/tests/difficult_moment.rs && sed -n '1,240p' game/games/lanterns/logic/tests/timing.rs && sed -n '1,240p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,180p' game/games/lanterns/logic/src/kind_tests.rs && sed -n '1,120p' game/games/lanterns/proof.mjs\"",
+  "/bin/bash -lc \"sed -n '1,360p' game/games/lanterns/app.contract && sed -n '1,260p' game/games/lanterns/app.json && rg -n \\\"phase|all lanterns|won|return|count|remaining|Session \\\\{\\\" game/games/lanterns --glob '\"'!assets/Fox.glb'\"' --glob '\"'!*.binhex'\"'\"",
+  "/bin/bash -lc \"sed -n '1,340p' game/games/lanterns/scene.json && sed -n '1,260p' game/games/lanterns/assets/lanterns-adapter.mjs && git status --short && rg -n '\"'^## '\"' game/README.md\"",
+  "/bin/bash -lc \"sed -n '508,1150p' game/README.md\"",
+  "/bin/bash -lc \"sed -n '1,150p' game/games/lanterns/logic/tests/capture.rs && sed -n '150,260p' game/games/lanterns/logic/tests/capture.rs && sed -n '2280,2345p' game/README.md\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && git diff --check && git diff -- game/games/lanterns && git status --short'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc \"nl -ba game/games/lanterns/logic/tests/capture.rs | sed -n '122,140p'\"",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"git diff --check && git status --short && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs && git diff --stat && git diff --name-only | awk '\"'$0 !~ /''^game'\"\\\\/games\\\\/lanterns\\\\// { print }'\""
+]

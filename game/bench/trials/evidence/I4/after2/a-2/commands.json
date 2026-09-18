@@ -1,0 +1,20 @@
+[
+  "/bin/bash -lc \"pwd && rg --files game | sed -n '1,240p'\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/README.md && sed -n '1,320p' game/games/lanterns/README.md && rg --files game/games/lanterns | sort\"",
+  "/bin/bash -lc \"wc -l game/games/lanterns/scene.json game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/proof.mjs game/games/lanterns/app.json game/games/lanterns/app.contract && sed -n '1,260p' game/games/lanterns/scene.json && sed -n '1,360p' game/games/lanterns/logic/src/lib.rs\"",
+  "/bin/bash -lc \"sed -n '200,380p' game/games/lanterns/scene.json && sed -n '300,720p' game/games/lanterns/logic/src/lib.rs && sed -n '1,260p' game/games/lanterns/logic/src/scene_tests.rs && sed -n '1,220p' game/games/lanterns/logic/src/kind_tests.rs\"",
+  "/bin/bash -lc \"sed -n '1,260p' game/games/lanterns/proof.mjs && sed -n '1,180p' game/games/lanterns/app.contract && sed -n '1,120p' game/games/lanterns/app.json && sed -n '1,260p' game/games/lanterns/logic/tests/timing.rs && sed -n '1,320p' game/games/lanterns/logic/tests/difficult_moment.rs && sed -n '1,280p' game/games/lanterns/logic/tests/capture.rs\"",
+  "/bin/bash -lc \"sed -n '1,220p' game/games/lanterns/lantern.fragment.json && git status --short && rg -n \\\"twelve|Twelve|12 lantern|count\\\\(\\\\), 12|== 12|1\\\\.\\\\.=?12|lantern-12|total\\\" game/games/lanterns --glob '\"'!assets/Fox.glb'\"' --glob '\"'!pins.json'\"'\"",
+  "/bin/bash -lc \"sed -n '1,42p' game/games/lanterns/README.md && git diff -- game/games/lanterns\"",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic thirteenth_requires_proximity_is_jump_reachable_and_survives_save -- --nocapture'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic crate_checkpoint_finishes_route_twice_and_restores_terminal_state -- --nocapture'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml --package lanterns-logic -- --check && git diff --check && git diff --stat && git diff -- game/games/lanterns/scene.json game/games/lanterns/app.contract game/games/lanterns/README.md game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/src/kind_tests.rs game/games/lanterns/logic/tests/capture.rs'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml --package lanterns-logic && git diff --check && git status --short'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/proof.mjs lanterns --repin'",
+  "/bin/bash -lc 'git status --short && git diff --check && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs && git diff -- game/games/lanterns/pins.json'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc \"git diff --check && git status --short && git diff --stat && rg -n \\\"twelve|12 lanterns|of 12\\\" game/games/lanterns --glob '\"'!logic/tests/difficult_moment.rs'\"' --glob '\"'!pins.json'\"' || true && find game/games/lanterns -type f -not -path '*/artifacts/*' -not -name 'Fox.glb' -print0 | xargs -0 wc -l | sort -nr | sed -n '1,12p'\"",
+  "/bin/bash -lc \"rg -n 'lantern-13-platform|\\\"lantern-13\\\"|thirteenth_requires|phase, 1|All \\\\\"'$'\"\\\\{hud.total\\\\}|thirteen lanterns|hud.total' game/games/lanterns/scene.json game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/logic/src/lib.rs\""
+]

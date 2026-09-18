@@ -1,0 +1,16 @@
+[
+  "/bin/bash -lc \"sed -n '1,240p' game/README.md && printf '\\\\n--- LANTERNS FILES ---\\\\n' && rg --files game/games/lanterns | sort\"",
+  "/bin/bash -lc \"git status --short && sed -n '1,260p' game/games/lanterns/README.md && printf '\\\\n--- LOGIC ---\\\\n' && sed -n '1,360p' game/games/lanterns/logic/src/lib.rs && printf '\\\\n--- CARGO ---\\\\n' && sed -n '1,200p' game/games/lanterns/logic/Cargo.toml\"",
+  "/bin/bash -lc \"sed -n '260,760p' game/games/lanterns/logic/src/lib.rs && printf '\\\\n--- TEST SOURCES ---\\\\n' && for f in game/games/lanterns/logic/src/kind_tests.rs game/games/lanterns/logic/src/scene_tests.rs game/games/lanterns/logic/tests/timing.rs game/games/lanterns/logic/tests/difficult_moment.rs game/games/lanterns/logic/tests/capture.rs; do printf '\\\\n### %s\\\\n' \\\"\"'$f\"; sed -n '\"'1,360p' \\\"\"'$f\"; done'",
+  "/bin/bash -lc \"rg -n \\\"phase|won|all lantern|return|count|remaining|instruction|status|victory|win|lantern\\\" game/games/lanterns/{app.contract,app.json,proof.mjs,assets/lanterns-adapter.mjs,logic/src,logic/tests} --glob '\"'!*.glb'\"' && printf '\\\\n--- APP CONTRACT ---\\\\n' && sed -n '1,320p' game/games/lanterns/app.contract && printf '\\\\n--- PROOF ---\\\\n' && sed -n '1,420p' game/games/lanterns/proof.mjs\"",
+  "/bin/bash -lc \"sed -n '1,280p' game/games/lanterns/assets/lanterns-adapter.mjs && rg -n \\\"shape .*|: boolean|when hud\\\\..*\\\" game/games -g 'app.contract' | head -120 && sed -n '1,220p' game/games/lanterns/logic/tests/timing.rs\"",
+  "/bin/bash -lc 'git diff --check && git diff -- game/games/lanterns/logic/src/lib.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs game/games/lanterns/README.md game/games/lanterns/logic/tests/capture.rs'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic -- --check && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo fmt --manifest-path game/Cargo.toml -p lanterns-logic && cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic --test capture crate_checkpoint_finishes_route_twice_and_restores_terminal_state'",
+  "/bin/bash -lc 'cargo test --manifest-path game/Cargo.toml -p lanterns-logic'",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'rg -n \"''^[[:space:]]+[A-Za-z][A-Za-z0-9_]*: (bool|Bool|boolean)$\" --glob '\"'*.contract' . | head -80\"",
+  "/bin/bash -lc 'bun game/games/lanterns/proof.mjs linux'",
+  "/bin/bash -lc 'git status --short && git diff --check && git diff --stat && wc -l game/games/lanterns/logic/src/lib.rs game/games/lanterns/logic/tests/capture.rs game/games/lanterns/app.contract game/games/lanterns/assets/lanterns-adapter.mjs && git diff --name-only'"
+]

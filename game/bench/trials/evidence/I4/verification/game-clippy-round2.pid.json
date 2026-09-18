@@ -1,0 +1,1 @@
+{"pid": 1442401, "command": ["cargo", "clippy", "--manifest-path", "game/Cargo.toml", "--workspace", "--all-targets", "--", "-D", "warnings"]}

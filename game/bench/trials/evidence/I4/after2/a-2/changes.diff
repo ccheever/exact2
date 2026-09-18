@@ -1,0 +1,263 @@
+diff --git a/game/games/lanterns/README.md b/game/games/lanterns/README.md
+index 98f1be5..633f041 100644
+--- a/game/games/lanterns/README.md
++++ b/game/games/lanterns/README.md
+@@ -3,7 +3,8 @@
+ A three-minute third-person game built on Exact's game add-on. Move the animated
+ Fox with WASD, arrows, or the left side of a touch screen. Jump with Space or the
+ purple button and press E or LIGHT within 1.5 metres of a lantern. Push the crate
+-to reach the twelfth lantern on the ledge.
++to reach the twelfth lantern on the ledge, and jump from the ground onto the
++smaller raised platform to reach the thirteenth.
+ 
+ From the repository root:
+ 
+@@ -25,7 +26,7 @@ used by the independent comparison harness. It is inert unless the URL contains
+ `?agent=1`; the adapter sends platform input into the real Exact surface, advances
+ Exact's owned clock, and persists the surface's public save carrier in localStorage.
+ 
+-Initial terrain and the twelve-lantern roster live in `scene.json`; repeated lantern
++Initial terrain and the thirteen-lantern roster live in `scene.json`; repeated lantern
+ parts live in `lantern.fragment.json`. Run `bun game/dev.mjs lanterns --scene-only`
+ after content edits, or add `--reuse-baker` to skip Cargo completely once the typed
+ baker exists. Rust behavior remains unchanged. Restart uses the new content;
+diff --git a/game/games/lanterns/app.contract b/game/games/lanterns/app.contract
+index 8f0bde0..8daa553 100644
+--- a/game/games/lanterns/app.contract
++++ b/game/games/lanterns/app.contract
+@@ -83,19 +83,19 @@ component Lanterns
+           when hud.phase == "won"
+             column testId="victory" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "The island is glowing" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text "All twelve lanterns are lit." font-size=18 color="#fff4d6"
++              text `All ${hud.total} lanterns are lit.` font-size=18 color="#fff4d6"
+               button press=restart testId="again" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Play again" font-size=19 color="#241531"
+           when hud.phase == "lost"
+             column testId="lost" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+               text "Night fell" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+-              text `You lit ${hud.count} of 12 lanterns.` font-size=18 color="#fff4d6"
++              text `You lit ${hud.count} of ${hud.total} lanterns.` font-size=18 color="#fff4d6"
+               button press=restart testId="retry" padding=16 border-radius=9 background-color="#ffd27a"
+                 text "Try again" font-size=19 color="#241531"
+         else
+           column testId="title" position="absolute" top=0 left=0 width="100%" height="100%" align-items="center" justify-content="center" gap=24 background-color="#130f24"
+             text "LANTERNS" font-size=64 font-weight=700 color="#ffd27a"
+-            text "Light twelve lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
++            text "Light thirteen lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
+             text "Push the crate to reach the lantern on the stone ledge." font-size=17 color="#d6cdec"
+             text "WASD or arrows · Space to jump · E to light" font-size=15 color="#a99fc1"
+             row gap=12
+diff --git a/game/games/lanterns/logic/src/kind_tests.rs b/game/games/lanterns/logic/src/kind_tests.rs
+index 79a31db..d15e67d 100644
+--- a/game/games/lanterns/logic/src/kind_tests.rs
++++ b/game/games/lanterns/logic/src/kind_tests.rs
+@@ -52,8 +52,8 @@ fn partial_lantern_without_transform_still_counts_and_updates() {
+         l.lantern.lit = true;
+         l.lantern.glow.set_target(w.now(), 1.0);
+     });
+-    assert_eq!(w.rows::<Lamp>().count(), 12);
+-    assert_eq!(w.rows::<Lightable>().count(), 11);
++    assert_eq!(w.rows::<Lamp>().count(), 13);
++    assert_eq!(w.rows::<Lightable>().count(), 12);
+     sim.run(500.0);
+     assert!(
+         sim.world()
+diff --git a/game/games/lanterns/logic/src/lib.rs b/game/games/lanterns/logic/src/lib.rs
+index c3f1722..412061a 100644
+--- a/game/games/lanterns/logic/src/lib.rs
++++ b/game/games/lanterns/logic/src/lib.rs
+@@ -553,10 +553,10 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn level_has_matching_player_crate_obstacles_and_twelve_targets() {
++    fn level_has_matching_player_crate_obstacles_and_thirteen_targets() {
+         let sim = game();
+         let world = sim.world();
+-        assert_eq!(world.rows::<Lamp>().count(), 12);
++        assert_eq!(world.rows::<Lamp>().count(), 13);
+         assert_eq!(
+             world.get::<Transform>("crate").unwrap().position,
+             Vec3::new(6.0, 0.6, 8.0)
+@@ -565,6 +565,18 @@ mod tests {
+             world.get::<Transform>("lantern-12").unwrap().position,
+             Vec3::new(10.0, 2.4, 8.0)
+         );
++        assert_eq!(
++            world
++                .get::<Transform>("lantern-13-platform")
++                .unwrap()
++                .position,
++            Vec3::new(-8.0, 0.6, 7.0)
++        );
++        assert_eq!(
++            world.get::<Transform>("lantern-13").unwrap().position,
++            Vec3::new(-8.0, 1.2, 7.0)
++        );
++        assert!(world.has::<Collider>(world.named("lantern-13-platform").unwrap()));
+         assert!(world.has::<Animation>(world.named("fox").unwrap()));
+     }
+ 
+diff --git a/game/games/lanterns/logic/tests/capture.rs b/game/games/lanterns/logic/tests/capture.rs
+index 733ba97..b4aac2c 100644
+--- a/game/games/lanterns/logic/tests/capture.rs
++++ b/game/games/lanterns/logic/tests/capture.rs
+@@ -42,6 +42,43 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
+     }
+     panic!("landing failed at {:?}", sim.position("player"));
+ }
++
++fn jump_to_thirteenth(sim: &mut Sim<Lanterns>) {
++    steer(sim, -8.0, 9.0, 0.12);
++    press(sim, "light_press");
++    ticks(sim, 2);
++    assert!(
++        !sim.world().get::<Lantern>("lantern-13").unwrap().lit,
++        "the raised lantern must not be lightable from the ground"
++    );
++
++    press(sim, "jump_press");
++    hold(sim, "KeyW", 20);
++    land(sim, 1.0);
++    let feet = sim.position("player").unwrap() - exact_game::Vec3::Y * 0.65;
++    assert!(
++        (feet.y - 1.2).abs() < 0.12
++            && (-9.5..=-6.5).contains(&feet.x)
++            && (5.5..=8.5).contains(&feet.z),
++        "ordinary movement and jump must land on the new platform: {feet:?}"
++    );
++    press(sim, "light_press");
++    ticks(sim, 2);
++    assert!(sim.world().get::<Lantern>("lantern-13").unwrap().lit);
++}
++
++#[test]
++fn thirteenth_requires_proximity_is_jump_reachable_and_survives_save() {
++    let mut sim = game();
++    ticks(&mut sim, 2);
++    jump_to_thirteenth(&mut sim);
++    assert_eq!(sim.world().resource::<Session>().phase, 1);
++    let saved = sim.save().unwrap();
++    let restored = Sim::<Lanterns>::from_save(&saved).unwrap();
++    assert!(restored.world().get::<Lantern>("lantern-13").unwrap().lit);
++    assert_eq!(restored.world().resource::<Session>().phase, 1);
++}
++
+ #[test]
+ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+     let mut sim = game();
+@@ -90,7 +127,7 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+     steer(&mut sim, 10.0, 8.0, 0.18);
+     press(&mut sim, "light_press");
+     ticks(&mut sim, 2);
+-    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    assert_eq!(sim.world().resource::<Session>().phase, 1);
+     assert_eq!(
+         sim.world()
+             .query::<&Lantern>()
+@@ -99,6 +136,18 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+             .count(),
+         12
+     );
++    steer(&mut sim, 10.0, 12.0, 0.18);
++    steer(&mut sim, -8.0, 12.0, 0.18);
++    jump_to_thirteenth(&mut sim);
++    assert_eq!(sim.world().resource::<Session>().phase, 2);
++    assert_eq!(
++        sim.world()
++            .query::<&Lantern>()
++            .iter()
++            .filter(|(_, l)| l.lit)
++            .count(),
++        13
++    );
+     let hash = sim.world().hash();
+     let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+     for _ in 0..2 {
+diff --git a/game/games/lanterns/pins.json b/game/games/lanterns/pins.json
+index 321c211..123c44e 100644
+--- a/game/games/lanterns/pins.json
++++ b/game/games/lanterns/pins.json
+@@ -1,5 +1,5 @@
+ [
+-  "0xa778d065d6cea372",
+-  "0x8d712ef8ea7aa587",
+-  "0x264947d99e722167"
++  "0x00f6812a32ad3f1c",
++  "0xf01ccfef20d7644f",
++  "0x23a2a16381152a82"
+ ]
+diff --git a/game/games/lanterns/scene.json b/game/games/lanterns/scene.json
+index 41a8ed0..46d438a 100644
+--- a/game/games/lanterns/scene.json
++++ b/game/games/lanterns/scene.json
+@@ -99,6 +99,50 @@
+         }
+       }
+     },
++    {
++      "id": "lantern-13-platform",
++      "fragment": "solid",
++      "parameters": {
++        "position": [
++          -8,
++          0.6,
++          7
++        ],
++        "mesh": {
++          "Box": {
++            "size": [
++              3,
++              1.2,
++              3
++            ]
++          }
++        },
++        "material": {
++          "color": [
++            0.28,
++            0.27,
++            0.32,
++            1
++          ],
++          "roughness": 0.85
++        }
++      },
++      "overrides": {
++        "": {
++          "Collider": {
++            "shape": {
++              "Box": {
++                "half": [
++                  1.5,
++                  0.6,
++                  1.5
++                ]
++              }
++            }
++          }
++        }
++      }
++    },
+     {
+       "id": "wall",
+       "fragment": "solid",
+@@ -326,6 +370,17 @@
+           8
+         ]
+       }
++    },
++    {
++      "id": "lantern-13",
++      "fragment": "lantern",
++      "parameters": {
++        "position": [
++          -8,
++          1.2,
++          7
++        ]
++      }
+     }
+   ]
+ }

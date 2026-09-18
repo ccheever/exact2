@@ -1,0 +1,54 @@
+{
+  "selfRepairRounds": 1,
+  "repairLoops": [
+    {
+      "name": "current-game deterministic pins",
+      "repairs": 1,
+      "items": [
+        "item_17",
+        "item_19"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "readmeReads": [
+    {
+      "path": "game/README.md",
+      "lines": "1\u2013240",
+      "item": "item_2"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u2013260 (whole file)",
+      "item": "item_2"
+    }
+  ],
+  "recurrence": {
+    "repinUsed": true,
+    "pinFiles": 1,
+    "pinLinesAdded": 3,
+    "pinLinesDeleted": 3,
+    "historicalEvidenceChanged": false,
+    "unexpectedRouteStalls": false,
+    "inheritedStallDiagnosticRan": true,
+    "diagnosticNamedBlocker": "sign-board",
+    "actedOnUnexpectedStall": "not applicable",
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "taskBPhaseContract": "not applicable"
+  },
+  "captureCoverage": "Original live-terminal recapture retained; inherited fractional-clock terminal regression retained and passed.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps. Agent used repin and subsequently repeated required package tests and ordinary Linux proof.",
+  "quotes": [
+    {
+      "item": "item_18",
+      "text": "The only failure is the expected deterministic pin mismatch caused by adding scene entities; all three execution modes produced identical new hashes."
+    },
+    {
+      "item": "item_23",
+      "text": "I\u2019m now running the two exact verification commands requested against the final files."
+    }
+  ]
+}

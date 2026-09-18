@@ -1,0 +1,127 @@
+{
+  "engine": "exact2-linux",
+  "ref": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+  "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+  "task": "a",
+  "attempt": "1",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "startedAt": "2026-09-18T20:13:09.703Z",
+  "humanInterventions": 0,
+  "agentSeconds": 506.02360524500006,
+  "buildSeconds": 20.229019065,
+  "proofSeconds": 21.14486838900007,
+  "usage": {
+    "input_tokens": 5330839,
+    "cached_input_tokens": 5020544,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 12631,
+    "reasoning_output_tokens": 4384
+  },
+  "passed": false,
+  "evaluatorHashes": {
+    "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+    "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+    "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "externalQueueDelaySeconds": null,
+  "freeKiBBefore": 150018888,
+  "setupSeconds": 102.42866911,
+  "inputCommit": "3800fa8d8f71493cf463f9f04d92b41c9afea50a",
+  "promptHash": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+  "dispatchedAt": "2026-09-18T20:15:17.171Z",
+  "agentTimedOut": false,
+  "agentExit": 0,
+  "modelCompletedAt": "2026-09-18T20:23:43.195Z",
+  "invocations": {
+    "build": 0,
+    "proof": 2,
+    "tests": 2,
+    "commands": 19,
+    "method": "completed shell commands invoking cargo/build entrypoints (including scene-only bake), bun proof, or tests; filename reads excluded; combined commands count once; proof-internal builds excluded"
+  },
+  "files": [
+    {
+      "path": "game/games/lanterns/README.md",
+      "added": 1,
+      "deleted": 1
+    },
+    {
+      "path": "game/games/lanterns/app.contract",
+      "added": 3,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/logic/src/kind_tests.rs",
+      "added": 2,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/logic/src/lib.rs",
+      "added": 11,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/logic/tests/capture.rs",
+      "added": 45,
+      "deleted": 2
+    },
+    {
+      "path": "game/games/lanterns/pins.json",
+      "added": 3,
+      "deleted": 3
+    },
+    {
+      "path": "game/games/lanterns/proof.mjs",
+      "added": 10,
+      "deleted": 0
+    },
+    {
+      "path": "game/games/lanterns/scene.json",
+      "added": 55,
+      "deleted": 0
+    }
+  ],
+  "filesChanged": 8,
+  "linesAdded": 130,
+  "linesDeleted": 13,
+  "scopeViolations": [],
+  "sourceHashes": {
+    "game/games/lanterns/README.md": "a6e5fd61e94b0e9ad2599332cfd8047cbdce84234ed18de9428d0be6d8f5fe58",
+    "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+    "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+    "game/games/lanterns/logic/src/lib.rs": "23d3a68f43f033a79a513a0fbd9a1baf60c4a37e2da4b47013a8d0bbfb586b43",
+    "game/games/lanterns/logic/tests/capture.rs": "bb813634bb983cec4a424ae712b8b850bc6142243e71df26155bb23577e02174",
+    "game/games/lanterns/pins.json": "6e77985b24d00b7b160301244291611b425cdee261a6daced8c2cc1cbb5a3be5",
+    "game/games/lanterns/proof.mjs": "47bb4232230e6233597e248ce73adcc7076c738432eef535011042b5c9af075b",
+    "game/games/lanterns/scene.json": "443ff52b68daed65b3b549f2642ad46ea24c46838c86a86d8d6e944104c3f632"
+  },
+  "freeKiBBeforeBuild": 147482696,
+  "buildExit": 0,
+  "buildCompletedAt": "2026-09-18T20:24:03.465Z",
+  "evaluatorStartedAt": "2026-09-18T20:24:03.465Z",
+  "taskFunctionalPassed": true,
+  "baselineMechanicsPassed": false,
+  "selfRepairRounds": null,
+  "screenshotInspections": null,
+  "protocolCompliant": null,
+  "finishedAt": "2026-09-18T20:24:24.610Z",
+  "buildOutputDeleted": true,
+  "removedRenderFiles": [
+    "controls/task-a/final.png",
+    "controls/acceptance/won.png",
+    "controls/acceptance/title.png",
+    "controls/acceptance/moving.png",
+    "controls/acceptance/lost.png",
+    "controls/task-b/final.png",
+    "evaluation/won.png",
+    "evaluation/title.png",
+    "evaluation/moving.png",
+    "evaluation/final.png",
+    "evaluation/lost.png"
+  ]
+}

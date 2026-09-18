@@ -1,0 +1,28 @@
+{
+  "version": 3,
+  "matchesOriginalFinalV3": true,
+  "hashes": {
+    "command.mjs": "048f7203f2c2c30bb80809ef8b5dc6c53e52f44dc97e5825525b4b5361cbcc65",
+    "acceptance.mjs": "b7b590f7b3c351e3cfd9e6f71686c39d2ccd762415de205622a071165f6a3195",
+    "task-evaluator.mjs": "a3fd17feb2f0358529f4d685d187104298dd340e9f9d220362174a8a030429e1",
+    "task-a.mjs": "3ff41763e2d436ced3b82b4934a87872943d2d65bf644ff1b4d033f47bf7b6d4",
+    "task-b.mjs": "36aaddb1b4131e3fed90517f5a4f93d74268dd8fa8521028f32e24b858adeba1",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23"
+  },
+  "promptHashes": {
+    "a": "94682fced5fc4c9e3c0c6036976dc049c09a3713f541821d7cd8e8a688f431a7",
+    "b": "5bdd23dd35416be1f5b5c18847b87fc27995b8e6d8d218e48e3a2f6fd71fe75a"
+  },
+  "after2": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+  "localNextTrunk": "7de897543937341668ef122b0d4fe98d02be3ef7",
+  "baseline": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+  "decision": "Use initial checkout HEAD containing E1; local next/trunk predates the specified changes. Neither ref moved.",
+  "order": [
+    "after2 A1",
+    "baseline A4",
+    "after2 B1",
+    "baseline B4",
+    "after2 A2",
+    "after2 B2"
+  ]
+}

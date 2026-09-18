@@ -9,7 +9,7 @@ const argv=process.argv.slice(2), refIndex=argv.indexOf('--ref');
 if(refIndex<0)throw new Error('Usage: run-trial.mjs --ref <git ref> <a|b> <attempt>');
 const ref=argv.splice(refIndex,2)[1], [task,attempt]=argv;
 if(!['a','b'].includes(task)||!/^\d+$/.test(attempt??'')||!ref||ref.startsWith('-'))throw new Error('Invalid task, attempt or ref');
-const scratch=resolve(home,'lanes/gamenext/scratch/I2/trials'), refName=ref.replace(/[^a-zA-Z0-9._/-]/g,'_');
+const scratch=resolve(home,'lanes/gamenext/scratch/I4/trials'), refName=ref.replace(/[^a-zA-Z0-9._/-]/g,'_');
 if(refName.split('/').some(p=>p==='..'||!p))throw new Error('Unsafe ref path');
 const out=resolve(scratch,refName,`${task}-${attempt}`), work=resolve(out,'workspace');
 if(existsSync(out))throw new Error(`Attempt already exists: ${out}`);

@@ -1,0 +1,1 @@
+{"pid": 1429446, "startedAt": "2026-09-18T21:12:25.078418+00:00", "command": ["cargo", "test", "--workspace", "--no-fail-fast"]}
