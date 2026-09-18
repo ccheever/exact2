@@ -38,7 +38,7 @@ for mode, paths in policy.items():
     for path in paths:
         if not os.path.exists(path):
             continue
-        access = handled if mode == 'write' else read
+        access = handled if mode == 'write' else (1 << 3) if mode == 'list' else read
         if not os.path.isdir(path):
             access &= (1 << 0) | (1 << 1) | (1 << 2) | ((1 << 14) if abi >= 3 else 0)
         parent = os.open(path, os.O_PATH | os.O_CLOEXEC)

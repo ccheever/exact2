@@ -97,3 +97,10 @@ workspace: it searched `game/games` for existing proof examples. This exceeds
 remove other game consumers, retaining only Lanterns and its shared scene
 fragments. Engine/path dependencies remain source-available for Rust compilation.
 No session is restarted or supplied feedback as a result of this audit.
+
+A2 also exposed a second isolation omission: the directory-capability filesystem
+helper opens `/` before walking to authorized assets. Landlock denied that open,
+so the model's Linux proof bake failed with EACCES even though parent setup built.
+Future policy grants READ_DIR (directory listing only) at `/`; READ_FILE remains
+restricted and the evaluator-content denial probe remains mandatory. A2 keeps
+this instrument-induced time loss and is not a clean cross-engine measurement.
