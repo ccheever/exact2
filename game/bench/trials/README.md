@@ -71,3 +71,8 @@ Runner setup correction 1: git archive did not include the sibling ibex path
 dependency. The failed pre-dispatch setup is retained separately; no model was
 launched and no timed attempt was consumed. Link the authorized read-only
 sibling in scratch and permit read-only dependency access in Landlock.
+
+Runner setup correction 2: the root workspace's filesystem helper also resolves
+`snapback-sb4` even for a game bake. Preserve that existing sibling path as another
+read-only dependency link. Its sources are not modified; all output remains in
+scratch. Both failed setup runs were before model dispatch, outside agent timing.
