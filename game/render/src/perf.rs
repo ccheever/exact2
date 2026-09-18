@@ -1,4 +1,5 @@
 use crate::Stats;
+use exact_game::data::text::Float;
 use std::fmt::Write;
 #[cfg(test)]
 thread_local! { pub(crate) static CLOCK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -51,23 +52,24 @@ fn performance_now() -> f64 {
     }
     PERFORMANCE.with(web_sys::Performance::now)
 }
+#[derive(Default)]
 pub(crate) struct Ring {
     values: Vec<f64>,
     len: usize,
     next: usize,
-}
-impl Default for Ring {
-    fn default() -> Self {
-        Self {
-            values: vec![0.0; 16384],
-            len: 0,
-            next: 0,
-        }
-    }
+    count: u64,
+    sum: f64,
+    max: f64,
 }
 impl Ring {
     pub fn push(&mut self, value: f64) {
         if !value.is_finite() || value < 0.0 {
+            return;
+        }
+        self.count += 1;
+        self.sum += value;
+        self.max = self.max.max(value);
+        if self.values.is_empty() {
             return;
         }
         self.values[self.next] = value;
@@ -87,12 +89,12 @@ impl Ring {
         write!(
             out,
             "{{\"p50\":{},\"p95\":{},\"p99\":{},\"max\":{},\"count\":{},\"mean\":{}}}",
-            p(50),
-            p(95),
-            p(99),
-            p(100),
-            self.len,
-            values.iter().sum::<f64>() / self.len.max(1) as f64
+            Float(p(50)),
+            Float(p(95)),
+            Float(p(99)),
+            Float(self.max),
+            self.count,
+            Float(self.sum / self.count.max(1) as f64)
         )
         .unwrap();
     }
@@ -109,6 +111,20 @@ pub(crate) struct Perf {
     pub pixels: (u32, u32),
 }
 impl Perf {
+    pub fn armed(&self) -> bool {
+        !self.frame.values.is_empty()
+    }
+    pub fn arm(&mut self) {
+        for r in [
+            &mut self.frame,
+            &mut self.tick,
+            &mut self.feed,
+            &mut self.encode,
+            &mut self.ticks,
+        ] {
+            r.values.resize(16384, 0.0);
+        }
+    }
     pub fn reset(&mut self) {
         for r in [
             &mut self.frame,
@@ -117,6 +133,10 @@ impl Perf {
             &mut self.encode,
             &mut self.ticks,
         ] {
+            r.values.resize(16384, 0.0);
+            r.count = 0;
+            r.sum = 0.0;
+            r.max = 0.0;
             r.len = 0;
             r.next = 0;
         }
@@ -134,6 +154,7 @@ impl Perf {
     }
     pub fn append(&self, out: &mut String) {
         out.push_str(",\"perf\":{\"wallClock\":true");
+        write!(out, ",\"armed\":{}", self.armed()).unwrap();
         write!(out, ",\"pixels\":[{},{}]", self.pixels.0, self.pixels.1).unwrap();
         for (name, ring) in [
             ("frameMs", &self.frame),
@@ -159,6 +180,12 @@ mod tests {
     #[test]
     fn cadence_excludes_seeks_and_keeps_dropped_intervals() {
         let mut p = Perf::default();
+        assert!(!p.armed());
+        p.tick.push(3.0);
+        assert_eq!(p.tick.count, 1);
+        assert_eq!(p.tick.values.capacity(), 0);
+        p.reset();
+        assert!(p.armed());
         for (now, seek) in [
             (0., false),
             (8., false),

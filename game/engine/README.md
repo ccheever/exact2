@@ -106,3 +106,31 @@ reported the same byte counts. Load1: Mac before 21.58/21.58/21.58, after 19.15/
 Linux before 3.32/3.32/3.32, after 1.85/1.85/1.85.
 The RNG is this fixture's singleton; ordinary Resource cells use the same storage.
 Run `cargo run --release -p exact-game --example memory` or `--example churn`.
+
+
+Publish a HUD with `w.publish_record(&Hud { beacons })` and a normal `Data` derive;
+Contract checks types when applying a surface record; missing fields default and
+extra names are ignored. Rust record field names are not checked at bake time.
+Unit fields publish as `null`; safe integers include ±9,007,199,254,740,991 and
+out-of-range u64/i64 values refuse before any publication. `None::<()>` is `null`;
+`Some(())` is explicitly refused because Contract JSON cannot distinguish it. Scalar
+`publish` remains available. `near`/`near_xz` return global poses in entity order,
+including translated or rotated parents. Mandatory queries use
+`query.one().expect("one player")`. Native spatial tests use
+`sim.layout("player").unwrap().screen.center()` and `sim.pick(point)`.
+`sim.load_assets(|name| std::fs::read(name))?` drains headless dependencies;
+`sim.save()?` checks current mesh roots before any request drain and returns
+named pending assets or failed declarations; failed cosmetics do not block saving. The game-save
+migration hook is gone: the format and game identity are checked before loading.
+The template's non-live `restart_generation` is incremented to reconstruct setup
+through the existing argument-binding path.
+
+
+Erased component pages own values through typed descriptor operations: `read`/
+`write` moves, `replace` swaps, and `drop_in_place`, instantiated for the component
+at registration. Allocation and masks remain erased. Padded owned components and
+zero-sized components with destructors cover insert, replacement, removal and
+load; the existing panic-on-drop test protects occupied-slot ownership. Loading
+an opposite-kind registration names the registered kind and the setup declaration
+required to load it. The storage tests are suitable for Miri; neither installed
+nightly on the R2 machine includes Miri, so that run remains owed.

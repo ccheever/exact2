@@ -61,12 +61,15 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let mut stack = StackSurface::new();
     stack
-        .bind(&[
-            board(),
-            Value::Option(None),
-            Value::Bool(true),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(None),
+                Value::Bool(true),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
     assert!(stack.wants_children_each());
     // Four cards, 90 points tall, laid out by the kernel as a column.
@@ -140,12 +143,15 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
 
     // Focus the second card: it comes forward, and wants frames again.
     stack
-        .bind(&[
-            board(),
-            Value::Option(Some(Value::str("b").into())),
-            Value::Bool(true),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(Some(Value::str("b").into())),
+                Value::Bool(true),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
     let (_, wants) = fixture::render(&gpu, &mut stack, &frame(2000.0)).unwrap();
     assert!(wants, "the focus moves");
@@ -163,12 +169,15 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     // arrive settled — the same poses a display link would have reached —
     // and every number stays finite.
     stack
-        .bind(&[
-            board(),
-            Value::Option(None),
-            Value::Bool(false),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(None),
+                Value::Bool(false),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
     let (_, wants) = fixture::render(&gpu, &mut stack, &frame(64_000.0)).unwrap();
     assert!(!wants, "a sixty-second jump lands settled");

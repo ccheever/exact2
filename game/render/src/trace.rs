@@ -178,7 +178,7 @@ impl Trace {
                 if n != 0 || k != 0 {
                     out.push(',');
                 }
-                write!(out, "{}", self.values[i + k]).unwrap();
+                write!(out, "{}", exact_game::data::text::Float(self.values[i + k])).unwrap();
             }
         }
         out.push_str("]}}");
@@ -242,6 +242,13 @@ mod tests {
         assert!(
             (mix(trace.prev, trace.curr, sim.alpha())[0] - previous - 5.0 / 12.0).abs() < 0.0001
         );
+        let previous = mix(trace.prev, trace.curr, sim.alpha())[0];
+        sim.frame_period(1000. / 60.);
+        sim.advance_with(1100. + 1000. / 144. + 1000. / 60., Clock::Live, |w, _| {
+            trace.feed(w)
+        });
+        // The new horizon contributes .25% of a frame, not its entire 9.722 ms change.
+        assert!((mix(trace.prev, trace.curr, sim.alpha())[0] - previous - 1.0025).abs() < 0.00001);
     }
     #[test]
     fn same_tick_edits_and_teleports_match_gpu_history_rules() {

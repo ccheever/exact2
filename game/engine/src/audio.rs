@@ -1,4 +1,5 @@
 //! Deterministic sound descriptions and journal events. This module opens no device.
+use crate::data::text::{Fixed, Float};
 use crate::{math, Component, Data, Entity, Resource, Vec3, World};
 use std::collections::BTreeMap;
 
@@ -249,14 +250,20 @@ impl Data for Definition {
         Ok(())
     }
 }
+/// Retained mono PCM budget for presentation executors.
+pub const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+/// Surface synthesis rate; executors with other rates also reserve before rendering.
+pub const SAMPLE_RATE: u32 = 48000;
+
 /// Sound definitions, authored during setup and included in saves and hashes.
 #[derive(Resource, Default, Clone)]
 pub struct Sounds(pub BTreeMap<String, Definition>);
 impl Sounds {
     /// Define or replace a named sound.
     pub fn add(&mut self, name: impl Into<String>, synth: Synth) -> &mut Self {
+        let name = name.into();
         synth.validate();
-        self.0.insert(name.into(), Definition::new(synth));
+        self.0.insert(name, Definition::new(synth));
         self
     }
 }
@@ -280,7 +287,7 @@ impl At {
                 .name(*e)
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("#{}", e.index())),
-            Self::Point(p) => format!("({:.3},{:.3},{:.3})", p.x, p.y, p.z),
+            Self::Point(p) => format!("({},{},{})", Fixed(p.x, 3), Fixed(p.y, 3), Fixed(p.z, 3)),
         }
     }
 }
@@ -339,7 +346,7 @@ impl Data for Voices {
         Ok(())
     }
 }
-/// A looping sound attached to an entity.
+/// A sound attached to an entity; looping belongs to its definition.
 #[derive(Component, Clone)]
 pub struct AudioSource {
     /// Sound definition name.
@@ -356,6 +363,20 @@ impl Default for AudioSource {
             gain: 1.0,
             playing: true,
         }
+    }
+}
+impl AudioSource {
+    /// Play this named sound by default. Register the definition during setup.
+    pub fn new(sound: impl Into<String>) -> Self {
+        Self {
+            sound: sound.into(),
+            ..Self::default()
+        }
+    }
+    /// Per-source gain, sanitized at playback and reporting.
+    pub fn gain(mut self, gain: f32) -> Self {
+        self.gain = gain;
+        self
     }
 }
 /// A stable handle returned by `Play::start`.
@@ -428,14 +449,11 @@ impl World {
         self.try_resource::<Voices>().is_some()
     }
     /// Build a play event; call `start()` to commit it.
-    pub fn play(&mut self, sound: &str) -> Play<'_> {
-        self.register_audio();
+    pub fn play(&self, sound: &str) -> Play<'_> {
         let synth = self
-            .resource::<Sounds>()
-            .0
-            .get(sound)
-            .unwrap_or_else(|| panic!("unknown sound `{sound}`"))
-            .clone();
+            .try_resource::<Sounds>()
+            .and_then(|sounds| sounds.0.get(sound).cloned())
+            .unwrap_or_else(|| panic!("unknown sound `{sound}`"));
         let duration = synth.duration();
         let began = self.audio_boundary();
         let ends = began.saturating_add(math::ceil(duration * self.hz() as f32) as u64);
@@ -458,7 +476,7 @@ impl World {
 /// A pending play. Only `start()` adds a voice and its journal line.
 #[must_use = "call .start() to play the sound"]
 pub struct Play<'a> {
-    world: &'a mut World,
+    world: &'a World,
     voice: Voice,
 }
 impl Play<'_> {
@@ -466,7 +484,6 @@ impl Play<'_> {
     pub fn at(mut self, entity: Entity) -> Self {
         let voice = &mut self.voice;
         voice.at = At::Entity(entity);
-        voice.position = self.world.global(entity).map(|t| t.translation.into());
         self
     }
     /// Play at a fixed position.
@@ -509,16 +526,28 @@ impl Play<'_> {
         voice.id = voices.next_id;
         voices.next_id = voices.next_id.checked_add(1).expect("voice ids exhausted");
         self.world.log(format_args!(
-            "sfx {} at {} gain {:.2}",
+            "sfx {} at {} gain {}",
             voice.sound,
             voice.at.label(self.world),
-            voice.gain
+            Fixed(voice.gain, 2)
         ));
         let id = voice.id;
         voices.voices.push(voice);
         id
     }
 }
+// Snapshot voices when removing their entity, after all author borrows end.
+pub(crate) fn detach(world: &World, entity: Entity) {
+    if world.has_audio() {
+        let mut voices = world.resource_mut::<Voices>();
+        for voice in &mut voices.voices {
+            if matches!(voice.at, At::Entity(e) if e == entity) {
+                voice.position = world.current_global(entity).map(|t| t.translation.into());
+            }
+        }
+    }
+}
+
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
@@ -588,8 +617,9 @@ pub fn step(world: &mut World) {
                     .is_some_and(|r| r.playing && r.sound == source.sound && r.gain == source.gain)
             {
                 world.log(format_args!(
-                    "loop {} on gain {:.2}",
-                    source.sound, source.gain
+                    "loop {} on gain {}",
+                    source.sound,
+                    Fixed(source.gain, 2)
                 ));
             }
             reports.push(SourceReport {
@@ -632,7 +662,7 @@ pub fn state(world: &World) -> String {
                     "{{\"sound\":{},\"at\":{},\"gain\":{},\"began\":{},\"ends\":{}}}",
                     crate::values::quote(&v.sound),
                     crate::values::quote(&v.at.label(world)),
-                    v.gain,
+                    Float(v.gain),
                     v.began,
                     v.ends
                 )
@@ -650,7 +680,7 @@ pub fn state(world: &World) -> String {
                 "{{\"sound\":{},\"entity\":{},\"gain\":{},\"playing\":{}}}",
                 crate::values::quote(&s.sound),
                 crate::values::quote(&At::Entity(e).label(world)),
-                gain(s.gain),
+                Float(gain(s.gain)),
                 s.playing
             )
         })
@@ -776,17 +806,45 @@ mod carry_regression {
         fn tick(_: &mut World, _: &crate::Input, _: &()) {}
     }
     #[test]
-    fn carry_keeps_old_voice_and_fresh_registry_for_new_voices() {
+    fn restore_keeps_saved_registry_and_runtime_registered_names() {
         let mut old = Sim::<Tone>::new(()).unwrap();
         old.world_mut()
             .resource_mut::<Sounds>()
             .add("tone", Synth::sine(220.));
         old.world_mut().play("tone").start();
         let mut fresh = Sim::<Tone>::new(()).unwrap();
-        fresh.restore_bound(&old.save()).unwrap();
+        old.world_mut()
+            .resource_mut::<Sounds>()
+            .add("runtime", Synth::sine(330.));
+        fresh.restore_bound(&old.save().unwrap()).unwrap();
+        assert!(fresh.world().resource::<Sounds>().0.contains_key("runtime"));
         fresh.world_mut().play("tone").start();
         let voices = &fresh.world().resource::<Voices>().voices;
         assert_eq!(voices[0].synth.hz, 220.);
-        assert_eq!(voices[1].synth.hz, 880.);
+        assert_eq!(voices[1].synth.hz, 220.);
+    }
+}
+
+#[cfg(test)]
+mod authoring_regression {
+    use super::*;
+    #[test]
+    fn registered_sound_plays_through_a_shared_world_during_component_borrow() {
+        let mut world = World::new(60, 0);
+        world.register_audio();
+        world
+            .resource_mut::<Sounds>()
+            .add("chime", Synth::sine(440.));
+        let entity = world.spawn((
+            crate::Transform::default(),
+            AudioSource::new("chime").gain(0.3),
+        ));
+        let shared: &World = &world;
+        let _pose = shared.get_mut::<crate::Transform>(entity).unwrap();
+        let source = shared.get_mut::<AudioSource>(entity).unwrap();
+        assert!(source.playing);
+        assert_eq!(source.gain, 0.3);
+        shared.play("chime").at(entity).start();
+        assert_eq!(shared.resource::<Voices>().voices.len(), 1);
     }
 }

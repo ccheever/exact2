@@ -13,7 +13,7 @@
     "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
     "web": {}
   },
-  "game": { "crate": "lanterns-logic", "type": "Lanterns" },
+  "game": { "crate": "lanterns-logic", "type": "Lanterns", "assets": true },
   "rust": false,
   "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
 }

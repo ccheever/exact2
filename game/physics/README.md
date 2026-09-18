@@ -1,6 +1,6 @@
 # exact-game-physics
 
-Rapier 0.35.3 behind Exact's saved components, in metres, kilograms and seconds.
+Vendored Rapier 0.35.3 behind Exact's saved components, in metres, kilograms and seconds.
 Call `register` during setup, `move_character` after controls, and `step` per tick.
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
@@ -178,6 +178,12 @@ not verified here. No public signature, pinned position or hash was changed.
 
 ## Saved solver and historical measurements
 
+EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
+that changes the next physics step; it cannot be migrated and is refused by name
+before replacing the destination (including inside EXSIM). Start a new world.
+Rapier is consumed by path from `vendor/rapier3d`; it stays outside the root
+workspace's dependency graph.
+
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
@@ -232,6 +238,14 @@ continuous and every-step save/load runs. Apple and browser rechecks are pending
 `WebAssembly.instantiate` calls; the pile card restores at tick 90 and compares
 continuation through tick 600. `pile --verify` also checks `simulate(120)` against
 a world reconstructed after every physics step.
+The original D1b cards agreed on arm64 macOS, x86-64 Linux and Chrome 153 wasm.
+The v1 pins were pile tick 600 `0x5ba7691abdc98058` and two-body
+`simulate(120)` `0x9960c10fadbb9c4b`. EXPHYS v2 changes them to
+`0x129ba6d92f9ac217` and `0x5608994347e54d28`, verified on this lane in native
+arm64 tests and Chrome wasm across continuous, Save and FreshGame. The browser
+pile card also saves at tick 90, restores and checks continuation through tick 600.
+`minimal.wasm` exports `pile_hash()`, `simulate(ticks)` and
+`simulate_restored(ticks, fresh)` for direct `WebAssembly.instantiate` calls.
 Enhanced determinism, glam scalar-math/libm; no parallel, simd8 or fast-math features.
 Parry still uses four-lane `wide`. These executed cards establish fixture parity,
 not a claim of whole-engine determinism for every physics query and character API.

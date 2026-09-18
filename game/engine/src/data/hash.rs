@@ -84,8 +84,11 @@ impl Hasher {
         self.stream.finish()
     }
     pub(crate) fn with_observation<T: Data>(&mut self, value: &T) -> u64 {
+        self.with_observation_by(|w| value.write(w))
+    }
+    pub(crate) fn with_observation_by(&mut self, write: impl FnOnce(&mut Self)) -> u64 {
         self.observation = Some(Stream::default());
-        value.write(self);
+        write(self);
         self.observation.take().unwrap().finish()
     }
 }

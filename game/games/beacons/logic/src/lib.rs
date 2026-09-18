@@ -38,7 +38,6 @@ struct Glow {
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
-    const SAVE_VERSION: u32 = 2;
     const CAPTURE_SUPPORTED: bool = true;
     type Args = Options;
     fn actions() -> Actions {

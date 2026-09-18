@@ -17,6 +17,58 @@ const stats = values => {
 const deltas = values => values.slice(1).map((v, i) => v - values[i]);
 
 describe('the paced frame clock', () => {
+  test('publishes the 16-sample bootstrap before the full fit', () => {
+    for (const hz of [60, 120, 144]) {
+      const pace = pacer(), period = 1000 / hz;
+      for (let i = 0; i < 16; i++) { pace(i * period); expect(pace.period_ms).toBe(0); }
+      pace(16 * period);
+      expect(Math.abs(pace.period_ms - period)).toBeLessThan(1e-9);
+      // 133 ms at 120 Hz, 267 ms at 60 Hz: exactly sixteen intervals.
+      expect(16 * period).toBeLessThanOrEqual(267);
+    }
+  });
+  test('reacquires harmonic changes in both directions, but not isolated skipped slots', () => {
+    for (const [from, to] of [[120, 60], [60, 120]]) {
+      const pace = pacer();
+      let now = 0;
+      for (let i = 0; i < 400; i++) pace(now += 1000 / from);
+      const original = pace.period_ms;
+      pace(now += 2 * 1000 / from);
+      for (let i = 0; i < 100; i++) pace(now += 1000 / from);
+      expect(pace.period_ms).toBe(original);
+      let previous = pace(now);
+      for (let i = 0; i < 80; i++) {
+        const next = pace(now += 1000 / to);
+        expect(Math.abs(next - previous - 1000 / to)).toBeLessThan(0.02);
+        previous = next;
+      }
+      expect(Math.abs(pace.period_ms - 1000 / to)).toBeLessThan(0.01);
+    }
+  });
+  test('every delta stays on time at an exact half-period transition', () => {
+    const pace = pacer(), p = 1000 / 60;
+    for (let i = -400; i <= 0; i++) pace(i * p);
+    let previous = pace(0);
+    for (let i = 1; i <= 80; i++) {
+      const next = pace(i * p / 2);
+      expect(Math.abs(next - previous - p / 2)).toBeLessThan(0.02);
+      previous = next;
+    }
+  });
+  test('republishes full rolling fits through a gradual 0.5 percent per second drift', () => {
+    const pace = pacer();
+    let now = 0, updates = 0, published = 0;
+    for (let i = 0; i < 400; i++) pace(now += P120);
+    const start = now;
+    while (now - start < 20000) {
+      const period = P120 * (1 + 0.005 * (now - start) / 1000);
+      pace(now += period);
+      if (pace.period_ms !== published) { published = pace.period_ms; updates++; }
+      expect(Math.abs(pace.period_ms / period - 1)).toBeLessThan(0.018);
+    }
+    expect(updates).toBeGreaterThan(5);
+    expect(pace.period_ms).toBeGreaterThan(P120 * 1.08);
+  });
   test('exports zero until fitted, then a stable period through jitter and stall recovery', () => {
     const pace = pacer(), raw = callbacks(900, P120);
     expect(pace.period_ms).toBe(0);
@@ -26,6 +78,7 @@ describe('the paced frame clock', () => {
     for (let i = 300; i < raw.length; i++) {
       pace(raw[i] + (i >= 400 ? 40 : 0));
       expect(pace.period_ms).toBe(period);
+      expect(Math.abs(pace.period_ms - P120)).toBeLessThan(0.02);
     }
   });
   test('publishes a new fitted period after a display-rate change', () => {
@@ -92,6 +145,12 @@ describe('the paced frame clock', () => {
     expect(Math.abs(settled.mean - P90)).toBeLessThan(0.02);
     expect(settled.cv).toBeLessThan(0.005);
   });
+  test('an isolated sub-slot callback retains the fitted lattice', () => {
+    const pace = pacer();
+    for (let i = 0; i <= 400; i++) pace(i * P120);
+    pace(400 * P120 + 0.3);
+    expect(Math.abs(pace(401 * P120 + 1) - 401 * P120)).toBeLessThan(0.05);
+  });
   test('never runs backwards even when a callback lands before the last slot', () => {
     const pace = pacer(), raw = callbacks(300, P120, { jitter: 0.5 });
     raw.splice(200, 0, raw[199] + 0.3); // a second callback 0.3 ms after the previous one
@@ -104,4 +163,24 @@ describe('the paced frame clock', () => {
     const pace = pacer(), steps = Array.from({ length: 20 }, (_, i) => i * 1000);
     steps.forEach(now => expect(pace(now)).toBeCloseTo(now, 6));
   });
+});
+test('jittered harmonic transitions retain a provisional lattice delta by delta', () => {
+  for (const [from, to] of [[60,120], [120,60]]) for (const seed of [7,11,19]) {
+    const pace = pacer(), random = lcg(seed);
+    let at = 0, previous;
+    for (let i=0;i<800;i++) previous = pace((at += 1000/from) + random()*2);
+    for (let i=0;i<100;i++) {
+      const next = pace((at += 1000/to) + random()*2);
+      expect(Math.abs(next - previous - 1000/to)).toBeLessThan(0.08);
+      previous = next;
+    }
+    expect(Math.abs(pace.period_ms - 1000/to)).toBeLessThan(0.03);
+  }
+});
+test('one 3 ms callback retains the old 120 Hz lattice', () => {
+  const pace=pacer();
+  for(let i=0;i<=400;i++) pace(i*P120);
+  pace(400*P120+3);
+  for(let i=401;i<430;i++) expect(Math.abs(pace(i*P120+1)-i*P120)).toBeLessThan(0.7);
+  expect(pace.period_ms).toBeCloseTo(P120, 6);
 });

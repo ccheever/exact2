@@ -50,7 +50,7 @@ impl AuroraSurface {
 }
 
 impl Surface for AuroraSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [seed] = inputs else {
             return Err(SurfaceError(format!(
                 "aurora: expected 1 input, got {}",

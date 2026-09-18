@@ -2,13 +2,15 @@
 //! leases exclude aliasing. Structural edits require an exclusive world borrow.
 use crate::{Data, DataError, Entity, Reader, Writer};
 use std::any::Any;
-use std::cell::{Cell, RefCell, UnsafeCell};
+use std::cell::Cell;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
 mod cell;
 pub(crate) use cell::{make_cell, Singleton};
+mod raw;
+use raw::RawStorage;
 mod pages;
 mod query;
 pub use pages::{Page, Pages, Plain};
@@ -17,14 +19,6 @@ pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 /// Number of entity-indexed slots in each component page.
 pub const PAGE: usize = 1024;
 const WORDS: usize = PAGE / 64;
-type Slots<C> = UnsafeCell<[MaybeUninit<C>; PAGE]>;
-
-#[derive(Default)]
-struct ObservedWord {
-    // None also protects against a panicking Data::write during a rebuild.
-    mask: Option<u64>,
-    entries: Vec<(usize, u64)>,
-}
 
 struct Lease<'a> {
     count: &'a Cell<isize>,
@@ -99,187 +93,47 @@ impl<C> DerefMut for RefMut<'_, C> {
     }
 }
 
+// Typed access retains a concrete pointer stride; allocation, masks, epochs and
+// every Data traversal are shared by all component types in RawStorage.
 pub(crate) struct Storage<C> {
-    name: &'static str,
-    pages: Vec<Option<Box<Slots<C>>>>,
-    counts: Vec<usize>,
-    generations: Vec<Cell<u64>>,
-    mask: Vec<u64>,
-    len: usize,
-    borrowed: Cell<isize>,
-    revision: Cell<u64>,
-    membership: u64,
-    observation: RefCell<Vec<ObservedWord>>,
-    observation_dirty: Vec<Cell<u64>>,
-    pub(super) epoch: std::rc::Rc<Cell<u64>>,
+    raw: RawStorage,
+    _type: PhantomData<C>,
 }
-impl<C> Default for Storage<C> {
-    fn default() -> Self {
-        Self {
-            name: crate::data::type_name::<C>(),
-            pages: vec![],
-            counts: vec![],
-            generations: vec![],
-            mask: vec![],
-            len: 0,
-            borrowed: Cell::new(0),
-            revision: Cell::new(0),
-            membership: 0,
-            observation: RefCell::new(Vec::new()),
-            observation_dirty: Vec::new(),
-            epoch: Default::default(),
-        }
+impl<C> Deref for Storage<C> {
+    type Target = RawStorage;
+    fn deref(&self) -> &RawStorage {
+        &self.raw
     }
 }
 impl<C> Storage<C> {
-    pub(crate) fn lease_conflict(&self, mutable: bool) -> Option<&'static str> {
-        match self.borrowed.get() {
-            n if n < 0 => Some("mutably"),
-            n if mutable && n > 0 => Some("immutably"),
-            _ => None,
-        }
-    }
-    pub(crate) fn len(&self) -> usize {
-        self.len
-    }
-    pub(crate) fn is_empty(&self) -> bool {
-        self.len == 0
-    }
     #[inline]
     fn ptr(&self, index: usize) -> *mut C {
-        self.pages[index / PAGE]
+        self.raw.pages[index / PAGE]
             .as_ref()
             .unwrap()
             .get()
             .cast::<C>()
             .wrapping_add(index % PAGE)
     }
-    #[inline]
-    pub(crate) fn has(&self, index: usize) -> bool {
-        self.mask
-            .get(index / 64)
-            .is_some_and(|word| word & (1 << (index % 64)) != 0)
-    }
-    pub(crate) fn revision(&self) -> u64 {
-        self.revision.get()
-    }
-    pub(crate) fn membership(&self) -> u64 {
-        self.membership
-    }
-    pub(crate) fn page_count(&self) -> usize {
-        self.generations.len()
-    }
-    #[cfg(test)]
-    pub(crate) fn observation_capacity(&self) -> (usize, usize) {
-        let words = self.observation.borrow();
-        (
-            words.len(),
-            words.iter().map(|w| w.entries.capacity()).sum(),
-        )
-    }
-    pub(crate) fn page_generation(&self, page: usize) -> u64 {
-        self.generations.get(page).map_or(0, Cell::get)
-    }
-    pub(crate) fn page_mask(&self, page: usize) -> [u64; WORDS] {
-        self.mask
-            .get(page * WORDS..(page + 1) * WORDS)
-            .map_or([0; WORDS], |mask| mask.try_into().unwrap())
-    }
-    fn mark_page(&self, page: usize) {
-        if let Some(generation) = self.generations.get(page) {
-            generation.set(self.revision.get());
-        }
-    }
-    fn mark_observation(&self, word: usize, bits: u64) {
-        if let Some(dirty) = self.observation_dirty.get(word) {
-            dirty.set(dirty.get() | bits);
-        }
-    }
-    fn mark_slot(&self, index: usize) {
-        self.mark_page(index / PAGE);
-        self.mark_observation(index / 64, 1 << (index % 64));
-    }
-    fn edited(&self) {
-        self.epoch.set(self.epoch.get().wrapping_add(1));
-        self.revision.set(self.revision.get().wrapping_add(1));
-    }
 }
 impl<C: Data> Storage<C> {
-    fn lease(&self, mutable: bool) -> Lease<'_> {
-        let lease = Lease::new(self.name, &self.borrowed, mutable);
-        if mutable {
-            self.edited();
-        }
-        lease
-    }
-    pub(crate) fn insert(&mut self, index: usize, c: C) {
-        self.edited();
-        if self.has(index) {
-            self.mark_slot(index);
-            // SAFETY: the bit proves initialization; &mut self excludes all leases.
-            // Replace before dropping, so even a panicking destructor leaves a live slot.
-            drop(unsafe { self.ptr(index).replace(c) });
-            return;
-        }
-        self.membership = self.membership.wrapping_add(1);
-        let page = index / PAGE;
-        if page >= self.pages.len() {
-            self.pages.resize_with(page + 1, || None);
-            self.counts.resize(page + 1, 0);
-            self.generations.resize_with(page + 1, || Cell::new(0));
-            self.mask.resize((page + 1) * WORDS, 0);
-            self.observation_dirty
-                .resize_with((page + 1) * WORDS, || Cell::new(0));
-        }
-        self.mark_slot(index);
-        self.pages[page].get_or_insert_with(|| {
-            // MaybeUninit accepts zero bits for every C, including zero-sized types.
-            // Zero backing bytes also make absent Plain slots safe to upload.
-            // SAFETY: UnsafeCell<[MaybeUninit<C>; PAGE]> accepts all-zero backing.
-            unsafe { Box::<Slots<C>>::new_zeroed().assume_init() }
-        });
-        // SAFETY: the page exists, this slot is absent, and &mut self excludes readers.
-        unsafe { self.ptr(index).write(c) };
-        self.mask[index / 64] |= 1 << (index % 64);
-        self.counts[page] += 1;
-        self.len += 1;
+    pub(crate) fn insert(&mut self, index: usize, value: C) {
+        let mut value = std::mem::ManuallyDrop::new(value);
+        // SAFETY: this storage's descriptor is C; insert consumes the value, and
+        // installs its replacement before dropping an old value (even on panic).
+        unsafe { self.raw.insert(index, (&mut *value as *mut C).cast()) };
     }
     pub(crate) fn remove(&mut self, index: usize) -> Option<C> {
-        if !self.has(index) {
-            return None;
+        let mut value = MaybeUninit::<C>::uninit();
+        // SAFETY: descriptor and destination agree on C; success initializes it.
+        unsafe {
+            self.raw
+                .remove_into(index, value.as_mut_ptr().cast())
+                .then(|| value.assume_init())
         }
-        self.edited();
-        self.membership = self.membership.wrapping_add(1);
-        self.mark_slot(index);
-        let ptr = self.ptr(index);
-        self.mask[index / 64] &= !(1 << (index % 64));
-        self.len -= 1;
-        self.counts[index / PAGE] -= 1;
-        // SAFETY: the slot was present and exclusively owned. Moving it out transfers
-        // ownership; zeroing its MaybeUninit backing keeps absent byte views initialized.
-        let c = unsafe {
-            let c = ptr.read();
-            ptr.write_bytes(0, 1);
-            c
-        };
-        if self.counts[index / PAGE] == 0 {
-            self.pages[index / PAGE] = None;
-            let words = self.observation.get_mut();
-            for cached in words.iter_mut().skip(index / PAGE * WORDS).take(WORDS) {
-                *cached = ObservedWord::default();
-            }
-            while words.last().is_some_and(|word| word.entries.is_empty()) {
-                words.pop();
-            }
-            words.shrink_to_fit();
-        }
-        Some(c)
     }
     pub(crate) fn get(&self, index: usize) -> Option<Ref<'_, C>> {
-        if !self.has(index) {
-            return None;
-        }
-        Some(Ref {
+        self.has(index).then(|| Ref {
             ptr: self.ptr(index),
             _lease: self.lease(false),
             _life: PhantomData,
@@ -296,21 +150,6 @@ impl<C: Data> Storage<C> {
             _lease: lease,
             _life: PhantomData,
         })
-    }
-}
-
-impl<C> Drop for Storage<C> {
-    fn drop(&mut self) {
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let index = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: each presence bit owns exactly one initialized slot; no leases
-                // survive &mut self. Boxes subsequently free only MaybeUninit backing.
-                unsafe { self.ptr(index).drop_in_place() };
-            }
-        }
     }
 }
 
@@ -352,210 +191,14 @@ pub(crate) trait Erased {
         -> Result<(), DataError>;
 }
 pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
-    let mut storage = Box::new(Storage::<C>::default());
-    storage.name = name;
-    storage.epoch = epoch;
-    storage
+    Box::new(Storage::<C> {
+        raw: RawStorage::new::<C>(name, epoch),
+        _type: PhantomData,
+    })
 }
 impl<C: Data> Erased for Storage<C> {
-    #[cfg(test)]
-    fn snapshot_uncached(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
-        mut full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-    ) {
-        let _lease = self.lease(false);
-        if let Some(w) = &mut full {
-            w.begin_seq(self.len);
-        }
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let observe = !skip.is_some_and(|s| s.has(i));
-                if !observe && full.is_none() {
-                    continue;
-                }
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                let value = unsafe { &*self.ptr(i) };
-                if let Some(w) = &mut full {
-                    w.item();
-                    w.begin_seq(2);
-                    w.item();
-                    entity(i).write(*w);
-                    w.item();
-                    if observe {
-                        out.push((i, w.with_observation(value)));
-                    } else {
-                        value.write(*w);
-                    }
-                    w.end_seq();
-                } else {
-                    out.push((i, crate::hash::of(value)));
-                }
-            }
-        }
-        if let Some(w) = &mut full {
-            w.end_seq();
-        }
-    }
-    fn reset_observation(&self) {
-        self.observation.borrow_mut().clear();
-    }
-    fn snapshot(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(u8, &'static str, Entity, u64)>,
-        mut full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-        label: (u8, &'static str),
-    ) {
-        // Even a cache hit must honor an outstanding mutable lease.
-        let _lease = self.lease(false);
-        let mut words = self.observation.borrow_mut();
-        let count = self
-            .mask
-            .iter()
-            .rposition(|&bits| bits != 0)
-            .map_or(0, |i| i + 1);
-        words.resize_with(count, ObservedWord::default);
-        if let Some(w) = &mut full {
-            w.begin_seq(self.len);
-        }
-        for (word, cached) in words.iter_mut().enumerate() {
-            let mask = self.mask[word];
-            let observed = mask & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            let rebuild = cached.mask != Some(observed);
-            let dirty = observed
-                & if rebuild {
-                    u64::MAX
-                } else {
-                    self.observation_dirty[word].get()
-                };
-            if rebuild {
-                cached.mask = None;
-                cached.entries.clear();
-            }
-            // Clean observation-only words never dereference or serialize a value.
-            // Fused samples still stream all values, in the original entity order.
-            let mut bits = if full.is_some() { mask } else { dirty };
-            while bits != 0 {
-                let bit = bits.trailing_zeros() as usize;
-                let index = word * 64 + bit;
-                bits &= bits - 1;
-                let rehash = dirty & (1 << bit) != 0;
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                let value = unsafe { &*self.ptr(index) };
-                let digest = if let Some(w) = &mut full {
-                    w.item();
-                    w.begin_seq(2);
-                    w.item();
-                    entity(index).write(*w);
-                    w.item();
-                    let digest = if rehash {
-                        Some(w.with_observation(value))
-                    } else {
-                        value.write(*w);
-                        None
-                    };
-                    w.end_seq();
-                    digest
-                } else {
-                    Some(crate::hash::of(value))
-                };
-                if let Some(digest) = digest {
-                    if rebuild {
-                        cached.entries.push((index, digest));
-                    } else {
-                        let rank = (observed & ((1u64 << bit) - 1)).count_ones() as usize;
-                        cached.entries[rank].1 = digest;
-                    }
-                }
-            }
-            if observed == 0 {
-                cached.entries = Vec::new();
-            }
-            cached.mask = Some(observed);
-            // Clear only after all writes succeed; a panic cannot bless stale rows.
-            self.observation_dirty[word].set(0);
-            out.extend(
-                cached
-                    .entries
-                    .iter()
-                    .map(|&(i, hash)| (label.0, label.1, entity(i), hash)),
-            );
-        }
-        if let Some(w) = &mut full {
-            w.end_seq();
-        }
-    }
-
     fn has(&self, index: usize) -> bool {
-        self.has(index)
-    }
-    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
-        let _lease = self.lease(false);
-        self.mask.iter().enumerate().any(|(word, &bits)| {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                if unsafe { &*self.ptr(i) }.moving(now) {
-                    return true;
-                }
-            }
-            false
-        })
-    }
-    fn visit_moving(
-        &self,
-        now: crate::Now,
-        skip: Option<&Storage<crate::Ambient>>,
-        visit: &mut dyn FnMut(usize) -> bool,
-    ) {
-        let _lease = self.lease(false);
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence and shared lease protect this slot.
-                if unsafe { &*self.ptr(i) }.moving(now) && !visit(i) {
-                    return;
-                }
-            }
-        }
-    }
-    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64> {
-        let _lease = self.lease(false);
-        let mut at = now.tick;
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                at = at.max(unsafe { &*self.ptr(i) }.settle_tick(now)?);
-            }
-        }
-        Some(at)
-    }
-    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
-        self.get_mut(index)
-            .ok_or_else(|| DataError::new("reload component disappeared"))?
-            .read(r)
-    }
-    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
-        if let Some(c) = self.get(index) {
-            c.write(w);
-            true
-        } else {
-            false
-        }
+        self.raw.has(index)
     }
     fn any(&self) -> &dyn Any {
         self
@@ -564,90 +207,65 @@ impl<C: Data> Erased for Storage<C> {
         self
     }
     fn len(&self) -> usize {
-        self.len
+        self.raw.len()
     }
     fn remove(&mut self, index: usize) {
-        self.remove(index);
+        self.raw.erase(index);
+    }
+    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
+        self.raw.write_one(index, w)
     }
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        let _lease = self.lease(false);
-        w.begin_seq(self.len);
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let index = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                w.item();
-                w.begin_seq(2);
-                w.item();
-                entity(index).write(w);
-                w.item();
-                // SAFETY: the bit proves initialization and the shared lease excludes writers.
-                unsafe { &*self.ptr(index) }.write(w);
-                w.end_seq();
-            }
-        }
-        w.end_seq();
+        self.raw.write(w, entity);
     }
     fn read(
         &mut self,
         r: &mut dyn Reader,
         valid: &dyn Fn(Entity) -> bool,
     ) -> Result<(), DataError> {
-        r.begin_seq()?;
-        if let Some(count) = r.sequence_len() {
-            r.check_allocation(
-                count
-                    .div_ceil(PAGE)
-                    .checked_mul(std::mem::size_of::<Slots<C>>())
-                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
-            )?;
-        }
-        let mut last = None;
-        while r.item()? {
-            r.begin_seq()?;
-            let mut e = Entity::default();
-            if !r.item()? {
-                return Err(DataError::new("missing entity"));
-            }
-            e.read(r)?;
-            if !valid(e) {
-                return Err(DataError::new("stale or invalid entity").at(e.index()));
-            }
-            if !r.item()? {
-                return Err(DataError::new("missing component"));
-            }
-            let page = e.index() as usize / PAGE;
-            if self.pages.get(page).is_none_or(Option::is_none) {
-                // A tiny default component can require an entire 1024-slot page.
-                // Scoped imports refuse that footprint before running its default/read.
-                r.check_allocation(std::mem::size_of::<Slots<C>>())?;
-            }
-            let mut c = C::default();
-            c.read(r).map_err(|err| err.at(e.index()))?;
-            if r.item()? {
-                return Err(DataError::new("extra component entry value"));
-            }
-            if last.is_some_and(|last| last >= e.index()) {
-                return Err(DataError::new("entities are not strictly ordered"));
-            }
-            last = Some(e.index());
-            if page >= self.pages.len() {
-                let pages = page + 1 - self.pages.len();
-                let counts = page + 1 - self.counts.len();
-                let words = (page + 1) * WORDS - self.mask.len();
-                crate::data::limits::reserve(r, &mut self.pages, pages)?;
-                crate::data::limits::reserve(r, &mut self.counts, counts)?;
-                crate::data::limits::reserve(r, &mut self.generations, pages)?;
-                crate::data::limits::reserve(r, &mut self.mask, words)?;
-                crate::data::limits::reserve(r, &mut self.observation_dirty, words)?;
-            }
-            if self.pages.get(page).is_none_or(Option::is_none) {
-                r.claim(std::mem::size_of::<Slots<C>>())?;
-            }
-            self.insert(e.index() as usize, c);
-        }
-        Ok(())
+        self.raw.read(r, valid)
+    }
+    #[cfg(test)]
+    fn snapshot_uncached(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(usize, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+    ) {
+        self.raw.snapshot_uncached(skip, out, full, entity);
+    }
+    fn reset_observation(&self) {
+        self.raw.reset_observation();
+    }
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
+    ) {
+        self.raw.snapshot(skip, out, full, entity, label);
+    }
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut(index)
+            .ok_or_else(|| DataError::new("reload component disappeared"))?
+            .read(r)
+    }
+    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
+        self.raw.moving(now, skip)
+    }
+    fn visit_moving(
+        &self,
+        now: crate::Now,
+        skip: Option<&Storage<crate::Ambient>>,
+        visit: &mut dyn FnMut(usize) -> bool,
+    ) {
+        self.raw.visit_moving(now, skip, visit);
+    }
+    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64> {
+        self.raw.settle_tick(now, skip)
     }
 }
 

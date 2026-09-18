@@ -108,7 +108,7 @@ struct Packet {
     sequence: u64,
     command: Command,
 }
-const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+use exact_game::audio::PCM_BYTE_BUDGET;
 
 /// Main-thread ownership and retry queue. The realtime side only returns a
 /// processed sequence watermark; it never touches an Arc or allocates.
@@ -176,7 +176,17 @@ impl Pending {
                 .values()
                 .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
                 .sum();
-            if std::mem::size_of_val(&**pcm) > self.byte_budget.saturating_sub(used) {
+            let released = self
+                .live
+                .get(&id)
+                .filter(|ptr| {
+                    !self.sent.contains_key(&id)
+                        && self.retained[ptr].1 <= self.acknowledged
+                        && !self.live.iter().any(|(other, p)| *other != id && p == *ptr)
+                        && !self.sent.values().any(|p| p == *ptr)
+                })
+                .map_or(0, |ptr| self.retained[ptr].0.len() * 4);
+            if std::mem::size_of_val(&**pcm) > self.byte_budget.saturating_sub(used - released) {
                 return false;
             }
         }
@@ -710,18 +720,10 @@ mod device {
         fn flush(&mut self) {
             self.pending.flush();
         }
-        fn start_at(
-            &mut self,
-            id: u64,
-            pcm: &Arc<[f32]>,
-            rate: u32,
-            looping: bool,
-            offset: usize,
-            pitch: f32,
-        ) {
-            self.pending.start(id, pcm, rate, looping, offset, pitch);
+        fn owns_pcm(&self, pcm: &Arc<[f32]>) -> bool {
+            self.pending.retained.contains_key(&(pcm.as_ptr() as usize))
         }
-        fn try_start_at(
+        fn start(
             &mut self,
             id: u64,
             pcm: &Arc<[f32]>,

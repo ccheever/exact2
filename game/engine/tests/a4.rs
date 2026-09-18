@@ -242,7 +242,7 @@ fn a4_2_stamps_land_in_the_containing_step_and_pause_and_queue_do_not_lose_relea
     struct SaveQueue {
         queue: Vec<Pending>,
     }
-    let saved: SaveQueue = bin::from_slice(&s.save()[7..]).unwrap();
+    let saved: SaveQueue = bin::from_slice(&s.save().unwrap()[7..]).unwrap();
     assert_eq!(saved.queue.len(), 1024);
     s.advance(100_017.0, Clock::Seekable);
     let r = s.world().resource::<Observed>();
@@ -267,14 +267,14 @@ fn a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_
     two.advance(500.0, Clock::Seekable);
     two.bind(&args(7.0, 0.0, true, 2.0), Some(500.0)).unwrap();
     two.advance(1000.0, Clock::Seekable);
-    assert_eq!(one.save(), two.save());
+    assert_eq!(one.save().unwrap(), two.save().unwrap());
     assert_eq!(one.world().tick(), 30);
     assert_eq!(
         one.world().resource::<Observed>().volume,
         1.0,
         "old args up to the bind"
     );
-    let before = one.save();
+    let before = one.save().unwrap();
     for bad in [
         args(7.0, -1.0, false, 1.0),
         args(-1.0, 0.0, false, 1.0),
@@ -283,13 +283,13 @@ fn a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_
     ] {
         assert!(one.bind(&bad, Some(2000.0)).is_err());
         assert_eq!(
-            one.save(),
+            one.save().unwrap(),
             before,
             "refusal cannot even advance the clock or journal"
         );
     }
     assert!(one.bind(&[], Some(2000.0)).is_err());
-    assert_eq!(one.save(), before);
+    assert_eq!(one.save().unwrap(), before);
     one.bind(&args(7.0, 1.0, false, 2.0), Some(1000.0)).unwrap();
     assert_eq!(one.world().tick(), 0);
     assert!(one
@@ -321,7 +321,7 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
     // A mapped event inside the partially completed step, plus an unmapped future one.
     pointer(&mut original, PointerPhase::Move, 9.0, 714.0);
     original.advance(715.0, Clock::Seekable);
-    let save = original.save();
+    let save = original.save().unwrap();
     original.advance(2000.0, Clock::Seekable);
     for epoch in [0.0, 1_000_000_000.0] {
         let mut restored = sim();
@@ -341,40 +341,6 @@ fn a4_4_save_resumes_at_zero_or_a_billion_ms_and_uses_this_games_identity_and_bi
     let mut other = Sim::<Other>::new(()).unwrap();
     let error = other.restore(&save).unwrap_err().to_string();
     assert!(error.contains("a4-probe") && error.contains("other"));
-    struct Updated;
-    impl Game for Updated {
-        const ID: &'static str = Probe::ID;
-        type Args = ProbeArgs;
-        const SAVE_VERSION: u32 = 2;
-        fn setup(w: &mut World, a: &Self::Args) {
-            Probe::setup(w, a)
-        }
-        fn actions() -> Actions {
-            Actions::new().button("new-action", &["KeyE"])
-        }
-        fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
-        fn migrate(w: &mut World, from: u32) {
-            w.resource_mut::<Observed>().volume = from as f64 + 100.0;
-        }
-    }
-    let mut updated = Sim::<Updated>::new(ProbeArgs {
-        seed: 7,
-        volume: 1.0,
-        ..Default::default()
-    })
-    .unwrap();
-    updated.restore(&save).unwrap();
-    assert_eq!(updated.world().resource::<Observed>().volume, 101.0);
-    let state = updated.agent(r#"{"op":"state"}"#);
-    assert!(state.contains("new-action") && !state.contains("\"act\""));
-    assert!(state.contains("\"held\":[\"KeyE\"]"));
-    let before = original.save();
-    assert!(original
-        .restore(&updated.save())
-        .unwrap_err()
-        .to_string()
-        .contains("newer version 2"));
-    assert_eq!(original.save(), before);
 }
 
 #[test]
@@ -495,9 +461,40 @@ fn a4_8_renderer_observes_completed_propagated_ticks_and_can_upload_only_the_las
 #[test]
 fn setup_rebuild_clears_restored_status() {
     let mut s = sim();
-    s.restore(&s.save()).unwrap();
+    s.restore(&s.save().unwrap()).unwrap();
     assert!(s.agent(r#"{"op":"state"}"#).contains("\"restored\":true"));
     let values = args(999.0, 1.0, false, 1.0);
     s.bind(&values, None).unwrap();
     assert!(s.agent(r#"{"op":"state"}"#).contains("\"restored\":false"));
+}
+
+#[test]
+fn same_id_restore_keeps_new_action_bindings_and_held_physical_keys() {
+    struct Revision<const NEW: bool>;
+    impl<const NEW: bool> Game for Revision<NEW> {
+        const ID: &'static str = "binding-revision";
+        type Args = ();
+        fn actions() -> Actions {
+            Actions::new()
+                .button("old", &[if NEW { "KeyQ" } else { "KeyE" }])
+                .button("new", &[if NEW { "KeyE" } else { "KeyQ" }])
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.insert_resource(Observed::default());
+        }
+        fn tick(w: &mut World, i: &Input, _: &()) {
+            w.resource_mut::<Observed>().held = u32::from(i.held("new"));
+            w.resource_mut::<Observed>().pressed = u32::from(i.held("old"));
+        }
+    }
+    let mut old = Sim::<Revision<false>>::new(()).unwrap();
+    old.advance(0., Clock::Seekable);
+    key(&mut old, true, 1.);
+    old.advance(100., Clock::Seekable);
+    let mut new = Sim::<Revision<true>>::new(()).unwrap();
+    new.restore(&old.save().unwrap()).unwrap();
+    new.advance(0., Clock::Seekable);
+    new.advance(100., Clock::Seekable);
+    assert_eq!(new.world().resource::<Observed>().held, 1);
+    assert_eq!(new.world().resource::<Observed>().pressed, 0);
 }

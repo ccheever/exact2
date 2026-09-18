@@ -75,7 +75,6 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
     struct Edited;
     impl Game for Edited {
         const ID: &'static str = Lanterns::ID;
-        const SAVE_VERSION: u32 = Lanterns::SAVE_VERSION;
         type Args = Options;
         fn actions() -> exact_game::Actions {
             Lanterns::actions()

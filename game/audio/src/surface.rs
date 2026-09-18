@@ -52,9 +52,9 @@ impl SurfacePlayer {
         }
     }
     /// Aggregate visibility/interruption state. Repeated notifications are no-ops.
-    pub fn suspend(&mut self, suspended: bool) {
+    pub fn suspend(&mut self, suspended: bool) -> Result<(), String> {
         if self.suspended == suspended {
-            return;
+            return Ok(());
         }
         self.suspended = suspended;
         if suspended {
@@ -62,13 +62,23 @@ impl SurfacePlayer {
         }
         #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
         if let Some(player) = &mut self.device {
-            if suspended {
-                let _ = player.output.suspend();
+            let result = if suspended {
+                player.output.suspend()
             } else {
-                let _ = player.output.resume();
+                player.output.resume()
+            };
+            if let Err(error) = result {
+                self.device = None; // disposal joins callbacks even when Stop failed
+                self.unlocked = false;
+                self.retry_frames = 300;
+                return Err(format!(
+                    "audio lifecycle failed (retrying in 300 live frames): {error:?}"
+                ));
             }
         }
+        Ok(())
     }
+
     #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
     fn ensure_device(&mut self) {
         if self.seekable || self.suspended || self.device.is_some() || self.retry_frames != 0 {
@@ -154,8 +164,8 @@ mod tests {
         surface.unlock();
         for generation in 0..10 {
             surface.sync(&world, generation, true, true);
-            surface.suspend(true);
-            surface.suspend(false);
+            let _ = surface.suspend(true);
+            let _ = surface.suspend(false);
             surface.unlock();
         }
         assert_eq!(surface.null.cached_sounds(), 0);
@@ -178,6 +188,8 @@ mod test_device {
         pub static FAIL: Cell<bool> = const { Cell::new(false) };
         pub static UNLOCKS: Cell<usize> = const { Cell::new(0) };
         pub static SUSPENDS: Cell<usize> = const { Cell::new(0) };
+        pub static FAIL_SUSPEND: Cell<bool> = const { Cell::new(false) };
+        pub static FAIL_RESUME: Cell<bool> = const { Cell::new(false) };
         pub static RESUMES: Cell<usize> = const { Cell::new(0) };
     }
     pub struct Device {
@@ -196,11 +208,17 @@ mod test_device {
     impl Device {
         pub fn suspend(&mut self) -> Result<(), ()> {
             SUSPENDS.set(SUSPENDS.get() + 1);
+            if FAIL_SUSPEND.get() {
+                return Err(());
+            }
             self.suspended = true;
             Ok(())
         }
         pub fn resume(&mut self) -> Result<(), ()> {
             RESUMES.set(RESUMES.get() + 1);
+            if FAIL_RESUME.get() {
+                return Err(());
+            }
             self.suspended = false;
             Ok(())
         }
@@ -212,7 +230,9 @@ mod test_device {
         fn unlock(&mut self) {
             UNLOCKS.set(UNLOCKS.get() + 1);
         }
-        fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {}
+        fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+            true
+        }
         fn set(&mut self, _: u64, _: f32, _: f32) {}
         fn stop(&mut self, _: u64) {}
     }
@@ -254,17 +274,17 @@ mod test_device {
         let before = world.save();
         surface.sync(&world, 0, true, false);
         let epoch = surface.epoch;
-        surface.suspend(false);
+        let _ = surface.suspend(false);
         surface.sync(&world, 0, true, false);
         assert_eq!(surface.epoch, epoch);
         assert_eq!(RESUMES.get(), 0);
-        surface.suspend(true);
-        surface.suspend(true);
+        let _ = surface.suspend(true);
+        let _ = surface.suspend(true);
         surface.sync(&world, 0, true, false);
-        surface.suspend(false);
+        let _ = surface.suspend(false);
         surface.sync(&world, 0, true, false);
         assert_eq!(surface.epoch, epoch + 1);
-        surface.suspend(false);
+        let _ = surface.suspend(false);
         surface.sync(&world, 0, true, false);
         assert_eq!(surface.epoch, epoch + 1);
         assert_eq!(world.save(), before);
@@ -291,5 +311,38 @@ mod test_device {
             surface.sync(&world, 0, true, false);
         }
         assert_eq!(ATTEMPTS.get(), 4);
+    }
+    #[test]
+    fn failed_stop_disposes_device_and_failed_resume_enters_bounded_retry() {
+        for stop in [true, false] {
+            FAIL.set(false);
+            ATTEMPTS.set(0);
+            let mut surface = super::SurfacePlayer::default();
+            let world = exact_game::World::new(60, 0);
+            surface.sync(&world, 0, true, false);
+            FAIL_SUSPEND.set(stop);
+            assert_eq!(surface.suspend(true).is_err(), stop);
+            FAIL_SUSPEND.set(false);
+            if stop {
+                assert!(
+                    surface.device.is_none(),
+                    "failed stop must dispose the device"
+                );
+            }
+            FAIL_RESUME.set(!stop);
+            assert_eq!(surface.suspend(false).is_err(), !stop);
+            FAIL_RESUME.set(false);
+            assert!(
+                surface.device.is_none(),
+                "failed start must dispose the device"
+            );
+            assert_eq!(surface.retry_frames, 300);
+            for _ in 0..299 {
+                surface.sync(&world, 0, true, false);
+            }
+            assert_eq!(ATTEMPTS.get(), 1);
+            surface.sync(&world, 0, true, false);
+            assert_eq!(ATTEMPTS.get(), 2);
+        }
     }
 }

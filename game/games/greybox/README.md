@@ -38,3 +38,12 @@ EXACT_APP_DIR="$PWD/game/games/greybox" bun host/web/dev.mjs --loopback
 
 The proof also checks browser first paint, the lazy GPU fetch after Play and the
 published timing fields. These measure rendering opportunities, not scanout.
+
+
+The HUD uses `publish_record(&Hud { beacons })` over `Data`; Contract checks its
+shape. Player movement requires `query.one().expect("one player")`, and only ground
+and bounds override `Character` defaults. Proximity uses global positions. Native
+saves use `sim.save()?`; proofs use `session.world("world").save(path)` over the
+existing screenshot-save transport. Native layout/pick reads have typed results.
+Sound playback uses `&World` inside the beacon loop, and wind is
+`AudioSource::new("wind").gain(0.3)`. This game has no restart control.

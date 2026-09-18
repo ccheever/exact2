@@ -153,7 +153,7 @@ fn controlled_restore_anchors_destination_clock_before_first_advance() {
         key(&mut original, "KeyW", true, 0.0);
         original.run(500.0);
         key(&mut original, "KeyE", true, 750.0);
-        let saved = original.save();
+        let saved = original.save().unwrap();
         original.run(500.0);
 
         let mut restored = sim();
@@ -165,7 +165,7 @@ fn controlled_restore_anchors_destination_clock_before_first_advance() {
             restored.restore(&saved).unwrap();
         }
         assert_eq!(restored.world().tick(), 30);
-        assert_eq!(restored.save(), saved);
+        assert_eq!(restored.save().unwrap(), saved);
         let state = restored.agent(r#"{"op":"state"}"#);
         assert!(state.contains(r#""hostMicros":9000000"#), "{state}");
         assert!(state.contains(r#""owner":"agent""#), "{state}");
@@ -177,20 +177,24 @@ fn controlled_restore_anchors_destination_clock_before_first_advance() {
             };
             let reply = restored.agent(&format!(r#"{{"op":"{op}","now":999999{entity}}}"#));
             assert!(!reply.contains("error"), "{reply}");
-            assert_eq!(restored.save(), saved, "inspection must remain read-only");
+            assert_eq!(
+                restored.save().unwrap(),
+                saved,
+                "inspection must remain read-only"
+            );
         }
         assert_eq!(restored.advance(9500.0, Clock::Seekable), 30);
         assert_eq!(restored.world().tick(), 60);
         assert_eq!(restored.alpha(), 0.0, "seekable has no lookahead");
         assert_eq!(restored.world().resource::<Counts>().pressed, 1);
         assert_eq!(
-            restored.save(),
-            original.save(),
+            restored.save().unwrap(),
+            original.save().unwrap(),
             "held and future input survive"
         );
-        let before = restored.save();
+        let before = restored.save().unwrap();
         assert!(restored.restore(b"invalid").is_err());
-        assert_eq!(restored.save(), before);
+        assert_eq!(restored.save().unwrap(), before);
         assert_eq!(restored.advance(9600.0, Clock::Seekable), 6);
     }
 }
@@ -201,7 +205,7 @@ fn live_restore_rebases_without_counting_paused_wall_time() {
         let mut original = sim();
         original.run(500.0);
         key(&mut original, "KeyE", true, 550.0);
-        let saved = original.save();
+        let saved = original.save().unwrap();
         // Compare like clocks: live accepts input exactly on its deadline;
         // seekable keeps the strict tick-stamped rule.
         original.frame_period(1000.0 / 60.0);
@@ -218,14 +222,14 @@ fn live_restore_rebases_without_counting_paused_wall_time() {
         assert!(state.contains(r#""hostMicros":null"#), "{state}");
         assert!(state.contains(r#""owner":"human""#), "{state}");
         assert_eq!(restored.world().tick(), 30);
-        assert_eq!(restored.save(), saved);
+        assert_eq!(restored.save().unwrap(), saved);
         restored.frame_period(1000.0 / 60.0);
         assert_eq!(restored.advance(900_000.0, Clock::Live), 0);
         assert_eq!(restored.world().tick(), 30, "paused wall time is discarded");
         assert_eq!(restored.advance(900_100.0, Clock::Live), 6);
         assert_eq!(restored.world().tick(), 36);
         assert_eq!(restored.alpha(), 1.0, "F2c renders at T + L - step");
-        assert_eq!(restored.save(), original.save());
+        assert_eq!(restored.save().unwrap(), original.save().unwrap());
     }
 }
 #[test]
@@ -405,7 +409,7 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     s.world().emit("first");
     s.world().emit("second");
     assert_eq!(s.world().hash(), empty_hash);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
     assert_eq!(s.take_messages(), ["first", "second"]);
@@ -419,12 +423,12 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     assert_eq!(s.world().hash(), empty_hash);
     assert_eq!(restored.take_published().as_deref(), Some("{\"count\":4}"));
     assert_eq!(s.take_published(), Some("{\"count\":4}".into()));
-    let saved = s.save(); // publication was already delivered before this save
+    let saved = s.save().unwrap(); // publication was already delivered before this save
     restored.restore(&saved).unwrap();
     assert_eq!(restored.take_published().as_deref(), Some("{\"count\":4}"));
     assert!(restored.take_published().is_none());
     assert_eq!(
-        restored.save(),
+        restored.save().unwrap(),
         saved,
         "delivery cursor is not simulation state"
     );
@@ -437,25 +441,25 @@ fn overflow_warning_is_saved_behavior() {
         key(&mut a, "KeyE", i % 2 == 0, 0.0);
     }
     let mut b = sim();
-    b.restore(&a.save()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
     b.advance(0.0, Clock::Seekable);
     for i in 1030..1040 {
         key(&mut a, "KeyE", i % 2 == 0, 0.0);
         key(&mut b, "KeyE", i % 2 == 0, 0.0);
     }
-    assert_eq!(a.save(), b.save());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
 }
 
 #[test]
 fn older_saves_default_the_overflow_warning_flag() {
     let s = sim();
-    let mut bytes = s.save();
+    let mut bytes = s.save().unwrap();
     let field = b"\x01\x00\x0foverflow_logged";
     let at = bytes.windows(field.len()).position(|v| v == field).unwrap();
     bytes.drain(at..at + field.len() + 1);
     let mut restored = sim();
     restored.restore(&bytes).unwrap();
-    assert_eq!(s.save(), restored.save());
+    assert_eq!(s.save().unwrap(), restored.save().unwrap());
 }
 
 #[test]
@@ -477,7 +481,7 @@ fn delivery_is_saved_but_never_changes_simulation_hash() {
     a.world().emit("second");
     assert_eq!(before, a.world().hash());
     assert_eq!(epoch, a.world().mutation_epoch());
-    let saved = a.save();
+    let saved = a.save().unwrap();
     let mut b = sim();
     b.restore(&saved).unwrap();
     assert_eq!(b.take_messages(), ["first", "second"]);
@@ -504,7 +508,7 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
     });
     a.run(100.0);
     let mut b = sim();
-    b.restore(&a.save()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
     a.run(100.0);
     b.run(100.0);
     assert_eq!(a.world().hash(), b.world().hash());
@@ -517,7 +521,7 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
 #[test]
 fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut old = saved.clone();
     assert!(saved.starts_with(b"EXSIM\0\x06"));
     old[6] = 4;
@@ -526,7 +530,7 @@ fn old_save_containers_are_refused_by_name_atomically() {
         .unwrap_err()
         .to_string()
         .contains("EXSIM v6"));
-    assert_eq!(s.save(), saved);
+    assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
     assert!(saved.starts_with(b"EXGAME\0\x03"));
@@ -543,7 +547,7 @@ fn old_save_containers_are_refused_by_name_atomically() {
 #[test]
 fn wrong_magic_reports_actual_bytes_and_expected_format() {
     let mut s = sim();
-    let saved = s.save();
+    let saved = s.save().unwrap();
     for bytes in [
         b"random!!".to_vec(),
         b"EXGAME\0\x02".to_vec(),
@@ -562,7 +566,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
             error.contains(&seen) && error.contains("EXGAME v3"),
             "{error}"
         );
-        assert_eq!(s.save(), saved);
+        assert_eq!(s.save().unwrap(), saved);
     }
 }
 
@@ -586,12 +590,113 @@ fn unknown_period_has_no_lookahead_and_duplicates_preserve_the_pose() {
     assert_eq!(s.world().tick(), 0);
     s.frame_period(1000.0 / 120.0);
     s.advance(10.0, Clock::Live);
-    assert_eq!(s.world().tick(), 1);
+    assert_eq!(s.world().tick(), 0); // A new period cannot move a zero-delta pose.
     let pose = drawn_counter(&s);
     for _ in 0..10 {
         assert_eq!(s.ticks_due(10.0, Clock::Live), 0);
         assert_eq!(s.advance(10.0, Clock::Live), 0);
         assert_eq!(drawn_counter(&s), pose);
+    }
+}
+#[test]
+fn period_transitions_share_one_bounded_monotonic_render_slew() {
+    for (old, new) in [(0.0, 60.0), (60.0, 120.0), (60.0, 144.0), (120.0, 60.0)] {
+        for offset in [0.0, 3.1, 6.2] {
+            let mut s = if old == 0.0 { sim() } else { live(old) };
+            let before_period = 1000.0 / if old == 0.0 { new } else { old };
+            let mut now = offset;
+            for _ in 0..600 {
+                now += before_period;
+                s.advance(now, Clock::Live);
+            }
+            let period = 1000.0 / new;
+            let mut previous = drawn_counter(&s);
+            s.frame_period(period);
+            assert_eq!(s.advance(now, Clock::Live), 0);
+            assert_eq!(drawn_counter(&s), previous);
+            for frame in 1..=1800 {
+                now += period;
+                assert_eq!(s.ticks_due(now, Clock::Live), s.advance(now, Clock::Live));
+                let drawn = drawn_counter(&s);
+                let delta = (drawn - previous) * 1000.0 / 60.0;
+                assert!(delta > 0.0);
+                assert!(
+                    (delta - period).abs() <= period * 0.0025 + 0.00003,
+                    "{old}->{new}, {offset}, frame {frame}: {delta}"
+                );
+                previous = drawn;
+            }
+            // L has actually arrived, rather than merely ignoring the new rate.
+            // The grid has also settled: ticking frames have the new rate's alpha.
+            let mut ticking = 0;
+            for _ in 0..60 {
+                now += period;
+                if s.advance(now, Clock::Live) > 0 {
+                    ticking += 1;
+                }
+                let horizon = drawn_counter(&s) + 1.0;
+                let l = period.min(1000.0 / 60.0) * 60.0 / 1000.0;
+                // The world time in a save is exact when this frame did not tick early.
+                if s.alpha() as f64 >= l {
+                    let mut restored = sim();
+                    restored.restore(&s.save().unwrap()).unwrap();
+                    assert!(
+                        (horizon - l - restored.world().tick() as f64 - restored.alpha() as f64)
+                            .abs()
+                            < 0.0001
+                    );
+                }
+            }
+            assert!(ticking > 0);
+        }
+    }
+}
+#[test]
+fn sub_half_percent_period_noise_cannot_restart_grid_slew() {
+    let mut stable = live(144.0);
+    let mut noisy = live(144.0);
+    for frame in 1..=1500 {
+        let period = 1000.0 / 144.0;
+        noisy.frame_period(period * if frame % 2 == 0 { 1.004 } else { 0.996 });
+        let now = 3.1 + frame as f64 * period;
+        assert_eq!(
+            stable.advance(now, Clock::Live),
+            noisy.advance(now, Clock::Live)
+        );
+        assert_eq!(stable.alpha(), noisy.alpha());
+        assert_eq!(stable.save().unwrap(), noisy.save().unwrap());
+    }
+}
+#[test]
+fn duplicate_stamp_with_negative_half_unit_remainder_cannot_retreat() {
+    let mut s = sim();
+    let now = 20.000025; // 1_200_001.5 units: round up and retain -0.5.
+    s.advance(now, Clock::Live);
+    let pose = drawn_counter(&s);
+    let saved = s.save().unwrap();
+    for _ in 0..100 {
+        assert_eq!(s.ticks_due(now, Clock::Live), 0);
+        assert_eq!(s.advance(now, Clock::Live), 0);
+        assert_eq!(drawn_counter(&s), pose);
+        assert_eq!(s.save().unwrap(), saved);
+    }
+}
+#[test]
+fn delivered_live_input_is_eligible_at_the_paced_frame_but_seekable_future_waits() {
+    for clock in [Clock::Live, Clock::Seekable] {
+        let mut s = live(60.0);
+        s.device_input(InputEvent::Key {
+            code: "KeyE".into(),
+            down: true,
+            at_ms: 16.8,
+        });
+        assert_eq!(s.advance(1000.0 / 60.0, clock), 1);
+        assert_eq!(
+            s.world().resource::<Counts>().pressed,
+            u32::from(clock == Clock::Live)
+        );
+        s.advance(33.334, clock); // Seekable rounds to integer µs, past tick 2.
+        assert_eq!(s.world().resource::<Counts>().pressed, 1);
     }
 }
 #[test]
@@ -746,7 +851,7 @@ fn submicrosecond_backwards_stamps_cannot_add_time_or_change_lookahead() {
     let mut s = live(120.0);
     s.advance(10.0004, Clock::Live);
     let pose = drawn_counter(&s);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     for _ in 0..1000 {
         s.frame_period(1000.0 / 60.0);
         assert_eq!(s.ticks_due(9.9996, Clock::Live), 0);
@@ -755,7 +860,7 @@ fn submicrosecond_backwards_stamps_cannot_add_time_or_change_lookahead() {
         s.frame_period(1000.0 / 120.0);
         assert_eq!(s.advance(10.0004, Clock::Live), 0);
         assert_eq!(drawn_counter(&s), pose);
-        assert_eq!(s.save(), saved);
+        assert_eq!(s.save().unwrap(), saved);
     }
 }
 #[test]
@@ -764,22 +869,22 @@ fn early_live_save_and_switch_catch_the_exact_clock_up_without_a_tick() {
     s.advance(10.0, Clock::Live);
     assert_eq!(s.world().tick(), 1);
     key(&mut s, "KeyE", true, 12.0); // A future input survives save and switch.
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let hash = s.world().hash();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
-    assert_eq!(restored.save(), saved);
+    assert_eq!(restored.save().unwrap(), saved);
     assert_eq!(restored.world().hash(), hash);
     assert!(restored.alpha() < 0.0001); // ceil(1e6/60) us, exact seekable convention.
     assert_eq!(s.ticks_due(10.0, Clock::Seekable), 0);
     assert_eq!(s.advance(10.0, Clock::Seekable), 0);
-    assert_eq!(s.save(), saved);
+    assert_eq!(s.save().unwrap(), saved);
     assert_eq!(s.world().hash(), hash);
     restored.advance(10.0, Clock::Seekable);
     for now in [12.0, 26.667, 43.334, 100.0] {
         s.advance(now, Clock::Seekable);
         restored.advance(now, Clock::Seekable);
-        assert_eq!(s.save(), restored.save());
+        assert_eq!(s.save().unwrap(), restored.save().unwrap());
         assert_eq!(s.world().hash(), restored.world().hash());
     }
     assert_eq!(s.world().resource::<Counts>().pressed, 1);
@@ -822,7 +927,7 @@ fn slew_and_period_are_absent_from_save_state_snapshot_and_seekable_continuation
         s.advance(3.0 + frame as f64 * 1000.0 / 120.0, Clock::Live);
     }
     let mut plain = sim();
-    plain.restore(&s.save()).unwrap();
+    plain.restore(&s.save().unwrap()).unwrap();
     assert_eq!(s.world().hash(), plain.world().hash());
     assert_eq!(s.world().save(), plain.world().save());
     assert!(plain
@@ -847,7 +952,7 @@ fn slew_and_period_are_absent_from_save_state_snapshot_and_seekable_continuation
     for delta in [0.0, 1.0, 16.667, 100.0, 1000.0] {
         s.advance(now + delta, Clock::Seekable);
         plain.advance(now + delta, Clock::Seekable);
-        assert_eq!(s.save(), plain.save());
+        assert_eq!(s.save().unwrap(), plain.save().unwrap());
         assert_eq!(s.world().hash(), plain.world().hash());
     }
 }
@@ -957,7 +1062,7 @@ fn bound_restore_keeps_tick_registered_types_without_replacing_setup_registratio
     }
     let mut s = Sim::<Dynamic>::new(()).unwrap();
     s.run(500.0);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut fresh = Sim::<Dynamic>::new(()).unwrap();
     assert!(fresh
         .restore_bound(&saved)
@@ -966,7 +1071,7 @@ fn bound_restore_keeps_tick_registered_types_without_replacing_setup_registratio
         .contains("unregistered"));
     s.restore_bound(&saved).unwrap();
     assert_eq!(s.world().get::<Late>("late").unwrap().value, 30);
-    assert_eq!(s.save(), saved);
+    assert_eq!(s.save().unwrap(), saved);
 }
 
 // Retained trunk regression, with an explicit F2d host period.
@@ -1016,10 +1121,10 @@ fn live_catchup_pause_save_and_seekable_transition() {
     s.frame_period(10.0);
     s.advance(0.0, Clock::Live);
     s.advance(10.0, Clock::Live);
-    let saved = s.save(); // F2d saves at tick 1's deadline, rounded up to a microsecond.
+    let saved = s.save().unwrap(); // F2d saves at tick 1's deadline, rounded up to a microsecond.
     let mut restored = sim();
     restored.restore(&saved).unwrap();
-    assert_eq!(restored.save(), saved);
+    assert_eq!(restored.save().unwrap(), saved);
     // Presentation lookahead is not saved; restore has no live history yet.
     assert!((restored.alpha() - 0.00002).abs() < 1e-7);
     assert!((s.alpha() - 0.2).abs() < 1e-6);
@@ -1219,7 +1324,7 @@ fn reload_report_survives_ticks_clears_on_restore_and_refusal_is_atomic() {
     let mut old = Sim::<ReloadGame<false>>::new(()).unwrap();
     old.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
     old.agent(r#"{"op":"clock","ticks":1}"#);
-    let saved = old.save();
+    let saved = old.save().unwrap();
     for bound in [false, true] {
         let mut next = Sim::<ReloadGame<true>>::new(()).unwrap();
         next.agent(r#"{"op":"clock","owner":"agent","now":9000}"#);
@@ -1240,18 +1345,18 @@ fn reload_report_survives_ticks_clears_on_restore_and_refusal_is_atomic() {
         let probe = next.world().get::<ReloadProbe>("probe").unwrap();
         assert_eq!((probe.authored, probe.running), (2, 11));
         drop(probe);
-        let current = next.save();
+        let current = next.save().unwrap();
         let mut v5 = current.clone();
         v5[6] = 5;
         let error = next.restore_bound(&v5).unwrap_err();
         assert!(error.message.contains("restart required"));
-        assert_eq!(next.save(), current);
+        assert_eq!(next.save().unwrap(), current);
         next.agent(r#"{"op":"clock","ticks":2}"#);
         let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
         assert_eq!(state.world.reload.applied.len(), 1);
-        let saved = next.save();
+        let saved = next.save().unwrap();
         next.restore_bound(&saved).unwrap();
-        assert_eq!(next.save(), saved);
+        assert_eq!(next.save().unwrap(), saved);
         let state: ReloadEnvelope = json::from_str(&next.agent(r#"{"op":"state"}"#)).unwrap();
         assert!(state.world.reload.applied.is_empty() && state.world.reload.kept.is_empty());
     }

@@ -1,8 +1,7 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
-use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
-use exact_game::{
-    Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE,
-};
+use crate::{shapes, Batch, MeshId, RenderError, Vertex};
+use exact_game::scene::Animation;
+use exact_game::{Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 mod assets;
@@ -13,7 +12,7 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
-    fn model(&self, _: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
+    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
         None
     }
     fn assets_revision(&self) -> u64 {
@@ -40,18 +39,28 @@ pub(crate) trait Writes {
     fn update_mesh(&mut self, _mesh: MeshId, _vertices: &[Vertex]) {}
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
-impl Writes for Renderer {
-    fn model(&self, name: &str) -> Option<&[(MeshId, crate::MaterialId, glam::Mat4)]> {
-        self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
+    fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
+        if ASSETS {
+            self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+        } else {
+            None
+        }
     }
     fn assets_revision(&self) -> u64 {
         self.models.revision
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
-        self.set_draw_instances(records)
+        if ASSETS {
+            self.set_draw_instances(records)
+        } else {
+            Ok(())
+        }
     }
     fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
-        self.model_poses(w, entities, initial);
+        if ASSETS {
+            self.model_poses(w, entities, initial);
+        }
     }
     fn max_slots(&self) -> u32 {
         self.max_slots()
@@ -108,7 +117,7 @@ impl Shape {
             Mesh::Plane { .. } => Self::Plane,
             Mesh::Capsule { .. } => Self::Capsule,
             Mesh::Asset(name) => {
-                return Err(RenderError::scene(format!(
+                return Err(RenderError::Scene(format!(
                     "Mesh.Asset({name}): asset meshes are not implemented"
                 )))
             }
@@ -248,13 +257,13 @@ impl Feed {
         let mut feed = Self::default();
         for asset in assets {
             let model = crate::assets::Model::parse(asset.bytes)
-                .map_err(|e| RenderError::scene(format!("asset `{}`: {e}", asset.name)))?;
+                .map_err(|e| RenderError::Scene(format!("asset `{}`: {e}", asset.name)))?;
             if feed
                 .embedded_assets
                 .insert(asset.name.to_owned(), model)
                 .is_some()
             {
-                return Err(RenderError::scene(format!(
+                return Err(RenderError::Scene(format!(
                     "asset `{}` is declared twice",
                     asset.name
                 )));
@@ -283,7 +292,11 @@ impl Feed {
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
     /// Initial feeding initializes both histories, including a world's setup tick.
-    pub fn feed(&mut self, world: &World, renderer: &mut Renderer) -> Result<(), RenderError> {
+    pub fn feed<const ASSETS: bool>(
+        &mut self,
+        world: &World,
+        renderer: &mut crate::renderer::RendererWithAssets<ASSETS>,
+    ) -> Result<(), RenderError> {
         let _scope = renderer.audit.enter();
         renderer.audit.tick(world.tick());
         self.feed_to(world, renderer)
@@ -297,6 +310,20 @@ impl Feed {
         self.scene.frame(world, alpha, aspect)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
+        for &entity in &self.assets.entities {
+            if w.global(entity)
+                .is_some_and(|p| p.matrix3.determinant() < 0.)
+            {
+                if let Some(mesh) = w.get::<Mesh>(entity) {
+                    if let Mesh::Asset(name) = &*mesh {
+                        return Err(RenderError::Scene(format!(
+                            "asset `{name}`: negative-determinant entity transform is unsupported"
+                        )));
+                    }
+                }
+            }
+        }
+
         // Retain only this feed's old identities to attribute redundant embedded uploads.
         // This does not preserve their allocations or change reset behavior.
         let restored = if self.generation != w.presentation_generation() {
@@ -434,7 +461,7 @@ impl Feed {
                 group.slots.clear();
             }
             for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
-                mesh.validate().map_err(RenderError::scene)?;
+                mesh.validate().map_err(RenderError::Scene)?;
                 if matches!(mesh, Mesh::Asset(name) if !self.embedded_assets.contains_key(name)) {
                     continue;
                 }
@@ -450,7 +477,7 @@ impl Feed {
                     Mesh::Asset(name) => {
                         if !self.asset_instances.contains_key(&e) {
                             let model = self.embedded_assets.get(name).ok_or_else(|| {
-                                RenderError::scene(format!(
+                                RenderError::Scene(format!(
                                     "Mesh.Asset({name}): no declared asset has that name"
                                 ))
                             })?;
@@ -460,7 +487,7 @@ impl Feed {
                                 .map(|a| a.clip.as_str())
                                 .or_else(|| model.clip_names().next())
                                 .ok_or_else(|| {
-                                    RenderError::scene(format!(
+                                    RenderError::Scene(format!(
                                         "Mesh.Asset({name}): asset has no animation"
                                     ))
                                 })?;
@@ -468,7 +495,7 @@ impl Feed {
                             let looped = animation.as_ref().is_none_or(|a| a.looped);
                             let sampled = model
                                 .sample(clip, seconds, looped)
-                                .map_err(RenderError::scene)?;
+                                .map_err(RenderError::Scene)?;
                             self.asset_vertices.clear();
                             self.asset_vertices
                                 .extend(sampled.into_iter().map(asset_vertex));
@@ -537,7 +564,7 @@ impl Feed {
                     .map(|a| a.clip.as_str())
                     .or_else(|| model.clip_names().next())
                     .ok_or_else(|| {
-                        RenderError::scene(format!("Mesh.Asset({name}): asset has no animation"))
+                        RenderError::Scene(format!("Mesh.Asset({name}): asset has no animation"))
                     })?;
                 let sampled = model
                     .sample(
@@ -545,7 +572,7 @@ impl Feed {
                         animation.as_ref().map_or(0.0, |a| a.seconds),
                         animation.as_ref().is_none_or(|a| a.looped),
                     )
-                    .map_err(RenderError::scene)?;
+                    .map_err(RenderError::Scene)?;
                 self.asset_vertices.clear();
                 self.asset_vertices
                     .extend(sampled.into_iter().map(asset_vertex));
@@ -627,7 +654,7 @@ impl Feed {
             }
             r.batches(&self.batches, &self.slots)?;
         }
-        if !self.assets.records.is_empty() && (moved || batches) {
+        if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
             r.model_poses(w, &self.assets.entities, initial || batches);
         }
         self.scene.feed(
@@ -662,8 +689,7 @@ fn check_page(
     if let Some((word, bits)) = mask.iter().enumerate().rev().find(|(_, bits)| **bits != 0) {
         let slot = u64::from(first) + (word * 64 + 63 - bits.leading_zeros() as usize) as u64;
         if slot >= u64::from(limit) {
-            return Err(RenderError {
-                detail: None,
+            return Err(RenderError::Capacity {
                 arena,
                 slot,
                 limit: u64::from(limit),
@@ -711,4 +737,4 @@ fn material_floats(m: Material) -> [f32; 12] {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

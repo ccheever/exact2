@@ -3,10 +3,11 @@
 #![forbid(unsafe_code)]
 
 use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
+use exact_game::scene::Animation;
 use exact_game::{
-    scene, Actions, Animation, Asset, Bloom, Camera, Component, DirectionalLight, Environment, Fog,
-    Follow, Game, Id, Input, Kind, Material, Mesh, Parent, PointLight, Quat, Region, Resource,
-    Spring, Stick, Transform, Vec2, Vec3, World,
+    scene, Actions, Asset, Bloom, Camera, Component, DirectionalLight, Environment, Fog, Follow,
+    Game, Id, Input, Kind, Material, Mesh, Parent, PointLight, Quat, Region, Resource, Spring,
+    Stick, Transform, Vec2, Vec3, World,
 };
 use exact_game_physics::{self as physics, Body, Character, Collider, Physics};
 
@@ -121,7 +122,6 @@ pub struct Lanterns;
 impl Game for Lanterns {
     const CAPTURE_SUPPORTED: bool = true;
     const ID: &'static str = "lanterns";
-    const SAVE_VERSION: u32 = 2;
     type Args = Options;
 
     fn assets() -> &'static [Asset] {

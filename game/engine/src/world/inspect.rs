@@ -1,5 +1,4 @@
 use super::*;
-use crate::values::{quote, value_json};
 
 impl World {
     /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
@@ -136,22 +135,24 @@ impl World {
         *self.journal.borrow_mut() = lines.into();
         self.journal_next.set(next);
     }
-    pub(crate) fn publications(&self) -> BTreeMap<String, Value> {
+    pub(crate) fn publications(&self) -> BTreeMap<String, crate::values::Stored> {
         self.published.borrow().clone()
     }
-    pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, Value>) {
+    pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, crate::values::Stored>) {
         *self.published.borrow_mut() = values;
     }
     pub(crate) fn published_json(&self, rounded: bool) -> String {
-        format!(
-            "{{{}}}",
-            self.published
-                .borrow()
-                .iter()
-                .map(|(k, v)| format!("{}:{}", quote(k), value_json(v, rounded)))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
+        let mut out = String::from("{");
+        for (i, (key, value)) in self.published.borrow().iter().enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            crate::json::quote_into(&mut out, key);
+            out.push(':');
+            value.append_json(&mut out, rounded);
+        }
+        out.push('}');
+        out
     }
     pub(crate) fn component_names(&self, e: Entity) -> Vec<&str> {
         self.components
@@ -170,14 +171,16 @@ impl World {
         storages: &BTreeMap<&str, Box<dyn Erased>>,
         index: usize,
     ) -> Result<String, DataError> {
-        let mut fields = Vec::new();
+        let mut w = crate::json::Encoder::default(); // State round-trips; only layout is rounded.
+        w.begin_struct();
         for (name, s) in storages {
-            let mut w = crate::json::Encoder::default(); // State must round-trip; only layout is rounded.
-            if s.write_one(index, &mut w) {
-                fields.push(format!("{}:{}", quote(name), w.finish()?));
+            if s.has(index) {
+                w.field(name);
+                s.write_one(index, &mut w);
             }
         }
-        Ok(format!("{{{}}}", fields.join(",")))
+        w.end_struct();
+        w.finish()
     }
 }
 
@@ -194,6 +197,7 @@ pub(crate) struct Observation {
     entries: Vec<(u8, &'static str, Entity, u64)>,
     #[cfg(test)]
     scratch: Vec<(usize, u64)>,
+    published: Vec<(String, u64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -253,7 +257,7 @@ impl World {
             } else {
                 (
                     &mut cache.globals,
-                    parents.map_or(0, Storage::page_count),
+                    parents.map_or(0, |s| s.page_count()),
                     "global",
                 )
             };
@@ -361,6 +365,14 @@ impl World {
             w.field("rng");
         }
         let rng_hash = self.rng.observation_hash(full.as_mut()).unwrap();
+        let published = self.published.borrow();
+        out.published.resize_with(published.len(), Default::default);
+        for ((key, hash), (name, value)) in out.published.iter_mut().zip(published.iter()) {
+            if key != name {
+                key.clone_from(name);
+            }
+            *hash = crate::hash::of(value);
+        }
         out.entries.clear();
         let ambient = self.storage::<crate::Ambient>();
         self.observe_structure(out);
@@ -397,11 +409,27 @@ impl World {
     pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
         self.observed_epoch = self.mutation_epoch();
         self.changing.clear();
-        if before.entries == after.entries {
-            self.observation = ObservationState::Still;
-            return;
+        self.observation = if before.entries == after.entries && before.published == after.published
+        {
+            ObservationState::Still
+        } else {
+            ObservationState::Changing
+        };
+        if before.published != after.published {
+            for (key, _) in before.published.iter().chain(&after.published) {
+                if self.changing.len() >= 8 {
+                    break;
+                }
+                if before.published.iter().find(|v| &v.0 == key)
+                    != after.published.iter().find(|v| &v.0 == key)
+                {
+                    let reason = format!("published.{key}");
+                    if !self.changing.contains(&reason) {
+                        self.changing.push(reason);
+                    }
+                }
+            }
         }
-        self.observation = ObservationState::Changing;
         let (mut a, mut b) = (0, 0);
         while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
             let old = before.entries.get(a);

@@ -234,7 +234,7 @@ test('world convenience keeps simulation fields only and dispatches the existing
     ['state','arena:*'], ['state','arena:*'], ['state','arena:*'], ['state','arena:player'],
     ['screenshot','checkpoint.world','arena','save'], ['type','arena',{key:'KeyW',phase:'down'}],
     ['type','arena',{key:'KeyE'}], ['type','arena',{key:'KeyW',for:1500}],
-    ['type','arena',{key:'KeyW',phase:'up'}], ['clock','+100'], ['clock','settle'],
+    ['type','arena',{key:'KeyW',phase:'up'}], ['clock','+0'], ['clock','+100'], ['clock','settle'],
     ['state','arena:player'], ['state','arena:player'], ['state','arena:missing'], ['state','arena:player'],
   ]);
   expect(calls[1].reply).toMatchObject({clock:2000,epoch:1,incarnation:1});

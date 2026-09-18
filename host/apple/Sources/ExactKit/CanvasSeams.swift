@@ -91,6 +91,14 @@ struct SurfaceCheckpointStore {
 }
 
 extension Canvases {
+    func bindSurface(_ m: GpuModule, _ e: Entry) -> UInt32 {
+        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return 1 }
+        let now = session?.now() ?? 0
+        return data.withUnsafeBytes { bytes in
+            if let bindAt = m.bindAt { return bindAt(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, now) }
+            return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
+        }
+    }
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
               session?.presenter.views[id] === e.view else { return nil }
@@ -114,12 +122,26 @@ extension Canvases {
             let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
             guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
         }
-        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) ?? false }
-        if ok { worldInput.bytes = nil }
-        else {
-            e.restoreError = "surface \(e.name): restore refused: \(m.error())"
+        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) ?? false }
+        e.restorePending = true
+        finishRestore(m, e, refusal: ok ? nil : m.error())
+    }
+
+    func finishRestore(_ m: GpuModule, _ e: Entry, refusal: String? = nil) {
+        guard e.restorePending else { return }
+        if let refusal {
+            e.restorePending = false
+            e.restoreError = "surface \(e.name): restore refused: \(refusal)"
             restoreJournal.append(["canvas": e.view.id, "lines": [e.restoreError!]])
+            return
         }
+        let request = Array("{\"op\":\"state\"}".utf8)
+        let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
+        guard let data = m.output(length),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let world = reply["world"] as? [String: Any], world["restored"] as? Bool == true else { return }
+        e.restorePending = false
+        worldInput.bytes = nil
     }
 
     func restoreReply(_ reply: [String: Any]) -> [String: Any] {
@@ -136,7 +158,10 @@ extension Canvases {
     func save(_ e: Entry) -> [String: Any] {
         guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
         let length = carry(e.id)
-        guard length != UInt32.max else { return ["error": "canvas \(e.name) carries no state"] }
+        guard length != UInt32.max else {
+            let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
+            return ["error": "save refused: \(state["assets"] ?? [])", "assets": state["assets"] ?? []]
+        }
         guard length <= WorldCarrier.limit else { return ["error": WorldCarrier.refusal] }
         guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
         let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
@@ -231,10 +256,14 @@ extension Canvases {
             for _ in 0..<16 {
                 guard let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty else { break }
                 for name in names {
-                    let bytes = AssetResolver.validAssetName(name) ? session?.app.assetBytes("assets/" + name) : nil
+                    let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }
                     let chars = Array(name.utf8)
                     let ok = chars.withUnsafeBufferPointer { chars in
-                        if let bytes {
+                        if case .failure(let error) = delivery {
+                            let reason = Array(error.localizedDescription.utf8)
+                            return reason.withUnsafeBufferPointer { m.assetFailed?(e.id, chars.baseAddress, chars.count, $0.baseAddress, $0.count) ?? false }
+                        }
+                        if case .success(let bytes?) = delivery {
                             return bytes.withUnsafeBytes { raw in
                                 // Non-null with zero length distinguishes an empty file from missing.
                                 var empty: UInt8 = 0
@@ -243,10 +272,13 @@ extension Canvases {
                         }
                         return deliver(e.id, chars.baseAddress, chars.count, nil, 0)
                     }
-                    if !ok { fputs("exact gpu: \(m.error())\n", stderr) }
+                    let error = ok ? nil : m.error()
+                    if let error { fputs("exact gpu: \(error)\n", stderr) }
+                    finishRestore(m, e, refusal: error)
                 }
             }
         }
+        if let m = module { finishRestore(m, e) }
         if live(e.view.id) === e, publishers[e.name] === e, let m = module, let take = m.published {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
@@ -262,7 +294,7 @@ extension Canvases {
         }
         for text in texts {
             guard live(e.view.id) === e else { break }
-            if text == "exact:audio" { CanvasAudio.activate(); continue }
+            if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }
@@ -280,6 +312,10 @@ extension Canvases {
     @discardableResult
     func input(_ e: Entry, _ m: GpuModule, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
         guard let s = session, let send = m.input else { return false }
+        if (event["t"] as? String == "key" && event["down"] as? Bool == true)
+            || (event["t"] as? String == "pointer" && event["phase"] as? String == "down") {
+            lifecycle.gesture()
+        }
         var value = event
         value["at"] = timestamp.map { s.time(atWall: ($0 - ExactEnv.t0) * 1000) } ?? s.now()
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
@@ -383,7 +419,7 @@ extension Canvases {
         let pending = world.filter { $0["quiescent"] as? Bool == false }
         return WorldClock(pending: settle && !pending.isEmpty,
                           settleAt: pending.compactMap { $0["settleAt"] as? Double }.filter(\.isFinite).max(),
-                          reply: world.isEmpty ? [:] : ["world": world.map { $0.filter { ["canvas", "tick", "hash", "quiescent"].contains($0.key) } }])
+                          reply: world.isEmpty ? [:] : ["world": world.map { $0.filter { ["canvas", "tick", "hash", "quiescent", "error", "assets", "changing"].contains($0.key) } }])
     }
 }
 
@@ -473,69 +509,165 @@ private enum CanvasAudio {
     nonisolated(unsafe) static var active = false
     nonisolated(unsafe) static var wanted = false
     nonisolated(unsafe) static var configured = false
-    static func activate() {
-        guard !ExactEnv.agentMode else { return }
+    nonisolated(unsafe) static var interrupted = false
+    nonisolated(unsafe) static var resumeBlocked = false
+    @discardableResult static func activate() -> Bool {
+        // NotificationCenter delivers on the posting thread, not necessarily main.
+        if !Thread.isMainThread { return DispatchQueue.main.sync { activate() } }
+        guard !ExactEnv.agentMode else { return false }
         wanted = true
-        guard !active else { return }
+        guard !active else { return true }
         #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
             if !configured { try session.setCategory(.ambient); configured = true }
             try session.setActive(true)
-        } catch { fputs("exact audio session: \(error)\n", stderr); return }
+        } catch { fputs("exact audio session: \(error)\n", stderr); return false }
         #endif
         active = true
+        return true
     }
 }
 
 /// Every canvas gets notifications even when its session uses the agent clock.
 final class CanvasLifecycle: NSObject {
+    nonisolated(unsafe) private static let live = NSHashTable<CanvasLifecycle>.weakObjects()
     weak var owner: Canvases?
-    private(set) var hidden = false
-    private var interrupted = false
-    init(_ owner: Canvases) {
+    private(set) var hidden: Bool
+    private var interrupted: Bool
+    private var wantsAudio = false
+    private var resumeAllowed: Bool
+    private var retryFrames = 0
+    private let activate: () -> Bool
+    init(_ owner: Canvases, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
+        precondition(Thread.isMainThread)
         self.owner = owner
+        self.activate = activate
+        hidden = !owner.visible
+        interrupted = CanvasAudio.interrupted || CanvasAudio.resumeBlocked
+        resumeAllowed = !interrupted
         super.init()
+        Self.live.add(self)
         let center = NotificationCenter.default
         #if os(macOS)
-        hidden = NSApplication.shared.isHidden
-        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification] {
-            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
-        }
-        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
-            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification,
+                     NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
         #else
-        hidden = UIApplication.shared.applicationState == .background
-        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
-            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
-        }
-        for name in [UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
-            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                     UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
         center.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
         #endif
     }
     deinit { NotificationCenter.default.removeObserver(self) }
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
     func deliver(_ id: UInt32) {
+        precondition(Thread.isMainThread)
+        // Replay the same aggregate that notifications and rendering use.
+        refresh(excluding: id)
         owner?.module?.lifecycle?(id, hidden ? 0 : 1)
         if interrupted { owner?.module?.lifecycle?(id, 2) }
     }
-    private func send(_ code: UInt32) {
+    private func send(_ code: UInt32, excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
         guard let owner, let module = owner.module else { return }
-        for entry in Array(owner.entries.values) where entry.id != 0 { module.lifecycle?(entry.id, code) }
-        if code == 1 { owner.session?.frames.requestCanvas() }
+        for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { module.lifecycle?(entry.id, code) }
+        if code == 1 || code == 3 { owner.session?.frames.requestCanvas() }
     }
-    @objc private func hide() { hidden = true; send(0) }
-    @objc private func show() { hidden = false; send(1) }
+    var needsRetry: Bool {
+        wantsAudio && interrupted && !hidden && resumeAllowed
+            && !CanvasAudio.interrupted && !CanvasAudio.resumeBlocked && !ExactEnv.agentMode
+    }
+    func frame() {
+        precondition(Thread.isMainThread)
+        guard needsRetry else { return }
+        if retryFrames > 0 { retryFrames -= 1 }
+        if retryFrames == 0 { retryActivation() }
+    }
+    private func retryActivation(excluding id: UInt32? = nil) {
+        guard wantsAudio, !hidden, resumeAllowed,
+              !CanvasAudio.interrupted, !CanvasAudio.resumeBlocked else { return }
+        if activate() {
+            retryFrames = 0
+            if interrupted { interrupted = false; send(3, excluding: id) }
+        } else {
+            retryFrames = 300
+            if !interrupted { interrupted = true; send(2, excluding: id) }
+            owner?.session?.frames.requestCanvas()
+        }
+    }
+    func gesture() {
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            if !CanvasAudio.interrupted { Self.allowRecovery(excluding: self) }
+            if self.wantsAudio { self.retryActivation() }
+        }
+    }
+    private static func allowRecovery(excluding trigger: CanvasLifecycle) {
+        precondition(Thread.isMainThread)
+        let blocked = CanvasAudio.resumeBlocked
+        CanvasAudio.resumeBlocked = false
+        for lifecycle in live.allObjects {
+            lifecycle.resumeAllowed = true
+            if blocked && lifecycle !== trigger { lifecycle.retryActivation() }
+        }
+    }
+    func requestAudio(userInitiated: Bool = true) {
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            self.wantsAudio = true
+            if userInitiated && !CanvasAudio.interrupted {
+                Self.allowRecovery(excluding: self)
+            }
+            // Automatic surface requests neither bypass no-resume nor the cooldown.
+            if userInitiated || self.retryFrames == 0 { self.retryActivation() }
+        }
+    }
+    @objc private func visibilityChanged() {
+        // UIKit's "will" notifications precede the applicationState update.
+        DispatchQueue.main.async { [weak self] in self?.refresh() }
+    }
+    func refresh(excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
+        let next = !(owner?.visible ?? false)
+        let becameVisible = hidden && !next
+        if next { CanvasAudio.active = false }
+        if next != hidden { hidden = next; send(hidden ? 0 : 1, excluding: id) }
+        if becameVisible && !CanvasAudio.interrupted {
+            Self.allowRecovery(excluding: self)
+        }
+        if becameVisible || retryFrames == 0 { retryActivation(excluding: id) }
+    }
+    // Keep the complete interruption transition on main, including session policy.
+    func interruption(began: Bool, shouldResume: Bool) {
+        onMain { [weak self] in
+            guard let self else { return }
+            CanvasAudio.interrupted = began
+            CanvasAudio.resumeBlocked = !began && !shouldResume
+            self.resumeAllowed = !began && shouldResume
+            if began {
+                CanvasAudio.active = false
+                self.retryFrames = 0
+                if !self.interrupted { self.interrupted = true; self.send(2) }
+            } else if self.resumeAllowed {
+                if self.wantsAudio { self.retryActivation() }
+                else if self.interrupted { self.interrupted = false; self.send(3) }
+            }
+        }
+    }
     #if os(iOS)
     @objc private func interruption(_ note: Notification) {
+        // Decode immutable notification values on the poster; touch no UI/ABI here.
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-        interrupted = type == .began
-        if interrupted { CanvasAudio.active = false }
-        else if CanvasAudio.wanted { CanvasAudio.activate() }
-        send(interrupted ? 2 : 3)
+        let options = AVAudioSession.InterruptionOptions(rawValue:
+            note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+        interruption(began: type == .began, shouldResume: options.contains(.shouldResume))
     }
     #endif
 }

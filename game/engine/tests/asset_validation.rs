@@ -66,6 +66,7 @@ fn malformed_models_refuse_every_simulation_and_upload_hazard() {
         m.clips.push(Clip {
             name: name.into(),
             tracks: vec![track],
+            markers: Vec::new(),
         });
         check(name, m);
     }

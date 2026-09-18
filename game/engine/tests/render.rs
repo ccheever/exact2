@@ -72,7 +72,7 @@ fn agent_and_timed_bind_observe_final_propagated_ticks_and_restore_generation() 
     .unwrap();
     assert_eq!(ticks, [119, 120]);
     let generation = sim.generation();
-    let saved = sim.save();
+    let saved = sim.save().unwrap();
     sim.restore(&saved).unwrap();
     assert_ne!(generation, sim.generation());
 }

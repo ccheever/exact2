@@ -47,7 +47,7 @@ fn main() {
             common::tick(&mut a, t);
         }
         let mut b = common::scene("bounce");
-        b.restore(&a.save()).unwrap();
+        b.restore(&a.save().unwrap()).unwrap();
         common::tick(&mut b, 45);
         for t in 46..=240 {
             common::tick(&mut a, t);
@@ -56,8 +56,10 @@ fn main() {
         }
         println!("MID_BOUNCE_RESUME=exact ticks=45..240");
         let hash = minimal::simulate(120);
-        assert_eq!(hash, minimal::simulate_with_restore(120, true));
-        println!("MINIMAL_HASH_120 continuous=every-step-restore=0x{hash:016x}");
+        for mode in [exact_game::Paranoid::Save, exact_game::Paranoid::FreshGame] {
+            assert_eq!(hash, minimal::simulate_with_restore(120, mode));
+        }
+        println!("MINIMAL_HASH_120 continuous=save=fresh-game=0x{hash:016x}");
         assert_eq!(hash, 0x5608994347e54d28);
         return;
     }
@@ -178,7 +180,7 @@ fn main() {
             let mut size = 0;
             for _ in 0..5 {
                 let start = Instant::now();
-                let bytes = sim.save();
+                let bytes = sim.save().unwrap();
                 saves.push(start.elapsed().as_secs_f64() * 1000.0);
                 size = bytes.len();
                 let mut restored = Sim::<SaveFixture>::new(()).unwrap();

@@ -1,3 +1,4 @@
+mod assets;
 mod paranoid;
 use crate::data::limits::LoadBudget;
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
@@ -20,8 +21,6 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Named models required before setup and tick zero. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
-    /// Game save schema version; older versions pass through migrate.
-    const SAVE_VERSION: u32 = 1;
     /// Opt in only when every tick dependency is world state, bindings, input, or explicit time.
     /// Hidden network/storage/random results must remain unsupported by world-only replay.
     const CAPTURE_SUPPORTED: bool = false;
@@ -42,8 +41,6 @@ pub trait Game: 'static {
     }
     /// Construct the world after argument decoding succeeds.
     fn setup(world: &mut World, args: &Self::Args);
-    /// Upgrade a loaded older world before it becomes observable.
-    fn migrate(_world: &mut World, _from: u32) {}
     /// Stop world time while continuing to serve reads.
     fn paused(_args: &Self::Args) -> bool {
         false
@@ -70,11 +67,11 @@ struct Queued {
     host_us: i64,
     world_us: Option<i64>,
     event: InputEvent,
+    delivered: bool,
 }
 #[derive(Default, Data)]
 struct Saved {
     game: String,
-    version: u32,
     world: Vec<u8>,
     base: Vec<u8>,
     base_args: String,
@@ -85,7 +82,7 @@ struct Saved {
     journal: Vec<Event>,
     journal_next: u64,
     overflow_logged: bool,
-    published: std::collections::BTreeMap<String, Value>,
+    published: std::collections::BTreeMap<String, crate::values::Stored>,
 }
 // Host-only phase: one tick is 1_000_000 units. Only the bounded remainder is
 // floating point; neither elapsed world time nor the slew grows in an f64.
@@ -95,6 +92,7 @@ struct LiveTime {
     remainder: f64,
     period_ms: f64,
     slew_left: Option<f64>,
+    lookahead: f64,
 }
 /// Opt-in save reconstruction after every completed tick. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -109,9 +107,15 @@ pub enum Paranoid {
 }
 impl Paranoid {
     fn environment() -> Self {
-        match std::env::var("EXACT_GAME_PARANOID").as_deref() {
-            Ok("1") => Self::Save,
-            Ok("fresh-game") => Self::FreshGame,
+        // wasm has no process environment; proof builds select the same mode.
+        let mode = if cfg!(target_arch = "wasm32") {
+            option_env!("EXACT_GAME_PARANOID").map(str::to_owned)
+        } else {
+            std::env::var("EXACT_GAME_PARANOID").ok()
+        };
+        match mode.as_deref() {
+            Some("1") => Self::Save,
+            Some("fresh-game") => Self::FreshGame,
             _ => Self::Off,
         }
     }
@@ -158,11 +162,12 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
-    /// Override the test driver's EXACT_GAME_PARANOID setting for this simulation.
+    /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = mode;
         self
     }
+
     fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
@@ -170,7 +175,9 @@ impl<G: Game> Sim<G> {
         for &name in G::ASSETS {
             world.assets.declared.insert(name.into());
             world.assets.required.insert(name.into());
-            world.assets.request(name);
+            if !world.assets.models.contains_key(name) {
+                world.assets.request(name);
+            }
         }
         if !world.assets.ready() {
             return world;
@@ -185,181 +192,6 @@ impl<G: Game> Sim<G> {
     pub fn is_loading(&self) -> bool {
         self.setup_pending
     }
-    /// Drain first-sight model requests. Nondeclared meshes may pop in after tick zero.
-    pub fn take_assets(&mut self) -> Vec<String> {
-        let revision = self.world.revision::<crate::Mesh>();
-        if revision != self.asset_mesh_revision {
-            let names: Vec<_> = self
-                .world
-                .query::<&crate::Mesh>()
-                .iter()
-                .filter_map(|(_, mesh)| {
-                    if let crate::Mesh::Asset(name) = mesh {
-                        Some(name.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            for name in names {
-                if !G::assets().iter().any(|asset| asset.name == name) {
-                    self.world.assets.request(&name);
-                }
-            }
-            self.asset_mesh_revision = revision;
-        }
-        let assets = &mut self.world.assets;
-        let names: Vec<_> = assets
-            .states
-            .iter()
-            .filter(|(n, s)| {
-                **s == crate::asset::AssetState::Pending && !assets.requested.contains(*n)
-            })
-            .map(|(n, _)| n.clone())
-            .collect();
-        assets.requested.extend(names.iter().cloned());
-        names
-    }
-    /// Device-backed surfaces defer readiness until pipeline preparation and upload finish.
-    pub fn defer_assets(&mut self, defer: bool) {
-        self.defer_assets = defer;
-    }
-    /// Renderer-only model feed; games receive World, whose reads enforce declarations.
-    pub fn presentation_models(&self) -> impl Iterator<Item = (&str, &crate::asset::Model)> {
-        self.world
-            .assets
-            .models
-            .iter()
-            .map(|(n, m)| (n.as_str(), m.as_ref()))
-    }
-    /// Move texture payloads to the renderer; no CPU mip copy survives upload.
-    pub fn take_textures(
-        &mut self,
-    ) -> std::collections::BTreeMap<String, crate::asset::TextureData> {
-        std::mem::take(&mut self.textures)
-    }
-    /// A named preparation/upload completed, or failed without poisoning the surface.
-    pub fn asset_prepared(&mut self, name: &str, result: Result<(), String>) {
-        use crate::asset::AssetState;
-        match result {
-            Ok(()) => {
-                self.world.assets.prepared.insert(name.into());
-                if name.ends_with(".tex") {
-                    self.world
-                        .assets
-                        .states
-                        .insert(name.into(), AssetState::Loaded);
-                }
-            }
-            Err(reason) => {
-                self.world.assets.states.insert(
-                    name.into(),
-                    AssetState::Failed(format!("asset `{name}`: {reason}")),
-                );
-            }
-        }
-        if let Err(reason) = self.finish_assets() {
-            self.world.log(format_args!("setup refused: {reason}"));
-            self.world
-                .assets
-                .states
-                .insert(name.into(), AssetState::Failed(reason));
-        }
-    }
-    fn finish_assets(&mut self) -> Result<(), String> {
-        use crate::asset::AssetState;
-        let assets = &mut self.world.assets;
-        for (name, model) in &assets.models {
-            if matches!(assets.states.get(name), Some(AssetState::Failed(_))) {
-                continue;
-            }
-            let failed = model
-                .textures
-                .iter()
-                .find_map(|n| match assets.states.get(n) {
-                    Some(AssetState::Failed(e)) => Some(e.clone()),
-                    _ => None,
-                });
-            if let Some(reason) = failed {
-                assets
-                    .states
-                    .insert(name.clone(), AssetState::Failed(reason));
-            } else if assets.prepared.contains(name)
-                && model
-                    .textures
-                    .iter()
-                    .all(|n| assets.states.get(n) == Some(&AssetState::Loaded))
-            {
-                assets.states.insert(name.clone(), AssetState::Loaded);
-            }
-        }
-        if self.setup_pending && assets.ready() {
-            let world = Self::build(&self.args, self.world.assets.clone());
-            let base = world.initializer().map_err(|e| e.to_string())?;
-            self.base_args = crate::json::to_string(&self.args).map_err(|e| e.to_string())?;
-            self.world = world;
-            self.base = base;
-            self.setup_pending = false;
-            self.asset_mesh_revision = u64::MAX;
-        }
-        Ok(())
-    }
-    /// Transport failure after the host's bounded retries.
-    pub fn asset_failed(&mut self, name: &str, reason: &str) {
-        self.world.assets.requested.insert(name.into());
-        self.asset_prepared(name, Err(reason.into()));
-    }
-    /// Install and validate one named model/texture. A declaration includes its textures.
-    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
-        use crate::asset::{AssetState, Model, TextureData};
-        self.world.assets.request(name);
-        self.world.assets.requested.insert(name.into());
-        let result: Result<(), String> = (|| {
-            if !crate::asset::asset_name(name) {
-                return Err("invalid asset name".into());
-            }
-            let bytes = bytes.ok_or_else(|| "missing file".to_string())?;
-            if name.ends_with(".tex") {
-                let texture: TextureData = bin::from_slice(bytes).map_err(|e| e.to_string())?;
-                texture.validate()?;
-                if self.defer_assets {
-                    self.textures.insert(name.into(), texture);
-                } else {
-                    self.world
-                        .assets
-                        .states
-                        .insert(name.into(), AssetState::Loaded);
-                }
-            } else {
-                let model: Model = bin::from_slice(bytes).map_err(|e| e.to_string())?;
-                model.validate()?;
-                for texture in &model.textures {
-                    self.world.assets.request(texture);
-                    if self.world.assets.declared.contains(name) {
-                        self.world.assets.required.insert(texture.clone());
-                    }
-                }
-                self.world
-                    .assets
-                    .models
-                    .insert(name.into(), std::sync::Arc::new(model));
-                self.world.assets.geometry_revision =
-                    self.world.assets.geometry_revision.wrapping_add(1);
-                if !self.defer_assets {
-                    self.world.assets.prepared.insert(name.into());
-                }
-            }
-            Ok(())
-        })();
-        let result = result.and(self.finish_assets());
-        if let Err(reason) = &result {
-            self.world.assets.states.insert(
-                name.into(),
-                AssetState::Failed(format!("asset `{name}`: {reason}")),
-            );
-        }
-        result.map_err(|e| format!("asset `{name}`: {e}"))
-    }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn from_values(values: &[Value]) -> Result<Self, String> {
         Self::new(G::Args::decode(values)?)
@@ -369,9 +201,17 @@ impl<G: Game> Sim<G> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
+        if G::ASSETS.len() > 256 {
+            return Err(format!(
+                "asset `{}`: surface limit is 256 names",
+                G::ASSETS[256]
+            ));
+        }
         for name in G::ASSETS {
-            if !crate::asset::asset_name(name) {
-                return Err(format!("asset `{name}`: invalid declaration name"));
+            if !crate::asset::asset_name(name) || !name.ends_with(".model") {
+                return Err(format!(
+                    "asset `{name}`: declaration requires a .model name"
+                ));
             }
         }
         args.check_scalars()?;
@@ -534,18 +374,33 @@ impl<G: Game> Sim<G> {
     /// Queue a raw event in stamp order, preserving arrival order at equal stamps.
     /// Paused input updates held state directly, without edges or queued wheel deltas.
     pub fn input(&mut self, event: InputEvent) {
+        self.queue_input(event, false);
+    }
+    /// Queue an event already delivered by a device. Live pacing may clamp its
+    /// stamp to the next frame; explicitly scheduled input keeps its future stamp.
+    pub fn device_input(&mut self, event: InputEvent) {
+        self.queue_input(event, true);
+    }
+    fn queue_input(&mut self, event: InputEvent, delivered: bool) {
         let before = self.world.tick();
         let saved = self
             .recorder
             .as_ref()
             .filter(|r| r.active())
             .map(|_| event.clone());
-        let accepted = self.accept_input(event);
+        let accepted = self.accept_input(event, delivered);
         if let Some(event) = saved.filter(|_| accepted) {
-            self.record(before, crate::capture::Operation::Input(event));
+            self.record(
+                before,
+                if delivered {
+                    crate::capture::Operation::DeviceInput(event)
+                } else {
+                    crate::capture::Operation::Input(event)
+                },
+            );
         }
     }
-    fn accept_input(&mut self, event: InputEvent) -> bool {
+    fn accept_input(&mut self, event: InputEvent, delivered: bool) -> bool {
         assert!(event.at_ms().is_finite(), "input stamp must be finite");
         self.invalidate();
         if G::paused(&self.args) {
@@ -554,6 +409,7 @@ impl<G: Game> Sim<G> {
         }
         let host_us = micros(event.at_ms());
         let e = Queued {
+            delivered,
             host_us,
             world_us: self
                 .last_us
@@ -733,11 +589,14 @@ impl<G: Game> Sim<G> {
     /// Host display period in milliseconds; zero means not yet known. Applied
     /// only by the next accepted live advance, never by a backwards sample.
     pub fn frame_period(&mut self, period_ms: f64) {
-        self.period_ms = if period_ms.is_finite() && period_ms > 0.0 {
+        let period = if period_ms.is_finite() && period_ms > 0.0 {
             period_ms
         } else {
             0.0
         };
+        if (period - self.period_ms).abs() >= self.period_ms * 0.005 {
+            self.period_ms = period;
+        }
     }
     fn phase_us(ms: f64) -> i128 {
         (ms * G::HZ as f64 * 1000.0).round() as i128
@@ -746,8 +605,10 @@ impl<G: Game> Sim<G> {
         let mut live = self.live_time.unwrap_or(LiveTime {
             phase: self.world_us as i128 * G::HZ as i128,
             remainder: 0.0,
-            period_ms: 0.0,
+            period_ms: self.period_ms,
             slew_left: None,
+            // A known period at the first epoch has no preceding pose to jump.
+            lookahead: Self::phase_us(self.period_ms.min(1000.0 / G::HZ as f64)) as f64,
         });
         let delta = if self.paused_clock {
             0.0
@@ -758,11 +619,22 @@ impl<G: Game> Sim<G> {
             live.period_ms = self.period_ms;
             live.slew_left = None;
         }
+        // In particular, do not round a carried -0.5 again on a duplicate stamp.
+        if delta == 0.0 {
+            return live;
+        }
         let units = delta * G::HZ as f64 * 1000.0;
         let increment = units + live.remainder;
         live.phase += increment.round() as i128;
         live.remainder = increment - increment.round();
-        if live.period_ms > 0.0 && delta > 0.0 {
+        // L and grid alignment share one budget: |Δ(T + L) - delta| <= .0025*delta.
+        // Schedule against this same horizon so the retained tick pair covers R.
+        let wanted = Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64)) as f64;
+        let budget = units * 0.0025;
+        let horizon = (wanted - live.lookahead).clamp(-budget, budget);
+        live.lookahead += horizon;
+        let budget = (budget - horizon.abs()).max(0.0);
+        if live.period_ms > 0.0 && budget > 0.0 {
             let period = live.period_ms * G::HZ as f64 * 1000.0;
             let left = live.slew_left.get_or_insert_with(|| {
                 // Move the origin to the nearest frame, not every successive
@@ -775,7 +647,7 @@ impl<G: Game> Sim<G> {
                     phase
                 }
             });
-            let correction = left.clamp(-units * 0.0025, units * 0.0025);
+            let correction = left.clamp(-budget, budget);
             *left -= correction;
             let increment = correction + live.remainder;
             live.phase += increment.round() as i128;
@@ -784,7 +656,7 @@ impl<G: Game> Sim<G> {
         live
     }
     fn lookahead(live: LiveTime) -> i128 {
-        Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64))
+        live.lookahead.round() as i128
     }
     fn target(phase: i128, lookahead: i128) -> u64 {
         // ceil(horizon / step) - 1 with L; equality waits for the next frame.
@@ -858,6 +730,17 @@ impl<G: Game> Sim<G> {
             }
         }
         self.rebase_queue = false;
+        if clock == Clock::Live && self.last_us.is_some() {
+            // The epoch sample preserves rebased future stamps. On later frames,
+            // every queued device event arrived before this callback. Pacing can
+            // name the frame earlier than event.timeStamp; it cannot defer delivery.
+            // min preserves stamp order and the spread of earlier catch-up input.
+            for e in &mut self.queue {
+                if e.delivered {
+                    e.host_us = e.host_us.min(now);
+                }
+            }
+        }
         if G::paused(&self.args) {
             self.flush_paused(now);
             if now != last {
@@ -979,8 +862,8 @@ impl<G: Game> Sim<G> {
         if self.world.tick() == 0 {
             return 0.0;
         }
-        // Startup, restore or a display-rate change can lack the required history.
-        // A stall with an unchanged period never changes L or hits this guard.
+        // Startup or restore can lack the required history. Period changes slew
+        // the shared horizon and therefore stay within the retained tick pair.
         self.alpha_numerator().clamp(0, 1_000_000) as f32 / 1_000_000.0
     }
     /// Replacement generation for presentation caches; not saved or hashed.
@@ -1192,15 +1075,45 @@ impl<G: Game> Sim<G> {
         queue
     }
     /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Vec<u8> {
-        assert!(
-            !self.is_loading(),
-            "save refused: declared assets are not ready: {}",
-            self.world.assets.state_json()
-        );
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        let assets = &self.world.assets;
+        let mut needed = std::collections::BTreeSet::new();
+        for (_, mesh) in self.world.query::<&crate::Mesh>().iter() {
+            if let crate::Mesh::Asset(name) = mesh {
+                if !G::assets().iter().any(|a| a.name == name) {
+                    needed.insert(name.clone());
+                }
+            }
+        }
+        for name in needed.clone() {
+            if matches!(
+                assets.states.get(&name),
+                Some(crate::asset::AssetState::Failed(_))
+            ) {
+                continue;
+            }
+            if let Some(deps) = assets.dependencies.get(&name) {
+                needed.extend(deps.iter().cloned());
+            }
+        }
+        let pending: Vec<_> = needed
+            .iter()
+            .filter(|name| {
+                !matches!(
+                    assets.states.get(name),
+                    Some(crate::asset::AssetState::Loaded | crate::asset::AssetState::Failed(_))
+                )
+            })
+            .collect();
+        if self.is_loading() || !pending.is_empty() {
+            return Err(DataError::new(format!(
+                "save refused: assets are not ready: {:?}; {}",
+                pending,
+                assets.state_json()
+            )));
+        }
         let saved = Saved {
             game: G::ID.into(),
-            version: G::SAVE_VERSION,
             world: self.world.save(),
             base: self.base.clone(),
             // Usually identical: only retain a separate construction after live
@@ -1221,7 +1134,7 @@ impl<G: Game> Sim<G> {
         };
         let mut bytes = b"EXSIM\0\x06".to_vec();
         bytes.extend(bin::to_vec(&saved));
-        bytes
+        Ok(bytes)
     }
     /// Build a fresh simulation using the checkpoint construction arguments.
     /// Defaults need not be valid construction input for this game.
@@ -1260,15 +1173,7 @@ impl<G: Game> Sim<G> {
     /// Continue retains saved construction arguments and takes current live bindings.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        let sounds = self
-            .world
-            .has_audio()
-            .then(|| self.world.resource::<crate::audio::Sounds>().clone());
-        self.restore_into(bytes, Some(&args), None)?;
-        if let Some(sounds) = sounds {
-            *self.world.resource_mut::<crate::audio::Sounds>() = sounds;
-        }
-        Ok(())
+        self.restore_into(bytes, Some(&args), None)
     }
     fn restore_into(
         &mut self,
@@ -1288,14 +1193,6 @@ impl<G: Game> Sim<G> {
                 "save belongs to `{}`, expected `{}`",
                 s.game,
                 G::ID
-            )));
-        }
-        if s.version > G::SAVE_VERSION {
-            return Err(DataError::new(format!(
-                "save for `{}` has newer version {} (supported {})",
-                G::ID,
-                s.version,
-                G::SAVE_VERSION
             )));
         }
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
@@ -1360,9 +1257,6 @@ impl<G: Game> Sim<G> {
         if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
             return Err(DataError::new("saved world and clock disagree"));
         }
-        if s.version < G::SAVE_VERSION {
-            G::migrate(&mut next.world, s.version);
-        }
         next.reload = next.world.merge_initializer(&s.base, &next.base, budget)?;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
@@ -1404,6 +1298,7 @@ impl<G: Game> Sim<G> {
         next.agent_owned = self.agent_owned;
         next.contamination = self.contamination;
         next.source_tagged = self.source_tagged;
+        next.textures = std::mem::take(&mut self.textures);
         *self = next;
         Ok(())
     }
@@ -1479,11 +1374,26 @@ mod render_time_tests {
         }
     }
     #[test]
+    fn live_restore_preserves_a_pending_future_stamp_on_the_epoch_sample() {
+        let mut s = Sim::<Ticker<60>>::new(()).unwrap();
+        s.advance(10.0, Clock::Live);
+        s.queue.push_back(Queued {
+            host_us: 12_000,
+            ..Default::default()
+        });
+        let save = s.save().unwrap();
+        s.restore(&save).unwrap();
+        s.advance(100.0, Clock::Live);
+        assert_eq!(s.queue.len(), 1);
+        assert_eq!(s.queue[0].host_us, 102_000);
+        assert!(s.queue[0].world_us.is_none());
+    }
+    #[test]
     fn restore_refuses_a_one_tick_ahead_clock() {
         let mut s = Sim::<Ticker<60>>::new(()).unwrap();
         s.advance(0.0, Clock::Seekable);
         s.advance(17.0, Clock::Seekable);
-        let good = s.save();
+        let good = s.save().unwrap();
         let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
         saved.world_us = 10_000;
         let mut bad = b"EXSIM\0\x06".to_vec();
@@ -1493,6 +1403,6 @@ mod render_time_tests {
             .unwrap_err()
             .to_string()
             .contains("world and clock disagree"));
-        assert_eq!(s.save(), good);
+        assert_eq!(s.save().unwrap(), good);
     }
 }

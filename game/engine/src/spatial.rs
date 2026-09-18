@@ -135,8 +135,11 @@ pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
 pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
     if let Some(Mesh::Asset(name)) = mesh {
         if let Some(model) = w.model(name) {
-            let lo = Vec3::from_slice(&model.bounds[..3]);
-            let hi = Vec3::from_slice(&model.bounds[3..]);
+            let bounds = w
+                .get::<crate::Pose>(entity)
+                .map_or_else(|| crate::animation::animated_bounds(model), |p| p.bounds);
+            let lo = Vec3::from_slice(&bounds[..3]);
+            let hi = Vec3::from_slice(&bounds[3..]);
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);
         }
     }
@@ -385,5 +388,71 @@ fn contains_origin(mesh: &Mesh, o: Vec3, half: Vec3, center: Vec3) -> bool {
             o.x * o.x + o.z * o.z <= radius * radius && o.y.abs() <= height * 0.5
         }
         _ => (o - center).abs().cmple(half).all(),
+    }
+}
+
+/// Screen-space rectangle in CSS pixels for the simulation's current viewport.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenRect {
+    /// Left edge.
+    pub x: f32,
+    /// Top edge.
+    pub y: f32,
+    /// Width.
+    pub w: f32,
+    /// Height.
+    pub h: f32,
+}
+impl ScreenRect {
+    /// Center point for a pick query.
+    pub fn center(self) -> Vec2 {
+        Vec2::new(self.x + self.w * 0.5, self.y + self.h * 0.5)
+    }
+}
+/// Projected bounds of one entity at its current simulation pose.
+#[derive(Clone, Copy, Debug)]
+pub struct EntityLayout {
+    /// Resolved entity handle.
+    pub entity: Entity,
+    /// Screen rectangle, clipped to the camera's near plane.
+    pub screen: ScreenRect,
+}
+/// Nearest visible mesh intersected by a screen-space ray.
+#[derive(Clone, Copy, Debug)]
+pub struct PickHit {
+    /// Hit entity.
+    pub entity: Entity,
+    /// World-space distance from the camera.
+    pub distance: f32,
+    /// World-space intersection.
+    pub point: Vec3,
+}
+impl<G: crate::Game> crate::Sim<G> {
+    /// Project an entity using the same geometry and viewport as agent layout.
+    /// Missing entities, cameras and entirely near-clipped bounds return None.
+    pub fn layout(&self, target: impl crate::Target) -> Option<EntityLayout> {
+        let entity = target.entity(&self.world)?;
+        let pose = self.world.global(entity).filter(|p| p.is_finite())?;
+        let mesh = self.world.get::<Mesh>(entity);
+        let (half, center) = bounds(&self.world, entity, mesh.as_deref());
+        let view = View::new(&self.world, self.input.viewport)?;
+        let [x, y, w, h] = view.screen(&corners(pose, half, center))?;
+        Some(EntityLayout {
+            entity,
+            screen: ScreenRect { x, y, w, h },
+        })
+    }
+    /// Pick at a CSS-pixel point using the agent's ray/mesh implementation.
+    pub fn pick(&self, point: Vec2) -> Option<PickHit> {
+        if !point.is_finite() {
+            return None;
+        }
+        let view = View::new(&self.world, self.input.viewport)?;
+        let (entity, distance, point) = pick(&self.world, &view, point)?;
+        Some(PickHit {
+            entity,
+            distance,
+            point,
+        })
     }
 }

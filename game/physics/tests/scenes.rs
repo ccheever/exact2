@@ -71,7 +71,7 @@ fn resume_and_replay_every_tick() {
         );
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
     }
-    let save = a.save();
+    let save = a.save().unwrap();
     let mut restored = scene("pile");
     restored.restore(&save).unwrap();
     tick(&mut restored, 90);
@@ -93,7 +93,8 @@ fn resume_and_replay_every_tick() {
         assert_eq!(a.world().hash(), b.world().hash(), "replay tick {t}");
         assert_eq!(a.world().hash(), restored.world().hash(), "resume tick {t}");
     }
-    assert!(a.save() == b.save() && a.save() == fresh.save());
+    let bytes = a.save().unwrap();
+    assert!(bytes == b.save().unwrap() && bytes == fresh.save().unwrap());
     eprintln!(
         "PILE_HASH_600 continuous=save=fresh-game=0x{:016x}",
         a.world().hash()
@@ -326,7 +327,7 @@ fn resume_mid_bounce_every_tick() {
     let ball = original.world().named("ball").unwrap();
     assert!(original.world().get::<Body>(ball).unwrap().velocity.y > 0.0);
     let mut restored = scene("bounce");
-    restored.restore(&original.save()).unwrap();
+    restored.restore(&original.save().unwrap()).unwrap();
     tick(&mut restored, 45);
     for t in 46..=240 {
         tick(&mut original, t);

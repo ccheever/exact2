@@ -821,16 +821,19 @@ final class Frames: NSObject {
         #if canImport(UIKit)
         if fpsMode { measure(link.timestamp) }
         #endif
+        s.canvases.lifecycle.frame()
         // Motion keeps its existing sampling clock; canvas frames target presentation.
         let frameNow = s.time(atWall: (link.targetTimestamp - ExactEnv.t0) * 1000)
-        // The display's refresh interval: a world schedules its ticks against it.
-        s.canvases.period(link.duration * 1000)
+        // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
+        // can remain the nominal base interval. The target interval is actual;
+        // canvases quantizes it and republishes this session’s stable class before rendering.
+        s.canvases.period((link.targetTimestamp - link.timestamp) * 1000)
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }
         if motion { s.apply(s.runtime.tick(now: s.now())) }
         let more = s.canvases.tick(now: frameNow)
-        run(motion || more || s.canvases.wantsFrames)
+        run(motion || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
 
     #if canImport(UIKit)

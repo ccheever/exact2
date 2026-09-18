@@ -73,7 +73,7 @@ impl GlassSurface {
 }
 
 impl Surface for GlassSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [material, seed] = inputs else {
             return Err(SurfaceError(format!(
                 "glass: expected 2 inputs, got {}",

@@ -142,7 +142,7 @@ are saved and hashed inside the player's component. `step` reports `grounded`,
 `jumped` and `landed`; bounds stop outward velocity, braking and landing arrive
 exactly. It uses no physics dependency; collider worlds can use Rapier's controller.
 `near` and `near_xz` return `(entity, pose)` in entity order, with an inclusive radius
-and authored Transform positions (XZ ignores height). A missing origin yields no rows.
+and global positions, including parent chains (XZ ignores height). A missing origin yields no rows.
 
 - **A tick is a function that calls functions.** No scheduler, no plugins, no
   system parameters. Physics is `physics::step(world)`, written where it runs.
@@ -154,8 +154,7 @@ and authored Transform positions (XZ ignores height). A missing origin yields no
   Unmarked fields construct; `#[live]` fields are read each tick.
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
-  swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and
-  `SAVE_VERSION`, world time and dynamic input. `Sim::restore(&[u8])` and
+  swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID` and world time and dynamic input. `Sim::restore(&[u8])` and
   `restore_bound(&[u8])` return `Result<(), DataError>`: under agent ownership,
   they anchor to the destination's established host clock, so the next advance
   executes its full duration. Hosts establish ownership and time together with
@@ -342,7 +341,11 @@ Commands, negative-control output and measurements are retained in
 
 ## Publications and events
 
-`World::publish("beacons", count)` updates the current public record. Contract reads
+`w.publish_record(&Hud { beacons: count })` publishes a `#[derive(Default, Data)]`
+record through its existing field traversal. Nested records, lists, options and scalars
+keep their field names and JSON types; Contract validates them against `shape Hud`
+at the app boundary. Typed numeric vectors publish arrays; enum variants are not Contract values.
+`World::publish("beacons", count)` remains the scalar operation. Contract reads
 it with `resource hud = exactSurface("world") as shape Hud`; absent fields default
 and extra keys are ignored. It needs no app data module. `Sim::take_published`
 drains changed state; a rebuilt or restored simulation publishes again.
@@ -366,7 +369,7 @@ need independent slots use distinct registered surface names.
 No ninth operation (LLP 1041.001). `tree`, `state`, `layout`, `logs` and `clock`
 reach the world through one export on the module; an entity is a target
 (`world:fox`); `clock` is the only thing that moves the world; the journal is how an
-agent hears. Capture the complete simulation with `s.screenshot('run.world', 'world', 'save')`
+agent hears. Capture the complete simulation with `s.world('world').save('run.world')`
 (CLI: `screenshot run.world world save`). `open({world: 'run.world'})` or
 `--world run.world` holds the bytes until Play creates the first carrying surface,
 then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
@@ -490,25 +493,44 @@ Add `"audio": true` to `game` to include the sound executor; omit it for a silen
 GPU module with no audio dependency. Audio games define sounds in setup and call
 `audio::step(world)` in tick (see `audio/README.md`).
 
-Audio verification is explicit: the web probe (`bun game/bench/probes/audio.mjs greybox`, or `EXACT_AUDIO_PROBE=1` on its web proof) asserts a trusted first gesture,
-a running context with an advancing clock, and nonzero analyser RMS while wind
-plays. It runs separately from deterministic world/hash checks. macOS tests drive
-the actual callback with fixture buffers; they do not verify device output. The
-AU3c macOS greybox proof could not launch because SwiftPM failed loading
-`BuildServerProtocol`, even with SDK 26 and a native-build wrapper. Audio/render
-Rust libraries build for iOS; iOS has not been driven on this machine.
+Audio verification is explicit: `bun game/bench/probes/audio.mjs greybox`, or
+`EXACT_AUDIO_PROBE=1` on its web proof, checks both live frame/gesture orderings,
+synchronous first-gesture resume, advancing device time, nonzero wind analyser RMS,
+and retry after a refused WebAudio start. It reports gesture construction and
+input-to-frame costs without withholding callbacks. Synthetic lifecycle tests cover
+persisted pageshow and `document.hidden`; they do not claim an actual bfcache navigation.
+Greybox, Beacons and the asset fixture retain their deterministic web hash pins.
 
-`Surface::lifecycle` carries visibility and audio interruptions without changing
-simulation; `Surface::clock` supplies ownership before input. Host delivery and
-SurfacePlayer regressions are present, and dev carry preserves fresh definitions
-for new voices while old voices retain theirs. The generated audio hook still
-needs three forwarders in `game/render/src/lib.rs`, outside the supplied AU3c scope;
-first-gesture/lifecycle integration awaits that permission. iOS interruption
-handling is unproven on a device. See `audio/README.md` for the precise bounds and
-remaining integration work.
+`module!(Game, audio)` already forwards all GameAudio hooks. Generic
+`Surface::lifecycle` carries Hidden/Visible/Interrupted/Resumed independently of
+simulation; `Surface::clock` supplies ownership before input. Player reserves its
+32 MiB PCM budget before synthesis and releases acknowledged allocations, trying
+smaller candidates after refusals. When a preferred candidate waits for stopped PCM,
+non-preferred sources stay stopped until acknowledgement frees capacity. Attached
+`AudioSource`s require looped definitions and refuse finite definitions by name;
+`World::play` records a finite voice's deterministic start tick. Registration validates
+parameters; the Player owns the actual PCM budget. Finite voices are ambient and do
+not block settle. File restore preserves saved sound registries; dev carry
+overlays fresh definitions in GameAudio while retaining runtime names and frozen
+finite voices. That policy belongs to the audio adapter, not Sim.
+
+Apple tests drive the real callback with fixture buffers. The macOS Swift package
+builds. Its synthetic macOS tests call the interruption method on the main thread
+(they do not post `AVAudioSession.interruptionNotification` from a background queue)
+and cover lifecycle delivery, window attach/detach,
+process-wide no-resume inheritance and recovery across live sessions, a trusted
+gesture latched before the first audio request, and 300-live-frame
+activation retries. Automatic `exact:audio` requests cannot override no-resume.
+The same shared cadence helper tests initial persistence, boundaries, 120 ↔ 80
+hysteresis, dropped intervals and alternating 60/120 Hz sessions. These fixtures
+open no audio device; iOS was not driven here. See `audio/README.md` for the bounds.
+
+Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The Swift fixtures and web proofs do not establish those claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). Spatial `play().at(entity)` is tested while `Transform` is mutably borrowed; it resolves positions later, preserving a final position at despawn.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
-include a module path. Resolving the app for dev, proof, build or deploy generates
+include a module path. Resolve checks manifest syntax and the package name, but
+does not check Rust exports: compilation of the generated GPU shell diagnoses
+missing/private types and supports module paths and macro/cfg exports. Resolving the app for dev, proof, build or deploy generates
 `game/.shells/<app-id-hash>-{gpu,web,apple,linux}/` before Cargo metadata. These ignored
 crates contain the GPU module and web/Apple/Linux bakes. Complete replacements are staged
 outside the member glob and installed by rename; unchanged inputs keep their timestamps.
@@ -614,7 +636,12 @@ remain 16 MB. Capsule cap signs occupy the reserved vertex UVs and position true
 hemispheres without stretching them. Normals use inverse dimension scale.
 Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
-`Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
+`app.json` selects model support with `game.assets: true` (or `new.mjs --assets`).
+The synthesized shell uses `module!(Game, assets)`; primitive shells link no model
+decoder or model shader markers in the measured wasm. The link map attributes
+most remaining size to generic storage, allocation and formatting; asset maps and
+`Models` are small contributors (see [module size](#module-size)). A primitive module refuses asset meshes by
+name at bind. `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
 colour and adds emission. Only declared models supply simulation data and baked
 layout/pick bounds. An undeclared model is presentation-only: `world.model(name)`
@@ -624,11 +651,30 @@ bundle, or leave it unpickable. Arrival cannot change a game's reads or bounds.
 
 Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
 Declaring a model also declares every texture it references. Setup, tick zero,
-clocks and saves wait for those dependencies. On a device, `Loaded` means geometry
-and textures uploaded and every needed forward/shadow pipeline variant prepared,
-including mirrored nodes; headless hosts validate the same bytes without GPU work.
-A loading carry returns an already pending restore, or refuses a new save.
-`Sim::save()` requires completed declarations. Every web agent operation waits at
+clocks and saves wait for those dependencies. `Loaded` means validated content is
+ready. Device preparation is separate: loss preserves content readiness, re-requests
+texture bytes and prepares pipelines again. Module-level recovery is verified:
+retained content is re-uploaded, pipelines re-prepare, and native fixture pixels are
+identical on a replacement device. **Host recovery is owed.** Native hosts lack a
+recovery ABI: Apple result 3 makes a canvas non-presentable and `gpu_load` would
+destroy the module surface table. The web keeps the old instance’s presentation
+surface/context, producing a black canvas. The required native ABI requests a
+replacement device while preserving the surface table; web recovery must recreate
+each canvas’s surface/context on the new device, as module swap does. Both analyses:
+`review-S3ac-sol.md` (`gpu/src/native.rs:224`, `CanvasSeams.swift:353`,
+`gpu/src/lib.rs:358`, `gpu-glue.js:148,583`) and `review-S3ac-grok.md`
+(`gpu/src/web.rs:33–60`, `gpu/src/native.rs:90–99`). No renderer-owned decoded
+mip copy survives upload; Apple’s generation store still retains delivered bytes. A loading carry refuses with named asset states, including when a
+restore is deferred. Hosts retain a deferred carrier until `state.restored` confirms commit; a late
+refusal populates the surface restore error and journal once and leaves the fresh
+world usable. `Surface::restore(bytes, Restore::Carry)` overlays fresh audio
+registrations on saved registrations; `Restore::Open` (the default) restores saved
+Sounds. Runtime-registered saved names survive either mode.
+`sim.load_assets(|name| std::fs::read(asset_dir.join(name)))?` drains headless
+requests and dependencies without ticking. `let saved = sim.save()?` returns a
+named error while declared assets or current mesh dependencies are pending; it
+checks current roots even before the request drain. Failed cosmetics do not gate
+save/carry; failed declarations still refuse. Saving does not panic. Every web agent operation waits at
 the same bounded delivery barrier, including world-save screenshots. Loading does
 not establish or advance the simulation's host clock epoch.
 
@@ -647,8 +693,12 @@ materials, nodes, skins, clips and named texture references. Each
 renderer requests textures as model materials arrive, shares them by name across
 materials/models, uploads each once and releases the CPU mip payload. Models use
 shared 1×1 placeholders until textures arrive. The `.baked-assets.json` manifest
-owns generated outputs: renamed/deleted sources prune only those files, including
-when `art/` disappears; authored collisions refuse. Ignore this manifest and the
+records the SHA-256 digest of each generated output. Overwrite and pruning require
+bytes matching that recorded digest, even when bytes equal the desired output.
+Authored collisions refuse before mutation, including source renames and removal
+of `art/`. Legacy array manifests migrate only listed, byte-equal desired outputs;
+other old bytes are preserved. A differing legacy output refuses for manual review;
+do not delete the manifest to bypass ownership. Ignore this manifest and the
 generated `.model`/`.tex` files. Stems must be unique across art subdirectories.
 The standalone baker is `cargo run -p exact-game-bake -- art/fox.glb assets/fox.model`
 (from `game/`); its texture files accompany the model under the output directory.
@@ -658,11 +708,34 @@ slash-separated nonempty segments other than `.` and `..`, no backslashes or
 control characters. Spaces and punctuation are permitted and URL-encoded by the
 web host. Invalid declarations refuse at bind. The baker, module, Linux resolver,
 web and Swift resolver use the same cases. Names are answered once per surface
-instance. Hosts drain at most sixteen rounds. Web fetches make at most three
+while referenced by an asset mesh (or while declarations gate setup). Dropping the
+last reference retires delivery states and answered names; respawning re-requests.
+Declared simulation model data remains immutable and available to `world.model`.
+A model may list at most 64 textures, all used by node-reachable meshes’ materials; a surface tracks at
+most 256 asset names and refuses excess requests by name. Hosts drain at most
+sixteen rounds. The web caps queued plus active flights at 256 and active fetches
+at eight. Retirement cancels old flights before same-drain redelivery. Each has at most three
 attempts with five-second attempt deadlines, 250/500 ms retry delays and a
-20-second total deadline. A 404 is missing; 5xx/offline failures retry and then
-become named failures. Destruction/recreation cancels flights. `settled()` returns
+20-second total deadline from queueing. Response streams abort above 64 MiB
+before joining/copying the body; development assets have the same pre-copy limit. A 404 is missing; 5xx/offline failures retry and then
+become named failures. A failed declaration draws its final status and stops asking
+for frames; failed cosmetics never receive a first-frame stamp. Destruction/recreation
+cancels flights. Apple’s resolver avoids a second `.tex` cache, but the generation
+store retains the delivered `Data`; moving those bytes to private reloadable files
+is owed (`review-S3ac-sol.md`, `Session.swift:214`, `PlanURL.swift:583,604`).
+Its resolver caches reusable
+fonts, images, models and shaders. `settled()` returns
 remaining flight names when its sixteen rounds or deadline expire.
+
+
+Owed after R1: host-level device recovery as described above; Apple delivered-`.tex`
+bytes retained by the generation store (move to private files); primitive-module
+size reduction (D3's link map and per-cut measurements are [below](#module-size);
+the current 764,322-byte Beacons module still exceeds the 550 KB target);
+real-device Apple interruption and multi-display sweeps; WebAudio resume-failure
+propagation. The file:line references name the six blind reviews of 4869f48c, cached under
+`~/Library/Caches/exact2-game/briefs/`. Size analyses: `review-S3ac-sol.md` (`asset.rs:374`, `sim.rs:82`,
+`renderer.rs:22,245`) and `review-S3ac-grok.md` §Primitive module vs 759 KB.
 
 The runtime decodes only `bin` Data. No glTF or image decoder enters the module.
 Asset declarations keep EXGAME v3; simulation saves now use T2's EXSIM v6. The baker refuses
@@ -671,16 +744,20 @@ only the single default scene and refuses multi-scene/no-default inputs, sparse
 accessors, morph targets, non-triangle primitives, missing UVs on textured meshes,
 joints/weights mismatches and unsupported channels/extensions by name. UV0
 transforms, authored nearest/linear filters and wrap modes survive baking. Colour
-mips filter in linear premultiplied-alpha space; MASK coverage is retained to the
-nearest representable texel count. Bake and runtime share model/texture validation,
+mips use linear-light RGB; only MASK/BLEND base colour weights RGB by alpha.
+Opaque colour and emissive maps average straight RGB, and the mode is part of the
+dedup key and generated name. MASK coverage is retained to the nearest texel count. Bake and runtime share model/texture validation,
 including finite scalars and inverse binds, ordered bounds, clip node/arity/time
-invariants and nonsingular node transforms. Skins and clips remain data until S3b.
+invariants and nonsingular node transforms. Skins and clips are baked data consumed by the playback controllers below.
 The 16×16 crate pins both output files; Khronos test inputs are digest-pinned.
 
 Model pipelines are lazy and share shader modules/layouts. A primitive-only world
-creates no model pipelines or texture uploads. Declared asset work finishes inside
-`Pending → Loaded`, before play; the peer surface test asserts unchanged asset
-compilation/upload counts through ticking and drawing. An undeclared cosmetic
+links no model decoder or shader family. Loaded content is prepared before the
+surface draws, and device loss repeats only that preparation. Entity-global
+negative-determinant transforms on asset meshes refuse by name: the current feed
+has immutable node winding batches, so silently accepting entity winding changes
+would render inconsistently. Baked mirrored nodes remain supported. The peer
+surface test asserts unchanged preparation/upload counts through normal play. An undeclared cosmetic
 pop-in is the explicit exception: its arrival can prepare/upload during play.
 
 Small is a feature. When something here feels clunky, slow or bloated, the move is
@@ -694,34 +771,55 @@ live advance. Web and Apple hosts forward their measured display period;
 headless Linux leaves it unknown (zero).
 
 Live frames use the host's display period, not the last frame delta. The web
-exports its pacer's fitted period; Apple supplies `CADisplayLink.duration`;
-headless and an uncalibrated display report zero. With world time `T`, fixed step
-`step = 1000/hz`, and `L = min(period, step)`, ticks run strictly before the
-scheduling horizon `T + L`. Unknown periods and Seekable use `L = 0`. A live gap
+exports its 16-sample median, refined by full rolling fits when the period differs
+by more than 1%; sustained skipped slots reacquire even a harmonic rate change.
+Apple quantizes `targetTimestamp - timestamp` to display rate classes with 1%
+hysteresis and three consecutive candidate intervals, including initial acquisition.
+One doubled interval cannot change the class; three can. Classes never exceed
+the display maximum, and stable callbacks reuse cached boundaries without allocating. Both Apple hosts use the same quantizer;
+every callback publishes its session's current class before rendering because the
+module is process-wide. ProMotion's cadence can differ from nominal `duration`.
+L is unknown (zero) headless; Apple publishes zero until three stable intervals
+after module creation establish a class.
+On web it is unknown for the first sixteen intervals (133 ms at 120 Hz, 267 ms at 60 Hz).
+A short web interval uses a provisional half-period lattice; a second short interval
+confirms it. A sustained double-slot cadence promotes the existing lattice. Jittered
+60 ↔ 120 transitions are tested delta by delta; isolated sub-slot callbacks retain the fit.
+With world time `T` and fixed step `step = 1000/hz`, `L` approaches
+`min(period, step)`; ticks run strictly before the scheduling horizon `T + L`.
+Seekable uses `L = 0`. A live gap
 still contributes at most 250 ms; pause stops time and unpause seeds the clock
 without consuming the pause gap.
 
 Rendering uses `R = T + L - step`, with
 `alpha = (T + L - tick * step) / step` between the last two completed poses.
-A fixed display period gives `ΔR = ΔT`: a 40 ms stall moves the pose by 40 ms,
+A settled display period gives `ΔR = ΔT`: a 40 ms stall moves the pose by 40 ms,
 and its very next frame moves it by one normal frame interval. The last frame's
 delta never changes L. Tick zero draws the initial pose; the alpha guard handles
-missing history at startup, restore or a display-rate change. Seekable retains
+missing history at startup or restore. Seekable retains
 its original `frac(T / step)` interpolation and exact integer-microsecond seeks.
 
 The live clock adjusts its origin toward the nearest frame on the display
 lattice, dilating or contracting elapsed time by at most 0.25% per frame until
-the phase error reaches zero (within 0.2 ms in at most four seconds at 60 Hz or
-faster), then holds. It acquires again when the display period changes. This is
+the phase error reaches zero, then holds. Changes below 0.5% relative to the
+accepted period are ignored. A real period change, including unknown → known,
+slews L first, then reacquires the grid, sharing one 0.25% correction budget;
+neither the render nor scheduling horizon steps. A known period at the initial
+epoch seeds L directly, before there is a preceding pose. This is
 one origin adjustment: at 60/60, 120/60 and 240/60 every tick deadline then sits
 on a frame; at 144/60 the remaining phases cycle. During acquisition,
-`|ΔR - frame_delta| <= 0.0025 * frame_delta` for an unchanged period. At aligned
+`|ΔR - frame_delta| <= 0.0025 * frame_delta`, including period transitions
+(apart from integer rounding). Increasing L from zero to 16.667 ms takes 6.667 s;
+zero to 8.333 ms takes 3.333 s. Grid-only acquisition needs at most four seconds
+at 60 Hz or faster when L is already at target. After unknown → 60 Hz, the shared
+budget serializes horizon and grid acquisition: about ten seconds before 60/60
+sits at alpha 1. At aligned
 60/60, the tick runs at the frame and alpha is 1: no interpolation lag.
 `tick_phase` is mean alpha on ticking frames, about 1 at 60/60 and 0.5 at 120/60.
 
 Live phase is an integer accumulator of microseconds multiplied by `hz`
 (1,000,000 units per tick), plus a fractional residual bounded to half a unit.
-It never accumulates world milliseconds in an `f64`. A raw backwards host stamp
+It never accumulates world milliseconds in an `f64`. A backwards or duplicate host stamp
 changes neither phase nor lookahead. Period, residual and slew are host-only:
 absent from saves, state, snapshots and hashes, and never applied under Seekable.
 If a live tick ran early, a save is taken at that tick's exact deadline, encoded
@@ -736,7 +834,10 @@ cutoff window. During acquisition, at noncommensurate rates, or with an off-latt
 callback, a tick can still run early; input delivered after that execution waits
 for the next eligible tick. Seekable preserves its strict `stamp < deadline`
 rule, including exact-boundary inputs going to the following tick. Queued input
-stays stamp-ordered, future host stamps wait, and multi-tick catch-up spreads
+stays stamp-ordered. Live stamps queued before a callback are clamped to that
+frame's `now_ms`: an event stamped 16.8 ms has arrived even if pacing names the
+frame 16.667 ms. The initial/restore epoch sample skips this clamp so rebased
+future stamps retain their offsets. Seekable future stamps still wait. Multi-tick catch-up spreads
 input across ticks. Only a gap beyond the 250 ms cap collapses its input onto
 the first remaining step. The deterministic record is the tick-stamped input
 sequence with the same seed; live host stamps alone are not a seekable replay.
@@ -805,7 +906,7 @@ The native `Sim` and `session.world("world")` share `run(ms)`, `settle()`,
 Rust reads use `get::<Component>(entity)`; JavaScript uses `get(entity, "Component")`.
 JavaScript operations are awaited; `settle()` returns a boolean. `snapshot()` keeps
 simulation fields only. These helpers dispatch the existing eight agent operations.
-The generated game demonstrates nearby prompts, beacon plinths, and `round` as the
+The generated game demonstrates nearby prompts, beacon plinths, and `restart_generation` as the
 world's restart identity, with the same movement/light sequence in its test and proof.
 
 ## Proving that state is saved
@@ -1755,3 +1856,294 @@ device-dependent Rust tests can return early. The game remains a separate Cargo
 workspace. No remote commands or pushes were used; local bundles imported the
 four lane heads. Commands, outputs and the known-defect failure are retained in
 `~/lanes/gamenext/scratch/M5/`.
+
+Native spatial reads use `sim.layout("player").unwrap().screen` and
+`sim.pick(rect.center())`; set `sim.viewport(width, height)` for CSS-pixel coordinates.
+Both use the agent's geometry, current global poses and viewport. A missing entity,
+camera, projected rectangle or hit returns `None`.
+Changing the non-live `Options::restart_generation` reconstructs setup through the
+same argument-binding path as any other setup change; there is no second reset path.
+World performance state keeps small counts, totals, maxima and draw counters by
+default. Request `state` with `perf: true` or `perf_reset: true` to arm the five
+16,384-sample rings. Arming preserves aggregates and cadence; only explicit reset
+clears them. `perf.armed` reports recording state; the feel probe arms it too.
+Percentiles are zero before recording; counters still report total work.
+
+## Skeletons
+
+A declared `Mesh::asset("fox.model")` plays with
+`Animation::play("Walk").speed(1.5).marker(0.3, "step")`; `.once()` clamps at the end.
+A fresh reverse standalone one-shot starts at the clip end (an explicitly nonzero
+`time` is retained).
+`Animation`, `Blend`, and `Animator` are alternatives; insertion refuses a second
+controller. Each dereferences to the same saved `animation::Playback` interface:
+`crossed("step")` and `root_motion()`. Animation advances once per fixed tick,
+after the game's tick. Call `animation::step(w)` earlier to consume this tick's
+markers or motion; the automatic second call does nothing to the sampled pose.
+It still refreshes socket followers after the game has applied the owner's motion.
+
+Declare the motion root explicitly with `.motion_root("b_Root_00")` on any controller.
+There is no inferred first joint and no motion extraction without a declaration.
+Legal duplicate node names resolve to the first match in parent-first traversal
+(`animation::node_order`), for motion roots, sockets and IK alike. Give gameplay
+nodes unique names when that choice would be ambiguous to the author.
+The selected node's local translation is held at its bind anchor; extracted deltas
+include complete forward or backward loops and are returned in model coordinates
+(through the sampled parent's basis when the node has a parent). Applying
+`transform.rotation * (transform.scale * playback.root_motion())` to the entity's
+position therefore does not double its travel or snap at a loop. Rotation remains
+in the local pose. The game owns Transform, including collisions or rejection of
+motion; animation never moves it. Locomotion roots should have stationary ancestors.
+
+`Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")]).parameter("speed")`
+binds its axis to the containing Animator's number parameter. `animator.set("speed",
+speed)` drives that axis and transition conditions. Standalone blends use their saved
+`axis`; an unset parameter uses that authored axis, and a nonnumeric value refuses.
+Two bracketing clips share normalized phase, advanced by
+`dt / lerp(duration_a, duration_b, weight)`. Their root deltas use those same weights.
+An exact knot samples and emits markers only from its active clip. Source clips still
+need compatible foot contacts; phase matching cannot repair the art.
+
+`Animator::new([State::new("walk", Play::Clip("Walk".into())).to("run",
+Condition::Arg("speed".into(), Cmp::Gt, 2.0.into())),
+State::new("run", Play::Clip("Run".into())).fade(0.2)])` is all `Data`.
+Use `state_named("run")`, `state_mut("run")`, or `blend_mut("travel")` for named
+access. A state supports `.once()`, `.speed(2.)`, and `.paused(true)`; those saved
+fields can also be changed through `state_mut`. A paused state neither advances
+its clock/fade nor transitions. A one-shot finishes before its first matching edge
+can run, on the following tick. A zero-length clip or zero-speed once state
+finishes on its first unpaused sample; explicit pause still prevents completion
+and transitions. Fades also finish before another edge runs;
+self-edges are ignored. At most one edge runs per tick. Looping locomotion retains
+phase across transitions; entering or leaving a one-shot resets it to the playback
+start (the end for negative speed).
+
+Fades mix the frozen outgoing local pose with the advancing incoming pose. Root
+motion fades from the outgoing tick's saved displacement to the incoming delta.
+Frozen outgoing clips emit no events; incoming markers become eligible only when
+the incoming weight is **greater than 0.5**, with suppressed crossings discarded.
+Outside fades every nonzero-weight clip contributes markers. Flags clear on the next
+step (failed playback contributes zero motion/events), are saved/hashed, and collapse repeated names to one event per tick.
+glTF animation `extras.markers` accepts `[[0.3, "step"]]`. Negative speed uses the
+same open-start/closed-end intervals. Journal lines are `animation fox travel step`;
+the fixture also logs `fox footstep` when its own `crossed("step")` read is true.
+
+Sampling supports glTF step, linear and cubic tracks. Cubic uses the left key's
+out-tangent and right key's in-tangent, multiplied by the interval duration, exactly
+as [Khronos Appendix C.5](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#interpolation-cubic)
+specifies. Cubic quaternion signs and tangents are preserved and the polynomial
+result normalized; shortest-path slerp applies to linear rotations. Exporters must
+avoid splines that produce a zero quaternion. Asymmetric three-key and signed
+quaternion tests distinguish wrong neighbours, missing duration factors, and sign
+rewrites. Scalar glam/libm supplies transcendentals; fixed f32 clock additions
+remain pinned (`0x3f7ffffb` after sixty 60-Hz steps).
+
+`Ik { chain: [root, mid, tip], target, pole, weight }` also runs without a controller,
+starting from bind pose. It solves a direct two-bone chain in model coordinates;
+zero weight is exact and unreachable targets stretch the chain. Invalid chains or
+targets refuse by name. Sampling/IK failure preserves the last good pose pair and
+leaves the Animator state, clock and fade uncommitted. The first successful pose
+pair is current/current. Restore, carry, teleport and model/batch arrival duplicate
+current at the presentation seam without rewriting saved history. Bones remain
+compact arrays, never entities.
+
+Declare one `Socket("b_Head_05".into())` per owner; `SocketFollow::new("fox")` drives
+an attachment. Socket names resolve once per loaded rig. Replacing the loaded model
+rebuilds the cached bind pose, bounds and socket resolutions at the next sample.
+Removing or failing a socket invalidates `SocketPose`; locomotion continues and
+followers restore their captured authored Transform. Sampling, socket and follower
+errors have separate once-only lifetimes, reset by recovery/removal or a changed error.
+The declared socket's ancestor chain runs sim-side, including offscreen/headless.
+The follower is its attachment Transform's writer.
+
+The `Pose` component saves previous/current local TRS, phase, flags and bounds.
+**Layout and CPU pick use a static inflated bind AABB, not the drawn skin.** The box
+adds maximum chain reach and inverse-bind vertex radius, including track extrema
+and conservative cubic overshoot. Picking can hit empty space inside it; neither
+sampled vertices nor frame-alpha skinning tighten it. Models cap imported nodes and
+skin joints at 256, with four normalized influences per vertex.
+`state world:fox pose` forwards `pose:true` and returns all unique skin joints in
+imported-node order. A saved pose/model length mismatch refuses with the model name.
+There is no silent truncation or duplicate budget consumption.
+
+Controller definitions, phase, parameters, outgoing pose/motion and fade progress
+are saved/hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays fresh
+named definitions, preserving the situation and fading from the carried pose.
+A removed current state retains its old definition until a matching state is supplied.
+Deliberate cuts: f32/bool parameters, frozen outgoing pose, one socket per owner,
+no layered/additive graphs, closures or scripts.
+
+`games/skinned-fixture` teaches parameter-driven Survey → Walk/Run, consumes root
+motion through Transform, and reads/logs footsteps. Its CC0 Khronos Fox source was
+in place; the fixture authors linear `b_Root_00` translation tracks at 40 model
+units/s for Walk and 120 for Run along the Fox’s +Z facing, plus
+quarter/three-quarter-phase step markers.
+The controller explicitly names that root. Heading is authored; travel comes from
+the clips. Tick-60 joint JSON is pinned in
+[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json), and the tick-120 hash
+is `0x409341e24939d7c2` (tick 60: `0xb863e854ca85b74e`). These replace S3b's circle
+pins because the motion tracks, Transform path, playback data, socket home and
+history semantics changed.
+
+Run `bun game/games/skinned-fixture/proof.mjs web` (or `linux`) from the root.
+The S3b-b web/headless Linux proof run on this arm64 Mac passed in
+22.276/33.022 s. R2's web proof passes with both tick hashes asserted; the R2
+Linux rerun and wider host sweep remain owed after shared-tree build interruptions
+and stalled process inventory/optimizer children (see the ergonomics diary).
+The proof saves at tick 45 during the fade and resumes in a fresh host through 120;
+its final save must be byte-identical. Both hosts produce the same 15,084 bytes,
+SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The native paranoid test repeats restore into
+a new Sim every tick and compares bytes as well as hashes and local poses. A GPU
+pixel test compares birth, restore, carry and model arrival against a current/current
+oracle within 0.1% of the Fox rectangle. Deliberately injecting bind history supplies
+the negative control. Both advertised tick hashes are asserted by the native test.
+The pre-review macOS screenshot showed a white Fox while web was textured; that
+native asset delivery gap remains outside this slice. No new x86-64 run or macOS
+proof is claimed here. Rendering measurements and qualifications are in
+[the renderer README](render/README.md#skinned-model-path).
+
+
+## Module size
+
+`bun game/bench/size.mjs` builds Beacons and prints shipped raw/gzip bytes plus
+pre-opt crate and module attribution; the per-cut table and 200k-cube paired
+timings are in [the benchmark README](bench/README.md#d3--measured-module-size-2026-09-18).
+D3 shares component page allocation and Data walks over aligned bytes, retains
+typed query strides/leases and page generations, and links only the registered
+storage kinds. Asset delivery maps are sorted vectors; saved ordered maps keep
+their existing order. Pipeline shader comments/indentation are removed at build
+time with newlines preserved, so line numbers survive and columns change.
+
+JSON, perf/trace and audio diagnostics share a small-table Ryu writer. Exact
+decimal tie handling preserves existing JSON number spelling; fixed audio
+journal decimals also match. Publication journal values now use Data's field
+walk instead of Rust Debug (for example `{"Number":[0.0]}`); the journal stays
+outside the world hash. Dynamic float clamp panics still retain Rust float
+formatting, including through the concurrently maintained animation code.
+The <550 KB Beacons target remains unmet; this cut does not change the existing
+primitive/model boundary or add a core-crate feature.
+
+### Physics snapshot reconstruction (PX1)
+
+Physics snapshots are EXPHYS v2. Vendored Rapier 0.35.3 now persists its deferred
+BVH optimization flag; v1 omitted simulation state and is refused atomically by
+name, including when nested in an EXSIM save. Start a new world. The dependency
+belongs only to the game workspace.
+
+`Sim::paranoid(Paranoid::Off | Paranoid::Save | Paranoid::FreshGame)` reconstructs
+through the production restore path after every completed tick, asserting the
+world hash is unchanged. FreshGame also drops the old world and decodes immutable
+models again. Driver time, queued input and pending output remain with the driver;
+restore still requires exact tick/time agreement. Off is the default. Native
+`EXACT_GAME_PARANOID=1` selects Save and `fresh-game` selects FreshGame; wasm uses
+the same environment variable at build time.
+
+`bun game/games/<name>/proof.mjs <web|linux> --paranoid` runs the actual proof in
+all three modes and compares each session's final hash, tick, publications and
+journal. Web receipts include the compiled mode, so a normal proof rebuilds after
+a paranoid build. Timings report both each full proof and the total including its
+build. This diagnostic intentionally serializes every tick; it is not a performance
+mode. `game/physics/tests/compare.rs` provides the corresponding native comparison.
+
+PX1 native verification (2026-09-18, this lane, optimized dev tests): all game
+workspace tests, clippy and formatting pass. The Linux headless proof passes for
+greybox, Beacons, asset-fixture and skinned-fixture in all three modes, comparing
+hash/tick/publications/journal. Physics pile tick 600 changes
+`5ba7691abdc98058 → 129ba6d92f9ac217`; two-body `simulate(120)` changes
+`9960c10fadbb9c4b → 5608994347e54d28`. Both agree across continuous, Save and
+FreshGame. Greybox setup/forward pins (`7df5e5a89b4d0207` / `0f14b8b231091d12`),
+asset tick 60 (`8f6d518f39634478`), skinned ticks 60/120
+(`b863e854ca85b74e` / `409341e24939d7c2`) are unchanged. Beacons' proof endpoint
+is `331c074e0f135059` at tick 907 in all modes.
+
+| Native script | Off ms | Save ms | FreshGame ms |
+|---|---:|---:|---:|
+| Physics stack, 120 ticks | 1.244 | 41.256 | 44.109 |
+| Beacons, movement/jump | 0.311 | 21.381 | 22.329 |
+| Greybox, movement/action | 0.342 | 26.830 | 25.092 |
+
+Skinned-fixture's 120 pairs of continuous/reconstructed ticks took 33.576 ms
+(Save) and 52.041 ms (FreshGame), including both runs in each pair. These are
+single-run diagnostic timings on a shared Mac. Native host proof wall times
+include process inventory and, where invalidated, builds; they are not tick costs.
+The live-clock regression runs 144 Hz frames against 60 Hz physics in all modes,
+checks capture metadata is unchanged by save, and verifies byte-identical reopened
+continuation. Lane/game has no sibling capture/checkpoint replay layer.
+
+The real browser live-capture check also passes: a live `screenshot … world save`
+reopens with its returned tick/hash and continues identically in two fresh
+processes for another 1,000 ms; the seekable control passes as well. The temporary
+probe exposed the existing agent entry point on a live-clock page without making
+its GPU clock seekable. No lane/game save-path change was needed.
+
+Greybox GPU size, before this task's available dist → PX1 build: **2,106,859 →
+2,175,006 raw bytes (+68,147); 465,027 → 475,963 gzip-9 (+10,936)**. Both retain
+wasm name/producers sections and omit wasm-opt post-processing. The new measurement
+is `bun game/bench/size.mjs px1-unoptimized --app greybox` with wasm-opt absent
+from PATH (the supported fallback; the installed executable stalled before running).
+This is the shared lane's before/after artifact delta, including concurrent R2
+changes, not an isolated Rapier cost. Greybox and Beacons do not link physics;
+the root dependency graph also contains no Rapier package.
+
+The agent's `world.run(ms)` now establishes the current clock with `+0` after
+asset settlement before its positive seek, matching `Sim::run`'s initial epoch.
+Without that initialization the skinned web fixture's first 750 ms seek could
+leave the newly ready world at tick zero. The original tick/pose/hash assertions
+now pass in all three modes. The Chrome wasm physics card also checks both pins
+across all three reconstruction modes.
+
+Verification limits on this Mac: the process-wide `ps` inventory stalled, so the
+proof runs used a temporary libproc inventory retaining parent PID and process
+start identity. Web functional proofs used installed Chrome for Testing and the
+build's supported no-wasm-opt fallback. The root workspace build was attempted
+normally, with a private TMPDIR, and serially; native JS-bake child processes
+stalled each time, so that check is **not green**. Root Cargo metadata nevertheless
+confirms the vendored dependency does not enter its graph. No root build code or
+system configuration was changed to bypass the failure.
+
+Final paranoid proof wall seconds (Off / Save / FreshGame; builds and process
+inventory included, so these are not ratios of simulation cost):
+
+| Game | Web | Linux headless host |
+|---|---|---|
+| greybox | 19.090 / 19.307 / 20.840 | 46.921 / 1.811 / 2.117 |
+| beacons | 30.109 / 21.231 / 21.471 | 27.442 / 35.212 / 1.683 |
+| asset-fixture | 19.608 / 17.078 / 27.088 | 39.639 / 1.338 / 0.946 |
+| skinned-fixture | 24.288 / 22.019 / 20.447 | 24.379 / 1.078 / 0.804 |
+
+All four ordinary proofs also pass on web and Linux, leaving web artifacts in Off
+mode. A cold greybox browser launch timed out in `Page.navigate`, and a cold
+asset-fixture Linux launch timed out before readiness; both passed unchanged on
+cached retry. Every completed proof reports all recorded children exited.
+
+
+## M4 engine-line merge checkpoint (2026-09-18)
+
+The engine line's `Surface::asset(name, Result<&[u8], AssetError>)`,
+`bind(inputs, Option<f64>)`, `restore(bytes, Restore::{Carry, Open})`,
+`Lifecycle::{Hidden, Visible, Interrupted, Resumed, Presented}` and
+`Frame::period_ms` are integrated. `Sim::save()` returns `Result<Vec<u8>, DataError>`;
+pending model dependencies refuse by name. EXSIM v6 retains trunk's authored
+three-way merge and reload report; EXPHYS v2 retains its snapshot refusal.
+`SAVE_VERSION` and migration hooks are removed. Restore requires exact tick/time
+agreement. Capture schema identity now follows EXSIM v6 rather than a game migration
+version.
+
+The adapted engine-line paranoid scheduler is the single implementation, retaining
+trunk's recorder, reload report and ownership. Shared raw storage retains trunk's
+per-slot observation caches, cached kind validation and bounded load preflight.
+The existing 200k sparse/churn and observation oracle tests pass. Layout keeps the
+BVH, occlusion and unavailable-pose semantics; typed layout/pick use that geometry.
+`Sim::input(event)` preserves scheduled stamps; `device_input(event)` marks actual
+delivery so live pacing can clamp it. Both use the existing 1,024-event bounded
+queue, and delivery status is saved and captured.
+
+Baked skeletons use compact joint arrays, sim-side sockets and saved playback;
+Lanterns retains its distinct `scene::Animation` embedded-Fox controller and existing
+world pins. Its manifest opts into assets. Beacons keeps the authored scene and
+saved typed kinds; both lines' movement/continuation assertions remain.
+
+Checkpoint validation: game workspace compilation and **379 engine tests pass,
+0 fail, 8 ignored diagnostics**. Full workspace, host proofs, capture-clock regression
+and fixture regeneration follow in separate commits. No GPU/Apple/browser execution
+is claimed on this machine.

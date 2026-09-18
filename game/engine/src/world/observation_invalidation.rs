@@ -256,7 +256,7 @@ fn sim_restore_carry_and_paranoid_table() {
                 assert_ne!(sim.world().id(), id);
             }
             check(sim.world_mut(), &before, true);
-            let save = sim.save();
+            let save = sim.save().unwrap();
             sim.run(100.0);
             assert_eq!(
                 sim.world().get::<Transform>("target").unwrap().position.x,
@@ -275,7 +275,7 @@ fn sim_restore_carry_and_paranoid_table() {
                 sim.world().get::<Transform>("target").unwrap().position.x,
                 6.0
             );
-            assert_eq!(sim.save(), save);
+            assert_eq!(sim.save().unwrap(), save);
             check(sim.world_mut(), &before, true);
         }
     }

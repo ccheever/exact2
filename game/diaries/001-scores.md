@@ -132,3 +132,70 @@ asks are now small and specific:
    the `screenshot … save` spelling) (sol).
 
 Kept, again: the proof through the product's agent, the save, the Contract HUD.
+
+## Feel, measured (2026-09-18, 04:56–05:36) — the row every card left unverified
+
+One sitting, display unlocked, console idle throughout, all rows provisional at load
+12–29 (`game/bench/README.md`, "First full sitting"). Judder is the displacement
+between consecutive submitted poses on the paced clock; latency is event to submitted
+pose (a CPU pose, not a photographed frame); the twins move by their own rules.
+
+| | Godot shipped | Godot interpolated | three.js | exact2 (60 Hz world) | exact2 (120 Hz world) |
+|---|---:|---:|---:|---:|---:|
+| player judder (3 runs) | 0.994–1.000 | 0.032–0.370 | 0.484–0.725 | 0.002 (0.074†) | 0.002 (2.06†) |
+| repeated positions | 49.7 % | 0 % | 12–26 % | 0 % | 0 % |
+| event → pose, p50 | 14.6–16.3 ms | 11.0–16.5 ms | 1.45–4.65 ms | 5.15–6.50 ms (4.25†) | 3.50–4.10 ms (4.95†) |
+| hitches | 12.3 % | 12.4 % | 0 | 0 | 0–2 frames |
+
+† contaminated first attempts (the orchestrator's own proof stole the window's focus).
+
+Read as the rubric asks — "buttery not stuttery, as high or higher fps for the same
+thing": exact2's displacement varies 0.2 % frame to frame where three.js's varies
+50–70 % and shipped Godot repeats every other frame; its latency at 60 Hz ticks sits
+with three.js's per-frame stepping and three times under Godot's, and at 120 Hz ticks
+under both. A judge scoring the Feel row from this sitting would give exact2 5,
+three.js 3 (smooth cadence, uneven displacement, best latency), Godot shipped 1 and
+Godot interpolated 3. That row is not yet scored by the judges: the fourth score waits
+for the skeleton slice so the game rebuilt for it can be the same brief as before.
+
+## Fourth score (2026-09-18, 10:00) — Beacons rebuilt a fourth time, the Feel row measured
+
+Same judges, rubric and twins; the exact2 entry is `001-beacons-exact-r4.md` (148 lines
+of logic + a 39-line Contract, 0 authored scaffolding, 6 min 40 s from the brief to a
+passing first browser run — 3 min 20 s strictly timestamped — no engine change). The
+Feel row is scored from the first full sitting (`game/bench/README.md`) for all three.
+
+| | Godot | three.js | exact2 r4 | | Godot | three.js | exact2 r4 |
+|---|---:|---:|---:|---|---:|---:|---:|
+| **sol** | | | | **grok** | | | |
+| Small | 2 | 5 | 4 | | 3 | 5 | 4 |
+| Direct | 3 | 5 | 4 | | 3 | 5 | 4 |
+| Provable | 5 | 5 | 5 | | 5 | 5 | 5 |
+| Repeatable | 4 | 4 | 4 | | 4 | 4 | **5** |
+| Loop | 5 | 4 | 4 | | 5 | 4 | 4 |
+| Feel | 1 | 3 | **5** | | 2 | 3 | **4** |
+| UI | 4 | 5 | 4 | | 4 | 5 | 4 |
+| **of 35** | **24** | **31** | **30** | | **26** | **31** | **30** |
+
+19 → 20/24 → 24/25 → **30/30 of 35** across four builds; one point behind three.js on
+both cards, four and six ahead of Godot; Feel is the row this engine now wins outright.
+The asks, concrete on both cards:
+
+1. **Restart is a world operation** and the tick should not mention the engine:
+   `w.character("player").step(..)`, `w.nearest_xz::<Beacon>(..)`, `World::position`
+   instead of a query scope, an `unwrap` chain and a second `near_xz` pass (grok);
+   named bindings and a real restart signal in the Contract (sol).
+2. **A headless proof that sees the HUD in well under a second**: the native test (or
+   `proof.mjs linux`) drives `hold`/`tap`/`tree`/`snapshot` including Contract text and
+   accessible names on the GPU-less host; Chrome only for the screenshot (grok). And
+   one standard command that runs hosts in parallel, repeats, restores and compares
+   saves across hosts (sol).
+3. **Ship what the twins get for free**: `Game::HZ = 120` for action games (the 120 Hz
+   row is the 3.5–4.1 ms one), `Material::grid` and a background in the template, a
+   centred overlay with `focus-visible`/hover on Contract buttons (grok); the author-
+   owned unit down to `game.rs` + `app.contract` + `proof.mjs` with the manifests derived
+   (sol); task-defining numbers visible at the call site even when they equal the
+   defaults (sol — copy three.js's auditability).
+
+Kept, again: the proof through the product's agent, the save, the Contract HUD, and now
+the pacing.

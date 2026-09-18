@@ -56,6 +56,8 @@ final class GpuModule {
     typealias LoadFn = @convention(c) () -> UInt32
     typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UInt32, UInt32) -> UInt32
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias BindAtFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, Double) -> UInt32
+    var bindAt: BindAtFn?
     typealias RenderFn = @convention(c) (UInt32, Float, Float, Float, Double) -> UInt32
     typealias DirtyFn = @convention(c) (UInt32) -> UInt32
     typealias DestroyFn = @convention(c) (UInt32) -> Void
@@ -83,10 +85,11 @@ final class GpuModule {
 
     let wantsInput: WantsFn?
     let input: BindFn?
-    typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> Bool
+    typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UInt32) -> Bool
     typealias AssetFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Bool
     var assets: WantsFn?
     var asset: AssetFn?
+    var assetFailed: AssetFn?
     var carry: WantsFn?
     var restore: RestoreFn?
     let published: WantsFn?
@@ -147,13 +150,14 @@ final class GpuModule {
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
-        module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self)
+        module.bindAt = sym("gpu_bind_at", BindAtFn.self)
+        module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
         module.seekable = sym("gpu_seekable", SeekableFn.self)
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
+    init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
         self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.published = published; self.agent = agent; self.outPtr = outPtr
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.wantsChildren = wantsChildren; self.readback = readback
         self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
@@ -201,5 +205,47 @@ final class GpuModule {
         let n = Int(errorLen())
         guard n > 0, let p = errorPtr() else { return "" }
         return String(decoding: UnsafeBufferPointer(start: p, count: n), as: UTF8.self)
+    }
+}
+
+/// Display-link cadence policy shared by AppKit and UIKit.
+struct DisplayPeriod {
+    private static let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
+    private(set) var value = 0.0
+    private var candidate = 0.0
+    private var samples = 0
+    private var maximumHeld = 0.0
+    private var lower = 0.0, upper = Double.infinity
+    mutating func publish(_ ms: Double, maximum: Double, send: (Double) -> Void) {
+        // gpu_period belongs to the shared module, not this session. Even zero
+        // must replace another session's known cadence before this one's render.
+        defer { send(value) }
+        guard ms.isFinite, ms > 0, maximum.isFinite, maximum > 0 else { return }
+        if value > 0, maximum == maximumHeld, ms >= lower, ms <= upper {
+            candidate = 0; samples = 0
+            return
+        }
+        var next = 1000 / maximum
+        func consider(_ period: Double) { if abs(period - ms) < abs(next - ms) { next = period } }
+        for rate in Self.rates where rate <= maximum { consider(1000 / rate) }
+        for divisor in 1...12 { consider(1000 * Double(divisor) / maximum) }
+        // Cross the midpoint by 1% of the held class before considering a change.
+        guard next != value,
+              value == 0 || abs(ms - next) + value * 0.01 < abs(ms - value) else {
+            candidate = 0; samples = 0
+            return
+        }
+        if next == candidate { samples += 1 } else { candidate = next; samples = 1 }
+        // The first class needs the same persistence as subsequent classes.
+        if samples >= 3 {
+            value = next; candidate = 0; samples = 0
+            maximumHeld = maximum; lower = 0; upper = .infinity
+            func boundary(_ period: Double) {
+                if period < value { lower = max(lower, (period + value) / 2 - value * 0.005) }
+                if period > value { upper = min(upper, (period + value) / 2 + value * 0.005) }
+            }
+            for rate in Self.rates where rate <= maximum { boundary(1000 / rate) }
+            for divisor in 1...12 { boundary(1000 * Double(divisor) / maximum) }
+        }
     }
 }

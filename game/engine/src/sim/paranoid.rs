@@ -1,5 +1,4 @@
 use super::*;
-
 impl<G: Game> Sim<G> {
     pub(super) fn paranoid_rebuild(&mut self) {
         if self.paranoid == Paranoid::Off {
@@ -10,18 +9,18 @@ impl<G: Game> Sim<G> {
         // advance_with owns the seek horizon, but EXSIM checkpoints describe a
         // completed boundary. Retain the horizon outside the reconstructed Sim.
         let horizon = self.world_us;
-        let live_clock = (
-            self.live_time,
-            self.last_ms,
-            self.period_ms,
-            self.paused_clock,
-            self.lookahead_us_hz,
-        );
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save();
+        let bytes = self.save().expect("paranoid save");
         let host = self.last_us;
         let recorder = self.recorder.take();
         let reload = std::mem::take(&mut self.reload);
+        let queue = self.queue.clone();
+        let last_ms = self.last_ms;
+        let live_time = self.live_time;
+        let period_ms = self.period_ms;
+        let lookahead = self.lookahead_us_hz;
+        let paused_clock = self.paused_clock;
+        let rebase_queue = self.rebase_queue;
         let observations = std::mem::take(&mut self.observations);
         let delay = self.settle_delay.get();
         let pending = self.world.published_pending.get();
@@ -35,7 +34,7 @@ impl<G: Game> Sim<G> {
                 .iter()
                 .map(|(name, model)| (name.clone(), bin::to_vec(model.as_ref())))
                 .collect::<Vec<_>>();
-            assets.models.clear();
+            assets.models = Default::default();
             // Drop all old component/resource values (including skipped fields
             // and physics executors) before invoking setup for the replacement.
             let generation = self.world.presentation_generation;
@@ -51,10 +50,6 @@ impl<G: Game> Sim<G> {
         }
         self.restore(&bytes)
             .unwrap_or_else(|error| panic!("paranoid {} tick {tick}: {error}", G::ID));
-        if let Some(host) = host {
-            self.rebase(host as f64 / 1000.0, false)
-                .expect("paranoid clock rebase");
-        }
         assert_eq!(
             hash,
             self.world.hash(),
@@ -62,13 +57,14 @@ impl<G: Game> Sim<G> {
             G::ID
         );
         self.world_us = horizon;
-        (
-            self.live_time,
-            self.last_ms,
-            self.period_ms,
-            self.paused_clock,
-            self.lookahead_us_hz,
-        ) = live_clock;
+        self.last_us = host;
+        self.last_ms = last_ms;
+        self.live_time = live_time;
+        self.period_ms = period_ms;
+        self.lookahead_us_hz = lookahead;
+        self.paused_clock = paused_clock;
+        self.rebase_queue = rebase_queue;
+        self.queue = queue;
         self.recorder = recorder;
         self.reload = reload;
         self.observations = observations;

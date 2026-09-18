@@ -307,7 +307,7 @@ impl StackSurface {
 }
 
 impl Surface for StackSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [board, focus, open, now] = inputs else {
             return Err(SurfaceError(format!(
                 "stack: expected 4 inputs, got {}",

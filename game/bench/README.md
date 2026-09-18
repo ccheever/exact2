@@ -517,6 +517,52 @@ ticks every frame. A tick that is due before the next frame should run now (brie
 F2b); until then a single latency row from any 60 Hz fixed-step engine is one draw
 from that lottery and three attempts are the minimum.
 
+### First full sitting — 2026-09-18, 04:56–05:36, display unlocked, console idle throughout
+
+`bun game/bench/feel.mjs compare --attempts 3` (exact 60/120 Hz, three.js, Godot ×2)
+at commit 98dd3b3a plus the fixes below, then `godot --attempts 3` again after its
+probe was repaired. Every row is **provisional**: the machine ran two builders and
+four reviewers at load 12–29 throughout. The exact rows were rejected by the runner
+as written ("Nonmonotonic frame timestamps": a redraw at an unchanged frame time —
+the resize path draws at the last paced time — put two rows at one timestamp) and are
+scored from their saved raw traces with the repaired analyzer
+(`bun game/bench/feel.mjs reanalyze <trace.json.gz>…`); the Godot rows first failed
+on a GDScript type error the probe refactor introduced (`code := … else keycode`) and
+on JSON floats never matching integer key codes, both fixed here. The exact runs'
+first attempts are contaminated by the orchestrator (a proof run stole the window's
+focus during the 120 Hz attempt: `front/visible NO`, the player stood still for 138
+frames; the 60 Hz attempt overlapped a build) and are shown but not used.
+
+| engine / variant | player judder (3 runs) | repeated positions | event → submitted pose, p50 (3 runs) | p95 | hitches |
+|---|---:|---:|---:|---:|---:|
+| **exact / 60 Hz world** | 0.074†, **0.002**, **0.002** | 0 % | 4.25†, **5.15**, **6.50** ms | 6.3–13.7 | 0 |
+| **exact / 120 Hz world** | 2.06†, **0.002**, **0.002** | 0 % | 4.95†, **4.10**, **3.50** ms | 5.3–8.2 | 0–2 |
+| three.js r186 (120 Hz accumulator, no interpolation) | 0.725, 0.579, 0.484 | 12–26 % | 1.45, 4.65, 4.50 ms | 6.9–12.5 | 0 |
+| Godot 4.7 as shipped | 0.994, 1.000, 0.994 | 49.7 % | 16.10, 16.31, 14.58 ms | 17.1 | 12.3 % |
+| Godot 4.7 with physics interpolation | 0.032, 0.068, 0.370 | 0 % | 16.49, 10.99, 16.07 ms | 17.3 | 12.4 % |
+
+† contaminated attempt, see above.
+
+Read like an adversary: judder here is the displacement between consecutive
+*submitted* poses on the paced clock, not a photographed frame — Exact's frame column
+is its own paced clock while three.js's is raw rAF, so the pacing column favours Exact
+by construction and only the displacement columns compare like with like; latency is
+event-to-submitted-pose (a CPU `f64` pose, the first floating-point change, no scanout),
+so call it that; Godot injects its keys after its frame sample while CDP injects between
+callbacks — a different phase distribution; the twins move by different rules (three.js
+a 120 Hz exponential-velocity step, Godot its own controller, Exact the 60 Hz
+`Character`), so these are authored experiences, not one workload; and a 12 % hitch
+rate for Godot on a machine at load 15 says as much about the machine as about Godot.
+
+What survives that reading: on this display Exact draws the walking player with a
+displacement that varies by 0.2 % frame to frame — three.js's varies by 50–70 % and
+repeats a frame every fifth or sixth, shipped Godot repeats every other frame, Godot
+with interpolation on lands at 3–37 % — and its event-to-pose latency at 60 Hz ticks
+(5–6.5 ms) sits with three.js's per-frame stepping (4.5 ms) and three times under
+Godot's (16 ms); at 120 Hz ticks it is 3.5–4.1 ms. The first-attempt numbers under
+disturbance (0.074 judder, a stalled player) are a reminder that a sitting is a sitting:
+nothing else may touch the display while it runs.
+
 **Full measurement pending:** the orchestrator must run `compare` in a quiet
 sitting for three attempts of all five variants. The 120 Hz bake was selected and
 fingerprinted in tests, but not launched here. The normal stale-build path was
@@ -541,3 +587,152 @@ all times share one monotonic origin. Include `engine_version`, `interpolation`,
 `unfocused_frames` (and `viewport_css` or `viewport_pixels`). Preallocate before
 capture. The same `script()` and `analyze()` functions then apply without an
 engine-specific threshold, smoothing filter, clock adjustment, or metric branch.
+
+
+## D3 — measured module size, 2026-09-18
+
+Run `bun game/bench/size.mjs` from the repository root. It builds Beacons with the
+normal web recipe and unchanged `wasm-opt -Oz`, uses gzip level 9, and aggregates
+`twiggy top -n 20000 -f json` by the first Rust crate token (including Rust's crate
+hash annotations). Both tools read the same per-game target. The command prints
+shipped bytes, crate/section attribution and engine/render module attribution;
+`[label] --no-build` measures existing outputs. Full JSON and twiggy rows are in
+`game/games/beacons/target/d3-size/`. No GPU shader, model or host split was widened.
+
+All sizes below are **bytes**, measured after each cumulative cut. B is a fresh
+`dfdb5003` build, not the earlier 758,561 / 301,524 artifact quoted in the brief.
+The final row includes concurrent skeleton production changes, so its delta from
+2c is **not an isolated D3 saving**. Initial whole-workspace-target measurements
+were discarded when the per-game link-map path mismatch was found.
+
+| stage | shipped raw | gzip | raw delta |
+|---|---:|---:|---:|
+| B — fresh baseline | 829,372 | 329,049 | — |
+| 1 — float/Debug callers | 848,305 | 345,159 | +18,933 |
+| 2 — erased component pages | 800,660 | 337,065 | -47,645 |
+| 3 — packed WGSL | 797,108 | 335,927 | -3,552 |
+| 4 — asset vectors | 784,576 | 332,879 | -12,532 |
+| 5 — streamed formatting | 781,272 | 331,803 | -3,304 |
+| 1b — Ryu small tables | 772,094 | 321,462 | -9,178 |
+| 2b — storage-kind factories | 739,020 | 315,971 | -33,074 |
+| 2c — array-length sharing | 737,768 | 315,604 | -1,252 |
+| Current — exact float spelling + concurrent skeleton edits | 764,322 | 325,721 | +26,554 |
+
+**The <550,000-byte target was not met.** The current measured output is
+214,322 bytes over it. Ryu is now shared by JSON, perf/trace and
+audio diagnostics, with exact rational tie handling to preserve std's shortest
+spelling and the existing four-place agent rounding. The tests compare 100,000
+f32/f64 samples and fixed audio decimals against the old formatter; no D3 JSON
+pin was edited. Publication journal lines deliberately change from Rust Debug
+(e.g. `Number(0.0)`) to the Data field walk (`{"Number":[0.0]}`). Journals are outside
+the world hash but those diagnostic strings also appear in simulation saves.
+
+The float cut alone initially grew the module: Rust's dragon/grisu formatter
+still links through dynamic `clamp` panic messages, including protected animation
+code. Ryu's small tables recover 9,178 raw bytes. Registry factories formerly
+linked **both component and singleton storage for every registered type**; now
+only the declared kinds link, and loading a type in an undeclared kind refuses.
+Aligned byte pages share allocation, removal and Data traversals; typed queries
+retain constant pointer strides and the same leases, masks and write generations.
+Over-aligned owned values, ZSTs, panicking destructors, load budgets, ordering,
+page uploads and save/carry coverage pass. Resource ambient/presentation policy
+stays in registration and does not change saves or observations.
+
+Asset states, models and dependency lookups use sorted vectors. Entity names
+already used a scan. Sounds, publications and world storage maps retain their
+ordered Data contracts. JSON publications, storage reads and input replies now
+stream into one string; common error/journal formatting avoids repeated generic
+container code. Array Data walks share by element type while retaining scalar
+sequence tags, separate from bulk-vector encoding.
+
+WGSL comments (including nested block comments) and indentation are removed at
+build time for pipeline shaders. Every newline survives, retaining concatenated
+source line numbers; columns change. `skin.wgsl` is untouched. The shader cut
+removed 3,552 bytes from `.rodata` and the shipped module. Extra convergence,
+function merging and GUFA wasm-opt experiments each saved less than 1 KB; the
+normal flags remain unchanged.
+
+Pre-bindgen shallow attribution, **not shipped-size attribution**: debug/custom
+name sections are omitted; `other` includes bindgen export strings, Wasm structural
+entries and symbols without a crate. Array/primitive implementations use the
+first named crate in their symbol. Module subrows overlap their parent crate.
+
+| crate / section | B | 1 | 2 | 3 | 4 | 5 | 1b | 2b | 2c | current |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| exact_game | 372,418 | 376,071 | 315,948 | 315,948 | 316,869 | 315,667 | 315,657 | 276,932 | 275,386 | 286,093 |
+| other | 353,873 | 354,950 | 354,755 | 354,755 | 354,755 | 354,755 | 354,757 | 354,353 | 354,353 | 354,789 |
+| alloc | 176,978 | 176,801 | 174,023 | 174,023 | 157,560 | 155,977 | 156,016 | 155,788 | 155,670 | 172,307 |
+| core | 132,789 | 133,361 | 130,921 | 130,921 | 131,357 | 129,291 | 129,291 | 129,025 | 129,025 | 135,907 |
+| .rodata | 98,874 | 109,930 | 109,722 | 106,170 | 106,266 | 106,330 | 96,458 | 94,858 | 94,858 | 95,338 |
+| exact_game_render | 59,121 | 59,141 | 59,141 | 59,141 | 59,141 | 59,147 | 59,147 | 59,147 | 59,147 | 59,190 |
+| wgpu | 45,376 | 45,376 | 45,376 | 45,376 | 45,376 | 45,376 | 45,376 | 45,376 | 45,376 | 45,378 |
+| js_sys | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 | 31,708 |
+| exact_gpu | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 | 21,477 |
+| std | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 | 11,182 |
+| wgpu_types | 11,016 | 11,017 | 11,017 | 11,017 | 11,017 | 11,017 | 11,017 | 11,017 | 11,017 | 11,017 |
+| compiler_builtins | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 | 10,874 |
+| wasm_bindgen | 10,376 | 10,380 | 10,380 | 10,380 | 10,380 | 10,380 | 10,380 | 10,380 | 10,380 | 10,380 |
+| glam | 8,686 | 8,551 | 8,551 | 8,551 | 8,551 | 8,551 | 8,551 | 8,551 | 8,551 | 8,551 |
+| hashbrown | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 | 7,932 |
+| dlmalloc | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 | 7,861 |
+| libm | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 | 6,440 |
+| beacons_logic | 6,102 | 6,102 | 6,102 | 6,102 | 6,102 | 6,102 | 6,102 | 6,100 | 6,100 | 6,100 |
+| web_sys | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 | 3,821 |
+| bitflags | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 | 1,485 |
+| exact_plan | 1,366 | 931 | 931 | 931 | 931 | 875 | 875 | 875 | 875 | 875 |
+| __rustc | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 | 1,354 |
+| once_cell | 939 | 939 | 939 | 939 | 939 | 939 | 939 | 939 | 939 | 939 |
+| log | 365 | 365 | 365 | 365 | 365 | 365 | 365 | 365 | 365 | 365 |
+| .data | 349 | 349 | 349 | 349 | 349 | 349 | 349 | 349 | 349 | 349 |
+| beacons_gpu | 144 | 144 | 144 | 144 | 144 | 144 | 144 | 144 | 144 | 144 |
+| raw_window_handle | 76 | 76 | 76 | 76 | 76 | 76 | 76 | 76 | 76 | 76 |
+| ryu | 0 | 4,746 | 4,746 | 4,746 | 4,746 | 4,746 | 5,479 | 5,479 | 5,479 | 5,479 |
+| ↳ exact_game::storage | 126,466 | 126,466 | 68,389 | 68,389 | 68,389 | 68,389 | 68,389 | 33,560 | 33,560 | 34,240 |
+| ↳ exact_game::data | 46,440 | 50,643 | 48,715 | 48,715 | 48,715 | 48,249 | 48,249 | 44,871 | 45,568 | 49,614 |
+| ↳ exact_game::animation | 31,772 | 31,772 | 31,772 | 31,772 | 31,780 | 31,780 | 31,780 | 31,780 | 31,780 | 36,986 |
+
+Three interleaved native 200k-cube pairs, M5 Max/Metal, 2560×1440, 4× MSAA,
+60 warm-up + 240 measured frames per run. AB / BA / AB; load1 8.28–9.18. These
+are offscreen CPU phase timings, not refresh-rate claims. Before/after **ranges
+overlap in every mode and phase**; no speedup or regression beyond noise. The
+after executable includes the storage, registry, vector, shader and array cuts;
+subsequent edits affect diagnostic float/journal spelling only.
+
+| moving | median tick before → after ms | median feed before → after ms | median encode before → after ms | feed ranges before / after ms |
+|---|---:|---:|---:|---|
+| all | 0.4273 → 0.4214 | 0.9675 → 0.9537 | 0.0653 → 0.0664 | 0.9210–1.0042 / 0.9417–0.9651 |
+| 1% | 0.0047 → 0.0050 | 0.0493 → 0.0489 | 0.0400 → 0.0389 | 0.0478–0.0494 / 0.0477–0.0501 |
+| still | 0.0004 → 0.0005 | 0.0282 → 0.0274 | 0.0387 → 0.0365 | 0.0263–0.0320 / 0.0265–0.0294 |
+
+The workspace rerun passed 446 tests (10 ignored); all-target clippy passed.
+Beacons, Greybox and asset-fixture web proofs passed unchanged pins. The first
+skinned web run preserved fresh-process continuation but failed the starting
+tick-120 hash; the concurrent skeleton slice subsequently changed tick-60 JSON
+and the tick-120 test pin from `0xb05ce95a6c799acf` to `0xcae264dd3df5267b`,
+alongside controller/root-motion and fixture changes. D3 edited none of those
+files or pins. All four final web proofs pass, including byte-identical fresh-process
+continuations; the skinned proof uses the revised skeleton pins. Whole-workspace
+fmt, boot and caps pass. Caps staged only D3 files/hunks in a temporary index,
+then unstaged them; the shared index stayed untouched.
+Measurements and validation logs: `/tmp/d3-*.log`,
+paired raw output `/tmp/d3-pairs.jsonl`; retained executables `/tmp/d3-before-cubes`
+and `/tmp/d3-after-cubes`. No commit, clone, stash, sub-agent or shared-index edit.
+
+
+R2 storage-only remeasurement at `284ea691` (2026-09-18), using the same normal
+Beacons build with successful `wasm-opt` and gzip-9: **765,274 / 325,962 →
+766,003 / 326,394** raw/gzip bytes (+729 / +432, 0.095% / 0.133%). The before and
+after `--no-build` receipts are `target/d3-size/r2-before.json` and
+`r2-after-storage.json` under Beacons; this isolates typed descriptor moves before
+any animation production edits. Crate/module attribution is **pre-bindgen and
+pre-wasm-opt**, not a breakdown of the shipped bytes printed beside it.
+
+The float comparison now checks exact Display as well as Debug against std for
+100,000 f32/f64 bit samples, plus both signs of zero, NaN/infinities, subnormals,
+notation boundaries and decimal ties. **Std Display stays decimal; Debug uses
+scientific notation outside exponents [-4, 16).** `Float` follows Display, while
+unrounded Data JSON follows Debug. Rounded agent JSON follows Display after the
+existing four-place rounding. Special-value tests also check the two existing
+JSON policies: the Data encoder refuses nonfinite numbers, while Contract values
+emit null. No float spelling or pin needed changing; the review's claim that std
+Display shares Debug's exponent window was disproved by these comparisons.

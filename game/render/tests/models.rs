@@ -50,11 +50,11 @@ impl Game for ModelGame {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
-    let mut surface = WorldSurface::<ModelGame>::default();
+    let mut surface = WorldSurface::<ModelGame, (), true>::default();
     surface.device_ready();
-    surface.bind(&[]).unwrap();
+    surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets(), ["sample.model"]);
-    surface.asset("sample.model", Some(&bin::to_vec(model)));
+    surface.asset("sample.model", Ok(&bin::to_vec(model)));
     surface.prepare_assets(
         &gpu.device,
         &gpu.queue,
@@ -64,7 +64,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
         let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
             .join("Library/Caches/exact2-game/gltf-samples")
             .join(&texture);
-        surface.asset(&texture, Some(&std::fs::read(path).unwrap()));
+        surface.asset(&texture, Ok(&std::fs::read(path).unwrap()));
     }
     surface.prepare_assets(
         &gpu.device,
@@ -111,8 +111,23 @@ fn textured_samples_and_normal_emissive_differences() {
         assert!(hi - lo > 50, "{name} lacks visible texture contrast");
         if name == "DamagedHelmet" {
             let mut flat = model.clone();
+            let removed = flat.materials[0].normal_texture.unwrap();
+            flat.textures.remove(removed as usize);
             for m in &mut flat.materials {
                 m.normal_texture = None;
+                for index in [
+                    &mut m.base_color_texture,
+                    &mut m.metallic_roughness_texture,
+                    &mut m.emissive_texture,
+                    &mut m.occlusion_texture,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if *index > removed {
+                        *index -= 1;
+                    }
+                }
             }
             let flat = draw(&gpu, &flat, "DamagedHelmet-no-normal");
             let mut dark = model.clone();

@@ -12,6 +12,7 @@ struct Request {
     under: Option<String>,
     to: Option<String>,
     summary: bool,
+    pose: bool,
     settle: bool,
     now: Option<f64>,
     ticks: Option<u32>,
@@ -56,6 +57,7 @@ impl Request {
                 "to" => q.to = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
+                "pose" => q.pose.read(&mut r)?,
                 "now" => {
                     let mut n = 0.0f64;
                     n.read(&mut r)?;
@@ -302,13 +304,14 @@ impl<G: Game> Sim<G> {
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
-                Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
+                if q.pose { return Ok(format!("{{\"tick\":{tick},\"entity\":{{{}}},\"pose\":{}}}",identity(w,e),crate::animation::pose_json(w,e)?)); }
+                Ok(format!("{{\"tick\":{tick},\"entity\":{{{},\"components\":{}{}}}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?, crate::animation::status_json(w,e)?))
             }
             "state" => Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"reload\":{},\"audio\":{},\"ownership\":{},\"clockState\":{{\"hostMicros\":{},\"worldMicros\":{}}},\"capture\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{}}},\"published\":{}}}}}",
                 quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, state)| **state == crate::asset::AssetState::Pending).map(|(name, _)| name.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), crate::json::to_string(&self.args).map_err(|e| e.to_string())?, w.resources_json().map_err(|e|e.to_string())?, self.reload.json(), crate::audio::state(w), self.ownership_json(), self.last_us.map_or("null".into(), |n| n.to_string()), self.world_us, self.capture().map_or("null".into(), |c| c.status()), self.input.actions.json(), encode(&self.input.keys)?, encode(&self.held_keys())?, w.published_json(true))),
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
-                self.layout(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
+                self.layout_json(e, viewport, q.to.as_deref().map(|n| resolve(w, n)).transpose()?)
             }
             "layout" => {
                 spatial::index::check_size(w)?;
@@ -327,7 +330,7 @@ impl<G: Game> Sim<G> {
                     return Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"reload\":{{\"rebased\":true,\"releasedInput\":{},\"values\":[{values}],\"setupIndices\":[{setup}]}},\"ownership\":{}}}", w.hash(), q.release_input, self.ownership_json()));
                 }
                 let quiescent = self.quiescent();
-                let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", self.settle_at(q.settle)) };
+                let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", crate::data::text::Float(self.settle_at(q.settle))) };
                 let changing = encode(&self.changing(quiescent))?;
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing},\"ownership\":{}{deadline}}}", w.hash(), self.ownership_json()))
             },
@@ -342,7 +345,7 @@ impl<G: Game> Sim<G> {
     fn ownership_json(&self) -> String {
         format!("{{\"owner\":{},\"clock\":{},\"contamination\":{},\"inputSource\":{},\"handoff\":\"clock owner human/agent\"}}", quote(if self.agent_owned { "agent" } else { "human" }), quote(if self.agent_owned { "controlled" } else { "live" }), self.contamination, quote(if self.source_tagged { "attested" } else { "unavailable" }))
     }
-    fn layout(&self, e: Entity, viewport: Vec2, to: Option<Entity>) -> Result<String, String> {
+    fn layout_json(&self, e: Entity, viewport: Vec2, to: Option<Entity>) -> Result<String, String> {
         let w = &self.world;
         spatial::index::check_size(w)?;
         let Some(pose) = w.global(e).filter(|p| p.is_finite()) else {

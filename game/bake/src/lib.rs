@@ -192,6 +192,19 @@ pub fn assets(
         let mut clip = Clip {
             name: animation.name().unwrap_or("").into(),
             tracks: Vec::new(),
+            markers: animation
+                .extras()
+                .as_ref()
+                .map(|v| {
+                    let value: serde_json::Value =
+                        serde_json::from_str(v.get()).map_err(|e| e.to_string())?;
+                    value
+                        .get("markers")
+                        .map(|v| serde_json::from_value(v.clone()).map_err(|e| e.to_string()))
+                        .unwrap_or(Ok(Vec::new()))
+                })
+                .transpose()?
+                .unwrap_or_default(),
         };
         for channel in animation.channels() {
             let Some(&node) = remap.get(&channel.target().node().index()) else {
@@ -292,14 +305,22 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     if !art.exists() && !manifest.exists() {
         return Ok(());
     }
-    let previous: Vec<String> = match std::fs::read(&manifest) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).map_err(|e| format!("generated-output manifest: {e}"))?
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+    let mut legacy = std::collections::BTreeSet::<String>::new();
+    let previous: std::collections::BTreeMap<String, String> = match std::fs::read(&manifest) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(map) => map,
+            Err(_) => {
+                legacy = serde_json::from_slice::<Vec<String>>(&bytes)
+                    .map_err(|e| format!("generated-output manifest: {e}"))?
+                    .into_iter()
+                    .collect();
+                Default::default()
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
         Err(e) => return Err(e.to_string()),
     };
-    if previous.iter().any(|n| !asset_name(n)) {
+    if previous.keys().chain(legacy.iter()).any(|n| !asset_name(n)) {
         return Err("invalid generated-output manifest".into());
     }
     let mut outputs = std::collections::BTreeMap::new();
@@ -307,24 +328,34 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         let (model, textures) = assets(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = format!("{}.model", path.file_stem().unwrap().to_str().unwrap());
         if outputs
-            .insert(name.clone(), exact_game::bin::to_vec(&model))
+            .insert(name.clone(), encode(&name, &model)?)
             .is_some()
         {
             return Err(format!("duplicate art stem {name}"));
         }
         for (name, texture) in textures {
-            outputs.insert(name, exact_game::bin::to_vec(&texture));
+            let bytes = encode(&name, &texture)?;
+            outputs.insert(name, bytes);
         }
     }
     let root = app.join("assets");
-    for (name, bytes) in &outputs {
-        if bytes.len() > 64 * 1024 * 1024 {
-            return Err(format!("asset `{name}` exceeds 64 MiB"));
+    // Validate every mutation before writing or pruning anything.
+    for name in previous.keys().chain(outputs.keys()) {
+        let desired = outputs.get(name);
+        if let Some(bytes) = desired {
+            check_size(name, bytes.len())?;
         }
-        if root.join(name).exists() && !previous.contains(name) {
-            return Err(format!(
-                "generated asset `{name}` collides with an authored asset"
-            ));
+        match std::fs::read(root.join(name)) {
+            Ok(current)
+                if previous.get(name) == Some(&digest(&current))
+                    || (legacy.contains(name) && desired == Some(&current)) => {}
+            Ok(_) => {
+                return Err(format!(
+                    "generated asset `{name}` collides with an authored asset"
+                ))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("asset `{name}`: {e}")),
         }
     }
     for (name, bytes) in &outputs {
@@ -333,14 +364,16 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         write_changed(&out, bytes)?;
     }
 
-    for old in previous.iter().filter(|n| !outputs.contains_key(*n)) {
+    for old in previous.keys().filter(|n| !outputs.contains_key(*n)) {
         match std::fs::remove_file(root.join(old)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.to_string()),
         }
     }
-    let bytes = serde_json::to_vec(&outputs.keys().collect::<Vec<_>>()).unwrap();
+    let digests: std::collections::BTreeMap<_, _> =
+        outputs.iter().map(|(n, b)| (n, digest(b))).collect();
+    let bytes = serde_json::to_vec(&digests).unwrap();
     write_changed(&manifest, &bytes)
 }
 fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -365,4 +398,23 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
         let _ = std::fs::remove_file(&tmp);
     }
     result.map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn digest(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+/// Refuse oversized carriers before decoding or writing them.
+pub fn check_size(name: &str, size: usize) -> Result<(), String> {
+    if size > 64 * 1024 * 1024 {
+        Err(format!("asset `{name}` exceeds 64 MiB"))
+    } else {
+        Ok(())
+    }
+}
+/// The same bounded encoding for both CLI and generated shell builds.
+pub fn encode(name: &str, value: &impl exact_game::Data) -> Result<Vec<u8>, String> {
+    let bytes = exact_game::bin::to_vec(value);
+    check_size(name, bytes.len())?;
+    Ok(bytes)
 }

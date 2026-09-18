@@ -1,27 +1,25 @@
 # Beacons
 
-A small third-person game on exact2's game add-on. Move with WASD or arrows, jump
-with Space, and press E within 1.5 m of each floating beacon. Light all three and
-Play again to restart with the same seeded scenery. Pause freezes world time.
+A small exact2 game: WASD/arrows move, Space jumps, E lights a nearby beacon.
+Light all three, then Play again. Pause/Resume freezes the simulation.
 
 From the repository root:
 
 ```sh
-sh game/games/beacons/run.sh proof
 sh game/games/beacons/run.sh test
+sh game/games/beacons/run.sh proof
 sh game/games/beacons/run.sh dev
 ```
 
-The launcher sets the required CommandLineTools developer directory, development
-update trust, and game-local build/output paths. The browser proof runs headless.
-Host/GPU adapters are the engine's existing synthesized shells; no game-specific
-renderer or host code is needed.
+The launcher sets the required Apple SDK, development trust and game-local build
+outputs. The existing generated Beacons host shells are reused without edits.
+The target cache was seeded using an APFS copy-on-write copy of `game/target`.
 
-`artifacts/proof.txt` contains assertions; `artifacts/replies.json` contains the
-operation replies. `artifacts/beacons-playing.png` is the playing screenshot.
-`checkpoint.world`, `run-0.world`, `run-1.world`, and `restored.world` demonstrate
-fresh-process restore and byte-identical continuation. Process cleanup is recorded
-in `artifacts/process-cleanup.json`.
+`proof.mjs` drives three separate headless Chrome processes through the engine's
+agent API. Evidence is in `artifacts/proof.txt`, `replies.json`, the binary `.world`
+saves, `beacons.png`, and `process-cleanup.json`. It checks all six brief steps,
+plus victory/restart and accessible UI. Native tests cover arrow/WASD parity,
+seek partitioning, seed variation, speed/braking, jump height and no double jump.
 
 `Character` uses 12 m/s² acceleration, 20 m/s² braking, a 4 m/s top speed,
 and XZ bounds of ±19.6 metres. `near_xz` selects beacons around the player by name. The

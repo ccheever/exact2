@@ -74,7 +74,7 @@ fn save_mid_run_retains_clock_input_and_future_events() {
         at_ms: 1012.0,
     });
     s.run(713.123);
-    let saved = s.save();
+    let saved = s.save().unwrap();
     let mut restored = sim();
     restored.restore(&saved).unwrap();
     assert_eq!(s.world().hash(), restored.world().hash());
@@ -151,6 +151,10 @@ fn agent_snapshots_and_pick() {
         screen.y + screen.h * 0.5
     ));
     assert!(hit.contains("\"name\":\"player\""), "{hit}");
+    s.viewport(800., 600.);
+    let screen = s.layout("player").unwrap().screen;
+    let hit = s.pick(screen.center()).unwrap();
+    assert_eq!(s.world().name(hit.entity), Some("player"));
     assert_eq!(
         s.agent(r#"{"op":"state","entity":"missing"}"#),
         r#"{"tick":0,"error":"no entity named `missing`"}"#
@@ -264,6 +268,15 @@ fn every_tick_save_matches_normal_script() {
         sim.hold("KeyW", 713.123);
         sim.tap("Space");
         sim.run(286.877);
+        sim.tap("KeyE");
+        sim.run(1000.0);
+    });
+}
+
+#[test]
+fn shared_paranoid_continuation() {
+    paranoid::compare(sim, |sim| {
+        sim.hold("KeyW", 1500.0);
         sim.tap("KeyE");
         sim.run(1000.0);
     });

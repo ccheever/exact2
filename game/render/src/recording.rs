@@ -12,7 +12,7 @@ pub(crate) struct Recording {
     capacities: [u64; 7],
     mesh_bytes: [u64; 2],
     meshes: usize,
-    models: BTreeMap<String, Vec<(MeshId, MaterialId, glam::Mat4)>>,
+    models: BTreeMap<String, Vec<crate::models::ModelNode>>,
     revision: u64,
     textures: BTreeSet<String>,
 }
@@ -62,8 +62,7 @@ impl Recording {
     }
     fn slots(&mut self, end: u64) -> Result<(), RenderError> {
         if end > u64::from(self.max_slots()) {
-            return Err(RenderError {
-                detail: None,
+            return Err(RenderError::Capacity {
                 arena: "headless slots",
                 slot: end - 1,
                 limit: u64::from(self.max_slots()),
@@ -108,6 +107,7 @@ impl Recording {
                         meshes[m as usize],
                         MaterialId(model.meshes[m as usize].material as usize),
                         local,
+                        node.skin,
                     )
                 })
             })
@@ -136,7 +136,7 @@ impl Writes for Recording {
         200_000
     }
     fn begin_tick(&mut self) {}
-    fn model(&self, name: &str) -> Option<&[(MeshId, MaterialId, glam::Mat4)]> {
+    fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
         self.models.get(name).map(Vec::as_slice)
     }
     fn assets_revision(&self) -> u64 {
@@ -144,7 +144,7 @@ impl Writes for Recording {
     }
     fn instances(&mut self, records: &[DrawInstance]) -> Result<(), RenderError> {
         if records.len() > self.max_slots() as usize {
-            return Err(RenderError::scene(
+            return Err(RenderError::Scene(
                 "headless draw instances exceed 200000".into(),
             ));
         }
@@ -177,7 +177,7 @@ impl Writes for Recording {
     }
     fn batches(&mut self, _: &[Batch], slots: &[u32]) -> Result<(), RenderError> {
         if slots.len() > self.max_slots() as usize {
-            return Err(RenderError::scene(
+            return Err(RenderError::Scene(
                 "headless draw slots exceed 200000".into(),
             ));
         }

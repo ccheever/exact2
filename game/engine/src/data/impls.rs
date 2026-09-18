@@ -202,32 +202,39 @@ where
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
-        w.begin_seq(N);
-        for v in self {
-            w.item();
-            v.write(w);
-        }
-        w.end_seq();
+        write_slice(self, w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
         if !r.patching() {
             *self = Self::default();
         }
-        let mut i = 0;
-        while r.item()? {
-            if let Some(v) = self.get_mut(i) {
-                v.read(r).map_err(|e| e.at(i))?;
-            } else {
-                r.unknown().map_err(|e| e.at(i))?;
-            }
-            i += 1;
-        }
-        if r.strict() && i != N {
-            return Err(DataError::new(format!("expected {N} elements, got {i}")));
-        }
-        Ok(())
+        read_slice(self, r)
     }
+}
+// One walk per element type, not per array length. Keep byte-vector codecs above
+// separate: arrays' scalar sequence tags are part of existing saves and hashes.
+#[inline(never)]
+fn write_slice<T: Data>(values: &[T], w: &mut dyn Writer) {
+    w.begin_seq(values.len());
+    for v in values {
+        w.item();
+        v.write(w);
+    }
+    w.end_seq();
+}
+#[inline(never)]
+fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataError> {
+    let mut i = 0;
+    while r.item()? {
+        if let Some(v) = values.get_mut(i) {
+            v.read(r).map_err(|e| e.at(i))?;
+        } else {
+            r.skip()?;
+        }
+        i += 1;
+    }
+    Ok(())
 }
 impl<T: Data> Data for Box<T> {
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
@@ -303,8 +310,7 @@ macro_rules! tuple {
 }
 impl Data for () {
     fn write(&self, w: &mut dyn Writer) {
-        w.begin_seq(0);
-        w.end_seq();
+        w.unit();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;

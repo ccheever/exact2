@@ -24,15 +24,26 @@ public final class AssetResolver {
     deinit { if let directory { try? FileManager.default.removeItem(at: directory) } }
 
     func bytes(_ name: String) -> Data? {
-        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { return nil }
+        do { return try delivery(name) }
+        catch { refusal = refusal ?? error.localizedDescription; return nil }
+    }
+
+    /// GPU textures are consumed once. Fonts, images, models and shaders remain
+    /// reusable cache entries; the renderer re-requests textures after device loss.
+    func delivery(_ name: String) throws -> Data? {
+        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else {
+            throw NSError(domain: "ExactAssets", code: 1, userInfo: [NSLocalizedDescriptionKey: "asset `\(name)`: invalid name"])
+        }
         if let bytes = cache[name] { return bytes }
         if let read {
             guard names?.contains(name) == true else { return nil }
-            do { let bytes = try read(name); if let bytes { cache[name] = bytes }; return bytes }
-            catch { refusal = refusal ?? error.localizedDescription; return nil }
+            let bytes = try read(name)
+            if let bytes, !name.hasSuffix(".tex") { cache[name] = bytes }
+            return bytes
         }
         guard let url = embeddedURL(name) else { return nil }
-        return try? Data(contentsOf: url)
+        do { return try Data(contentsOf: url) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
 
     func url(_ name: String) -> URL? {

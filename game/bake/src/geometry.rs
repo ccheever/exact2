@@ -89,6 +89,15 @@ pub fn primitive(
         material: p.material().index().map_or(default, |i| i as u32),
         ..Default::default()
     };
+    for weights in mesh.weights.chunks_exact_mut(4) {
+        let sum = weights.iter().sum::<f32>();
+        if !sum.is_finite() || sum <= 0.0 || weights.iter().any(|w| *w < 0.0) {
+            return Err("skin weights must be nonnegative with positive sum".into());
+        }
+        for w in weights {
+            *w /= sum;
+        }
+    }
     bounds(&mut mesh);
     Ok(mesh)
 }

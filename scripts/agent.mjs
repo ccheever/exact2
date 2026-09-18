@@ -802,7 +802,9 @@ export function worldView(session, name) {
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
       if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
-      return session.clock(`+${ms}`);
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
     },
     settle: async () => (await session.clock('settle')).settled === true,
     ticks: count => exactTicks(session, name, count),
@@ -902,7 +904,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     /** Simulation conveniences use this receiver so proof proxies record every operation. */
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under) => s.op({ op: 'state', ...(target != null ? await s.target(target) : {}), ...(under && typeof under === 'object' ? under : under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false) => s.op({ op: 'state', ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under && typeof under === 'object' ? under : under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -1360,7 +1362,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose'); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]); break;

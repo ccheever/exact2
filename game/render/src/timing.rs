@@ -1,7 +1,7 @@
 use exact_gpu::wgpu;
 
 /// Number of optional GPU timestamp pairs reserved for a frame.
-pub const GPU_PASS_COUNT: u32 = 16;
+pub const GPU_PASS_COUNT: u32 = 17;
 /// Timestamp slots: inactive passes leave their pair untouched.
 pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "shadow 0",
@@ -20,6 +20,7 @@ pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "bloom up 3",
     "bloom up 4",
     "tonemap",
+    "skin palettes",
 ];
 
 pub(crate) fn writes(

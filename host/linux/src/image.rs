@@ -85,9 +85,41 @@ impl Assets {
     /// Immutable bytes for one relative asset name. A selected generation's
     /// absent name returns `None`, even when entry zero contains that name.
     pub fn read(&self, name: &str) -> Option<Arc<[u8]>> {
-        match self.image_input(name)? {
-            ImageInput::Path(path) => std::fs::read(path).ok().map(Arc::from),
-            ImageInput::Bytes(bytes) => Some(bytes),
+        match self.read_asset(name) {
+            Ok(bytes) => bytes,
+            Err(reason) => {
+                self.refusal
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_or_insert(reason);
+                None
+            }
+        }
+    }
+
+    /// GPU delivery distinguishes a missing name from an I/O or integrity failure.
+    pub fn read_asset(&self, name: &str) -> Result<Option<Arc<[u8]>>, String> {
+        if !Self::relative(name) {
+            return Err(format!("asset `{name}`: invalid name"));
+        }
+        if let Some(selected) = &self.selected {
+            return selected(name);
+        }
+        let read = || -> std::io::Result<Option<Arc<[u8]>>> {
+            let root = self.root.canonicalize()?;
+            let path = root.join(name).canonicalize()?;
+            if !path.starts_with(&root) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "asset leaves root",
+                ));
+            }
+            std::fs::read(path).map(|bytes| Some(Arc::from(bytes)))
+        };
+        match read() {
+            Ok(bytes) => Ok(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("asset `{name}`: {e}")),
         }
     }
 
@@ -366,4 +398,27 @@ pub fn decode(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         png::ColorType::Indexed => return None,
     }
     Some((out, w, h))
+}
+
+#[cfg(test)]
+mod asset_read_errors {
+    use super::*;
+    #[test]
+    fn embedded_read_error_is_not_missing() {
+        let root = std::env::temp_dir().join(format!("s3ac-read-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("assets/directory.model")).unwrap();
+        let assets = Assets::embedded(root.clone());
+        assert!(assets.read("assets/directory.model").is_none());
+        assert!(assets.take_refusal().is_some());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn selected_read_error_keeps_its_reason() {
+        let assets = Assets::selected(
+            PathBuf::new(),
+            Arc::new(|_| Err("integrity mismatch".into())),
+        );
+        assert_eq!(assets.read("assets/crate.model"), None);
+        assert_eq!(assets.take_refusal().as_deref(), Some("integrity mismatch"));
+    }
 }

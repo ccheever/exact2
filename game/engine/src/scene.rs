@@ -253,7 +253,10 @@ impl Mesh {
         if valid {
             Ok(())
         } else {
-            Err(format!("Mesh.{name}: invalid dimensions {self:?}"))
+            Err(format!(
+                "Mesh.{name}: invalid dimensions {}",
+                crate::json::to_string(self).unwrap_or_else(|_| "non-finite".into())
+            ))
         }
     }
 }
@@ -378,7 +381,6 @@ impl World {
             .register::<Parent>()
             .register::<Camera>()
             .register::<Mesh>()
-            .register::<Animation>()
             .register::<Material>()
             .register::<DirectionalLight>()
             .register::<PointLight>()

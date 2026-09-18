@@ -52,6 +52,7 @@ final class Canvases {
         var logCursor = 0
         var ownershipInitialized = false
         var restoreAttempted = false
+        var restorePending = false
         var restoreError: String?
         var saveToken = 0
         var loadToken = 0
@@ -81,12 +82,10 @@ final class Canvases {
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
     var module: GpuModule?
-    /// The display period last handed to the module; the session reports each change.
-    var sentPeriod = 0.0
+    var displayPeriod = DisplayPeriod()
     func period(_ ms: Double) {
-        guard ms != sentPeriod, let m = module else { return }
-        sentPeriod = ms
-        m.period?(ms)
+        guard let m = module else { return }
+        displayPeriod.publish(ms, maximum: Double(session?.presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 120)) { m.period?($0) }
     }
     var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
     var terminalRestoreReported = false
@@ -217,6 +216,7 @@ final class Canvases {
 
     /// The window's occlusion changed: whatever was starved may try again.
     func occlusionChanged() {
+        lifecycle.refresh()
         for e in entries.values { e.starvedUntil = 0 }
     }
 
@@ -294,10 +294,9 @@ final class Canvases {
     }
 
     private func bindNow(_ m: GpuModule, _ e: Entry) {
-        guard let data = try? JSONSerialization.data(withJSONObject: e.values) else { return }
-        let bytes = [UInt8](data)
-        if bytes.withUnsafeBufferPointer({ m.bind(e.id, $0.baseAddress, bytes.count) }) != 0 {
+        if bindSurface(m, e) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
+            return
         }
         initializeOwnership(m, e)
         restoreWorld(m, e)
@@ -342,13 +341,13 @@ final class Canvases {
     var visible: Bool {
         guard let viewport = session?.presenter.viewport else { return false }
         // An unmounted view wants no frames (LLP 1031 D3).
-        return viewport.window?.occlusionState.contains(.visible) ?? false
+        return !NSApplication.shared.isHidden && (viewport.window?.occlusionState.contains(.visible) ?? false)
     }
 
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
-        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
+        guard let m = module, visible else { return false }
         return entries.values.contains { e in
             e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true)
         }
@@ -376,7 +375,7 @@ final class Canvases {
 
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
-        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
+        guard let m = module, visible else { return false }
         let previous = frameNow
         frameNow = now
         defer { frameNow = previous }

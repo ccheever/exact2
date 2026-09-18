@@ -135,7 +135,7 @@ carry remain AU3c work after the assets slice. Audio regressions, clippy and fmt
 pass; shared greybox snapshots currently disagree on the assets lane's new
 `loading` field, and macOS proof hits the installed SDK/linker mismatch.
 
-**AU3c — bounds and host seams, with one scope blocker.** The failing regressions now cover a 32 MiB unique-PCM budget (using a 32-byte fixture), exact terminal-step retirement, retry cooldown across seekable frames, documented synth ranges in registry and saved voices, and old voice A beside fresh registry B after carry. The defaulted GPU lifecycle/clock seams and host delivery leave simulation untouched; headless modules explicitly use seekable time. SurfacePlayer passes first-input and suspend/resume epoch tests, but the generated GameAudio hook needs three forwarding methods in `game/render/src/lib.rs`, outside the brief's permitted files. That permission is pending: the new live greybox probe correctly fails its pre-frame trusted-gesture assertions, while greybox's deterministic checks and Beacons/Asset Fixture web proofs retain their hashes. The probe now lives outside build hashing and passes injected setup-failure teardown tests. Apple coverage is the callback with fixture buffers and a Swift notification fixture, not device output. The macOS proof was tried once with SDK 26 and a native-build wrapper; SwiftPM's BuildServerProtocol loader failed before launch. Audio/render Rust libraries build for iOS, and its notification code compiles with the matching Xcode compiler; the full host was not linked or driven and device interruptions remain unproven. Final checks pass: 342 game tests, 69 root GPU/Linux tests, both clippy/fmt runs and caps with only this task's files temporarily staged.
+**AU3c — bounds and host seams.** This pass added the GPU lifecycle/clock seams, host delivery, callback ownership bounds, terminal-step retirement, cooldown and synth validation. The GameAudio forwarders were present in the delivered macro; the earlier diary claim that they still needed permission was false. The first web probe passed a forced gesture-before-frame ordering by delaying callbacks, which did not prove the ordinary frame-first path. The blind reviews found that the Player cache escaped the Apple budget, restore overlaid saved sound registries, Apple failures and threading were not handled reliably, and the core interruption names were audio-specific. Callback fixtures were not device-output proof. The macOS attempt failed before launch in SwiftPM; iOS Rust libraries built but iOS was not driven.
 
 ## 2026-09-18, 01:00–01:50 — the first feel number, and what it said
 
@@ -199,3 +199,47 @@ previous tick, never clamped in steady state; the gain is exactly the lookahead 
 correction. Lesson: when a builder asks to change a test's expected numbers,
 read the numbers before the diff — the old ones were smooth, the new ones were
 not, and that is the whole review.
+
+
+**AU3d — lifecycle, PCM ownership and truthful proof.** Lifecycle now says Interrupted/Resumed, Player reserves PCM before rendering and keeps it only through output acknowledgement, output start is one fallible operation, registered plays use a shared World, and sources have a playing-by-default constructor. Regression fixtures cover oversized-name refusal, same-id replacement, priority fallback, saved runtime names, main-thread Apple notifications, activation retries and shouldResume; failed AudioUnit lifecycle operations dispose the device and enter bounded retry. The live web probe passes both frame/gesture orderings without withholding callbacks, measures gesture cost and retries an injected start failure; Greybox, Beacons and asset-fixture web pins are unchanged. ExactMac linked, but the single macOS proof failed in the WebKit helper's SDK/compiler mismatch; iOS Rust libraries and ExactKit built, not driven. The carry-only fresh registry overlay remains pending a scope decision: the hosts currently send identical bytes through the same restore API for dev carry and file open.
+
+## 2026-09-18, 04:56–06:00 — the first full feel sitting, and the second whole-engine review
+
+The console went quiet at 04:55 and the armed script took the whole table:
+exact 60 and 120 Hz worlds, three.js, Godot shipped and interpolated, three attempts
+each (`game/bench/README.md`, "First full sitting"). Exact's walking player moves by
+a displacement that varies 0.2 % frame to frame — three.js's varies 50–70 % and
+repeats a frame every fifth or sixth, shipped Godot repeats every other frame,
+interpolated Godot 3–37 % — and its event-to-submitted-pose latency at 60 Hz ticks
+(5–6.5 ms) sits with three.js's per-frame stepping (4.5 ms) and three times under
+Godot's (16 ms); at 120 Hz ticks 3.5–4.1 ms. Every row is provisional (load 12–29
+from two builders and four reviewers) and the README reads it like an adversary.
+
+Two things the sitting cost me. The runner rejected every exact row as it ran
+("Nonmonotonic frame timestamps"): my fix for the resize path — redraw at the last
+paced frame time — puts two trace rows at one timestamp, which the analyzer called
+backwards. A redraw at an unchanged time is not a frame interval; the analyzer now
+collapses it and a `reanalyze` command scores saved traces, so the rows were
+recovered without re-measuring. And the first exact attempts were contaminated by
+me: I ran a proof while the sitting was in progress and its Chrome stole the
+window's focus (`front/visible NO`, the player stood still for 138 frames). A sitting
+is a sitting; nothing else touches the display. Godot's probe, refactored two
+briefs ago by a builder with no display, had a GDScript type-inference error and
+compared JSON floats with integer key codes; both fixed by hand, six Godot rows
+taken afterwards.
+
+The second whole-engine review (astra, `review-ASTRA-whole-2.md`) answered the
+owner's question directly: keep the engine, no restart — "cut the coupling around
+it". Its five changes, in order: deferred restore refusal nonfatal and asset
+re-preparation after device loss; publications in quiescence; the model machinery
+split out of the primitive artifact (Beacons ships 787 KB of GPU wasm for a game
+with no models) and the 640 KiB of diagnostic rings no longer allocated by default;
+displayed-pose rules unified before skeletons; the feel probe reporting raw cadence
+and paced time as separate columns with a visibility threshold before any "better
+than Godot" claim. Plus a deletion list (an export parser, a duplicate `Environment`,
+a speculative bounding radius, an impersonating error type, three audio starts, an
+async unlock path, save migration nobody uses, two enormous tests, a 9,494-line proof
+transcript) and ten author-facing edges. All of it is briefed (S3a-c, D2) before
+skeletons; the reviews of the tick-early scheduler and of the audio lifecycle each
+took two rounds to converge, which is the pattern: the builder finds the design's
+gaps, the reviewers find the builder's, and the brief's own formula is not exempt.

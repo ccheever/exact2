@@ -8,6 +8,13 @@ fn movement_and_light() {
         ..Options::default()
     })
     .unwrap();
+    game.viewport(800., 600.);
+    let hit = game
+        .pick(game.layout("player").unwrap().screen.center())
+        .unwrap();
+    assert_eq!(game.world().name(hit.entity), Some("player"));
+    let saved = game.save().unwrap();
+    game.restore(&saved).unwrap();
     game.hold("KeyD", 500.0);
     game.settle();
     let position = game.position("player").unwrap();

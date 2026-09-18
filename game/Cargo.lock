@@ -733,6 +733,7 @@ dependencies = [
  "exact-plan",
  "glam 0.33.7",
  "libm",
+ "ryu",
 ]
 
 [[package]]
@@ -761,6 +762,7 @@ dependencies = [
  "gltf",
  "image",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -783,6 +785,7 @@ version = "0.1.0"
 dependencies = [
  "beacons-logic",
  "exact-game",
+ "exact-game-audio",
  "exact-game-bake",
  "exact-game-scene",
  "exact-gpu",
@@ -2485,6 +2488,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
 name = "safe_arch"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2636,6 +2645,15 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "skinned-fixture-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "exact-game-bake",
+ "exact-game-render",
+]
 
 [[package]]
 name = "skrifa"

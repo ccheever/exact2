@@ -55,6 +55,7 @@ pub(crate) enum Operation {
     #[default]
     Boundary,
     Input(InputEvent),
+    DeviceInput(InputEvent),
     Bind(Vec<Value>),
     Viewport {
         width: f32,
@@ -351,14 +352,14 @@ impl<G: Game> Sim<G> {
                 "capture limits exceed supported byte/event/tick bounds",
             ));
         }
-        let checkpoint = self.save();
+        let checkpoint = self.save()?;
         if checkpoint.len() + 4096 > limits.bytes as usize {
             return Err(DataError::new("checkpoint exceeds capture byte budget"));
         }
         let capture = Capture {
             format: 1,
             game: G::ID.into(),
-            version: G::SAVE_VERSION,
+            version: 6,
             build: build.into(),
             hz: G::HZ,
             seed: self.world.seed(),
@@ -500,7 +501,7 @@ impl<G: Game> Sim<G> {
         through: Option<usize>,
     ) -> Result<Self, DataError> {
         capture.validate()?;
-        if capture.game != G::ID || capture.version != G::SAVE_VERSION || capture.hz != G::HZ {
+        if capture.game != G::ID || capture.version != 6 || capture.hz != G::HZ {
             return Err(DataError::new(
                 "capture game/save version/fixed-step rate differs; current world retained",
             ));
@@ -551,6 +552,10 @@ impl<G: Game> Sim<G> {
                 Operation::Input(event) => {
                     validate_input(event)?;
                     sim.input(event.clone());
+                }
+                Operation::DeviceInput(event) => {
+                    validate_input(event)?;
+                    sim.device_input(event.clone());
                 }
                 Operation::Bind(values) => sim.bind(values, None).map_err(DataError::new)?,
                 Operation::Viewport { width, height } => {

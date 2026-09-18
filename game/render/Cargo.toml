@@ -18,6 +18,7 @@ web-sys = { version = "0.3", features = ["Window", "Performance"] }
 [dev-dependencies]
 lanterns-logic = { path = "../games/lanterns/logic" }
 exact-game-scene = { path = "../scene" }
+exact-game-audio = { path = "../audio" }
 exact-game-bake = { path = "../bake" }
 beacons-logic = { path = "../games/beacons/logic" }
 greybox-logic = { path = "../games/greybox/logic" }

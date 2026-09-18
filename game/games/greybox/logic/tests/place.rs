@@ -70,7 +70,7 @@ fn placement_game_replays_and_restores() {
         b.run(100.0);
     }
     assert_eq!(a.world().hash(), b.world().hash());
-    b.restore(&a.save()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
     assert_eq!(a.world().save(), b.world().save());
 }
 

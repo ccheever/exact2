@@ -122,13 +122,15 @@ export async function proof(meta, script) {
   mkdirSync(out, {recursive:true});
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
-    if (host !== 'linux') throw new Error('--paranoid requires the native Linux headless driver');
+    if (!['web', 'linux'].includes(host)) throw new Error('--paranoid supports web and linux');
     let failed = false;
     for (const mode of ['0', '1', 'fresh-game']) {
+      const started = performance.now();
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
         env:{...process.env, EXACT_GAME_PARANOID:mode, EXACT_GAME_PARANOID_COMPARE:'1'}, stdio:'inherit',
       });
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
+      console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       failed ||= code !== 0;
     }
     process.exit(failed ? 1 : 0);
@@ -238,6 +240,7 @@ export async function proof(meta, script) {
       files.stdout = walk(root).join('\n');
     }
     const hash = createHash('sha256').update(host).update(resolveApp(name).target);
+    if (host === 'web') hash.update(process.env.EXACT_GAME_PARANOID ?? '0');
     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
       if ((/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
         || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
@@ -258,6 +261,9 @@ export async function proof(meta, script) {
     const stamp = () => JSON.stringify({inputs:digest, artifact});
     if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
       say(`BUILD ${name} ${host}`);
+      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
+      say(disk.stdout.trim());
+      if (disk.status !== 0) throw new Error('disk check failed before build');
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
         buildBake(appInfo, 'linux', linuxTarget);
@@ -289,7 +295,8 @@ export async function proof(meta, script) {
     check('all recorded children exited', remaining.length === 0, remaining);
     if (compareParanoid) {
       finalWorlds.sort((a,b) => a.session - b.session);
-      const baseline = resolve(out, 'paranoid-normal.json');
+      const baseline = resolve(out, `paranoid-${host}-normal.json`);
+      writeFileSync(resolve(out, `paranoid-${host}-${process.env.EXACT_GAME_PARANOID}.json`), JSON.stringify(finalWorlds));
       if (process.env.EXACT_GAME_PARANOID === '0') writeFileSync(baseline, JSON.stringify(finalWorlds));
       else check('paranoid final hash, tick, published record and journal equal normal',
         equal(finalWorlds, JSON.parse(readFileSync(baseline, 'utf8'))),

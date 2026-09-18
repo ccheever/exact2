@@ -1,13 +1,18 @@
 use exact_game::character::Character;
 use exact_game::*;
 
+#[derive(Default, exact_game::Data)]
+struct Hud {
+    lit: u32,
+    near: String,
+}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
     #[live]
     pub paused: bool,
-    // Restart idiom: round is the world's identity; Play again increments it.
-    pub round: u32,
+    // Restart idiom: changing restart_generation reconstructs setup; Play again increments it.
+    pub restart_generation: u32,
 }
 #[derive(Default, Component)]
 struct Player {
@@ -92,8 +97,7 @@ impl Game for SmallGame {
             w.insert(beacon.entity(), Mesh::sphere(0.5));
             w.insert(beacon.entity(), Material::default());
         }
-        w.publish("lit", 0);
-        w.publish("near", "");
+        w.publish_record(&Hud::default());
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -130,12 +134,16 @@ impl Game for SmallGame {
             });
         }
         w.publish("near", nearest.and_then(|(e, _)| w.name(e)).unwrap_or(""));
+        let near = nearest
+            .and_then(|(e, _)| w.name(e))
+            .unwrap_or("")
+            .to_owned();
         let mut count = 0;
         for mut row in w.rows_mut::<Glow>() {
             row.material.emissive = [row.beacon.glow.value(w.now()) * 3.0; 3];
             count += u32::from(row.beacon.lit);
         }
-        w.publish("lit", count);
+        w.publish_record(&Hud { lit: count, near });
         scene::follow(w);
     }
 }

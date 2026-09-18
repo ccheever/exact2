@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(target_os = "macos")]
         if let Some(output) = &mut output {
             let pcm = pcm.into();
-            output.start(0, &pcm, 48000, name == "wind");
+            assert!(output.start(0, &pcm, 48000, name == "wind", 0, 1.0));
             output.set(0, 0.7, 0.7);
             output.flush();
             std::thread::sleep(std::time::Duration::from_secs(2));

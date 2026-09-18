@@ -67,7 +67,8 @@ model family is lazy: two shared shader modules and three shared pipeline layout
 with only the material/winding variants needed by arrived models. All four
 shadow/fog combinations for each used forward variant are prepared during asset
 delivery; changing effects during play never compiles a model pipeline. Declared
-models remain pending until this work and texture uploads finish. Disabling effects skips their passes and releases their attachments.
+content becomes Loaded independently; device readiness waits for preparation and
+texture uploads before drawing. Disabling effects skips their passes and releases their attachments.
 HDR/depth/bloom attachments grow in 64-pixel buckets; shrinking reuses them.
 Viewports and post-pass UVs respect logical size. Discarded 4× MSAA colour/depth
 attachments request transient storage (a no-op where unsupported). ACES-fitted
@@ -76,7 +77,9 @@ tonemapping applies sRGB transfer once. HDR reads sanitize NaN and clamp to
 
 ## WorldSurface and feed
 
-A game's GPU shell is `exact_game_render::module!(MyGame)`. Bind constructs Sim;
+A primitive game's GPU shell is `exact_game_render::module!(MyGame)`; `game.assets:
+true` selects `module!(MyGame, assets)` and its concrete model adapter. The primitive
+module links neither model decoding nor the model shader family. Bind constructs Sim;
 the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work.
@@ -100,21 +103,26 @@ hemispheres instead of stretching them. Models use `DrawInstance { transform, ge
 allocates render slots from `RENDER_SLOT_BASE`, above entity indices. The transform
 slot still addresses the unchanged ten-float page upload. Geometry/material form
 batch keys, and composed node matrices plus inverse-transpose normals live in a
-separate instance buffer. Primitive records retain their compact identity encoding
+separate instance buffer. Rebatching retains its word scratch and caches immutable
+node normal matrices in a cache bounded by the live draw records. A material's
+final texture binding is created once all of its dependencies have arrived. Primitive records retain their compact identity encoding
 in the existing slot lists: transform/material = slot, geometry = batch, offset =
 identity. A primitive world binds no model group and samples no material texture.
 
 Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
 with opaque/mask/blend, culled/double-sided and mirrored variants prepared before
-the asset becomes Loaded.
+the prepared surface draws. Device loss preserves Loaded content and re-requests
+texture bytes for upload. Negative-determinant entity-global transforms refuse by
+asset name; baked mirrored nodes use the prepared winding variant.
 Five texture slots (base colour, normal, metallic-roughness, emission, occlusion)
 share three 1×1 default views and cached samplers. Named textures are shared across
 materials and models, uploaded once per renderer, and released from CPU memory. Colour/emission textures use sRGB texture formats; data maps are
 linear. Mips arrive baked with authored nearest/linear filters and wrap modes; fully linear
-samplers use 4× anisotropy. Colour filtering is premultiplied; MASK mip coverage is
+samplers use 4× anisotropy. Only MASK/BLEND base-colour filtering weights RGB by
+alpha; opaque and emissive maps average straight RGB. MASK mip coverage is
 retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
-derivatives (including models without tangents); baked tangents are retained for
-S3b, not uploaded. Material UV transforms apply separately to every texture.
+derivatives (including models without tangents); baked tangents are retained in
+model data but are not uploaded. Material UV transforms apply separately to every texture.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
@@ -263,3 +271,102 @@ GPU tests explicitly skip without an adapter; geometry and shader validation sti
 run. Set `EXACT_GPU_OUT` for image artifacts. The current game proofs pin native
 and browser hashes. [Game README](../README.md) covers clock, save and dev carry;
 [ergonomics diary](../diaries/002-ergonomics.md) retains experiment history.
+
+
+`Environment` is re-exported from the engine. A frame carries it once, including
+`frame.environment.exposure` and `.bloom`. Render failures are either
+`RenderError::Capacity { arena, slot, limit }` or `RenderError::Scene(reason)`.
+Mesh centers support transparent sorting; there is no unused sphere-radius API.
+World surfaces retain small work counters by default. A world-state request with
+`perf: true` or `perf_reset: true` arms the five 16,384-sample diagnostic rings;
+`perf.armed` distinguishes recorded percentiles from the unarmed zero values.
+Arming preserves accumulated counts, means, maxima and cadence; only `perf_reset`
+clears them. The feel probe requests `perf: true`.
+
+S3a-c measurement (2026-09-18): the retained Beacons GPU wasm is 811,977 bytes
+before this pass and 758,561 after (gzip 322,782 → 301,524). Model shader and
+validation markers are absent from Beacons and present in the asset fixture.
+The roughly 490 KB pre-assets target is **not met**; concurrent D2 changes also
+contribute to this comparison. Three interleaved 200k-cube runs against the retained
+S3a-b binary have overlapping ranges: all-moving median tick/feed/encode is
+0.4342/1.0230/0.0723 ms before and 0.4443/1.0524/0.0723 ms after. This is an
+offscreen diagnostic, not an FPS claim or an isolated HEAD comparison. Native
+replacement-device pixels match: retained bytes are re-uploaded and pipelines
+re-prepare. This verifies module-level recovery. **Host recovery is owed.** Apple
+result 3 makes canvases non-presentable; native `gpu_load` destroys the module’s
+surface table. A recovery ABI must request a replacement device while preserving
+that table. Web recovery retains the old instance’s presentation surface/context
+and presents black; it must recreate each canvas surface/context on the new device
+as the module-swap path does. Both reviews trace this: `review-S3ac-sol.md`
+(`gpu/src/native.rs:224`, `CanvasSeams.swift:353`, `gpu/src/lib.rs:358`,
+`gpu-glue.js:148,583`) and `review-S3ac-grok.md` (`gpu/src/web.rs:33–60`,
+`gpu/src/native.rs:90–99`). The asset proof asserts state, re-fetch and hash and
+prints “host recovery owed”; native pixels remain a required module test.
+
+Also owed: Apple delivered-`.tex` bytes retained by the generation store (move to
+private files; Sol, `Session.swift:214`, `PlanURL.swift:583,604`); primitive-module
+size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
+against the ~490 KB target — the size question needs a link map, its own slice;
+Sol, `asset.rs:374`, `sim.rs:82`, `renderer.rs:22,245`; Grok §Primitive module vs 759 KB).
+
+## Skinned model path
+
+Model-capable modules upload four joint indices/weights per vertex and a skin
+handle per draw record. Primitive modules create no skin buffers or pipeline.
+The feed copies the saved previous/current **local** TRS into retained buffers on
+completed ticks, even when the entity Transform did not move. Rendering allocates
+no new collections for these histories. Skin templates retain parent-first node
+order without changing glTF's joint indices.
+
+One compute workgroup per skinned draw interpolates local translation/scale and
+shortest-path quaternion rotation at frame alpha. Lanes compute locals in parallel;
+one lane composes the parent-first hierarchy, then lanes multiply joint world
+matrices by inverse binds. The shared array specializes to the largest loaded rig's
+next power of two (32 nodes for Fox), bounded at 256. Forward and shadow vertices
+read the same palette. Normals use the inverse transpose of the blended skin
+transform, preserving nonuniform/animated scale and hierarchy shear. A singular
+blend has no inverse and falls back to the authored normal. A GPU test executes
+the actual vertex skinning function on scaled, rotated joints and compares it with
+the CPU inverse transpose.
+No composed-matrix interpolation, CPU per-frame palette construction, bone entities,
+or transform writes are involved. The optional seventeenth GPU timestamp pair is
+`skin palettes`; as with other Metal timings, intervals are not additive.
+
+The compute regression distinguishes a quarter-turn interpolation from a lerp of
+composed matrices and checks inverse binds. The warm local-pose packing path has
+an allocator-counting regression. Saved pose histories survive restore, while the
+presentation buffers prime current/current on restore, carry, teleport and model or
+batch arrival. Initial feeds propagate the same reset signal to skinning and entity
+histories. The Fox pixel regression compares birth, restore, carry and model arrival
+with an explicit current/current oracle within 0.1% of the affected rectangle; its
+injected bind-history control detects a flash without diluting it in the background.
+The packing test checks exact local arrays and confirms priming does not mutate saves.
+
+Original S3b measurements before the reviewed fixes, Apple M5 Max / Metal, 2026-09-18:
+
+| Measurement | Result | Budget |
+| --- | ---: | ---: |
+| 100 Foxes, 24 joints, three-knot blend, live tick mean over 600 ticks | 0.182969 ms | <0.3 ms |
+| 100 palettes, GPU p50 / p95 | 0.046875 / 0.052750 ms | p50 <0.1 ms |
+| Warm pose packing, 300 feeds, counted Rust allocations | 0 | 0 new allocations |
+
+The CPU number reruns the retained release fixture binary (the earlier run was
+0.177966 ms); its skeleton code is unchanged. The GPU diagnostic was rebuilt during
+the resume; the earlier p50/p95 was 0.025208/0.049875 ms. The allocation assertion
+covers retained local-pose packing, not wgpu's command submission internals. The
+existing timing rings count time/work, not allocations.
+
+Three interleaved before/after pairs, 200k cubes, 240 measured frames after 60 warmup
+frames, 2560×1440 and 4×MSAA (median of each run's p50, milliseconds):
+
+| Moving cubes | Tick before → after | Feed before → after | Encode before → after |
+| --- | ---: | ---: | ---: |
+| All | 0.4509 → 0.4640 | 1.1572 → 1.2014 | 0.1060 → 0.1208 |
+| 1% | 0.0047 → 0.0052 | 0.0520 → 0.0531 | 0.0419 → 0.0455 |
+| None | 0.0009 → 0.0005 | 0.0357 → 0.0300 | 0.0527 → 0.0442 |
+
+The ranges overlap in every column/mode; this shared-machine diagnostic finds no
+resolved regression and is not an FPS claim. No isolated same-app skinning size
+measurement is available, so there is no skinning engine-growth claim here.
+The earlier comparison used different games and has been removed. Historical
+logs: `/tmp/s3b-resume-*`; paired baseline artifacts: `/tmp/s3b-before-*`.

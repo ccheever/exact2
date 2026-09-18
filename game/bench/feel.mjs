@@ -79,7 +79,9 @@ export function analyze(raw, plan) {
     const wanted = edge(plan.schedule[i].code, plan.schedule[i].down, plan.schedule[i].trial);
     if (e[1] !== wanted.code || e[2] !== +wanted.down || e[3] !== wanted.trial) throw new Error(`Event ${i} differs from schedule: ${e}`);
   });
-  const frames = allFrames.filter(f => f[1] >= events[0][0]);
+  // A redraw at an unchanged frame time (a resize, a swap) is the same presented
+  // frame drawn again, not a frame interval: keep the first row of each time.
+  const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => i === 0 || f[0] !== all[i - 1][0]);
   if (frames.length < 100 || frames.some(f => !f.every(Number.isFinite))) throw new Error('Missing/nonfinite frame samples');
   const intervals = frames.slice(1).map((f, i) => f[0] - frames[i][0]);
   if (intervals.some(x => x <= 0)) throw new Error('Nonmonotonic frame timestamps');
@@ -285,7 +287,7 @@ const judderText = n => n !== null && n > 0 && n < .001 ? n.toExponential(2) : f
 export function table(rows) {
   const cells = row => [`${row.engine ?? ''}/${row.variant}`, row.label ?? `${row.run}${row.attempt > 1 ? `.${row.attempt}` : ''}`,
     `${row.valid === false ? 'INVALID ' : ''}${row.provisional ? 'PROVISIONAL' : 'quiet'}`,
-    fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), fmt(row.frame_ms.p50), fmt(row.frame_ms.p95),
+    row.load1 == null ? '—' : fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), fmt(row.frame_ms.p50), fmt(row.frame_ms.p95),
     fmt(row.frame_ms.p99), fmt(row.frame_ms.max), `${row.hitches} (${fmt(row.hitch_percent)}%)`,
     judderText(row.player.judder), fmt(row.player.repeated_fraction * 100, 1), judderText(row.camera.judder),
     fmt(row.camera.repeated_fraction * 100, 1), fmt(row.latency.median_ms), fmt(row.latency.p95_ms), row.tick_phase == null ? '—' : fmt(row.tick_phase, 4),
@@ -473,7 +475,25 @@ export async function runFeel(options, { ready = preflight, prepare = prepareExa
   return rows;
 }
 
+// `reanalyze <trace.json.gz>…` scores saved raw traces with the current analyzer and
+// prints one table; the rows say which trace they came from. A row scored this way
+// is labelled "reanalyzed" and is never appended to the sitting's JSONL.
+export function reanalyze(paths) {
+  const { gunzipSync } = require('node:zlib');
+  return paths.map(path => {
+    const raw = JSON.parse(gunzipSync(readFileSync(path)).toString());
+    const name = path.replace(/^.*feel-/, '').replace(/\.json\.gz$/, '');
+    const [, engine, variant] = name.match(/Z-([a-z]+)-([a-z0-9]+)-\d+-attempt\d+$/) ?? [, 'trace', name];
+    try {
+      const m = analyze(raw, script());
+      return { engine, variant, run: name.slice(0, 24), attempt: 1, label: 'reanalyzed ' + name.slice(-22), valid: true, provisional: true, load1: raw.load1 ?? null,
+        tick_phase: m.tick_phase ?? null, ...m, frontmost_visible_confirmed: raw.unfocused_frames === 0 && raw.hidden_frames === 0 };
+    } catch (error) { return { engine, variant, run: name.slice(0, 24), attempt: 1, valid: false, provisional: true, load1: null, error: error.message }; }
+  });
+}
+
 async function main() {
+  if (process.argv[2] === 'reanalyze') { console.log(table(reanalyze(process.argv.slice(3)))); return; }
   const options = cli(process.argv.slice(2));
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   const rows = await runFeel(options);

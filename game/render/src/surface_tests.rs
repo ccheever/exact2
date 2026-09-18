@@ -45,8 +45,31 @@ fn gpu() -> Option<Gpu> {
 }
 fn surface() -> WorldSurface<Move> {
     let mut s = WorldSurface::default();
-    s.bind(&[Value::Bool(true), Value::Number(0.)]).unwrap();
+    s.bind(&[Value::Bool(true), Value::Number(0.)], None)
+        .unwrap();
     s
+}
+#[test]
+fn live_surface_applies_a_period_and_slews_a_changed_horizon() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = surface();
+    let mut f = frame(0.);
+    f.seekable = false;
+    f.period_ms = 1000. / 60.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    for n in 1..=3 {
+        f.now_ms = n as f64 * 1000. / 60.;
+        fixture::render(&gpu, &mut s, &f).unwrap();
+        assert_eq!(s.sim().unwrap().world().tick(), n);
+        assert_eq!(s.sim().unwrap().alpha(), 1.);
+    }
+    f.period_ms = 1000. / 144.;
+    f.now_ms += f.period_ms;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    let sim = s.sim().unwrap();
+    let drawn = (sim.world().tick() - 1) as f64 + sim.alpha() as f64;
+    // ΔR = (1000/144) * .9975 ms, rather than a 2.778 ms reversal.
+    assert!((drawn - 3. - (60. / 144.) * 0.9975).abs() < 0.000002);
 }
 #[test]
 fn transient_empty_and_nonfinite_frames_advance_without_poisoning_viewport() {
@@ -81,7 +104,7 @@ fn restore_and_load_are_seen_by_render_without_a_bind_or_tick() {
     };
     let mut s = surface();
     let (initial, _) = fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
-    let sim_save = s.sim.as_ref().unwrap().save();
+    let sim_save = s.sim.as_ref().unwrap().save().unwrap();
     let (moved, _) = fixture::render(&gpu, &mut s, &frame(42.)).unwrap();
     assert_ne!(initial, moved);
     let generation = s.sim.as_ref().unwrap().generation();
@@ -92,7 +115,8 @@ fn restore_and_load_are_seen_by_render_without_a_bind_or_tick() {
         fixture::render(&gpu, &mut s, &frame(42.)).unwrap().0
     );
     let generation = s.sim.as_ref().unwrap().generation();
-    s.bind(&[Value::Bool(true), Value::Number(1.)]).unwrap();
+    s.bind(&[Value::Bool(true), Value::Number(1.)], None)
+        .unwrap();
     assert!(s.sim.as_ref().unwrap().generation() > generation);
     fixture::render(&gpu, &mut s, &frame(42.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(84.)).unwrap();
@@ -118,7 +142,7 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
     for measure in [false, true] {
         CLOCK_READS.with(|n| n.set(0));
         let mut trace = None;
-        let mut after = observer(
+        let mut after = observer::<false>(
             &mut render,
             &mut recording,
             &mut perf,
@@ -174,9 +198,9 @@ fn capacity_error_during_timed_bind_does_not_refuse_committed_values() {
     gpu.device = device;
     gpu.queue = queue;
     let mut s = WorldSurface::<Grow>::default();
-    s.bind(&[Value::Bool(false)]).unwrap();
+    s.bind(&[Value::Bool(false)], None).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
-    assert_eq!(s.bind_at(&[Value::Bool(true)], Some(17.)), Ok(()));
+    assert_eq!(s.bind(&[Value::Bool(true)], Some(17.)), Ok(()));
     assert!(s.sim().unwrap().args().paused);
     assert_eq!(s.sim().unwrap().world().tick(), 1);
     assert!(s.take_error().unwrap().0.contains("limit 16"));
@@ -218,7 +242,7 @@ fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
         return;
     };
     let mut s = WorldSurface::<Vehicle>::default();
-    s.bind(&[]).unwrap();
+    s.bind(&[], None).unwrap();
     let (old, _) = fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(17.)).unwrap();
     let (half, _) = fixture::render(&gpu, &mut s, &frame(41.667)).unwrap();
@@ -244,10 +268,10 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
     let saved = original.carry().unwrap();
     let mut restored = WorldSurface::<Move>::default();
     restored
-        .bind(&[Value::Bool(false), Value::Number(9.)])
+        .bind(&[Value::Bool(false), Value::Number(9.)], None)
         .unwrap();
     let generation = restored.sim().unwrap().generation();
-    restored.restore(&saved).unwrap();
+    restored.restore(&saved, exact_gpu::Restore::Open).unwrap();
     assert_eq!(restored.sim().unwrap().world().tick(), 6);
     assert!(restored.sim().unwrap().generation() > generation);
     // Continue keeps the saved Setup identity; only current Live bindings win.
@@ -269,7 +293,10 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .contains(r#""restored":true"#));
     let before = restored.carry().unwrap();
     let generation = restored.sim().unwrap().generation();
-    assert!(restored.restore(b"invalid").unwrap_err().contains("save"));
+    assert!(restored
+        .restore(b"invalid", exact_gpu::Restore::Open)
+        .unwrap_err()
+        .contains("save"));
     assert_eq!(restored.carry().unwrap(), before);
     assert_eq!(restored.sim().unwrap().generation(), generation);
     restored
@@ -308,16 +335,18 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = surface();
+    let mut s = WorldSurface::<Move, (), true>::default();
+    s.bind(&[Value::Bool(true), Value::Number(0.)], None)
+        .unwrap();
     let w = s.sim.as_mut().unwrap().world_mut();
-    *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle");
+    *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle.model");
     fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
-    assert_eq!(s.assets(), ["castle"]);
-    s.asset("castle", None);
+    assert_eq!(s.assets(), ["castle.model"]);
+    s.asset("castle.model", Err(exact_gpu::AssetError::Missing));
     assert!(s.take_error().is_none());
     let state = s.agent(r#"{"op":"state"}"#).unwrap();
     assert!(
-        state.contains("castle") && state.contains("missing file"),
+        state.contains("castle.model") && state.contains("missing file"),
         "{state}"
     );
     fixture::render(&gpu, &mut s, &frame(17.)).unwrap();
@@ -425,7 +454,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap();
     module.lose_device();
-    assert!(module.restore(id, &save));
+    assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let restored = module.carry(id).unwrap();
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
     assert!(state.contains("0x0f14b8b231091d12"), "{state}");
@@ -499,19 +528,21 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         return;
     };
     let mut s = WorldSurface::<greybox_logic::Greybox, Probe>::default();
-    s.bind(&[Value::Number(7.), Value::Bool(false)]).unwrap();
+    s.bind(&[Value::Number(7.), Value::Bool(false)], None)
+        .unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     fixture::render(&gpu, &mut s, &frame(17.)).unwrap();
     assert_eq!(s.presentation.frames.len(), 2);
     assert_eq!(s.presentation.frames[1].0, 1);
     assert!(s.presentation.frames.iter().all(|f| f.2 && f.3));
-    s.bind(&[Value::Number(7.), Value::Bool(true)]).unwrap();
+    s.bind(&[Value::Number(7.), Value::Bool(true)], None)
+        .unwrap();
     let mut hidden = frame(34.);
     hidden.width = 0.;
     fixture::render(&gpu, &mut s, &hidden).unwrap();
     assert!(!s.presentation.frames[2].2);
     let saved = s.carry().unwrap();
-    s.restore(&saved).unwrap();
+    s.restore(&saved, exact_gpu::Restore::Open).unwrap();
     fixture::render(&gpu, &mut s, &frame(34.)).unwrap();
     assert!(s.presentation.frames[3].1 > s.presentation.frames[2].1);
     s.input(&InputEvent::Blur { at_ms: 34. });
@@ -548,7 +579,7 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
     let mut rendered = WorldSurface::<Touch>::default();
     let mut headless = WorldSurface::<Touch>::default();
     for s in [&mut rendered, &mut headless] {
-        s.bind_at(&[], Some(0.)).unwrap();
+        s.bind(&[], Some(0.)).unwrap();
         s.sim.as_mut().unwrap().advance(0., Clock::Seekable);
         s.input(&InputEvent::Pointer {
             id: 1,
@@ -660,14 +691,14 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     model.nodes.push(mirrored);
     let bytes = exact_game::bin::to_vec(&model);
     let fresh = || {
-        let mut s = WorldSurface::<Art>::default();
+        let mut s = WorldSurface::<Art, (), true>::default();
         s.device_ready();
-        s.bind(&[]).unwrap();
+        s.bind(&[], None).unwrap();
         s
     };
-    let deliver = |s: &mut WorldSurface<Art>| {
+    let deliver = |s: &mut WorldSurface<Art, (), true>| {
         assert_eq!(s.assets(), ["crate.model"]);
-        s.asset("crate.model", Some(&bytes));
+        s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         assert!(
@@ -676,11 +707,11 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         );
         assert_eq!(s.assets(), textures.keys().cloned().collect::<Vec<_>>());
         for (name, data) in &textures {
-            s.asset(name, Some(&exact_game::bin::to_vec(data)));
+            s.asset(name, Ok(&exact_game::bin::to_vec(data)));
         }
         assert!(
-            s.sim().unwrap().is_loading(),
-            "bytes alone cannot report Loaded"
+            !s.sim().unwrap().is_loading(),
+            "Loaded describes content, independent of the device"
         );
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         assert!(!s.sim().unwrap().is_loading());
@@ -716,7 +747,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     let saved = original.carry().unwrap();
     let hash = original.sim().unwrap().world().hash();
     let mut restored = fresh();
-    restored.restore(&saved).unwrap();
+    restored.restore(&saved, exact_gpu::Restore::Open).unwrap();
     let state = restored.agent(r#"{"op":"state"}"#).unwrap();
     assert!(
         state.contains("\"tick\":0")
@@ -724,7 +755,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             && state.contains("\"restored\":false"),
         "{state}"
     );
-    assert_eq!(restored.carry().unwrap(), saved);
+    assert!(restored.carry().is_none());
     deliver(&mut restored);
     assert_eq!(restored.sim().unwrap().world().tick(), 30);
     assert_eq!(restored.sim().unwrap().world().hash(), hash);
@@ -813,4 +844,27 @@ fn presented_lifecycle_and_late_material_pipeline_are_accounted() {
     assert_eq!(after["afterReady"]["renderPipelines"], 5, "{after}");
     assert!(after["afterReady"]["meshBytesUploaded"].as_u64().unwrap() > 0);
     assert!(after["afterReady"]["violations"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn performance_recording_arms_only_through_diagnostic_state() {
+    let mut s = surface();
+    s.perf.tick.push(2.0);
+    s.perf.frame(0., false);
+    s.perf.frame(10., false);
+    assert!(!s.perf.armed());
+    let state = s.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(state.contains("\"armed\":false"));
+    assert!(state.contains("\"count\":1,\"mean\":2"));
+    let state = s.agent(r#"{"op":"state","perf":true}"#).unwrap();
+    assert!(s.perf.armed() && state.contains("\"armed\":true"));
+    assert!(state.contains("\"count\":1,\"mean\":2"));
+    s.perf.frame(20., false);
+    let cadence = s.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(cadence.contains("\"count\":2,\"mean\":10"));
+    s.perf.tick.push(4.0);
+    let state = s.agent(r#"{"op":"state","perf":true}"#).unwrap();
+    assert!(state.contains("\"p50\":4"));
+    let state = s.agent(r#"{"op":"state","perf_reset":true}"#).unwrap();
+    assert!(state.contains("\"p50\":0"));
 }

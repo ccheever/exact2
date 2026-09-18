@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { gameShells } from './app/shells.mjs';
 
-export function createGame(name, directory = import.meta.dir, run = spawnSync) {
+export function createGame(name, directory = import.meta.dir, run = spawnSync, options = {}) {
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: bun game/new.mjs <lowercase-hyphenated-name> (no host suffix)');
   }
@@ -23,6 +23,10 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync) {
   // shell (a deleted game's) would fail every cargo command below.
   const appJson = resolve(destination, 'app.json');
   const manifest = existsSync(appJson) ? JSON.parse(readFileSync(appJson, 'utf8')) : {};
+  if (options.assets === true && manifest.game) {
+    manifest.game.assets = true;
+    writeFileSync(appJson, JSON.stringify(manifest, null, 2) + "\n");
+  }
   if (manifest.game) gameShells(destination, manifest.game, directory);
   // A locked resolution is read-only, including when these packages were already recorded.
   const check = run('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'],
@@ -45,4 +49,4 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync) {
   return `${action}\nCreated game/games/${name}\n  bun game/dev.mjs ${name}\n  bun game/games/${name}/proof.mjs web`;
 }
 
-if (import.meta.main) console.log(createGame(process.argv[2]));
+if (import.meta.main) console.log(createGame(process.argv[2], undefined, undefined, {assets:process.argv.includes("--assets")}));

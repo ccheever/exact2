@@ -1,5 +1,5 @@
 use super::*;
-impl<G: Game, P: Presentation> WorldSurface<G, P> {
+impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     pub(super) fn cosmetic(&self, name: &str) -> bool {
         !G::ASSETS.contains(&name)
             && !G::assets().iter().any(|a| a.name == name)

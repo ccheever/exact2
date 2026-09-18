@@ -161,9 +161,9 @@ fn budget_exhaustion_and_human_contamination_are_incomplete() {
 #[test]
 fn explicit_handoff_releases_held_input_and_discards_paused_wall_time() {
     let mut sim = fixture();
-    let before = sim.save();
+    let before = sim.save().unwrap();
     sim.agent(r#"{"op":"state"}"#);
-    assert_eq!(before, sim.save());
+    assert_eq!(before, sim.save().unwrap());
     sim.key_down("KeyW");
     sim.run(100.0);
     sim.handoff(true);
@@ -185,7 +185,7 @@ fn ticks_start_epoch_remain_exact_and_refuse_pause() {
         assert!(!reply.contains("error"), "{reply}");
         assert_eq!(sim.world().tick(), tick);
     }
-    let saved = sim.save();
+    let saved = sim.save().unwrap();
     bind(&mut sim, true, 0.0);
     let hash = sim.world().hash();
     assert!(sim.agent(r#"{"op":"clock","ticks":1}"#).contains("paused"));
@@ -206,13 +206,13 @@ fn incidental_inspection_timestamp_and_viewport_do_not_step_or_record() {
     sim.key_down("KeyW");
     sim.start_capture("build", CaptureLimits::default())
         .unwrap();
-    let before = sim.save();
+    let before = sim.save().unwrap();
     for op in ["state", "tree", "logs"] {
         let reply = sim.agent(&format!(
             r#"{{"op":"{op}","now":999999,"width":123,"height":456}}"#
         ));
         assert!(!reply.contains("error"), "{reply}");
-        assert_eq!(sim.save(), before);
+        assert_eq!(sim.save().unwrap(), before);
         assert_eq!(sim.capture().unwrap().records(), 0);
     }
     let hash = sim.world().hash();

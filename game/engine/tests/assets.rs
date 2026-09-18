@@ -31,7 +31,7 @@ fn declared_models_gate_setup_and_ticks_and_survive_restore() {
     b.run(1000.);
     assert_eq!(a.world().tick(), 60);
     assert_eq!(a.world().hash(), b.world().hash());
-    let saved = a.save();
+    let saved = a.save().unwrap();
     a.restore(&saved).unwrap();
     assert!(a.world().model("crate.model").is_some());
     assert_eq!(a.world().hash(), b.world().hash());
@@ -67,7 +67,12 @@ fn embedded_assets_do_not_request_host_delivery_but_baked_models_still_do() {
     }
     let mut sim = Sim::<Mixed>::new(()).unwrap();
     assert_eq!(sim.take_assets(), ["delivered.model"]);
-    let saved = sim.save();
+    let saved = sim.world().save();
+    assert!(sim
+        .save()
+        .unwrap_err()
+        .to_string()
+        .contains("delivered.model"));
     let reply = sim.agent(r#"{"op":"state","now":1000}"#);
     assert!(
         reply.contains(r#""loading":["delivered.model"]"#),
@@ -75,7 +80,7 @@ fn embedded_assets_do_not_request_host_delivery_but_baked_models_still_do() {
     );
     assert!(reply.contains(r#""ownership":{"#), "{reply}");
     assert_eq!(
-        sim.save(),
+        sim.world().save(),
         saved,
         "inspection never advances a loading world"
     );
@@ -85,7 +90,8 @@ fn embedded_assets_do_not_request_host_delivery_but_baked_models_still_do() {
     )
     .unwrap();
     assert!(sim.take_assets().is_empty());
-    sim.restore(&saved).unwrap();
+    let ready = sim.save().unwrap();
+    sim.restore(&ready).unwrap();
     assert!(sim.take_assets().is_empty());
 }
 
@@ -129,7 +135,11 @@ fn failures_are_named_in_state_and_refused_clock() {
 #[test]
 fn loading_save_refuses_and_clock_does_not_establish_an_epoch() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.save())).is_err());
+    let error = sim.save().unwrap_err().to_string();
+    assert!(
+        error.contains("crate.model") && error.contains("Pending"),
+        "{error}"
+    );
     sim.advance(5000., Clock::Seekable);
     sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
         .unwrap();
@@ -177,6 +187,188 @@ fn authored_cosmetic_bounds_survive_arrival_and_save() {
     });
     sim.asset("late.model", Some(&bytes)).unwrap();
     assert_eq!(layout, sim.agent(r#"{"op":"layout","entity":"late"}"#));
-    sim.restore(&sim.save()).unwrap();
+    sim.restore(&sim.save().unwrap()).unwrap();
     assert_eq!(layout, sim.agent(r#"{"op":"layout","entity":"late"}"#));
+}
+
+#[test]
+fn unused_and_excessive_texture_lists_refuse() {
+    let model = asset::Model {
+        textures: vec!["unused.tex".into()],
+        ..Default::default()
+    };
+    assert!(model.validate().unwrap_err().contains("unused"));
+    let model = asset::Model {
+        textures: (0..65).map(|i| format!("{i}.tex")).collect(),
+        ..Default::default()
+    };
+    assert!(model.validate().unwrap_err().contains("64"));
+    let model = asset::Model {
+        textures: vec!["orphan.tex".into()],
+        materials: vec![asset::MaterialData {
+            base_color_texture: Some(0),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(model
+        .validate()
+        .unwrap_err()
+        .contains("unused texture `orphan.tex`"));
+}
+
+struct TextureDeclaration;
+impl Game for TextureDeclaration {
+    const ID: &'static str = "texture-declaration";
+    const ASSETS: &'static [&'static str] = &["wrong.tex"];
+    type Args = ();
+    fn setup(_: &mut World, _: &()) {}
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn texture_is_not_a_model_declaration_or_mesh() {
+    assert!(Sim::<TextureDeclaration>::new(())
+        .err()
+        .unwrap()
+        .contains("wrong.tex"));
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    *sim.world()
+        .get_mut::<Mesh>(sim.world().resolve("late").unwrap())
+        .unwrap() = Mesh::asset("wrong.tex");
+    assert!(sim.take_assets().is_empty());
+    assert!(sim.agent(r#"{"op":"state"}"#).contains("Failed"));
+}
+
+#[test]
+fn model_delivery_checks_carrier_size_before_decode() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    let error = sim
+        .asset("crate.model", Some(&vec![0; 64 * 1024 * 1024 + 1]))
+        .unwrap_err();
+    assert!(
+        error.contains("crate.model") && error.contains("64 MiB"),
+        "{error}"
+    );
+}
+
+#[test]
+fn headless_loader_drains_dependencies_and_reports_failures_without_panicking() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    let mut names = Vec::new();
+    sim.load_assets(|name| {
+        names.push(name.to_owned());
+        Ok::<_, String>(bin::to_vec(&asset::Model::default()))
+    })
+    .unwrap();
+    assert_eq!(names, ["crate.model"]);
+    assert_eq!(sim.world().len(), 1);
+    assert!(sim.save().is_ok());
+    let mut failed = Sim::<Loading>::new(()).unwrap();
+    let error = failed
+        .load_assets(|_| Err::<Vec<u8>, _>("unreadable"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("crate.model") && error.contains("unreadable"),
+        "{error}"
+    );
+    let error = failed.save().unwrap_err().to_string();
+    assert!(
+        error.contains("crate.model") && error.contains("Failed"),
+        "{error}"
+    );
+}
+
+#[test]
+fn cosmetic_names_retire_and_respawn_requests_again() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    assert_eq!(sim.take_assets(), ["late.model"]);
+    sim.asset("late.model", Some(&bin::to_vec(&asset::Model::default())))
+        .unwrap();
+    let entity = sim.world().resolve("late").unwrap();
+    sim.world_mut().despawn(entity);
+    assert!(sim.take_assets().is_empty());
+    assert!(!sim.agent(r#"{"op":"state"}"#).contains("late.model"));
+    sim.world_mut()
+        .spawn((Transform::default(), Mesh::asset("late.model")));
+    assert_eq!(sim.take_assets(), ["late.model"]);
+}
+#[test]
+fn asset_requests_are_bounded_and_refusal_names_the_excess() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    for i in 0..300 {
+        sim.world_mut()
+            .spawn((Transform::default(), Mesh::asset(format!("{i:03}.model"))));
+    }
+    assert!(sim.take_assets().len() <= 256);
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(state.contains("256") && state.contains("Failed"), "{state}");
+}
+
+#[test]
+fn a_publication_only_tick_names_the_changing_key() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
+        .unwrap();
+    sim.run(1000.);
+    let clock = sim.agent(r#"{"op":"clock"}"#);
+    assert!(
+        clock.contains("\"quiescent\":false") && clock.contains("published.ticks"),
+        "{clock}"
+    );
+}
+
+#[test]
+fn declared_delivery_state_retires_but_simulation_data_is_stable() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
+        .unwrap();
+    let entity = sim.world().resolve("crate").unwrap();
+    sim.world_mut().despawn(entity);
+    sim.take_assets();
+    assert!(sim.world().model("crate.model").is_some());
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(state.contains("\"assets\":[]"), "{state}");
+    let saved = sim.save().unwrap();
+    sim.restore(&saved).unwrap();
+    sim.world_mut()
+        .spawn((Transform::default(), Mesh::asset("crate.model")));
+    assert_eq!(sim.take_assets(), ["crate.model"]);
+}
+
+#[test]
+fn saving_a_pending_cosmetic_refuses_but_failed_cosmetics_do_not_gate() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    sim.asset_failed("late.model", "missing cosmetic");
+    sim.world_mut()
+        .spawn((Transform::default(), Mesh::asset("save.model")));
+    assert!(sim.take_assets().contains(&"save.model".to_owned()));
+    assert!(sim.save().unwrap_err().to_string().contains("save.model"));
+    sim.asset_failed("save.model", "missing file");
+    assert!(sim.save().is_ok(), "failed cosmetics do not block saving");
+}
+
+#[test]
+fn save_readiness_tracks_current_meshes_without_request_drain() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    let e = sim.world().named("late").unwrap();
+    assert!(sim.save().unwrap_err().to_string().contains("late.model"));
+    sim.take_assets();
+    sim.world_mut().despawn(e);
+    assert!(sim.save().is_ok());
+}
+
+#[test]
+fn failed_cosmetic_dependencies_do_not_gate_a_save() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    let mut model: asset::Model =
+        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
+    model.textures.push("still-pending.tex".into());
+    model.materials[0].normal_texture = Some(1);
+    sim.asset("late.model", Some(&bin::to_vec(&model))).unwrap();
+    sim.asset_failed(&model.textures[0], "cosmetic missing");
+    assert!(
+        sim.save().is_ok(),
+        "a failed cosmetic cannot block on its other textures"
+    );
 }

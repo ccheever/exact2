@@ -6,8 +6,10 @@
 extern crate self as exact_game;
 
 mod agent;
+pub mod animation;
 #[doc(hidden)]
 pub mod args;
+mod assets_load;
 mod capture;
 pub mod character;
 pub mod data;
@@ -28,6 +30,9 @@ mod tween;
 mod values;
 mod world;
 
+pub use animation::{
+    Animation, Animator, Blend, Cmp, Condition, Ik, Play, Pose, Socket, SocketFollow, State,
+};
 pub use args::{Args, ArgumentKind};
 pub use capture::{Capture, CaptureLimits};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
@@ -53,3 +58,6 @@ pub mod audio;
 
 /// Baked GPU-ready assets, independent of the renderer.
 pub mod asset;
+
+/// Typed spatial results shared with the agent geometry.
+pub use spatial::{EntityLayout, PickHit, ScreenRect};

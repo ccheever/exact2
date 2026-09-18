@@ -5,10 +5,9 @@ use crate::Data;
 #[path = "../../../gpu/src/asset_name.rs"]
 mod names;
 pub use names::asset_name;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
+
+mod map;
 
 #[derive(Data, Default, Clone, Debug)]
 pub struct Model {
@@ -131,6 +130,8 @@ pub struct Skin {
 pub struct Clip {
     pub name: String,
     pub tracks: Vec<Track>,
+    /// Seconds and event name; absent extras leave this empty.
+    pub markers: Vec<(f32, String)>,
 }
 #[derive(Data, Default, Clone, Debug)]
 pub struct Track {
@@ -159,6 +160,34 @@ impl Model {
     /// Validate all upload ranges before any renderer allocation.
     pub fn validate(&self) -> Result<(), String> {
         let fail = |s: &str| Err(format!("model: {s}"));
+        if self.textures.len() > 64 {
+            return fail("at most 64 textures are allowed");
+        }
+        let mut used = BTreeSet::new();
+        for material in self
+            .nodes
+            .iter()
+            .filter_map(|node| node.mesh)
+            .filter_map(|mesh| self.meshes.get(mesh as usize))
+            .filter_map(|mesh| self.materials.get(mesh.material as usize))
+        {
+            used.extend(
+                [
+                    material.base_color_texture,
+                    material.normal_texture,
+                    material.metallic_roughness_texture,
+                    material.emissive_texture,
+                    material.occlusion_texture,
+                ]
+                .into_iter()
+                .flatten(),
+            );
+        }
+        for (index, name) in self.textures.iter().enumerate() {
+            if !used.contains(&(index as u32)) {
+                return Err(format!("model: unused texture `{name}`"));
+            }
+        }
         for m in &self.meshes {
             let n = m.positions.len() / 3;
             if n == 0
@@ -186,6 +215,15 @@ impl Model {
                 .any(|v| !v.is_finite())
             {
                 return fail("non-finite vertex");
+            }
+        }
+        for mesh in &self.meshes {
+            if mesh
+                .weights
+                .chunks_exact(4)
+                .any(|w| w.iter().any(|v| *v < 0.) || (w.iter().sum::<f32>() - 1.).abs() > 1e-4)
+            {
+                return fail("skin weights must be nonnegative and normalized");
             }
         }
         for (index, m) in self.materials.iter().enumerate() {
@@ -226,8 +264,13 @@ impl Model {
             }
         }
         self.offsets()?;
+        if !self.skins.is_empty() && self.nodes.len() > 256 {
+            return fail("skinned models support at most 256 imported nodes");
+        }
         for s in &self.skins {
-            if s.inverse_binds.len() != s.joints.len() * 16
+            if s.joints.is_empty()
+                || s.joints.len() > 256
+                || s.inverse_binds.len() != s.joints.len() * 16
                 || s.joints.iter().any(|&i| i as usize >= self.nodes.len())
                 || s.inverse_binds.iter().any(|v| !v.is_finite())
             {
@@ -249,6 +292,11 @@ impl Model {
             }
         }
         for clip in &self.clips {
+            if clip.markers.iter().any(|(t, name)| {
+                !t.is_finite() || *t < 0. || *t > clip.duration() || name.is_empty()
+            }) {
+                return Err(format!("model clip `{}`: invalid marker", clip.name));
+            }
             let mut targets = BTreeSet::new();
             for track in &clip.tracks {
                 let arity = if matches!(track.path, TrackPath::Rotation) {
@@ -352,30 +400,70 @@ pub enum AssetState {
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
     pub geometry_revision: u64,
-    pub models: BTreeMap<String, Arc<Model>>,
-    pub states: BTreeMap<String, AssetState>,
+    pub models: map::AssetMap<Arc<Model>>,
+    pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
     pub required: BTreeSet<String>,
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
+    pub redelivery: BTreeSet<String>,
+    pub dependencies: map::AssetMap<Vec<String>>,
+    pub retired: Vec<String>,
+    pub refusal: Option<(String, String)>,
 }
 impl Assets {
     pub fn ready(&self) -> bool {
         self.required
             .iter()
-            .all(|n| self.states.get(n) == Some(&AssetState::Loaded))
+            .all(|n| self.states.get(n).is_none_or(|s| *s == AssetState::Loaded))
     }
-    pub fn request(&mut self, name: &str) {
-        self.states.entry(name.into()).or_insert_with(|| {
-            if asset_name(name) {
+    pub fn request(&mut self, name: &str) -> bool {
+        if !self.states.contains_key(name) && self.states.len() >= 256 {
+            self.refusal = Some((
+                name.into(),
+                format!("asset `{name}`: surface limit is 256 names"),
+            ));
+            return false;
+        }
+        if !self.states.contains_key(name) {
+            let state = if asset_name(name) {
                 AssetState::Pending
             } else {
                 AssetState::Failed(format!("asset `{name}`: invalid asset name"))
+            };
+            self.states.insert(name.into(), state);
+        }
+        true
+    }
+    pub fn retire(&mut self, roots: &BTreeSet<String>) {
+        self.retired.clear();
+        let mut live = roots.clone();
+        for name in roots {
+            if let Some(deps) = self.dependencies.get(name) {
+                live.extend(deps.iter().cloned());
             }
-        });
+        }
+        let removed: Vec<_> = self
+            .states
+            .keys()
+            .filter(|n| !live.contains(*n))
+            .cloned()
+            .collect();
+        for name in removed {
+            self.states.remove(&name);
+            if !self.declared.contains(&name) {
+                self.models.remove(&name);
+                self.dependencies.remove(&name);
+            }
+            self.requested.remove(&name);
+            self.prepared.remove(&name);
+            self.redelivery.remove(&name);
+            self.retired.push(name);
+        }
+        self.refusal = None;
     }
     pub fn state_json(&self) -> String {
-        let rows: Vec<_> = self
+        let mut rows: Vec<_> = self
             .states
             .iter()
             .map(|(name, state)| {
@@ -394,6 +482,13 @@ impl Assets {
                 )
             })
             .collect();
+        if let Some((name, reason)) = &self.refusal {
+            rows.push(format!(
+                "{{\"name\":{},\"state\":\"Failed\",\"reason\":{}}}",
+                crate::values::quote(name),
+                crate::values::quote(reason)
+            ));
+        }
         format!("[{}]", rows.join(","))
     }
 }
@@ -412,7 +507,7 @@ impl crate::World {
         self.assets
             .required
             .iter()
-            .filter(|n| self.assets.states.get(*n) == Some(&AssetState::Pending))
+            .filter(|n| self.assets.states.get(n) == Some(&AssetState::Pending))
             .map(String::as_str)
     }
 }
@@ -451,5 +546,43 @@ impl crate::Mesh {
             "mesh bounds must be finite and ordered"
         );
         (self, ModelBounds(bounds))
+    }
+}
+
+/// Validated content delivered to the name/dependency gate.
+pub enum Content {
+    Model(Model),
+    Texture(TextureData),
+}
+impl Content {
+    pub fn decode(name: &str, bytes: &[u8]) -> Result<Self, String> {
+        if !asset_name(name) {
+            return Err("invalid asset name".into());
+        }
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err("exceeds 64 MiB".into());
+        }
+        if name.ends_with(".tex") {
+            let texture: TextureData = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            texture.validate()?;
+            Ok(Self::Texture(texture))
+        } else if name.ends_with(".model") {
+            let model: Model = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            model.validate()?;
+            Ok(Self::Model(model))
+        } else {
+            Err("expected .model or .tex".into())
+        }
+    }
+}
+impl<G: crate::Game> crate::Sim<G> {
+    /// Headless model decoder. Primitive surfaces never link this adapter.
+    pub fn asset(&mut self, name: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+        self.deliver_asset(
+            name,
+            bytes
+                .ok_or_else(|| "missing file".to_owned())
+                .and_then(|b| Content::decode(name, b)),
+        )
     }
 }

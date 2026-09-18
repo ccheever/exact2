@@ -166,21 +166,18 @@ mod seams {
     }
     struct Probe(Vec<String>, Option<SurfaceError>, Option<String>, Vec<u8>);
     impl Surface for Probe {
-        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
-            self.2 = Some("{\"phase\":\"bind\"}".into());
-            Ok(())
-        }
-        fn bind_at(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        fn bind(&mut self, _inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
             BINDS.with(|b| b.borrow_mut().push(at_ms));
             if at_ms == Some(999.) {
                 self.1 = Some(SurfaceError("advance capacity".into()));
             }
-            self.bind(inputs)
+            self.2 = Some("{\"phase\":\"bind\"}".into());
+            Ok(())
         }
         fn carry(&mut self) -> Option<Vec<u8>> {
             Some(self.3.clone())
         }
-        fn restore(&mut self, bytes: &[u8]) -> Result<(), String> {
+        fn restore(&mut self, bytes: &[u8], _: exact_gpu::Restore) -> Result<(), String> {
             if bytes.first() == Some(&255) {
                 return Err("probe byte refused".into());
             }
@@ -335,11 +332,11 @@ mod seams {
             unsafe { std::slice::from_raw_parts(gpu_out_ptr(), 2) },
             &[1, 2]
         );
-        assert!(!unsafe { gpu_restore(id, [255].as_ptr(), 1) });
+        assert!(!unsafe { gpu_restore(id, [255].as_ptr(), 1, 0) });
         assert_eq!(exact_gpu::native::error(), "probe byte refused");
         assert_eq!(gpu_dirty(id), 0, "failed restore leaves dirty unchanged");
         assert_eq!(exact_gpu::native::carry(id), Some(vec![1, 2]));
-        assert!(unsafe { gpu_restore(id, [3, 4, 5].as_ptr(), 3) });
+        assert!(unsafe { gpu_restore(id, [3, 4, 5].as_ptr(), 3, 0) });
         assert_eq!(gpu_dirty(id), 1);
         assert_eq!(
             exact_gpu::native::published(id).as_deref(),
@@ -351,11 +348,11 @@ mod seams {
             None,
             "old outputs are not restored messages"
         );
-        assert!(unsafe { gpu_restore(id, [].as_ptr(), 0) });
+        assert!(unsafe { gpu_restore(id, [].as_ptr(), 0, 0) });
         assert_eq!(gpu_carry(id), 0, "empty carry is not nothing");
         assert_eq!(gpu_carry(u32::MAX), u32::MAX);
         assert_eq!(exact_gpu::native::error(), "no such canvas");
-        assert!(!unsafe { gpu_restore(id, std::ptr::null(), 1) });
+        assert!(!unsafe { gpu_restore(id, std::ptr::null(), 1, 0) });
         assert!(exact_gpu::native::error().contains("gpu_restore"));
         assert_eq!(gpu_render(id, 4., 4., 1., 13.), 0);
         assert_eq!(unsafe { gpu_agent(id, b"null".as_ptr(), 4) }, 0);
@@ -448,13 +445,10 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         error: bool,
     }
     impl Surface for Probe {
-        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+        fn bind(&mut self, _v: &[Value], at: Option<f64>) -> Result<(), SurfaceError> {
+            self.at = at.unwrap_or_default();
             self.output = true;
             Ok(())
-        }
-        fn bind_at(&mut self, v: &[Value], at: Option<f64>) -> Result<(), SurfaceError> {
-            self.at = at.unwrap_or_default();
-            self.bind(v)
         }
         fn render(
             &mut self,
@@ -493,7 +487,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         fn carry(&mut self) -> Option<Vec<u8>> {
             Some(self.bytes.clone())
         }
-        fn restore(&mut self, b: &[u8]) -> Result<(), String> {
+        fn restore(&mut self, b: &[u8], _: exact_gpu::Restore) -> Result<(), String> {
             self.bytes = b.to_vec();
             self.output = true;
             Ok(())
@@ -517,7 +511,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert!(m.take_messages(id).is_empty());
     assert_eq!(m.take_published(id).as_deref(), Some("{}"));
     assert!(m.take_published(id).is_none());
-    assert!(m.restore(id, &[1, 2, 3]));
+    assert!(m.restore(id, &[1, 2, 3], exact_gpu::Restore::Open));
     assert_eq!(m.carry(id), Some(vec![1, 2, 3]));
     assert_eq!(m.take_published(id).as_deref(), Some("{}"));
     let f = Frame {
@@ -539,7 +533,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert!(m.agent(id, "fail").is_none());
     assert_eq!(m.take_error(), "probe refused");
     assert_eq!(m.take_error(), "");
-    assert!(m.restore(id, &[]));
+    assert!(m.restore(id, &[], exact_gpu::Restore::Open));
     assert_eq!(m.carry(id), Some(vec![]));
     m.destroy(id);
     assert!(m.agent(id, "state").is_none());
@@ -555,7 +549,7 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
         delivered: Vec<String>,
     }
     impl Surface for AssetProbe {
-        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
             self.wanted = vec![
                 "tables/lookup.bin".into(),
                 "missing.bin".into(),
@@ -571,7 +565,7 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
         fn assets(&mut self) -> Vec<String> {
             std::mem::take(&mut self.wanted)
         }
-        fn asset(&mut self, name: &str, bytes: Option<&[u8]>) {
+        fn asset(&mut self, name: &str, bytes: Result<&[u8], exact_gpu::AssetError>) {
             self.delivered.push(format!("{name}:{bytes:?}"));
             self.wanted.push(name.into());
             if name == "tables/lookup.bin" {
@@ -602,23 +596,23 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     assert_eq!(m.take_assets(id), ["tables/lookup.bin", "missing.bin"]);
     assert!(m.take_error().contains("asset `雪`"));
     assert!(m.take_assets(id).is_empty());
-    assert!(!m.asset(id, "../escape", Some(&[1])));
-    assert!(!m.asset(id, "unrequested", Some(&[1])));
-    assert!(m.asset(id, "tables/lookup.bin", Some(&[1, 2, 3])));
+    assert!(!m.asset(id, "../escape", Ok(&[1])));
+    assert!(!m.asset(id, "unrequested", Ok(&[1])));
+    assert!(m.asset(id, "tables/lookup.bin", Ok(&[1, 2, 3])));
     assert_eq!(m.take_assets(id), ["next.bin"]);
     assert!(m.take_assets(id).is_empty());
-    assert!(m.asset(id, "missing.bin", None));
-    assert!(m.asset(id, "next.bin", Some(&[])));
+    assert!(m.asset(id, "missing.bin", Err(exact_gpu::AssetError::Missing)));
+    assert!(m.asset(id, "next.bin", Ok(&[])));
     assert_eq!(
         m.take_messages(id),
         [
-            "tables/lookup.bin:Some([1, 2, 3])",
-            "missing.bin:None",
-            "next.bin:Some([])"
+            "tables/lookup.bin:Ok([1, 2, 3])",
+            "missing.bin:Err(Missing)",
+            "next.bin:Ok([])"
         ]
     );
     assert!(m.take_messages(id).is_empty());
-    assert!(!m.asset(id, "next.bin", None));
+    assert!(!m.asset(id, "next.bin", Err(exact_gpu::AssetError::Missing)));
 }
 
 #[test]
@@ -629,7 +623,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
         events: Vec<String>,
     }
     impl Surface for Probe {
-        fn bind(&mut self, _: &[Value]) -> Result<(), SurfaceError> {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
             Ok(())
         }
         fn render(
@@ -669,11 +663,11 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     }
     assert_eq!(
         m.agent(live, "").unwrap(),
-        "clock:false,clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+        "clock:false,clock:true,Hidden,Visible,Interrupted,Resumed"
     );
     assert_eq!(
         m.agent(agent, "").unwrap(),
-        "clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+        "clock:true,Hidden,Visible,Interrupted,Resumed"
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
@@ -704,4 +698,175 @@ fn asset_names_use_the_portable_bounded_ascii_path_grammar() {
     }
     assert!(exact_gpu::asset_name(&"a".repeat(128)));
     assert!(!exact_gpu::asset_name(&"a".repeat(129)));
+}
+
+#[test]
+fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
+    use exact_gpu::{wgpu, AssetError, Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Probe {
+        retire: bool,
+        failed: Vec<String>,
+    }
+    impl Surface for Probe {
+        fn bind(&mut self, values: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            self.retire = matches!(values.first(), Some(Value::Bool(true)));
+            Ok(())
+        }
+        fn assets(&mut self) -> Vec<String> {
+            (0..257).map(|i| format!("{i}.model")).collect()
+        }
+        fn retired_assets(&mut self) -> Vec<String> {
+            if std::mem::take(&mut self.retire) {
+                vec!["0.model".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
+            if bytes.is_err() {
+                self.failed.push(name.into());
+            }
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some(self.failed.join(","))
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("bounded", 0, || Box::<Probe>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let id = module.create_headless("bounded").unwrap();
+    assert!(module.bind(id, &[], None));
+    assert_eq!(module.take_assets(id).len(), 256);
+    assert_eq!(module.agent(id, "").as_deref(), Some("256.model"));
+    assert!(module.asset(id, "0.model", Ok(&[])));
+    assert!(module.take_assets(id).is_empty());
+    assert!(module.bind(id, &[Value::Bool(true)], None));
+    assert_eq!(module.take_assets(id), ["0.model"]);
+    assert!(module.asset(id, "0.model", Ok(&[])));
+    module.lose_device();
+    assert_eq!(module.take_assets(id).len(), 256);
+}
+
+#[test]
+fn retirement_reissues_live_dependencies_in_the_same_drain() {
+    use exact_gpu::{Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Retiring {
+        phase: u8,
+        retire: bool,
+    }
+    impl Surface for Retiring {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn assets(&mut self) -> Vec<String> {
+            self.phase += 1;
+            if self.phase == 1 || self.phase == 4 {
+                vec!["live.tex".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn retired_assets(&mut self) -> Vec<String> {
+            if self.phase == 3 && !self.retire {
+                self.retire = true;
+                vec!["gone.model".into(), "live.tex".into()]
+            } else {
+                vec![]
+            }
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("retiring", 0, || Box::<Retiring>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let id = module.create_headless("retiring").unwrap();
+    module.bind(id, &[], None);
+    assert_eq!(module.take_assets(id), ["live.tex"]);
+    assert!(module.asset(id, "live.tex", Ok(&[])));
+    assert!(module.take_assets(id).is_empty());
+    assert_eq!(module.take_assets(id), ["live.tex"]);
+    assert_eq!(module.take_retired_assets(id), ["gone.model", "live.tex"]);
+    assert!(module.take_retired_assets(id).is_empty());
+}
+
+#[test]
+fn every_render_prepares_retained_assets_before_surface_readiness() {
+    use exact_gpu::{fixture, Frame, Surface, SurfaceError, Value};
+    #[derive(Default)]
+    struct Retained {
+        prepared: bool,
+    }
+    impl Surface for Retained {
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn device_lost(&mut self) {
+            self.prepared = false;
+        }
+        fn prepare_assets(&mut self, _: &wgpu::Device, _: &wgpu::Queue, _: wgpu::TextureFormat) {
+            self.prepared = true;
+        }
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            assert!(
+                self.prepared,
+                "retained textureless content was not prepared before render"
+            );
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("retained", 0, || Box::<Retained>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let Ok(gpu) = fixture::device() else { return };
+    module.set_gpu(gpu);
+    let id = module.create_headless("retained").unwrap();
+    assert!(module.bind(id, &[], None));
+    let frame = Frame {
+        width: 8.,
+        height: 8.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    assert!(module.readback(id, &frame).is_some());
+    module.lose_device();
+    module.set_gpu(fixture::device().unwrap());
+    assert!(module.readback(id, &frame).is_some());
 }

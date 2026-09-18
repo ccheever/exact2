@@ -64,7 +64,9 @@ test('quantiles interpolate; corrupt, overflowed, or missing records fail explic
   const { raw, plan } = fixture();
   expect(() => analyze({ ...raw, overflow: true }, plan)).toThrow('buffer');
   expect(() => analyze({ ...raw, events: raw.events.slice(4) }, plan)).toThrow('delivered');
-  raw.frames[8] = raw.frames[0];
+  const redraw = { ...raw, frames: [...raw.frames.slice(0, 16), ...raw.frames.slice(8, 16), ...raw.frames.slice(16)] };
+  expect(analyze(redraw, plan).frames).toEqual(analyze(raw, plan).frames); // a redraw at the same time is not a frame
+  raw.frames[8] = raw.frames[0] - 1;
   expect(() => analyze(raw, plan)).toThrow('Nonmonotonic');
 });
 

@@ -87,7 +87,6 @@ fn image_with_sun(
         proj: directx::orthographic(-2., 2., -2., 2., 0.1, 20.),
         camera_position: eye,
         sun,
-        bloom: None,
         ..Default::default()
     };
     f.environment = exact_game_render::Environment {
@@ -98,6 +97,8 @@ fn image_with_sun(
         ambient: if sun.is_some() { 0.05 } else { 1. },
         fog: None,
         sun_disc: 0.,
+        bloom: None,
+        ..Default::default()
     };
     let stats = renderer.draw(&texture.create_view(&Default::default()), (256, 256), &f);
     assert_eq!(
