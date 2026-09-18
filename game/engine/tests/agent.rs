@@ -305,3 +305,68 @@ fn unbounded_cosmetic_never_blocks_pick_occlusion_or_facing_even_after_arrival()
     assert!(s.agent(target).contains(r#""lineOfSight":false"#));
     assert!(s.agent(pick).contains(r#""name":"subject""#));
 }
+
+#[test]
+fn sight_excludes_camera_and_both_endpoint_ancestors_and_descendants_but_not_siblings() {
+    for endpoint in ["subject", "target", "camera"] {
+        for ancestor in [false, true] {
+            let mut s = Sim::<Eyes>::new(()).unwrap();
+            s.viewport(800., 600.);
+            let e = s.world().named(endpoint).unwrap();
+            let z = if endpoint == "target" { -5. } else { 5. };
+            let geometry = s.world_mut().spawn_named(
+                "endpoint-geometry",
+                (Transform::at(0., 0., z), Mesh::cube(6.)),
+            );
+            let request = r#"{"op":"layout","entity":"subject","to":"target"}"#;
+            s.world_mut().propagate();
+            let before = s.agent(request);
+            let obstructed = if endpoint == "target" {
+                r#""lineOfSight":false"#
+            } else {
+                r#""occluded":1"#
+            };
+            assert!(
+                before.contains(obstructed),
+                "{endpoint} {ancestor}: {before}"
+            );
+            if ancestor {
+                // Keep the endpoint's world pose constant when attaching its parent.
+                s.world_mut().insert(e, Parent(geometry));
+                s.world_mut().get_mut::<Transform>(e).unwrap().position.z -= z;
+            } else {
+                // Exercise transitive descendant exclusion through a meshless link.
+                let link = s.world_mut().spawn((Transform::default(), Parent(e)));
+                s.world_mut().insert(geometry, Parent(link));
+                let endpoint_z = s.world().get::<Transform>(e).unwrap().position.z;
+                s.world_mut()
+                    .get_mut::<Transform>(geometry)
+                    .unwrap()
+                    .position
+                    .z -= endpoint_z;
+            }
+            s.world_mut().propagate();
+            let after = s.agent(request);
+            assert!(
+                after.contains(r#""occluded":0,"occluders":[]"#),
+                "{endpoint} {ancestor}: {after}"
+            );
+            assert!(after.contains(r#""lineOfSight":true"#), "{after}");
+            if ancestor {
+                let sibling = s.world_mut().spawn_named(
+                    "sibling",
+                    (Transform::default(), Parent(geometry), Mesh::cube(6.)),
+                );
+                s.world_mut().propagate();
+                assert!(s.agent(request).contains(obstructed), "sibling {sibling:?}");
+            }
+        }
+    }
+    let mut s = Sim::<Eyes>::new(()).unwrap();
+    s.viewport(800., 600.);
+    let camera = s.world().named("camera").unwrap();
+    s.world_mut().insert(camera, Mesh::cube(2.));
+    assert!(s
+        .agent(r#"{"op":"layout","entity":"subject"}"#)
+        .contains(r#""occluded":0,"occluders":[]"#));
+}

@@ -5,6 +5,7 @@ pub(crate) mod index;
 use index::Sight;
 
 pub(crate) struct View {
+    pub entity: Entity,
     pub pose: Affine3A,
     pub camera: Camera,
     pub size: Vec2,
@@ -21,11 +22,14 @@ impl View {
                 && c.fov_y_degrees > 0.0
                 && c.fov_y_degrees < 180.0)
                 .then(|| {
-                    w.global(e).map(|pose| Self {
-                        pose,
-                        camera: *c,
-                        size,
-                    })
+                    w.global(e)
+                        .filter(|p| p.is_finite() && p.matrix3.determinant().abs() >= 1e-12)
+                        .map(|pose| Self {
+                            entity: e,
+                            pose,
+                            camera: *c,
+                            size,
+                        })
                 })
                 .flatten()
         })

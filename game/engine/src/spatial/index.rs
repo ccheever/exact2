@@ -259,6 +259,17 @@ impl<'a> Sight<'a> {
                 child = self.index.next[child];
             }
         }
+        // Ancestors belong to this endpoint too; their other descendants do not.
+        // Thus a shared scene root never silences sibling objects.
+        let mut at = self.index.parent[root];
+        while at != NONE {
+            spend(&mut self.remaining)?;
+            if self.excluded[at] & mask == mask {
+                break;
+            }
+            self.excluded[at] |= mask;
+            at = self.index.parent[at];
+        }
         Ok(())
     }
     pub fn segment(

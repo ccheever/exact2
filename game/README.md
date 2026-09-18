@@ -336,7 +336,11 @@ Authored bounds remain usable before and after cosmetic delivery.
 the normalized direction to the active camera (null without camera/viewport).
 With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180),
 `distanceTo` (world-origin distance) and `lineOfSight` (open origin-to-origin
-segment, excluding both endpoint entities and their descendants). Coincident origins have distance
+segment). Each endpoint and its ancestors and descendants are one object for
+this read: their meshes are excluded. Camera occlusion applies the same rule to
+the subject and active camera; LOS applies it to subject and target. Siblings
+remain separate objects, even under a common scene root. Exclusion crosses every
+Parent edge (there is no separate rigid attachment edge). Coincident origins have distance
 and bearing zero and clear sight; zero horizontal directions have bearing zero.
 Visibility retains `{"unavailable":true}` without camera/viewport.
 These queries take only shared world reads and preserve the mutation epoch.

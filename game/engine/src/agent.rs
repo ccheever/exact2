@@ -359,7 +359,7 @@ impl<G: Game> Sim<G> {
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
         let forward = pose.transform_vector3(Vec3::NEG_Z).normalize_or_zero();
         let view = spatial::View::new(w, viewport);
-        let mut sight = spatial::index::Sight::new(w, e, to, None)?;
+        let mut sight = spatial::index::Sight::new(w, e, to, view.as_ref().map(|v| v.entity))?;
         let toward = view
             .as_ref()
             .map(|v| forward.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()));
