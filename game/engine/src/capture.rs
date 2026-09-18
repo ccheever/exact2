@@ -132,7 +132,15 @@ impl Capture {
         if self.records.len() != self.completed_records as usize {
             return refuse("capture has dropped records");
         }
-        if self.records.len() > MAX_EVENTS as usize || self.hz == 0 {
+        if self.limits.bytes == 0
+            || self.limits.bytes > MAX_BYTES
+            || self.limits.events == 0
+            || self.limits.events > MAX_EVENTS
+            || self.limits.ticks == 0
+            || self.limits.ticks > MAX_TICKS
+            || self.records.len() > self.limits.events as usize
+            || self.hz == 0
+        {
             return refuse("capture bounds invalid");
         }
         let mut tick = self.first_tick;
@@ -141,7 +149,7 @@ impl Capture {
                 return refuse("capture event suffix is not contiguous");
             }
             tick = record.after;
-            if tick - self.first_tick > MAX_TICKS {
+            if tick - self.first_tick > self.limits.ticks {
                 return refuse("capture tick budget exceeded");
             }
         }
@@ -464,6 +472,8 @@ fn validate_input(event: &InputEvent) -> Result<(), DataError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    thread_local! { static EXECUTED_TICKS: Cell<u64> = const { Cell::new(0) }; }
     struct Fixture;
     impl Game for Fixture {
         const ID: &'static str = "capture-hardening";
@@ -472,7 +482,9 @@ mod tests {
         fn setup(w: &mut crate::World, _: &()) {
             w.spawn_named("crate", (crate::Transform::default(),));
         }
-        fn tick(_: &mut crate::World, _: &crate::Input, _: &()) {}
+        fn tick(_: &mut crate::World, _: &crate::Input, _: &()) {
+            EXECUTED_TICKS.with(|ticks| ticks.set(ticks.get() + 1));
+        }
     }
     fn capture() -> Capture {
         let mut sim = Sim::<Fixture>::new(()).unwrap();
@@ -504,6 +516,33 @@ mod tests {
         assert!(Sim::<Fixture>::replay_capture(&wrong, "actual", None).is_err());
         let bytes = original.to_bytes();
         assert!(Capture::from_bytes(&bytes[..bytes.len() - 1]).is_err());
+    }
+    #[test]
+    fn checksum_valid_oversized_advance_refuses_before_any_tick() {
+        let mut forged = capture();
+        forged.records[1].operation = Operation::Advance {
+            at_us: 86_400_000_000,
+            live: false,
+        };
+        // Re-encode a valid checksum: integrity alone cannot bound replay work.
+        let imported = Capture::from_bytes(&forged.to_bytes()).unwrap();
+        EXECUTED_TICKS.with(|ticks| ticks.set(0));
+        let error = Sim::<Fixture>::replay_capture(&imported, "actual", None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("clock does not match recorded tick boundary"));
+        assert_eq!(EXECUTED_TICKS.with(Cell::get), 0);
+
+        let mut over_budget = capture();
+        over_budget.limits.ticks = over_budget.last_tick() - over_budget.first_tick - 1;
+        EXECUTED_TICKS.with(|ticks| ticks.set(0));
+        assert!(Capture::from_bytes(&over_budget.to_bytes())
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("tick budget"));
+        assert_eq!(EXECUTED_TICKS.with(Cell::get), 0);
     }
     #[test]
     fn invalid_input_and_clock_refuse_before_execution_and_mismatch_names_typed_state() {
