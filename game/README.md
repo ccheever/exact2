@@ -2242,3 +2242,57 @@ Rust tests and web bake) but cannot launch Chrome; the feel test has no prebuilt
 TypeScript apps without the lean Hermes producer. No tests were disabled for
 these environmental failures. Logs and negative controls are retained under
 `~/lanes/gamenext/scratch/M4/`.
+
+
+## C1 terminal recapture verification (2026-09-18)
+
+On trunk `2d1300d`, after-B2, baseline B1 and baseline B2 each pass their
+route test with capture taken from the original terminal simulation. The deleted
+assertions are restored; B2's restored-instance workaround is removed. Trial
+patches stay in scratch, outside this branch. Adaptations only unwrap the merged
+`Sim::save()` result, omit the removed `SAVE_VERSION`, and apply the baseline
+gameplay edits around the typed-kind refactor. No public API or pinned value changes.
+
+The failure was a capture/checkpoint semantic mismatch: the old capture hash
+included consumed input edges that restoration clears, and disabling only v2's
+edge normalization reproduces after-B2's exact terminal checkpoint refusal.
+EXCAP v2 removes that mismatch and also hashes the exact saved clock boundary
+while retaining the live scheduler, so all three restored trial assertions pass.
+
+The permanent Lanterns regression retains the original instance after a natural
+three-minute loss with a character controller, held movement, fresh action edges,
+long host uptime and fractional 144/60/120 Hz periods. It exercises Seekable and
+Live in Off/Save/FreshGame, checks nonempty records, the initial checkpoint, forward
+tick progress, frozen terminal gameplay, final hash and complete save equality.
+The three-minute setup runs Off; reconstruction is enabled at terminal boundaries.
+Disabling edge normalization makes this regression fail at checkpoint replay too.
+Independently disabling exact-boundary clock hashing fails its Live case; the
+12 ms frame deliberately executes a tick ahead of the save deadline.
+The existing full-route win regression remains intact.
+
+Work remains bounded by capture's existing 8 MiB / 16,384-record / 216,000-tick
+ceilings, with explicit refusal/incomplete errors past the bounds; the regression
+uses default limits and six fixed runs of 10,800 setup ticks plus four frames.
+No runtime work or new agent operation is added. Reproduction patches and logs
+are retained in `~/lanes/gamenext/scratch/C1/`.
+
+
+Post-merge verification fetched `../exact2-next next/trunk` at
+`2d1300d6eda0dd2c16c514b7db0c0d363b5923b2`; already an ancestor, no merge conflict.
+All six Linux proofs pass in Off / Save / FreshGame: **18 runs, 516 assertions**
+(Beacons 57/58/58, Greybox 68/69/69, Lanterns 9/10/10, asset-fixture 19/20/20,
+skinned-fixture 12/13/13, cubes 3/4/4). Final hashes, ticks, publications,
+journals and existing pins agree. Asset-fixture initially refused stale untracked
+model/texture outputs without their bake manifest; those were preserved in scratch
+and the normal baker regenerated them before the successful rerun.
+
+Game Rust: **656 passed, 2 failed for no GPU adapter, 26 ignored diagnostics**;
+the two failures are the unchanged skinned-normal and first-presented-Fox pixel
+tests documented under M4. The permanent capture suite passes **2/2** (including
+six clock/mode combinations); the three restored trial routes each pass **1/1**.
+Game Clippy with `-D warnings`, both workspaces' formatting, caps and boot pass.
+Bun: **57 passed, 2 failed** (missing Chrome/CDP and prebuilt feel bakes); its
+generated game's three Rust tests pass. Root build/test/Clippy were attempted and
+remain blocked by the absent lean Hermes producer. No assertion was disabled.
+GPU pixels, browser execution, Apple SDK/runtime and physical audio are unverified.
+The scratch worktree and its build output are removed; only evidence remains.

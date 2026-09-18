@@ -1,5 +1,5 @@
 //! Simulation reproduction of the public native route; normalized inputs, not a UI claim.
-use exact_game::{Args, Capture, CaptureLimits, Sim, Transform, Value};
+use exact_game::{Args, Capture, CaptureLimits, Clock, Paranoid, Sim, Transform, Value};
 use exact_game_physics::Character;
 use lanterns_logic::{Lantern, Lanterns, Options, Session};
 
@@ -68,9 +68,8 @@ fn land(sim: &mut Sim<Lanterns>, floor: f32) {
     }
     panic!("landing failed at {:?}", sim.position("player"));
 }
-#[test]
-fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
-    let mut sim = Sim::<Lanterns>::new(Options {
+fn game() -> Sim<Lanterns> {
+    Sim::<Lanterns>::new(Options {
         seed: 1_041_003,
         started: true,
         sound: true,
@@ -83,7 +82,11 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
         .content,
         ..Default::default()
     })
-    .unwrap();
+    .unwrap()
+}
+#[test]
+fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
+    let mut sim = game();
     ticks(&mut sim, 2);
     steer(&mut sim, -8.0, 12.0, 0.18);
     for index in 1..=11 {
@@ -158,4 +161,55 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
         Sim::<Lanterns>::replay_capture(terminal_capture, "test-executable:lanterns-route", None)
             .unwrap();
     assert_eq!(replay.world().resource::<Session>().phase, 2);
+}
+
+// Terminal gameplay stops stepping physics, but host time and input still advance.
+// Keep the actual live instance: restoring it before capture hid the trial failure.
+#[test]
+fn live_terminal_recapture_preserves_input_and_fractional_clock() {
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        for clock in [Clock::Seekable, Clock::Live] {
+            let mut sim = game().paranoid(Paranoid::Off);
+            sim.key_down("KeyW");
+            ticks(&mut sim, 180 * 60);
+            assert_eq!(sim.world().resource::<Session>().phase, 3);
+            assert!(sim.world().get::<Character>("player").is_some());
+            // Exercise reconstruction at the capture boundaries, without rebuilding
+            // the entire three-minute setup in each diagnostic mode.
+            let mut sim = sim.paranoid(mode);
+            sim.handoff(false);
+            sim.frame_period(1000.0 / 144.0);
+            let mut at = 1_234_567_895.123_456;
+            sim.advance(at, clock);
+            sim.key_down("KeyE");
+            at += 12.0; // Live lookahead executes a tick before its saved deadline.
+            sim.advance(at, clock);
+            let before = (sim.world().tick(), sim.world().hash());
+            let elapsed = sim.world().resource::<Session>().elapsed;
+            sim.start_capture("lanterns-terminal", CaptureLimits::default())
+                .unwrap();
+            assert_eq!((sim.world().tick(), sim.world().hash()), before);
+            sim.key_up("KeyE");
+            for period in [1000.0 / 144.0, 1000.0 / 60.0, 1000.0 / 120.0] {
+                sim.frame_period(period);
+                at += period;
+                sim.advance(at, clock);
+            }
+            let capture = Capture::from_bytes(&sim.stop_capture().unwrap().to_bytes()).unwrap();
+            assert!(capture.records() > 0);
+            let checkpoint =
+                Sim::<Lanterns>::replay_capture(&capture, "lanterns-terminal", Some(0)).unwrap();
+            assert_eq!(
+                (checkpoint.world().tick(), checkpoint.world().hash()),
+                before
+            );
+            let replay =
+                Sim::<Lanterns>::replay_capture(&capture, "lanterns-terminal", None).unwrap();
+            assert!(replay.world().tick() > before.0);
+            assert_eq!(replay.world().resource::<Session>().phase, 3);
+            assert_eq!(replay.world().resource::<Session>().elapsed, elapsed);
+            assert_eq!(replay.world().hash(), sim.world().hash());
+            assert_eq!(replay.save().unwrap(), sim.save().unwrap());
+        }
+    }
 }
