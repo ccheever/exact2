@@ -1447,3 +1447,16 @@ The negative control spawns a never-seen sphere after ready and must trip it.
 The unfavorable 256→2,560 entity test must report buffer and slot growth, and
 checks explicit refusal past the headless limit. No asset-loader or pipeline
 preparation policy is changed by the accounting.
+
+T6 measurement on Linux: Lanterns before ready creates four vertex and four index
+buffers, uploads 103,624 mesh bytes and one 4,194,304-byte texture, and records four
+buffer reallocations/two slot growth events. Off has **zero after-ready violations**.
+Its retained animation streams 69,120 bytes before and 138,240 after ready.
+Save and FreshGame each expose **eight violations**: two Fox uploads add 152,064
+mesh bytes, two textures/8,388,608 texture bytes and one new vertex/index buffer.
+`lastAfterReady` is `{"what":"meshBytesUploaded","name":"Fox.glb","tick":60}`.
+Paranoid restore invalidates the feed's embedded asset instances; this is a real
+reported upload, not an allowed undeclared-asset exception. The two proof runs
+remain red pending the behavioral fix recorded in `QUEUE.md`; Off and all three
+modes of the other games pass. All shader/pipeline/layout counters are zero in
+these headless measurements; they do not establish device behavior.
