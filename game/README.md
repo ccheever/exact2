@@ -238,6 +238,24 @@ agent hears. Capture the complete simulation with `s.screenshot('run.world', 'wo
 then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
 same forms. Linux loads the same module with no device: simulation reads, input,
 clock, publications, saves and CPU point picks work; canvas pixels report unavailable.
+Entity layout requests also accept an optional target:
+`{"op":"layout","entity":"fox","to":"lantern-2","width":800,"height":600}`.
+The reply adds `entity.visible.occluded` (0–1) and `occluders` (at most four
+names, nearest ray intersection first, entity index breaking ties; unnamed
+entities use `#index`). Occlusion counts the eight oriented-bound corners,
+six face centres and centre equally. It is a geometric estimate, independent
+of frustum status, material opacity and rendered pixels. Hidden entities and
+singular transforms do not obstruct. Rays use the same primitive intersections
+and authored model boxes as picking; unloaded assets use a unit box.
+`entity.facing.forward` is normalized world −Z, `towardCamera` its dot with
+the normalized direction to the active camera (null without camera/viewport).
+With `to`, facing also contains `bearingTo` (signed degrees about +Y, −180…180),
+`distanceTo` (world-origin distance) and `lineOfSight` (open origin-to-origin
+segment, excluding both endpoint entities and their descendants). Coincident origins have distance
+and bearing zero and clear sight; zero horizontal directions have bearing zero.
+Visibility retains `{"unavailable":true}` without camera/viewport.
+These queries take only shared world reads and preserve the mutation epoch.
+
 The native bake binds the GPU product digest to the app and cohort before loading.
 `EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.
 Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers refuse input files and captures above 256 MiB before
@@ -354,7 +372,7 @@ Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
 colour and adds emission. Models supply layout/pick bounds after arrival; absent
-models have no stand-in geometry.
+models use a unit box for CPU queries and have no rendered stand-in geometry.
 
 Declare `Game::ASSETS = &["crate.model"]` for anything setup or simulation needs.
 Setup and tick zero wait for all declared bytes, on headless hosts too. Missing or

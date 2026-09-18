@@ -516,3 +516,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
 - Baked model delivery sizes (S3a): DamagedHelmet's RGBA8 mip chains produce a 112,733,848-byte `.model`, above PlanURL's existing 64 MiB per-asset limit. The GPU fixture renders it, but a native URL generation cannot carry that file. Choose a GPU-ready compression/chunking policy without introducing a runtime image decoder; evidence in `game/artifacts/s3a/report.md`.
+
+- Game workspace lint baseline (T5): clippy rejects the return type at `game/render/src/assets.rs:239` (`type_complexity`); rustfmt also reports that file and `game/engine/tests/capture.rs`. Unchanged by geometric layout work.
