@@ -517,6 +517,52 @@ ticks every frame. A tick that is due before the next frame should run now (brie
 F2b); until then a single latency row from any 60 Hz fixed-step engine is one draw
 from that lottery and three attempts are the minimum.
 
+### First full sitting — 2026-09-18, 04:56–05:36, display unlocked, console idle throughout
+
+`bun game/bench/feel.mjs compare --attempts 3` (exact 60/120 Hz, three.js, Godot ×2)
+at commit 98dd3b3a plus the fixes below, then `godot --attempts 3` again after its
+probe was repaired. Every row is **provisional**: the machine ran two builders and
+four reviewers at load 12–29 throughout. The exact rows were rejected by the runner
+as written ("Nonmonotonic frame timestamps": a redraw at an unchanged frame time —
+the resize path draws at the last paced time — put two rows at one timestamp) and are
+scored from their saved raw traces with the repaired analyzer
+(`bun game/bench/feel.mjs reanalyze <trace.json.gz>…`); the Godot rows first failed
+on a GDScript type error the probe refactor introduced (`code := … else keycode`) and
+on JSON floats never matching integer key codes, both fixed here. The exact runs'
+first attempts are contaminated by the orchestrator (a proof run stole the window's
+focus during the 120 Hz attempt: `front/visible NO`, the player stood still for 138
+frames; the 60 Hz attempt overlapped a build) and are shown but not used.
+
+| engine / variant | player judder (3 runs) | repeated positions | event → submitted pose, p50 (3 runs) | p95 | hitches |
+|---|---:|---:|---:|---:|---:|
+| **exact / 60 Hz world** | 0.074†, **0.002**, **0.002** | 0 % | 4.25†, **5.15**, **6.50** ms | 6.3–13.7 | 0 |
+| **exact / 120 Hz world** | 2.06†, **0.002**, **0.002** | 0 % | 4.95†, **4.10**, **3.50** ms | 5.3–8.2 | 0–2 |
+| three.js r186 (120 Hz accumulator, no interpolation) | 0.725, 0.579, 0.484 | 12–26 % | 1.45, 4.65, 4.50 ms | 6.9–12.5 | 0 |
+| Godot 4.7 as shipped | 0.994, 1.000, 0.994 | 49.7 % | 16.10, 16.31, 14.58 ms | 17.1 | 12.3 % |
+| Godot 4.7 with physics interpolation | 0.032, 0.068, 0.370 | 0 % | 16.49, 10.99, 16.07 ms | 17.3 | 12.4 % |
+
+† contaminated attempt, see above.
+
+Read like an adversary: judder here is the displacement between consecutive
+*submitted* poses on the paced clock, not a photographed frame — Exact's frame column
+is its own paced clock while three.js's is raw rAF, so the pacing column favours Exact
+by construction and only the displacement columns compare like with like; latency is
+event-to-submitted-pose (a CPU `f64` pose, the first floating-point change, no scanout),
+so call it that; Godot injects its keys after its frame sample while CDP injects between
+callbacks — a different phase distribution; the twins move by different rules (three.js
+a 120 Hz exponential-velocity step, Godot its own controller, Exact the 60 Hz
+`Character`), so these are authored experiences, not one workload; and a 12 % hitch
+rate for Godot on a machine at load 15 says as much about the machine as about Godot.
+
+What survives that reading: on this display Exact draws the walking player with a
+displacement that varies by 0.2 % frame to frame — three.js's varies by 50–70 % and
+repeats a frame every fifth or sixth, shipped Godot repeats every other frame, Godot
+with interpolation on lands at 3–37 % — and its event-to-pose latency at 60 Hz ticks
+(5–6.5 ms) sits with three.js's per-frame stepping (4.5 ms) and three times under
+Godot's (16 ms); at 120 Hz ticks it is 3.5–4.1 ms. The first-attempt numbers under
+disturbance (0.074 judder, a stalled player) are a reminder that a sitting is a sitting:
+nothing else may touch the display while it runs.
+
 **Full measurement pending:** the orchestrator must run `compare` in a quiet
 sitting for three attempts of all five variants. The 120 Hz bake was selected and
 fingerprinted in tests, but not launched here. The normal stale-build path was

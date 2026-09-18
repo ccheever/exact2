@@ -53,7 +53,9 @@ func _initialize() -> void:
 	var config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(config_path))
 	output = config.output
 	schedule = config.schedule
-	codes = config.codes
+	# JSON numbers arrive as floats; compare as ints so Array.has never misses.
+	for c in config.codes:
+		codes.append(int(c))
 	duration = config.duration_ms
 	frames.resize(int(ceil((duration / 1000.0 + 10) * 1000)) * STRIDE)
 	events.resize(128 * 4)
@@ -81,7 +83,7 @@ func _initialize() -> void:
 func _input(event: InputEvent) -> void:
 	if not active or not event is InputEventKey or event.echo:
 		return
-	var code := 13 if event.physical_keycode == KEY_ENTER else event.physical_keycode
+	var code: int = 13 if event.physical_keycode == KEY_ENTER else int(event.physical_keycode)
 	if not codes.has(code):
 		return
 	if (event_count + 1) * 4 > events.size():
