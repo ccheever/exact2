@@ -182,9 +182,10 @@ impl<C: Data> Erased for Singleton<C> {
     fn snapshot(
         &self,
         _: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
     ) {
         if let Some(w) = full {
             w.begin_seq(self.len());
@@ -194,12 +195,17 @@ impl<C: Data> Erased for Singleton<C> {
                 w.item();
                 entity(0).write(w);
                 w.item();
-                out.push((0, self.observation_hash(Some(w)).unwrap()));
+                out.push((
+                    label.0,
+                    label.1,
+                    entity(0),
+                    self.observation_hash(Some(w)).unwrap(),
+                ));
                 w.end_seq();
             }
             w.end_seq();
         } else if let Some(hash) = self.observation_hash(None) {
-            out.push((0, hash));
+            out.push((label.0, label.1, entity(0), hash));
         }
     }
     fn moving(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> bool {

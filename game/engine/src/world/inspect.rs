@@ -192,6 +192,7 @@ pub(crate) enum ObservationState {
 #[derive(Default)]
 pub(crate) struct Observation {
     entries: Vec<(u8, &'static str, Entity, u64)>,
+    #[cfg(test)]
     scratch: Vec<(usize, u64)>,
 }
 
@@ -308,6 +309,9 @@ impl World {
                             }
                         }
                     }
+                    if cached.entries.is_empty() {
+                        cached.entries = Vec::new();
+                    }
                     cached.key = Some(key);
                 }
                 out.entries.extend(
@@ -317,12 +321,37 @@ impl World {
                         .map(|&(e, hash)| (kind, name, e, hash)),
                 );
             }
+            while pages.last().is_some_and(|page| page.entries.is_empty()) {
+                pages.pop();
+            }
+            pages.shrink_to_fit();
         }
     }
     pub(crate) fn observe(&self, out: &mut Observation) {
         self.observe_with_hash(out, false);
     }
     pub(crate) fn observe_with_hash(&self, out: &mut Observation, full: bool) {
+        // Bound both the sparse mask walk and flat output before allocating or
+        // hashing. Custom Data writers remain trusted, as in save/hash.
+        assert!(
+            self.state.slots.len() <= 1_000_000,
+            "observation exceeds 1000000 entity slots"
+        );
+        assert!(
+            self.components.len() + self.resources.len() <= 256,
+            "observation exceeds 256 storage types"
+        );
+        let visits = self.state.slots.len() * 2
+            + self
+                .components
+                .values()
+                .chain(self.resources.values())
+                .map(|s| s.len())
+                .sum::<usize>();
+        assert!(
+            visits <= 16_000_000,
+            "observation exceeds 16000000 entry visits"
+        );
         self.prepare_observation();
         let mut full = full.then(crate::hash::Hasher::default);
         if let Some(w) = &mut full {
@@ -340,24 +369,16 @@ impl World {
             w.begin_struct();
         }
         for (&name, storage) in &self.components {
-            out.scratch.clear();
             if let Some(w) = &mut full {
                 w.key(name);
             }
-            storage.snapshot(ambient, &mut out.scratch, full.as_mut(), &|i| {
-                self.entity_at(i)
-            });
-            out.entries.extend(out.scratch.iter().map(|&(i, hash)| {
-                (
-                    2,
-                    name,
-                    Entity {
-                        index: i as u32,
-                        generation: self.state.slots[i].generation,
-                    },
-                    hash,
-                )
-            }));
+            storage.snapshot(
+                ambient,
+                &mut out.entries,
+                full.as_mut(),
+                &|i| self.entity_at(i),
+                (2, name),
+            );
         }
         if let Some(mut w) = full.take() {
             w.end_struct();
@@ -370,23 +391,17 @@ impl World {
             if self.registry[name].ambient {
                 continue;
             }
-            out.scratch.clear();
-            storage.snapshot(None, &mut out.scratch, None, &|_| SINGLETON);
-            out.entries.extend(
-                out.scratch
-                    .iter()
-                    .map(|&(_, hash)| (4, name, SINGLETON, hash)),
-            );
+            storage.snapshot(None, &mut out.entries, None, &|_| SINGLETON, (4, name));
         }
     }
     pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
         self.observed_epoch = self.mutation_epoch();
         self.changing.clear();
-        self.observation = if before.entries == after.entries {
-            ObservationState::Still
-        } else {
-            ObservationState::Changing
-        };
+        if before.entries == after.entries {
+            self.observation = ObservationState::Still;
+            return;
+        }
+        self.observation = ObservationState::Changing;
         let (mut a, mut b) = (0, 0);
         while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
             let old = before.entries.get(a);

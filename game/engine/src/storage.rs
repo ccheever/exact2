@@ -169,6 +169,14 @@ impl<C> Storage<C> {
     pub(crate) fn page_count(&self) -> usize {
         self.generations.len()
     }
+    #[cfg(test)]
+    pub(crate) fn observation_capacity(&self) -> (usize, usize) {
+        let words = self.observation.borrow();
+        (
+            words.len(),
+            words.iter().map(|w| w.entries.capacity()).sum(),
+        )
+    }
     pub(crate) fn page_generation(&self, page: usize) -> u64 {
         self.generations.get(page).map_or(0, Cell::get)
     }
@@ -256,6 +264,14 @@ impl<C: Data> Storage<C> {
         };
         if self.counts[index / PAGE] == 0 {
             self.pages[index / PAGE] = None;
+            let words = self.observation.get_mut();
+            for cached in words.iter_mut().skip(index / PAGE * WORDS).take(WORDS) {
+                *cached = ObservedWord::default();
+            }
+            while words.last().is_some_and(|word| word.entries.is_empty()) {
+                words.pop();
+            }
+            words.shrink_to_fit();
         }
         Some(c)
     }
@@ -312,9 +328,10 @@ pub(crate) trait Erased {
     fn snapshot(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
     );
     fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool;
     fn visit_moving(
@@ -391,14 +408,20 @@ impl<C: Data> Erased for Storage<C> {
     fn snapshot(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
         mut full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
     ) {
         // Even a cache hit must honor an outstanding mutable lease.
         let _lease = self.lease(false);
         let mut words = self.observation.borrow_mut();
-        words.resize_with(self.mask.len(), ObservedWord::default);
+        let count = self
+            .mask
+            .iter()
+            .rposition(|&bits| bits != 0)
+            .map_or(0, |i| i + 1);
+        words.resize_with(count, ObservedWord::default);
         if let Some(w) = &mut full {
             w.begin_seq(self.len);
         }
@@ -452,10 +475,18 @@ impl<C: Data> Erased for Storage<C> {
                     }
                 }
             }
+            if observed == 0 {
+                cached.entries = Vec::new();
+            }
             cached.mask = Some(observed);
             // Clear only after all writes succeed; a panic cannot bless stale rows.
             self.observation_dirty[word].set(0);
-            out.extend_from_slice(&cached.entries);
+            out.extend(
+                cached
+                    .entries
+                    .iter()
+                    .map(|&(i, hash)| (label.0, label.1, entity(i), hash)),
+            );
         }
         if let Some(w) = &mut full {
             w.end_seq();

@@ -396,6 +396,66 @@ fn spread_every_word_and_all_slots_have_bounded_hash_work() {
 }
 
 #[test]
+fn empty_pages_release_component_and_structure_cache_capacity() {
+    let mut w = World::new(60, 0);
+    let root = w.spawn(crate::Transform::default());
+    let entities: Vec<_> = (1..storage::PAGE * 3)
+        .map(|_| w.spawn((Measured(0), crate::Parent(root))))
+        .collect();
+    w.propagate();
+    let mut sample = Observation::default();
+    w.observe(&mut sample);
+    assert!(w.storage::<Measured>().unwrap().observation_capacity().1 >= entities.len());
+    // Empty an interior page, retaining a high live page to catch mere truncation.
+    for &e in &entities[storage::PAGE - 1..storage::PAGE * 2 - 1] {
+        w.despawn(e);
+    }
+    w.observe(&mut sample);
+    assert_eq!(w.observation_cache.borrow().exists[1].entries.capacity(), 0);
+    assert_eq!(
+        w.observation_cache.borrow().globals[1].entries.capacity(),
+        0
+    );
+    assert_eq!(
+        w.storage::<Measured>().unwrap().observation_capacity().1,
+        (storage::PAGE * 2 - 1).next_multiple_of(64)
+    );
+    // Free every remaining page, and verify no high-water digest capacity survives.
+    for e in entities {
+        w.despawn(e);
+    }
+    w.despawn(root);
+    w.propagate();
+    w.observe(&mut sample);
+    assert_eq!(
+        w.storage::<Measured>().unwrap().observation_capacity(),
+        (0, 0)
+    );
+    assert_eq!(w.observation_cache.borrow().exists.capacity(), 0);
+    assert_eq!(w.observation_cache.borrow().globals.capacity(), 0);
+    assert_eq!(sample.entries.len(), 1); // RNG only; not a vacuous empty observer.
+    let e = w.spawn(Measured(9));
+    w.observe(&mut sample);
+    assert!(sample
+        .entries
+        .iter()
+        .any(|row| row.1 == "Measured" && row.2 == e));
+    let mut oracle = Observation::default();
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(sample.entries, oracle.entries);
+}
+
+#[test]
+#[should_panic(expected = "observation exceeds 1000000 entity slots")]
+fn observation_refuses_work_past_slot_bound() {
+    let mut w = World::new(60, 0);
+    for _ in 0..1_000_001 {
+        w.spawn(());
+    }
+    w.observe(&mut Observation::default());
+}
+
+#[test]
 fn global_pages_follow_ambient_ancestors_across_page_boundaries() {
     use crate::{Ambient, Parent, Transform};
     let mut w = World::new(60, 0);
