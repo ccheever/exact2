@@ -2,7 +2,7 @@
 // Ref-addressed, sequential, parent-owned measurement. No candidate can read this file.
 import {spawn,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync,realpathSync,readdirSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync,realpathSync,readdirSync,symlinkSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 const here=import.meta.dirname, root=resolve(here,'../../..'), home=process.env.HOME;
 const argv=process.argv.slice(2), refIndex=argv.indexOf('--ref');
@@ -45,6 +45,7 @@ async function run(cmd,args,{cwd=work,childEnv=env,log,ceiling}={}) {
 }
 try {
   report.freeKiBBefore=disk();mkdirSync(work,{recursive:true});
+  symlinkSync(realpathSync(resolve(root,'../ibex')),resolve(out,'ibex'),'dir');
   const archive=resolve(out,'source.tar');sync('git',['archive','--format=tar',`--output=${archive}`,sha]);sync('tar',['-xf',archive,'-C',work]);rmSync(archive);
   // Dependencies stay available as an installed SDK would. Remove unrelated
   // prose, benchmark instruments, old trial data and all inherited agent prompts.
@@ -70,7 +71,7 @@ try {
   const prompt=`Implement this change in game/games/lanterns only. This is a fresh 900-second change trial. Model gpt-5.6-sol, reasoning high. At most three fixes per failure loop; stop and report after three. No sub-agents. Do not read anything outside this workspace or seek external evaluators/other attempts. Do not change the engine, host, shared scripts, or baseline physics/movement. Ordinary input only; no teleport or test mutation. Read game/README.md and your game. Dependencies and existing build/proof scripts are present for compilation and verification. A warmed Linux build is ready. This machine has no GPU, Chrome, or Apple SDK. Use bun game/games/lanterns/proof.mjs linux, and cargo test --manifest-path game/Cargo.toml -p lanterns-logic. Preserve the environment's Cargo debug/incremental settings. Write your final report before the deadline.\n\n${brief.split('## Game\n')[1].split('## Common browser')[0]}\n\nChange request:${taskText}`;
   writeFileSync(resolve(out,'prompt.txt'),prompt);
   const codex=realpathSync(sync('which',['codex'])), bun=realpathSync(sync('which',['bun']));
-  const policy={read:['/usr','/bin','/sbin','/lib','/lib64','/etc','/proc','/sys',dirname(codex),dirname(bun),resolve(home,'.rustup')],write:[work,resolve(home,'.cargo'),'/dev/null','/dev/urandom','/dev/random']};
+  const policy={read:['/usr','/bin','/sbin','/lib','/lib64','/etc','/proc','/sys',dirname(codex),dirname(bun),resolve(home,'.rustup'),realpathSync(resolve(root,'../ibex'))],write:[work,resolve(home,'.cargo'),'/dev/null','/dev/urandom','/dev/random']};
   const policyPath=resolve(out,'isolation.json');writeFileSync(policyPath,JSON.stringify(policy));
   // Run a real read-denial probe, not stat (Landlock intentionally permits stat).
   const probe=await run('python3',[resolve(here,'isolate.py'),policyPath,'python3','-c',`from pathlib import Path\ntry: Path(${JSON.stringify(resolve(here,'task-a.mjs'))}).read_text(); raise RuntimeError('evaluator readable')\nexcept PermissionError: print('parent evaluator read denied')`],{log:'isolation-probe'});
@@ -104,7 +105,7 @@ try {
 } catch(error) {report.error=String(error);report.finishedAt=now();}
 finally {
   // Logs, diff and JSON survive. Auth, sources and all compilation outputs do not.
-  rmSync(work,{recursive:true,force:true});report.buildOutputDeleted=!existsSync(work);save();
+  rmSync(work,{recursive:true,force:true});rmSync(resolve(out,'ibex'),{force:true});report.buildOutputDeleted=!existsSync(work);save();
 }
 console.log(JSON.stringify(report));
 if(!report.passed)process.exitCode=1;

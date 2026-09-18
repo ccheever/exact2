@@ -46,3 +46,28 @@ or game changes are authorized. Parent construction used three adapter rounds:
 (1) rejected pointer contact, (2) keyboard mapping and discovery that UI save
 stays pending, (3) existing world-save carrier. Baseline records and both negative
 controls are committed before any model attempt.
+
+`run-trial.mjs --ref REF <a|b> ATTEMPT` archives the resolved commit into
+`~/lanes/gamenext/scratch/trials/REF/TASK-ATTEMPT/workspace`, copies the local warm
+Cargo target (no shared writable target), and builds before dispatch. The existing
+read-only `../ibex` dependency is linked beside the archive. Setup/build/control
+times are outside agent time. Same-ref controls run before every dispatch. The
+trial sees only its game brief/change request, README and source workspace as
+installed dependencies; inherited instructions, research, earlier trial sources,
+history and evaluator are absent. Linux Landlock denies reading the parent
+instrument and other attempts, verified by a real read-denial probe. The model
+may edit only its game; the parent reports changes outside that directory as
+scope violations. The entire source/build/auth copy is removed after evaluation.
+
+Wall timeout records the CLI PID and descendant PID/start-time identities before
+signalling them. Agent JSONL, stderr, command inventory, prompt, source diff and
+hashes, timestamps and reports survive. A shell command containing multiple
+build/proof invocations is one matching command record; proof-internal builds
+are excluded. Repair counts and screenshot inspections require retained-log
+audit and remain null until audited. Rendering unavailability means a strict
+`passed` can never be true on this machine; functional task results are separate.
+
+Runner setup correction 1: git archive did not include the sibling ibex path
+dependency. The failed pre-dispatch setup is retained separately; no model was
+launched and no timed attempt was consumed. Link the authorized read-only
+sibling in scratch and permit read-only dependency access in Landlock.
