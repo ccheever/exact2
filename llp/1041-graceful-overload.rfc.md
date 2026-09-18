@@ -3551,3 +3551,58 @@ pair does not show a workload speedup. Further work should target the remaining
 callback and display-loop costs rather than treating this result as a gain.
 Evidence: `target/native-630-borrowed-text-pair-v1/`, manifest
 `a5979826072793ce269cb9d51f238cb784920f03e70387e1d145d203a13ed571`.
+
+### 8.52 Browser resize tasks beyond the Wasm calls, 2026-09-18
+
+One fresh instrumented After cell reuses the immutable `834d4993` Messages
+runtime from §8.39, with all 10,000 rows, actual batch32 and unchanged fixed
+two-second idle/load/recovery windows. All 72 offers and 24 scored input echoes
+pass. Browser tracing adds no page commands or sampling; its overhead is
+nonzero and uncalibrated. This is a discriminator, not another speed comparison.
+
+The first capture failed in the diagnostic reader: the completion event names
+its format `traceFormat`, while the reader and its mocks expected the request
+field `streamFormat`. Functional checks passed, but no stream bytes were read;
+the handle and browser were closed and that failure remains sealed. The literal
+saved reply supplies two behavioral RED checks. A separate one-field correction
+passes 29 pure tests and three ownership checks before the new cell. No category,
+quota, timing tolerance or workload change accompanies the correction.
+
+The successful capture retains 14,010,791 bytes, explicit no-loss/EOF/close,
+61,289 events and 1,787 recognized renderer tasks. Navigation metadata selects
+the renderer and main thread; two clock brackets give a 0.752046ms-wide
+trace-to-page offset interval. Fixed 200us page endpoint uncertainty remains in
+containment and export joins. Missing or ambiguous joins are not assigned to
+the nearest task: only 85/196 full-capture joins are established, including
+17/39 loaded joins.
+
+| Fixed window | Fully contained tasks | Task wall union ms | Largest task ms | Tasks above 8.333ms |
+| --- | ---: | ---: | ---: | ---: |
+| Idle | 340 | 115.404 | 6.297 | 0 |
+| Load | 297 | 125.486 | 8.718 | 5 |
+| Recovery | 316 | 83.577 | 3.879 | 0 |
+
+The five loaded misses take 8.426–8.718ms. Each contains a resize event and
+joins an observed `exact_resize` call of 3.8–4.3ms plus collection feedback of
+0.1–0.2ms. The trace locates the handler in the frozen glue.js resize listener,
+which performs resize, output decoding and DOM application. Layout spans of
+1.097–1.173ms, paint of 0.519–0.562ms and the collection-flush animation callback
+also occur in these tasks. These intervals overlap; they are not additive CPU
+costs. Exact JSON parsing and DOM application costs remain inseparable here.
+
+Conservative interval subtraction leaves 1.819–2.365ms lower bounds and
+5.570–5.921ms upper bounds outside observed exports for those five tasks.
+All potentially overlapping exports and clock uncertainty participate in these
+bounds. They do not identify pure JavaScript or establish a cause for every
+frame gap. The full-capture maximum task is 24.237ms outside the scored windows;
+cold/setup/primer/silent records remain separate. The next source investigation
+is the remaining resize/DOM path, without inferring that more worker threads
+would remove its cost.
+
+All owned processes and the private server retire after the single corrected
+cell. Wheel causality remains NOT_ESTABLISHED. The known display is 60Hz;
+neither renderer tasks, rAF nor paint events establish physical 120Hz.
+Successful evidence: `target/web-after-trace-cell-v2/`, manifest
+`497a037625a5964bb4cd1e279a7c5970067e5b697b82ad326ac96ff045aa2d22`.
+The original failure remains in `target/web-after-trace-cell-v1/`, manifest
+`dc997ad466ddb723a6902526792f305613d21ef9b25f161fdf5991d15c9e9308`.
