@@ -116,4 +116,4 @@ Three upstream files over 1,500 lines are split using same-module `include!`:
 `rigid_body`, `rigid_body_components`, and `multibody`, each with a `_more.rs`
 continuation. These splits change neither declarations nor visibility. Upstream
 unsafe code is vendored unchanged; Exact adds no unsafe implementation. The root
-workspace does not depend on this crate; only game/Cargo.toml patches it in.
+workspace does not depend on this crate; only game/physics/Cargo.toml depends on it by path, including external consumers.

@@ -56,8 +56,9 @@ fn main() {
         }
         println!("MID_BOUNCE_RESUME=exact ticks=45..240");
         let hash = minimal::simulate(120);
-        assert_eq!(hash, 0x9960c10fadbb9c4b);
-        println!("MINIMAL_HASH_120=0x{hash:016x}");
+        assert_eq!(hash, minimal::simulate_with_restore(120, true));
+        println!("MINIMAL_HASH_120 continuous=every-step-restore=0x{hash:016x}");
+        assert_eq!(hash, 0x5608994347e54d28);
         return;
     }
     let counts: Vec<usize> = args.iter().filter_map(|s| s.parse().ok()).collect();

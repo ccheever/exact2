@@ -523,8 +523,8 @@ They include physics, input, clock remainder, publications and journal cursors.
 `Sim::paranoid(self, mode: Paranoid) -> Self` overrides the driver environment.
 `Paranoid::{Off, Save, FreshGame}` default to `Off`; `EXACT_GAME_PARANOID=1`
 selects `Save`, and `EXACT_GAME_PARANOID=fresh-game` selects `FreshGame` for
-native simulations, including tests and Linux proof modules. No Cargo features,
-save format changes or altered deterministic pins are involved.
+native simulations, including tests and Linux proof modules. The instrument itself
+changes no save format or pin; the EXPHYS correction below versions physics data.
 
 ```rust
 # use exact_game::*;
@@ -592,9 +592,9 @@ simulation state in shipped games.
 | `scene/tests/authoring.rs`: `SERIAL` | Harmless test scratch-name allocator. |
 | `render/tests/timing/mod.rs`: `REPORTED` | Harmless one-time test diagnostic flag. |
 
-T4 found an engine defect, not a game-field omission: Lanterns diverges at tick 2
+The initial T4 sweep found an engine defect: Lanterns diverged at tick 2
 inside `Physics.executor`'s Rapier snapshot. `BroadPhaseBvh::deferred_optimize_pending`
-is skipped by Rapier's serde implementation, but the engine's post-kinematic
+was skipped by Rapier's serde implementation; the engine's post-kinematic
 `CollisionPipeline::step` can leave it set at a save boundary. The next normal
 broad-phase update executes the deferred optimization; the restored one loses it.
 The dynamic-stack fixture does not take that extra collision pass and agrees.
@@ -602,14 +602,51 @@ The dynamic-stack fixture does not take that extra collision pass and agrees.
 Decision (owner, T4 follow-up, 2026-09-18): a world restored from its save must
 continue exactly like uninterrupted execution; this outranks old hash pins.
 Rapier 0.35.3 is now vendored with `deferred_optimize_pending` serialized, and the
-game-only Cargo patch makes that dependency reproducible. The physics envelope is
+physics crate’s path dependency makes that fix reproducible for external consumers
+too. The physics envelope is
 **EXPHYS v2**. Nonempty v1/unversioned physics snapshots are refused explicitly
 (`expected EXPHYS v2 ... snapshots incomplete; start a new world`), atomically.
 There is no migration: v1 omitted the bit, so a correct continuation cannot be
 recovered reliably. Worlds without a populated physics snapshot are unaffected;
 EXGAME v3 and EXSIM v5 do not change. No new engine unsafe code is introduced.
 
-T4 verification (2026-09-18): the game workspace reports **415 passed, 1 failed,
+Only the physics-dependent pins below changed. The assertions themselves now
+compare uninterrupted execution with every-tick reconstruction before accepting
+a pin; tick zero and all nonphysics game pins remain unchanged. Paths are relative
+to `game/`, with current source lines.
+
+| Pin location | EXPHYS v1 → v2 | Executed parity evidence |
+| --- | --- | --- |
+| `games/lanterns/logic/tests/timing.rs:50` | `0x99071d4692d75e6f` → `0x99dd217d6f058a61` | Tick 60: Off, Save, FreshGame hashes and complete Sim saves equal. |
+| `games/lanterns/logic/tests/timing.rs:51` | `0xbb79c1986b61792a` → `0x432af075dec92c9b` | Tick 180: same three-way hash/tick/complete-save equality. |
+| `physics/tests/scenes.rs:101` | `0x5ba7691abdc98058` → `0x129ba6d92f9ac217` | Pile: Off/Save/FreshGame hashes agree every tick through 600, final complete saves equal; ordinary tick-90 restore also agrees. |
+| `physics/examples/minimal.rs:46` | `0x5ba7691abdc98058` → `0x129ba6d92f9ac217` | Same `common::scene("pile")` fixture; `pile --verify` checks restored continuation. |
+| `physics/examples/pile.rs:61` | `0x9960c10fadbb9c4b` → `0x5608994347e54d28` | `simulate(120)` equals `simulate_with_restore(120, true)`; the latter saves/loads the world after each raw physics step and checks the immediate hash. |
+
+`physics/README.md:80` updates the current pile description to the same v2 value;
+its original v1 cross-platform measurements remain labelled historical. No other
+executable pins were changed. There are **no committed EXPHYS v1 saves/captures
+in this clone** to regenerate; the existing JSON snapshots belong to Greybox,
+which does not use Rapier. The Linux proofs regenerate their own ignored outputs.
+The I3 difficult-moment fixtures are absent here and were not touched: on trunk,
+regenerate their saved worlds/capture checkpoints containing Physics, plus their
+expected hashes and artifact receipts, through the I3 fixture scripts. Any v1
+physics capture checkpoint will now refuse; filenames/scripts unavailable in this
+clone were not guessed or reconstructed by hand.
+
+The newly exercised child-respawn scenario finds a **game-side** hidden cache:
+`Lantern.bulb` (`games/lanterns/logic/src/lib.rs:60`) is skipped by Data, while
+`Session.actors` (line 75) makes `kinds::actors` return early and prevents rebinding.
+After tick 1, the test despawns `lantern-1/bulb` and respawns it with the same name,
+parent and rendering components but a new entity generation. Continuous execution
+panics on the stale Bulb ID on tick 2; Save and FreshGame both reach tick 7 with
+hash `0xf0d40911add2cd8b` and identical full saves. The explicit regression
+`respawned_cached_child_matches_continuous_and_every_tick_restore` remains red;
+game logic is unchanged, as requested. This is not an engine stale-ID bug: the
+engine correctly refuses the invalid cached handle. Game caches need structural
+invalidation or revalidation, not just initialization after load.
+
+Initial T4 verification, before EXPHYS v2 (2026-09-18): the game workspace reported **415 passed, 1 failed,
 11 ignored**. The failure is the newly added Lanterns normal/paranoid comparison;
 all pre-existing pins still pass normally. Consumer suites report **28/1** with
 normal defaults and **27/2** with each paranoid environment setting (one ignored

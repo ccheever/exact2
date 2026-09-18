@@ -482,3 +482,6 @@ check-cfg = [
     'cfg(feature, values("dim2", "f64", "std", "alloc", "bytemuck"))',
     'cfg(target_arch, values("spirv"))',
 ]
+
+# Keep this vendored dependency out of Exact's root workspace.
+[workspace]

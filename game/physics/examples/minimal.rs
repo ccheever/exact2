@@ -3,6 +3,9 @@ use exact_game::{Transform, World};
 use exact_game_physics::{self as physics, Body, Collider};
 #[no_mangle]
 pub extern "C" fn simulate(ticks: u32) -> u64 {
+    simulate_with_restore(ticks, false)
+}
+pub(crate) fn simulate_with_restore(ticks: u32, every_tick: bool) -> u64 {
     let mut w = World::new(60, 0);
     physics::register(&mut w);
     w.spawn((Transform::at(0.0, -0.5, 0.0), Collider::default()));
@@ -13,6 +16,11 @@ pub extern "C" fn simulate(ticks: u32) -> u64 {
     ));
     for _ in 0..ticks {
         physics::step(&mut w);
+        if every_tick {
+            let hash = w.hash();
+            w.load(&w.save()).unwrap();
+            assert_eq!(w.hash(), hash);
+        }
     }
     w.hash()
 }
@@ -35,6 +43,6 @@ pub extern "C" fn pile_hash() -> u64 {
         assert_eq!(sim.world().hash(), restored.world().hash());
     }
     let hash = sim.world().hash();
-    assert_eq!(hash, 0x5ba7691abdc98058);
+    assert_eq!(hash, 0x129ba6d92f9ac217);
     hash
 }

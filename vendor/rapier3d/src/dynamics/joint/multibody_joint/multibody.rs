@@ -1415,6 +1415,5 @@ impl Multibody {
          */
         self.update_body_jacobians();
     }
-
 }
 include!("multibody_more.rs");
