@@ -713,6 +713,7 @@ version = "0.1.0"
 dependencies = [
  "beacons-logic",
  "exact-game",
+ "exact-game-scene",
  "exact-gpu",
  "glam 0.33.7",
  "greybox-logic",
