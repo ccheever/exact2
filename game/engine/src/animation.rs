@@ -8,6 +8,58 @@ use crate::{
 use glam::Mat4;
 use std::{any::TypeId, collections::BTreeMap};
 
+/// Saved output shared by every playback controller. Declare the motion root by node name.
+#[derive(Default, Clone, Debug, Data)]
+pub struct Playback {
+    pub motion_root: Option<String>,
+    crossed: Vec<String>,
+    root_motion: Vec3,
+}
+impl Playback {
+    pub fn crossed(&self, name: &str) -> bool {
+        self.crossed.iter().any(|n| n == name)
+    }
+    /// Model-local translation extracted this tick; apply through the entity's scale/rotation.
+    pub fn root_motion(&self) -> Vec3 {
+        self.root_motion
+    }
+    fn clear(&mut self) {
+        self.crossed.clear();
+        self.root_motion = Vec3::ZERO;
+    }
+    fn record(&mut self, pose: &Pose) {
+        self.crossed.clone_from(&pose.crossed);
+        self.root_motion = pose.root_motion;
+    }
+    fn root(&self, model: &Model) -> Result<Option<u32>, String> {
+        self.motion_root
+            .as_ref()
+            .map(|name| {
+                model
+                    .nodes
+                    .iter()
+                    .position(|n| &n.name == name)
+                    .map(|i| i as u32)
+                    .ok_or_else(|| format!("unknown motion root `{name}`"))
+            })
+            .transpose()
+    }
+}
+macro_rules! playback {
+    ($($ty:ty),*) => {$ (
+        impl std::ops::Deref for $ty {
+            type Target = Playback;
+            fn deref(&self) -> &Playback { &self.playback }
+        }
+        impl $ty {
+            pub fn motion_root(mut self, name: impl Into<String>) -> Self {
+                self.playback.motion_root = Some(name.into()); self
+            }
+        }
+    )*};
+}
+playback!(Animation, Blend, Animator);
+
 #[derive(Clone, Debug, Component)]
 pub struct Animation {
     pub clip: String,
@@ -15,8 +67,7 @@ pub struct Animation {
     pub speed: f32,
     pub looping: bool,
     pub markers: Vec<(f32, String)>,
-    crossed: Vec<String>,
-    root_motion: Vec3,
+    pub playback: Playback,
 }
 impl Default for Animation {
     fn default() -> Self {
@@ -26,8 +77,7 @@ impl Default for Animation {
             speed: 1.,
             looping: true,
             markers: vec![],
-            crossed: vec![],
-            root_motion: Vec3::ZERO,
+            playback: Playback::default(),
         }
     }
 }
@@ -52,16 +102,11 @@ impl Animation {
         self.markers.push((seconds, name.into()));
         self
     }
-    pub fn crossed(&self, name: &str) -> bool {
-        self.crossed.iter().any(|n| n == name)
-    }
-    /// Model-local translation contributed this tick. The game decides whether to use it.
-    pub fn root_motion(&self) -> Vec3 {
-        self.root_motion
-    }
 }
 #[derive(Default, Clone, Debug, Component)]
 pub struct Blend {
+    pub playback: Playback,
+    pub parameter: String,
     pub axis: f32,
     pub clips: Vec<(f32, String)>,
 }
@@ -77,10 +122,34 @@ impl Blend {
         Self {
             axis: clips[0].0,
             clips,
+            ..Self::default()
         }
     }
-    fn pair<'a>(&self, model: &'a Model) -> Result<(&'a Clip, &'a Clip, f32), String> {
-        if !self.axis.is_finite()
+    /// Bind this axis to an Animator number parameter; standalone blends use `axis`.
+    pub fn parameter(mut self, name: impl Into<String>) -> Self {
+        self.parameter = name.into();
+        self
+    }
+    fn pair<'a>(
+        &self,
+        model: &'a Model,
+        params: &[(String, Param)],
+    ) -> Result<(&'a Clip, &'a Clip, f32), String> {
+        let axis = if self.parameter.is_empty() {
+            self.axis
+        } else {
+            match params.iter().find(|p| p.0 == self.parameter) {
+                Some((_, Param::Number(v))) => *v,
+                None => self.axis,
+                _ => {
+                    return Err(format!(
+                        "blend parameter `{}` must be a number",
+                        self.parameter
+                    ))
+                }
+            }
+        };
+        if !axis.is_finite()
             || self.clips.is_empty()
             || self.clips.iter().any(|c| !c.0.is_finite())
             || self.clips.windows(2).any(|p| p[0].0 >= p[1].0)
@@ -89,15 +158,19 @@ impl Blend {
         }
         let hi = self
             .clips
-            .partition_point(|p| p.0 < self.axis)
+            .partition_point(|p| p.0 < axis)
             .min(self.clips.len() - 1);
-        let lo = hi.saturating_sub(1);
+        if hi == 0 || axis >= self.clips[hi].0 {
+            let c = clip(model, &self.clips[hi].1)?;
+            return Ok((c, c, 0.));
+        }
+        let lo = hi - 1;
         let a = &self.clips[lo];
         let b = &self.clips[hi];
         let weight = if lo == hi {
             0.
         } else {
-            ((self.axis - a.0) / (b.0 - a.0)).clamp(0., 1.)
+            ((axis - a.0) / (b.0 - a.0)).clamp(0., 1.)
         };
         Ok((clip(model, &a.1)?, clip(model, &b.1)?, weight))
     }
@@ -169,15 +242,45 @@ impl Default for Play {
         Self::Clip(String::new())
     }
 }
-#[derive(Default, Clone, Debug, Data)]
+#[derive(Clone, Debug, Data)]
 pub struct State {
     pub name: String,
     pub play: Play,
     pub transitions: Vec<(String, Condition)>,
     /// Seconds to fade into this state.
     pub fade: f32,
+    pub looping: bool,
+    pub speed: f32,
+    pub paused: bool,
+}
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            play: Play::default(),
+            transitions: vec![],
+            fade: 0.,
+            looping: true,
+            speed: 1.,
+            paused: false,
+        }
+    }
 }
 impl State {
+    pub fn once(mut self) -> Self {
+        self.looping = false;
+        self
+    }
+    pub fn speed(mut self, speed: f32) -> Self {
+        assert!(speed.is_finite());
+        self.speed = speed;
+        self
+    }
+    pub fn paused(mut self, paused: bool) -> Self {
+        self.paused = paused;
+        self
+    }
+
     pub fn new(name: impl Into<String>, play: Play) -> Self {
         Self {
             name: name.into(),
@@ -197,6 +300,8 @@ impl State {
 }
 #[derive(Default, Clone, Debug, Component)]
 pub struct Animator {
+    pub playback: Playback,
+    from_motion: Vec3,
     pub states: Vec<State>,
     pub current: u32,
     pub since: f32,
@@ -225,6 +330,18 @@ impl Animator {
             .get(self.current as usize)
             .map_or("", |s| s.name.as_str())
     }
+    pub fn state_named(&self, name: &str) -> Option<&State> {
+        self.states.iter().find(|s| s.name == name)
+    }
+    pub fn state_mut(&mut self, name: &str) -> Option<&mut State> {
+        self.states.iter_mut().find(|s| s.name == name)
+    }
+    pub fn blend_mut(&mut self, name: &str) -> Option<&mut Blend> {
+        match &mut self.state_mut(name)?.play {
+            Play::Blend(b) => Some(b),
+            _ => None,
+        }
+    }
     fn advance(
         &mut self,
         pose: &mut Pose,
@@ -237,43 +354,84 @@ impl Animator {
             .states
             .get(self.current as usize)
             .ok_or("animator current state out of range")?;
-        if let Some((to, _)) = state
-            .transitions
-            .iter()
-            .find(|(_, c)| c.matches(&self.params))
-        {
-            let next = self
-                .states
-                .iter()
-                .position(|s| &s.name == to)
-                .ok_or_else(|| format!("unknown state `{to}`"))?;
-            self.from.clone_from(&pose.local);
-            self.current = next as u32;
-            self.since = 0.;
-            self.fade_time = 0.;
-            self.fade_duration = self.states[next].fade;
-            if !self.fade_duration.is_finite() || self.fade_duration < 0. {
-                return Err("invalid fade duration".into());
-            }
-            // Keep normalized phase through locomotion state transitions.
+        if pose.stepped.is_none() && !state.looping && state.speed < 0. {
+            pose.phase = 1.;
         }
-        self.since += dt;
-        let play = &self.states[self.current as usize].play;
-        let pair = match play {
+        let finished = if state.speed < 0. {
+            pose.phase <= 0.
+        } else {
+            pose.phase >= 1.
+        };
+        let edge =
+            (!state.paused && (state.looping || finished) && self.fade_time >= self.fade_duration)
+                .then(|| {
+                    state
+                        .transitions
+                        .iter()
+                        .find(|(to, c)| to != &state.name && c.matches(&self.params))
+                })
+                .flatten();
+        let next = edge
+            .map(|(to, _)| {
+                self.states
+                    .iter()
+                    .position(|s| &s.name == to)
+                    .ok_or_else(|| format!("unknown state `{to}`"))
+            })
+            .transpose()?;
+        let was_looping = state.looping;
+        let state = &self.states[next.unwrap_or(self.current as usize)];
+        if !state.speed.is_finite() || !state.fade.is_finite() || state.fade < 0. {
+            return Err("invalid state speed/fade".into());
+        }
+        let pair = match &state.play {
             Play::Clip(n) => {
                 let c = clip(model, n)?;
                 (c, c, 0.)
             }
-            Play::Blend(b) => b.pair(model)?,
+            Play::Blend(b) => b.pair(model, &self.params)?,
         };
-        advance_pair(pair, pose, dt, scratch, rest);
+        let root = self.playback.root(model)?;
+        if let Some(next) = next {
+            self.from.clone_from(&pose.local);
+            self.from_motion = self.playback.root_motion();
+            self.current = next as u32;
+            self.since = 0.;
+            self.fade_time = 0.;
+            self.fade_duration = state.fade;
+            // Looping locomotion retains phase; entering/leaving a one-shot starts afresh.
+            if !state.looping || !was_looping {
+                pose.phase = if state.speed < 0. { 1. } else { 0. };
+            }
+        }
+        if !state.paused {
+            self.since += dt;
+        }
+        advance_pair(
+            pair,
+            pose,
+            if state.paused { 0. } else { dt * state.speed },
+            scratch,
+            rest,
+            model,
+            root,
+            state.looping,
+        );
         if self.fade_time < self.fade_duration && self.from.len() == pose.local.len() {
-            self.fade_time = (self.fade_time + dt).min(self.fade_duration);
-            mix_pose(
-                &self.from,
-                &mut pose.local,
-                self.fade_time / self.fade_duration,
-            );
+            if !state.paused {
+                self.fade_time = (self.fade_time + dt).min(self.fade_duration);
+            }
+            let weight = self.fade_time / self.fade_duration;
+            mix_pose(&self.from, &mut pose.local, weight);
+            pose.root_motion = if state.paused {
+                Vec3::ZERO
+            } else {
+                self.from_motion.lerp(pose.root_motion, weight)
+            };
+            // Frozen outgoing pose emits no markers. Incoming events become audible above half weight.
+            if weight <= 0.5 {
+                pose.crossed.clear();
+            }
         }
         Ok(())
     }
@@ -304,6 +462,8 @@ pub struct Socket(pub String);
 pub struct SocketPose(pub Transform);
 #[derive(Default, Clone, Debug, Component)]
 pub struct SocketFollow {
+    /// Captured before the first follow; restored whenever the socket is unavailable.
+    pub authored: Option<Transform>,
     pub target: crate::FollowTarget,
     pub offset: Transform,
 }
@@ -320,10 +480,13 @@ pub(crate) struct Runtime {
     entities: Vec<Entity>,
     rigs: BTreeMap<String, Rig>,
     scratch: Vec<f32>,
+    pending: Pose,
+    errors: BTreeMap<Entity, String>,
 }
 struct Rig {
     rest: Vec<f32>,
     bounds: [f32; 6],
+    sockets: BTreeMap<String, Result<u32, String>>,
 }
 pub(crate) fn register<C: Component>(w: &mut World) {
     if [
@@ -331,6 +494,8 @@ pub(crate) fn register<C: Component>(w: &mut World) {
         TypeId::of::<Blend>(),
         TypeId::of::<Animator>(),
         TypeId::of::<Socket>(),
+        TypeId::of::<Ik>(),
+        TypeId::of::<SocketFollow>(),
     ]
     .contains(&TypeId::of::<C>())
     {
@@ -343,6 +508,7 @@ impl Rig {
         Self {
             rest: bind_pose(model),
             bounds: animated_bounds(model),
+            sockets: BTreeMap::new(),
         }
     }
 }
@@ -529,20 +695,49 @@ fn markers(
         }
     }
 }
+#[allow(clippy::too_many_arguments)]
 fn advance_pair(
     (a, b, weight): (&Clip, &Clip, f32),
     p: &mut Pose,
     dt: f32,
     scratch: &mut Vec<f32>,
     rest: &[f32],
+    model: &Model,
+    root: Option<u32>,
+    looping: bool,
 ) {
     let duration = math::lerp(a.duration(), b.duration(), weight);
     let old = p.phase;
     let next = old + if duration > 0. { dt / duration } else { 0. };
-    p.phase = wrap(next, 1.);
+    p.phase = if looping {
+        wrap(next, 1.)
+    } else {
+        next.clamp(0., 1.)
+    };
+    let next = if looping { next } else { p.phase };
     sample(a, p.phase * a.duration(), rest, &mut p.local);
+    p.root_motion = extract_motion(
+        a,
+        old * a.duration(),
+        next * a.duration(),
+        looping,
+        model,
+        root,
+        rest,
+        &mut p.local,
+    ) * (1. - weight);
     if weight > 0. {
         sample(b, p.phase * b.duration(), rest, scratch);
+        p.root_motion += extract_motion(
+            b,
+            old * b.duration(),
+            next * b.duration(),
+            looping,
+            model,
+            root,
+            rest,
+            scratch,
+        ) * weight;
         mix_pose(&p.local, scratch, weight);
         p.local.copy_from_slice(scratch);
     }
@@ -551,7 +746,7 @@ fn advance_pair(
         &[],
         old * a.duration(),
         next * a.duration(),
-        true,
+        looping,
         &mut p.crossed,
     );
     if weight > 0. {
@@ -560,10 +755,46 @@ fn advance_pair(
             &[],
             old * b.duration(),
             next * b.duration(),
-            true,
+            looping,
             &mut p.crossed,
         );
     }
+}
+#[allow(clippy::too_many_arguments)]
+fn extract_motion(
+    c: &Clip,
+    old: f32,
+    next: f32,
+    looping: bool,
+    model: &Model,
+    root: Option<u32>,
+    rest: &[f32],
+    local: &mut [f32],
+) -> Vec3 {
+    let Some(root) = root else { return Vec3::ZERO };
+    let start = root as usize * 10;
+    local[start..start + 3].copy_from_slice(&rest[start..start + 3]);
+    let Some(track) = c
+        .tracks
+        .iter()
+        .find(|t| t.node == root && matches!(t.path, TrackPath::Translation))
+    else {
+        return Vec3::ZERO;
+    };
+    let duration = c.duration();
+    let position = |time| {
+        let t = if looping { wrap(time, duration) } else { time };
+        let mut v = Vec3::from_slice(&value(track, t));
+        if looping && duration > 0. {
+            v += (Vec3::from_slice(&value(track, duration)) - Vec3::from_slice(&value(track, 0.)))
+                * math::floor(time / duration);
+        }
+        v
+    };
+    let delta = position(next) - position(old);
+    model.nodes[root as usize].parent.map_or(delta, |parent| {
+        joint_matrix(model, local, parent).transform_vector3(delta)
+    })
 }
 /// Deterministic model-local joint matrix, composing only the requested ancestor chain.
 pub fn joint_matrix(model: &Model, local: &[f32], node: u32) -> Mat4 {
@@ -735,6 +966,8 @@ pub fn step(w: &mut World) {
         && w.storage::<Blend>().is_none_or(|s| s.is_empty())
         && w.storage::<Animator>().is_none_or(|s| s.is_empty())
         && w.storage::<Socket>().is_none_or(|s| s.is_empty())
+        && w.storage::<Ik>().is_none_or(|s| s.is_empty())
+        && w.storage::<SocketFollow>().is_none_or(|s| s.is_empty())
     {
         return;
     }
@@ -752,6 +985,10 @@ pub fn step(w: &mut World) {
     runtime
         .entities
         .extend(w.query::<&Socket>().iter().map(|(e, _)| e));
+    runtime
+        .entities
+        .extend(w.query::<&Ik>().iter().map(|(e, _)| e));
+    runtime.errors.retain(|e, _| w.contains(*e));
     runtime.entities.sort_unstable();
     runtime.entities.dedup();
     for &e in &runtime.entities {
@@ -797,58 +1034,102 @@ pub fn step(w: &mut World) {
             if pose.local.len() != rig.rest.len() || pose.previous.len() != rig.rest.len() {
                 return Err("saved pose does not match model".into());
             }
-            let p = &mut *pose;
-            p.previous.copy_from_slice(&p.local);
+            let p = &mut runtime.pending;
+            p.local.clone_from(&pose.local);
+            p.phase = pose.phase;
+            p.stepped = pose.stepped;
             p.crossed.clear();
             p.root_motion = Vec3::ZERO;
+            // Resolve a declaration once per loaded rig, including a missing name.
+            let socket_node = w
+                .get::<Socket>(e)
+                .map(|s| {
+                    rig.sockets
+                        .entry(s.0.clone())
+                        .or_insert_with(|| {
+                            model
+                                .nodes
+                                .iter()
+                                .position(|n| n.name == s.0)
+                                .map(|i| i as u32)
+                                .ok_or_else(|| format!("unknown socket `{}`", s.0))
+                        })
+                        .clone()
+                })
+                .transpose()?;
             if let Some(mut a) = w.get_mut::<Animation>(e) {
                 if !a.time.is_finite() || !a.speed.is_finite() {
                     return Err("non-finite animation clock".into());
                 }
                 let c = clip(&model, &a.clip)?;
+                let root = a.playback.root(&model)?;
                 let duration = c.duration();
                 let old = a.time;
                 let next = old + w.dt() * a.speed;
-                a.time = if a.looping {
+                let time = if a.looping {
                     wrap(next, duration)
                 } else {
                     next.clamp(0., duration)
                 };
-                sample(c, a.time, &rig.rest, &mut p.local);
-                markers(
+                let next = if a.looping { next } else { time };
+                sample(c, time, &rig.rest, &mut p.local);
+                markers(c, &a.markers, old, next, a.looping, &mut p.crossed);
+                p.root_motion = extract_motion(
                     c,
-                    &a.markers,
                     old,
-                    if a.looping { next } else { a.time },
+                    next,
                     a.looping,
-                    &mut p.crossed,
+                    &model,
+                    root,
+                    &rig.rest,
+                    &mut p.local,
                 );
-                a.crossed.clone_from(&p.crossed);
-                if let Some(root) = model.skins.first().and_then(|s| s.joints.first()) {
-                    for track in &c.tracks {
-                        if track.node == *root && matches!(track.path, TrackPath::Translation) {
-                            p.root_motion = Vec3::from_slice(&value(track, a.time))
-                                - Vec3::from_slice(&value(track, old));
-                            if a.looping && duration > 0. {
-                                p.root_motion += (Vec3::from_slice(&value(track, duration))
-                                    - Vec3::from_slice(&value(track, 0.)))
-                                    * math::floor(next / duration);
-                            }
-                        }
-                    }
+                if let Some(ik) = w.get::<Ik>(e) {
+                    solve_ik(&model, &mut p.local, &ik)?;
                 }
-                a.root_motion = p.root_motion;
-            } else if let Some(b) = w.get::<Blend>(e) {
-                advance_pair(b.pair(&model)?, p, w.dt(), &mut runtime.scratch, &rig.rest);
+                a.time = time;
+                a.playback.record(p);
+            } else if let Some(mut b) = w.get_mut::<Blend>(e) {
+                let root = b.playback.root(&model)?;
+                advance_pair(
+                    b.pair(&model, &[])?,
+                    p,
+                    w.dt(),
+                    &mut runtime.scratch,
+                    &rig.rest,
+                    &model,
+                    root,
+                    true,
+                );
+                if let Some(ik) = w.get::<Ik>(e) {
+                    solve_ik(&model, &mut p.local, &ik)?;
+                }
+                b.playback.record(p);
             } else if let Some(mut a) = w.get_mut::<Animator>(e) {
                 a.advance(p, &model, w.dt(), &mut runtime.scratch, &rig.rest)?;
+                if let Some(ik) = w.get::<Ik>(e) {
+                    solve_ik(&model, &mut p.local, &ik)?;
+                }
+                a.playback.record(p);
             } else {
                 p.local.copy_from_slice(&rig.rest);
+                if let Some(ik) = w.get::<Ik>(e) {
+                    solve_ik(&model, &mut p.local, &ik)?;
+                }
             }
-            if let Some(ik) = w.get::<Ik>(e) {
-                solve_ik(&model, &mut p.local, &ik)?;
+            // Commit history only after successful sampling/IK. Birth has no bind predecessor.
+            if pose.stepped.is_none() {
+                pose.previous.clone_from(&p.local);
+            } else {
+                let pose = &mut *pose;
+                pose.previous.clone_from(&pose.local);
             }
-            p.stepped = Some(w.tick());
+            std::mem::swap(&mut pose.local, &mut p.local);
+            pose.phase = p.phase;
+            pose.root_motion = p.root_motion;
+            pose.crossed.clone_from(&p.crossed);
+            pose.stepped = Some(w.tick());
+            let p = &*pose;
             for marker in &p.crossed {
                 let name = w.name(e).unwrap_or("unnamed");
                 let playing = w
@@ -860,68 +1141,92 @@ pub fn step(w: &mut World) {
                     });
                 w.log(format_args!("animation {name} {playing} {marker}"));
             }
-            let socket = w.get::<Socket>(e).map(|s| s.0.clone());
-            let socket = socket
-                .map(|name| {
-                    let i = model
-                        .nodes
-                        .iter()
-                        .position(|n| n.name == name)
-                        .ok_or_else(|| format!("unknown socket `{name}`"))?;
-                    let (scale, rotation, position) =
-                        joint_matrix(&model, &p.local, i as u32).to_scale_rotation_translation();
-                    Ok::<_, String>(SocketPose(Transform {
-                        position,
-                        rotation,
-                        scale,
-                    }))
+            let socket = socket_node.map(|i| {
+                let (scale, rotation, position) =
+                    joint_matrix(&model, &p.local, i).to_scale_rotation_translation();
+                SocketPose(Transform {
+                    position,
+                    rotation,
+                    scale,
                 })
-                .transpose()?;
+            });
             drop(pose);
             if let Some(socket) = socket {
                 w.insert(e, socket);
+            } else {
+                w.remove::<SocketPose>(e);
             }
             Ok::<_, String>(())
         })();
         if let Err(error) = result {
-            w.log(format_args!("animation #{}: {error}", e.index()));
+            w.remove::<SocketPose>(e);
+            if let Some(mut p) = w.get_mut::<Pose>(e) {
+                p.crossed.clear();
+                p.root_motion = Vec3::ZERO;
+            }
+            if let Some(mut a) = w.get_mut::<Animation>(e) {
+                a.playback.clear();
+            }
+            if let Some(mut b) = w.get_mut::<Blend>(e) {
+                b.playback.clear();
+            }
+            if let Some(mut a) = w.get_mut::<Animator>(e) {
+                a.playback.clear();
+            }
+            if runtime.errors.get(&e) != Some(&error) {
+                w.log(format_args!("animation #{}: {error}", e.index()));
+                runtime.errors.insert(e, error);
+            }
+        } else {
+            runtime.errors.remove(&e);
         }
     }
-    for (e, follow) in w.query::<&SocketFollow>().iter() {
+    for (e, follow) in w.query::<&mut SocketFollow>().iter() {
+        let Some(transform) = w.get::<Transform>(e) else {
+            continue;
+        };
+        let authored = *follow.authored.get_or_insert(*transform);
+        drop(transform);
         let target = match &follow.target {
             crate::FollowTarget::Entity(e) => Some(*e),
             crate::FollowTarget::Name(n) => w.named(n),
         };
-        let Some(target) = target else { continue };
-        let Some(socket) = w.get::<SocketPose>(target) else {
-            continue;
-        };
-        let affine = |t: Transform| {
-            crate::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
-        };
-        let Some(global) = w.current_global(target) else {
-            continue;
-        };
-        let mut result = global * affine(socket.0) * affine(follow.offset);
-        if let Some(parent) = w
-            .get::<crate::Parent>(e)
-            .and_then(|p| w.current_global(p.0))
-        {
-            result = parent.inverse() * result;
-        }
-        if let Some(mut transform) = w.get_mut::<Transform>(e) {
+        let result = target.and_then(|target| {
+            let socket = w.get::<SocketPose>(target)?;
+            let affine = |t: Transform| {
+                crate::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+            };
+            let mut result = w.current_global(target)? * affine(socket.0) * affine(follow.offset);
+            if let Some(parent) = w
+                .get::<crate::Parent>(e)
+                .and_then(|p| w.current_global(p.0))
+            {
+                result = parent.inverse() * result;
+            }
             let (scale, rotation, position) = result.to_scale_rotation_translation();
-            *transform = Transform {
+            Some(Transform {
                 position,
                 rotation,
                 scale,
-            };
+            })
+        });
+        if result.is_none() {
+            if let std::collections::btree_map::Entry::Vacant(entry) = runtime.errors.entry(e) {
+                w.log(format_args!(
+                    "socket follower #{}: missing socket",
+                    e.index()
+                ));
+                entry.insert("missing socket".into());
+            }
+        } else {
+            runtime.errors.remove(&e);
         }
+        *w.get_mut::<Transform>(e).unwrap() = result.unwrap_or(authored);
     }
     w.animation = runtime;
     w.propagate();
 }
-/// Agent inspection only: world-space matrices for the skin's joints, capped at 256.
+/// Agent inspection only: all unique skin joints in imported-node order (models cap nodes at 256).
 pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
     let mesh = w.get::<Mesh>(e).ok_or("pose needs a model")?;
     let Mesh::Asset(name) = &*mesh else {
@@ -938,7 +1243,13 @@ pub fn pose_json(w: &World, e: Entity) -> Result<String, String> {
     };
     let global = Mat4::from(w.current_global(e).unwrap_or(crate::Affine3A::IDENTITY));
     let mut rows = Vec::new();
-    for &i in model.skins.iter().flat_map(|s| &s.joints).take(256) {
+    let joints: std::collections::BTreeSet<_> = model
+        .skins
+        .iter()
+        .flat_map(|s| &s.joints)
+        .copied()
+        .collect();
+    for i in joints {
         rows.push(format!(
             "{{\"name\":{},\"world\":{}}}",
             crate::values::quote(&model.nodes[i as usize].name),
@@ -976,17 +1287,22 @@ impl Definitions {
                 old.speed = fresh.speed;
                 old.looping = fresh.looping;
                 old.markers = fresh.markers;
+                old.playback.motion_root = fresh.playback.motion_root;
             }
             if let (Some(fresh), Some(mut old)) = (b, w.get_mut::<Blend>(e)) {
                 old.clips = fresh.clips;
+                old.parameter = fresh.parameter;
+                old.playback.motion_root = fresh.playback.motion_root;
             }
             if let (Some(fresh), Some(mut old)) = (c, w.get_mut::<Animator>(e)) {
+                old.playback.motion_root = fresh.playback.motion_root;
                 let name = old.state();
                 if let Some(current) = fresh.states.iter().position(|s| s.name == name) {
                     if crate::hash::of(&old.states) != crate::hash::of(&fresh.states) {
                         // An edited blend starts from the carried pose, never from bind.
                         if let Some(pose) = w.get::<Pose>(e) {
                             old.from.clone_from(&pose.local);
+                            old.from_motion = pose.root_motion;
                             old.fade_time = 0.;
                             old.fade_duration = fresh.states[current].fade.max(0.1);
                         }
@@ -1022,124 +1338,4 @@ pub(crate) fn status_json(w: &World, e: Entity) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::asset::{Node, Skin};
-    fn translation(name: &str, seconds: f32, distance: f32) -> Clip {
-        Clip {
-            name: name.into(),
-            tracks: vec![Track {
-                times: vec![0., seconds],
-                values: vec![0., 0., 0., distance, 0., 0.],
-                ..Default::default()
-            }],
-            ..Default::default()
-        }
-    }
-    fn world() -> World {
-        let mut w = World::new(60, 0);
-        w.register_scene();
-        w.assets.declared.insert("rig.model".into());
-        w.assets.models.insert(
-            "rig.model".into(),
-            std::sync::Arc::new(Model {
-                nodes: vec![Node::default()],
-                skins: vec![Skin {
-                    joints: vec![0],
-                    inverse_binds: Mat4::IDENTITY.to_cols_array().to_vec(),
-                    ..Default::default()
-                }],
-                clips: vec![translation("slow", 1., 1.), translation("fast", 0.5, 1.)],
-                ..Default::default()
-            }),
-        );
-        w
-    }
-    #[test]
-    fn clock_rounding_markers_loop_and_root_contribution_are_saved() {
-        let mut w = world();
-        let e = w.spawn_named(
-            "actor",
-            (
-                Transform::default(),
-                Mesh::asset("rig.model"),
-                Animation::play("slow").marker(0.3, "step"),
-            ),
-        );
-        let mut events = 0;
-        for _ in 0..60 {
-            w.step_clock();
-            events += u32::from(w.get::<Animation>(e).unwrap().crossed("step"));
-        }
-        assert_eq!(w.get::<Animation>(e).unwrap().time.to_bits(), 0x3f7ffffb);
-        assert_eq!(events, 1);
-        assert_eq!(w.get::<Transform>(e).unwrap().position, Vec3::ZERO);
-        assert_eq!(
-            w.journal()
-                .iter()
-                .filter(|e| e.line.ends_with(" animation actor slow step"))
-                .count(),
-            1
-        );
-        let before = w.save();
-        let hash = w.hash();
-        w.load(&before).unwrap();
-        assert_eq!(hash, w.hash());
-        w.step_clock();
-        assert!((w.get::<Animation>(e).unwrap().root_motion().x - 1. / 60.).abs() < 1e-6);
-        assert!(!w.insert(e, Blend::across([(0., "slow")])));
-    }
-    #[test]
-    fn blend_uses_normalized_phase_and_once_stops() {
-        let mut w = world();
-        let mut blend = Blend::across([(0., "slow"), (1., "fast")]);
-        blend.axis = 0.5;
-        let e = w.spawn((Mesh::asset("rig.model"), blend));
-        w.step_clock();
-        let p = w.get::<Pose>(e).unwrap();
-        assert!((p.phase - (1. / 60.) / 0.75).abs() < 1e-7);
-        assert!((p.local[0] - p.phase).abs() < 1e-7);
-        drop(p);
-        let a = w.spawn((
-            Mesh::asset("rig.model"),
-            Animation::play("fast").once().marker(0.5, "end"),
-        ));
-        for _ in 0..30 {
-            w.step_clock();
-        }
-        assert!(w.get::<Animation>(a).unwrap().crossed("end"));
-        w.step_clock();
-        let a = w.get::<Animation>(a).unwrap();
-        assert_eq!(a.time, 0.5);
-        assert!(!a.crossed("end"));
-    }
-    #[test]
-    fn step_linear_cubic_rotation_and_parent_order() {
-        let mut track = translation("test", 2., 2.).tracks.remove(0);
-        assert_eq!(value(&track, 1.)[0], 1.);
-        track.interpolation = Interpolation::Step;
-        assert_eq!(value(&track, 1.)[0], 0.);
-        track.interpolation = Interpolation::CubicSpline;
-        track.values = vec![
-            0., 0., 0., 0., 0., 0., 1., 0., 0., 1., 0., 0., 2., 0., 0., 0., 0., 0.,
-        ];
-        assert_eq!(value(&track, 1.)[0], 1.);
-        let q = Quat::from_rotation_y(1.);
-        track.path = TrackPath::Rotation;
-        track.interpolation = Interpolation::Linear;
-        track.values = [Quat::IDENTITY.to_array(), q.to_array()].concat();
-        let got = Quat::from_array(value(&track, 1.));
-        assert!(got.dot(Quat::from_rotation_y(0.5)) > 0.999999);
-        let m = Model {
-            nodes: vec![
-                Node {
-                    parent: Some(1),
-                    ..Default::default()
-                },
-                Node::default(),
-            ],
-            ..Default::default()
-        };
-        assert_eq!(node_order(&m), [1, 0]);
-    }
-}
+mod tests;

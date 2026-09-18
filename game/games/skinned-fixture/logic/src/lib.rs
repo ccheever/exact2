@@ -18,7 +18,7 @@ impl Game for SmallGame {
         w.spawn_named(
             "fox",
             (
-                Transform::at(1.8, 0., 0.).with_scale(0.025),
+                Transform::at(0., 0., -1.8).with_scale(0.025),
                 Mesh::asset("fox.model"),
                 Animator::new([
                     State::new("survey", Play::Clip("Survey".into())).to(
@@ -27,10 +27,14 @@ impl Game for SmallGame {
                     ),
                     State::new(
                         "travel",
-                        Play::Blend(Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])),
+                        Play::Blend(
+                            Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])
+                                .parameter("speed"),
+                        ),
                     )
                     .fade(0.5),
-                ]),
+                ])
+                .motion_root("b_Root_00"),
                 Socket("b_Head_05".into()),
             ),
         );
@@ -74,20 +78,20 @@ impl Game for SmallGame {
         } else {
             1.6 + args.blend_bias
         };
-        {
-            let mut animator = w.get_mut::<Animator>("fox").unwrap();
-            animator.set("speed", speed);
-            if let Play::Blend(blend) = &mut animator.states[1].play {
-                blend.axis = speed;
-            }
-        }
-        // This script is the fox Transform's sole writer; animation owns only its pose.
-        let angle = time * 0.45;
-        let mut fox = w.get_mut::<Transform>("fox").unwrap();
-        fox.position = Vec3::new(1.8 * math::cos(angle), 0., 1.8 * math::sin(angle));
-        fox.rotation = Quat::from_rotation_y(-angle);
-        drop(fox);
+        w.get_mut::<Animator>("fox").unwrap().set("speed", speed);
+        // Read this tick's output before applying the clip's displacement.
         animation::step(w);
+        let animator = w.get::<Animator>("fox").unwrap();
+        let motion = animator.root_motion();
+        if animator.crossed("step") {
+            w.log("fox footstep");
+        }
+        drop(animator);
+        let mut fox = w.get_mut::<Transform>("fox").unwrap();
+        fox.rotation = Quat::from_rotation_y(-time * 0.45);
+        let delta = fox.rotation * (fox.scale * motion);
+        fox.position += delta;
+        drop(fox);
         w.publish_record(&Hud {
             motion: w.get::<Animator>("fox").unwrap().state().into(),
             tick: (w.tick() + 1) as u32,

@@ -73,3 +73,57 @@ fn scene_selection_and_textured_uvs_are_not_silent() {
     }
     assert!(failures.is_empty(), "accepted: {failures:?}");
 }
+
+#[test]
+fn cubic_tracks_preserve_gltf_neighbour_tangents_through_bake() {
+    use exact_game::{animation, asset::Interpolation};
+    let mut v = source();
+    let times = [0f32, 2., 5.];
+    // Distinct unused/end and inner tangents make every wrong neighbour observable.
+    let values: Vec<f32> = [99., 0., 3., 7., 4., 11., 13., 8., 77.]
+        .into_iter()
+        .flat_map(|x| [x, 0., 0.])
+        .collect();
+    let dir = std::env::temp_dir().join(format!("exact-cubic-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let bytes: Vec<u8> = times
+        .iter()
+        .chain(&values)
+        .flat_map(|f| f.to_le_bytes())
+        .collect();
+    std::fs::write(dir.join("motion.bin"), &bytes).unwrap();
+    let buffer = v["buffers"].as_array().unwrap().len();
+    v["buffers"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"byteLength":bytes.len(),"uri":"motion.bin"}));
+    let view = v["bufferViews"].as_array().unwrap().len();
+    v["bufferViews"].as_array_mut().unwrap().extend([
+        json!({"buffer":buffer,"byteLength":12}),
+        json!({"buffer":buffer,"byteOffset":12,"byteLength":values.len()*4}),
+    ]);
+    let accessor = v["accessors"].as_array().unwrap().len();
+    v["accessors"].as_array_mut().unwrap().extend([
+        json!({"bufferView":view,"componentType":5126,"count":3,"type":"SCALAR","min":[0],"max":[5]}),
+        json!({"bufferView":view+1,"componentType":5126,"count":9,"type":"VEC3"})]);
+    v["animations"] = json!([{"name":"cubic","samplers":[{"input":accessor,"output":accessor+1,"interpolation":"CUBICSPLINE"}],"channels":[{"sampler":0,"target":{"node":0,"path":"translation"}}]}]);
+    std::fs::write(dir.join("cubic.gltf"), v.to_string()).unwrap();
+    let model = exact_game_bake::model(dir.join("cubic.gltf")).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(matches!(
+        model.clips[0].tracks[0].interpolation,
+        Interpolation::CubicSpline
+    ));
+    assert_eq!(model.clips[0].tracks[0].values, values);
+    let mut pose = vec![];
+    animation::sample(
+        &model.clips[0],
+        2.75,
+        &animation::bind_pose(&model),
+        &mut pose,
+    );
+    assert_eq!(
+        pose[0],
+        0.84375 * 4. + 0.140625 * 3. * 11. + 0.15625 * 8. - 0.046875 * 3. * 13.
+    );
+}

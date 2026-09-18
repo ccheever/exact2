@@ -325,8 +325,9 @@ Picking, layout and `Collider::of` use authored dimensions. A plane's slab is
 1 cm thick, its top at Y=0; its box collider supports dynamic bodies.
 `app.json` selects model support with `game.assets: true` (or `new.mjs --assets`).
 The synthesized shell uses `module!(Game, assets)`; primitive shells link no model
-decoder or model shader markers in the measured wasm. Asset-map and `Models`
-storage isolation is still owed; this is not a claim that all model machinery is absent. A primitive module refuses asset meshes by
+decoder or model shader markers in the measured wasm. The link map attributes
+most remaining size to generic storage, allocation and formatting; asset maps and
+`Models` are small contributors (see [module size](#module-size)). A primitive module refuses asset meshes by
 name at bind. `Mesh::asset("crate.model")` draws a baked model's mesh nodes under one entity.
 The nodes keep their own materials; an optional entity `Material` multiplies base
 colour and adds emission. Only declared models supply simulation data and baked
@@ -416,8 +417,8 @@ remaining flight names when its sixteen rounds or deadline expire.
 
 Owed after R1: host-level device recovery as described above; Apple delivered-`.tex`
 bytes retained by the generation store (move to private files); primitive-module
-size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
-against the ~490 KB target — the size question needs a link map, its own slice);
+size reduction (D3's link map and per-cut measurements are [below](#module-size);
+the current 764,322-byte Beacons module still exceeds the 550 KB target);
 real-device Apple interruption and multi-display sweeps; WebAudio resume-failure
 propagation. The file:line references name the six blind reviews of 4869f48c, cached under
 `~/Library/Caches/exact2-game/briefs/`. Size analyses: `review-S3ac-sol.md` (`asset.rs:374`, `sim.rs:82`,
@@ -434,7 +435,7 @@ mips use linear-light RGB; only MASK/BLEND base colour weights RGB by alpha.
 Opaque colour and emissive maps average straight RGB, and the mode is part of the
 dedup key and generated name. MASK coverage is retained to the nearest texel count. Bake and runtime share model/texture validation,
 including finite scalars and inverse binds, ordered bounds, clip node/arity/time
-invariants and nonsingular node transforms. Skins and clips remain data until S3b.
+invariants and nonsingular node transforms. Skins and clips are baked data consumed by the playback controllers below.
 The 16×16 crate pins both output files; Khronos test inputs are digest-pinned.
 
 Model pipelines are lazy and share shader modules/layouts. A primitive-only world
@@ -565,88 +566,136 @@ Percentiles are zero before recording; counters still report total work.
 
 A declared `Mesh::asset("fox.model")` plays with
 `Animation::play("Walk").speed(1.5).marker(0.3, "step")`; `.once()` clamps at the end.
-Animation advances once per fixed tick, after the game's tick. Call
-`animation::step(w)` earlier when the game needs this tick's `crossed("step")` or
-`root_motion()`; the automatic second call does nothing. Marker flags are saved
-state, cleared on the next step; `animation fox Walk step` is the matching journal
-line. glTF animation `extras.markers` accepts `[[0.3, "step"]]`. Negative speed
-plays backwards, with the same open-start/closed-end marker intervals. Loop jumps
-emit each crossed marker name once, even when several loops fit in a tick.
-
 `Animation`, `Blend`, and `Animator` are alternatives; insertion refuses a second
-controller and logs why. `Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")])`
-uses its saved `axis`, the two bracketing clips, and one saved normalized phase.
-The phase advances by `dt / lerp(duration_a, duration_b, weight)`; differing clip
-lengths keep corresponding phases together. This does not correct incompatible
-foot contacts in source art. Sampling supports glTF step, linear and cubic tracks;
-quaternions are normalized, with shortest-path slerp for linear rotations.
-`time += (1.0f32 / hz as f32) * speed` uses separate f32 multiply and add, without
-FMA. Scalar glam/libm provides the transcendentals. Sixty 60-Hz additions from zero
-are pinned to bits `0x3f7ffffb`, and the full Fox pose has a cross-host pin.
+controller. Each dereferences to the same saved `animation::Playback` interface:
+`crossed("step")` and `root_motion()`. Animation advances once per fixed tick,
+after the game's tick. Call `animation::step(w)` earlier to consume this tick's
+markers or motion; the automatic second call does nothing to the sampled pose.
+It still refreshes socket followers after the game has applied the owner's motion.
+
+Declare the motion root explicitly with `.motion_root("b_Root_00")` on any controller.
+There is no inferred first joint and no motion extraction without a declaration.
+The selected node's local translation is held at its bind anchor; extracted deltas
+include complete forward or backward loops and are returned in model coordinates
+(through the sampled parent's basis when the node has a parent). Applying
+`transform.rotation * (transform.scale * playback.root_motion())` to the entity's
+position therefore does not double its travel or snap at a loop. Rotation remains
+in the local pose. The game owns Transform, including collisions or rejection of
+motion; animation never moves it. Locomotion roots should have stationary ancestors.
+
+`Blend::across([(0., "Survey"), (1., "Walk"), (3., "Run")]).parameter("speed")`
+binds its axis to the containing Animator's number parameter. `animator.set("speed",
+speed)` drives that axis and transition conditions. Standalone blends use their saved
+`axis`; an unset parameter uses that authored axis, and a nonnumeric value refuses.
+Two bracketing clips share normalized phase, advanced by
+`dt / lerp(duration_a, duration_b, weight)`. Their root deltas use those same weights.
+An exact knot samples and emits markers only from its active clip. Source clips still
+need compatible foot contacts; phase matching cannot repair the art.
 
 `Animator::new([State::new("walk", Play::Clip("Walk".into())).to("run",
 Condition::Arg("speed".into(), Cmp::Gt, 2.0.into())),
 State::new("run", Play::Clip("Run".into())).fade(0.2)])` is all `Data`.
-`w.get_mut::<Animator>("fox").unwrap().set("speed", speed)` writes a typed number;
-bools also work. The first matching transition wins, at most one per tick. A fade
-lerps/slerps from the outgoing local pose to the advancing destination pose.
-Deliberate cuts: the outgoing pose is frozen during the fade, parameters are only
-f32/bool, and there are no layered graphs, closures, scripts or additive animation.
-The phase, current state, time in state, parameters, outgoing pose and fade progress
-are saved and hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays
-fresh named controllers' definitions while preserving their pose and phase. Edited
-Animator definitions fade from the carried pose. A removed current state retains
-the old definition until the author supplies a matching state.
+Use `state_named("run")`, `state_mut("run")`, or `blend_mut("travel")` for named
+access. A state supports `.once()`, `.speed(2.)`, and `.paused(true)`; those saved
+fields can also be changed through `state_mut`. A paused state neither advances
+its clock/fade nor transitions. A one-shot finishes before its first matching edge
+can run, on the following tick. Fades also finish before another edge runs;
+self-edges are ignored. At most one edge runs per tick. Looping locomotion retains
+phase across transitions; entering or leaving a one-shot resets it to the playback
+start (the end for negative speed).
 
-`Ik { chain: [root, mid, tip], target, pole, weight }` solves a direct two-bone chain
-in model coordinates after sampling. Weight zero leaves every pose bit untouched;
-an unreachable target stretches the chain. Zero-length chains and targets at the
-root refuse by name. Bones and imported nodes are compact arrays, never entities.
-Declare `Socket("b_Head_05".into())` on the fox and put `SocketFollow::new("fox")`
-on an attachment. The declared socket's ancestor chain is composed sim-side every
-tick, including offscreen and headless; other composed joints are diagnostic reads
-or GPU work. This slice supports one declared socket per model owner.
+Fades mix the frozen outgoing local pose with the advancing incoming pose. Root
+motion fades from the outgoing tick's saved displacement to the incoming delta.
+Frozen outgoing clips emit no events; incoming markers become eligible only when
+the incoming weight is **greater than 0.5**, with suppressed crossings discarded.
+Outside fades every nonzero-weight clip contributes markers. Flags clear on the next
+step (failed playback contributes zero motion/events), are saved/hashed, and collapse repeated names to one event per tick.
+glTF animation `extras.markers` accepts `[[0.3, "step"]]`. Negative speed uses the
+same open-start/closed-end intervals. Journal lines are `animation fox travel step`;
+the fixture also logs `fox footstep` when its own `crossed("step")` read is true.
 
-Animation owns pose. `Transform` has one writer per tick: the fixture's circle
-script, or the game's Character/physics step. `Animation::root_motion()` exposes
-model-local translation of the first skin joint, including a loop's displacement,
-and never writes Transform. The game can feed that contribution into movement or
-ignore it. A socket follower owns its attachment's Transform.
+Sampling supports glTF step, linear and cubic tracks. Cubic uses the left key's
+out-tangent and right key's in-tangent, multiplied by the interval duration, exactly
+as [Khronos Appendix C.5](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#interpolation-cubic)
+specifies. Cubic quaternion signs and tangents are preserved and the polynomial
+result normalized; shortest-path slerp applies to linear rotations. Exporters must
+avoid splines that produce a zero quaternion. Asymmetric three-key and signed
+quaternion tests distinguish wrong neighbours, missing duration factors, and sign
+rewrites. Scalar glam/libm supplies transcendentals; fixed f32 clock additions
+remain pinned (`0x3f7ffffb` after sixty 60-Hz steps).
 
-The `Pose` component saves previous/current local TRS as bulk f32 arrays, normalized
-phase, event flags and conservative bounds. The bounds inflate the bind AABB by
-maximum chain reach plus influenced inverse-bind vertex radius, including authored
-translation/scale track extrema (cubic tangent overshoot is conservatively bounded).
-Layout and CPU pick use those same bounds. A model without a controller draws its
-bind pose. Skinned models are bounded to 256 imported nodes and 256 joints per skin;
-four influences are normalized at bake and additional influence sets refuse.
-`state world:fox` includes controller state; the `state` wire form with `pose: true`
-returns up to 256 named joint world matrices at the last tick. Snapshots include the
-saved local arrays, bounds and transition state.
+`Ik { chain: [root, mid, tip], target, pole, weight }` also runs without a controller,
+starting from bind pose. It solves a direct two-bone chain in model coordinates;
+zero weight is exact and unreachable targets stretch the chain. Invalid chains or
+targets refuse by name. Sampling/IK failure preserves the last good pose pair.
+The first successful pose pair is current/current, and teleport duplicates current
+at the presentation seam. Bones remain compact arrays, never entities.
 
-`games/skinned-fixture` is the Fox proof: a circle, Survey → Walk/Run blend, a head
-socket, tick-60 joint JSON, save at 45, and fresh-process continuation to 120.
-Its native paranoid test saves and loads into a new Sim on every tick for 120 ticks;
-IK checks use the Fox's left leg. Run `bun game/games/skinned-fixture/proof.mjs web`
-(or `macos` / `linux`) from the root. The source glb is the cached Khronos Fox sample;
-the game generator created the fixture with `--assets`.
+Declare one `Socket("b_Head_05".into())` per owner; `SocketFollow::new("fox")` drives
+an attachment. Socket names resolve once per loaded rig. Removing or failing a
+socket invalidates `SocketPose`; followers restore their captured authored Transform.
+An unresolved declaration/follower logs once until it recovers or its error changes.
+The declared socket's ancestor chain runs sim-side, including offscreen/headless.
+The follower is its attachment Transform's writer.
 
-S3b proof (2026-09-18): web, macOS and the headless Linux host running on this
-arm64 Mac match all 24 joint matrices in
-[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json). Tick 60 hashes to
-`0xa9033d749a82ebd4`; tick 120 hashes to `0xb05ce95a6c799acf`. Saving at 45 and
-restoring in a fresh host reaches the same tick-120 snapshot. All three final saves
-are byte-identical (13,849 bytes; SHA-256
-`cae346719d1a1e3fc6b8eb3d22eb9ddfb5295811dd09f50297bd09451c69c526`). The native
-120-tick paranoid round-trip, edited-blend Carry/Open, Fox-leg IK and socket tests
-pass. This is not a new x86-64 Linux measurement.
+The `Pose` component saves previous/current local TRS, phase, flags and bounds.
+**Layout and CPU pick use a static inflated bind AABB, not the drawn skin.** The box
+adds maximum chain reach and inverse-bind vertex radius, including track extrema
+and conservative cubic overshoot. Picking can hit empty space inside it; neither
+sampled vertices nor frame-alpha skinning tighten it. Models cap imported nodes and
+skin joints at 256, with four normalized influences per vertex.
+`state world:fox pose` forwards `pose:true` and returns all unique skin joints in
+imported-node order. There is no silent truncation or duplicate budget consumption.
 
-The macOS proof launches with SDK 26 and the temporary Xcode Swift wrapper adding
-`--build-system native`. Its [screenshot](games/skinned-fixture/artifacts/fox-mid-stride-macos.png)
-shows the stride and shadow but a white, untextured Fox; the
-[web screenshot](games/skinned-fixture/artifacts/fox-mid-stride-web.png) is textured.
-That native asset/host gap remains outside the skeleton slice. The pose request
-currently uses `session.op({op: 'state', ...await session.target('world:fox'),
-pose: true})`; the CLI's literal `state world:fox pose` still needs the two-line
-driver forwarding change outside this slice. Performance and size qualifications
-are in [the renderer README](render/README.md#skinned-model-path).
+Controller definitions, phase, parameters, outgoing pose/motion and fade progress
+are saved/hashed. `Restore::Open` restores exactly; `Restore::Carry` overlays fresh
+named definitions, preserving the situation and fading from the carried pose.
+A removed current state retains its old definition until a matching state is supplied.
+Deliberate cuts: f32/bool parameters, frozen outgoing pose, one socket per owner,
+no layered/additive graphs, closures or scripts.
+
+`games/skinned-fixture` teaches parameter-driven Survey → Walk/Run, consumes root
+motion through Transform, and reads/logs footsteps. Its CC0 Khronos Fox source was
+in place; the fixture authors linear `b_Root_00` translation tracks at 40 model
+units/s for Walk and 120 for Run along the Fox’s +Z facing, plus
+quarter/three-quarter-phase step markers.
+The controller explicitly names that root. Heading is authored; travel comes from
+the clips. Tick-60 joint JSON is pinned in
+[`tick60.json`](games/skinned-fixture/logic/tests/tick60.json), and the tick-120 hash
+is `0x409341e24939d7c2` (tick 60: `0xb863e854ca85b74e`). These replace S3b's circle
+pins because the motion tracks, Transform path, playback data, socket home and
+history semantics changed.
+
+Run `bun game/games/skinned-fixture/proof.mjs web` (or `linux`) from the root.
+Web and headless Linux proofs pass on this arm64 Mac (22.276/33.022 s).
+The proof saves at tick 45 during the fade and resumes in a fresh host through 120;
+its final save must be byte-identical. Both hosts produce the same 15,084 bytes,
+SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The native paranoid test repeats restore into
+a new Sim every tick and compares bytes as well as hashes and local poses. A GPU
+birth test compares the Fox rectangle against a current/current oracle with a 0.1%
+tolerance; deliberately injecting bind history changes 11,205 of its 23,842 pixels.
+The pre-review macOS screenshot showed a white Fox while web was textured; that
+native asset delivery gap remains outside this slice. No new x86-64 run or macOS
+proof is claimed here. Rendering measurements and qualifications are in
+[the renderer README](render/README.md#skinned-model-path).
+
+
+## Module size
+
+`bun game/bench/size.mjs` builds Beacons and prints shipped raw/gzip bytes plus
+pre-opt crate and module attribution; the per-cut table and 200k-cube paired
+timings are in [the benchmark README](bench/README.md#d3--measured-module-size-2026-09-18).
+D3 shares component page allocation and Data walks over aligned bytes, retains
+typed query strides/leases and page generations, and links only the registered
+storage kinds. Asset delivery maps are sorted vectors; saved ordered maps keep
+their existing order. Pipeline shader comments/indentation are removed at build
+time with newlines preserved, so line numbers survive and columns change.
+
+JSON, perf/trace and audio diagnostics share a small-table Ryu writer. Exact
+decimal tie handling preserves existing JSON number spelling; fixed audio
+journal decimals also match. Publication journal values now use Data's field
+walk instead of Rust Debug (for example `{"Number":[0.0]}`); the journal stays
+outside the world hash. Dynamic float clamp panics still retain Rust float
+formatting, including through the concurrently maintained animation code.
+The <550 KB Beacons target remains unmet; this cut does not change the existing
+primitive/model boundary or add a core-crate feature.

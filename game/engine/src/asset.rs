@@ -5,10 +5,9 @@ use crate::Data;
 #[path = "../../../gpu/src/asset_name.rs"]
 mod names;
 pub use names::asset_name;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
+
+mod map;
 
 #[derive(Data, Default, Clone, Debug)]
 pub struct Model {
@@ -400,14 +399,14 @@ pub enum AssetState {
 }
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
-    pub models: BTreeMap<String, Arc<Model>>,
-    pub states: BTreeMap<String, AssetState>,
+    pub models: map::AssetMap<Arc<Model>>,
+    pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
     pub required: BTreeSet<String>,
     pub requested: BTreeSet<String>,
     pub prepared: BTreeSet<String>,
     pub redelivery: BTreeSet<String>,
-    pub dependencies: BTreeMap<String, Vec<String>>,
+    pub dependencies: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
     pub refusal: Option<(String, String)>,
 }
@@ -425,13 +424,14 @@ impl Assets {
             ));
             return false;
         }
-        self.states.entry(name.into()).or_insert_with(|| {
-            if asset_name(name) {
+        if !self.states.contains_key(name) {
+            let state = if asset_name(name) {
                 AssetState::Pending
             } else {
                 AssetState::Failed(format!("asset `{name}`: invalid asset name"))
-            }
-        });
+            };
+            self.states.insert(name.into(), state);
+        }
         true
     }
     pub fn retire(&mut self, roots: &BTreeSet<String>) {
@@ -506,7 +506,7 @@ impl crate::World {
         self.assets
             .required
             .iter()
-            .filter(|n| self.assets.states.get(*n) == Some(&AssetState::Pending))
+            .filter(|n| self.assets.states.get(n) == Some(&AssetState::Pending))
             .map(String::as_str)
     }
 }

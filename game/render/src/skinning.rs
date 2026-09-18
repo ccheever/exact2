@@ -250,7 +250,7 @@ mod tests {
         Mesh, Transform,
     };
     use glam::{Mat4, Quat, Vec3};
-    fn read(gpu: &exact_gpu::Gpu, source: &wgpu::Buffer, size: u64) -> Vec<u8> {
+    pub(super) fn read(gpu: &exact_gpu::Gpu, source: &wgpu::Buffer, size: u64) -> Vec<u8> {
         let read = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
@@ -430,6 +430,122 @@ mod tests {
             "100 Fox palettes GPU p50 {:.6} ms p95 {:.6} ms",
             times[times.len() / 2],
             times[times.len() * 95 / 100]
+        );
+    }
+}
+
+#[cfg(test)]
+mod normal_tests {
+    use super::*;
+    use glam::{Mat4, Quat, Vec3};
+    #[test]
+    fn skinned_normal_is_inverse_transpose_under_scaled_rotated_joints() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        // Execute the actual vertex skinning function through a compute entry point.
+        let skin = include_str!("shaders/model.wgsl")
+            .split("struct BakedMaterial")
+            .next()
+            .unwrap();
+        let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
+        let shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
+        let pipeline = gpu
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &shader,
+                entry_point: Some("test_normal"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        let a =
+            Mat4::from_scale(Vec3::new(3., 1., 0.5)) * Mat4::from_quat(Quat::from_rotation_z(0.7));
+        let b = Mat4::from_scale_rotation_translation(
+            Vec3::new(1., 2., 4.),
+            Quat::from_rotation_y(0.3),
+            Vec3::ZERO,
+        );
+        let buffer = |data: &[u8]| {
+            let b = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: data.len() as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            gpu.queue.write_buffer(&b, 0, data);
+            b
+        };
+        let matrices = buffer(bytes(&[a.to_cols_array(), b.to_cols_array()].concat()));
+        let vertices = buffer(bytes(&[
+            0u32,
+            1,
+            0,
+            0,
+            0.75f32.to_bits(),
+            0.25f32.to_bits(),
+            0,
+            0,
+        ]));
+        let output = buffer(bytes(&[0f32; 4]));
+        let bind = |group, entries: &[wgpu::BindGroupEntry<'_>]| {
+            gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &pipeline.get_bind_group_layout(group),
+                entries,
+            })
+        };
+        let out = bind(
+            0,
+            &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: output.as_entire_binding(),
+            }],
+        );
+        let empty1 = bind(1, &[]);
+        let empty2 = bind(2, &[]);
+        let input = bind(
+            3,
+            &[
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: matrices.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: vertices.as_entire_binding(),
+                },
+            ],
+        );
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &out, &[]);
+            pass.set_bind_group(1, &empty1, &[]);
+            pass.set_bind_group(2, &empty2, &[]);
+            pass.set_bind_group(3, &input, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        gpu.queue.submit([encoder.finish()]);
+        let actual: Vec<f32> = super::tests::read(&gpu, &output, 16)
+            .chunks_exact(4)
+            .map(|v| f32::from_ne_bytes(v.try_into().unwrap()))
+            .collect();
+        let expected = (a * 0.75 + b * 0.25)
+            .inverse()
+            .transpose()
+            .transform_vector3(Vec3::ONE.normalize())
+            .normalize();
+        assert!(
+            Vec3::from_slice(&actual).distance(expected) < 1e-5,
+            "{actual:?} expected {expected:?}"
         );
     }
 }

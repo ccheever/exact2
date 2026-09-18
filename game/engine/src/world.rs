@@ -116,12 +116,13 @@ struct State {
     free: Free,
     busy: RefCell<Vec<std::borrow::Cow<'static, str>>>,
 }
+type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
     id: TypeId,
-    make: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
+    make: Option<StorageFactory>,
     resource_size: usize,
-    make_resource: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
+    make_resource: Option<StorageFactory>,
     ambient: bool,
 }
 
@@ -238,29 +239,28 @@ impl World {
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
         crate::animation::register::<C>(self);
-        self.register_data::<C>(C::NAME, false)
+        self.registration::<C>(C::NAME).make = Some(storage::make::<C>);
+        self
     }
     /// Register singleton data before loading a save.
     pub fn register_resource<R: Resource>(&mut self) -> &mut Self {
-        self.register_data::<R>(R::NAME, R::AMBIENT)
-    }
-    fn register_data<C: Data>(&mut self, name: &'static str, ambient: bool) -> &mut Self {
-        let id = TypeId::of::<C>();
-        if let Some(old) = self.registry.get(name) {
-            assert_eq!(old.id, id, "duplicate component name {}", name);
-        } else {
-            self.registry.insert(
-                name,
-                Registration {
-                    id,
-                    make: storage::make::<C>,
-                    make_resource: storage::make_cell::<C>,
-                    resource_size: std::mem::size_of::<storage::Singleton<C>>(),
-                    ambient,
-                },
-            );
-        }
+        let reg = self.registration::<R>(R::NAME);
+        reg.make_resource = Some(storage::make_cell::<R>);
+        reg.resource_size = std::mem::size_of::<storage::Singleton<R>>();
+        reg.ambient = R::AMBIENT;
         self
+    }
+    fn registration<C: Data>(&mut self, name: &'static str) -> &mut Registration {
+        let id = TypeId::of::<C>();
+        let reg = self.registry.entry(name).or_insert(Registration {
+            id,
+            make: None,
+            make_resource: None,
+            resource_size: 0,
+            ambient: false,
+        });
+        assert_eq!(reg.id, id, "duplicate component name {}", name);
+        reg
     }
     pub(crate) fn storage<C: Component>(&self) -> Option<&Storage<C>> {
         self.components.get(C::NAME)?.any().downcast_ref()
@@ -464,6 +464,9 @@ impl World {
         {
             self.remove::<crate::Pose>(e);
         }
+        if removed.is_some() && TypeId::of::<C>() == TypeId::of::<crate::Socket>() {
+            self.remove::<crate::animation::SocketPose>(e);
+        }
         removed
     }
     /// Test membership without borrowing the component's values.
@@ -552,11 +555,11 @@ impl World {
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
-        self.storage::<C>().map_or(0, Storage::revision)
+        self.storage::<C>().map_or(0, |s| s.revision())
     }
     /// Component membership generation; changing an existing value leaves it alone.
     pub fn membership<C: Component>(&self) -> u64 {
-        self.storage::<C>().map_or(0, Storage::membership)
+        self.storage::<C>().map_or(0, |s| s.membership())
     }
     /// Spawn/despawn generation, including equal-count slot recycling. Not simulation state.
     pub fn entities_revision(&self) -> u64 {
@@ -643,6 +646,9 @@ impl World {
     /// The journal is telemetry: a record outside the world hash and observation,
     /// so a read that logs must not change the world's course or mutation epoch.
     pub fn log(&self, line: impl std::fmt::Display) {
+        self.log_args(format_args!("{line}"));
+    }
+    fn log_args(&self, line: std::fmt::Arguments<'_>) {
         let mut j = self.journal.borrow_mut();
         if j.len() == 4096 {
             j.pop_front();
@@ -673,11 +679,10 @@ impl World {
         if p.get(key) == Some(&value) {
             return;
         }
-        if let Some(scalar) = value.value() {
-            self.log(format_args!("publish {key}: {scalar:?}"));
-        } else {
-            self.log(format_args!("publish {key}: {}", value.json(false)));
-        }
+        self.log(format_args!(
+            "publish {key}: {}",
+            crate::json::to_string(&value).unwrap_or_else(|e| e.to_string())
+        ));
         p.insert(key.into(), value);
         self.published_pending.set(true);
         self.mutated();
@@ -884,6 +889,12 @@ impl World {
                         } else {
                             reg.make
                         };
+                        let make = make.ok_or_else(|| {
+                            DataError::new(format!(
+                                "unregistered {} `{name}`",
+                                if resource { "resource" } else { "component" }
+                            ))
+                        })?;
                         let mut s = make(key, self.epoch.clone());
                         s.read(r, &|e| {
                             if resource {

@@ -56,21 +56,7 @@ impl Encoder {
         self.error.map_or(Ok(self.text), Err)
     }
     fn quoted(&mut self, s: &str) {
-        self.text.push('"');
-        for c in s.chars() {
-            match c {
-                '"' => self.text.push_str("\\\""),
-                '\\' => self.text.push_str("\\\\"),
-                '\n' => self.text.push_str("\\n"),
-                '\r' => self.text.push_str("\\r"),
-                '\t' => self.text.push_str("\\t"),
-                c if c < ' ' => {
-                    write!(self.text, "\\u{:04x}", c as u32).unwrap();
-                }
-                c => self.text.push(c),
-            }
-        }
-        self.text.push('"');
+        quote_into(&mut self.text, s);
     }
     fn separate(&mut self) {
         let f = self.frames.last_mut().expect("JSON container");
@@ -118,18 +104,18 @@ impl Writer for Encoder {
                 self.finite(n.is_finite());
                 if self.rounded {
                     let n = rounded(n as f64);
-                    write!(self.text, "{n}").unwrap();
+                    super::text::shortest(&mut self.text, n, false).unwrap();
                 } else {
-                    write!(self.text, "{n:?}").unwrap();
+                    super::text::shortest(&mut self.text, n, true).unwrap();
                 }
             }
             Number::F64(n) => {
                 self.finite(n.is_finite());
                 if self.rounded {
                     let n = rounded(n);
-                    write!(self.text, "{n}").unwrap();
+                    super::text::shortest(&mut self.text, n, false).unwrap();
                 } else {
-                    write!(self.text, "{n:?}").unwrap();
+                    super::text::shortest(&mut self.text, n, true).unwrap();
                 }
             }
         }
@@ -533,7 +519,26 @@ impl Reader for Decoder<'_> {
     }
 }
 
-fn rounded(n: f64) -> f64 {
+/// Append one JSON string without allocating a temporary encoder or string.
+pub fn quote_into(text: &mut String, s: &str) {
+    text.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => text.push_str("\\\""),
+            '\\' => text.push_str("\\\\"),
+            '\n' => text.push_str("\\n"),
+            '\r' => text.push_str("\\r"),
+            '\t' => text.push_str("\\t"),
+            c if c < ' ' => {
+                write!(text, "\\u{:04x}", c as u32).unwrap();
+            }
+            c => text.push(c),
+        }
+    }
+    text.push('"');
+}
+
+pub(crate) fn rounded(n: f64) -> f64 {
     if n.abs() > f64::MAX / 10000.0 {
         n
     } else {

@@ -1,4 +1,5 @@
 use crate::Stats;
+use exact_game::data::text::Float;
 use std::fmt::Write;
 #[cfg(test)]
 thread_local! { pub(crate) static CLOCK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -88,12 +89,12 @@ impl Ring {
         write!(
             out,
             "{{\"p50\":{},\"p95\":{},\"p99\":{},\"max\":{},\"count\":{},\"mean\":{}}}",
-            p(50),
-            p(95),
-            p(99),
-            self.max,
+            Float(p(50)),
+            Float(p(95)),
+            Float(p(99)),
+            Float(self.max),
             self.count,
-            self.sum / self.count.max(1) as f64
+            Float(self.sum / self.count.max(1) as f64)
         )
         .unwrap();
     }

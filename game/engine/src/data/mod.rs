@@ -8,6 +8,7 @@ mod impls;
 pub(crate) mod limits;
 pub use limits::{MAX_LOAD_BYTES, MAX_LOAD_ENTITIES, MAX_LOAD_STRING};
 pub mod json;
+pub mod text;
 
 /// State that can survive a save, level load, or code reload.
 ///
@@ -111,7 +112,10 @@ impl DataError {
         }
     }
     /// Prepend a field, type, or sequence index to the path.
-    pub fn at(mut self, path: impl fmt::Display) -> Self {
+    pub fn at(self, path: impl fmt::Display) -> Self {
+        self.at_args(format_args!("{path}"))
+    }
+    fn at_args(mut self, path: fmt::Arguments<'_>) -> Self {
         self.path = if self.path.is_empty() {
             path.to_string()
         } else {

@@ -124,17 +124,15 @@ impl Actions {
         self
     }
     pub(crate) fn json(&self) -> String {
-        use crate::values::quote;
-        let fields: Vec<_> = self
-            .entries
-            .iter()
-            .map(|a| {
-                let mut w = crate::json::Encoder::rounded();
-                a.write(&mut w);
-                format!("{}:{}", quote(&a.name), w.finish().unwrap())
-            })
-            .collect();
-        format!("{{{}}}", fields.join(","))
+        use crate::Writer;
+        let mut w = crate::json::Encoder::rounded();
+        w.begin_struct();
+        for a in &self.entries {
+            w.field(&a.name);
+            a.write(&mut w);
+        }
+        w.end_struct();
+        w.finish().unwrap()
     }
 }
 /// Pointer contact phase, matching the platform's input phases.

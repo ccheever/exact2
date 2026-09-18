@@ -199,7 +199,7 @@ impl<G: Game> Sim<G> {
             .assets
             .models
             .iter()
-            .filter(|(n, _)| self.world.assets.states.contains_key(*n))
+            .filter(|(n, _)| self.world.assets.states.contains_key(n))
             .map(|(n, m)| (n.as_str(), m.as_ref()))
     }
     /// Content remains Loaded after loss; only device preparation is invalidated.
@@ -332,7 +332,7 @@ impl<G: Game> Sim<G> {
                 let extra = model
                     .textures
                     .iter()
-                    .filter(|n| !self.world.assets.states.contains_key(*n))
+                    .filter(|n| !self.world.assets.states.contains_key(n))
                     .count();
                 if self.world.assets.states.len() + extra > 256 {
                     self.asset_failed(name, "dependencies exceed surface limit of 256 names");
@@ -1116,7 +1116,7 @@ impl<G: Game> Sim<G> {
             .iter()
             .filter(|name| {
                 !matches!(
-                    assets.states.get(*name),
+                    assets.states.get(name),
                     Some(crate::asset::AssetState::Loaded | crate::asset::AssetState::Failed(_))
                 )
             })

@@ -1,5 +1,4 @@
 use super::*;
-use crate::values::quote;
 
 impl World {
     /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
@@ -143,15 +142,17 @@ impl World {
         *self.published.borrow_mut() = values;
     }
     pub(crate) fn published_json(&self, rounded: bool) -> String {
-        format!(
-            "{{{}}}",
-            self.published
-                .borrow()
-                .iter()
-                .map(|(k, v)| format!("{}:{}", quote(k), v.json(rounded)))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
+        let mut out = String::from("{");
+        for (i, (key, value)) in self.published.borrow().iter().enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            crate::json::quote_into(&mut out, key);
+            out.push(':');
+            value.append_json(&mut out, rounded);
+        }
+        out.push('}');
+        out
     }
     pub(crate) fn component_names(&self, e: Entity) -> Vec<&str> {
         self.components
@@ -170,14 +171,16 @@ impl World {
         storages: &BTreeMap<&str, Box<dyn Erased>>,
         index: usize,
     ) -> Result<String, DataError> {
-        let mut fields = Vec::new();
+        let mut w = crate::json::Encoder::default(); // State round-trips; only layout is rounded.
+        w.begin_struct();
         for (name, s) in storages {
-            let mut w = crate::json::Encoder::default(); // State must round-trip; only layout is rounded.
-            if s.write_one(index, &mut w) {
-                fields.push(format!("{}:{}", quote(name), w.finish()?));
+            if s.has(index) {
+                w.field(name);
+                s.write_one(index, &mut w);
             }
         }
-        Ok(format!("{{{}}}", fields.join(",")))
+        w.end_struct();
+        w.finish()
     }
 }
 

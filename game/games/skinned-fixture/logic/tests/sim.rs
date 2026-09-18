@@ -36,16 +36,14 @@ fn pinned_pose_and_hash() {
     s.run(1000.);
     println!("tick120 0x{:016x}", s.world().hash());
     assert_eq!(s.world().tick(), 120);
-    assert_eq!(s.world().hash(), 0xb05ce95a6c799acf);
+    assert_eq!(s.world().hash(), 0x409341e24939d7c2);
 }
 #[test]
 fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
     let mut reference = sim();
     let mut paranoid = sim();
     for tick in 1..=120 {
-        let at = tick as f64 * 1000. / 60. + 0.001;
-        reference.advance(0., Clock::Seekable);
-        reference.advance(at, Clock::Seekable);
+        reference.run(1000. / 60. + 0.0001);
         paranoid.run(1000. / 60. + 0.0001);
         assert_eq!(
             reference.world().hash(),
@@ -64,6 +62,13 @@ fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
             *reference.get::<Pose>("fox").unwrap().local,
             *fresh.get::<Pose>("fox").unwrap().local
         );
+        let expected = reference.save().unwrap();
+        let restored = fresh.save().unwrap();
+        assert!(
+            expected == restored,
+            "bytes at {tick}: first difference {:?}",
+            expected.iter().zip(&restored).position(|(a, b)| a != b)
+        );
         paranoid = fresh;
     }
     let mut a = sim();
@@ -74,6 +79,7 @@ fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
     b.restore(&saved).unwrap();
     b.run(1250.);
     assert_eq!(a.world().hash(), b.world().hash());
+    assert_eq!(a.save().unwrap(), b.save().unwrap());
 }
 #[test]
 fn fox_leg_ik_and_socket() {
@@ -129,9 +135,7 @@ fn hundred_fox_tick_cost() {
     let fox = w.named("fox").unwrap();
     let mut animator = w.get::<Animator>(fox).unwrap().clone();
     animator.current = 1;
-    if let Play::Blend(b) = &mut animator.states[1].play {
-        b.axis = 1.6;
-    }
+    animator.set("speed", 1.6);
     for _ in 1..100 {
         w.spawn((
             Transform::default(),
@@ -162,9 +166,12 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
         type Args = Options;
         fn setup(w: &mut World, a: &Options) {
             SmallGame::setup(w, a);
-            if let Play::Blend(b) = &mut w.get_mut::<Animator>("fox").unwrap().states[1].play {
-                b.clips[2].0 = 4.;
-            }
+            w.get_mut::<Animator>("fox")
+                .unwrap()
+                .blend_mut("travel")
+                .unwrap()
+                .clips[2]
+                .0 = 4.;
         }
         fn tick(w: &mut World, i: &Input, a: &Options) {
             SmallGame::tick(w, i, a);
@@ -196,7 +203,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
     );
     let animator = carry.sim().unwrap().get::<Animator>("fox").unwrap();
     assert_eq!(animator.since, old.get::<Animator>("fox").unwrap().since);
-    if let Play::Blend(b) = &animator.states[1].play {
+    if let Play::Blend(b) = &animator.state_named("travel").unwrap().play {
         assert_eq!(b.clips[2].0, 4.);
     } else {
         panic!("blend")
@@ -258,4 +265,147 @@ fn moving_skin_and_shadow_pixels() {
         "restore must preserve the stride; only the existing entity-history snap may differ"
     );
     assert!(s.take_error().is_none());
+}
+
+#[test]
+fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
+    use exact_game_render::{
+        exact_gpu::{fixture, wgpu, Frame, Surface},
+        WorldSurface,
+    };
+    struct Birth<const HISTORY: u8>;
+    impl<const HISTORY: u8> Game for Birth<HISTORY> {
+        const ID: &'static str = "fox-birth";
+        const ASSETS: &'static [&'static str] = &["fox.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let mut clip = Animation::play("Run").motion_root("b_Root_00").speed(0.);
+            clip.time = 0.3;
+            w.spawn_named(
+                "fox",
+                (
+                    Transform::default().with_scale(0.025),
+                    Mesh::asset("fox.model"),
+                    clip,
+                ),
+            );
+            w.spawn((
+                Transform::at(6., 3.4, 7.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y),
+                Camera::default(),
+            ));
+            w.insert_resource(Environment {
+                fog: None,
+                ..Default::default()
+            });
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            animation::step(w);
+            if HISTORY != 0 {
+                let bind = animation::bind_pose(w.model("fox.model").unwrap());
+                let mut p = w.get_mut::<Pose>("fox").unwrap();
+                p.previous = if HISTORY == 1 { p.local.clone() } else { bind };
+            }
+        }
+    }
+    let gpu = fixture::device().unwrap();
+    fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu) -> fixture::Pixels {
+        let mut s = WorldSurface::<Birth<H>, (), true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        for _ in 0..16 {
+            for n in s.assets() {
+                s.asset(&n, Ok(&assets()[&n]));
+            }
+            s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        }
+        let mut f = Frame {
+            width: 1280.,
+            height: 720.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: false,
+            period_ms: 1000. / 60.,
+            children_generation: 0,
+            shader_generation: 0,
+        };
+        fixture::render(gpu, &mut s, &f).unwrap();
+        f.now_ms = 1000. / 240.;
+        let (image, _) = fixture::render(gpu, &mut s, &f).unwrap();
+        assert_eq!(s.sim().unwrap().world().tick(), 1);
+        assert!(s.take_error().is_none());
+        image
+    }
+    let actual = first::<0>(&gpu);
+    let reference = first::<1>(&gpu);
+    let bind_flash = first::<2>(&gpu);
+    let differs = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).any(|(a, b)| a.abs_diff(b) > 2);
+    // The deliberately corrupted history locates the Fox's affected rectangle;
+    // background pixels cannot dilute the tolerance.
+    let (mut x0, mut y0, mut x1, mut y1) = (reference.width, reference.height, 0, 0);
+    let mut bind_changes = 0;
+    for y in 0..reference.height {
+        for x in 0..reference.width {
+            if differs(reference.at(x, y), bind_flash.at(x, y)) {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+                bind_changes += 1;
+            }
+        }
+    }
+    assert!(
+        bind_changes > 50,
+        "the oracle must detect a small Fox bind flash"
+    );
+    let area = (x1 - x0 + 1) * (y1 - y0 + 1);
+    assert!(
+        area < reference.width * reference.height / 10,
+        "Fox rectangle is local: {area}"
+    );
+    let mut changed = 0;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            changed += u32::from(differs(actual.at(x, y), reference.at(x, y)));
+        }
+    }
+    println!("Fox rectangle {x0},{y0}..{x1},{y1}: first-frame changes {changed}/{area}, bind flash {bind_changes}");
+    assert!(
+        changed <= area / 1000,
+        "first presentation must match current/current within 0.1% of the Fox rectangle"
+    );
+}
+
+#[test]
+fn root_motion_walks_the_fox_forward_and_emits_steps() {
+    let mut s = sim();
+    for tick in 1..=120 {
+        let before = s.position("fox").unwrap();
+        s.run(1000. / 60. + 0.0001);
+        let transform = s.get::<Transform>("fox").unwrap();
+        let delta = transform.position - before;
+        if tick > 30 {
+            let forward = transform.rotation * Vec3::Z;
+            assert!(
+                delta.dot(forward) > 0.,
+                "tick {tick} must advance along the Fox's facing"
+            );
+            assert!((delta - forward * delta.length()).length() < 1e-5);
+        }
+        let model = s.world().model("fox.model").unwrap();
+        let root = model
+            .nodes
+            .iter()
+            .position(|n| n.name == "b_Root_00")
+            .unwrap();
+        assert_eq!(
+            &s.get::<Pose>("fox").unwrap().local[root * 10..root * 10 + 3],
+            &[0., 0., 0.]
+        );
+    }
+    assert!(s
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.ends_with("fox footstep")));
 }

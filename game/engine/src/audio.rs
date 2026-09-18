@@ -1,4 +1,5 @@
 //! Deterministic sound descriptions and journal events. This module opens no device.
+use crate::data::text::{Fixed, Float};
 use crate::{math, Component, Data, Entity, Resource, Vec3, World};
 use std::collections::BTreeMap;
 
@@ -286,7 +287,7 @@ impl At {
                 .name(*e)
                 .map(str::to_owned)
                 .unwrap_or_else(|| format!("#{}", e.index())),
-            Self::Point(p) => format!("({:.3},{:.3},{:.3})", p.x, p.y, p.z),
+            Self::Point(p) => format!("({},{},{})", Fixed(p.x, 3), Fixed(p.y, 3), Fixed(p.z, 3)),
         }
     }
 }
@@ -525,10 +526,10 @@ impl Play<'_> {
         voice.id = voices.next_id;
         voices.next_id = voices.next_id.checked_add(1).expect("voice ids exhausted");
         self.world.log(format_args!(
-            "sfx {} at {} gain {:.2}",
+            "sfx {} at {} gain {}",
             voice.sound,
             voice.at.label(self.world),
-            voice.gain
+            Fixed(voice.gain, 2)
         ));
         let id = voice.id;
         voices.voices.push(voice);
@@ -616,8 +617,9 @@ pub fn step(world: &mut World) {
                     .is_some_and(|r| r.playing && r.sound == source.sound && r.gain == source.gain)
             {
                 world.log(format_args!(
-                    "loop {} on gain {:.2}",
-                    source.sound, source.gain
+                    "loop {} on gain {}",
+                    source.sound,
+                    Fixed(source.gain, 2)
                 ));
             }
             reports.push(SourceReport {
@@ -660,7 +662,7 @@ pub fn state(world: &World) -> String {
                     "{{\"sound\":{},\"at\":{},\"gain\":{},\"began\":{},\"ends\":{}}}",
                     crate::values::quote(&v.sound),
                     crate::values::quote(&v.at.label(world)),
-                    v.gain,
+                    Float(v.gain),
                     v.began,
                     v.ends
                 )
@@ -678,7 +680,7 @@ pub fn state(world: &World) -> String {
                 "{{\"sound\":{},\"entity\":{},\"gain\":{},\"playing\":{}}}",
                 crate::values::quote(&s.sound),
                 crate::values::quote(&At::Entity(e).label(world)),
-                gain(s.gain),
+                Float(gain(s.gain)),
                 s.playing
             )
         })

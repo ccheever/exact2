@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 // Keep Value's variants in saves: Record and List have the same JSON shape but
 // different Contract types. The message envelope deliberately strips these tags.
-#[derive(Clone, Debug, Default, PartialEq, Data)]
+#[derive(Clone, Default, PartialEq, Data)]
 pub(crate) enum Stored {
     #[default]
     Unit,
@@ -58,29 +58,39 @@ impl Stored {
             Self::Object(_) => return None,
         })
     }
-    pub(crate) fn json(&self, rounded: bool) -> String {
+    pub(crate) fn append_json(&self, out: &mut String, rounded: bool) {
         match self {
-            Self::Object(fields) => format!(
-                "{{{}}}",
-                fields
-                    .iter()
-                    .map(|(k, v)| format!("{}:{}", quote(k), v.json(rounded)))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            Self::List(items) | Self::Record(items) => format!(
-                "[{}]",
-                items
-                    .iter()
-                    .map(|v| v.json(rounded))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-            Self::Option(Some(v)) => v.json(rounded),
-            _ => value_json(&self.value().unwrap(), rounded),
+            Self::Object(fields) => {
+                out.push('{');
+                for (i, (key, value)) in fields.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                    }
+                    crate::json::quote_into(out, key);
+                    out.push(':');
+                    value.append_json(out, rounded);
+                }
+                out.push('}');
+            }
+            Self::List(items) | Self::Record(items) => {
+                out.push('[');
+                for (i, value) in items.iter().enumerate() {
+                    if i != 0 {
+                        out.push(',');
+                    }
+                    value.append_json(out, rounded);
+                }
+                out.push(']');
+            }
+            Self::Option(Some(v)) => v.append_json(out, rounded),
+            Self::Unit | Self::Option(None) => out.push_str("null"),
+            Self::Str(s) => crate::json::quote_into(out, s),
+            Self::Number(n) => number_json(out, *n, rounded),
+            Self::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         }
     }
 }
+
 impl Data for Value {
     fn write(&self, w: &mut dyn Writer) {
         Stored::from(self.clone()).write(w);
@@ -130,31 +140,40 @@ pub(crate) fn quote(s: &str) -> String {
     w.string(s);
     w.finish().unwrap()
 }
+fn number_json(out: &mut String, n: f64, rounded: bool) {
+    if !n.is_finite() {
+        out.push_str("null");
+        return;
+    }
+    let start = out.len();
+    let n = if rounded { crate::json::rounded(n) } else { n };
+    crate::data::text::shortest(out, n, !rounded).unwrap();
+    if out[start..].ends_with(".0") {
+        out.truncate(out.len() - 2);
+    }
+}
 pub(crate) fn value_json(v: &Value, rounded: bool) -> String {
+    let mut out = String::new();
+    append_value(&mut out, v, rounded);
+    out
+}
+fn append_value(out: &mut String, v: &Value, rounded: bool) {
     match v {
-        Value::Unit | Value::Option(None) => "null".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => {
-            let mut w = if rounded {
-                crate::json::Encoder::rounded()
-            } else {
-                crate::json::Encoder::default()
-            };
-            n.write(&mut w);
-            {
-                let text = w.finish().unwrap_or_else(|_| "null".into());
-                text.strip_suffix(".0").unwrap_or(&text).to_string()
+        Value::Unit | Value::Option(None) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Number(n) => number_json(out, *n, rounded),
+        Value::Str(s) => crate::json::quote_into(out, s),
+        Value::Option(Some(v)) => append_value(out, v, rounded),
+        Value::List(v) | Value::Record(v) => {
+            out.push('[');
+            for (i, value) in v.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                append_value(out, value, rounded);
             }
+            out.push(']');
         }
-        Value::Str(s) => quote(s),
-        Value::Option(Some(v)) => value_json(v, rounded),
-        Value::List(v) | Value::Record(v) => format!(
-            "[{}]",
-            v.iter()
-                .map(|v| value_json(v, rounded))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
     }
 }
 

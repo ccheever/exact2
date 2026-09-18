@@ -1,4 +1,33 @@
 use super::*;
+
+#[test]
+fn registration_links_only_declared_storage_kinds() {
+    #[derive(Default, crate::Component)]
+    struct Both {
+        n: u32,
+    }
+    impl crate::Resource for Both {
+        const NAME: &'static str = "Both";
+    }
+    let mut source = World::new(60, 0);
+    source.spawn(Both { n: 9 });
+    let components = source.save();
+    let mut target = World::new(60, 0);
+    target.register_resource::<Both>();
+    assert!(target
+        .load(&components)
+        .unwrap_err()
+        .to_string()
+        .contains("unregistered component"));
+    target.register::<Both>();
+    target.load(&components).unwrap();
+    assert_eq!(target.save(), components);
+    source.insert_resource(Both { n: 7 });
+    let both = source.save();
+    target.load(&both).unwrap();
+    assert_eq!(target.save(), both);
+    assert_eq!(target.resource::<Both>().n, 7);
+}
 use crate::{Component, Transform, Vec3};
 
 #[derive(Default, Component)]
@@ -111,10 +140,10 @@ fn singleton_load_claims_inline_allocation_before_factory() {
             .registry
             .get_mut("LargeInline")
             .unwrap()
-            .make_resource = |name, epoch| {
+            .make_resource = Some(|name, epoch| {
             MADE.store(true, Ordering::SeqCst);
             storage::make_cell::<LargeInline>(name, epoch)
-        };
+        });
         MADE.store(false, Ordering::SeqCst);
         let mut reader = bin::Decoder::new(&bytes[MAGIC.len()..]);
         reader

@@ -2,6 +2,7 @@
 import { proof } from '../../proof.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawn } from 'node:child_process';
 
 await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   const start = async world => { const s = await open(world ? {world} : {}); await s.tap('play'); return s; };
@@ -11,7 +12,7 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   check('save is mid-transition at tick 45', at45.tick === 45 && at45.entities.find(e=>e.name==='fox').components.Animator.since > 0);
   const save = resolve(out,'fox-45.world'); await s.world('world').save(save);
   await s.world('world').run(250);
-  const pose = await s.op({op:'state', ...await s.target('world:fox'), pose:true});
+  const pose = await s.state('world:fox', undefined, true);
   say(`state world:fox pose\n${JSON.stringify(pose)}`);
   writeFileSync(resolve(out,`pose-60-${host}.json`), JSON.stringify(pose.pose));
   const pinned = JSON.parse(readFileSync(resolve(import.meta.dir,'logic/tests/tick60.json'),'utf8'));
@@ -21,12 +22,22 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   if(host !== 'linux') await s.screenshot(resolve(out,`fox-mid-stride-${host}.png`));
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();
-  check('tick-120 cross-host hash', at120.tick===120 && at120.hash==='0xb05ce95a6c799acf',at120.hash);
+  check('tick-120 cross-host hash', at120.tick===120 && at120.hash==='0x409341e24939d7c2',at120.hash);
+  const referenceSave=resolve(out,`fox-120-reference-${host}.world`);await s.world('world').save(referenceSave);
+  const log=await s.logs();
+  check('fixture consumes step markers', JSON.stringify(log).includes('fox footstep'));
+  check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
   await s.close();
   const restored = await start(save);
   check('fresh process restores mid-transition exactly',equal(await restored.world('world').snapshot(),at45));
   await restored.world('world').run(1250);
   check('fresh-process continuation is identical at tick 120',equal(await restored.world('world').snapshot(),at120));
   const finalSave=resolve(out,`fox-120-${host}.world`);await restored.world('world').save(finalSave);
+  check('fresh continuation saves byte-identically',readFileSync(finalSave).equals(readFileSync(referenceSave)));
   await restored.close();
+  const cli = spawn('bun',[resolve(import.meta.dir,'../../../scripts/agent.mjs'),host,'--json','tap play','state world:fox pose'],{env:process.env,stdio:['ignore','pipe','pipe']});
+  let stdout='',stderr=''; cli.stdout.on('data',b=>stdout+=b); cli.stderr.on('data',b=>stderr+=b);
+  const code=await new Promise((ok,reject)=>{cli.on('exit',ok);cli.on('error',reject);});
+  const replies=stdout.trim().split('\n').filter(Boolean).map(line=>{try{return JSON.parse(line);}catch{return null;}});
+  check('literal CLI state world:fox pose forwards pose:true',code===0 && replies.some(r=>Array.isArray(r?.pose) && r.pose.length===24),stderr || stdout.slice(-300));
 });

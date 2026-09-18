@@ -1,22 +1,31 @@
 use crate::Vertex;
 use exact_gpu::wgpu;
 
-const FRAME: &str = include_str!("shaders/frame.wgsl");
-const TRANSFORM: &str = include_str!("shaders/transform.wgsl");
+const FRAME: &str = include_str!(concat!(env!("OUT_DIR"), "/frame.wgsl"));
+const TRANSFORM: &str = include_str!(concat!(env!("OUT_DIR"), "/transform.wgsl"));
 
 fn primitive_sources() -> [String; 5] {
     [
         [
             FRAME,
             TRANSFORM,
-            include_str!("shaders/shadow_sample.wgsl"),
-            include_str!("shaders/forward.wgsl"),
+            include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl")),
+            include_str!(concat!(env!("OUT_DIR"), "/forward.wgsl")),
         ]
         .concat(),
-        [FRAME, TRANSFORM, include_str!("shaders/shadow.wgsl")].concat(),
-        [FRAME, include_str!("shaders/sky.wgsl")].concat(),
-        [FRAME, include_str!("shaders/tonemap.wgsl")].concat(),
-        [FRAME, include_str!("shaders/bloom.wgsl")].concat(),
+        [
+            FRAME,
+            TRANSFORM,
+            include_str!(concat!(env!("OUT_DIR"), "/shadow.wgsl")),
+        ]
+        .concat(),
+        [FRAME, include_str!(concat!(env!("OUT_DIR"), "/sky.wgsl"))].concat(),
+        [
+            FRAME,
+            include_str!(concat!(env!("OUT_DIR"), "/tonemap.wgsl")),
+        ]
+        .concat(),
+        [FRAME, include_str!(concat!(env!("OUT_DIR"), "/bloom.wgsl"))].concat(),
     ]
 }
 
@@ -31,20 +40,20 @@ pub(crate) fn model_source(shadow: bool) -> String {
     let source = [
         FRAME,
         TRANSFORM,
-        include_str!("shaders/shadow_sample.wgsl"),
-        include_str!("shaders/forward.wgsl"),
-        include_str!("shaders/model.wgsl"),
+        include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl")),
+        include_str!(concat!(env!("OUT_DIR"), "/forward.wgsl")),
+        include_str!(concat!(env!("OUT_DIR"), "/model.wgsl")),
     ]
     .concat();
     if shadow {
         // group 1 is the cascade camera in this pass, so unused shadow sampling
         // declarations must not collide with it.
-        let sample = include_str!("shaders/shadow_sample.wgsl");
+        let sample = include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl"));
         let source = source.replace(
             sample,
             "fn sun_visibility(p: vec3<f32>, n: vec3<f32>) -> f32 { return 1.0; }\n",
         );
-        source + include_str!("shaders/model_shadow.wgsl")
+        source + include_str!(concat!(env!("OUT_DIR"), "/model_shadow.wgsl"))
     } else {
         source
     }

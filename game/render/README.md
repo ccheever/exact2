@@ -121,8 +121,8 @@ linear. Mips arrive baked with authored nearest/linear filters and wrap modes; f
 samplers use 4× anisotropy. Only MASK/BLEND base-colour filtering weights RGB by
 alpha; opaque and emissive maps average straight RGB. MASK mip coverage is
 retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
-derivatives (including models without tangents); baked tangents are retained for
-S3b, not uploaded. Material UV transforms apply separately to every texture.
+derivatives (including models without tangents); baked tangents are retained in
+model data but are not uploaded. Material UV transforms apply separately to every texture.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
@@ -323,7 +323,11 @@ shortest-path quaternion rotation at frame alpha. Lanes compute locals in parall
 one lane composes the parent-first hierarchy, then lanes multiply joint world
 matrices by inverse binds. The shared array specializes to the largest loaded rig's
 next power of two (32 nodes for Fox), bounded at 256. Forward and shadow vertices
-read the same palette. Normals use each joint matrix's normalized rotation columns.
+read the same palette. Normals use the inverse transpose of the blended skin
+transform, preserving nonuniform/animated scale and hierarchy shear. A singular
+blend has no inverse and falls back to the authored normal. A GPU test executes
+the actual vertex skinning function on scaled, rotated joints and compares it with
+the CPU inverse transpose.
 No composed-matrix interpolation, CPU per-frame palette construction, bone entities,
 or transform writes are involved. The optional seventeenth GPU timestamp pair is
 `skin palettes`; as with other Metal timings, intervals are not additive.
@@ -332,16 +336,17 @@ The compute regression distinguishes a quarter-turn interpolation from a lerp of
 composed matrices and checks inverse binds. The warm local-pose packing path has
 an allocator-counting regression. Pose histories survive restore; the existing
 entity/camera history reset can still change a few pixels in a restored moving
-scene. The fixture keeps the same skeletal stride and tests the image within a band.
+scene. The first sampled frame duplicates current locals. A separate birth pixel
+test uses the Fox's affected rectangle, with a 0.1% tolerance against an explicit
+current/current oracle; the old bind-history behavior fails by 11,205 pixels.
 
-S3b measurements, Apple M5 Max / Metal, 2026-09-18:
+Original S3b measurements before the reviewed fixes, Apple M5 Max / Metal, 2026-09-18:
 
 | Measurement | Result | Budget |
 | --- | ---: | ---: |
 | 100 Foxes, 24 joints, three-knot blend, live tick mean over 600 ticks | 0.182969 ms | <0.3 ms |
 | 100 palettes, GPU p50 / p95 | 0.046875 / 0.052750 ms | p50 <0.1 ms |
 | Warm pose packing, 300 feeds, counted Rust allocations | 0 | 0 new allocations |
-| Active Fox fixture GPU wasm, raw / gzip-9 | 945,320 / 368,310 bytes | see below |
 
 The CPU number reruns the retained release fixture binary (the earlier run was
 0.177966 ms); its skeleton code is unchanged. The GPU diagnostic was rebuilt during
@@ -359,10 +364,7 @@ frames, 2560×1440 and 4×MSAA (median of each run's p50, milliseconds):
 | None | 0.0009 → 0.0005 | 0.0357 → 0.0300 | 0.0527 → 0.0442 |
 
 The ranges overlap in every column/mode; this shared-machine diagnostic finds no
-resolved regression and is not an FPS claim. The retained pre-skeleton model
-fixture is 812,698 bytes raw / 323,319 gzip. The active Fox fixture adds 44,991 gzip
-bytes to that reference, including different game logic; it is not an isolated
-same-app engine-growth measurement. Rebuilding the reference was blocked by the
-concurrent `gpu/src/web.rs` wasm-bindgen attribute error after the allowed retry,
-so the ≤60 KB same-app growth budget remains unverified. Logs: `/tmp/s3b-resume-*`;
-paired baseline artifacts: `/tmp/s3b-before-*`.
+resolved regression and is not an FPS claim. No isolated same-app skinning size
+measurement is available, so there is no skinning engine-growth claim here.
+The earlier comparison used different games and has been removed. Historical
+logs: `/tmp/s3b-resume-*`; paired baseline artifacts: `/tmp/s3b-before-*`.

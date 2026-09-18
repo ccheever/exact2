@@ -8,13 +8,15 @@ struct SkinVertex { joints:vec4<u32>, weights:vec4<f32> }
 @group(3) @binding(2) var<storage, read> skin_vertices: array<SkinVertex>;
 fn skinned(draw:ModelInstance,vertex:u32,position:vec3<f32>,normal:vec3<f32>)->mat2x3<f32> {
     if draw.palette==4294967295u {return mat2x3(position,normal);}
-    let v=skin_vertices[vertex]; var p=vec3(0.0); var n=vec3(0.0);
-    for(var i=0u;i<4u;i++) {
-        let m=skin_palette[draw.palette+v.joints[i]];
-        p+=(m*vec4(position,1.0)).xyz*v.weights[i];
-        n+=mat3x3(normalize(m[0].xyz),normalize(m[1].xyz),normalize(m[2].xyz))*normal*v.weights[i];
-    }
-    return mat2x3(p,n);
+    let v=skin_vertices[vertex]; var m=mat4x4<f32>();
+    for(var i=0u;i<4u;i++) { m+=skin_palette[draw.palette+v.joints[i]]*v.weights[i]; }
+    let p=(m*vec4(position,1.0)).xyz;
+    // Inverse transpose of the blended affine map, including hierarchy shear.
+    let cof=mat3x3(cross(m[1].xyz,m[2].xyz),cross(m[2].xyz,m[0].xyz),cross(m[0].xyz,m[1].xyz));
+    let det=dot(m[0].xyz,cof[0]);
+    // A collapsed joint/weight blend has no inverse; retain a finite authored normal.
+    if abs(det)<1e-10 {return mat2x3(p,normal);}
+    return mat2x3(p,(cof*normal)/det);
 }
 struct BakedMaterial {
     base: vec4<f32>, surface: vec4<f32>, emission_cutoff: vec4<f32>, flags: vec4<f32>,

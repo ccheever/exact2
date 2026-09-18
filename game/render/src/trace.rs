@@ -178,7 +178,7 @@ impl Trace {
                 if n != 0 || k != 0 {
                     out.push(',');
                 }
-                write!(out, "{}", self.values[i + k]).unwrap();
+                write!(out, "{}", exact_game::data::text::Float(self.values[i + k])).unwrap();
             }
         }
         out.push_str("]}}");
