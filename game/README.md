@@ -112,11 +112,12 @@ name lookup. Iteration and singleton search scan at most 200,000 entity slots,
 including dead slots, and explicitly refuse larger worlds before acquiring
 leases. Bound-ID proofs have the same 200,000-slot bound and at most 64 kind
 types per world; exceeding either refuses explicitly. Edit nesting is bounded
-to 32 operations, with an explicit refusal before acquiring editing leases. Child-bearing iterators validate the matching rows before mutable leases;
+to 32 operations, with an explicit refusal before acquiring editing leases.
+Child-bearing iterators validate the matching rows before mutable leases;
 both passes use the existing query presence-mask intersection, visiting only
 members in ascending entity order. Successful iteration and warmed ID access
-allocate nothing; diagnostic text is produced only on failure. TypeId uniqueness takes at most 28
-comparisons. The 200k interleaved/churn regression checks every returned row and
+allocate nothing; diagnostic text is produced only on failure. TypeId uniqueness
+takes at most 28 comparisons. The 200k interleaved/churn regression checks every returned row and
 the over-limit error; it cannot pass with an empty iterator.
 
 `Target::entity(&self, world: &World) -> Option<Entity>` borrows its target so
@@ -1378,3 +1379,76 @@ execution, physical audio and Apple SDK/runtime behavior remain unverified;
 device-dependent tests can return early. The game remains a separate workspace.
 All commands, regeneration/diagnostic probes and logs are retained under
 `~/lanes/gamenext/scratch/M3/`. No pushes or remote commands were used.
+
+
+## K1: typed-kind hot paths (2026-09-18)
+
+`World::rows<K>(&self) -> KindRows<'_, K>` and
+`World::rows_mut<K>(&self) -> KindRowsMut<'_, K>` retain their signatures and
+ascending entity order. Membership uses the raw query's presence-mask join.
+Child-bearing joins validate only matching rows, using the references already
+selected by that join, before taking mutable leases. Prepared query columns also
+serve lease preflight, eliminating duplicate storage lookups. Thin row adapters
+and static kind preflight are inlineable. `the::<K>()` uses the same masks without
+leasing values, preserving structural lookup during an edit.
+
+The remaining regression came from eager target descriptions and edit-context
+strings, repeated component-set validation, redundant owner-component fetches,
+column lookups and row wrappers. Context records now hold static strings and an
+entity; formatting happens only on errors. World-local proofs cache each kind's
+validated entity generations. Removing a component invalidates that slot's proofs;
+despawn increments the entity generation; load replaces the cache. Decoded and
+cross-world IDs validate in their destination world before caching. Parent edges
+are still checked on every child use. Id encoding, saved state and pins are unchanged.
+The public `Target::entity(&self, world: &World) -> Option<Entity>` now borrows
+its target so error descriptions can be lazy; gameplay row/edit APIs are unchanged.
+
+For N slots, M matches and k required columns, a join costs O(k ceil(N/64) + kM),
+with one extra shared pass for child-bearing kinds and at most eight direct child
+checks per match. The explicit limits remain 200,000 slots and eight fields/children;
+proof caches additionally refuse more than 64 kinds and edit contexts more than
+32 nested operations. First-use proof storage can initialize up to 200,000 entries;
+component removal invalidates at most 64 cached entries. Steady ID validation is
+an indexed generation comparison after a bounded kind lookup, not a component join.
+
+Existing `tick_10k_median`, median of five fresh 10,000-tick runs, W held, with
+Lanterns sound enabled; identical optimized dev/test profiles, debug info and
+incremental compilation disabled. Historical sources at `03e76d5` were measured
+in this clone with the same timing tests, then restored before verification.
+
+| Game (µs/tick) | Before regression (`03e76d5`) | Entry trunk (`77ef8d2`) | K1 |
+| --- | ---: | ---: | ---: |
+| Lanterns | 35.365 | 154.615 | **36.988** |
+| Beacons | 0.919 | 1.024 | **0.888** |
+
+The 200k-slot benchmarks have 1% members interleaved with nonmembers, slot churn,
+exact nonempty checksums, and five alternating samples of 1,000 passes each:
+
+| Join (µs/pass) | Raw query | Typed rows_mut | Overhead |
+| --- | ---: | ---: | ---: |
+| Three columns, including optional material | 75.985 | 60.020 | −21.01% |
+| Saved child, equivalent validation | 88.023 | 88.322 | +0.34% |
+
+The child-bearing raw control performs the same generation/Parent validation in
+a shared prepass before its mutable query. Separate assertions require zero
+allocations in idle kind paths and both sparse cases. Removing the final child's
+required component refuses before any parent page is dirtied. Temporarily restoring
+the all-entity diagnostic scan makes the sparse-child allocation assertion fail
+with **1,383,902 allocations**, versus zero; the probe was reverted.
+
+Final verification: **530 game Rust tests passed, 0 failed, 23 ignored diagnostics**;
+both ignored sparse timings also pass. Game Clippy with `-D warnings`, both
+workspaces' formatting, caps and boot pass (two boot JS modules, one Wasm reference).
+Linux proofs in Off / Save / FreshGame pass Beacons **54/55/55**, Greybox
+**62/63/63**, Lanterns **8/9/9**, and Asset Fixture **7/8/8**: **401 assertions**,
+with all pins and complete continuation saves unchanged. Game Bun is **55 passed,
+2 environmental failures**: absent Chrome and absent prebuilt feel artifacts.
+Root build/test/Clippy were run and remain blocked by the missing lean Hermes
+executor for TypeScript app bakes. GPU pixels, browser execution, Apple runtime
+and physical audio remain unverified on this headless Linux host.
+
+Ran `git fetch ../exact2-next next/trunk && git merge FETCH_HEAD` against
+**77ef8d2c86cf5757818e44f960f6cf5ccfb09c09**; it was already an ancestor, so no
+merge commit or conflict resolution was needed. Full verification above ran after
+that merge. Commands, complete sample arrays, negative control and verification
+logs are retained under `~/lanes/gamenext/scratch/K1/`.
