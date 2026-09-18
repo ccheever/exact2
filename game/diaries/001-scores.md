@@ -179,6 +179,14 @@ Feel row is scored from the first full sitting (`game/bench/README.md`) for all 
 
 19 → 20/24 → 24/25 → **30/30 of 35** across four builds; one point behind three.js on
 both cards, four and six ahead of Godot; Feel is the row this engine now wins outright.
+**F3 footnote to Feel:** these historical cards used world-space displacement,
+and Exact's paced intervals were compared with the twins' raw callbacks. The
+[same-trace re-score](../bench/README.md#f3--re-scored-from-the-same-traces)
+keeps world CV and event-to-drawn-pose milliseconds unchanged, but withdraws a
+raw-pacing or perceptual winner: Exact's archived raw rAF stamps and every
+engine's camera projection are absent (`—`). Pixel displacement and comparable
+raw pacing await the next sitting; all existing rows remain provisional.
+
 The asks, concrete on both cards:
 
 1. **Restart is a world operation** and the tick should not mention the engine:

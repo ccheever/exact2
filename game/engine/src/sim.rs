@@ -175,7 +175,10 @@ impl<G: Game> Sim<G> {
         if self.setup_pending && !self.assets_pending() {
             return Vec::new();
         }
-        let revision = self.world.revision::<crate::Mesh>();
+        let revision = self
+            .world
+            .revision::<crate::Mesh>()
+            .wrapping_add(self.world.revision::<crate::Sprite>());
         if revision != self.asset_mesh_revision {
             let names: Vec<_> = self
                 .world
@@ -183,25 +186,32 @@ impl<G: Game> Sim<G> {
                 .iter()
                 .filter_map(|(_, mesh)| {
                     if let crate::Mesh::Asset(name) = mesh {
-                        Some(name.clone())
+                        Some((name.clone(), ".model"))
                     } else {
                         None
                     }
                 })
+                .chain(
+                    self.world
+                        .query::<&crate::Sprite>()
+                        .iter()
+                        .map(|(_, s)| (s.texture.clone(), ".tex")),
+                )
                 .collect();
-            let mut roots: std::collections::BTreeSet<_> = names.iter().cloned().collect();
+            let mut roots: std::collections::BTreeSet<_> =
+                names.iter().map(|(n, _)| n.clone()).collect();
             if self.setup_pending {
                 roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
             }
             self.world.assets.retire(&roots);
             self.textures
                 .retain(|n, _| self.world.assets.states.contains_key(n));
-            for name in names {
+            for (name, suffix) in names {
                 if !self.world.assets.request(&name) {
                     continue;
                 }
-                if !name.ends_with(".model") {
-                    self.asset_failed(&name, "mesh requires a .model name");
+                if !name.ends_with(suffix) {
+                    self.asset_failed(&name, &format!("component requires a {suffix} name"));
                 }
             }
             self.asset_mesh_revision = revision;
@@ -413,9 +423,11 @@ impl<G: Game> Sim<G> {
             ));
         }
         for name in G::ASSETS {
-            if !crate::asset::asset_name(name) || !name.ends_with(".model") {
+            if !crate::asset::asset_name(name)
+                || !(name.ends_with(".model") || name.ends_with(".tex"))
+            {
                 return Err(format!(
-                    "asset `{name}`: declaration requires a .model name"
+                    "asset `{name}`: declaration requires a .model or .tex name"
                 ));
             }
         }
@@ -501,7 +513,13 @@ impl<G: Game> Sim<G> {
             self.advance_with(at, Clock::Seekable, after);
         }
         if let Some(mut world) = restart {
-            self.restarted += 1;
+            self.restarted += u64::from(
+                G::Args::FIELDS
+                    .iter()
+                    .zip(&old_values)
+                    .zip(&new_values)
+                    .any(|((field, old), new)| field.1 == ArgumentKind::Restart && old != new),
+            );
             world.presentation_generation = self
                 .world
                 .presentation_generation
@@ -1052,7 +1070,7 @@ impl<G: Game> Sim<G> {
     }
     /// Read the entity's current global position, including ancestor transforms.
     pub fn position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
-        self.world.position(entity)
+        self.world.global_position(entity)
     }
     /// Advance by milliseconds on the seekable clock, establishing an epoch if needed.
     pub fn run(&mut self, ms: f64) -> u32 {
@@ -1209,6 +1227,12 @@ impl<G: Game> Sim<G> {
                 needed.insert(name.clone());
             }
         }
+        needed.extend(
+            self.world
+                .query::<&crate::Sprite>()
+                .iter()
+                .map(|(_, s)| s.texture.clone()),
+        );
         for name in needed.clone() {
             if matches!(
                 assets.states.get(&name),

@@ -128,11 +128,13 @@ cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown 
 `Collider::of(&mesh)` matches each dimensioned primitive. A plane makes a static
 1 cm slab with its top face at Y=0; assets require authored collision geometry.
 
-R3 limitation: the every-tick kinematic diagnostic in `src/state.rs` is ignored,
-not a parity pin. Three fixture attempts moved colliders through the collision-only
-path but did not leave `deferred_optimize_pending` true at a non-initial save
-boundary. The required pending-flag regression and new kinematic pin remain owed;
-the existing dynamic-only pins above do not prove it. Its intended negative control
-clears the last serialized BVH flag and requires next-tick bytes to diverge.
+The kinematic pending-flag parity pin remains owed. R5 tried a 256-static/32-kinematic
+scene with per-body vertical movement and a 512-static/64-kinematic scene moved
+horizontally after the initial tick. Both ran 32 ticks through the collision pipeline
+with matching Off/Save/FreshGame saves, but neither left `deferred_optimize_pending`
+true at a non-initial save boundary. The ignored diagnostic was deleted after those
+two attempts; the dynamic-only pins above do not prove this boundary. A replacement
+must reach the true flag, then show parity and divergence when the serialized flag
+is cleared.
 The PX1 stack timing is 1.244 / 41.256 / 44.109 ms for a 120-tick headless `Sim`
 script: approximately 0.010 / 0.34 / 0.37 ms per tick, not live-host costs.

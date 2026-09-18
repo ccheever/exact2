@@ -3,7 +3,7 @@ use crate::perf::Stamp;
 use exact_game::{Data, DataError, Entity, Parent, Reader, Transform, World};
 use std::fmt::Write;
 
-pub(crate) const STRIDE: usize = 14;
+pub(crate) const STRIDE: usize = 32;
 pub(crate) enum Request {
     Arm { entity: String, frames: usize },
     Read,
@@ -69,6 +69,8 @@ pub(crate) fn mix(prev: [f32; 3], curr: [f32; 3], alpha: f32) -> [f64; 3] {
 }
 pub(crate) struct Trace {
     pub times: [f64; 3],
+    // Drawn world-to-clip matrix (column-major), then physical canvas width/height.
+    pub projection: [f64; 18],
     entity: Entity,
     prev: [f32; 3],
     curr: [f32; 3],
@@ -94,6 +96,7 @@ impl Trace {
             .to_array();
         Ok(Self {
             times: [0.; 3],
+            projection: [0.; 18],
             entity,
             prev: p,
             curr: p,
@@ -148,7 +151,7 @@ impl Trace {
         let p = mix(self.prev, self.curr, alpha);
         let wall = self.origin.wall_ms();
         let i = self.total % (self.values.len() / STRIDE) * STRIDE;
-        self.values[i..i + STRIDE].copy_from_slice(&[
+        self.values[i..i + 14].copy_from_slice(&[
             now,
             wall,
             p[0],
@@ -164,6 +167,7 @@ impl Trace {
             times[1],
             times[2],
         ]);
+        self.values[i + 14..i + STRIDE].copy_from_slice(&self.projection);
         self.total += 1;
         self.count = self.total.min(self.values.len() / STRIDE);
     }
@@ -281,10 +285,12 @@ mod tests {
         let sim = Sim::<Walker>::new(()).unwrap();
         let mut trace = Trace::new(sim.world(), "player", 2).unwrap();
         trace.curr[0] = 1.;
+        trace.projection = std::array::from_fn(|i| i as f64 + 0.25);
         trace.primed = true;
         for i in 0..3 {
             trace.frame(i as f64, 0.123456, 0, [0.; 3], [0.; 3]);
         }
+        assert_eq!(&trace.values[14..STRIDE], &trace.projection);
         let json = trace.read();
         assert!(json.contains("\"overflow\":true"));
         assert!(json.contains("\"total\":3"));

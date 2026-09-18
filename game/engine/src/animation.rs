@@ -342,16 +342,18 @@ impl Animator {
         &mut self,
         pose: &mut Pose,
         model: &Model,
-        dt: f32,
+        dt: Option<f32>,
         scratch: &mut Vec<f32>,
         rest: &[f32],
         ik: Option<&Ik>,
     ) -> Result<(), String> {
+        let resample = dt.is_none();
+        let dt = dt.unwrap_or(0.);
         let state = self
             .states
             .get(self.current as usize)
             .ok_or("animator current state out of range")?;
-        if self.since == 0. && !state.looping && state.speed < 0. {
+        if !resample && self.since == 0. && !state.looping && state.speed < 0. {
             pose.phase = 1.;
         }
         let finished = if state.speed < 0. {
@@ -359,15 +361,17 @@ impl Animator {
         } else {
             pose.phase >= 1.
         };
-        let edge =
-            (!state.paused && (state.looping || finished) && self.fade_time >= self.fade_duration)
-                .then(|| {
-                    state
-                        .transitions
-                        .iter()
-                        .find(|(to, c)| to != &state.name && c.matches(&self.params))
-                })
-                .flatten();
+        let edge = (!resample
+            && !state.paused
+            && (state.looping || finished)
+            && self.fade_time >= self.fade_duration)
+            .then(|| {
+                state
+                    .transitions
+                    .iter()
+                    .find(|(to, c)| to != &state.name && c.matches(&self.params))
+            })
+            .flatten();
         let next = edge
             .map(|(to, _)| {
                 self.states
@@ -422,7 +426,8 @@ impl Animator {
             root,
             state.looping,
         );
-        if !state.paused
+        if !resample
+            && !state.paused
             && !state.looping
             && (state.speed == 0. || math::lerp(pair.0.duration(), pair.1.duration(), pair.2) == 0.)
         {
@@ -447,6 +452,9 @@ impl Animator {
         }
         if let Some(ik) = ik {
             solve_ik(model, &mut pose.local, ik)?;
+        }
+        if resample {
+            return Ok(());
         }
         if let Some(next) = next {
             self.current = next as u32;
@@ -1076,10 +1084,11 @@ pub fn step(w: &mut World) {
                 redelivered_models.insert(name.clone());
             }
             let redelivered = redelivered_models.contains(name);
-            if !redelivered
-                && w.get::<Pose>(e)
-                    .is_some_and(|p| p.stepped == Some(w.tick()))
-            {
+            let stepped = w
+                .get::<Pose>(e)
+                .is_some_and(|p| p.stepped == Some(w.tick()));
+            let dt = if stepped { 0. } else { w.dt() };
+            if !redelivered && stepped {
                 return Ok(());
             }
             if !redelivered
@@ -1097,8 +1106,7 @@ pub fn step(w: &mut World) {
                         previous: rig.rest.clone(),
                         local: rig.rest.clone(),
                         bounds: rig.bounds,
-                        phase: w.get::<Pose>(e).map_or(0., |p| p.phase),
-                        ..Pose::default()
+                        ..w.get::<Pose>(e).map(|p| p.clone()).unwrap_or_default()
                     },
                 );
             }
@@ -1149,7 +1157,7 @@ pub fn step(w: &mut World) {
                 } else {
                     a.time
                 };
-                let next = old + w.dt() * a.speed;
+                let next = old + dt * a.speed;
                 let time = if a.looping {
                     wrap(next, duration)
                 } else {
@@ -1171,14 +1179,16 @@ pub fn step(w: &mut World) {
                 if let Some(ik) = w.get::<Ik>(e) {
                     solve_ik(&model, &mut p.local, &ik)?;
                 }
-                a.time = time;
-                a.playback.record(p);
+                if !stepped {
+                    a.time = time;
+                    a.playback.record(p);
+                }
             } else if let Some(mut b) = w.get_mut::<Blend>(e) {
                 let root = b.playback.root(&model)?;
                 advance_pair(
                     b.pair(&model, &[])?,
                     p,
-                    w.dt(),
+                    dt,
                     &mut runtime.scratch,
                     &rig.rest,
                     &model,
@@ -1188,17 +1198,21 @@ pub fn step(w: &mut World) {
                 if let Some(ik) = w.get::<Ik>(e) {
                     solve_ik(&model, &mut p.local, &ik)?;
                 }
-                b.playback.record(p);
+                if !stepped {
+                    b.playback.record(p);
+                }
             } else if let Some(mut a) = w.get_mut::<Animator>(e) {
                 a.advance(
                     p,
                     &model,
-                    w.dt(),
+                    (!stepped).then_some(dt),
                     &mut runtime.scratch,
                     &rig.rest,
                     w.get::<Ik>(e).as_deref(),
                 )?;
-                a.playback.record(p);
+                if !stepped {
+                    a.playback.record(p);
+                }
             } else {
                 p.local.copy_from_slice(&rig.rest);
                 if let Some(ik) = w.get::<Ik>(e) {
@@ -1215,11 +1229,13 @@ pub fn step(w: &mut World) {
             std::mem::swap(&mut pose.local, &mut p.local);
             pose.bounds = rig.bounds;
             pose.phase = p.phase;
-            pose.root_motion = p.root_motion;
-            pose.crossed.clone_from(&p.crossed);
+            if !stepped {
+                pose.root_motion = p.root_motion;
+                pose.crossed.clone_from(&p.crossed);
+            }
             pose.stepped = Some(w.tick());
             let p = &*pose;
-            for marker in &p.crossed {
+            for marker in p.crossed.iter().filter(|_| !stepped) {
                 let name = w.name(e).unwrap_or("unnamed");
                 let playing = w
                     .get::<Animation>(e)

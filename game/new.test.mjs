@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
@@ -13,11 +13,6 @@ test('a newly generated game builds, tests and proves without editing', async ()
   delete env.EXACT_APP_DIR;
   delete env.CARGO_TARGET_DIR;
   const run = (command, args, cwd = resolve(import.meta.dir, '..')) => new Promise((ok, fail) => {
-    if (command === 'cargo' || args.includes('web')) {
-      const disk = spawnSync('df', ['-h', '/System/Volumes/Data'], {encoding:'utf8'});
-      process.stdout.write(disk.stdout);
-      if (disk.status !== 0) return fail(new Error('disk check failed'));
-    }
     const child = spawn(command, args, {cwd, env, detached:true, stdio:['ignore','pipe','pipe']});
     let timer;
     const reset = () => {
@@ -35,14 +30,21 @@ test('a newly generated game builds, tests and proves without editing', async ()
   let shellDirs = [];
   try {
     await run('bun', ['game/new.mjs', name]);
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','app.contract','app.json','logic','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['app.contract','app.json','logic','proof.mjs']);
+    rmSync(resolve(app, 'app.json'));
+    rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     registeredLock = readFileSync(lockfile);
     for (const file of ['Cargo.toml','Cargo.lock','web','apple','gpu']) assert.ok(!existsSync(resolve(app, file)), file);
-    const located = spawnSync('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; import {dirname} from "node:path"; const app=resolveApp(); console.log(JSON.stringify(["gpu","web","apple","linux"].map(kind=>dirname(app.cargoPackage(kind).manifest_path))));'], {cwd:resolve(import.meta.dir,'..'), env, encoding:'utf8'});
+    // The child's stdout arrives empty under `bun test` (exit 0, nothing written);
+    // the located shells travel through a file instead.
+    const locatedFile = resolve(mkdtempSync(resolve(tmpdir(), 'new-proof-')), 'shells.json');
+    const located = spawnSync('bun', ['-e', `import {resolveApp} from "./scripts/app.mjs"; import {dirname} from "node:path"; import {writeFileSync} from "node:fs"; const app=resolveApp(); writeFileSync(${JSON.stringify(locatedFile)}, JSON.stringify(["gpu","web","apple","linux"].map(kind=>dirname(app.cargoPackage(kind).manifest_path))));`], {cwd:resolve(import.meta.dir,'..'), env, encoding:'utf8'});
     assert.equal(located.status, 0, located.stderr);
-    shellDirs = JSON.parse(located.stdout);
+    assert.ok(existsSync(locatedFile), 'the shell-location child wrote nothing');
+    shellDirs = JSON.parse(readFileSync(locatedFile, 'utf8'));
+    assert.equal(shellDirs.length, 4, 'four shells located');
     const shellFiles = shellDirs.flatMap((dir, index) => ['Cargo.toml',index === 3 ? 'src/main.rs' : 'src/lib.rs', ...(index === 0 ? [] : ['build.rs'])].map(file=>resolve(dir,file)));
     const stamps = shellFiles.map(file => statSync(file).mtimeMs);
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -111,7 +113,17 @@ test('default manifests derive the directory and literal Game ID; authored overr
     assert.equal(defaults.game.crate, 'runner-game-logic');
     assert.equal(defaults.game.type, 'MyGame');
     assert.match(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'), /name = "runner-game-logic"/);
+    const renamed = resolve(root, 'renamed-game');
+    renameSync(dir, renamed);
+    writeFileSync(resolve(renamed,'logic/src/lib.rs'), `pub struct NewGame; impl Game for NewGame { const HZ: u32 = 120; const ID: &'static str = "new-save-id"; }`);
+    const refreshed = gameDefaults(renamed);
+    assert.equal(refreshed.game.crate, 'renamed-game-logic');
+    assert.equal(refreshed.game.type, 'NewGame');
+    assert.equal(refreshed.app.id, 'com.exact.new-save-id');
+    assert.match(readFileSync(resolve(renamed,'logic/Cargo.toml'),'utf8'), /name = "renamed-game-logic"/);
+    renameSync(renamed, dir);
     const override = {...defaults, app:{id:'org.custom.game',name:'Custom'}};
+    delete override._generated;
     writeFileSync(resolve(dir,'app.json'),JSON.stringify(override));
     writeFileSync(resolve(dir,'logic/Cargo.toml'),'authored dependencies\n');
     assert.deepEqual(gameDefaults(dir), override);

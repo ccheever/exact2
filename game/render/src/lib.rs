@@ -15,6 +15,9 @@ mod model_pipeline;
 mod models;
 mod perf;
 mod pipeline;
+#[cfg(test)]
+mod quad_tests;
+mod quads;
 mod renderer;
 mod shadows;
 pub mod shapes;

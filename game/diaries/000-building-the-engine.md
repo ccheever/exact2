@@ -243,3 +243,49 @@ transcript) and ten author-facing edges. All of it is briefed (S3a-c, D2) before
 skeletons; the reviews of the tick-early scheduler and of the audio lifecycle each
 took two rounds to converge, which is the pattern: the builder finds the design's
 gaps, the reviewers find the builder's, and the brief's own formula is not exempt.
+
+## 2026-09-18, 06:00–12:40 — the gate taken four times, skeletons, physics that survives a save, the concurrent tree
+
+Six commits between breakfast and noon, each built by one astra from a brief and read
+by sol and grok blind to each other at one revision. The sequence: the skeleton slice
+(clips, a 1-D blend space, an animator as data, sockets, IK, GPU skinning interpolated
+per local pose before composition — a Fox that walks by its own clip on three hosts,
+100 of them at 0.18 ms a tick) and its closing round (a locomotion contract: an explicit
+motion root, root motion on every play, `crossed()` on the common interface); size
+attribution, which disproved the second whole review's guess — models were 1.5 KB of
+the wasm, the storage monomorphization, `fmt`'s float printer and the WGSL text were
+the weight, and the erased pages with typed moves, a Ryu writer and packed shaders took
+Beacons from 829 to 738 KB (764 with skeletons; the 550 KB target stands unmet); a
+fourth Beacons, written by a fresh builder in six minutes forty from the README alone
+(138 logic lines after the ergonomics round, first browser run green), which the
+judges scored 30/35 on both cards — one behind three.js, six above Godot, with Feel
+now measured and won outright; the sibling program's physics finding carried over
+(rapier's snapshot omitted a broad-phase flag, so save→load→continue diverged at tick
+two; vendored, persisted, EXPHYS v2, every proof can now reload the world every tick
+in two paranoid modes and must hash the same); and the fourth score's asks — restart
+as a `#[restart]` edge, `w.character("player").step(stick, jump)`, `nearest_xz`,
+manifests derived, a headless proof that reads the HUD in half a second, GPU assets
+resident by name and digest across a restore.
+
+What the day taught about the loop rather than the engine. Two builders in one
+worktree with "stay out of those files" notices in each brief worked twice (E5 beside
+A3, PX1 beside R2) and every commit since has gone through a private index — a
+pathspec-less `git add -A` swept a concurrent builder's half-written files into a
+commit once, and once swept a Chrome profile; the rule is now written where the next
+orchestrator reads first. A brief's aside about a full disk ("check `df` before each
+build") leaked into the product twice — into the proof harness and a generator test —
+because a builder reads a brief as a specification; briefs now say the orchestrator
+monitors the machine. The reviews stay worth their cost: the residency slice's reviewer
+found that a retired model could pop back in with stale bytes, that residency was
+unbounded for the device's lifetime, and that every dirty pass re-hashed every resident
+model — three defects the builder's own proof could not see because the proof asked
+"is the work zero after ready" and the answer was yes. Two DO NOT SHIPs out of ten
+verdicts today; both fixed in the next round; none of the fixes moved a pin.
+
+The machine kept its own diary: `ps -axo` hangs on children nothing can kill, the SDK
+under the command-line tools was rearranged at one in the morning so every fresh link
+failed until `SDKROOT` was pinned to the older one, and the disk filled twice. Three
+builders are in the tree as this is written — the residency and ergonomics fixes,
+particles as emitters with sprites and an orthographic camera, and the feel probe's
+honesty round — with the in-world placement brief waiting for the translucent pass
+they will leave behind.

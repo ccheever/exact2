@@ -16,7 +16,8 @@ const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
 let memory = null;
-let inputReady = false, autofocusProcessed = false;
+let inputReady = false;
+const autofocusProcessed = new WeakSet();
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let rustLoader = null, rustLoading = null;
@@ -40,11 +41,12 @@ let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 // Before data arrives, gate actions/editing but preserve scrolling and accessibility.
 function focusAutofocus() {
-  if (!inputReady || autofocusProcessed) return;
+  if (!inputReady) return;
   for (const el of views.values()) {
-    if (!el.exactAutofocus || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
-    autofocusProcessed = true; // Before focus handlers can re-enter apply.
-    if (document.activeElement && document.activeElement !== document.body) return;
+    if (autofocusProcessed.has(el) || !el.exactAutofocus || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
+    autofocusProcessed.add(el); // Before focus handlers can re-enter apply.
+    const active = document.activeElement;
+    if (active && active !== document.body && !(active.matches("[data-gpu-input]") && active.contains(el))) return;
     el.setAttribute("autofocus", ""); el.focus(); return;
   }
 }
@@ -852,7 +854,7 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
-  // Once after mount; mark before focus, whose handler can reenter this batch.
+  // Newly mounted autofocus controls; mark before focus handlers can reenter.
   focusAutofocus();
   for (const { args, selectText } of focusCommands) {
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;

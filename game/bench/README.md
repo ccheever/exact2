@@ -249,33 +249,46 @@ before `game.js` only for `?feel=1`. The Godot scene has an adjacent `Feel` obse
 which disables processing unless `-- --feel` is present; the runner supplies its
 schedule via `--feel-config`. Probes preallocate Float64Array / PackedFloat64Array
 buffers (capacity 1,000 frames/second plus headroom) and write numeric slots. They
-do not clone state, allocate buffers/objects, log, perform file I/O, or serialize on
-the measured per-frame path. InputEventKey objects are also prepared before the
+do not clone state, allocate sample buffers, log, perform file I/O, or serialize on
+the measured per-frame path. Exact caches its rAF wrappers by callback identity;
+a newly seen callback allocates one wrapper, then reuses it. InputEventKey objects are also prepared before the
 Godot run. Results are read once after sampling ends. Instrumentation has a small,
 unsubtracted observer cost; the games' own allocation and UI work remain included.
 
-- **Frame pacing:** consecutive rAF timestamps in three.js; consecutive
-  `Time.get_ticks_usec()` samples in Godot `_process` after physics, with vsync on.
-  The entire script, including the idle gaps between latency trials, is included.
-  `refresh_interval_ms` is their median and `observed_refresh_hz` its reciprocal.
-  p50/p95/p99 use linear interpolation between sorted values; max is the largest
-  interval. A hitch is strictly greater than 1.5× that run's median. Hitch percentage
-  divides by the number of recorded frames (the first has no preceding interval).
-  A steady half-rate renderer can have zero hitches: compare observed cadence with
-  the separately recorded **display mode's refresh rate**. These callbacks observe
-  frames offered to the renderer, **not a hardware presentation fence or a guarantee
-  that the compositor displayed every submission**.
-- **Judder:** only frames from W key delivery + 1.0 seconds up to its release;
-  both endpoints of a displacement must be in that window. Δ is the Euclidean
-  world-space distance between consecutive **drawn** positions, not velocity divided
-  by elapsed time. `judder = population_stddev(Δ) / mean(Δ)`; `repeated_fraction`
-  counts exact Δ = 0. Player and camera translation are reported independently.
-  three.js observes the capsule's mesh position and render camera in its actual
-  `onBeforeRender`; Godot reads `global_position` in `_process`, or
-  `get_global_transform_interpolated().origin` when interpolation is enabled. Camera
-  rotation, screen-space projection and perceptual judder are not measured. A hitch
-  legitimately increases this displacement metric even with interpolation; the
-  camera's remaining follow-easing transient also contributes to its metric.
+- **Frame pacing:** every probe records the **raw callback clock** (rAF's argument
+  in both browsers; `Time.get_ticks_usec()` on entry to Godot `_process`) and the
+  **drawn clock** (Exact's paced `Frame::now_ms`, three.js's rAF argument, Godot's
+  process time). `frame_ms`, refresh interval/Hz, p50/p95/p99/max and raw hitches
+  use only raw callbacks. A separate drawn-clock interval set uses only drawn
+  clocks, including zero intervals when two distinct callbacks draw the same slot.
+  Same-raw-time redraws are dropped, keeping the first; backwards raw time refuses
+  the trace. The whole script, including idle gaps, is included. Quantiles linearly
+  interpolate sorted values. Each clock's hitch is strictly greater than 1.5× its
+  own median; percentages divide by recorded frames (the first has no interval).
+  A steady half-rate renderer can have zero hitches: compare raw cadence to the
+  recorded display mode. These are offered draws, not presentation fences.
+- **Screen-space displacement:** in the W delivery + 1 second through release
+  window, project the drawn player's world position through that draw's camera
+  view-projection into **physical canvas pixels**, with both displacement endpoints
+  inside the window. `screen_player.judder` is population stddev(Δ)/mean(Δ), with
+  Δ the Euclidean pixel displacement. Report exact Δ = 0 repeats separately, and
+  the fraction of adjacent displacement pairs with `abs(Δ[i] - Δ[i-1]) > 0.5 px`;
+  the first displacement has no predecessor. `DISPLACEMENT_CHANGE_PX = 0.5` is the
+  half-pixel reporting choice specified by **Brief F3, finding 2**: a perceptual
+  diagnostic threshold, not a validated universal human detection threshold.
+  Equality at the boundary does not count. A wholly stationary screen position
+  has undefined CV (`—`), all repeats and zero changes. Missing camera projection
+  (or a point behind the camera) yields `—`, never an inferred camera or zero.
+  Camera follow/rotation, authored motion and hitches all contribute; this measures
+  the player's screen center, not every visible feature or photographed judder.
+- **World-space continuity:** the old player/camera translation CV and repeats
+  remain, explicitly marked **world (metres)**. Their formula and window are
+  unchanged. three.js samples world matrices in the actual mesh `onBeforeRender`;
+  Godot samples the player and camera transforms in `_process`, using interpolated
+  transforms when enabled. All probes retain that camera's view-projection and
+  physical canvas dimensions per draw. The mapping is the usual homogeneous divide
+  and NDC-to-canvas conversion ([three.js camera matrices](https://threejs.org/docs/pages/Camera.html),
+  [Godot camera projection](https://docs.godotengine.org/en/4.7/classes/class_camera3d.html)).
 - **Input latency:** 20 alternating W/S presses, each held 100 ms and separated by
   3.5 seconds after release. No teleport, save restore, velocity reset or paused
   simulation is used. Before each event the last 100 ms must contain at least three
@@ -286,17 +299,15 @@ unsubtracted observer cost; the games' own allocation and UI work remain include
   End is `performance.now()` at the mesh draw callback or the Godot `_process` sample.
   We retain rAF's timestamp separately because it can precede an event delivered
   during that frame; subtracting it could yield negative latency. Reported median
-  and p95 are milliseconds and multiples of the run's median refresh interval.
+  and p95 are milliseconds and multiples of the run's **raw** median refresh interval.
   Failed/moving-baseline trials are explicit; fewer than 20 valid trials makes the
   row invalid. The command exits nonzero if any attempt is invalid.
 
 **This measures the engine's pipeline from event delivery to presented state, not
 the OS/USB path, GPU completion, compositor queue or scanout.** Chrome events use
 CDP `Input.dispatchKeyEvent`; Godot uses `Input.parse_input_event` plus the proof's
-`Input.flush_buffered_events`. Godot injects due events after the probe's frame sample,
-so its deliveries are quantized to frames; CDP delivery can occur between callbacks.
-This phase difference limits cross-engine interpretation of sub-frame latency. The
-raw delivered timestamps and first changed frames make that limitation inspectable.
+`Input.flush_buffered_events`. Each table row names its listener/`_input` → first
+**drawn pose change** endpoints and its injection phase in a column note.
 No claim of equal physical input-to-photon latency follows from these numbers.
 
 Godot shipped uses its 60 Hz physics and Compatibility renderer. Its additional row
@@ -321,14 +332,14 @@ every sampled frame, and Chrome gets an additional end confirmation. Loss of eit
 makes the row invalid, even if metrics are still printable. Invalid attempts remain
 in the JSONL and raw traces but are excluded from best/median summaries. This is focus/visibility
 confirmation, not a pixel occlusion analysis. “Best” selects the actual run with the
-lowest hitch percentage, then p99 interval. “Median metrics” takes each column's
+lowest **raw** hitch percentage, then raw p99 interval (unavailable when raw time was not saved). “Median metrics” takes each column's
 median across three runs; it is not a synthetic fourth trace or a pooled latency
 distribution. Neither summary removes the provisional flags.
 
-`bun test game/bench/feel.test.mjs` checks known smooth and alternating-frame motion,
+`bun test ./game/bench/feel.test.mjs` checks known smooth and alternating-frame motion,
 known latency with distinct frame/sample clocks, residual-motion rejection, schedule
-durations, quantiles and corrupt buffers. The integration verification is the live
-three-run commands above; it does not build the home engine or the core/host crates.
+durations, quantiles and corrupt buffers. F3 verifies saved traces and unit fixtures; Godot also passes a headless script
+parser check. The orchestrator owns the next live sitting.
 
 ### Measurements — 2026-09-17, provisional
 
@@ -543,7 +554,7 @@ frames; the 60 Hz attempt overlapped a build) and are shown but not used.
 
 † contaminated attempt, see above.
 
-Read like an adversary: judder here is the displacement between consecutive
+Original reading (superseded by the F3 re-score below): judder here is the displacement between consecutive
 *submitted* poses on the paced clock, not a photographed frame — Exact's frame column
 is its own paced clock while three.js's is raw rAF, so the pacing column favours Exact
 by construction and only the displacement columns compare like with like; latency is
@@ -554,7 +565,7 @@ a 120 Hz exponential-velocity step, Godot its own controller, Exact the 60 Hz
 `Character`), so these are authored experiences, not one workload; and a 12 % hitch
 rate for Godot on a machine at load 15 says as much about the machine as about Godot.
 
-What survives that reading: on this display Exact draws the walking player with a
+Original conclusion, limited to world-space motion: on this display Exact draws the walking player with a
 displacement that varies by 0.2 % frame to frame — three.js's varies by 50–70 % and
 repeats a frame every fifth or sixth, shipped Godot repeats every other frame, Godot
 with interpolation on lands at 3–37 % — and its event-to-pose latency at 60 Hz ticks
@@ -562,6 +573,75 @@ with interpolation on lands at 3–37 % — and its event-to-pose latency at 60 
 Godot's (16 ms); at 120 Hz ticks it is 3.5–4.1 ms. The first-attempt numbers under
 disturbance (0.074 judder, a stalled player) are a reminder that a sitting is a sitting:
 nothing else may touch the display while it runs.
+
+#### F3 — re-scored from the same traces
+
+The historical table above stays intact. The following is the literal output of
+this command, run from the repository root; every run links its input trace:
+
+```sh
+bun game/bench/feel.mjs reanalyze game/bench/results/feel-2026-09-18T11-56-12-978Z-*.json.gz game/bench/results/feel-2026-09-18T12-27-35-105Z-*.json.gz
+```
+
+All valid traces of this sitting are included, together with the unfocused Exact
+attempt (now correctly excluded from summaries). The intermediate
+`game/bench/results/feel-2026-09-18T12-16-13-541Z-*.json.gz` Godot attempts have
+no delivered edges and cannot be scored. Load/provisional metadata comes from
+`game/bench/results/feel-2026-09-18.jsonl`; no fresh measurement was taken.
+The build-overlapping Exact 60 Hz first attempt remains flagged by the historical
+footnote: it passes the unchanged automatic input/focus rules, so the mechanical
+median below includes it. Ranking claims still use the undisturbed attempts.
+
+**Archive limitation:** despite their old `timestamp_source` label saying rAF,
+Exact's `frames` slot 0 and `exact_trace` slot 0 are the **same paced clock**;
+slot 1 is the draw-boundary `performance.now()` sample. Neither is the raw rAF
+argument. Thus Exact's raw cadence, raw hitches and latency/raw-interval cells
+are `—`. Substituting wall time would repeat the incomparable-clock mistake.
+The twins' two clock interval sets are identical by definition. No saved trace
+contains the drawn camera projection, so every screen-pixel cell is `—`.
+**The next sitting supplies these fields once Exact’s ring extension lands.**
+The ring now lives in `game/render/src/trace.rs`, outside the brief’s named scope;
+that small row extension and its `surface.rs` call-site hunk are prepared in
+`/tmp/f3-trace-row.patch`, pending scope approval. The browser adapter already
+accepts the extended row; Exact camera capture is not yet complete.
+No camera or callback timestamps
+are reconstructed from the authored game or the pacer.
+
+| variant | run / trace | status | load1 | raw Hz | raw callback intervals p50/p95/p99/max ms | raw hitches | drawn-clock intervals p50/p95/p99/max ms | drawn hitches | screen player CV (px) | Δ change >0.5 px % | screen zero % | world player CV (m) | world player zero % | world camera CV (m) | world camera zero % | event delivery → first drawn pose p50/p95 ms | latency / raw interval p50/p95 | endpoints; injection phase | tick_phase | trials; edges | front/visible |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| exact/120hz | [reanalyzed #1 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-120hz-1-attempt1.json.gz) | INVALID PROVISIONAL | 25.4 | — | — | — | 8.34/8.35/8.36/12.27 | 0 (0.00%) | — | — | — | 2.058 | 77.1 | 1.432 | 0.0 | 4.95/6.71 | —/— | listener → draw pose; CDP between callbacks | 0.9045 | 20/20; 50/50 | NO |
+| exact/120hz | [reanalyzed #2 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-120hz-2-attempt1.json.gz) | PROVISIONAL | 29.0 | — | — | — | 8.34/8.36/8.36/12.82 | 2 (0.02%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 4.10/8.15 | —/— | listener → draw pose; CDP between callbacks | 0.7952 | 20/20; 50/50 | yes |
+| exact/120hz | [reanalyzed #3 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-120hz-3-attempt1.json.gz) | PROVISIONAL | 14.6 | — | — | — | 8.34/8.36/8.36/8.37 | 0 (0.00%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 3.50/5.25 | —/— | listener → draw pose; CDP between callbacks | 0.7242 | 20/20; 50/50 | yes |
+| exact/120hz | median metrics (n=2) | PROVISIONAL | 21.8 | — | — | — | 8.34/8.36/8.36/10.59 | 1 (0.01%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 3.80/6.70 | —/— | listener → draw pose; CDP between callbacks | 0.7597 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #1 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-60hz-1-attempt1.json.gz) | PROVISIONAL | 24.8 | — | — | — | 8.34/8.35/8.36/10.00 | 0 (0.00%) | — | — | — | 0.074 | 0.0 | 0.074 | 0.0 | 4.25/6.34 | —/— | listener → draw pose; CDP between callbacks | 0.4550 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #2 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-60hz-2-attempt1.json.gz) | PROVISIONAL | 19.7 | — | — | — | 8.34/8.36/8.36/8.37 | 0 (0.00%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 5.15/13.66 | —/— | listener → draw pose; CDP between callbacks | 0.3833 | 20/20; 50/50 | yes |
+| exact/60hz | [reanalyzed #3 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-exact-60hz-3-attempt1.json.gz) | PROVISIONAL | 12.6 | — | — | — | 8.34/8.35/8.36/8.37 | 0 (0.00%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 6.50/7.70 | —/— | listener → draw pose; CDP between callbacks | 0.4621 | 20/20; 50/50 | yes |
+| exact/60hz | median metrics (n=3) | PROVISIONAL | 19.7 | — | — | — | 8.34/8.35/8.36/8.37 | 0 (0.00%) | — | — | — | 0.002 | 0.0 | 0.002 | 0.0 | 5.15/7.70 | —/— | listener → draw pose; CDP between callbacks | 0.4550 | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #1 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-three-shipped-1-attempt1.json.gz) | PROVISIONAL | 22.2 | 120.5 | 8.30/10.10/10.30/10.40 | 0 (0.00%) | 8.30/10.10/10.30/10.40 | 0 (0.00%) | — | — | — | 0.725 | 26.3 | 0.725 | 26.3 | 1.45/8.83 | 0.17/1.06 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #2 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-three-shipped-2-attempt1.json.gz) | PROVISIONAL | 27.4 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.30/10.00/10.30/10.50 | 0 (0.00%) | — | — | — | 0.579 | 16.8 | 0.579 | 16.8 | 4.65/12.52 | 0.56/1.51 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | [reanalyzed #3 (2026-09-18T11-56-12-978Z)](results/feel-2026-09-18T11-56-12-978Z-three-shipped-3-attempt1.json.gz) | PROVISIONAL | 16.6 | 120.5 | 8.30/10.00/10.30/10.40 | 0 (0.00%) | 8.30/10.00/10.30/10.40 | 0 (0.00%) | — | — | — | 0.484 | 11.7 | 0.484 | 11.7 | 4.50/6.91 | 0.54/0.83 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | best (#2) | PROVISIONAL | 27.4 | 120.5 | 8.30/10.00/10.30/10.50 | 0 (0.00%) | 8.30/10.00/10.30/10.50 | 0 (0.00%) | — | — | — | 0.579 | 16.8 | 0.579 | 16.8 | 4.65/12.52 | 0.56/1.51 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| three/shipped | median metrics (n=3) | PROVISIONAL | 22.2 | 120.5 | 8.30/10.00/10.30/10.40 | 0 (0.00%) | 8.30/10.00/10.30/10.40 | 0 (0.00%) | — | — | — | 0.579 | 16.8 | 0.579 | 16.8 | 4.50/8.83 | 0.54/1.06 | listener → draw pose; CDP between callbacks | — | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #1 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-interpolation-1-attempt1.json.gz) | PROVISIONAL | 14.4 | 120.5 | 8.30/13.14/13.69/20.27 | 1200 (12.39%) | 8.30/13.14/13.69/20.27 | 1200 (12.39%) | — | — | — | 0.032 | 0.0 | 0.032 | 0.0 | 16.49/17.29 | 1.99/2.08 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #2 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-interpolation-2-attempt1.json.gz) | PROVISIONAL | 14.2 | 119.7 | 8.36/13.25/14.52/31.61 | 1282 (13.31%) | 8.36/13.25/14.52/31.61 | 1282 (13.31%) | — | — | — | 0.068 | 0.0 | 0.069 | 0.0 | 10.99/17.02 | 1.32/2.04 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | [reanalyzed #3 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-interpolation-3-attempt1.json.gz) | PROVISIONAL | 20.9 | 112.7 | 8.87/13.18/14.63/46.50 | 332 (3.47%) | 8.87/13.18/14.63/46.50 | 332 (3.47%) | — | — | — | 0.370 | 0.0 | 0.368 | 0.0 | 16.07/17.88 | 1.81/2.01 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | best (#3) | PROVISIONAL | 20.9 | 112.7 | 8.87/13.18/14.63/46.50 | 332 (3.47%) | 8.87/13.18/14.63/46.50 | 332 (3.47%) | — | — | — | 0.370 | 0.0 | 0.368 | 0.0 | 16.07/17.88 | 1.81/2.01 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/interpolation | median metrics (n=3) | PROVISIONAL | 14.4 | 119.7 | 8.36/13.18/14.52/31.61 | 1200 (12.39%) | 8.36/13.18/14.52/31.61 | 1200 (12.39%) | — | — | — | 0.068 | 0.0 | 0.069 | 0.0 | 16.07/17.29 | 1.81/2.04 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #1 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-shipped-1-attempt1.json.gz) | PROVISIONAL | 15.5 | 120.8 | 8.28/13.17/13.69/21.45 | 1191 (12.29%) | 8.28/13.17/13.69/21.45 | 1191 (12.29%) | — | — | — | 0.994 | 49.7 | 0.994 | 49.7 | 16.10/17.06 | 1.95/2.06 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #2 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-shipped-2-attempt1.json.gz) | PROVISIONAL | 13.9 | 120.6 | 8.29/13.21/13.70/23.37 | 1365 (14.10%) | 8.29/13.21/13.70/23.37 | 1365 (14.10%) | — | — | — | 1.000 | 50.0 | 1.000 | 50.0 | 16.31/17.00 | 1.97/2.05 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | [reanalyzed #3 (2026-09-18T12-27-35-105Z)](results/feel-2026-09-18T12-27-35-105Z-godot-shipped-3-attempt1.json.gz) | PROVISIONAL | 16.5 | 116.8 | 8.56/13.20/14.84/33.72 | 877 (9.15%) | 8.56/13.20/14.84/33.72 | 877 (9.15%) | — | — | — | 0.994 | 49.7 | 0.994 | 49.7 | 14.58/19.24 | 1.70/2.25 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | best (#3) | PROVISIONAL | 16.5 | 116.8 | 8.56/13.20/14.84/33.72 | 877 (9.15%) | 8.56/13.20/14.84/33.72 | 877 (9.15%) | — | — | — | 0.994 | 49.7 | 0.994 | 49.7 | 14.58/19.24 | 1.70/2.25 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+| godot/shipped | median metrics (n=3) | PROVISIONAL | 15.5 | 120.6 | 8.29/13.20/13.70/23.37 | 1191 (12.29%) | 8.29/13.20/13.70/23.37 | 1191 (12.29%) | — | — | — | 0.994 | 49.7 | 0.994 | 49.7 | 16.10/17.06 | 1.95/2.06 | _input → _process pose; after sample | — | 20/20; 50/50 | yes |
+
+
+The world-space ordering survives: undisturbed Exact has the lowest displacement
+CV, followed by interpolated Godot, three.js, then shipped Godot. Event-to-drawn-pose
+latency in milliseconds is unchanged, with the per-engine input phase now beside
+it. The claim that Exact wins raw frame pacing does **not** survive: its raw clock
+was not recorded. No screen-space ranking can be made from this archive, so the
+old world-space result cannot establish a perceptual Feel winner. All rows remain
+provisional; the games' different motion rules and the sitting's load still limit
+cross-engine conclusions.
 
 **Full measurement pending:** the orchestrator must run `compare` in a quiet
 sitting for three attempts of all five variants. The 120 Hz bake was selected and
@@ -579,14 +659,24 @@ and `end()` (stops capture and returns one plain record). The probe needs the **
 player and camera xyz each frame, a frame timestamp, a same-clock draw/sample time,
 and key-delivery time**. Do not expose only the last physics tick's positions.
 
-Schema 1 uses `stride: 8` and flat `frames` rows of
-`[frame_ms, sample_ms, player_x, player_y, player_z, camera_x, camera_y, camera_z]`.
+Schema 1 retains `stride: 8` and flat `frames` rows of
+`[drawn_clock_ms, sample_ms, player_x, player_y, player_z, camera_x, camera_y, camera_z]`.
+New captures also supply parallel `raw_callback_ms` and `drawn_clock_ms` arrays,
+one entry per row. `sample_ms` is the latency endpoint, **not** either frame clock.
+`camera_projection` has 18 values per row: column-major world-to-clip matrix (16),
+then physical canvas width and height. The analyzer's projection is a homogeneous
+divide, without camera reconstruction or smoothing. Exact's observer captures rAF
+arguments without changing callbacks, then joins them to ring rows using callback
+entry wall times and draw-boundary wall times; resize draws inherit the last raw
+callback and duplicate stamps are dropped. Arrays are preallocated and serialized
+only after sampling. Old Exact traces explicitly lack raw callbacks; old traces
+of every engine lack camera projection, and those metrics stay unavailable.
 Flat `events` rows are `[delivered_ms, VK_code, down_0_or_1, trial_id_or_minus_1]`;
 all times share one monotonic origin. Include `engine_version`, `interpolation`,
 `timestamp_source`, `window_pixels`, `overflow`, `hidden_frames` and
-`unfocused_frames` (and `viewport_css` or `viewport_pixels`). Preallocate before
-capture. The same `script()` and `analyze()` functions then apply without an
-engine-specific threshold, smoothing filter, clock adjustment, or metric branch.
+`unfocused_frames` (and `viewport_css` or `viewport_pixels`). The same `script()` and
+`analyze()` apply without an engine-specific threshold or metric smoothing.
+
 
 
 ## D3 — measured module size, 2026-09-18

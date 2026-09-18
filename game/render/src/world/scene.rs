@@ -2,7 +2,7 @@ use crate::{FrameInput, PointLightInput, Shadows, Sun};
 use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
 use glam::{Mat4, Vec3};
 
-pub(super) fn pose(w: &World, e: Entity) -> Option<Transform> {
+pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
     let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
     Some(Transform {
         position,
@@ -56,11 +56,7 @@ impl History {
         }
     }
     fn at(self, alpha: f32) -> Transform {
-        Transform {
-            position: self.prev.position.lerp(self.curr.position, alpha),
-            rotation: self.prev.rotation.slerp(self.curr.rotation, alpha),
-            scale: self.prev.scale.lerp(self.curr.scale, alpha),
-        }
+        interpolate([self.prev, self.curr], alpha)
     }
 }
 struct Light {
@@ -117,15 +113,10 @@ impl Scene {
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
-            let camera = w.query::<&Camera>().iter().find_map(|(e, c)| {
-                (c.active
-                    && c.near > 0.0
-                    && c.far > c.near
-                    && c.fov_y_degrees > 0.0
-                    && c.fov_y_degrees < 180.0)
-                    .then(|| pose(w, e).map(|t| (e, t, *c)))
-                    .flatten()
-            });
+            let camera = w
+                .query::<&Camera>()
+                .iter()
+                .find_map(|(e, c)| c.valid().then(|| pose(w, e).map(|t| (e, t, *c))).flatten());
             self.camera = camera.map(|(e, t, c)| {
                 (
                     self.camera
@@ -220,7 +211,7 @@ impl Scene {
         }
         self.versions = Some(versions);
     }
-    pub fn frame(&mut self, w: &World, alpha: f32, aspect: f32) -> FrameInput<'_> {
+    pub fn frame(&mut self, w: &World, alpha: f32, size: glam::Vec2) -> FrameInput<'_> {
         let alpha = alpha.clamp(0.0, 1.0);
         let (camera_pose, camera) = self
             .camera
@@ -257,12 +248,7 @@ impl Scene {
                 camera_pose.position,
             )
             .inverse(),
-            proj: glam::camera::rh::proj::directx::perspective(
-                camera.fov_y_degrees.to_radians(),
-                aspect,
-                camera.near,
-                camera.far,
-            ),
+            proj: camera.matrix(size),
             camera_position: camera_pose.position,
             alpha,
             sun,
@@ -270,5 +256,23 @@ impl Scene {
             environment: e,
             timestamps: None,
         }
+    }
+}
+
+// Matches transform.wgsl/model.wgsl: shortest-path normalized linear quaternion
+// interpolation, local scale and translation first, then transform the point.
+pub(crate) fn interpolate([a, b]: [Transform; 2], alpha: f32) -> Transform {
+    let t = alpha.clamp(0., 1.);
+    let q = if a.rotation.dot(b.rotation) < 0. {
+        -b.rotation
+    } else {
+        b.rotation
+    };
+    let q =
+        glam::Vec4::from_array(a.rotation.to_array()).lerp(glam::Vec4::from_array(q.to_array()), t);
+    Transform {
+        position: a.position.lerp(b.position, t),
+        scale: a.scale.lerp(b.scale, t),
+        rotation: glam::Quat::from_vec4(q.try_normalize().unwrap_or(glam::Vec4::W)),
     }
 }

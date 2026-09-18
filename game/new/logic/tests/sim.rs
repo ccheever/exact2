@@ -100,7 +100,7 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     game.run(100.0);
     assert_eq!(
         game.world().published("near").unwrap().as_str(),
-        Some("") // The closest beacon is lit; filtering the nearest does not choose another.
+        Some("beacon-1") // A lit closest beacon cannot hide another unlit candidate.
     );
     game.hold("KeyW", 1000.0);
     game.settle();

@@ -8,6 +8,8 @@ var output := ""
 var game: Node3D
 var window: Window
 var frames := PackedFloat64Array()
+var projection := PackedFloat64Array()
+var raw_clocks := PackedFloat64Array()
 var events := PackedFloat64Array()
 var schedule: Array = []
 var codes: Array = []
@@ -58,6 +60,8 @@ func _initialize() -> void:
 		codes.append(int(c))
 	duration = config.duration_ms
 	frames.resize(int(ceil((duration / 1000.0 + 10) * 1000)) * STRIDE)
+	projection.resize(frames.size() / STRIDE * 18)
+	raw_clocks.resize(frames.size() / STRIDE)
 	events.resize(128 * 4)
 	for item in schedule:
 		var event := InputEventKey.new()
@@ -110,10 +114,20 @@ func _process(_delta: float) -> void:
 		return
 	active = true
 	var p: Vector3 = game.player.get_global_transform_interpolated().origin if interpolated else game.player.global_position
-	var c: Vector3 = game.camera.get_global_transform_interpolated().origin if interpolated else game.camera.global_position
+	var camera_pose: Transform3D = game.camera.get_global_transform_interpolated() if interpolated else game.camera.global_transform
+	var c := camera_pose.origin
 	if (count + 1) * STRIDE > frames.size():
 		overflow = true
 	else:
+		# Beacons uses zero h/v offsets; retain the drawn camera rotation as well.
+		var vp: Projection = game.camera.get_camera_projection() * Projection(camera_pose.affine_inverse())
+		var pixels := DisplayServer.window_get_size()
+		for col in range(4):
+			for row in range(4):
+				projection[count * 18 + col * 4 + row] = vp[col][row]
+		projection[count * 18 + 16] = pixels.x
+		projection[count * 18 + 17] = pixels.y
+		raw_clocks[count] = now
 		var i := count * STRIDE
 		count += 1
 		frames[i] = now
@@ -144,14 +158,17 @@ func _finish() -> void:
 	set_process(false)
 	frames.resize(count * STRIDE)
 	events.resize(event_count * 4)
+	projection.resize(count * 18)
+	raw_clocks.resize(count)
 	var size := DisplayServer.window_get_size()
 	var report := {"schema": 1, "stride": STRIDE, "frames": frames, "events": events,
+		"raw_callback_ms": raw_clocks, "drawn_clock_ms": raw_clocks, "camera_projection": projection,
 		"overflow": overflow, "hidden_frames": hidden, "unfocused_frames": unfocused,
 		"first_unfocused_ms": first_unfocused, "last_unfocused_ms": last_unfocused,
 		"window_pixels": [size.x, size.y], "viewport_pixels": [window.size.x, window.size.y],
 		"engine_version": Engine.get_version_info().string, "interpolation": get_tree().physics_interpolation,
 		"display_refresh_hz": DisplayServer.screen_get_refresh_rate(),
 		"vsync_mode": DisplayServer.window_get_vsync_mode(),
-		"timestamp_source": "Time.get_ticks_usec in _process"}
+		"timestamp_source": "raw and drawn: Time.get_ticks_usec in _process; _input delivery for latency"}
 	FileAccess.open(output, FileAccess.WRITE).store_string(JSON.stringify(report, "", true, true))
 	get_tree().quit()

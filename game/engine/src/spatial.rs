@@ -13,11 +13,7 @@ impl View {
             return None;
         }
         w.query::<&Camera>().iter().find_map(|(e, c)| {
-            (c.active
-                && c.near > 0.0
-                && c.far > c.near
-                && c.fov_y_degrees > 0.0
-                && c.fov_y_degrees < 180.0)
+            c.valid()
                 .then(|| {
                     w.global(e).map(|pose| Self {
                         pose,
@@ -29,25 +25,24 @@ impl View {
         })
     }
     fn projection(&self) -> Mat4 {
-        glam::camera::rh::proj::directx::perspective(
-            self.camera.fov_y_degrees.to_radians(),
-            self.size.x / self.size.y,
-            self.camera.near,
-            self.camera.far,
-        )
+        self.camera.matrix(self.size)
     }
     pub fn ray(&self, p: Vec2) -> (Vec3, Vec3) {
-        let t = math::tan(self.camera.fov_y_degrees.to_radians() * 0.5);
-        let local = Vec3::new(
-            (p.x / self.size.x * 2.0 - 1.0) * self.size.x / self.size.y * t,
-            (1.0 - p.y / self.size.y * 2.0) * t,
-            -1.0,
-        );
+        let ndc = Vec3::new(p.x / self.size.x * 2. - 1., 1. - p.y / self.size.y * 2., 0.);
+        let inverse = self.projection().inverse();
+        let near = inverse.project_point3(ndc);
+        let far = inverse.project_point3(ndc.with_z(1.));
+        let origin = if matches!(self.camera.projection, crate::Projection::Perspective) {
+            Vec3::ZERO
+        } else {
+            near.with_z(0.)
+        };
         (
-            self.pose.translation.into(),
-            self.pose.transform_vector3(local).normalize(),
+            self.pose.transform_point3(origin),
+            self.pose.transform_vector3(far - near).normalize(),
         )
     }
+
     pub fn screen(&self, corners: &[Vec3; 8]) -> Option<[f32; 4]> {
         let inv = self.pose.inverse();
         let points = corners.map(|p| inv.transform_point3(p));
@@ -127,6 +122,17 @@ pub(crate) fn center(mesh: Option<&Mesh>) -> Vec3 {
     }
 }
 pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, Vec3) {
+    if let Some(e) = w.get::<crate::Emitter>(entity).filter(|_| mesh.is_none()) {
+        let lo = Vec3::from_slice(&e.bound[..3]);
+        let hi = Vec3::from_slice(&e.bound[3..]);
+        return ((hi - lo) * 0.5, (hi + lo) * 0.5);
+    }
+    if let Some(s) = w.get::<crate::Sprite>(entity).filter(|_| mesh.is_none()) {
+        return (
+            s.size.extend(0.001) * 0.5,
+            ((crate::Vec2::splat(0.5) - s.anchor) * s.size).extend(0.),
+        );
+    }
     if let Some(Mesh::Asset(name)) = mesh {
         if let Some(model) = w.model(name) {
             let bounds = w
@@ -292,6 +298,39 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
             }
         }
     }
+    for (e, sprite) in w.query::<&crate::Sprite>().iter() {
+        if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+            continue;
+        }
+        let pose = displayed_bounds_pose(w, e, Some(view));
+        if pose.matrix3.determinant().abs() < 1e-12 {
+            continue;
+        }
+        let inv = pose.inverse();
+        let o = inv.transform_point3(origin);
+        let d = inv.transform_vector3(direction);
+        if d.z.abs() < 1e-8 {
+            continue;
+        }
+        let t = -o.z / d.z;
+        let p = o + d * t;
+        let lo = -sprite.anchor * sprite.size;
+        let hi = lo + sprite.size;
+        let point = origin + direction * t;
+        let depth = -view.pose.inverse().transform_point3(point).z;
+        if t >= 0.
+            && p.x >= lo.x
+            && p.x <= hi.x
+            && p.y >= lo.y
+            && p.y <= hi.y
+            && depth >= view.camera.near
+            && depth <= view.camera.far
+            && hit.is_none_or(|(_, old, _)| t < old)
+        {
+            hit = Some((e, t, point));
+        }
+    }
+
     hit
 }
 
@@ -338,8 +377,20 @@ pub(crate) struct Layout {
     pub visibility: Option<(bool, bool, f32, f32)>,
     pub unbounded: bool,
 }
+fn displayed_bounds_pose(w: &World, entity: Entity, view: Option<&View>) -> Affine3A {
+    let pose = w.global(entity).unwrap_or(Affine3A::IDENTITY);
+    if w.has::<crate::Sprite>(entity) {
+        let (scale, _, position) = pose.to_scale_rotation_translation();
+        let rotation = view.map_or(crate::Quat::IDENTITY, |v| {
+            v.pose.to_scale_rotation_translation().1
+        });
+        Affine3A::from_scale_rotation_translation(scale.abs(), rotation, position)
+    } else {
+        pose
+    }
+}
 pub(crate) fn layout(world: &World, viewport: Vec2, entity: Entity) -> Layout {
-    let pose = world.global(entity).unwrap_or(Affine3A::IDENTITY);
+    let pose = displayed_bounds_pose(world, entity, View::new(world, viewport).as_ref());
     let mesh = world.get::<Mesh>(entity);
     let (half, center) = bounds(world, entity, mesh.as_deref());
     let corners = corners(pose, half, center);

@@ -82,6 +82,7 @@ await proof(import.meta, async ({open, check, equal, out, host, say}) => {
   await walk(g,3,-9); await g.tap('KeyE'); await g.run(1000);
   const win=await s.tree();
   check('all three light and victory appears',node(win,'hud-lit')?.props.text==='Beacons 3 / 3' && win.nodes.some(n=>n.props?.text==='All beacons lit') && node(win,'again')?.accessibleName==='Play again');
+  check('victory control takes logical focus', node(win,'again')?.focused === true && (await s.state()).focus.logical === node(win,'again')?.id);
   await s.tap('again');
   check('restart is visible in state.world', (await s.state()).world[0].restarted === 1);
   check('Play again resets position',equal(await g.position('player'),[0,0.9,0]));

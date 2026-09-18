@@ -131,7 +131,7 @@ Erased component pages own values through typed descriptor operations: `read`/
 at registration. Allocation and masks remain erased. Padded owned components and
 zero-sized components with destructors exercise insert, replacement, removal and
 load; these ordinary tests do not lock typed moves against byte-copy regressions
-without Miri. A constructor-ID companion checks that replacement drops the old
+without Miri. A non-ZST constructor-ID companion checks that replacement drops the old
 instance and removal transfers the new one. That companion is intentionally not
 a ZST: an actual ZST cannot carry an instance ID, and an external ID queue would
 merely assume the move ordering it claimed to test; the existing panic-on-drop test protects occupied-slot ownership. Loading

@@ -2,7 +2,8 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {artifactDigest, closeSessions, equal, paranoidRuns} from './proof.mjs';
+import {artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt} from './proof.mjs';
+import {checkSteadyResidency} from './games/asset-fixture/residency.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
@@ -247,11 +248,18 @@ test('author examples and documentation describe current motion, placement and p
     const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
     expect(setup).not.toContain('scene::follow');
     expect(source).toContain('Character');
-    expect(source).toContain('nearest_xz::<Beacon>');
+    expect(source).toContain('nearest_xz_where::<Beacon>');
   }
   expect(main).not.toContain('Call it at the\nend of `setup`');
   expect(engine).not.toContain('stepped explicitly by `scene::follow`');
   expect(greybox).not.toContain('math::ease');
+  expect(main).not.toContain('a normal proof rebuilds after\na paranoid build');
+  expect(main).not.toContain('fails later in the out-of-scope residency probe');
+  expect(read('render/README.md')).not.toContain('ready || no device');
+  expect(engine).toContain('without Miri');
+  expect(engine).toContain('not\na ZST');
+  expect(read('audio/README.md')).toContain('0xa655423c9a442bce');
+
   const proof = read('games/greybox/proof.mjs');
   for (const pin of ['0x7544ef30a82fdcdc', '0xa655423c9a442bce', '[0, 0.9, -5.3666644]']) {
     expect(proof).toContain(pin);
@@ -272,15 +280,53 @@ test('queue no longer lists the repaired Beacons designed-defaults fixture', () 
   expect(readFileSync(resolve(import.meta.dir, '../QUEUE.md'), 'utf8')).not.toContain('`render/tests/world.rs::beacons_designed_defaults` still expects');
 });
 
-for (const failure of [undefined, '1', 'fresh-game']) test(`paranoid leaves an Off artifact even after ${failure ?? 'success'}`, async () => {
-  let artifactMode;
-  const modes = [];
-  const failed = await paranoidRuns(async mode => {
-    modes.push(mode);
-    artifactMode = mode; // Web compile-time mode and its receipt move together.
-    return mode === failure ? 1 : 0;
-  });
-  expect(failed).toBe(failure !== undefined);
-  expect(modes.slice(0, 3)).toEqual(['0', '1', 'fresh-game']);
-  expect(artifactMode).toBe('0');
+for (const failure of ['none', 'save', 'fresh-throw', 'off-before-receipt']) test(`paranoid receipt lifecycle: ${failure}`, async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'r5-receipt-')), dist = resolve(dir, 'dist');
+  const receipt = resolve(dir, 'build-web.sha256'), modes = [];
+  mkdirSync(dist);
+  const inputs = mode => buildInputHash('web', 'target', mode).update('source bytes').digest('hex');
+  let bakes = 0;
+  const ordinary = (mode, die = false) => ensureBuildReceipt({receipt, inputs:inputs(mode),
+    artifact:() => artifactDigest('web', dist), build:async () => {
+      bakes++;
+      writeFileSync(resolve(dist, 'exact.json'), '{"module":"gpu_bg.wasm"}');
+      writeFileSync(resolve(dist, 'gpu_bg.wasm'), `wasm compiled with ${mode}`);
+      if (die) throw new Error('child died before receipt');
+    }});
+  try {
+    await ordinary('fresh-game');
+    expect(await ordinary('0')).toBe(true); // Ordinary rejects a real paranoid receipt.
+    expect(bakes).toBe(2);
+    const failed = await paranoidRuns(async mode => {
+      modes.push(mode);
+      await ordinary(mode, failure === 'off-before-receipt' && modes.length === 4);
+      if (failure === 'fresh-throw' && mode === 'fresh-game') throw new Error('proof child threw');
+      return failure === 'save' && mode === '1' ? 1 : 0;
+    });
+    expect(modes).toEqual(['0', '1', 'fresh-game', '0']);
+    expect(failed).toBe(failure !== 'none');
+    const stamp = JSON.parse(readFileSync(receipt, 'utf8'));
+    expect(stamp.inputs).toBe(inputs(failure === 'off-before-receipt' ? 'fresh-game' : '0'));
+    const before = bakes;
+    expect(await ordinary('0')).toBe(failure === 'off-before-receipt');
+    expect(bakes - before).toBe(failure === 'off-before-receipt' ? 1 : 0);
+    expect(JSON.parse(readFileSync(receipt, 'utf8'))).toEqual({inputs:inputs('0'), artifact:artifactDigest('web', dist)});
+    expect(readFileSync(resolve(dist, 'gpu_bg.wasm'), 'utf8')).toBe('wasm compiled with 0');
+    expect(buildInputHash('linux', 'target', '0').digest('hex'))
+      .toBe(buildInputHash('linux', 'target', 'fresh-game').digest('hex'));
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('steady residency skips no-device worlds and asserts only device-backed work', () => {
+  const checks = [], lines = [], check = (...args) => checks.push(args), say = line => lines.push(line);
+  const gpu = {afterReady:{textureUploads:0, meshUploads:0, pipelineCreations:0, modelSkinBufferReallocations:0}};
+  checkSteadyResidency({device:false, ready:false, gpu}, check, say);
+  expect(checks).toEqual([]);
+  expect(lines).toEqual(['SKIP: no device — after-ready GPU residency']);
+  checkSteadyResidency({device:true, ready:true, gpu}, check, say);
+  expect(checks.at(-1)[1]).toBe(true);
+  checkSteadyResidency({device:true, ready:false, gpu}, check, say);
+  expect(checks.at(-1)[1]).toBe(false);
+  checkSteadyResidency({device:true, ready:true, gpu:{afterReady:{textureUploads:1}}}, check, say);
+  expect(checks.at(-1)[1]).toBe(false);
 });

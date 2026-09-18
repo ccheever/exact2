@@ -178,11 +178,10 @@ impl Game for TextureDeclaration {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 #[test]
-fn texture_is_not_a_model_declaration_or_mesh() {
-    assert!(Sim::<TextureDeclaration>::new(())
-        .err()
-        .unwrap()
-        .contains("wrong.tex"));
+fn texture_declaration_is_allowed_but_a_texture_is_not_a_mesh() {
+    let mut declared = Sim::<TextureDeclaration>::new(()).unwrap();
+    assert!(declared.is_loading());
+    assert_eq!(declared.take_assets(), ["wrong.tex"]);
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     *sim.world()
         .get_mut::<Mesh>(sim.world().resolve("late").unwrap())

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { residencyProbe, checkResidency } from '../asset-fixture/residency.mjs';
+import { residencyProbe, checkResidency, checkSteadyResidency } from '../asset-fixture/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -41,7 +41,7 @@ await proof(import.meta, async ({open, check, equal, out, say, host}) => {
   check('fixture consumes step markers', JSON.stringify(log).includes('fox footstep'));
   check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
   const afterTicks = (await s.state()).world[0];
-  check('steady ticks including paranoid Save do no GPU residency work', (afterTicks.ready || afterTicks.device === false) && Object.values(afterTicks.gpu.afterReady).every(n => n === 0), afterTicks.gpu);
+  checkSteadyResidency(afterTicks, check, say);
   if(host==='web') await checkResidency(probe,s,check,say);
   else say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
   await s.close();

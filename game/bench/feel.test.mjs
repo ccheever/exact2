@@ -1,5 +1,9 @@
 import { test, expect } from 'bun:test';
-import { analyze, quantile, script, cli, consoleState, exactAdapter, prepareExact, runFeel, table } from './feel.mjs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
+import { analyze, quantile, script, cli, consoleState, exactAdapter, prepareExact, runFeel, table, projectPixels, screenMotion, DISPLACEMENT_CHANGE_PX, reanalyze } from './feel.mjs';
 import { inputRecorder, keys } from './probes/input.mjs';
 
 // Independent 100 Hz presentation / 50 Hz motion fixture. Sampling is five ms
@@ -133,11 +137,12 @@ test('extra delivered input is retained and invalidates the attempt, never dedup
 });
 
 test('exact installation has one explicit entry and is idempotent while warming', async () => {
-  const names = ['exact', 'window', 'document', 'setTimeout'];
+  const names = ['exact', 'window', 'document', 'setTimeout', 'requestAnimationFrame'];
   const saved = names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
   let clicks = 0, reloads = 0;
   try {
     globalThis.window = globalThis;
+    globalThis.requestAnimationFrame = () => 0;
     const play = { click() { clicks++; }, focus() {} };
     globalThis.document = { querySelector: s => s === '#start' ? play : { dataset: { view: '1' } } };
     globalThis.exact = { ready: Promise.resolve(), gpu: { wantsInput: () => true }, reload: async () => { reloads++; } };
@@ -247,4 +252,103 @@ test('a mid-batch refusal saves completed/invalid rows and stops without another
   expect(takes).toBe(2);
   expect(saved).toEqual([{ valid: true }, invalid]);
   expect(table([invalid])).toContain('INVALID PROVISIONAL console active | 35.0');
+});
+
+
+test('raw callbacks and drawn clocks have independent intervals, hitches and latency units', () => {
+  const { raw, plan } = fixture();
+  raw.drawn_clock_ms = raw.frames.filter((_, i) => i % 8 === 0).map((_, i) => 995 + i * 5);
+  const m = analyze(raw, plan);
+  expect(m.frame_ms.p50).toBe(10);
+  expect(m.drawn_clock_ms.p50).toBe(5);
+  expect(m.latency.median_intervals).toBe(1);
+  raw.raw_callback_ms = raw.frames.filter((_, i) => i % 8 === 0).map((t, i) => t + (i % 2 ? 6 : 0));
+  const jitter = analyze(raw, plan);
+  expect(jitter.hitches).toBeGreaterThan(0);
+  expect(jitter.drawn_hitches).toBe(0);
+  raw.drawn_clock_ms[100] = raw.drawn_clock_ms[99]; // repeated drawn slot is still a new raw callback
+  expect(analyze(raw, plan).frames).toBe(m.frames);
+  raw.raw_callback_ms[100] = raw.raw_callback_ms[99];
+  expect(analyze(raw, plan).frames).toBe(m.frames - 1);
+  raw.raw_callback_ms[100] = raw.raw_callback_ms[99] - 1;
+  expect(() => analyze(raw, plan)).toThrow('Nonmonotonic');
+});
+
+test('known perspective camera projects world pose into physical canvas pixels', () => {
+  // 90-degree vertical FOV, aspect 2, camera at z=5 looking along -Z.
+  const projection = [.5,0,0,0, 0,1,0,0, 0,0,-1,-1, 0,0,4,5, 800,400];
+  expect(projectPixels([0,0,0], projection)).toEqual([400,200]);
+  expect(projectPixels([1,1,3], projection)).toEqual([500,100]);
+  expect(projectPixels([0,0,6], projection)).toBeNull();
+  const { raw, plan } = fixture();
+  const identity = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1, 800,400];
+  raw.camera_projection = [];
+  for (let i = 0; i < raw.frames.length; i += 8) {
+    raw.frames[i + 2] = raw.frames[i + 4];
+    raw.camera_projection.push(...identity);
+  }
+  const m = analyze(raw, plan);
+  expect(m.screen_player.mean_displacement_px).toBeCloseTo(16, 10);
+  expect(m.screen_player.judder).toBeLessThan(1e-12);
+});
+
+test('half-pixel change threshold is strictly greater, with repeated frames counted separately', () => {
+  expect(DISPLACEMENT_CHANGE_PX).toBe(.5);
+  expect(screenMotion([[0,0],[1,0],[2.5,0]]).change_fraction).toBe(0);
+  expect(screenMotion([[0,0],[1,0],[2.500001,0]]).change_fraction).toBe(1);
+  expect(screenMotion([[0,0],[1,0],[1.5,0]]).change_fraction).toBe(0);
+  expect(screenMotion([[0,0],[1,0],[1.499999,0]]).change_fraction).toBe(1);
+  expect(screenMotion([[0,0],[0,0],[1,0]]).repeated_fraction).toBe(.5);
+  expect(screenMotion([[0,0],[0,0],[0,0]])).toMatchObject({judder:null, repeated_fraction:1, change_fraction:0});
+});
+
+test('missing projection and historical Exact raw clock stay unavailable, never wall-clock substitutes', () => {
+  const { raw, plan } = fixture();
+  const m = analyze({...raw, exact_trace:{}}, plan);
+  expect(m.screen_player).toBeNull();
+  expect(m.frame_ms).toBeNull();
+  expect(m.hitches).toBeNull();
+  expect(m.latency.median_ms).toBe(10);
+  expect(m.latency.median_intervals).toBeNull();
+  const report = table([{...m, engine:'exact', variant:'60hz', valid:true, provisional:true}]);
+  expect(report).toContain('| — | — | — |');
+  expect(report).not.toContain('NaN');
+  expect(() => analyze({...raw, camera_projection:[1]}, plan)).toThrow('camera_projection');
+});
+
+test('Exact recorder retains callback arguments and maps same-time redraws without changing callbacks', async () => {
+  const { callbackRecorder } = await import('./probes/exact.mjs');
+  const queue = [], target = { requestAnimationFrame: cb => queue.push(cb) };
+  let wall = 0, received;
+  const recorder = callbackRecorder(target, () => wall);
+  recorder.begin(10);
+  target.requestAnimationFrame(stamp => { received = stamp; });
+  wall = 102; queue.shift()(100);
+  target.requestAnimationFrame(() => {});
+  wall = 112; queue.shift()(110);
+  expect(received).toBe(100);
+  const result = recorder.end([99,103,0,0,0,0,0,0, 99,104,0,0,0,0,0,0, 109,113,0,0,0,0,0,0]);
+  expect(result).toEqual({raw_callback_ms:[100,100,110], overflow:false});
+});
+
+
+test('reanalyze retains focus, trial, edge and provisional rules from saved evidence', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'f3-reanalyze-'));
+  const path = join(dir, 'feel-2026-09-18T11-56-12-978Z-three-shipped-1-attempt1.json.gz');
+  const { raw, plan } = fixture();
+  const save = overrides => writeFileSync(path, gzipSync(JSON.stringify({...raw, schedule:plan.schedule,
+    hidden_frames:0, unfocused_frames:0, ...overrides})));
+  try {
+    writeFileSync(join(dir, 'feel-2026-09-18.jsonl'), JSON.stringify({trace:path, load1:12, provisional:true}));
+    save({unfocused_frames:1});
+    expect(reanalyze([path])[0]).toMatchObject({valid:false, provisional:true, load1:12, trace:path});
+    save({});
+    expect(reanalyze([path])[0].valid).toBe(true);
+    const frames = [...raw.frames];
+    for (let i = 0; i < frames.length; i += 8) if (frames[i + 1] === 12950) frames[i + 2] = .00001;
+    save({frames});
+    expect(reanalyze([path])[0]).toMatchObject({valid:false, latency:{valid_trials:19}});
+    save({events:raw.events.slice(4)});
+    expect(reanalyze([path])[0].error).toContain('Expected 50 delivered events');
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

@@ -8,6 +8,18 @@ use exact_gpu::wgpu;
 use glam::Mat4;
 use std::collections::BTreeMap;
 
+#[cfg(test)]
+thread_local! { static MODEL_HASHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(crate) fn model_hash_count() -> usize {
+    MODEL_HASHES.with(|n| n.get())
+}
+pub(crate) fn model_digest(model: &Model) -> u64 {
+    #[cfg(test)]
+    MODEL_HASHES.with(|n| n.set(n.get() + 1));
+    exact_game::hash::of(model)
+}
+
 pub(crate) struct Material {
     pub bind: wgpu::BindGroup,
     pub alpha: AlphaMode,
@@ -19,15 +31,20 @@ pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
     digest: u64,
+    pub active: bool,
+    pub bytes: u64,
 }
-struct Texture {
-    digest: u64,
-    view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
+pub(crate) struct Texture {
+    bytes: u64,
+    pub digest: u64,
+    pub view: wgpu::TextureView,
+    pub sampler: wgpu::Sampler,
+    pub size: [u32; 2],
 }
 #[derive(Default)]
 pub(crate) struct Models {
     pub loaded: BTreeMap<String, Uploaded>,
+    prior_work: crate::world::assets::Work,
     pub revision: u64,
     textures: BTreeMap<String, Texture>,
     samplers: BTreeMap<([Wrap; 2], [Filter; 3]), wgpu::Sampler>,
@@ -40,7 +57,7 @@ pub(crate) struct Models {
     pub bind: Option<wgpu::BindGroup>,
     pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
-    pub poses: Vec<[Mat4; 2]>,
+    pub poses: Vec<[exact_game::Transform; 2]>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
 }
@@ -118,7 +135,8 @@ impl Models {
         instances.write(queue, 0, bytes(words));
         self.records.clear();
         self.records.extend_from_slice(records);
-        self.poses.resize(records.len(), [Mat4::IDENTITY; 2]);
+        self.poses
+            .resize(records.len(), [exact_game::Transform::default(); 2]);
         Ok(())
     }
 }
@@ -227,7 +245,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     }
     /// Prepare a named model inside its Pending window. Later feeds only read handles.
     pub fn prepare_model(&mut self, name: &str, model: &Model) -> Result<(), RenderError> {
-        let digest = exact_game::hash::of(model);
+        self.prepare_model_digest(name, model, model_digest(model))
+    }
+    pub(crate) fn prepare_model_digest(
+        &mut self,
+        name: &str,
+        model: &Model,
+        digest: u64,
+    ) -> Result<(), RenderError> {
         if self
             .models
             .loaded
@@ -262,27 +287,91 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 })
             })
             .collect();
-        self.models
-            .loaded
-            .insert(name.into(), Uploaded { nodes, digest });
+        self.models.loaded.insert(
+            name.into(),
+            Uploaded {
+                nodes,
+                digest,
+                active: true,
+                // Conservative arena charge: capacity growth plus per-entry metadata.
+                bytes: (exact_game::bin::to_vec(model).len() as u64 * 4)
+                    // Each skin expands the full node hierarchy and a retained rest pose.
+                    + model.nodes.len() as u64 * model.skins.len() as u64 * 96
+                    + (model.meshes.len() + model.materials.len() + model.skins.len() + 1) as u64
+                        * 1024,
+            },
+        );
         self.models.revision += 1;
         Ok(())
+    }
+    pub(crate) fn model_changed(&self, name: &str, digest: u64) -> bool {
+        self.models
+            .loaded
+            .get(name)
+            .is_some_and(|m| m.digest != digest)
+    }
+    pub(crate) fn retired_bytes(&self, live: &std::collections::BTreeSet<String>) -> u64 {
+        self.models
+            .loaded
+            .iter()
+            .filter(|(n, _)| !live.contains(*n))
+            .map(|(_, m)| m.bytes)
+            .sum::<u64>()
+            + self
+                .models
+                .textures
+                .iter()
+                .filter(|(n, _)| !n.starts_with('\0') && !live.contains(*n))
+                .map(|(_, t)| t.bytes)
+                .sum::<u64>()
+    }
+    /// Rebuild arenas from the live CPU models after this call. Texture views survive,
+    /// but geometry, materials and skin templates (including replacements) are reclaimed.
+    pub(crate) fn compact_assets(
+        &mut self,
+        format: wgpu::TextureFormat,
+        live: &std::collections::BTreeSet<String>,
+    ) {
+        let before = self.residency_work();
+        let mut fresh = Self::new(&self.device, &self.queue, format);
+        fresh.models.textures = std::mem::take(&mut self.models.textures);
+        fresh
+            .models
+            .textures
+            .retain(|n, _| n.starts_with('\0') || live.contains(n));
+        if ASSETS {
+            for (name, texture) in &fresh.models.textures {
+                if !name.starts_with('\0') && self.quads.has_texture(name) {
+                    fresh.quads.texture(&fresh.device, name, texture);
+                }
+            }
+        }
+        fresh.models.samplers = std::mem::take(&mut self.models.samplers);
+        fresh.models.prior_work = before;
+        fresh.models.revision = self.models.revision + 1;
+        *self = fresh;
     }
     /// Reuse a name only when its content digest matches. CPU mips may be dropped.
     pub fn add_texture(&mut self, name: &str, data: &TextureData) -> Result<(), RenderError> {
         let digest = exact_game::hash::of(data);
-        if self
+        if let Some(texture) = self
             .models
             .textures
             .get(name)
-            .is_some_and(|t| t.digest == digest)
+            .filter(|t| t.digest == digest)
         {
+            if ASSETS {
+                self.quads.texture(&self.device, name, texture);
+            }
             return Ok(());
         }
         data.validate().map_err(RenderError::scene)?;
         let mut texture =
             upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
         texture.digest = digest;
+        if ASSETS {
+            self.quads.texture(&self.device, name, &texture);
+        }
         self.models.textures.insert(name.into(), texture);
         self.models.uploads += 1;
         for material in &mut self.models.materials {
@@ -324,6 +413,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             pipeline_creations: 11 + pipelines as u64 + skin.map_or(0, |s| s.pipeline_creations),
             buffer_reallocations: self.models.reallocations + skin.map_or(0, |s| s.reallocations),
         }
+        .plus(self.models.prior_work)
     }
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
@@ -360,9 +450,8 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             if self.models.materials[record.material.0].alpha != AlphaMode::Blend {
                 continue;
             }
-            if let Some(pose) = world.global(entity) {
-                let pose = Mat4::from(pose);
-                history[0] = if initial || world.fresh().contains(&entity) {
+            if let Some(pose) = crate::world::scene::pose(world, entity) {
+                history[0] = if initial || crate::world::scene::snap(world, entity, false) {
                     pose
                 } else {
                     history[1]
@@ -542,6 +631,13 @@ fn upload_texture(
         })
     });
     Texture {
+        size: [data.width, data.height],
+        bytes: data
+            .mips
+            .iter()
+            .map(|m| m.len() as u64)
+            .sum::<u64>()
+            .next_power_of_two(),
         digest: 0,
         view: texture.create_view(&Default::default()),
         sampler: sampler.clone(),

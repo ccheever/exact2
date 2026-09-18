@@ -70,6 +70,14 @@ pub(crate) struct Work {
     pub buffer_reallocations: u64,
 }
 impl Work {
+    pub fn plus(self, old: Self) -> Self {
+        Self {
+            texture_uploads: self.texture_uploads + old.texture_uploads,
+            mesh_uploads: self.mesh_uploads + old.mesh_uploads,
+            pipeline_creations: self.pipeline_creations + old.pipeline_creations,
+            buffer_reallocations: self.buffer_reallocations + old.buffer_reallocations,
+        }
+    }
     pub fn since(self, old: Self) -> Self {
         Self {
             texture_uploads: self.texture_uploads.saturating_sub(old.texture_uploads),
@@ -83,7 +91,7 @@ impl Work {
         }
     }
     pub fn json(self) -> String {
-        format!("{{\"textureUploads\":{},\"meshUploads\":{},\"pipelineCreations\":{},\"bufferReallocations\":{}}}",
+        format!("{{\"textureUploads\":{},\"meshUploads\":{},\"pipelineCreations\":{},\"modelSkinBufferReallocations\":{}}}",
             self.texture_uploads, self.mesh_uploads, self.pipeline_creations, self.buffer_reallocations)
     }
 }

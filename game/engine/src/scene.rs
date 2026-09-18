@@ -79,9 +79,25 @@ impl IntoScale for [f32; 3] {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct Parent(pub Entity);
 
-/// Perspective camera, in degrees and world-distance units.
-#[derive(Clone, Copy, Debug, PartialEq, Component)]
+/// Camera projection; integer scaling treats one world unit as one logical pixel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, crate::Data)]
+pub enum Projection {
+    /// Perspective using Camera::fov_y_degrees.
+    #[default]
+    Perspective,
+    /// Orthographic world units per screen height, optionally snapped to whole pixels.
+    Orthographic {
+        /// Vertical world extent at the authored resolution.
+        height: f32,
+        /// Use whole viewport (CSS) pixels per world unit; below 1x, crop at 1x.
+        integer_scale: bool,
+    },
+}
+/// Perspective or orthographic camera, sharing projection math with spatial reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
+    /// Projection choice; perspective is the compact default.
+    pub projection: Projection,
     /// Vertical field of view in degrees.
     pub fov_y_degrees: f32,
     /// Near clipping distance.
@@ -94,10 +110,122 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
+            projection: Projection::Perspective,
             fov_y_degrees: 60.0,
             near: 0.1,
             far: 1000.0,
             active: true,
+        }
+    }
+}
+
+impl Component for Camera {
+    const NAME: &'static str = "Camera";
+}
+// Default projection contributes no new save/hash field: existing perspective worlds
+// retain their canonical representation and pins. Nondefault state is always encoded.
+impl crate::Data for Camera {
+    fn write(&self, w: &mut dyn crate::Writer) {
+        w.begin_struct();
+        w.field("fov_y_degrees");
+        self.fov_y_degrees.write(w);
+        w.field("near");
+        self.near.write(w);
+        w.field("far");
+        self.far.write(w);
+        w.field("active");
+        self.active.write(w);
+        if self.projection != Projection::Perspective {
+            w.field("projection");
+            self.projection.write(w);
+        }
+        w.end_struct();
+    }
+    fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
+        r.begin_struct()?;
+        while let Some(f) = r.field()? {
+            match f.as_str() {
+                "fov_y_degrees" => self.fov_y_degrees.read(r)?,
+                "near" => self.near.read(r)?,
+                "far" => self.far.read(r)?,
+                "active" => self.active.read(r)?,
+                "projection" => self.projection.read(r)?,
+                _ => r.skip()?,
+            }
+        }
+        Ok(())
+    }
+}
+impl Camera {
+    /// Orthographic vertical extent in world units, looking along negative Z.
+    pub fn orthographic(height: f32) -> Self {
+        Self {
+            projection: Projection::Orthographic {
+                height,
+                integer_scale: false,
+            },
+            ..Self::default()
+        }
+    }
+    /// Snap the orthographic ratio down to whole CSS pixels per world unit. Extra world
+    /// area becomes visible at noninteger ratios; smaller canvases crop at 1x.
+    pub fn integer_scale(mut self) -> Self {
+        if let Projection::Orthographic { integer_scale, .. } = &mut self.projection {
+            *integer_scale = true;
+        }
+        self
+    }
+    /// Validate camera selection in both the renderer and spatial reads.
+    pub fn valid(self) -> bool {
+        self.active
+            && self.near.is_finite()
+            && self.far.is_finite()
+            && self.near > 0.
+            && self.far > self.near
+            && match self.projection {
+                Projection::Perspective => self.fov_y_degrees > 0. && self.fov_y_degrees < 180.,
+                Projection::Orthographic { height, .. } => height.is_finite() && height > 0.,
+            }
+    }
+    /// Shared WebGPU-depth projection. Size is the CSS-pixel viewport on every
+    /// surface, so layout/pick and rendering agree across display scales.
+    pub fn matrix(self, size: crate::Vec2) -> glam::Mat4 {
+        match self.projection {
+            Projection::Perspective => glam::camera::rh::proj::directx::perspective(
+                self.fov_y_degrees.to_radians(),
+                size.x / size.y,
+                self.near,
+                self.far,
+            ),
+            Projection::Orthographic {
+                height,
+                integer_scale,
+            } => {
+                let height = if integer_scale {
+                    size.y / crate::math::floor(size.y / height).max(1.)
+                } else {
+                    height
+                };
+                let width = height * size.x / size.y;
+                glam::Mat4::from_cols_array(&[
+                    2. / width,
+                    0.,
+                    0.,
+                    0.,
+                    0.,
+                    2. / height,
+                    0.,
+                    0.,
+                    0.,
+                    0.,
+                    1. / (self.near - self.far),
+                    0.,
+                    0.,
+                    0.,
+                    self.near / (self.near - self.far),
+                    1.,
+                ])
+            }
         }
     }
 }
@@ -328,6 +456,9 @@ impl World {
             .register::<Visible>()
             .register::<Ambient>()
             .register::<Follow>()
+            .register::<crate::Emitter>()
+            .register::<crate::Sprite>()
+            .register::<crate::SpriteAnimation>()
             .register_resource::<crate::Environment>()
     }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.

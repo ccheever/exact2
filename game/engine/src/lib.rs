@@ -12,6 +12,7 @@ pub mod args;
 mod assets_load;
 pub mod character;
 pub mod data;
+pub mod emitter;
 mod environment;
 mod input;
 pub mod math;
@@ -21,6 +22,7 @@ pub mod scene;
 mod sim;
 mod spatial;
 mod spring;
+pub mod sprite;
 #[allow(unsafe_code)]
 mod storage;
 mod tween;
@@ -32,6 +34,7 @@ pub use animation::{
 };
 pub use args::{Args, ArgumentKind};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
+pub use emitter::Emitter;
 pub use environment::{Bloom, Environment, Fog};
 pub use exact_game_derive::{Args, Component, Data, Resource};
 pub use exact_motion::spring::SpringConfig;
@@ -42,6 +45,7 @@ pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Paranoid, Sim};
 pub use spring::Spring;
+pub use sprite::{Sprite, SpriteAnimation};
 pub use storage::{
     Page, Pages, Plain, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE,
 };

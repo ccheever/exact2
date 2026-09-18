@@ -24,6 +24,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) queue: wgpu::Queue,
     pub(crate) pipelines: Pipelines,
     pub(crate) models: crate::models::Models,
+    pub(crate) quads: crate::quads::Quads,
     model_batches: Vec<Option<crate::MaterialId>>,
     slot_list: Vec<u32>,
     pub(crate) uniform: wgpu::Buffer,
@@ -94,6 +95,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
             models: crate::models::Models::default(),
+            quads: crate::quads::Quads::new(device, &uniform),
             model_batches: Vec::new(),
             slot_list: Vec::new(),
             device: device.clone(),
@@ -377,7 +379,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             0,
             bytes(&frame::uniform(frame, cascades.as_ref(), size)),
         );
-        // Only transparent model draws sort. Opaque/primitive batches remain retained.
+        self.quads.frame::<ASSETS>(device, queue, frame);
+        // One total translucent order; opaque/primitive batches remain retained.
         if ASSETS {
             for (_, slot, depth) in &mut self.models.transparent {
                 let index = (self.slot_list[*slot as usize] - crate::RENDER_SLOT_BASE) as usize;
@@ -386,15 +389,23 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .local
                     .transform_point3(self.meshes[record.geometry.0].center);
                 let history = self.models.poses[index];
-                let position = history[0]
-                    .transform_point3(center)
-                    .lerp(history[1].transform_point3(center), frame.alpha);
+                let pose = crate::world::scene::interpolate(history, frame.alpha);
+                let position = pose.position + pose.rotation * (pose.scale * center);
                 *depth = -frame.view.transform_point3(position).z;
             }
-            self.models
-                .transparent
-                .sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
+            for &(index, slot, depth) in &self.models.transparent {
+                let record = &self.models.records
+                    [(self.slot_list[slot as usize] - crate::RENDER_SLOT_BASE) as usize];
+                self.quads.order.push(crate::quads::Order {
+                    kind: crate::quads::Kind::Model(index, slot),
+                    depth,
+                    layer: 0,
+                    slot: record.transform,
+                    index: slot as usize,
+                });
+            }
         }
+        self.quads.order(device, queue);
         let mut encoder = device.create_command_encoder(&Default::default());
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
@@ -535,13 +546,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let mesh = &self.meshes[batch.mesh.0];
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
+            for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
+                self.quads.draw(&mut pass, draw);
+                extra_draws += 1;
+            }
             if frame::has_sky(frame) {
                 pass.set_pipeline(&self.pipelines.sky);
+                pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
                 pass.draw(0..3, 0..1);
                 extra_draws += 1;
             }
-            if ASSETS {
-                for &(index, slot, _) in &self.models.transparent {
+            for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
+                if let crate::quads::Kind::Model(index, slot) = draw.kind {
                     let batch = &self.batches[index];
                     let material = &self.models.materials[self.model_batches[index].unwrap().0];
                     pass.set_pipeline(
@@ -562,10 +578,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     );
                     pass.set_bind_group(2, &material.bind, &[]);
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                    pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
                     let mesh = &self.meshes[batch.mesh.0];
                     pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
-                    extra_draws += 1;
+                } else {
+                    self.quads.draw(&mut pass, draw);
                 }
+                extra_draws += 1;
             }
         }
         if let Some(bloom) = &self.bloom {
@@ -600,6 +619,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         queue.submit([encoder.finish()]);
         let mut stats = self.counts;
         stats.draws += extra_draws;
+        stats.instances += self.quads.instances();
+        stats.triangles += 2 * self.quads.instances();
         stats.draws -= self
             .model_batches
             .iter()

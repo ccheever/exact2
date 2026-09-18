@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
+import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 
 export function artifactDigest(host, dist, artifacts) {
   try {
@@ -36,6 +37,22 @@ export function artifactDigest(host, dist, artifacts) {
     return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
   } catch { return null; }
 }
+// Shared by the proof and its artifact lifecycle regression: mode is baked only on web.
+export function buildInputHash(host, target, mode = '0') {
+  const hash = createHash('sha256').update(host).update(target);
+  if (host === 'web') hash.update(mode);
+  return hash;
+}
+export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
+  let digest = artifact();
+  const stamp = () => JSON.stringify({inputs, artifact:digest});
+  if (digest && existsSync(receipt) && readFileSync(receipt, 'utf8') === stamp()) return false;
+  await build();
+  digest = artifact();
+  if (!digest) throw new Error('build produced no complete proof artifact');
+  writeFileSync(receipt, stamp());
+  return true;
+}
 export async function closeSessions(monitor, record, sessions, check) {
   clearInterval(monitor);
   try { try { record(); } catch { /* Inventory is best-effort. */ } }
@@ -57,6 +74,19 @@ export function equal(a, b) {
     && keys.every((key, i) => key === other[i] && equal(a[key], b[key]));
 }
 
+/// Whether a repository file is outside a game's deterministic build inputs:
+/// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
+/// outputs, tests, proofs — and every non-source file except the README and the
+/// game's own art, assets and deck.
+export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
+  return (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
+    || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
+    || /(^|\/)(artifacts|dist|target|node_modules|tests|examples)\//.test(file)
+    || file.startsWith('apps/')
+    || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
+      && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
+    || /(^|\/)(proof\.mjs|.*\.test\.mjs)$/.test(file);
+}
 export async function paranoidRuns(run) {
   let failed = false;
   // Finish with Off, including its web build receipt, for the next ordinary run.
@@ -109,7 +139,7 @@ export async function proof(meta, script) {
   const onProcess = child => { children.push(child); recorded.set(child.pid, 'carrier'); };
   let auditUnavailable = false, inventoryPending;
   const inventory = () => new Promise(resolve => {
-    const child = spawn('ps', ['-axo', 'pid=,ppid=,lstart='], {stdio:['ignore','pipe','ignore']});
+    const child = spawn('ps', ['-axo', 'pid=,ppid=,stat=,lstart=,comm='], {stdio:['ignore','pipe','ignore']});
     let output = '', done = false;
     const finish = rows => { if (done) return; done = true; clearTimeout(timer); resolve(rows); };
     const timer = setTimeout(() => {
@@ -119,9 +149,10 @@ export async function proof(meta, script) {
     }, 200);
     child.stdout.on('data', data => output += data);
     child.on('error', () => { auditUnavailable = true; finish(null); });
+    // A zombie is dead: killed with its group, not yet reaped by launchd.
     child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(line => {
-      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-      return m && {pid:Number(m[1]), parent:Number(m[2]), stamp:m[3]};
+      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+ \S+ +\d+ [\d:]+ \d+)\s+(.+)$/);
+      return m && !m[3].startsWith('Z') && {pid:Number(m[1]), parent:Number(m[2]), stamp:m[4], command:m[5]};
     }).filter(Boolean) : null));
   });
   const sample = () => {
@@ -191,17 +222,9 @@ export async function proof(meta, script) {
       });
       files.stdout = walk(root).join('\n');
     }
-    const hash = createHash('sha256').update(host).update(resolveApp(name).target);
-    if (host === 'web') hash.update(process.env.EXACT_GAME_PARANOID ?? '0');
+    const hash = buildInputHash(host, resolveApp(name).target, process.env.EXACT_GAME_PARANOID ?? '0');
     for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
-      if ((/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
-        || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
-        || /(^|\/)(artifacts|dist|target|node_modules|tests|examples)\//.test(file)
-        || file.startsWith('apps/')
-        || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
-          && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
-        || /(^|\/)(proof\.mjs|.*\.test\.mjs)$/.test(file)
-        || !existsSync(resolve(root,file))) continue;
+      if (proofInputExcluded(file, name, appPrefix) || !existsSync(resolve(root,file))) continue;
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
     const digest = hash.digest('hex'), receipt = resolve(buildOut, `build-${host}.sha256`);
@@ -209,9 +232,8 @@ export async function proof(meta, script) {
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
-    let artifact = artifactDigest(host, dist, artifacts);
-    const stamp = () => JSON.stringify({inputs:digest, artifact});
-    if (!artifact || !existsSync(receipt) || readFileSync(receipt,'utf8') !== stamp()) {
+    const built = await ensureBuildReceipt({receipt, inputs:digest,
+      artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
       say(`BUILD ${name} ${host}`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -222,20 +244,29 @@ export async function proof(meta, script) {
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);
       }
-      artifact = artifactDigest(host, dist, artifacts);
-      if (!artifact) throw new Error('build produced no complete proof artifact');
-      writeFileSync(receipt,stamp());
-    } else say(`BUILD cached ${name} ${host}`);
+    }});
+    if (!built) say(`BUILD cached ${name} ${host}`);
     if (!process.argv.includes('--build-only')) await script({open, check, equal, out, host, say});
   } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
+    closeFilesystemReader(); // The static server's resident reader is this process's child.
     await inventoryPending;
     let remaining = children.filter(child => child.exitCode === null && child.signalCode === null)
       .map(child => ({pid:child.pid}));
     if (host !== 'linux' && !auditUnavailable) {
-      const rows = await inventory();
-      if (rows) remaining.push(...rows.filter(row => recorded.get(row.pid) === row.stamp));
+      // A killed process group reaps its helpers a few milliseconds after the
+      // carrier's exit event, and a helper outside the group outlives it by
+      // seconds: a recorded descendant (pid and start stamp) still alive after a
+      // short grace is killed by that record and reported; only a survivor fails.
+      const stale = async () => (await inventory())?.filter(row => recorded.get(row.pid) === row.stamp) ?? [];
+      let rows = await stale();
+      for (const deadline = Date.now() + 2000; rows.length && Date.now() < deadline; rows = await stale()) await new Promise(r => setTimeout(r, 100));
+      for (const row of rows) {
+        say(`STRAY recorded descendant killed after close: ${row.pid} ${row.command}`);
+        try { process.kill(row.pid, 'SIGKILL'); } catch { /* Gone between the inventory and the kill. */ }
+      }
+      if (rows.length) { await new Promise(r => setTimeout(r, 500)); remaining.push(...await stale()); }
     }
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);

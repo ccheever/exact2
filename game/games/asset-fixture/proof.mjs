@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { residencyProbe, checkResidency } from './residency.mjs';
+import { residencyProbe, checkResidency, checkSteadyResidency } from './residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -74,13 +74,14 @@ await proof(import.meta, async ({open,check,out,say,host}) => {
   };
   try {
     const s=await start();
-    const ready = (await s.state()).world[0];
+    // Establish the device's first draw before measuring after-ready ticks.
+    if (web) await s.screenshot(resolve(out, 'crate-ready.png'));
     await s.clock(500);
     const at30=(await s.state()).world[0];
     check('setup and exactly 30 ticks after settlement', at30.tick===30 && at30.loading.length===0 && at30.assets.every(a=>a.state==='Loaded'),at30);
     await s.world('world').key_down('KeyW');
     const saved=resolve(out,'crate.world'); await s.screenshot(saved,'world','save');
-    check('steady ticks including paranoid Save do no GPU residency work', (at30.ready || at30.device === false) && Object.values(at30.gpu.afterReady).every(n => n === 0), at30.gpu);
+    checkSteadyResidency(at30, check, say);
     await s.close();
     const restored=await start(saved);
     const loaded=(await restored.state()).world[0];

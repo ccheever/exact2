@@ -156,13 +156,13 @@ impl Game for Greybox {
         let now = world.now();
         let mut footsteps = 0;
         {
-            let before = world.position("player").unwrap();
+            let before = world.global_position("player").unwrap();
             let motion = world
                 .character("player")
                 .step(input.stick_xz("move"), input.pressed("jump"));
             if motion.grounded {
                 let mut player = world.get_mut::<Player>("player").unwrap();
-                let delta = world.position("player").unwrap() - before;
+                let delta = world.global_position("player").unwrap() - before;
                 player.stride += exact_game::Vec2::new(delta.x, delta.z).length();
                 while player.stride >= 0.45 {
                     player.stride -= 0.45;
@@ -176,15 +176,13 @@ impl Game for Greybox {
             world.play("footstep").at(player).pitch(pitch).start();
         }
         if input.pressed("act") {
-            for (entity, _) in world.near_xz::<Beacon>("player", 1.5) {
+            if let Some(entity) = world.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit) {
                 let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
-                if !beacon.lit {
-                    beacon.lit = true;
-                    beacon.glow.set_target(now, 1.0);
-                    world.publish_record(&Hud { beacons: 1 });
-                    world.log("beacon-1 lit");
-                    world.play("chime").at(entity).start();
-                }
+                beacon.lit = true;
+                beacon.glow.set_target(now, 1.0);
+                world.publish_record(&Hud { beacons: 1 });
+                world.log("beacon-1 lit");
+                world.play("chime").at(entity).start();
             }
         }
         for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {

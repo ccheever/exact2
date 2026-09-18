@@ -41,5 +41,6 @@ await proof(import.meta, async ({open, check, out, host}) => {
   await game.hold('KeyW', 1000);
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
+  await game.save(resolve(out, 'final.world'));
   await s.close();
 });

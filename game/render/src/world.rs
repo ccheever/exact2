@@ -4,7 +4,7 @@ use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
-mod scene;
+pub(crate) mod scene;
 mod upload;
 pub(crate) use scene::snap as trace_snap;
 use scene::Scene;
@@ -21,6 +21,9 @@ pub(crate) trait Writes {
         Ok(())
     }
     fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
+    fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
+        Ok(())
+    }
     fn max_slots(&self) -> u32;
     fn begin_tick(&mut self);
     fn transforms(&mut self, first: u32, floats: &[f32], both: bool) -> Result<(), RenderError>;
@@ -32,7 +35,11 @@ pub(crate) trait Writes {
 impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
     fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
         if ASSETS {
-            self.models.loaded.get(name).map(|m| m.nodes.as_slice())
+            self.models
+                .loaded
+                .get(name)
+                .filter(|m| m.active)
+                .map(|m| m.nodes.as_slice())
         } else {
             None
         }
@@ -51,6 +58,18 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         if ASSETS {
             self.model_poses(w, entities, initial);
         }
+    }
+    fn quads(
+        &mut self,
+        w: &World,
+        initial: bool,
+        next_tick: bool,
+        parent_changed: bool,
+    ) -> Result<(), RenderError> {
+        self.quads
+            .feed::<ASSETS>(w, initial, next_tick, parent_changed)?;
+        self.quads.prepare(&self.device);
+        Ok(())
     }
     fn max_slots(&self) -> u32 {
         self.max_slots()
@@ -254,7 +273,17 @@ impl Feed {
     /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
     /// No world queries, allocation, or entity scans occur here.
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
-        self.scene.frame(world, alpha, aspect)
+        self.scene.frame(world, alpha, glam::Vec2::new(aspect, 1.))
+    }
+    /// Frame projection at the CSS-pixel viewport size, including integer scaling.
+    pub fn frame_pixels(
+        &mut self,
+        world: &World,
+        alpha: f32,
+        size: (f32, f32),
+    ) -> crate::FrameInput<'_> {
+        self.scene
+            .frame(world, alpha, glam::Vec2::new(size.0, size.1))
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
         if self.generation != w.presentation_generation() {
@@ -514,8 +543,13 @@ impl Feed {
             r.batches(&self.batches, &self.slots)?;
         }
         if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
-            r.model_poses(w, &self.assets.entities, initial || batches);
+            r.model_poses(
+                w,
+                &self.assets.entities,
+                initial || batches || parent_changed,
+            );
         }
+        r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         self.scene.feed(
             w,
             initial || self.tick != w.tick(),

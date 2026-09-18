@@ -496,16 +496,26 @@ impl World {
         QueryBorrow::new(self)
     }
     /// Current global position, including ancestor transforms; None if missing.
-    pub fn position(&self, target: impl Target) -> Option<crate::Vec3> {
+    pub fn global_position(&self, target: impl Target) -> Option<crate::Vec3> {
         self.current_global(target.entity(self)?)
             .map(|pose| pose.translation.into())
     }
-    /// Closest other entity carrying C in an inclusive XZ radius. Equal distances
-    /// retain entity order. Filter the returned handle to inspect its component.
+    /// Closest other entity of C, including every component value. Ties use entity index.
     pub fn nearest_xz<C: Component>(&self, origin: impl Target, radius: f32) -> Option<Entity> {
+        self.nearest_xz_where::<C>(origin, radius, |_| true)
+    }
+    /// Closest other entity carrying C in an inclusive XZ radius. Equal distances
+    /// choose the lowest entity index. The predicate runs before distance selection.
+    pub fn nearest_xz_where<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+        mut predicate: impl FnMut(&C) -> bool,
+    ) -> Option<Entity> {
         let entity = origin.entity(self)?;
-        let position = self.position(entity)?;
+        let position = self.global_position(entity)?;
         self.near_xz::<C>(entity, radius)
+            .filter(|(e, _)| self.get::<C>(*e).is_some_and(|c| predicate(&c)))
             .min_by(|(_, a), (_, b)| {
                 let distance = |p: crate::Vec3| {
                     let delta = p - position;

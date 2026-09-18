@@ -512,7 +512,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Apple ownership test fixture: `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates external apps without Cargo manifests; `resolveApp` now requires them. Fails on macOS and the Linux builder (U1, 2026-09-17).
 - U1 cubes no-regression gate remains unproven: paired 500k all-moving feed medians rose 2.7262 → 2.9332 ms on the shared Mac; isolate scheduling/load before attributing the change. Full paired feed/encode table is in `game/render/README.md`.
 
-- Game Bun suite: the generated-game test receives empty stdout from its shell-location subprocess (exit 0); it then leaves stale generated shell members because it never captures their paths. Reproduced from `game/` in D7b.
+- Bun 1.3.12 at the repository root: `bun test scripts/x.test.mjs` (a bare path is a filter) scans the whole tree and afterwards every `spawnSync` child gets dead stdio pipes (`echo` exits 1, `cargo metadata` returns exit 0 with no output); `bun test ./scripts/x.test.mjs` (an explicit path) or a `game/` cwd is fine. The generated-game test now routes its shell locations through a file and the docs say `./`; the Bun defect itself is unreported upstream.
 - Linux image scheduling test: `an_embedded_image_is_not_opened_on_the_boot_thread` exceeded its 100 ms wall-clock bound during concurrent builds (358 ms); the full GPU/Linux suite passed serially. Replace the scheduling-time assumption with a deterministic worker barrier.
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
@@ -540,25 +540,28 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   do not report the root build green. Root Cargo metadata confirms Rapier is absent.
   Re-run after resolving the local bake/process stall; game workspace checks pass.
 
-- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Autofocus is processed once per document on web/Linux; dynamically mounted victory controls need deliberate focus support.
+- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus is covered by the Beacons proof.
 
-- R3 physics closing pin remains owed: three kinematic fixture attempts in
-  `game/physics/src/state.rs::tests::kinematic_collision_pass_survives_every_tick_restore`
-  did not leave deferred optimization pending. The diagnostic is ignored; replace
-  it with a non-initial moved-kinematic save boundary whose flag is demonstrably
-  true and whose next Off/Save/FreshGame snapshots match, with a false-flag negative
-  control. Do not call the physics review fully closed or claim a new kinematic pin.
+- Physics pending-flag parity pin remains owed. R5 tried 256 static + 32 kinematic
+  colliders moving vertically, then 512 static + 64 kinematic colliders moving
+  horizontally after tick one. All 32 Off/Save/FreshGame saves matched in both
+  attempts, but neither collision-only follow-up left `deferred_optimize_pending`
+  true at a non-initial boundary. Deleted the ignored diagnostic. A future fixture
+  must reach that flag and show next-tick divergence when its serialized value is
+  cleared; no new kinematic parity pin is claimed.
 - R3 storage: run the padded/ZST tests under Miri when available (not installed on
   this Mac). The ID-bearing companion checks old/new ownership but is not a ZST;
   aggregate ZST drops do not prove typed moves. A true ZST has no per-instance ID.
-- R3 review findings outside the closing implementation: redelivery between two
-  explicit animation steps in one tick can advance a controller twice; preserve
-  the once-per-tick rule. Paranoid reconstruction also resets `asset_mesh_revision`,
-  causing another asset-root scan each tick; evaluate preserving that driver cache.
+- Paranoid reconstruction resets `asset_mesh_revision`, causing another asset-root
+  scan each tick; evaluate preserving that driver cache.
 
-- R3 skinned-fixture web proof reaches unchanged tick-60/120 pins, then fails
-  `asset-fixture/residency.mjs::checkResidency` during KeyC: the injected probe
-  reports `TypeError: Cannot read properties of undefined (reading 'length')`.
-  Save mode additionally reports changed GPU residency counters during steady
-  ticks. Diagnose the fixture/save-pending interaction in the asset-residency
-  slice; do not report the complete web proof green. Linux proofs pass all modes.
+- Generated-game browser cleanup: `bun test ./proof.test.mjs ./new.test.mjs`
+  completed the generated Linux proof and web screenshot, but twice failed the
+  existing descendant audit with one recorded browser child remaining. The
+  initial attempt also returned empty Cargo-discovery output. Three attempts
+  stopped; investigate owned browser cleanup without adding machine gates.
+- The unqualified `bun test proof.test.mjs new.test.mjs` also selects
+  `game/games/greybox/audio-proof.test.mjs`: its source-exclusion regex no longer
+  matches the proof condition, and its two Apple notification fixtures failed
+  during R5 validation. The explicit `./proof.test.mjs ./new.test.mjs` selection
+  isolates the requested files; it does not close those audio-test findings.

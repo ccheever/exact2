@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { audioProof } from '../../bench/probes/audio.mjs';
+import { proofInputExcluded } from '../../proof.mjs';
 
 test('probe setup failure reaps its process group and removes its profile', async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'audio-teardown-'));
@@ -28,13 +29,11 @@ test('probe setup failure reaps its process group and removes its profile', asyn
 });
 
 test('probe source is outside the deterministic proof input digest', () => {
-  // Execute the actual exclusion condition used by the proof, not a copied regex.
-  const source = readFileSync(resolve(import.meta.dir, '../../proof.mjs'), 'utf8');
-  const condition = source.match(/if \((\/\^\(game[\s\S]*?)\) continue;/)[1];
-  const excluded = new Function('file', 'name', 'existsSync', 'resolve', 'root', `return (${condition});`);
-  const root = resolve(import.meta.dir, '../../..');
-  expect(excluded('game/bench/probes/audio.mjs', 'greybox', existsSync, resolve, root)).toBe(true);
-  expect(excluded('game/games/greybox/logic/src/lib.rs', 'greybox', existsSync, resolve, root)).toBe(false);
+  // The proof's own exclusion predicate, not a copied regex.
+  expect(proofInputExcluded('game/bench/probes/audio.mjs', 'greybox')).toBe(true);
+  expect(proofInputExcluded('game/games/greybox/logic/src/lib.rs', 'greybox')).toBe(false);
+  expect(proofInputExcluded('game/games/beacons/logic/src/lib.rs', 'greybox')).toBe(true);
+  expect(proofInputExcluded('game/games/greybox/proof.mjs', 'greybox')).toBe(true);
 });
 
 test('web visibility and page events reach every canvas under either clock', () => {
@@ -148,11 +147,16 @@ let audio = CanvasLifecycle(owner, activate: { attempts += 1; return allowed })
 calls.removeAll()
 audio.requestAudio()
 precondition(calls.map { $0.0 } == [2])
+// A failed activation opens a 300-frame cooldown: a refresh alone does not retry,
+// a gesture retries at once, and the cooldown's end retries again.
 audio.refresh()
-precondition(attempts == 2 && calls.map { $0.0 } == [2])
+precondition(attempts == 1 && calls.map { $0.0 } == [2], "no retry inside the cooldown")
+audio.gesture()
+RunLoop.main.run(until:Date().addingTimeInterval(0.02))
+precondition(attempts == 2 && calls.map { $0.0 } == [2], "a gesture retries at once and holds Interrupted")
 allowed = true
-audio.refresh()
-precondition(calls.map { $0.0 } == [2,3])
+for _ in 0..<300 { audio.frame() }
+precondition(attempts == 3 && calls.map { $0.0 } == [2,3], "the cooldown's end retries and emits Resumed")
 calls.removeAll()
 let done = DispatchSemaphore(value: 0)
 DispatchQueue.global().async {
@@ -169,7 +173,7 @@ allowed = false
 audio.interruption(began: false, shouldResume: true)
 precondition(calls.map { $0.0 } == [2], "failed reactivation cannot emit Resumed")
 allowed = true
-audio.refresh()
+for _ in 0..<300 { audio.frame() }
 precondition(calls.map { $0.0 } == [2,3])
 try "PASS aggregate visibility, activation retry, ordered interruptions and shouldResume".write(toFile:CommandLine.arguments[1], atomically:true, encoding:.utf8)
 `;
@@ -242,13 +246,17 @@ background { CanvasAudio.activate() }
 precondition(!CanvasAudio.active && CanvasAudio.wanted)
 lifecycle.requestAudio()
 precondition(calls == [2])
+// A failed activation opens a 300-frame cooldown: becoming active again inside it
+// does not retry, a gesture retries at once, the cooldown's end retries again.
 NotificationCenter.default.post(name:UIApplication.didBecomeActiveNotification, object:nil)
 RunLoop.main.run(until:Date().addingTimeInterval(0.02))
-precondition(calls == [2] && AVAudioSession.instance.attempts == 3)
+precondition(calls == [2] && AVAudioSession.instance.attempts == 2, "no retry inside the cooldown")
+lifecycle.gesture()
+RunLoop.main.run(until:Date().addingTimeInterval(0.02))
+precondition(calls == [2] && AVAudioSession.instance.attempts == 3, "a gesture retries at once")
 AVAudioSession.instance.fails = false
-NotificationCenter.default.post(name:UIApplication.didBecomeActiveNotification, object:nil)
-RunLoop.main.run(until:Date().addingTimeInterval(0.02))
-precondition(calls == [2,3])
+for _ in 0..<300 { lifecycle.frame() }
+precondition(calls == [2,3], "the cooldown's end retries and emits Resumed")
 calls.removeAll()
 background {
     NotificationCenter.default.post(name:AVAudioSession.interruptionNotification, object:nil, userInfo:[AVAudioSessionInterruptionTypeKey:UInt(1)])
@@ -261,8 +269,7 @@ background {
 }
 precondition(calls == [2], "failed setActive cannot emit Resumed")
 AVAudioSession.instance.fails = false
-NotificationCenter.default.post(name:UIApplication.didBecomeActiveNotification, object:nil)
-RunLoop.main.run(until:Date().addingTimeInterval(0.02))
+for _ in 0..<300 { lifecycle.frame() }
 precondition(calls == [2,3])
 try "PASS iOS background notification order, main-thread activation, retries, shouldResume".write(toFile:CommandLine.arguments[1], atomically:true, encoding:.utf8)
 `;

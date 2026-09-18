@@ -286,7 +286,9 @@ mod tests {
     }
     #[test]
     fn same_name_redelivery_rebuilds_gpu_rig_and_all_instance_batches() {
-        let gpu = exact_gpu::fixture::device().expect("GPU fixture");
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
         let mut model: Model = exact_game::bin::from_slice(include_bytes!(
             "../../games/skinned-fixture/assets/fox.model"
         ))

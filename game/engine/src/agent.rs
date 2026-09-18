@@ -115,6 +115,49 @@ fn hierarchy(w: &World) -> Result<Vec<(Entity, Option<Entity>, u32)>, String> {
     Ok(out)
 }
 impl<G: Game> Sim<G> {
+    /// Renderer-only visibility: a delivered and prepared model and its entire texture closure.
+    /// Readiness stays on Sim; game callbacks receive only World.
+    /// ```compile_fail
+    /// let world = exact_game::World::new(60, 7);
+    /// world.model_prepared("hero.model");
+    /// ```
+    pub fn model_prepared(&self, name: &str) -> bool {
+        let ready = |n: &str| {
+            self.world.assets.states.get(n) == Some(&crate::asset::AssetState::Loaded)
+                && self.world.assets.prepared.contains(n)
+                && !self.world.assets.redelivery.contains(n)
+        };
+        ready(name)
+            && self
+                .world
+                .assets
+                .dependencies
+                .get(name)
+                .is_some_and(|deps| deps.iter().all(|n| ready(n)))
+    }
+    /// Current renderer requests, including pending dependencies.
+    pub fn presentation_assets(&self) -> impl Iterator<Item = &str> {
+        self.world.assets.states.keys().map(String::as_str)
+    }
+    /// Named content failures; readiness must never hide a failed declaration.
+    pub fn asset_failures(&self) -> impl Iterator<Item = &str> {
+        self.world
+            .assets
+            .states
+            .values()
+            .filter_map(|s| match s {
+                crate::asset::AssetState::Failed(reason) => Some(reason.as_str()),
+                _ => None,
+            })
+            .chain(
+                self.world
+                    .assets
+                    .refusal
+                    .iter()
+                    .map(|(_, reason)| reason.as_str()),
+            )
+    }
+
     /// Answer the engine half of an agent request as JSON, always tagged with tick.
     /// Component/resource Data uses [] for None and [value] for Some(value).
     pub fn agent(&mut self, request: &str) -> String {

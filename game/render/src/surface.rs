@@ -29,6 +29,8 @@ pub trait Presentation: Default {
 }
 impl Presentation for () {}
 
+const RETIRED_BUDGET: u64 = 64 * 1024 * 1024;
+
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
 pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = false> {
@@ -45,6 +47,7 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     error: Option<SurfaceError>,
     dirty: bool,
     assets_dirty: bool,
+    model_digests: std::collections::BTreeMap<String, u64>,
     reported: bool,
     generation: u64,
     seekable: bool,
@@ -68,6 +71,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             error: None,
             dirty: true,
             assets_dirty: false,
+            model_digests: Default::default(),
             reported: false,
             generation: 0,
             seekable: true,
@@ -197,6 +201,12 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         if !ASSETS {
             let sim = self.sim.as_ref().unwrap();
+            if let Some((_, sprite)) = sim.world().query::<&exact_game::Sprite>().iter().next() {
+                return Err(SurfaceError(format!(
+                    "Sprite `{}` requires game.assets: true",
+                    sprite.texture
+                )));
+            }
             let name = G::ASSETS.first().map(|n| (*n).to_owned()).or_else(|| {
                 sim.world()
                     .query::<&exact_game::Mesh>()
@@ -241,9 +251,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         if !retired.is_empty() {
             // A reference disappearing (including a restore) retires host flights,
             // not device residency. A later arrival must still compare its digest.
-            if let Some((_, feed)) = &mut self.render {
+            for name in &retired {
+                self.model_digests.remove(name);
+            }
+            if let Some((renderer, feed)) = &mut self.render {
+                for name in &retired {
+                    renderer.quads.retire_texture(name);
+                    if let Some(model) = renderer.models.loaded.get_mut(name) {
+                        model.active = false;
+                    }
+                }
+                renderer.models.revision += 1;
                 feed.reset();
             }
+            self.assets_dirty = true;
             self.dirty = true;
         }
         retired
@@ -253,7 +274,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if let Some(sim) = &mut self.sim {
                 match bytes {
                     Ok(bytes) => {
-                        let _ = sim.asset(name, Some(bytes));
+                        if sim.asset(name, Some(bytes)).is_ok() && name.ends_with(".model") {
+                            if let Some((_, model)) =
+                                sim.presentation_models().find(|(n, _)| *n == name)
+                            {
+                                self.model_digests
+                                    .insert(name.into(), crate::models::model_digest(model));
+                            }
+                        }
                     }
                     Err(AssetError::Missing) => sim.asset_failed(name, "missing file"),
                     Err(AssetError::Failed(reason)) => sim.asset_failed(name, &reason),
@@ -278,7 +306,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         let Some(sim) = &mut self.sim else { return };
         let textures = sim.take_textures();
-        if sim.presentation_models().next().is_none() && textures.is_empty() {
+        if self.render.is_none()
+            && sim.presentation_models().next().is_none()
+            && textures.is_empty()
+        {
             self.assets_dirty = false;
             return;
         }
@@ -290,14 +321,25 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             ));
             self.format = Some(format);
         }
-        let (renderer, _) = self.render.as_mut().unwrap();
+        let (renderer, feed) = self.render.as_mut().unwrap();
+        let live = sim.presentation_assets().map(str::to_owned).collect();
+        let replaced = sim.presentation_models().any(|(name, _)| {
+            self.model_digests
+                .get(name)
+                .is_some_and(|&digest| renderer.model_changed(name, digest))
+        });
+        if replaced || renderer.retired_bytes(&live) > RETIRED_BUDGET {
+            renderer.compact_assets(format, &live);
+            feed.reset();
+        }
         let prepared: Vec<_> = sim
             .presentation_models()
+            .filter(|(name, _)| self.model_digests.contains_key(*name))
             .map(|(name, model)| {
                 (
                     name.to_owned(),
                     renderer
-                        .prepare_model(name, model)
+                        .prepare_model_digest(name, model, self.model_digests[name])
                         .map_err(|e| e.to_string()),
                 )
             })
@@ -448,6 +490,16 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.format = Some(format);
             self.dirty = true;
         }
+        if let Some((renderer, _)) = &mut self.render {
+            for (name, model) in &mut renderer.models.loaded {
+                let active = sim.model_prepared(name);
+                if model.active != active {
+                    model.active = active;
+                    renderer.models.revision += 1;
+                    self.dirty = true;
+                }
+            }
+        }
         // Seed setup/current state before running ticks; no origin streak on frame one.
         if self.dirty {
             if let Some(trace) = &mut self.trace {
@@ -490,7 +542,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         let (renderer, feed) = self.render.as_mut().unwrap();
         let start = (!frame.seekable).then(Stamp::now);
-        let input = feed.frame(sim.world(), sim.alpha(), frame.width / frame.height);
+        let input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
         self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
         self.ready_work
             .get_or_insert_with(|| renderer.residency_work());
@@ -502,6 +554,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
         }
         if let Some(trace) = &mut self.trace {
+            trace.projection[..16]
+                .copy_from_slice(&(input.proj * input.view).to_cols_array().map(f64::from));
+            let (width, height) = frame.pixels();
+            trace.projection[16] = f64::from(width);
+            trace.projection[17] = f64::from(height);
             trace.frame(
                 frame.now_ms,
                 sim.alpha(),
@@ -652,23 +709,25 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 .render
                 .as_ref()
                 .map_or_else(Default::default, |(r, _)| r.residency_work());
-            let ready = self.ready_work.is_some()
-                && !sim.is_loading()
-                && sim.device_assets_ready()
-                && self.error.is_none();
-            let reasons: Vec<_> = if ready {
-                Vec::new()
-            } else if !self.device {
-                vec!["no device"]
-            } else if sim.is_loading() {
-                vec!["declared content pending"]
-            } else if !sim.device_assets_ready() {
-                vec!["device assets pending"]
-            } else {
-                vec!["first draw pending"]
-            };
-            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances and skin buffers\"}}",
-                exact_game::json::to_string(&reasons.into_iter().map(str::to_owned).collect::<Vec<_>>()).unwrap(),
+            let mut reasons: Vec<String> = sim.asset_failures().map(str::to_owned).collect();
+            if let Some(error) = &self.error {
+                reasons.push(format!("render error: {}", error.0));
+            }
+            if !self.device {
+                reasons.push("no device".into());
+            }
+            if sim.is_loading() {
+                reasons.push("declared content pending".into());
+            }
+            if !sim.device_assets_ready() {
+                reasons.push("device assets pending".into());
+            }
+            if self.ready_work.is_none() {
+                reasons.push("first draw pending".into());
+            }
+            let ready = reasons.is_empty();
+            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances and skin buffers only; excludes vertex/index, primitive pages and slots\"}}",
+                exact_game::json::to_string(&reasons).unwrap(),
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
             reply.push_str("}}");
@@ -789,6 +848,186 @@ mod residency_tests {
         }
         fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
     }
+
+    struct Cosmetic;
+    impl Game for Cosmetic {
+        type Args = ();
+        const ID: &'static str = "residency-cosmetic";
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named(
+                "hero",
+                (
+                    exact_game::Transform::default(),
+                    exact_game::Mesh::asset("hero.model"),
+                ),
+            );
+            w.spawn((
+                exact_game::Transform::at(2.8, 2., 3.8)
+                    .looking_at(exact_game::Vec3::ZERO, exact_game::Vec3::Y),
+                exact_game::Camera::default(),
+            ));
+        }
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    fn frame() -> Frame {
+        Frame {
+            width: 32.,
+            height: 32.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: true,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+        }
+    }
+    fn model() -> exact_game::asset::Model {
+        exact_game::bin::from_slice(include_bytes!(
+            "../../games/asset-fixture/assets/crate.model"
+        ))
+        .unwrap()
+    }
+    #[test]
+    fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        let mut model = model();
+        let texture = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        s.assets();
+        s.asset("hero.model", Ok(&exact_game::bin::to_vec(&model)));
+        s.asset(&model.textures[0], Ok(texture));
+        let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(!s.render.as_ref().unwrap().0.models.records.is_empty());
+        *s.sim
+            .as_ref()
+            .unwrap()
+            .world()
+            .get_mut::<exact_game::Mesh>("hero")
+            .unwrap() = exact_game::Mesh::asset("away.model");
+        s.assets();
+        s.retired_assets();
+        *s.sim
+            .as_ref()
+            .unwrap()
+            .world()
+            .get_mut::<exact_game::Mesh>("hero")
+            .unwrap() = exact_game::Mesh::asset("hero.model");
+        s.assets();
+        s.retired_assets();
+        exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(
+            s.render.as_ref().unwrap().0.models.records.is_empty(),
+            "retired geometry leaked before redelivery"
+        );
+        model.materials[0].base_color = [1., 0., 0., 1.];
+        s.asset("hero.model", Ok(&exact_game::bin::to_vec(&model)));
+        exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(
+            s.render.as_ref().unwrap().0.models.records.is_empty(),
+            "model leaked before its texture arrived"
+        );
+        s.asset(&model.textures[0], Ok(texture));
+        let (after, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        assert!(
+            before != after,
+            "first drawable frame must use changed material bytes"
+        );
+        assert_eq!(
+            s.render.as_ref().unwrap().0.models.materials.len(),
+            model.materials.len(),
+            "replacement reclaims old materials"
+        );
+    }
+
+    #[test]
+    fn twenty_unique_models_bound_retirement_and_hash_only_at_delivery() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
+        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        let mut model = model();
+        let texture = exact_game::asset::TextureData {
+            width: 1024,
+            height: 1024,
+            mips: (0..11)
+                .map(|level| vec![255; (1024usize >> level).max(1).pow(2) * 4])
+                .collect(),
+            ..Default::default()
+        };
+        let bytes = exact_game::bin::to_vec(&texture);
+        let hashes_before = crate::models::model_hash_count();
+        for i in 0..20 {
+            let name = format!("unique-{i}.model");
+            model.textures[0] = format!("unique-{i}.tex");
+            *s.sim
+                .as_ref()
+                .unwrap()
+                .world()
+                .get_mut::<exact_game::Mesh>("hero")
+                .unwrap() = exact_game::Mesh::asset(&name);
+            s.assets();
+            s.retired_assets();
+            s.asset(&name, Ok(&exact_game::bin::to_vec(&model)));
+            s.asset(&model.textures[0], Ok(&bytes));
+            s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+            let live = s
+                .sim
+                .as_ref()
+                .unwrap()
+                .presentation_assets()
+                .map(str::to_owned)
+                .collect();
+            assert!(s.render.as_ref().unwrap().0.retired_bytes(&live) <= RETIRED_BUDGET);
+            assert_eq!(crate::models::model_hash_count(), hashes_before + i + 1);
+            // Dirty texture redelivery must never hash any resident model again.
+            s.asset(&model.textures[0], Ok(&bytes));
+            s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+            assert_eq!(crate::models::model_hash_count(), hashes_before + i + 1);
+        }
+        assert!(s.render.as_ref().unwrap().0.models.loaded.len() < 20);
+        let json = s.agent(r#"{"op":"state"}"#).unwrap();
+        assert!(json.contains(r#""modelSkinBufferReallocations":"#));
+        assert!(!json.contains(r#""bufferReallocations":"#));
+    }
+    #[test]
+    fn ready_reasons_name_declaration_and_render_failures() {
+        let mut s = WorldSurface::<Fox, (), true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        s.asset("fox.model", Err(AssetError::Missing));
+        let state = s.agent(r#"{"op":"state"}"#).unwrap();
+        assert!(
+            state
+                .split("\"readyReasons\":")
+                .nth(1)
+                .unwrap()
+                .split(']')
+                .next()
+                .unwrap()
+                .contains("fox.model"),
+            "{state}"
+        );
+        s.error = Some(SurfaceError("named render failure".into()));
+        let state = s.agent(r#"{"op":"state"}"#).unwrap();
+        assert!(
+            state
+                .split("\"readyReasons\":")
+                .nth(1)
+                .unwrap()
+                .split(']')
+                .next()
+                .unwrap()
+                .contains("named render failure"),
+            "{state}"
+        );
+        assert!(state.contains("\"ready\":false"));
+    }
     #[test]
     fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
         let Ok(gpu) = exact_gpu::fixture::device() else {
@@ -866,5 +1105,40 @@ mod residency_tests {
             );
         }
         assert!(surface.render.as_ref().unwrap().0.models.skinning.is_some());
+        let mut model = surface
+            .sim
+            .as_ref()
+            .unwrap()
+            .presentation_models()
+            .next()
+            .unwrap()
+            .1
+            .clone();
+        let old = &surface.render.as_ref().unwrap().0;
+        let sizes = (old.meshes.len(), old.models.materials.len());
+        let skins: Vec<_> = old.models.loaded["fox.model"]
+            .nodes
+            .iter()
+            .map(|n| n.3)
+            .collect();
+        for _ in 0..3 {
+            model.meshes[0].positions[0] += 0.01;
+            surface.asset("fox.model", Ok(&exact_game::bin::to_vec(&model)));
+            exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
+            let renderer = &surface.render.as_ref().unwrap().0;
+            assert_eq!(
+                (renderer.meshes.len(), renderer.models.materials.len()),
+                sizes
+            );
+            assert_eq!(
+                renderer.models.loaded["fox.model"]
+                    .nodes
+                    .iter()
+                    .map(|n| n.3)
+                    .collect::<Vec<_>>(),
+                skins,
+                "same-name replacement reclaims skin templates too"
+            );
+        }
     }
 }

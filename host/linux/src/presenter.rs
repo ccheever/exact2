@@ -52,7 +52,7 @@ pub struct Presenter<D: DataSource> {
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,
     focus: Option<ViewId>,
-    autofocus_processed: bool,
+    autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
@@ -299,7 +299,7 @@ impl<D: DataSource> Presenter<D> {
             assets,
             compat: String::new(),
             focus: None,
-            autofocus_processed: false,
+            autofocus_processed: Default::default(),
             pointer: None,
             boxes: Vec::new(),
             dirty: true,
@@ -763,10 +763,12 @@ impl<D: DataSource> Presenter<D> {
                 self.focus = None;
             }
         }
-        if !self.autofocus_processed {
+        self.autofocus_processed.retain(|id| live.contains(id));
+        {
             for id in live {
                 let node = self.host.kernel().node(id).unwrap();
-                if node.props.bool(PropId::Autofocus) != Some(true)
+                if self.autofocus_processed.contains(&id)
+                    || node.props.bool(PropId::Autofocus) != Some(true)
                     || !self.focusable(id)
                     || self.host.route_visibility(id).1
                 {
@@ -778,7 +780,7 @@ impl<D: DataSource> Presenter<D> {
                 {
                     continue;
                 }
-                self.autofocus_processed = true;
+                self.autofocus_processed.insert(id);
                 if self.focus.is_none() {
                     self.focus = Some(id);
                     self.dirty = true;

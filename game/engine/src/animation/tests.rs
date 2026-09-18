@@ -793,3 +793,153 @@ fn r3_inspection_and_sampling_refuse_either_corrupt_history() {
         assert!(w.journal().iter().any(|line| line.line.contains(expected)));
     }
 }
+
+#[test]
+fn same_tick_redelivery_resamples_without_advancing_any_controller() {
+    for controller in 0..3 {
+        let mut w = world();
+        let mut model = w.model("rig.model").unwrap().clone();
+        model.clips[0].markers = vec![(0.01, "first".into()), (0.02, "second".into())];
+        w.assets
+            .models
+            .insert("rig.model".into(), std::sync::Arc::new(model));
+        let entities: Vec<_> = (0..2)
+            .map(|_| {
+                let e = w.spawn((Mesh::asset("rig.model"), Socket("".into())));
+                match controller {
+                    0 => w.insert(e, Animation::play("slow").motion_root("")),
+                    1 => w.insert(
+                        e,
+                        Blend::across([(0., "slow"), (1., "fast")]).motion_root(""),
+                    ),
+                    _ => w.insert(
+                        e,
+                        Animator::new([
+                            State::new("walk", Play::Clip("slow".into()))
+                                .to("run", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+                            State::new("run", Play::Clip("fast".into())),
+                        ])
+                        .motion_root(""),
+                    ),
+                };
+                e
+            })
+            .collect();
+        step(&mut w);
+        let before: Vec<_> = entities
+            .iter()
+            .map(|&e| {
+                if let Some(mut a) = w.get_mut::<Animator>(e) {
+                    a.set("go", true);
+                }
+                let bytes = match controller {
+                    0 => crate::bin::to_vec(&*w.get::<Animation>(e).unwrap()),
+                    1 => crate::bin::to_vec(&*w.get::<Blend>(e).unwrap()),
+                    _ => crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()),
+                };
+                let pose = w.get::<Pose>(e).unwrap().clone();
+                assert_eq!(pose.crossed, ["first"]);
+                assert!((pose.root_motion.x - 1. / 60.).abs() < 1e-6);
+                (bytes, pose)
+            })
+            .collect();
+        let logs = w.journal().len();
+        let mut model = w.model("rig.model").unwrap().clone();
+        model.nodes.push(Node {
+            transform: Mat4::from_translation(Vec3::Y * 3.).to_cols_array(),
+            ..Default::default()
+        });
+        w.assets
+            .models
+            .insert("rig.model".into(), std::sync::Arc::new(model));
+        step(&mut w);
+        for (&e, (bytes, before)) in entities.iter().zip(before) {
+            let after = match controller {
+                0 => crate::bin::to_vec(&*w.get::<Animation>(e).unwrap()),
+                1 => crate::bin::to_vec(&*w.get::<Blend>(e).unwrap()),
+                _ => crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()),
+            };
+            assert_eq!(after, bytes, "controller {controller} advanced twice");
+            let p = w.get::<Pose>(e).unwrap();
+            assert_eq!(p.phase, before.phase);
+            assert_eq!(p.crossed, before.crossed);
+            assert_eq!(p.root_motion, before.root_motion);
+            assert_eq!(p.local.len(), before.local.len() + 10);
+            assert_eq!(p.local[before.local.len() + 1], 3.);
+            assert_eq!(p.previous, p.local);
+        }
+        assert_eq!(w.journal().len(), logs, "redelivery re-emitted markers");
+    }
+}
+
+#[test]
+fn same_tick_redelivery_resamples_without_advancing_controllers() {
+    for controller in 0..3 {
+        let mut w = world();
+        let mut model = w.model("rig.model").unwrap().clone();
+        model.clips[0].markers = vec![(0.01, "step".into()), (0.02, "step".into())];
+        w.assets
+            .models
+            .insert("rig.model".into(), std::sync::Arc::new(model.clone()));
+        let e = w.spawn_named("actor", Mesh::asset("rig.model"));
+        match controller {
+            0 => w.insert(e, Animation::play("slow").motion_root("")),
+            1 => w.insert(
+                e,
+                Blend::across([(0., "slow"), (1., "fast")]).motion_root(""),
+            ),
+            _ => w.insert(
+                e,
+                Animator::new([
+                    State::new("walk", Play::Clip("slow".into()))
+                        .to("run", Condition::Arg("go".into(), Cmp::Eq, true.into())),
+                    State::new("run", Play::Clip("fast".into())).fade(0.1),
+                ])
+                .motion_root(""),
+            ),
+        };
+        step(&mut w);
+        if let Some(mut a) = w.get_mut::<Animator>(e) {
+            a.set("go", true);
+        }
+        let clock = |w: &World| match controller {
+            0 => crate::bin::to_vec(&*w.get::<Animation>(e).unwrap()),
+            1 => crate::bin::to_vec(&*w.get::<Blend>(e).unwrap()),
+            _ => crate::bin::to_vec(&*w.get::<Animator>(e).unwrap()),
+        };
+        // Repeat during an active Animator fade as well as before its transition.
+        for delivery in 0..3 {
+            step(&mut w);
+            let before = w.get::<Pose>(e).unwrap().clone();
+            let saved_clock = clock(&w);
+            let logs = w.journal().len();
+            if delivery == 0 {
+                model.nodes.push(Node {
+                    transform: Mat4::from_translation(Vec3::Y * 3.).to_cols_array(),
+                    ..Default::default()
+                });
+            }
+            w.assets
+                .models
+                .insert("rig.model".into(), std::sync::Arc::new(model.clone()));
+            step(&mut w);
+            assert_eq!(clock(&w), saved_clock, "controller {controller}");
+            let after = w.get::<Pose>(e).unwrap();
+            assert_eq!(after.phase, before.phase);
+            assert_eq!(after.crossed, before.crossed);
+            assert_eq!(after.root_motion, before.root_motion);
+            assert_eq!(after.local.len(), model.nodes.len() * 10);
+            assert_eq!(after.local[after.local.len() - 9], 3.);
+            assert_eq!(after.local, after.previous);
+            assert_eq!(
+                w.journal().len(),
+                logs,
+                "redelivery must not re-emit markers"
+            );
+            drop(after);
+            step(&mut w);
+            assert_eq!(clock(&w), saved_clock);
+            w.step_clock();
+        }
+    }
+}

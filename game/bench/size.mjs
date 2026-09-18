@@ -30,10 +30,6 @@ function run(command, args, options = {}) {
 }
 mkdirSync(output, { recursive: true });
 if (!args.includes('--no-build')) {
-  process.stderr.write(run('df', ['-h', '/System/Volumes/Data']));
-  const disk = run('df', ['-k', '/System/Volumes/Data']);
-  if (Number(disk.trim().split('\n').at(-1).trim().split(/\s+/)[3]) < 10 * 1024 * 1024)
-    throw new Error('Build refused: less than 10 GiB free');
   run('bun', ['host/web/build.mjs'], { stdio: 'inherit' });
 }
 const preopt = resolve(app, `target/wasm32-unknown-unknown/web/${name}_gpu.wasm`);

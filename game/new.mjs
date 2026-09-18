@@ -24,6 +24,7 @@ export function createGame(name, directory = import.meta.dir, run = spawnSync, o
   const appJson = resolve(destination, 'app.json');
   const manifest = gameDefaults(destination) ?? {};
   if (options.assets === true && manifest.game) {
+    delete manifest._generated; // --assets is an authored override.
     manifest.game.assets = true;
     writeFileSync(appJson, JSON.stringify(manifest, null, 2) + "\n");
   }

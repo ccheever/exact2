@@ -10,6 +10,7 @@ export function edge(code, down, trial = -1) {
   return { code: vk, down, trial };
 }
 
+// Latency starts at listener delivery (now), not event.timeStamp.
 // Shared by both browser observers. No debouncing/deduplication: unexpected
 // delivered edges are evidence of contamination, and must invalidate the run.
 export function inputRecorder(target = globalThis, now = () => performance.now()) {

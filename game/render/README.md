@@ -163,21 +163,26 @@ pages, draw records, instance lists and skin pose histories. It does not invalid
 asset residency or palette capacity. `Feed::reset` clears old entity identities
 before inspecting the replacement world. Retiring a host request likewise resets
 the feed without destroying the renderer; shared textures and pipelines survive.
-Residency lasts for the renderer/device lifetime. Device loss, a format change or
-a full module replacement needs a new renderer and new uploads. Retired resident
-content remains allocated; this change trades the former whole-renderer eviction
-for reuse. Geometry/material arenas remain append-only until renderer destruction.
+Retired residency is inactive until model delivery and the full prepared dependency closure. Device loss, a format change or
+a full module replacement needs a new renderer and new uploads. Retired content has a 64 MiB conservative byte budget (rounded texture allocations,
+four times serialized model bytes for arena capacity, expanded per-skin node
+hierarchies/rest poses, plus per-entry metadata).
+Crossing it compacts the renderer to live assets. A same-name changed model also
+compacts, reclaiming old geometry, materials and skin templates. Live texture views
+survive compaction; live geometry is uploaded again and cumulative counters include
+that work. Live content is not bounded by the retired-content budget.
 
 `state.world` includes `{ready, readyReasons, gpu: {beforeReady, afterReady,
 bufferScope}}`. Each work record has `textureUploads`, `meshUploads`,
-`pipelineCreations`, and `bufferReallocations`. The first completed drawable frame
+`pipelineCreations`, and `modelSkinBufferReallocations`. The first completed drawable frame
 after preparation fixes `beforeReady`; later work accumulates in `afterReady`.
-Restore and retirement do not reset that boundary. A new device/renderer does.
+Restore and retirement do not reset that boundary. A device replacement resets it; budget/replacement compaction preserves it.
 Texture counts include the three default maps; mesh counts include primitives;
 pipelines include the eleven primitive/effect pipelines and skin compute pipelines.
 `bufferScope` explicitly limits reallocation counts to model instance, weight,
 hierarchy, local-pose, job and palette buffers; core transform/geometry arena
-instrumentation is outside this slice. Headless state has `ready: false`, reason
+instrumentation is outside this slice. `ready` is exactly an empty `readyReasons` set; named declaration and render
+failures are included. Headless state has `ready: false`, reason
 `no device`, and zero GPU work; it is simulation evidence only.
 
 Both asset fixture proofs exercise same-device restores after ready and compare
@@ -201,13 +206,14 @@ replacement and removes whole-renderer eviction on reference retirement. The
 post-change work is exactly zero for all four recorded categories. Raw samples:
 `/tmp/a3-baseline.log`, `/tmp/a3-after.log`.
 
-A3 proof gap: the web changed-texture round-trip currently tries to capture the
-temporary scene while an undeclared asset is pending; the ABI correctly refuses
-that save. After the repository's three repair rounds, this browser-probe repair
-is stopped pending the author's override. Consequently the changed-texture and
-negative-control web assertions above are **not passing evidence**. The direct
-native Fox changed-texture/carry test passes. `next/t6` was not present in the
-shared repository; the counter field names above could not be checked against it.
+R4 repairs the web probe by copying the original save before replacing the mesh
+name, then restoring that copy. It never carries the temporary pending world.
+KeyR, KeyC (changed bytes and identical redelivery), and KeyP (pop-in) run in both
+web fixture proofs. Steady GPU residency reports `SKIP: no device` headlessly;
+device-backed runs must be ready and record zero after-ready work in the named
+counters. The native Fox test separately enables paranoid Save.
+Model digests are computed at delivery and stored with the named resident identity,
+so texture arrivals do not re-hash resident models.
 
 ## Latest recorded performance and remaining budgets
 
@@ -435,3 +441,110 @@ R3 adds an in-place same-name model replacement regression: changed content
 rebuilds GPU hierarchy/inverse binds, geometry/material handles and both sharing
 entities' batches with primed history. Equal content reuses the prepared model.
 This exercises the digest-based replacement already present at 4b40b165.
+
+## P1 particle and sprite rendering
+
+Particles and sprites use retained CPU derivation and separate 80-byte quad
+instance vertex arenas beside the entity/model draw-instance records. A thousand
+sparks add no entities and no DrawInstance records. Feed retains emitter state
+and previous/current transforms at ticks; a frame derives local particle motion,
+transforms it, sorts the translucent entries and uploads contiguous instances.
+Compatible neighboring particle entries coalesce across emitters into one draw;
+a sprite/model interleaved by depth splits that batch. The particle fixture's
+20,000 instances use one particle draw plus tonemapping. No frame scans the world.
+Emitter state includes compact admitted-birth batches, never particle positions.
+The renderer never changes that saved state.
+
+Camera, sprite and blended-model ordering use the same normalized shortest-path
+quaternion interpolation as the draw shader. Birth/restore/carry/teleport/parent
+changes prime transform history. Emitter birth history is already saved and is
+not reset during that priming. A model's sort center is transformed by the
+interpolated pose, rather than interpolating its two transformed endpoints.
+The camera's projection function is shared with layout/pick. Orthographic integer
+scaling consumes CSS viewport dimensions through Feed::frame_pixels, matching
+agent geometry even at noninteger heights on a 2× display. Integer display scales
+keep texels on whole device pixels; fractional display scales can give uneven
+physical widths with nearest sampling.
+
+Opaque primitive/model rendering is unchanged. Opaque and masked sprites write
+depth; the ordered translucent pass follows the sky, depth-tests and does not
+write depth. Ordering is descending view depth, ascending layer and entity slot,
+then sub-instance index. Models use layer zero. Sprites and particles cast no
+shadows. Soft circular particles choose additive or straight-alpha blending;
+sprites share `.tex` samplers and choose opaque, mask or straight-alpha blend.
+Billboard extents use scale magnitudes to preserve front-facing winding; texture
+mirroring is Sprite.flip. Texture-free particles are available to primitive
+modules. Sprite texture upload and shaders live only in the asset-capable path;
+the measured primitive wasm contains neither the sprite texture shader marker nor
+the sprite texture binding label, and a GPU test verifies named Sprite refusal.
+Retirement removes a sprite's drawable binding while retaining its resident
+texture for digest-checked redelivery. Compaction preserves only active bindings.
+The existing residency counters cover primitive/model/skin pipelines and model/
+skin buffer reallocations; they do not count quad pipelines or quad buffer growth.
+
+### Measured on 2026-09-18
+
+Live headless Chrome, WebGPU, 1280×720 physical pixels, 6.5-second warmup, on the
+shared arm64 Mac. The sprite run holds D throughout measurement; its camera and
+parallax layers move. `measure.mjs` requests WebGPU timestamp-query support and
+instruments actual render-pass boundaries. GPU values sum the forward and ACES
+pass intervals, excluding presentation/scanout. CPU encode includes particle
+derivation, sorting, uploads, encode/submit and the timestamp instrumentation;
+it is not total frame wall time. Tick/feed columns are per-sample means. Browser
+clock quantization produces zero p50 tick/feed samples; those operations are not
+free. These are single shared-machine runs, not isolated performance guarantees.
+
+| Scene | Samples | CPU encode p50 / p95 ms | Tick / feed mean ms | GPU p50 / p95 ms | Draws / instances |
+|---|---:|---:|---:|---:|---:|
+| 20 emitters × 1,000 particles | 181 | 3.600 / 4.200 | 0.04807 / 0.02376 | 0.282579 / 0.459493 | 2 / 20,000 |
+| Walking sprites + 200 leaves | 184 | 0.200 / 0.300 | 0.02989 / 0.07120 | 0.304995 / 0.309746 | 67 / 264 |
+
+Mean CPU encode is 3.67017 ms and 0.17500 ms respectively. Both measurement
+windows average one tick/frame. Summing mean tick, feed and encode gives
+3.74199 ms and 0.27609 ms; that excludes the rest of the host and browser.
+No timestamp query errors were reported. Raw samples and the full distributions:
+[particles](../games/particles-fixture/artifacts/perf-web.json),
+[sprites](../games/sprites-fixture/artifacts/perf-web.json).
+The emitter implementation is 344 engine lines including its unit test; the
+shared sprite/particle path is 500 render lines, plus shaders and device tests.
+
+The same Beacons module measured by `bun game/bench/size.mjs`:
+
+| Shared-tree build | Shipped raw bytes | Gzip bytes |
+|---|---:|---:|
+| p1-before | 801,209 | 337,824 |
+| p1-final | 858,785 | 358,320 |
+| Difference | +57,576 | +20,496 |
+
+The snapshots include concurrent R4 work and subsequent shared-tree edits; this
+is not an isolated P1 attribution. Baseline/final receipts and pre-opt attribution
+are `games/beacons/target/d3-size/p1-before.json` and `p1-final.json`; pre-opt attribution
+is not a breakdown of shipped bytes. The normal web build produced both modules;
+size.mjs was run with `--no-build` to measure those exact artifacts.
+
+Reproduce from the repository root with the required build environment:
+
+```sh
+export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
+export EXACT_UPDATE_TRUST=development
+export EXACT_IDENTITY=-
+bun game/games/particles-fixture/proof.mjs web
+bun game/games/particles-fixture/proof.mjs linux
+bun game/games/sprites-fixture/proof.mjs web
+bun game/games/sprites-fixture/proof.mjs linux
+bun game/games/particles-fixture/measure.mjs particles-fixture
+bun game/games/particles-fixture/measure.mjs sprites-fixture
+EXACT_APP_DIR="$PWD/game/games/beacons" \
+  EXACT_WEB_DIST="$PWD/game/games/beacons/target/d3-size/dist" \
+  CARGO_TARGET_DIR="$PWD/game/games/beacons/target" bun host/web/build.mjs
+bun game/bench/size.mjs p1-recheck --no-build
+```
+
+The two fixture proofs match web/Linux tick-300 hashes and alive counts and save/
+restore at tick 150. Sprite web pixels check four leaves behind and three in front
+of the animated character. Native device tests cover equal-depth layer/slot order,
+mask cutoff, negative scale, sprite retirement/redelivery, and exact pixels after
+Open/Carry. The macOS screenshot remains owed: after two SDK linker failures, the
+third build used MacOSX26 successfully for Rust but SwiftPM failed on a missing
+BuildServerProtocol symbol. The three-round limit stopped that host loop.

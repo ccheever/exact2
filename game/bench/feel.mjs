@@ -3,12 +3,14 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg, platform } from 'node:os';
-import { extname, join, resolve, relative } from 'node:path';
+import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { edge, keys } from './probes/input.mjs';
 
 const here = import.meta.dir, resultsDir = join(here, 'results');
+// Brief F3's half-physical-pixel reporting threshold; not a universal visibility JND.
+export const DISPLACEMENT_CHANGE_PX = 0.5;
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // Adapters provide a page and the window.feel protocol; scheduling/analysis are shared.
@@ -67,6 +69,24 @@ function motion(frames, offset) {
   return { samples: ds.length, mean_displacement_m: mean, stddev_displacement_m: stddev,
     judder: mean > 0 ? stddev / mean : null, repeated_fraction: ds.filter(d => d === 0).length / ds.length };
 }
+// Column-major world-to-clip matrix and physical canvas dimensions, from the draw.
+export function projectPixels(position, projection) {
+  if (!projection) return null;
+  const [x, y, z] = position, m = projection;
+  const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+  if (!(w > 0)) return null;
+  return [(1 + (m[0] * x + m[4] * y + m[8] * z + m[12]) / w) * m[16] / 2,
+    (1 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / w) * m[17] / 2];
+}
+export function screenMotion(points) {
+  if (points.length < 2 || points.some(p => !p || !p.every(Number.isFinite))) return null;
+  const ds = points.slice(1).map((p, i) => Math.hypot(p[0] - points[i][0], p[1] - points[i][1]));
+  const mean = ds.reduce((a, b) => a + b, 0) / ds.length;
+  const stddev = Math.sqrt(ds.reduce((a, d) => a + (d - mean) ** 2, 0) / ds.length);
+  return { samples: ds.length, mean_displacement_px: mean, stddev_displacement_px: stddev,
+    judder: mean > 0 ? stddev / mean : null, repeated_fraction: ds.filter(d => d === 0).length / ds.length,
+    change_fraction: ds.length > 1 ? ds.slice(1).filter((d, i) => Math.abs(d - ds[i]) > DISPLACEMENT_CHANGE_PX).length / (ds.length - 1) : null };
+}
 function unpack(array, stride) {
   return Array.from({ length: array.length / stride }, (_, i) => array.slice(i * stride, (i + 1) * stride));
 }
@@ -74,6 +94,16 @@ export function analyze(raw, plan) {
   if (raw.schema !== 1 || raw.stride !== 8 || raw.overflow || raw.events.length % 4 || raw.frames.length % 8
       || !raw.events.every(Number.isFinite)) throw new Error('Invalid/overflowed probe buffer');
   const events = unpack(raw.events, 4), allFrames = unpack(raw.frames, 8);
+  const count = allFrames.length;
+  for (const [key, stride] of [['raw_callback_ms', 1], ['drawn_clock_ms', 1], ['camera_projection', 18]]) {
+    if (raw[key] && (raw[key].length !== count * stride || !raw[key].every(Number.isFinite))) throw new Error(`Invalid ${key} buffer`);
+  }
+  // Historical Exact rows contain paced time + draw-boundary wall time, NOT raw rAF.
+  const hasRaw = !!raw.raw_callback_ms || !raw.exact_trace;
+  allFrames.forEach((f, i) => {
+    f.push(raw.drawn_clock_ms?.[i] ?? f[0], i);
+    if (raw.raw_callback_ms) f[0] = raw.raw_callback_ms[i];
+  });
   if (events.length !== plan.schedule.length) throw new Error(`Expected ${plan.schedule.length} delivered events, got ${events.length}; extra/missing input invalidates this attempt (no deduplication)`);
   events.forEach((e, i) => {
     const wanted = edge(plan.schedule[i].code, plan.schedule[i].down, plan.schedule[i].trial);
@@ -84,10 +114,13 @@ export function analyze(raw, plan) {
   const frames = allFrames.filter(f => f[1] >= events[0][0]).filter((f, i, all) => i === 0 || f[0] !== all[i - 1][0]);
   if (frames.length < 100 || frames.some(f => !f.every(Number.isFinite))) throw new Error('Missing/nonfinite frame samples');
   const intervals = frames.slice(1).map((f, i) => f[0] - frames[i][0]);
-  if (intervals.some(x => x <= 0)) throw new Error('Nonmonotonic frame timestamps');
-  const pacing = distribution(intervals), median = pacing.p50;
+  if (hasRaw && intervals.some(x => x <= 0)) throw new Error('Nonmonotonic frame timestamps');
+  const pacing = hasRaw ? distribution(intervals) : null, median = pacing?.p50 ?? null;
+  const drawnIntervals = frames.slice(1).map((f, i) => f[8] - frames[i][8]);
+  const drawnPacing = distribution(drawnIntervals), drawnMedian = drawnPacing.p50;
   const steady = frames.filter(f => f[1] >= events[2][0] + 1000 && f[1] < events[3][0]);
   const player = motion(steady, 2), camera = motion(steady, 5);
+  const screen_player = screenMotion(steady.map(f => projectPixels(f.slice(2, 5), raw.camera_projection?.slice(f[9] * 18, (f[9] + 1) * 18))));
   if (player.samples < 10 || player.judder === null) throw new Error('No constant-velocity W motion measured');
   const latency = [];
   const same = (a, b) => a[2] === b[2] && a[3] === b[3] && a[4] === b[4];
@@ -102,14 +135,16 @@ export function analyze(raw, plan) {
       latency_ms: stationary && first ? first[1] - e[0] : null, stationary_before: stationary });
   }
   const valid = latency.filter(x => x.latency_ms !== null).map(x => x.latency_ms);
-  const hitches = intervals.filter(x => x > median * 1.5).length;
+  const hitches = hasRaw ? intervals.filter(x => x > median * 1.5).length : null;
+  const drawnHitches = drawnIntervals.filter(x => x > drawnMedian * 1.5).length;
   return { delivered_events: events.length, expected_events: plan.schedule.length, frames: frames.length, duration_ms: frames.at(-1)[1] - frames[0][1],
-    refresh_interval_ms: median, observed_refresh_hz: 1000 / median,
-    frame_ms: pacing, hitches, hitch_percent: hitches / frames.length * 100,
-    player, camera, latency: { trials: latency, valid_trials: valid.length,
+    refresh_interval_ms: median, observed_refresh_hz: median ? 1000 / median : null,
+    frame_ms: pacing, hitches, hitch_percent: hitches === null ? null : hitches / frames.length * 100,
+    drawn_clock_ms: drawnPacing, drawn_hitches: drawnHitches, drawn_hitch_percent: drawnHitches / frames.length * 100,
+    player, camera, screen_player, latency: { trials: latency, valid_trials: valid.length,
       median_ms: quantile(valid, .5), p95_ms: quantile(valid, .95),
-      median_intervals: valid.length ? quantile(valid, .5) / median : null,
-      p95_intervals: valid.length ? quantile(valid, .95) / median : null },
+      median_intervals: valid.length && median ? quantile(valid, .5) / median : null,
+      p95_intervals: valid.length && median ? quantile(valid, .95) / median : null },
     input_schedule_error_ms: events.map((e, i) => e[0] - events[0][0] - plan.schedule[i].at_ms),
     w_hold_ms: events[3][0] - events[2][0] };
 }
@@ -282,33 +317,42 @@ export async function godot(plan, variant, temp) {
   } finally { await stop(owned); processAudit(owned.pid); }
 }
 
-const fmt = (n, digits = 2) => n === null ? 'INVALID' : n.toFixed(digits);
+const fmt = (n, digits = 2) => n == null ? '—' : n.toFixed(digits);
 const judderText = n => n !== null && n > 0 && n < .001 ? n.toExponential(2) : fmt(n, 3);
 export function table(rows) {
+  const intervals = d => d ? ['p50', 'p95', 'p99', 'max'].map(k => fmt(d[k])).join('/') : '—';
+  const percent = n => n == null ? '—' : fmt(n * 100, 1);
+  const hitches = (n, p) => n == null ? '—' : `${n} (${fmt(p)}%)`;
   const cells = row => [`${row.engine ?? ''}/${row.variant}`, row.label ?? `${row.run}${row.attempt > 1 ? `.${row.attempt}` : ''}`,
     `${row.valid === false ? 'INVALID ' : ''}${row.provisional ? 'PROVISIONAL' : 'quiet'}`,
-    row.load1 == null ? '—' : fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), fmt(row.frame_ms.p50), fmt(row.frame_ms.p95),
-    fmt(row.frame_ms.p99), fmt(row.frame_ms.max), `${row.hitches} (${fmt(row.hitch_percent)}%)`,
-    judderText(row.player.judder), fmt(row.player.repeated_fraction * 100, 1), judderText(row.camera.judder),
-    fmt(row.camera.repeated_fraction * 100, 1), fmt(row.latency.median_ms), fmt(row.latency.p95_ms), row.tick_phase == null ? '—' : fmt(row.tick_phase, 4),
-    `${fmt(row.latency.median_intervals)}/${fmt(row.latency.p95_intervals)}`,
+    fmt(row.load1, 1), fmt(row.observed_refresh_hz, 1), intervals(row.frame_ms), hitches(row.hitches, row.hitch_percent),
+    intervals(row.drawn_clock_ms), hitches(row.drawn_hitches, row.drawn_hitch_percent),
+    row.screen_player ? judderText(row.screen_player.judder) : '—', percent(row.screen_player?.change_fraction), percent(row.screen_player?.repeated_fraction),
+    judderText(row.player.judder), percent(row.player.repeated_fraction), judderText(row.camera.judder), percent(row.camera.repeated_fraction),
+    `${fmt(row.latency.median_ms)}/${fmt(row.latency.p95_ms)}`, `${fmt(row.latency.median_intervals)}/${fmt(row.latency.p95_intervals)}`,
+    row.engine === 'godot' ? '_input → _process pose; after sample' : 'listener → draw pose; CDP between callbacks',
+    fmt(row.tick_phase, 4), `${row.latency.valid_trials}/20; ${row.delivered_events}/${row.expected_events}`,
     row.frontmost_visible_confirmed ? 'yes' : 'NO'];
-  const lines = [['variant', 'run', 'status', 'load1', 'Hz seen', 'p50 ms', 'p95', 'p99', 'max',
-    'hitches', 'player J', 'zero %', 'camera J', 'zero %', 'input p50', 'p95', 'tick_phase', 'input intervals', 'front/visible']];
+  const lines = [['variant', 'run / trace', 'status', 'load1', 'raw Hz', 'raw callback intervals p50/p95/p99/max ms', 'raw hitches',
+    'drawn-clock intervals p50/p95/p99/max ms', 'drawn hitches', 'screen player CV (px)', 'Δ change >0.5 px %', 'screen zero %',
+    'world player CV (m)', 'world player zero %', 'world camera CV (m)', 'world camera zero %',
+    'event delivery → first drawn pose p50/p95 ms', 'latency / raw interval p50/p95', 'endpoints; injection phase', 'tick_phase', 'trials; edges', 'front/visible']];
   for (const variant of [...new Set(rows.map(r => `${r.engine}/${r.variant}`))]) {
     const all = rows.filter(r => `${r.engine}/${r.variant}` === variant);
     all.forEach(r => lines.push(r.error
-      ? [variant, `${r.run}.${r.attempt}`, `INVALID ${r.provisional ? 'PROVISIONAL ' : ''}${r.error.replace(/[|\r\n]/g, '/')}`, fmt(r.load1, 1), ...Array(15).fill('—')]
+      ? [variant, `${r.run}.${r.attempt}`, `INVALID ${r.provisional ? 'PROVISIONAL ' : ''}${r.error.replace(/[|\r\n]/g, '/')}`, fmt(r.load1, 1), ...Array(lines[0].length - 4).fill('—')]
       : cells(r)));
     const group = all.filter(r => r.valid);
     if (!group.length) continue;
-    const best = [...group].sort((a, b) => a.hitch_percent - b.hitch_percent || a.frame_ms.p99 - b.frame_ms.p99)[0];
-    lines.push(cells({ ...best, label: `best (#${best.run}${best.attempt > 1 ? `.${best.attempt}` : ''})` }));
+    const best = group.every(r => r.frame_ms) && [...group].sort((a, b) => a.hitch_percent - b.hitch_percent || a.frame_ms.p99 - b.frame_ms.p99)[0];
+    if (best) lines.push(cells({ ...best, label: `best (#${best.run}${best.attempt > 1 ? `.${best.attempt}` : ''})` }));
     const middle = structuredClone(group[0]);
-    for (const key of ['load1', 'observed_refresh_hz', 'hitches', 'hitch_percent']) middle[key] = quantile(group.map(r => r[key]), .5);
-    for (const [key, fields] of Object.entries({ frame_ms: ['p50', 'p95', 'p99', 'max'],
+    for (const key of ['load1', 'observed_refresh_hz', 'hitches', 'hitch_percent', 'drawn_hitches', 'drawn_hitch_percent']) middle[key] = group.some(r => r[key] == null) ? null : quantile(group.map(r => r[key]), .5);
+    for (const [key, fields] of Object.entries({ frame_ms: ['p50', 'p95', 'p99', 'max'], drawn_clock_ms: ['p50', 'p95', 'p99', 'max'],
+      screen_player: ['judder', 'change_fraction', 'repeated_fraction'],
       player: ['judder', 'repeated_fraction'], camera: ['judder', 'repeated_fraction'],
       latency: ['median_ms', 'p95_ms', 'median_intervals', 'p95_intervals'] })) {
+      if (group.some(r => !r[key])) { middle[key] = null; continue; }
       for (const field of fields) middle[key][field] = group.some(r => r[key][field] === null) ? null : quantile(group.map(r => r[key][field]), .5);
     }
     middle.tick_phase = group.every(r => Number.isFinite(r.tick_phase)) ? quantile(group.map(r => r.tick_phase), .5) : null;
@@ -483,12 +527,19 @@ export function reanalyze(paths) {
   return paths.map(path => {
     const raw = JSON.parse(gunzipSync(readFileSync(path)).toString());
     const name = path.replace(/^.*feel-/, '').replace(/\.json\.gz$/, '');
-    const [, engine, variant] = name.match(/Z-([a-z]+)-([a-z0-9]+)-\d+-attempt\d+$/) ?? [, 'trace', name];
+    const [, engine, variant, run, attempt] = name.match(/Z-([a-z]+)-([a-z0-9]+)-(\d+)-attempt(\d+)$/) ?? [, 'trace', name, 1, 1];
+    const log = join(dirname(path), `feel-${name.slice(0, 10)}.jsonl`);
+    const receipt = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      .find(row => row.trace && basename(row.trace) === basename(path)) : null;
+    const front = raw.unfocused_frames === 0 && raw.hidden_frames === 0 && receipt?.frontmost_visible_confirmed !== false;
+    const info = { engine, variant, run: Number(run), attempt: Number(attempt),
+      label: `[reanalyzed #${run} (${name.slice(0, 24)})](results/${basename(path)})`, trace: path,
+      provisional: receipt?.provisional ?? true, load1: receipt?.load1 ?? raw.load1 ?? null };
     try {
-      const m = analyze(raw, script());
-      return { engine, variant, run: name.slice(0, 24), attempt: 1, label: 'reanalyzed ' + name.slice(-22), valid: true, provisional: true, load1: raw.load1 ?? null,
-        tick_phase: m.tick_phase ?? null, ...m, frontmost_visible_confirmed: raw.unfocused_frames === 0 && raw.hidden_frames === 0 };
-    } catch (error) { return { engine, variant, run: name.slice(0, 24), attempt: 1, valid: false, provisional: true, load1: null, error: error.message }; }
+      const m = analyze(raw, { schedule: raw.schedule ?? script().schedule });
+      return { ...info, valid: m.latency.valid_trials === 20 && front,
+        tick_phase: raw.tick_phase ?? null, ...m, frontmost_visible_confirmed: front };
+    } catch (error) { return { ...info, valid: false, error: error.message }; }
   });
 }
 

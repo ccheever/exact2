@@ -159,12 +159,22 @@ impl Character {
 
 /// A named character and its world timestep; no component borrow escapes a step.
 pub struct CharacterHandle<'a> {
-    world: &'a World,
+    world: &'a mut World,
     entity: crate::Entity,
 }
 impl World {
     /// Address a required Character + Transform. Missing components are setup errors.
-    pub fn character(&self, target: impl Target) -> CharacterHandle<'_> {
+    ///
+    /// A component lease must end before addressing a character.
+    /// ```compile_fail
+    /// use exact_game::{World, Transform, character::Character, Vec3};
+    /// let mut w = World::new(60, 7);
+    /// w.spawn_named("player", (Transform::default(), Character::new()));
+    /// let pose = w.get::<Transform>("player").unwrap();
+    /// w.character("player").step(Vec3::ZERO, false);
+    /// println!("{:?}", pose.position);
+    /// ```
+    pub fn character(&mut self, target: impl Target) -> CharacterHandle<'_> {
         let entity = target
             .entity(self)
             .expect("character target does not exist");
@@ -184,7 +194,7 @@ impl World {
 }
 impl CharacterHandle<'_> {
     /// Step with the world's fixed dt, returning contact events for this tick.
-    pub fn step(&self, wish: Vec3, jump: bool) -> Contact {
+    pub fn step(self, wish: Vec3, jump: bool) -> Contact {
         self.world.get_mut::<Character>(self.entity).unwrap().step(
             &mut self.world.get_mut::<Transform>(self.entity).unwrap(),
             wish,
@@ -217,12 +227,19 @@ mod tests {
                 w.character("player").step(wish, jump),
                 expected.step(&mut pose, wish, jump, w.dt())
             );
-            assert_eq!(w.position("player"), Some(pose.position));
+            assert_eq!(w.global_position("player"), Some(pose.position));
         }
         assert_eq!(
             w.get::<Character>("player").unwrap().velocity,
             expected.velocity
         );
+    }
+    #[test]
+    #[should_panic(expected = "character target has no Character")]
+    fn missing_character_is_a_setup_error() {
+        let mut w = World::new(60, 7);
+        w.spawn_named("player", Transform::default());
+        w.character("player");
     }
     #[test]
     fn nearest_uses_current_global_pose_and_stable_ties() {
@@ -233,17 +250,59 @@ mod tests {
             (crate::Parent(parent), Transform::at(1.0, 0.0, 0.0)),
         );
         let a = w.spawn((Transform::at(10.0, 90.0, 0.0), Beacon::default()));
-        w.spawn((Transform::at(12.0, 0.0, 0.0), Beacon::default()));
-        assert_eq!(w.position("player"), Some(Vec3::new(11.0, 0.0, 0.0)));
-        assert_eq!(w.nearest_xz::<Beacon>("player", 1.0), Some(a));
-        assert!(w.nearest_xz::<Beacon>("missing", 1.0).is_none());
-        assert!(w.nearest_xz::<Beacon>("player", 0.9).is_none());
-        w.get_mut::<Beacon>(a).unwrap().lit = true;
+        let b = w.spawn((Transform::at(12.0, 0.0, 0.0), Beacon::default()));
+        assert_eq!(w.global_position("player"), Some(Vec3::new(11.0, 0.0, 0.0)));
+        assert_eq!(
+            w.nearest_xz_where::<Beacon>("player", 1.0, |_| true),
+            Some(a)
+        );
         assert!(w
-            .nearest_xz::<Beacon>("player", 1.0)
-            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
+            .nearest_xz_where::<Beacon>("missing", 1.0, |_| true)
             .is_none());
+        assert!(w
+            .nearest_xz_where::<Beacon>("player", 0.9, |_| true)
+            .is_none());
+        w.get_mut::<Beacon>(a).unwrap().lit = true;
+        w.get_mut::<Transform>(b).unwrap().position.x = 12.4;
+        assert_eq!(
+            w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit),
+            Some(b)
+        );
         w.get_mut::<Transform>(parent).unwrap().position.x = 20.0;
-        assert!(w.nearest_xz::<Beacon>("player", 1.0).is_none());
+        assert!(w
+            .nearest_xz_where::<Beacon>("player", 1.0, |_| true)
+            .is_none());
+    }
+}
+
+#[cfg(test)]
+mod restart_edge_regression {
+    use crate::{Game, Input, Sim, Value, World};
+    #[derive(Default, crate::Args)]
+    struct Options {
+        seed: u64,
+        #[restart]
+        again: bool,
+    }
+    struct Example;
+    impl Game for Example {
+        type Args = Options;
+        const ID: &'static str = "restart-edges";
+        fn setup(w: &mut World, args: &Options) {
+            w.reseed(args.seed);
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    #[test]
+    fn setup_changes_are_not_restart_edges() {
+        let mut sim = Sim::<Example>::new(Options::default()).unwrap();
+        sim.bind(&[Value::Number(1.), Value::Bool(false)], None)
+            .unwrap();
+        assert_eq!(sim.restarted, 0);
+        for (edge, count) in [(true, 1), (false, 2)] {
+            sim.bind(&[Value::Number(1.), Value::Bool(edge)], None)
+                .unwrap();
+            assert_eq!(sim.restarted, count);
+        }
     }
 }

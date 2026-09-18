@@ -201,7 +201,7 @@ test('rendered tree includes focus and the computed accessible name', async () =
 });
 
 
-test('autofocus is deferred and processed once per document, including a refused attempt', async () => {
+test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
   const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
@@ -213,14 +213,27 @@ test('autofocus is deferred and processed once per document, including a refused
   const views = new Map([[1,first]]);
   const context = {document, views, root:{querySelectorAll:()=>[...views.values()]}, inputReady:true,
     inertAncestor:()=>false, getComputedStyle:()=>({visibility:'visible'})};
-  const focus = runInNewContext('let autofocusProcessed = false;'+fn+';focusAutofocus', context);
+  const focus = runInNewContext('const autofocusProcessed = new WeakSet();'+fn+';focusAutofocus', context);
   document.activeElement = other;
   focus();
   assert.equal(document.activeElement, other, 'existing focus must win');
   document.activeElement = document.body;
-  views.set(1, element()); // replacement view after plan reload
   focus();
-  assert.equal(document.activeElement, document.body, 'refused autofocus is still processed');
+  assert.equal(document.activeElement, document.body, 'a refused mounted control stays consumed');
+  const later = element();
+  views.set(1, later);
+  context.inputReady = false;
+  focus();
+  assert.equal(document.activeElement, document.body, 'input readiness gates autofocus');
+  context.inputReady = true;
+  focus();
+  assert.equal(document.activeElement, later, 'a later mount takes absent focus');
+  const victory = element();
+  const canvas = {matches:selector=>selector === '[data-gpu-input]', contains:el=>el===victory};
+  document.activeElement = canvas;
+  views.set(2, victory);
+  focus();
+  assert.equal(document.activeElement, victory, 'a canvas yields raw input focus to its new UI control');
 });
 
 
