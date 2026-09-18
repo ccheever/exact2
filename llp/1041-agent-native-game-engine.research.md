@@ -235,3 +235,9 @@ High on F1–F8 and F12–F15: read from the tree and the specs on 2026-09-17.
 Medium on F20–F23: standard technique, sized by analogy, nothing built.
 Low on F24 (Godot's web renderer, from memory) and on every pace estimate.
 No number in this document was measured.
+
+## Development experience
+
+[LLP 1041.006](1041.006-game-development-experience.rfc.md) is the accepted
+implementation for explicit control ownership, bounded reproducible bug captures,
+state-preserving web reload and typed scene authoring (2026-09-18).
