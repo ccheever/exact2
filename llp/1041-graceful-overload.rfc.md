@@ -5421,3 +5421,53 @@ The102-file runtime archive is under
 raw reconstruction and final-geometry checks are separate `lead-*` sidecars.
 The next source discriminator targets obsolete shape work before metadata
 construction, preserving complete results, bounded progress and accepted A.
+
+### 8.90 Stop obsolete definite-width work before metadata, 2026-09-18
+
+A busy Apple region worker previously finished compact metadata even when the
+controller had already received a newer shape request. The controller's busy
+guard prevented that newer request from reaching the worker's latest-job slot.
+Accepted region receipts now separately publish the desired request ID and
+generation to the existing service. This signal carries no source or job and
+does not release the occupied worker slot.
+
+One checkpoint after line construction and before `RegionParagraph` can abandon
+an obsolete definite-width request. Its temporary CoreText owners unwind on the
+same serial worker inside the existing autorelease pool. No partial metrics,
+layout binding or completion reaches the kernel. A typed abandoned terminal
+contains only request ID and generation; the controller checks both against its
+active owner before touching busy state or the deferred-answer slot, then
+schedules the latest request. Accepted pixels and their owners remain intact.
+
+After one voluntary abandonment, a valid complete shape must finish before
+another is allowed. Same-width aliases count as complete answers, and intrinsic
+width requests retain their complete-answer behavior. A negative height alone
+does not exempt a definite width. Reset and close invalidate old epochs without
+rearming a successor from an old completion. The live-ID cap, one serial worker,
+one replaceable pending job and one completion mailbox remain unchanged.
+
+The existing AppKit/controller fixture pauses actual shaping at this checkpoint,
+supersedes it through `prepare`, and counts real metadata construction. Old
+production fails three of269 assertions: obsolete work, a rearmed abandonment,
+and reset all still construct metadata. The candidate passes271 assertions,
+including two additional old-owner/old-generation terminal controls. Protected
+completion, latest-request completion, exact retained A pixels and the existing
+selection/retention/atomic-publication controls pass. Both fixture compilations
+invert to their claimed production inputs and share the same test main.
+
+All70 current ExactKit Swift sources typecheck with warnings as errors. The
+broader55-method assertion harness remains unrun after three preserved compiler
+setup failures: a missing extracted helper, a strict weak-binding warning in a
+new test, and a stale generated runner entry. The equivalent weak-binding test
+correction is retained; the four new unit methods are authored coverage, not
+additional passing tests. There was no fourth compile attempt or suppression.
+
+This verifies the checkpoint's work avoidance and ownership in an actual
+AppKit/CoreText worker fixture with explicit Runtime/Session/Presenter doubles.
+It is not a relinked full app, UIKit result, measured speedup or physical120Hz
+result. Work before the checkpoint is still indivisible; supersession after it
+can still complete metadata. A protected complete result can itself be obsolete,
+so this policy does not promise current publication during endless changes.
+Source and execution evidence is retained under
+`target/region-abandonment-validation/freeze-v1/`. Application timing remains a
+separate experiment against fresh products that include the atomic Surface fix.

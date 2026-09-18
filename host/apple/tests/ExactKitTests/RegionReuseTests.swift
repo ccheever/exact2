@@ -4,6 +4,103 @@ import XCTest
 @testable import ExactKit
 
 @MainActor final class RegionReuseTests: XCTestCase {
+    func testObsoleteDefiniteTurnAbandonsOnceThenProtectsACompleteShape() {
+        let gate = RegionReuseGate(blockAdmission: 2)
+        let h = RegionReuseHarness(admission: { gate.enter() }), s = source()
+        defer { h.service.close() }
+        h.service.updateShapeRequest(1, generation: 1)
+        let a = h.shape(1, source: s)
+        let profile = h.profile(), pixels = h.raster(1, publication: 1, artifact: a, profile: profile)
+        let bytes = pixels.image()!.dataProvider!.data! as Data
+        h.service.updateShapeRequest(2, generation: 1)
+        h.service.submit(.shape(RegionShapeRequest(id: 2,sourceID: 7,source: s,width: 270,height: -2,generation: 1)))
+        XCTAssertEqual(gate.started.wait(timeout: .now()+2), .success)
+        h.service.updateShapeRequest(3, generation: 1)
+        gate.release.signal()
+        if case .abandoned(let id, let generation) = h.receive() {
+            XCTAssertEqual(id, 2); XCTAssertEqual(generation, 1)
+        } else { XCTFail("obsolete definite work must return its own abandoned terminal") }
+        // Even an already obsolete successor must complete before another
+        // voluntary abandonment is allowed. This is not a publication promise.
+        h.service.updateShapeRequest(4, generation: 1)
+        let protected = h.shape(3, source: s, width: 250, height: 900)
+        XCTAssertEqual(protected.id, 3)
+        XCTAssertEqual(protected.metadata.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
+        let stale = RegionShapeRequest(id: 4,sourceID: 7,source: s,width: 240,height: -1,generation: 1)
+        h.service.updateShapeRequest(5, generation: 1)
+        if case .abandoned(let id, _) = h.perform(.shape(stale)) {
+            XCTAssertEqual(id, 4, "completed shape rearmed exactly one abandonment")
+        } else { XCTFail("next obsolete definite job should again abandon") }
+        let final = h.shape(5, source: s, width: 230, height: 400)
+        XCTAssertEqual(final.id, 5)
+        let old = h.raster(2, publication: 1, artifact: a, profile: profile)
+        XCTAssertEqual(old.image()!.dataProvider!.data! as Data, bytes, "accepted A keeps exact worker paint")
+        XCTAssertEqual(pixels.image()!.dataProvider!.data! as Data, bytes, "old provider owner remains valid")
+        withExtendedLifetime([a,protected,final,pixels,old] as [Any]) {}
+    }
+
+    func testIntrinsicWidthsFinishAndIntrinsicHeightDoesNotDisableAbandonment() {
+        let h = RegionReuseHarness(), s = source()
+        defer { h.service.close() }
+        h.service.updateShapeRequest(9, generation: 1)
+        let minimum = h.shape(1, source: s, width: -2)
+        let maximum = h.shape(2, source: s, width: -1)
+        XCTAssertEqual(minimum.id, 1); XCTAssertEqual(maximum.id, 2)
+        XCTAssertTrue(minimum.metadata.width.isFinite && maximum.metadata.width.isFinite)
+        let stale = RegionShapeRequest(id: 3,sourceID: 7,source: s,width: 270,height: -2,generation: 1)
+        if case .abandoned(let id, _) = h.perform(.shape(stale)) { XCTAssertEqual(id, 3) }
+        else { XCTFail("definite width with MinContent height must remain eligible") }
+        h.service.updateShapeRequest(4, generation: 1)
+        let zero = h.shape(4, source: s, width: 0, height: -1)
+        XCTAssertEqual(zero.id, 4)
+        XCTAssertTrue(zero.metadata.width.isFinite && zero.metadata.height.isFinite)
+        withExtendedLifetime([minimum,maximum,zero]) {}
+    }
+
+    func testCurrentRequestAndFreshHeightAliasesKeepCompleteIdentity() {
+        let h = RegionReuseHarness(), s = source()
+        defer { h.service.close() }
+        h.service.updateShapeRequest(1, generation: 1)
+        let a = h.shape(1,source: s,width: 290,height: -2)
+        h.service.updateShapeRequest(1, generation: 1) // unrelated receipt, same authoritative request
+        h.service.updateShapeRequest(2, generation: 1)
+        let b = h.shape(2,source: s,width: 290,height: -1)
+        h.service.updateShapeRequest(3, generation: 1)
+        let c = h.shape(3,source: s,width: 290,height: 400)
+        XCTAssertEqual([a.id,b.id,c.id], [1,2,3])
+        XCTAssertTrue(a.metadata === b.metadata && b.metadata === c.metadata)
+        XCTAssertEqual(h.constructions.count, 1)
+        XCTAssertEqual(a.metadata.copy(NSRange(location: 0,length: s.utf16Count)), s.text)
+        h.service.reset()
+        h.service.updateShapeRequest(4, generation: 2)
+        let changed = h.shape(4,source: s,width: 290,height: 400,generation: 2)
+        XCTAssertEqual(changed.generation, 2)
+        XCTAssertFalse(a.metadata === changed.metadata, "reset epoch never borrows old layout")
+        withExtendedLifetime([a,b,c,changed]) {}
+    }
+
+    func testAbandonedTerminalDoesNotRetainItsUnpublishedSource() {
+        let h = RegionReuseHarness()
+        defer { h.service.close() }
+        var temporary: RegionTextSource? = source()
+        weak var observed = temporary
+        h.service.updateShapeRequest(2, generation: 1)
+        let answer = h.perform(.shape(RegionShapeRequest(id: 1,sourceID: 7,source: temporary!,
+            width: 270,height: -2,generation: 1)))
+        temporary = nil
+        if case .abandoned(let id, let generation) = answer {
+            XCTAssertEqual(id, 1); XCTAssertEqual(generation, 1)
+        } else { XCTFail("expected superseded terminal") }
+        // A subsequent serial turn is a deterministic destruction fence;
+        // delivery can run just before the old worker stack itself returns.
+        let next = h.shape(2, source: source(), width: 250)
+        XCTAssertNil(observed, "no partial binding, mailbox source or preparation history remains")
+        observed = nil // Explicit final mutation after the genuine weak-lifetime assertion.
+        XCTAssertEqual(h.service.pixels.stats.bytes, 0)
+        XCTAssertEqual(h.service.ink.stats.bytes, 0)
+        withExtendedLifetime((answer,next)) {}
+    }
+
     #if REGION_DIGEST_SENTINEL
     func testActualDigestConstructorNeverRunsOnUIAndRunsOncePerLivePreparation() {
         let before = RegionDigestSentinel.snapshot

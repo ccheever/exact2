@@ -34,6 +34,11 @@ final class RegionWorkerLayout {
     }
     static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
                       preparation: RegionPreparedSource? = nil) -> RegionWorkerLayout {
+        shape(source, width: width, retainHits: retainHits, preparation: preparation, beforeMetadata: {})
+    }
+    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+                      preparation: RegionPreparedSource? = nil,
+                      beforeMetadata: () throws -> Void) rethrows -> RegionWorkerLayout {
         precondition(!Thread.isMainThread, "region shape must be worker-owned")
         let spec = source
         let preparation = preparation ?? RegionPreparedSource(source)
@@ -144,6 +149,9 @@ final class RegionWorkerLayout {
         // An authored CSS line height fixes the line box, including fractions.
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
+        // One cooperative boundary only: no partial metrics or layout binding
+        // escape if the authoritative request was superseded during shaping.
+        try beforeMetadata()
         let metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                                        lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),

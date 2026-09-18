@@ -110,6 +110,7 @@ final class RegionController {
                 if lifetime == nil { lifetime = RegionServiceLifetime { [weak self] answer in self?.receive(answer) } }
             }
             snapshot = next
+            if batch.error == nil { service?.updateShapeRequest(next.request, generation: generation) }
             members = Set((op["members"] as? [UInt32]) ?? [])
             if next.publication == 0 { candidate = nil }
             else if candidate?.snapshot.publication != next.publication {
@@ -175,9 +176,16 @@ final class RegionController {
         precondition(Thread.isMainThread)
         guard let session, session.state != .destroyed, session.generation == generation else { return }
         guard validateAppearance() else { return }
+        if case .abandoned(let id, let answerGeneration) = answer {
+            // Check before touching busy or the deferred-answer slot: a late
+            // terminal never releases/replaces a different active owner.
+            guard answerGeneration == generation, busy, submitted == id else { return }
+        }
         if session.isApplyingPresentation { pendingAnswer = answer; return }
         busy = false
         switch answer {
+        case .abandoned:
+            submitted = 0
         case .shape(let value):
             if submitted == value.id { submitted = 0 }
             guard value.generation == generation, snapshot?.request == value.id else { schedule(); return }
