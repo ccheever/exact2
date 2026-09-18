@@ -177,6 +177,26 @@ test('retained setup and released input stay effective until a new live value; R
   assert.deepEqual(bindings.at(-1),['new-scene',2,8]);
 });
 
+for (const intent of ['continue','restore','contract']) test(`a deliberate setup change after ${intent} uses all requested construction values`,async()=>{
+  const bindings=[],requested=[7,9,'new-scene',1];
+  const module={gpu_agent:(id,json)=>JSON.parse(json).reload?'{"reload":{"values":[7,1,"old-scene",0],"setupIndices":[0,1,2]}}':'{"world":{"tick":42}}',
+    gpu_bind_at:(id,values)=>{bindings.push(JSON.parse(values));return true;}};
+  const f=await fixture({gpu:module,nextGpu:module});f.create(1);
+  let view=1;
+  if(intent==='contract'){
+    const stage=f.exact.gpu.stagePlan({ops:[{op:'surface',id:2,name:'world',values:requested}]});
+    f.exact.gpu.reset(true);f.create(2);f.exact.gpu.finishRestart();stage.commit();view=2;
+  }else await f.exact.gpu.swap(1,{intent,values:new Map([[1,requested]]),...(intent==='restore'?{checkpoints:new Map([[1,new Uint8Array([1])]])}:{})});
+  f.exact.gpu.surface(view,'world',requested);
+  assert.deepEqual(bindings.at(-1),[7,1,'old-scene',0],'incidental bind discarded retained construction or released input');
+  f.exact.gpu.surface(view,'world',[7,9,'new-scene',2]);
+  assert.deepEqual(bindings.at(-1),[7,1,'old-scene',2],'live input reconstructed the world');
+  f.exact.gpu.surface(view,'world',[7,10,'new-scene',2]);
+  assert.deepEqual(bindings.at(-1),[7,10,'new-scene',2],'new round must use requested authored scene');
+  f.exact.gpu.surface(view,'world',[7,10,'new-scene',2]);
+  assert.deepEqual(bindings.at(-1),[7,10,'new-scene',2],'incidental bind changed the restarted construction');
+});
+
 test('normal stateless GPU canvases do not opt a data-backed core app into game transactions',async()=>{
   const f=await fixture({gpu:{gpu_carry:()=>undefined,gpu_agent:()=>''}});
   f.create(1,'line-map'); assert.equal(f.exact.gpu.participates(),false);

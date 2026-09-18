@@ -466,9 +466,12 @@ exact.gpu = {
       checkpoint(entry, "save"); checkpoint(entry, "load");
       return; }
     const requestedValues = structuredClone(values);
-    values = values.map((value, i) => JSON.stringify(value) === JSON.stringify(entry.requestedValues?.[i]) ? entry.values[i] : value);
+    const changed = index => JSON.stringify(values[index]) !== JSON.stringify(entry.requestedValues?.[index]);
+    // A carried world retains setup until the UI deliberately changes one
+    // setup value (for example its round counter). That new construction uses
+    // the complete requested setup, including the latest authored scene.
+    if (!(entry.setupIndices ?? []).some(changed)) values = values.map((value, i) => changed(i) ? value : entry.values[i]);
     entry.requestedValues = requestedValues;
-    for (const index of entry.setupIndices ?? []) values[index] = entry.values[index];
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
