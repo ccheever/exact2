@@ -6,13 +6,14 @@
 extern crate self as exact_game;
 
 mod agent;
-mod capture;
 #[doc(hidden)]
 pub mod args;
+mod capture;
 pub mod character;
 pub mod data;
 mod environment;
 mod input;
+mod kind;
 pub mod math;
 pub mod motion;
 mod rng;
@@ -30,11 +31,12 @@ pub use args::{Args, ArgumentKind};
 pub use capture::{Capture, CaptureLimits};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use environment::{Bloom, Environment, Fog};
-pub use exact_game_derive::{Args, Component, Data, Resource};
+pub use exact_game_derive::{Args, Component, Data, Kind, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Quat, Vec2, Vec3, Vec4};
 pub use input::{Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick};
+pub use kind::{Id, Kind, KindError, KindRows, KindRowsMut};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;
 pub use sim::{Clock, Game, Now, Sim};

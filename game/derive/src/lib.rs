@@ -5,6 +5,17 @@
 
 use proc_macro::{Delimiter, Spacing, TokenStream, TokenTree};
 
+mod kind;
+
+/// Generate a component bundle and shared/exclusive row views over existing storage.
+#[proc_macro_derive(Kind, attributes(read))]
+pub fn kind(input: TokenStream) -> TokenStream {
+    match kind::expand(input) {
+        Ok(s) => s.parse().expect("Kind derive emitted Rust"),
+        Err(e) => format!("::core::compile_error!({e:?});").parse().unwrap(),
+    }
+}
+
 /// Implement the streaming data contract for a nongeneric struct or enum.
 #[proc_macro_derive(Data, attributes(data))]
 pub fn data(input: TokenStream) -> TokenStream {
@@ -26,6 +37,8 @@ pub fn resource(input: TokenStream) -> TokenStream {
 struct Field {
     name: String,
     skip: bool,
+    ty: TokenStream,
+    shared: bool,
 }
 struct Body {
     fields: Vec<Field>,
@@ -133,6 +146,10 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
     };
     let mut fields = Vec::new();
     for (i, f) in split(g.stream())?.iter().enumerate() {
+        let shared = f.windows(2).any(|w| {
+            punct(&w[0], '#')
+                && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "read")
+        });
         let (f, skip) = strip(f, true)?;
         let name = if shape == Shape::Named {
             if !matches!(f.first(), Some(TokenTree::Ident(_)))
@@ -144,7 +161,13 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
         } else {
             i.to_string()
         };
-        fields.push(Field { name, skip });
+        let start = if shape == Shape::Named { 2 } else { 0 };
+        fields.push(Field {
+            name,
+            skip,
+            ty: f[start..].iter().cloned().collect(),
+            shared,
+        });
     }
     Ok(Body { fields, shape })
 }
