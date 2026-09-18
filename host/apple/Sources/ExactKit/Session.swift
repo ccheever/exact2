@@ -763,8 +763,10 @@ final class Frames: NSObject {
         #endif
         // Motion keeps its existing sampling clock; canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
-        // The display's refresh interval: a world schedules its ticks against it.
-        s.canvases.period(link.duration * 1000)
+        // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
+        // can remain the nominal base interval. The target interval is actual;
+        // canvases quantizes it and publishes only a stable rate-class change.
+        s.canvases.period((link.targetTimestamp - link.timestamp) * 1000)
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }

@@ -503,12 +503,109 @@ fn unknown_period_has_no_lookahead_and_duplicates_preserve_the_pose() {
     assert_eq!(s.world().tick(), 0);
     s.frame_period(1000.0 / 120.0);
     s.advance(10.0, Clock::Live);
-    assert_eq!(s.world().tick(), 1);
+    assert_eq!(s.world().tick(), 0); // A new period cannot move a zero-delta pose.
     let pose = drawn_counter(&s);
     for _ in 0..10 {
         assert_eq!(s.ticks_due(10.0, Clock::Live), 0);
         assert_eq!(s.advance(10.0, Clock::Live), 0);
         assert_eq!(drawn_counter(&s), pose);
+    }
+}
+#[test]
+fn period_transitions_share_one_bounded_monotonic_render_slew() {
+    for (old, new) in [(0.0, 60.0), (60.0, 120.0), (60.0, 144.0), (120.0, 60.0)] {
+        for offset in [0.0, 3.1, 6.2] {
+            let mut s = if old == 0.0 { sim() } else { live(old) };
+            let before_period = 1000.0 / if old == 0.0 { new } else { old };
+            let mut now = offset;
+            for _ in 0..600 {
+                now += before_period;
+                s.advance(now, Clock::Live);
+            }
+            let period = 1000.0 / new;
+            let mut previous = drawn_counter(&s);
+            s.frame_period(period);
+            assert_eq!(s.advance(now, Clock::Live), 0);
+            assert_eq!(drawn_counter(&s), previous);
+            for frame in 1..=1800 {
+                now += period;
+                assert_eq!(s.ticks_due(now, Clock::Live), s.advance(now, Clock::Live));
+                let drawn = drawn_counter(&s);
+                let delta = (drawn - previous) * 1000.0 / 60.0;
+                assert!(delta > 0.0);
+                assert!(
+                    (delta - period).abs() <= period * 0.0025 + 0.00003,
+                    "{old}->{new}, {offset}, frame {frame}: {delta}"
+                );
+                previous = drawn;
+            }
+            // L has actually arrived, rather than merely ignoring the new rate.
+            // The grid has also settled: ticking frames have the new rate's alpha.
+            let mut ticking = 0;
+            for _ in 0..60 {
+                now += period;
+                if s.advance(now, Clock::Live) > 0 {
+                    ticking += 1;
+                }
+                let horizon = drawn_counter(&s) + 1.0;
+                let l = period.min(1000.0 / 60.0) * 60.0 / 1000.0;
+                // The world time in a save is exact when this frame did not tick early.
+                if s.alpha() as f64 >= l {
+                    let mut restored = sim();
+                    restored.restore(&s.save()).unwrap();
+                    assert!(
+                        (horizon - l - restored.world().tick() as f64 - restored.alpha() as f64)
+                            .abs()
+                            < 0.0001
+                    );
+                }
+            }
+            assert!(ticking > 0);
+        }
+    }
+}
+#[test]
+fn sub_half_percent_period_noise_cannot_restart_grid_slew() {
+    let mut stable = live(144.0);
+    let mut noisy = live(144.0);
+    for frame in 1..=1500 {
+        let period = 1000.0 / 144.0;
+        noisy.frame_period(period * if frame % 2 == 0 { 1.004 } else { 0.996 });
+        let now = 3.1 + frame as f64 * period;
+        assert_eq!(
+            stable.advance(now, Clock::Live),
+            noisy.advance(now, Clock::Live)
+        );
+        assert_eq!(stable.alpha(), noisy.alpha());
+        assert_eq!(stable.save(), noisy.save());
+    }
+}
+#[test]
+fn duplicate_stamp_with_negative_half_unit_remainder_cannot_retreat() {
+    let mut s = sim();
+    let now = 20.000025; // 1_200_001.5 units: round up and retain -0.5.
+    s.advance(now, Clock::Live);
+    let pose = drawn_counter(&s);
+    let saved = s.save();
+    for _ in 0..100 {
+        assert_eq!(s.ticks_due(now, Clock::Live), 0);
+        assert_eq!(s.advance(now, Clock::Live), 0);
+        assert_eq!(drawn_counter(&s), pose);
+        assert_eq!(s.save(), saved);
+    }
+}
+#[test]
+fn delivered_live_input_is_eligible_at_the_paced_frame_but_seekable_future_waits() {
+    for clock in [Clock::Live, Clock::Seekable] {
+        let mut s = live(60.0);
+        key(&mut s, "KeyE", true, 16.8);
+        assert_eq!(s.advance(1000.0 / 60.0, clock), 1);
+        assert_eq!(
+            s.world().resource::<Counts>().pressed,
+            u32::from(clock == Clock::Live)
+        );
+        s.advance(33.334, clock); // Seekable rounds to integer µs, past tick 2.
+        assert_eq!(s.world().resource::<Counts>().pressed, 1);
     }
 }
 #[test]

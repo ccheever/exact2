@@ -120,7 +120,7 @@ function lifecycle(code) {
 }
 document.addEventListener("visibilitychange", () => lifecycle(document.hidden ? 0 : 1));
 window.addEventListener("pagehide", () => lifecycle(0));
-window.addEventListener("pageshow", () => lifecycle(document.hidden ? 0 : 1));
+window.addEventListener("pageshow", event => lifecycle(event.persisted || !document.hidden ? 1 : 0));
 
 function render(entry, now) {
   if (hidden && !exact.now) return;
@@ -150,7 +150,7 @@ function frame(now) {
   raf = null;
   if (hidden && !exact.now) return;
   const at = frameAt = pace(now);
-  // The pacer's fitted display period reaches the module once per change.
+  // Bootstrap and subsequent stable fits reach the module once per real change.
   const period = pace.period_ms;
   if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
   let more = false;
@@ -268,6 +268,8 @@ function listen(entry) {
   const on = (name, fn, options) => { el.addEventListener(name, fn, options); listeners.push([name, fn, options]); };
   const send = (event, value) => {
     if (live(entry.view) !== entry) return;
+    // Preserve device ordering. Sim clamps queued live stamps to the paced frame
+    // at advance; an already delivered event is never future to that callback.
     if (!gpu.gpu_input(entry.id, JSON.stringify({ ...value, at: exact.now?.() ?? event.timeStamp }))) console.error("exact gpu:", gpu.gpu_error());
     messages(entry);
     schedule();

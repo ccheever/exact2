@@ -136,8 +136,8 @@ impl<G: Game, P: Presentation> Surface for WorldSurface<G, P> {
         match event {
             Lifecycle::Hidden => self.hidden = true,
             Lifecycle::Visible => self.hidden = false,
-            Lifecycle::AudioInterrupted => self.interrupted = true,
-            Lifecycle::AudioResumed => self.interrupted = false,
+            Lifecycle::Interrupted => self.interrupted = true,
+            Lifecycle::Resumed => self.interrupted = false,
             _ => return,
         }
         self.presentation.suspend(self.hidden || self.interrupted);
@@ -641,10 +641,10 @@ mod lifecycle_tests {
         for seekable in [false, true] {
             surface.clock(seekable);
             surface.lifecycle(Lifecycle::Hidden);
-            surface.lifecycle(Lifecycle::AudioInterrupted);
+            surface.lifecycle(Lifecycle::Interrupted);
             surface.lifecycle(Lifecycle::Visible);
             assert!(surface.presentation.suspended);
-            surface.lifecycle(Lifecycle::AudioResumed);
+            surface.lifecycle(Lifecycle::Resumed);
             assert!(!surface.presentation.suspended);
             assert_eq!(surface.carry(), saved_after_input);
         }

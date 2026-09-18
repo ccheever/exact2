@@ -65,7 +65,8 @@ fn save_mid_chime_restores_offset_and_ends() {
 fn loops_follow_sources_and_cache_once() {
     let mut w = World::new(60, 0);
     w.register_audio();
-    w.resource_mut::<Sounds>().add("wind", Synth::noise());
+    w.resource_mut::<Sounds>()
+        .add("wind", Synth::noise().looped());
     let e = w.spawn((
         Transform::at(1.0, 0.0, 0.0),
         AudioSource {
@@ -237,12 +238,15 @@ fn transport_restarts_at_world_offset_and_silences_pause() {
 #[test]
 fn thirty_third_loop_returns_when_room_opens() {
     let mut sim = Sim::<SoundGame>::new(()).unwrap();
+    sim.world()
+        .resource_mut::<Sounds>()
+        .add("loop", Synth::sine(440.).seconds(2.).looped());
     let mut entities = Vec::new();
     for i in 0..33 {
         entities.push(sim.world_mut().spawn((
             Transform::default(),
             AudioSource {
-                sound: "chime".into(),
+                sound: "loop".into(),
                 gain: if i == 0 { 0.1 } else { 1.0 },
                 playing: true,
             },
@@ -456,7 +460,7 @@ fn editing_a_definition_does_not_accumulate_retired_pcm() {
     }
     audio::stop(&mut w, id);
     p.sync(&w, None, Default::default());
-    assert_eq!(p.cached_sounds(), 1);
+    assert_eq!(p.cached_sounds(), 0);
 }
 
 // AU2.11: agent output has no accumulating history, even over a long session.
@@ -467,12 +471,12 @@ fn null_output_discards_every_call() {
     assert_eq!(std::mem::size_of_val(&output), 0);
     let pcm = vec![0.0; 10].into();
     for id in 0..100_000 {
-        output.start(id, &pcm, 48000, false);
+        assert!(!output.start(id, &pcm, 48000, false, 0, 1.0));
         output.set(id, 1.0, 1.0);
         output.stop(id);
     }
     let mut recorder = RecordingOutput::default();
-    recorder.start(0, &pcm, 48000, false);
+    assert!(recorder.start(0, &pcm, 48000, false, 0, 1.0));
     assert_eq!(recorder.calls.len(), 1);
 }
 
@@ -555,7 +559,7 @@ fn sixty_four_voice_sync_timing() {
             p.cached_sounds()
         );
     }
-    let mut w = world();
+    let w = world();
     for i in 0..64 {
         let name = format!("voice-{i}");
         w.resource_mut::<Sounds>()
@@ -575,7 +579,7 @@ fn sixty_four_voice_sync_timing() {
 
 #[test]
 fn capacity_and_silence_are_selected_before_pcm_materialization() {
-    let mut w = world();
+    let w = world();
     for i in 0..64 {
         let name = format!("voice-{i}");
         w.resource_mut::<Sounds>()
@@ -609,20 +613,9 @@ fn refused_start_is_retried_without_a_transport_bump() {
         accepted: bool,
     }
     impl Output for Busy {
-        fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {
+        fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
             self.attempts += 1;
             self.accepted = self.attempts > 1;
-        }
-        fn try_start_at(
-            &mut self,
-            id: u64,
-            pcm: &Arc<[f32]>,
-            rate: u32,
-            looping: bool,
-            offset: usize,
-            pitch: f32,
-        ) -> bool {
-            self.start_at(id, pcm, rate, looping, offset, pitch);
             self.accepted
         }
         fn set(&mut self, _: u64, _: f32, _: f32) {}
@@ -637,4 +630,18 @@ fn refused_start_is_retried_without_a_transport_bump() {
     assert_eq!(player.output.attempts, 2);
     player.sync(sim.world(), None, Default::default());
     assert_eq!(player.output.attempts, 2);
+}
+
+#[test]
+fn sources_use_the_definitions_loop_property() {
+    let mut w = world();
+    w.resource_mut::<Sounds>()
+        .add("finite", Synth::square(440.).seconds(0.1));
+    w.spawn((Transform::default(), AudioSource::new("finite")));
+    let mut p = recording();
+    p.sync(&w, Some(Listener::default()), Default::default());
+    assert!(matches!(
+        p.output.calls[0],
+        Call::Start { looping: false, .. }
+    ));
 }

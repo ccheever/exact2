@@ -49,6 +49,28 @@ fn surface() -> WorldSurface<Move> {
     s
 }
 #[test]
+fn live_surface_applies_a_period_and_slews_a_changed_horizon() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = surface();
+    let mut f = frame(0.);
+    f.seekable = false;
+    f.period_ms = 1000. / 60.;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    for n in 1..=3 {
+        f.now_ms = n as f64 * 1000. / 60.;
+        fixture::render(&gpu, &mut s, &f).unwrap();
+        assert_eq!(s.sim().unwrap().world().tick(), n);
+        assert_eq!(s.sim().unwrap().alpha(), 1.);
+    }
+    f.period_ms = 1000. / 144.;
+    f.now_ms += f.period_ms;
+    fixture::render(&gpu, &mut s, &f).unwrap();
+    let sim = s.sim().unwrap();
+    let drawn = (sim.world().tick() - 1) as f64 + sim.alpha() as f64;
+    // ΔR = (1000/144) * .9975 ms, rather than a 2.778 ms reversal.
+    assert!((drawn - 3. - (60. / 144.) * 0.9975).abs() < 0.000002);
+}
+#[test]
 fn transient_empty_and_nonfinite_frames_advance_without_poisoning_viewport() {
     let Some(gpu) = gpu() else {
         return;

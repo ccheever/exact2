@@ -669,11 +669,11 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     }
     assert_eq!(
         m.agent(live, "").unwrap(),
-        "clock:false,clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+        "clock:false,clock:true,Hidden,Visible,Interrupted,Resumed"
     );
     assert_eq!(
         m.agent(agent, "").unwrap(),
-        "clock:true,Hidden,Visible,AudioInterrupted,AudioResumed"
+        "clock:true,Hidden,Visible,Interrupted,Resumed"
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));

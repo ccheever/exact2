@@ -310,7 +310,9 @@ macro_rules! module {
         impl $crate::Presentation for GameAudio {
             fn wants_audio(&self) -> bool { true }
             fn clock(&mut self, seekable: bool) { self.0.clock(seekable); }
-            fn suspend(&mut self, suspended: bool) { self.0.suspend(suspended); }
+            fn suspend(&mut self, suspended: bool) {
+                if let Err(error) = self.0.suspend(suspended) { eprintln!("{error}"); }
+            }
             fn sync(&mut self, world: &$crate::exact_game::World, generation: u64, playing: bool, seekable: bool) {
                 self.0.sync(world, generation, playing, seekable);
             }

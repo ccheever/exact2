@@ -87,10 +87,10 @@ pub enum Lifecycle {
     Hidden,
     /// The surface is shown again.
     Visible,
-    /// The host audio session was interrupted.
-    AudioInterrupted,
-    /// The host audio session interruption ended.
-    AudioResumed,
+    /// An external interruption of this surface's device work (call, alert, route change).
+    Interrupted,
+    /// The external interruption ended; device work may resume.
+    Resumed,
 }
 
 /// What an app implements per canvas.
@@ -529,8 +529,8 @@ impl Module {
         let event = match code {
             0 => Lifecycle::Hidden,
             1 => Lifecycle::Visible,
-            2 => Lifecycle::AudioInterrupted,
-            3 => Lifecycle::AudioResumed,
+            2 => Lifecycle::Interrupted,
+            3 => Lifecycle::Resumed,
             _ => return,
         };
         if let Some(inst) = self.instances.get_mut(&id) {

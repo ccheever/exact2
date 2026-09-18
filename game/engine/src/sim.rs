@@ -81,6 +81,7 @@ struct LiveTime {
     remainder: f64,
     period_ms: f64,
     slew_left: Option<f64>,
+    lookahead: f64,
 }
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
@@ -574,11 +575,14 @@ impl<G: Game> Sim<G> {
     /// Host display period in milliseconds; zero means not yet known. Applied
     /// only by the next accepted live advance, never by a backwards sample.
     pub fn frame_period(&mut self, period_ms: f64) {
-        self.period_ms = if period_ms.is_finite() && period_ms > 0.0 {
+        let period = if period_ms.is_finite() && period_ms > 0.0 {
             period_ms
         } else {
             0.0
         };
+        if (period - self.period_ms).abs() >= self.period_ms * 0.005 {
+            self.period_ms = period;
+        }
     }
     fn phase_us(ms: f64) -> i128 {
         (ms * G::HZ as f64 * 1000.0).round() as i128
@@ -587,8 +591,10 @@ impl<G: Game> Sim<G> {
         let mut live = self.live_time.unwrap_or(LiveTime {
             phase: self.world_us as i128 * G::HZ as i128,
             remainder: 0.0,
-            period_ms: 0.0,
+            period_ms: self.period_ms,
             slew_left: None,
+            // A known period at the first epoch has no preceding pose to jump.
+            lookahead: Self::phase_us(self.period_ms.min(1000.0 / G::HZ as f64)) as f64,
         });
         let delta = if self.paused_clock {
             0.0
@@ -599,11 +605,22 @@ impl<G: Game> Sim<G> {
             live.period_ms = self.period_ms;
             live.slew_left = None;
         }
+        // In particular, do not round a carried -0.5 again on a duplicate stamp.
+        if delta == 0.0 {
+            return live;
+        }
         let units = delta * G::HZ as f64 * 1000.0;
         let increment = units + live.remainder;
         live.phase += increment.round() as i128;
         live.remainder = increment - increment.round();
-        if live.period_ms > 0.0 && delta > 0.0 {
+        // L and grid alignment share one budget: |Δ(T + L) - delta| <= .0025*delta.
+        // Schedule against this same horizon so the retained tick pair covers R.
+        let wanted = Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64)) as f64;
+        let budget = units * 0.0025;
+        let horizon = (wanted - live.lookahead).clamp(-budget, budget);
+        live.lookahead += horizon;
+        let budget = (budget - horizon.abs()).max(0.0);
+        if live.period_ms > 0.0 && budget > 0.0 {
             let period = live.period_ms * G::HZ as f64 * 1000.0;
             let left = live.slew_left.get_or_insert_with(|| {
                 // Move the origin to the nearest frame, not every successive
@@ -616,7 +633,7 @@ impl<G: Game> Sim<G> {
                     phase
                 }
             });
-            let correction = left.clamp(-units * 0.0025, units * 0.0025);
+            let correction = left.clamp(-budget, budget);
             *left -= correction;
             let increment = correction + live.remainder;
             live.phase += increment.round() as i128;
@@ -625,7 +642,7 @@ impl<G: Game> Sim<G> {
         live
     }
     fn lookahead(live: LiveTime) -> i128 {
-        Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64))
+        live.lookahead.round() as i128
     }
     fn target(phase: i128, lookahead: i128) -> u64 {
         // ceil(horizon / step) - 1 with L; equality waits for the next frame.
@@ -698,6 +715,14 @@ impl<G: Game> Sim<G> {
             }
         }
         self.rebase_queue = false;
+        if clock == Clock::Live {
+            // Every queued device event arrived before this callback. Pacing can
+            // name the frame earlier than event.timeStamp; it cannot defer delivery.
+            // min preserves stamp order and the spread of earlier catch-up input.
+            for e in &mut self.queue {
+                e.host_us = e.host_us.min(now);
+            }
+        }
         if G::paused(&self.args) {
             self.flush_paused(now);
             self.world_us = self.exact_world_us();
@@ -800,8 +825,8 @@ impl<G: Game> Sim<G> {
         if self.world.tick() == 0 {
             return 0.0;
         }
-        // Startup, restore or a display-rate change can lack the required history.
-        // A stall with an unchanged period never changes L or hits this guard.
+        // Startup or restore can lack the required history. Period changes slew
+        // the shared horizon and therefore stay within the retained tick pair.
         self.alpha_numerator().clamp(0, 1_000_000) as f32 / 1_000_000.0
     }
     /// Replacement generation for presentation caches; not saved or hashed.
@@ -1036,15 +1061,7 @@ impl<G: Game> Sim<G> {
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        let sounds = self
-            .world
-            .has_audio()
-            .then(|| self.world.resource::<crate::audio::Sounds>().clone());
-        self.restore_into(bytes, Some(&args))?;
-        if let Some(sounds) = sounds {
-            *self.world.resource_mut::<crate::audio::Sounds>() = sounds;
-        }
-        Ok(())
+        self.restore_into(bytes, Some(&args))
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {

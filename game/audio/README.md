@@ -33,7 +33,7 @@ changes and removes extra listeners in entity order. The saved `Audio` resource
 holds the last reported source states, so restoring does not repeat loop events.
 Journal examples: `sfx chime at lantern-3 gain 0.80`, `loop wind on gain 0.30`,
 `loop wind off`. `state.world.audio.sources` lists sound, entity, gain and playing.
-Finite voices participate in `clock settle`; loops do not keep it running forever.
+Finite voices are ambient and do not block `clock settle`; neither do loops.
 Invalid source gains clamp to 0..4 (non-finite becomes zero), with at most one
 refusal per offending source identity. Play and master gains use the same bound.
 
@@ -51,18 +51,29 @@ resume resynchronizes. There is no manual Player reset. A fresh player behaves
 the same way. Ended PCM never starts, including the rounded final lifetime tick.
 Offsets include pitch. Loops use world-time phase modulo their rendered length.
 
-Capacity belongs to the Player. It ranks loops first, then louder voices (maximum
-stereo gain), then newer start boundaries, then larger stable identities. It stops
-all losers before starting winners; a dropped loop returns at its current phase.
+Capacity belongs to the output. Player ranks loops first, then louder voices
+(maximum stereo gain), then newer start boundaries, then larger stable identities.
+It stops priority losers before starts and walks candidates until the output has
+accepted `capacity()` voices. A budget or device refusal cannot starve a smaller,
+lower-priority sound. A dropped loop returns at its current phase.
 There is no callback stealing. Final per-channel gains are sanitized to 0..4 at
 this shared boundary. Missing ears silence spatial sounds. Distance gain is
 `1/max(distance,1) * (1-smoothstep(1,40,distance))`; local +X is right and pan is
 equal-power. UI gains apply equally to both channels on both executors.
 
-Definitions are immutable shared values with a content revision computed at registration
-or restore. Started voices retain that definition. Player reuses selection/PCM scratch,
-culls silence and ranks capacity winners before synthesis. Its cache keeps materialized
-current definitions plus revisions currently used by device voices. Web buffers follow that cache and active source references.
+Definitions are immutable shared values with a content revision computed at
+registration or restore. Finite voices retain their frozen definition; sources
+resolve their name in the current registry, with looping set on the definition.
+`AudioSource::new("wind").gain(0.3)` starts playing by default. After explicit
+`register_audio()` in setup, `world.play("chime").at(entity)` needs only `&World`,
+so it can run while an unrelated component is borrowed.
+
+Player reserves a **32 MiB PCM budget before synthesis** (`samples × 4`), counting
+a shared allocation once. It keeps active allocations and allocations still owned
+by an output; acknowledgement releases the latter. Registry membership alone does
+not retain PCM. `Sounds::add` refuses an oversized definition by name at the surface
+sample rate (48 kHz); a Player using another rate also checks before rendering.
+Web buffers follow active source references; a failed start leaves no cached PCM.
 Apple retains PCM while commands or voices can reference its raw pointer. A Stop
 command's sequence is acknowledged through the return SPSC ring; only the main
 thread then releases the Arc. A full return ring coalesces and retries its latest
@@ -70,16 +81,20 @@ watermark. Device disposal still joins callbacks before dropping any PCM.
 
 ## Outputs
 
-Web constructs an initially suspended `AudioContext`. The surface invokes
-`Output::unlock` synchronously from key/pointer down; its owned asynchronous resume
-completion enables playback, and the next sync bumps the transport generation.
-No sources are created before success, including when the browser suspends again.
-The explicit probe can also await `output.unlock(&mut transport)`.
+Web may construct `AudioContext` on the first live frame or an earlier gesture.
+`Output::unlock` calls `resume()` synchronously on the first trusted key/pointer
+down stack, never for a seekable surface and never twice while activation is pending
+or the output is ready. Its owned async completion enables playback; the next sync
+bumps the transport generation. Lifecycle resumption can request activation again.
+The probe uses this production path and observes readiness. There is no second async
+unlock API. A late resume completion suspends again if the surface became hidden.
+
+`Output::start(id, pcm, rate, looping, offset, pitch) -> bool` is the single start
+operation. WebAudio failures return refusal for retry instead of trapping the module.
 Each voice connects buffer source → gain → stereo panner → destination. Playback
 rate implements pitch; gain and pan use `setTargetAtTime` with a 10 ms time constant.
-The Web probe demonstrates this ownership and asynchronous API.
 
-Apple has 32 fixed voice slots. `start_at`/`set`/`stop` enqueue producer-side work;
+Apple has 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
 identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
 retain their order and PCM until acknowledged. Published starts occupy at most 32
@@ -89,7 +104,9 @@ has a **32 MiB total byte budget**, counting each shared allocation once. `Pendi
 refuses before adding ownership or a command when the next unique allocation does
 not fit. A refusal leaves the Player voice inactive for retry, without changing
 transport. Stops release bytes only after acknowledgement (or immediately when
-cancelling an unpublished start). The Player cache is separate from this budget.
+cancelling an unpublished start). Player accounts for these same retained allocations until acknowledgement. An
+unpublished same-id replacement subtracts its releasable allocation before checking;
+a published replacement cannot release bytes until the callback acknowledges it.
 Stops can pass unpublished starts to release capacity; sequence watermarks are
 assigned at publication. A full mixer leaves a start unconsumed and unacknowledged.
 Finite voices retire on the exact terminal sample step, including silent callbacks.
@@ -121,21 +138,29 @@ use NullOutput. Failed device creation retries every 300 live sync frames, with
 one warning per surface; seekable frames preserve that cooldown.
 
 The GPU seam is `Surface::lifecycle(Lifecycle)` (default no-op), with Hidden,
-Visible, AudioInterrupted and AudioResumed. `gpu_lifecycle(id, code)` maps codes
+Visible, Interrupted and Resumed. The latter pair means an external interruption of
+a surface's device work, applicable to video decoding or a chart ticker as well. `gpu_lifecycle(id, code)` maps codes
 0–3 and ignores unknown values. `Surface::clock(bool)` is defaulted and receives
 clock ownership on creation and each change. Neither callback advances simulation.
-Web delivers visibilitychange/pagehide/pageshow; ExactKit delivers app and iOS
-audio-session notifications to every canvas; headless Linux has none to deliver.
+Web delivers visibilitychange/pagehide/pageshow; persisted pageshow restores
+visibility even when `document.hidden` lags, and a later visibilitychange corrects
+it. Web has no external-interruption source. ExactKit delivers aggregate visibility
+and iOS audio-session interruptions on main; headless Linux has none to deliver.
+macOS hide/occlusion stops work; losing focus alone does not hide a visible window.
+iOS requires an active app and a mounted window. New surfaces receive the same
+aggregate, with notifications delivering only transitions.
 The presentation hook combines hidden/interrupted state before suspending output;
 resume resets playback from the current tick offset with one readiness epoch bump.
 ExactKit recognizes the `exact:audio` surface message and configures/activates one
-process audio session only for a live requesting surface (and reactivates it after
-an interruption). Other hosts consume the request without app dispatch.
+process audio session only for a live requesting surface. Failed activation retries
+on Visible or an eligible Resumed notification; failed activation never emits
+Resumed, and interruption options must include `shouldResume`. Other hosts consume
+the request without app dispatch. SurfacePlayer returns lifecycle failures and the
+GameAudio forwarder reports them. Failed AudioUnit Stop disposes the device so work
+ends; failed Start drops it into the same 300-live-frame retry as creation failures.
 
-The generated `GameAudio` hook in `game/render/src/lib.rs` still needs three
-forwarders (`wants_audio`, `clock`, `suspend`); that file is outside AU3c's supplied
-scope. Until that change is authorized, the SurfacePlayer unit regressions pass,
-but game surfaces do not yet forward these controls or request the Apple session.
+`module!(Game, audio)` forwards `wants_audio`, `clock`, `suspend`, `unlock` and `sync`
+through GameAudio in `game/render/src/lib.rs`; these forwarders are wired.
 
 ## Synthesis and proof
 
@@ -192,35 +217,40 @@ The timing is diagnostic, not a threshold. Greybox's 1.5 s forward pin is
 `0x0f14b8b231091d12`, position `(0, 0.9, -5.3666644)`, matching the current
 native golden and AU3c web deterministic proof.
 
-AU3 web module size (`web` profile, wasm-bindgen, wasm-opt -Oz; gzip level 9):
-693,756 → 818,436 bytes raw; 277,890 → 319,108 bytes gzip. A headed Chrome run
-for ten seconds resumed the context and created a wind source with non-zero PCM,
-but the audio clock stalled at 5.33 ms and analyser RMS stayed zero. Device output
-was **not verified**; the temporary analyser was removed and Chrome closed.
-
 Run `bun game/bench/probes/audio.mjs greybox` after the web proof, or use
 `EXACT_AUDIO_PROBE=1 bun game/games/greybox/proof.mjs web`. The shortcut closes the
 deterministic session before opening a separate live browser. The probe is under
-`game/bench`, excluded from the proof's build-input digest. It asserts context
-creation/resume on the first trusted input before the first frame, a running
-context with advancing time, nonzero analyser RMS while wind plays, and
-suspension/resumption on page lifecycle events. Evidence goes to
-`game/games/greybox/artifacts/audio-web.json`; the assertions run each time, with
-no dated clock/RMS numbers treated as a contract. Setup and teardown share a
-try/finally, kill the owned Chrome process group, await exit, close server
-connections with a deadline, and remove the profile.
+`game/bench`, excluded from the proof's build-input digest. It verifies both orderings:
+a completed live frame before input, and a fresh production surface created during
+a trusted gesture before its first frame. Neither rAF nor ResizeObserver callbacks
+are delayed. Both invoke resume exactly once on the trusted stack. It records context
+construction and input-to-next-frame costs, observes running device time and nonzero
+wind analyser RMS, and injects a refused start to prove retry without a wasm trap.
+
+Evidence goes to `game/games/greybox/artifacts/audio-web.json`. Synthetic page events
+prove suspension/resumption and simulation isolation; the separate listener fixture
+checks persisted pageshow with `document.hidden` still true. This is not a claim that
+Chrome actually admitted the page into bfcache. Teardown owns and awaits its browser
+process group, closes server connections, and removes the profile, including injected
+setup failures. Greybox, Beacons and the asset fixture pass on web with unchanged pins.
 
 All synth numbers must be finite. Duration is 0..=60 seconds and sustain 0..=1.
 Oscillator gain, frequency, vibrato frequency/depth, ADSR times and filter cutoffs
 are nonnegative; slide accepts either sign. Validation recurses through layers and
 applies to both saved registry and saved voice definitions; refused loads leave
-the world unchanged. A dev carry retains each old voice's definition and overlays
-the freshly bound sound registry for subsequent plays.
+the world unchanged. Opening a `.world` restores saved `Sounds`, including runtime-registered names,
+and saved finite-voice definitions. `Sim::restore_bound` owns only app binding policy.
+The remaining dev-carry overlay needs an explicit carry/file distinction from the
+hosts: today both use the identical `gpu_restore` call and bytes. Until that plumbing
+is admitted, dev carry also restores the saved registry. The intended carry overlay
+belongs to GameAudio; finite voices keep frozen definitions, while named loops resolve
+the new registry after a swap.
 
-macOS verification exercises the actual render callback with fixture buffers;
-it does **not** open or capture a device. The AU3c macOS greybox proof was attempted
-with SDK 26 and a native Swift build wrapper, but SwiftPM failed loading
-`BuildServerProtocol` before the host could run. The audio and render Rust libraries
-build for `aarch64-apple-ios`; the notification code also compiles with Xcode's
-matching iOS compiler. The full iOS host was not linked or driven. The lifecycle
-seam supplies interruption handling, which remains unproven on an iOS device.
+Apple callback tests use the real mixer with fixture buffers and open no device.
+Compiled Swift fixtures post notifications from a background queue, check ordered
+main-thread ABI delivery, aggregate visibility, activation retry and `shouldResume`.
+AU3d built and linked the macOS `ExactMac` Swift product with a temporary native-build
+wrapper. The one greybox macOS proof attempt then failed before launch: the WebKit
+helper selected SDK 27 with Swift 6.3.3. There is no macOS device-output claim.
+Audio/render Rust libraries and the Swift `ExactKit` target build for iOS; iOS was
+not driven and interruption handling remains unproven on a device.

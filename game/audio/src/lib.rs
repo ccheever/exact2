@@ -47,20 +47,12 @@ pub trait Output {
     }
     fn flush(&mut self) {}
     fn retain_pcm(&mut self, _pcm: &[Arc<[f32]>]) {}
-    fn start(&mut self, id: u64, pcm: &Arc<[f32]>, rate: u32, looping: bool) {
-        self.start_at(id, pcm, rate, looping, 0, 1.0);
+    /// Whether the device still owns this allocation (including unacknowledged stops).
+    fn owns_pcm(&self, _pcm: &Arc<[f32]>) -> bool {
+        false
     }
-    fn start_at(
-        &mut self,
-        id: u64,
-        pcm: &Arc<[f32]>,
-        rate: u32,
-        looping: bool,
-        offset: usize,
-        pitch: f32,
-    );
     /// Accept a start, or leave it inactive so the Player retries next sync.
-    fn try_start_at(
+    fn start(
         &mut self,
         id: u64,
         pcm: &Arc<[f32]>,
@@ -68,10 +60,7 @@ pub trait Output {
         looping: bool,
         offset: usize,
         pitch: f32,
-    ) -> bool {
-        self.start_at(id, pcm, rate, looping, offset, pitch);
-        true
-    }
+    ) -> bool;
     fn set(&mut self, id: u64, gain_l: f32, gain_r: f32);
     fn stop(&mut self, id: u64);
 }
@@ -101,7 +90,9 @@ impl Output for NullOutput {
     fn capacity(&self) -> usize {
         0
     }
-    fn start_at(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) {}
+    fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+        false
+    }
     fn set(&mut self, _: u64, _: f32, _: f32) {}
     fn stop(&mut self, _: u64) {}
 }
@@ -127,7 +118,7 @@ impl Output for RecordingOutput {
     fn ready(&self) -> bool {
         self.ready
     }
-    fn start_at(
+    fn start(
         &mut self,
         id: u64,
         pcm: &Arc<[f32]>,
@@ -135,7 +126,7 @@ impl Output for RecordingOutput {
         looping: bool,
         offset: usize,
         pitch: f32,
-    ) {
+    ) -> bool {
         self.calls.push(Call::Start {
             id,
             samples: pcm.len(),
@@ -144,6 +135,7 @@ impl Output for RecordingOutput {
             offset,
             pitch,
         });
+        true
     }
     fn set(&mut self, id: u64, left: f32, right: f32) {
         self.calls.push(Call::Set { id, left, right });
@@ -196,6 +188,7 @@ struct Active {
     signature: (u64, u64, u32),
 }
 struct Wanted {
+    preferred: bool,
     key: Key,
     synth: audio::Definition,
     gains: (f32, f32),
@@ -210,7 +203,7 @@ pub struct Player<O: Output> {
     rate: u32,
     cache: BTreeMap<u64, Arc<[f32]>>,
     wanted: Vec<Wanted>,
-    keep: Vec<u64>,
+    revisions: Vec<u64>,
     pcm: Vec<Arc<[f32]>>,
     active: BTreeMap<Key, Active>,
     next_id: u64,
@@ -224,7 +217,7 @@ impl<O: Output> Player<O> {
             rate,
             cache: BTreeMap::new(),
             wanted: Vec::new(),
-            keep: Vec::new(),
+            revisions: Vec::new(),
             pcm: Vec::new(),
             active: BTreeMap::new(),
             next_id: 0,
@@ -275,43 +268,38 @@ impl<O: Output> Player<O> {
         };
         let wanted = &mut self.wanted;
         wanted.clear();
-        let keep = &mut self.keep;
-        keep.clear();
-        if world.has_audio() {
-            for synth in world.resource::<Sounds>().0.values() {
-                keep.push(synth.revision());
+        if world.has_audio() && effective.playing {
+            for v in &world.resource::<Voices>().voices {
+                if v.began <= world.tick() && world.tick() < v.ends {
+                    wanted.push(Wanted {
+                        preferred: false,
+                        key: Key::Voice(v.id),
+                        synth: v.synth.clone(),
+                        gains: gains(&v.at, v.position, v.gain),
+                        began: v.began,
+                        looping: false,
+                        pitch: if v.pitch.is_finite() {
+                            v.pitch.clamp(0.01, 16.0)
+                        } else {
+                            1.0
+                        },
+                        offset: 0,
+                    });
+                }
             }
-            if effective.playing {
-                for v in &world.resource::<Voices>().voices {
-                    if v.began <= world.tick() && world.tick() < v.ends {
+            for (e, source) in world.query::<&AudioSource>().iter() {
+                if source.playing {
+                    if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
                         wanted.push(Wanted {
-                            key: Key::Voice(v.id),
-                            synth: v.synth.clone(),
-                            gains: gains(&v.at, v.position, v.gain),
-                            began: v.began,
-                            looping: false,
-                            pitch: if v.pitch.is_finite() {
-                                v.pitch.clamp(0.01, 16.0)
-                            } else {
-                                1.0
-                            },
+                            preferred: false,
+                            key: Key::Source(e),
+                            synth: synth.clone(),
+                            gains: gains(&At::Entity(e), None, source.gain),
+                            began: 0,
+                            looping: synth.looping,
+                            pitch: 1.0,
                             offset: 0,
                         });
-                    }
-                }
-                for (e, source) in world.query::<&AudioSource>().iter() {
-                    if source.playing {
-                        if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
-                            wanted.push(Wanted {
-                                key: Key::Source(e),
-                                synth: synth.clone(),
-                                gains: gains(&At::Entity(e), None, source.gain),
-                                began: 0,
-                                looping: true,
-                                pitch: 1.0,
-                                offset: 0,
-                            });
-                        }
                     }
                 }
             }
@@ -346,13 +334,32 @@ impl<O: Output> Player<O> {
                 .then_with(|| b.began.cmp(&a.began))
                 .then_with(|| b.key.cmp(&a.key))
         });
-        wanted.truncate(self.output.capacity());
-        wanted.sort_unstable_by(|a, b| a.key.cmp(&b.key));
+        let capacity = self.output.capacity();
         let signature = |w: &Wanted| (w.synth.revision(), w.began, w.pitch.to_bits());
+        // Plan priority winners with the byte bound too, so a small fallback
+        // retains its identity across frames. Actual allocation below also counts
+        // PCM still waiting for acknowledgement, which can temporarily refuse one.
+        self.revisions.clear();
+        let (mut bytes, mut count) = (0usize, 0usize);
+        for w in wanted.iter_mut() {
+            let revision = w.synth.revision();
+            let extra = if self.revisions.contains(&revision) {
+                0
+            } else {
+                synth::sample_count(&w.synth, self.rate).saturating_mul(4)
+            };
+            w.preferred = count < capacity && extra <= audio::PCM_BYTE_BUDGET.saturating_sub(bytes);
+            if w.preferred {
+                bytes += extra;
+                count += 1;
+                self.revisions.push(revision);
+            }
+        }
+        // Stop priority losers before starts, then walk past output refusals.
         self.active.retain(|key, a| {
             if wanted
-                .binary_search_by(|w| w.key.cmp(key))
-                .is_ok_and(|i| signature(&wanted[i]) == a.signature)
+                .iter()
+                .any(|w| w.preferred && &w.key == key && signature(w) == a.signature)
             {
                 true
             } else {
@@ -360,13 +367,36 @@ impl<O: Output> Player<O> {
                 false
             }
         });
+        self.pcm.clear();
+        self.pcm.extend(
+            self.cache
+                .iter()
+                .filter(|(revision, _)| self.active.values().any(|a| a.signature.0 == **revision))
+                .map(|(_, pcm)| pcm.clone()),
+        );
+        self.output.retain_pcm(&self.pcm);
+        self.pcm.clear();
+        self.cache.retain(|revision, pcm| {
+            self.active.values().any(|a| a.signature.0 == *revision) || self.output.owns_pcm(pcm)
+        });
+        let mut reserved: usize = self.cache.values().map(|pcm| pcm.len() * 4).sum();
+        let mut accepted = 0;
         for w in wanted.iter() {
+            if accepted == capacity {
+                break;
+            }
             let revision = w.synth.revision();
-            let pcm = self
-                .cache
-                .entry(revision)
-                .or_insert_with(|| render(&w.synth, self.rate).into());
-            keep.push(revision);
+            if !self.cache.contains_key(&revision) {
+                let bytes = synth::sample_count(&w.synth, self.rate).saturating_mul(4);
+                if bytes > audio::PCM_BYTE_BUDGET.saturating_sub(reserved) {
+                    continue;
+                }
+                // Reserve before synthesis, once per shared definition allocation.
+                reserved += bytes;
+                self.cache
+                    .insert(revision, render(&w.synth, self.rate).into());
+            }
+            let pcm = &self.cache[&revision];
             let active = match self.active.entry(w.key.clone()) {
                 std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -374,8 +404,14 @@ impl<O: Output> Player<O> {
                     self.next_id += 1;
                     if !self
                         .output
-                        .try_start_at(id, pcm, self.rate, w.looping, w.offset, w.pitch)
+                        .start(id, pcm, self.rate, w.looping, w.offset, w.pitch)
                     {
+                        if !self.output.owns_pcm(pcm)
+                            && !self.active.values().any(|a| a.signature.0 == revision)
+                        {
+                            reserved -= pcm.len() * 4;
+                            self.cache.remove(&revision);
+                        }
                         continue;
                     }
                     entry.insert(Active {
@@ -384,14 +420,9 @@ impl<O: Output> Player<O> {
                     })
                 }
             };
+            accepted += 1;
             self.output.set(active.output_id, w.gains.0, w.gains.1);
         }
-        keep.sort_unstable();
-        keep.dedup();
-        self.cache.retain(|key, _| keep.binary_search(key).is_ok());
-        self.pcm.clear();
-        self.pcm.extend(self.cache.values().cloned());
-        self.output.retain_pcm(&self.pcm);
         self.output.flush();
     }
 }

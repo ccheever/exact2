@@ -17,12 +17,50 @@ const stats = values => {
 const deltas = values => values.slice(1).map((v, i) => v - values[i]);
 
 describe('the paced frame clock', () => {
+  test('publishes the 16-sample bootstrap before the full fit', () => {
+    for (const hz of [60, 120, 144]) {
+      const pace = pacer(), period = 1000 / hz;
+      for (let i = 0; i < 16; i++) { pace(i * period); expect(pace.period_ms).toBe(0); }
+      pace(16 * period);
+      expect(Math.abs(pace.period_ms - period)).toBeLessThan(1e-9);
+      // 133 ms at 120 Hz, 267 ms at 60 Hz: exactly sixteen intervals.
+      expect(16 * period).toBeLessThanOrEqual(267);
+    }
+  });
+  test('reacquires harmonic changes in both directions, but not isolated skipped slots', () => {
+    for (const [from, to] of [[120, 60], [60, 120]]) {
+      const pace = pacer();
+      let now = 0;
+      for (let i = 0; i < 400; i++) pace(now += 1000 / from);
+      const original = pace.period_ms;
+      pace(now += 2 * 1000 / from);
+      for (let i = 0; i < 100; i++) pace(now += 1000 / from);
+      expect(pace.period_ms).toBe(original);
+      for (let i = 0; i < 80; i++) pace(now += 1000 / to);
+      expect(Math.abs(pace.period_ms - 1000 / to)).toBeLessThan(0.01);
+    }
+  });
+  test('republishes full rolling fits through a gradual 0.5 percent per second drift', () => {
+    const pace = pacer();
+    let now = 0, updates = 0, published = 0;
+    for (let i = 0; i < 400; i++) pace(now += P120);
+    const start = now;
+    while (now - start < 20000) {
+      const period = P120 * (1 + 0.005 * (now - start) / 1000);
+      pace(now += period);
+      if (pace.period_ms !== published) { published = pace.period_ms; updates++; }
+      expect(Math.abs(pace.period_ms / period - 1)).toBeLessThan(0.018);
+    }
+    expect(updates).toBeGreaterThan(5);
+    expect(pace.period_ms).toBeGreaterThan(P120 * 1.08);
+  });
   test('exports zero until fitted, then a stable period through jitter and stall recovery', () => {
     const pace = pacer(), raw = callbacks(900, P120);
     expect(pace.period_ms).toBe(0);
     raw.slice(0, 300).forEach(pace);
     const period = pace.period_ms;
-    expect(Math.abs(period - P120)).toBeLessThan(0.02);
+    // A bootstrap already within 1% is retained instead of republishing noise.
+    expect(Math.abs(period - P120)).toBeLessThan(P120 * 0.01);
     for (let i = 300; i < raw.length; i++) {
       pace(raw[i] + (i >= 400 ? 40 : 0));
       expect(pace.period_ms).toBe(period);

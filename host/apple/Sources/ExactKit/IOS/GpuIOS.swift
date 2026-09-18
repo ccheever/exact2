@@ -72,9 +72,18 @@ final class Canvases {
     /// The display period last handed to the module; the session reports each change.
     var sentPeriod = 0.0
     func period(_ ms: Double) {
-        guard ms != sentPeriod, let m = module else { return }
-        sentPeriod = ms
-        m.period?(ms)
+        guard ms.isFinite, ms > 0, let m = module else { return }
+        // Retain the current class through timestamp noise. ProMotion's classes
+        // include 120, 80, 60, 48, 40, 30, 24 Hz; external displays can add others.
+        guard sentPeriod == 0 || abs(ms - sentPeriod) > sentPeriod * 0.01 else { return }
+        let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
+        let candidates = rates.map { 1000 / $0 } + [1000 / max(120, (1000 / ms).rounded())]
+        let quantized = candidates.min { abs($0 - ms) < abs($1 - ms) }!
+        // Cross the midpoint by 1% before leaving a class; do not flap on a ramp.
+        guard sentPeriod == 0 || abs(ms - quantized) + sentPeriod * 0.01 < abs(ms - sentPeriod) else { return }
+        guard quantized != sentPeriod else { return }
+        sentPeriod = quantized
+        m.period?(quantized)
     }
     var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
     var terminalRestoreReported = false
@@ -359,13 +368,13 @@ final class Canvases {
     /// when the scene delegate asks `Frames` to run.
     var visible: Bool {
         // A backgrounded app, or an unmounted view (LLP 1031 D3), wants no frames.
-        UIApplication.shared.applicationState != .background && session?.presenter.viewport.window != nil
+        UIApplication.shared.applicationState == .active && session?.presenter.viewport.window != nil
     }
 
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
-        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
+        guard let m = module, visible else { return false }
         return entries.values.contains { e in
             e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { editing(under: $0) } == true)
         }
@@ -393,7 +402,7 @@ final class Canvases {
 
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
-        guard let m = module, visible, !lifecycle.hidden || ExactEnv.agentMode else { return false }
+        guard let m = module, visible else { return false }
         let previous = frameNow
         frameNow = now
         defer { frameNow = previous }

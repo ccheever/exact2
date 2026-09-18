@@ -249,14 +249,25 @@ impl Data for Definition {
         Ok(())
     }
 }
+/// Retained mono PCM budget, shared by registration and presentation executors.
+pub const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+/// Surface synthesis rate; executors with other rates also reserve before rendering.
+pub const SAMPLE_RATE: u32 = 48000;
+
 /// Sound definitions, authored during setup and included in saves and hashes.
 #[derive(Resource, Default, Clone)]
 pub struct Sounds(pub BTreeMap<String, Definition>);
 impl Sounds {
     /// Define or replace a named sound.
     pub fn add(&mut self, name: impl Into<String>, synth: Synth) -> &mut Self {
+        let name = name.into();
+        let bytes = (math::ceil(synth.duration() * SAMPLE_RATE as f32) as usize).saturating_mul(4);
+        assert!(
+            bytes <= PCM_BYTE_BUDGET,
+            "sound `{name}` exceeds the 32 MiB PCM budget"
+        );
         synth.validate();
-        self.0.insert(name.into(), Definition::new(synth));
+        self.0.insert(name, Definition::new(synth));
         self
     }
 }
@@ -339,7 +350,7 @@ impl Data for Voices {
         Ok(())
     }
 }
-/// A looping sound attached to an entity.
+/// A sound attached to an entity; looping belongs to its definition.
 #[derive(Component, Clone)]
 pub struct AudioSource {
     /// Sound definition name.
@@ -356,6 +367,20 @@ impl Default for AudioSource {
             gain: 1.0,
             playing: true,
         }
+    }
+}
+impl AudioSource {
+    /// Play this named sound by default. Register the definition during setup.
+    pub fn new(sound: impl Into<String>) -> Self {
+        Self {
+            sound: sound.into(),
+            ..Self::default()
+        }
+    }
+    /// Per-source gain, sanitized at playback and reporting.
+    pub fn gain(mut self, gain: f32) -> Self {
+        self.gain = gain;
+        self
     }
 }
 /// A stable handle returned by `Play::start`.
@@ -428,14 +453,11 @@ impl World {
         self.try_resource::<Voices>().is_some()
     }
     /// Build a play event; call `start()` to commit it.
-    pub fn play(&mut self, sound: &str) -> Play<'_> {
-        self.register_audio();
+    pub fn play(&self, sound: &str) -> Play<'_> {
         let synth = self
-            .resource::<Sounds>()
-            .0
-            .get(sound)
-            .unwrap_or_else(|| panic!("unknown sound `{sound}`"))
-            .clone();
+            .try_resource::<Sounds>()
+            .and_then(|sounds| sounds.0.get(sound).cloned())
+            .unwrap_or_else(|| panic!("unknown sound `{sound}`"));
         let duration = synth.duration();
         let began = self.audio_boundary();
         let ends = began.saturating_add(math::ceil(duration * self.hz() as f32) as u64);
@@ -458,7 +480,7 @@ impl World {
 /// A pending play. Only `start()` adds a voice and its journal line.
 #[must_use = "call .start() to play the sound"]
 pub struct Play<'a> {
-    world: &'a mut World,
+    world: &'a World,
     voice: Voice,
 }
 impl Play<'_> {
@@ -776,17 +798,49 @@ mod carry_regression {
         fn tick(_: &mut World, _: &crate::Input, _: &()) {}
     }
     #[test]
-    fn carry_keeps_old_voice_and_fresh_registry_for_new_voices() {
+    fn restore_keeps_saved_registry_and_runtime_registered_names() {
         let mut old = Sim::<Tone>::new(()).unwrap();
         old.world_mut()
             .resource_mut::<Sounds>()
             .add("tone", Synth::sine(220.));
         old.world_mut().play("tone").start();
         let mut fresh = Sim::<Tone>::new(()).unwrap();
+        old.world_mut()
+            .resource_mut::<Sounds>()
+            .add("runtime", Synth::sine(330.));
         fresh.restore_bound(&old.save()).unwrap();
+        assert!(fresh.world().resource::<Sounds>().0.contains_key("runtime"));
         fresh.world_mut().play("tone").start();
         let voices = &fresh.world().resource::<Voices>().voices;
         assert_eq!(voices[0].synth.hz, 220.);
-        assert_eq!(voices[1].synth.hz, 880.);
+        assert_eq!(voices[1].synth.hz, 220.);
+    }
+}
+
+#[cfg(test)]
+mod authoring_regression {
+    use super::*;
+    #[test]
+    fn registered_sound_plays_through_a_shared_world_during_component_borrow() {
+        let mut world = World::new(60, 0);
+        world.register_audio();
+        world
+            .resource_mut::<Sounds>()
+            .add("chime", Synth::sine(440.));
+        let entity = world.spawn((
+            crate::Transform::default(),
+            AudioSource::new("chime").gain(0.3),
+        ));
+        let shared: &World = &world;
+        let source = shared.get_mut::<AudioSource>(entity).unwrap();
+        assert!(source.playing);
+        assert_eq!(source.gain, 0.3);
+        shared.play("chime").at(entity).start();
+        assert_eq!(shared.resource::<Voices>().voices.len(), 1);
+    }
+    #[test]
+    #[should_panic(expected = "sound `oversized` exceeds the 32 MiB PCM budget")]
+    fn oversized_registration_refuses_by_name() {
+        Sounds::default().add("oversized", Synth::sine(440.).seconds(200.));
     }
 }

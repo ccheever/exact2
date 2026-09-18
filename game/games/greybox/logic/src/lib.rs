@@ -112,11 +112,7 @@ impl Game for Greybox {
                 Transform::default(),
                 Camera::default(),
                 AudioListener,
-                AudioSource {
-                    sound: "wind".into(),
-                    gain: 0.3,
-                    playing: true,
-                },
+                AudioSource::new("wind").gain(0.3),
                 Follow::new(player).offset(0.0, 5.0, 8.0).lag(0.0),
             ),
         );
@@ -175,7 +171,6 @@ impl Game for Greybox {
             let player = world.named("player").unwrap();
             world.play("footstep").at(player).pitch(pitch).start();
         }
-        let mut chime = None;
         if input.pressed("act") {
             for (entity, _) in world.near_xz::<Beacon>("player", 1.5) {
                 let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
@@ -184,12 +179,9 @@ impl Game for Greybox {
                     beacon.glow.set_target(now, 1.0);
                     world.publish("beacons", 1);
                     world.log("beacon-1 lit");
-                    chime = Some(entity);
+                    world.play("chime").at(entity).start();
                 }
             }
-        }
-        if let Some(entity) = chime {
-            world.play("chime").at(entity).start();
         }
         for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
             material.emissive = [beacon.glow.value(now) * 3.0; 3];

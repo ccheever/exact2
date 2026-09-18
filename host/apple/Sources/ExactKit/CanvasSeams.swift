@@ -162,7 +162,7 @@ extension Canvases {
         }
         for text in texts {
             guard live(e.view.id) === e else { break }
-            if text == "exact:audio" { CanvasAudio.activate(); continue }
+            if text == "exact:audio" { lifecycle.requestAudio(); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
     }
@@ -354,69 +354,122 @@ private enum CanvasAudio {
     nonisolated(unsafe) static var active = false
     nonisolated(unsafe) static var wanted = false
     nonisolated(unsafe) static var configured = false
-    static func activate() {
-        guard !ExactEnv.agentMode else { return }
+    nonisolated(unsafe) static var interrupted = false
+    nonisolated(unsafe) static var shouldResume = true
+    @discardableResult static func activate() -> Bool {
+        // NotificationCenter delivers on the posting thread, not necessarily main.
+        if !Thread.isMainThread { return DispatchQueue.main.sync { activate() } }
+        guard !ExactEnv.agentMode else { return false }
         wanted = true
-        guard !active else { return }
+        guard !active else { return true }
         #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
             if !configured { try session.setCategory(.ambient); configured = true }
             try session.setActive(true)
-        } catch { fputs("exact audio session: \(error)\n", stderr); return }
+        } catch { fputs("exact audio session: \(error)\n", stderr); return false }
         #endif
         active = true
+        return true
     }
 }
 
 /// Every canvas gets notifications even when its session uses the agent clock.
 final class CanvasLifecycle: NSObject {
     weak var owner: Canvases?
-    private(set) var hidden = false
-    private var interrupted = false
-    init(_ owner: Canvases) {
+    private(set) var hidden: Bool
+    private var interrupted: Bool
+    private var wantsAudio = false
+    private var resumeAllowed: Bool
+    private let activate: () -> Bool
+    init(_ owner: Canvases, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
+        precondition(Thread.isMainThread)
         self.owner = owner
+        self.activate = activate
+        hidden = !owner.visible
+        interrupted = CanvasAudio.interrupted
+        resumeAllowed = CanvasAudio.shouldResume
         super.init()
         let center = NotificationCenter.default
         #if os(macOS)
-        hidden = NSApplication.shared.isHidden
-        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification] {
-            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
-        }
-        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
-            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification,
+                     NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
         #else
-        hidden = UIApplication.shared.applicationState == .background
-        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
-            center.addObserver(self, selector: #selector(hide), name: name, object: nil)
-        }
-        for name in [UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
-            center.addObserver(self, selector: #selector(show), name: name, object: nil)
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                     UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
+            center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
         center.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
         #endif
     }
     deinit { NotificationCenter.default.removeObserver(self) }
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
     func deliver(_ id: UInt32) {
+        precondition(Thread.isMainThread)
+        // Replay the same aggregate that notifications and rendering use.
+        refresh(excluding: id)
         owner?.module?.lifecycle?(id, hidden ? 0 : 1)
         if interrupted { owner?.module?.lifecycle?(id, 2) }
     }
-    private func send(_ code: UInt32) {
+    private func send(_ code: UInt32, excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
         guard let owner, let module = owner.module else { return }
-        for entry in Array(owner.entries.values) where entry.id != 0 { module.lifecycle?(entry.id, code) }
-        if code == 1 { owner.session?.frames.requestCanvas() }
+        for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { module.lifecycle?(entry.id, code) }
+        if code == 1 || code == 3 { owner.session?.frames.requestCanvas() }
     }
-    @objc private func hide() { hidden = true; send(0) }
-    @objc private func show() { hidden = false; send(1) }
+    func requestAudio() {
+        onMain { [weak self] in
+            guard let self, !ExactEnv.agentMode else { return }
+            self.wantsAudio = true
+            if !self.hidden && !self.interrupted && !self.activate() {
+                self.interrupted = true
+                self.send(2)
+            }
+        }
+    }
+    @objc private func visibilityChanged() {
+        // UIKit's "will" notifications precede the applicationState update.
+        DispatchQueue.main.async { [weak self] in self?.refresh() }
+    }
+    func refresh(excluding id: UInt32? = nil) {
+        precondition(Thread.isMainThread)
+        let next = !(owner?.visible ?? false)
+        if next { CanvasAudio.active = false }
+        // A Visible notification retries even if visibility itself did not change.
+        if !next && wantsAudio && resumeAllowed && !CanvasAudio.interrupted {
+            if activate() {
+                if interrupted { interrupted = false; send(3, excluding: id) }
+            } else if !interrupted { interrupted = true; send(2, excluding: id) }
+        }
+        if next != hidden { hidden = next; send(hidden ? 0 : 1, excluding: id) }
+    }
+    // Keep the complete interruption transition on main, including session policy.
+    func interruption(began: Bool, shouldResume: Bool) {
+        onMain { [weak self] in
+            guard let self else { return }
+            CanvasAudio.interrupted = began
+            CanvasAudio.shouldResume = !began && shouldResume
+            self.resumeAllowed = CanvasAudio.shouldResume
+            if began {
+                CanvasAudio.active = false
+                if !self.interrupted { self.interrupted = true; self.send(2) }
+            } else if self.resumeAllowed && (!self.wantsAudio || self.activate()) {
+                if self.interrupted { self.interrupted = false; self.send(3) }
+            }
+        }
+    }
     #if os(iOS)
     @objc private func interruption(_ note: Notification) {
+        // Decode immutable notification values on the poster; touch no UI/ABI here.
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-        interrupted = type == .began
-        if interrupted { CanvasAudio.active = false }
-        else if CanvasAudio.wanted { CanvasAudio.activate() }
-        send(interrupted ? 2 : 3)
+        let options = AVAudioSession.InterruptionOptions(rawValue:
+            note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+        interruption(began: type == .began, shouldResume: options.contains(.shouldResume))
     }
     #endif
 }

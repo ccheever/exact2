@@ -9,23 +9,21 @@ import { serveStatic } from '../../../host/web/serve.mjs';
 
 function observe() {
   const contexts = [], gestures = [];
-  const raf = window.requestAnimationFrame.bind(window), held = [];
-  const hold = () => window.audioHoldFrames && document.querySelector('[data-gpu-input]');
-  window.requestAnimationFrame = callback => raf(at => hold() ? held.push(() => callback(at)) : callback(at));
-  const Resize = window.ResizeObserver;
-  window.ResizeObserver = class extends Resize {
-    constructor(callback) { super((...args) => hold() ? held.push(() => callback(...args)) : callback(...args)); }
-  };
-  window.releaseAudioFrames = () => { window.audioHoldFrames = false; for (const callback of held.splice(0)) raf(callback); };
+  const raf = window.requestAnimationFrame.bind(window);
+  let frameCallbacks = 0;
+  window.requestAnimationFrame = callback => raf(at => { frameCallbacks++; callback(at); });
   for (const type of ['keydown', 'pointerdown']) window.addEventListener(type, event => {
-    gestures.push({type, trusted:event.isTrusted});
+    const gesture = {type, trusted:event.isTrusted, at:performance.now(), frameCallbacks};
+    gestures.push(gesture);
+    raf(() => { gesture.inputToFrameMs = performance.now() - gesture.at; });
   }, true);
   const Native = window.AudioContext;
   window.AudioContext = new Proxy(Native, { construct(Target, args) {
-    const context = new Target(...args), analyser = context.createAnalyser();
+    const start = performance.now();
+    const context = new Target(...args), constructionMs = performance.now() - start, analyser = context.createAnalyser();
     analyser.fftSize = 2048;
     analyser.connect(context.destination);
-    const record = {context, analyser, createdTrusted:window.event?.isTrusted === true, resumes:[], sources:[]};
+    const record = {context, analyser, constructionMs, createdFrame:frameCallbacks, createdTrusted:window.event?.isTrusted === true, resumes:[], sources:[], refusedStarts:0};
     contexts.push(record);
     const resume = context.resume.bind(context);
     context.resume = () => { record.resumes.push({trusted:window.event?.isTrusted === true && ['keydown', 'pointerdown'].includes(window.event.type), at:performance.now()}); return resume(); };
@@ -37,6 +35,11 @@ function observe() {
     };
     const source = context.createBufferSource.bind(context);
     context.createBufferSource = () => {
+      if (window.audioRefuseNextStart) {
+        window.audioRefuseNextStart = false;
+        record.refusedStarts++;
+        throw new DOMException('injected start failure', 'NotSupportedError');
+      }
       const node = source(), start = node.start.bind(node);
       node.start = (...args) => {
         record.sources.push({looping:node.loop, samples:node.buffer?.length ?? 0});
@@ -47,11 +50,11 @@ function observe() {
     return context;
   }});
   window.audioProof = () => ({
-    gestures,
-    contexts:contexts.map(({context, analyser, createdTrusted, resumes, sources}) => {
+    gestures, frameCallbacks,
+    contexts:contexts.map(({context, analyser, createdTrusted, constructionMs, createdFrame, resumes, sources, refusedStarts}) => {
       const samples = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(samples);
-      return {createdTrusted, state:context.state, time:context.currentTime, resumes, sources,
+      return {createdTrusted, constructionMs, createdFrame, state:context.state, time:context.currentTime, resumes, sources, refusedStarts,
         rms:Math.sqrt(samples.reduce((sum, n) => sum + n*n, 0) / samples.length)};
     }),
     audio: (() => {
@@ -115,23 +118,46 @@ export async function audioProof({out, check, say, game = 'greybox', connect = c
       await call('Input.dispatchKeyEvent', {type:'keyDown', code, key, windowsVirtualKeyCode:vk});
       await call('Input.dispatchKeyEvent', {type:'keyUp', code, key, windowsVirtualKeyCode:vk});
     };
-    await evaluate('window.audioHoldFrames = true');
     const play = await evaluate('(() => { const r = document.querySelector("[data-testid=play]").getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()');
     await call('Input.dispatchMouseEvent', {type:'mousePressed', ...play, button:'left', clickCount:1});
     await call('Input.dispatchMouseEvent', {type:'mouseReleased', ...play, button:'left', clickCount:1});
     await until('!!document.querySelector("[data-gpu-input]") && !!exact.gpu?.wantsInput(Number(document.querySelector("[data-gpu-input]").dataset.view))');
     await evaluate('document.querySelector("[data-gpu-input]").focus()');
-    check('no audio device before the first live input/frame', (await evaluate('audioProof()')).contexts.length === 0);
+    // Normal live ordering: allow the host to finish real frames before input.
+    await until('audioProof().contexts.length === 1 && audioProof().frameCallbacks > audioProof().contexts[0].createdFrame + 1');
+    const beforeGesture = await evaluate('audioProof()');
+    check('completed live frame constructs before the first canvas gesture', !beforeGesture.contexts[0].createdTrusted && beforeGesture.contexts[0].resumes.length === 0, beforeGesture);
     await key('KeyW', 'w', 87);
-    check('first live gesture constructs its context on the trusted stack', (await evaluate('audioProof()')).contexts[0]?.createdTrusted);
-    await evaluate('releaseAudioFrames()');
+    await until('audioProof().contexts[0]?.state === "running"');
+    const afterGesture = await evaluate('audioProof()');
+    check('frame-first resume runs exactly once on the trusted gesture stack', afterGesture.contexts[0].resumes.length === 1 && afterGesture.contexts[0].resumes[0].trusted, afterGesture);
+    await key('KeyW', 'w', 87);
+    check('later gestures do not resume a running output again', (await evaluate('audioProof()')).contexts[0].resumes.length === 1);
+
+    // Create a fresh production surface during window capture of the next real
+    // key. Its host bubble listener receives that same trusted event before any
+    // frame can run. No rAF or ResizeObserver callback is withheld.
+    await evaluate(`window.addEventListener('keydown', () => {
+      const host = document.querySelector('[data-gpu-input]');
+      const view = Number(host.dataset.view);
+      const args = exact.gpu.agent(view, {op:'state'}).world.args;
+      window.audioRefuseNextStart = true;
+      exact.gpu.destroy(view);
+      exact.gpu.surface(view, 'world', Object.values(args));
+      host.focus();
+    }, {capture:true, once:true})`);
+    await key('KeyW', 'w', 87);
+    await until('audioProof().contexts.length === 2 && audioProof().contexts[1].state === "running"');
+    const gestureFirst = await evaluate('audioProof()');
+    check('gesture-first construction and resume run on the trusted stack', gestureFirst.contexts[1].createdTrusted && gestureFirst.contexts[1].resumes.length === 1 && gestureFirst.contexts[1].resumes[0].trusted, gestureFirst);
     const samples = [];
     for (let i = 0; i < 30; i++) {
       samples.push(await evaluate('audioProof()'));
       await new Promise(ok => setTimeout(ok, 100));
     }
-    const first = samples.find(s => s.contexts.length)?.contexts[0];
-    const last = samples.at(-1), context = last.contexts[0];
+    const first = samples.find(s => s.contexts.length === 2)?.contexts[1];
+    const last = samples.at(-1), context = last.contexts[1];
+    check('a refused WebAudio start retries without trapping the module', context?.refusedStarts === 1 && context.sources.some(s => s.looping), context);
     check('audio resume was called on a trusted gesture stack', context?.resumes.some(r => r.trusted));
     check('audio context is running and its clock advances', context?.state === 'running' && context.time > first?.time + 0.1, context);
     check('wind is active while analyser RMS is nonzero', samples.some(s =>
@@ -144,12 +170,12 @@ export async function audioProof({out, check, say, game = 'greybox', connect = c
       return before === exact.gpu.agent(id, {op:'state'}).world.hash;
     })()`);
     check('pagehide leaves simulation state unchanged', unchanged);
-    await until('audioProof().contexts[0]?.state === "suspended"', 3000);
-    await evaluate('dispatchEvent(new PageTransitionEvent("pageshow"))');
-    await until('audioProof().contexts[0]?.state === "running"', 3000);
-    check('pageshow resumes output after suspension', true);
-    writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({samples, errors}, null, 2) + '\n');
-    say('AUDIO live browser evidence: audio-web.json');
+    await until('audioProof().contexts[1]?.state === "suspended"', 3000);
+    await evaluate('dispatchEvent(new PageTransitionEvent("pageshow", {persisted:true}))');
+    await until('audioProof().contexts[1]?.state === "running"', 3000);
+    check('persisted pageshow resumes output after suspension', (await evaluate('audioProof()')).contexts[1]?.state === 'running');
+    writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({beforeGesture, afterGesture, gestureFirst, samples, errors}, null, 2) + '\n');
+    say(`AUDIO gesture construction ${context.constructionMs.toFixed(3)} ms; input-to-frame ${last.gestures.filter(g => g.type === 'keydown').at(-1)?.inputToFrameMs?.toFixed(3)} ms; evidence: audio-web.json`);
   } catch (error) {
     writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({error:String(error), errors}, null, 2) + '\n');
     throw error;

@@ -231,22 +231,29 @@ Add `"audio": true` to `game` to include the sound executor; omit it for a silen
 GPU module with no audio dependency. Audio games define sounds in setup and call
 `audio::step(world)` in tick (see `audio/README.md`).
 
-Audio verification is explicit: the web probe (`bun game/bench/probes/audio.mjs greybox`, or `EXACT_AUDIO_PROBE=1` on its web proof) asserts a trusted first gesture,
-a running context with an advancing clock, and nonzero analyser RMS while wind
-plays. It runs separately from deterministic world/hash checks. macOS tests drive
-the actual callback with fixture buffers; they do not verify device output. The
-AU3c macOS greybox proof could not launch because SwiftPM failed loading
-`BuildServerProtocol`, even with SDK 26 and a native-build wrapper. Audio/render
-Rust libraries build for iOS; iOS has not been driven on this machine.
+Audio verification is explicit: `bun game/bench/probes/audio.mjs greybox`, or
+`EXACT_AUDIO_PROBE=1` on its web proof, checks both live frame/gesture orderings,
+synchronous first-gesture resume, advancing device time, nonzero wind analyser RMS,
+and retry after a refused WebAudio start. It reports gesture construction and
+input-to-frame costs without withholding callbacks. Synthetic lifecycle tests cover
+persisted pageshow and `document.hidden`; they do not claim an actual bfcache navigation.
+Greybox, Beacons and the asset fixture retain their deterministic web hash pins.
 
-`Surface::lifecycle` carries visibility and audio interruptions without changing
-simulation; `Surface::clock` supplies ownership before input. Host delivery and
-SurfacePlayer regressions are present, and dev carry preserves fresh definitions
-for new voices while old voices retain theirs. The generated audio hook still
-needs three forwarders in `game/render/src/lib.rs`, outside the supplied AU3c scope;
-first-gesture/lifecycle integration awaits that permission. iOS interruption
-handling is unproven on a device. See `audio/README.md` for the precise bounds and
-remaining integration work.
+`module!(Game, audio)` already forwards all GameAudio hooks. Generic
+`Surface::lifecycle` carries Hidden/Visible/Interrupted/Resumed independently of
+simulation; `Surface::clock` supplies ownership before input. Player reserves its
+32 MiB PCM budget before synthesis and releases acknowledged allocations, trying
+smaller candidates after refusals. Finite voices are ambient and do not block settle.
+File restore preserves saved sound registries. A carry-only fresh-registry overlay
+still needs the hosts to distinguish dev carry from opening a file; both currently
+call the same restore API. That policy belongs to the audio adapter, not Sim.
+
+Apple tests drive the real callback with fixture buffers and compile notification
+fixtures for main-thread delivery, aggregate visibility, failure retry and
+`shouldResume`. The macOS Swift product built and linked; the one AU3d proof attempt
+failed before launch when the WebKit helper selected SDK 27 with Swift 6.3.3.
+Audio/render Rust libraries and ExactKit build for iOS; iOS was not driven here.
+See `audio/README.md` for the bounds and remaining carry plumbing.
 
 The crate is the package in `logic/`; its name ends in `-logic`. The type can
 include a module path. Resolving the app for dev, proof, build or deploy generates
@@ -372,39 +379,46 @@ to delete it and try again, not to configure it.
 
 ## The world dev loop
 
-Host integration for `Frame::period_ms` is pending: production hosts currently
-leave the period unknown. `Sim::frame_period` and the pacer's fitted-period export
-are implemented; the following clock rules apply once a host supplies that period.
-
 Live frames use the host's display period, not the last frame delta. The web
-exports its pacer's fitted period; Apple supplies `CADisplayLink.duration`;
-headless and an uncalibrated display report zero. With world time `T`, fixed step
-`step = 1000/hz`, and `L = min(period, step)`, ticks run strictly before the
-scheduling horizon `T + L`. Unknown periods and Seekable use `L = 0`. A live gap
+exports its 16-sample median, refined by full rolling fits when the period differs
+by more than 1%; sustained skipped slots reacquire even a harmonic rate change.
+Apple quantizes `targetTimestamp - timestamp` to display rate classes with 1%
+hysteresis: ProMotion's actual cadence can differ from its nominal `duration`.
+L is unknown (zero) headless, before Apple's first display-link tick, and during
+the first sixteen web intervals (about 150 ms at 120 Hz, 267 ms at 60 Hz).
+With world time `T` and fixed step `step = 1000/hz`, `L` approaches
+`min(period, step)`; ticks run strictly before the scheduling horizon `T + L`.
+Seekable uses `L = 0`. A live gap
 still contributes at most 250 ms; pause stops time and unpause seeds the clock
 without consuming the pause gap.
 
 Rendering uses `R = T + L - step`, with
 `alpha = (T + L - tick * step) / step` between the last two completed poses.
-A fixed display period gives `ΔR = ΔT`: a 40 ms stall moves the pose by 40 ms,
+A settled display period gives `ΔR = ΔT`: a 40 ms stall moves the pose by 40 ms,
 and its very next frame moves it by one normal frame interval. The last frame's
 delta never changes L. Tick zero draws the initial pose; the alpha guard handles
-missing history at startup, restore or a display-rate change. Seekable retains
+missing history at startup or restore. Seekable retains
 its original `frac(T / step)` interpolation and exact integer-microsecond seeks.
 
 The live clock adjusts its origin toward the nearest frame on the display
 lattice, dilating or contracting elapsed time by at most 0.25% per frame until
-the phase error reaches zero (within 0.2 ms in at most four seconds at 60 Hz or
-faster), then holds. It acquires again when the display period changes. This is
+the phase error reaches zero, then holds. Changes below 0.5% relative to the
+accepted period are ignored. A real period change, including unknown → known,
+slews L first, then reacquires the grid, sharing one 0.25% correction budget;
+neither the render nor scheduling horizon steps. A known period at the initial
+epoch seeds L directly, before there is a preceding pose. This is
 one origin adjustment: at 60/60, 120/60 and 240/60 every tick deadline then sits
 on a frame; at 144/60 the remaining phases cycle. During acquisition,
-`|ΔR - frame_delta| <= 0.0025 * frame_delta` for an unchanged period. At aligned
+`|ΔR - frame_delta| <= 0.0025 * frame_delta`, including period transitions
+(apart from integer rounding). Increasing L from zero to 16.667 ms takes 6.667 s;
+zero to 8.333 ms takes 3.333 s. Grid-only acquisition needs at most four seconds
+at 60 Hz or faster. At aligned
 60/60, the tick runs at the frame and alpha is 1: no interpolation lag.
 `tick_phase` is mean alpha on ticking frames, about 1 at 60/60 and 0.5 at 120/60.
 
 Live phase is an integer accumulator of microseconds multiplied by `hz`
 (1,000,000 units per tick), plus a fractional residual bounded to half a unit.
-It never accumulates world milliseconds in an `f64`. A raw backwards host stamp
+It never accumulates world milliseconds in an `f64`. A backwards or duplicate host stamp
 changes neither phase nor lookahead. Period, residual and slew are host-only:
 absent from saves, state, snapshots and hashes, and never applied under Seekable.
 If a live tick ran early, a save is taken at that tick's exact deadline, encoded
@@ -419,7 +433,9 @@ cutoff window. During acquisition, at noncommensurate rates, or with an off-latt
 callback, a tick can still run early; input delivered after that execution waits
 for the next eligible tick. Seekable preserves its strict `stamp < deadline`
 rule, including exact-boundary inputs going to the following tick. Queued input
-stays stamp-ordered, future host stamps wait, and multi-tick catch-up spreads
+stays stamp-ordered. Live stamps queued before a callback are clamped to that
+frame's `now_ms`: an event stamped 16.8 ms has arrived even if pacing names the
+frame 16.667 ms. Seekable future stamps still wait. Multi-tick catch-up spreads
 input across ticks. Only a gap beyond the 250 ms cap collapses its input onto
 the first remaining step. The deterministic record is the tick-stamped input
 sequence with the same seed; live host stamps alone are not a seekable replay.
