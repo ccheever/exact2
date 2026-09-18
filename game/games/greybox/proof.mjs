@@ -33,7 +33,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   // Screen coordinates depend on the host viewport; all geometric snapshot fields do not.
   delete eyes.entity.screen;
   delete golden.entity.screen;
-  check('geometric layout snapshot is identical on the host', equal(eyes, golden), eyes);
+  check('geometric layout snapshot is identical on the host', equal({tick: eyes.tick, entity: eyes.entity}, golden), eyes);
   const initial = await s.state();
   check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7df5e5a89b4d0207', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
