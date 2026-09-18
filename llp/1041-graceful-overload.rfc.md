@@ -4885,7 +4885,8 @@ Both standalone arms compile with Swift6 strict concurrency and warnings as
 errors. All70 uninstrumented module sources typecheck in the host's Swift5 mode;
 their bytes match the integrated tree. The harness uses an assertion shim rather
 than full XCTest. No fullhost/iOS build, new native timing or physical120Hz result
-is claimed. The full1MiB/two-width oracle remains a separate pending validation.
+is claimed. The full1MiB/two-width oracle was pending at this checkpoint;
+§8.80 records that separate validation.
 
 The exact two production files and two existing test files are archived at
 `target/region-prepared-source-validation/freeze-v1/`, with185 artifacts/4,254,710B,
@@ -4894,3 +4895,81 @@ and complete patch `e634e23e36f08e845074c608b445d470b1be6d1964ea8d8ba610f401774f
 Independent constructor-instrumentation inverses recover both production arms;
 all10 recorded processes/five groups are absent. The measured repeated
 preparation in §8.78 motivates this change but does not quantify its saving.
+
+### 8.80 Full-body validation of shared preparation, 2026-09-18
+
+The §8.79 candidate passes the full1MiB backend oracle in one fresh optimized
+Swift6 process. The same captured1,048,499UTF8/999,569UTF16 source is offered at
+940 and856 while A remains owned, then at856 with a different height. Two layouts
+and three distinct request artifacts preserve exact source identity; the third
+shares B's layout. Every line's range, ink, metrics, baseline and full glyph/run
+digest agrees with ordinary TextEngine. Six top/middle/end fractional-scroll
+selection pictures match exactly, totaling3,448,320 RGBA bytes; their bytes and
+3144-byte color profile also equal the retained §8.78 outputs.
+
+| Wall scope |940px ms|856px ms|
+|---|---:|---:|
+| Inclusive shape |140.158541|93.117083|
+| Preparation construction/acquisition |46.221292|0.000375|
+| Nil-locale boundaries |8.756542|7.170125|
+| Breaking, line construction and metrics |16.225583|17.009083|
+| Compact line metadata |68.865541|68.928958|
+| Remaining parent wall |0.089583|0.008542|
+
+The second preparation span acquires the existing object; it is not a fresh
+constructor taking0.000375ms. Separate scoped tests establish the constructor
+count reduction. The height-only shape hit takes0.002458ms. Full glyph hashing
+runs after the shape parent and between offers; submit-to-delivery remains
+327.654/281.604/184.586ms including that diagnostic work. These are one ordered
+backend fixture's wall spans, not a fresh matched A/B, CPU attribution, UI latency
+or physical120Hz evidence. Metadata still takes about69ms and is not isolated to
+one CoreText call. Longer opaque preparation residency remains outside the
+pixel/index/hit budgets; no RSS bound is measured here.
+
+All seven raster scopes release their weak pixel owner, return accounted owners
+and bytes to zero, and record exactly one drop. Retiring A and B request IDs
+leaves B's fresh alias painting identical pixels; reset refuses its old worker
+backing while external metadata still copies the full source. Strict compile,
+backend run and unchanged reader exit0 without retries. Actual13 dependency
+files establish header/module inputs; the11 production inputs match integrated
+ff0119e after reversing the two existing observer overlays. No controller,
+full-app resize or iPhone execution is covered.
+
+`target/region-prepared-fullbody-validation/execution-v1/manifest.json` binds
+105 artifacts/7,843,496B, SHA
+`4962555f404b9a16577ed654cab9da0cc02b70e12a17c830616e0365a426a046`.
+Independent raw reconstruction checks all three shape parents and children,
+full geometry/glyph identities, pixel bytes and seven release records. Both
+owned execution groups are absent. The next investigation is the remaining
+metadata work; retaining correct visible output during it is a separate target.
+
+### 8.81 Full-app continuity run stops at startup geometry, 2026-09-18
+
+One optimized Markdown Stress build combines the retained-image change with
+MAIN's raster-rejection handling and numeric index. Its actual receipt comparison
+against the immutable numeric-index foundation differs only in the controller,
+surface, raster and ignored observer; generated app entry, plan, compatibility
+and workload are unchanged. This product does not contain §8.79's preparation
+sharing, and its old foundation is not a runtime comparison arm.
+
+The sole fresh cell exits1 before the resize poster launches. Its region clip
+is980×400 where the frozen admission requires963×400. Window980×852,
+content980×820, backing scale1, paragraph940×212030 with8155 lines, zero scroll,
+and accepted document985×212193.67 otherwise match. The complete paragraph is
+present with a current, displayable publication. The recorded17px difference
+does not establish its cause or a product scroll/rendering defect.
+
+Eight setup commands ran; the18-resize/6-type/6-wheel workload did not. There is
+no A-to-B transition, retained-placement observation, replacement-B latency or
+continuity conclusion. No poster/down existed, so no release-up is applicable.
+The four recorded processes and sole group are absent, with no watchdog action,
+retry, reanchor or geometry relaxation. The earlier successful build remains
+successful; the runtime remains failed.
+
+`target/apple-giant-retained-continuity-execution-v1/runtime-manifest.json`
+binds24 artifacts/6,038,217B, SHA
+`6658adb06a3abdb447d0cd81bbcb8e14941a2a91728505bc001e603964fb1de3`.
+Build capture `1277f38262ae380b168e6df7afe590340a710d77dc7bb14e1d6cea23d1999d86`
+and binary `25e98b0a2439583d6b20aaba1d8976847442613502d5bd3dfef5a5631cefa598`
+remain immutable. Startup geometry must be explained before a separately bound
+continuity experiment; this failed admission is not replaced by earlier results.
