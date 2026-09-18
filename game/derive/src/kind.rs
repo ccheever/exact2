@@ -165,13 +165,16 @@ pub(super) fn expand(input: TokenStream) -> Result<String, String> {
              type Read = ({}); type Write = ({});
              fn prepare_spawn(&mut self, world: &::exact_game::World, name: &str) -> Result<(), ::exact_game::KindError> {{ let _ = (world, name); {prepare_spawn} Ok(()) }}
              fn attach(world: &mut ::exact_game::World, entity: ::exact_game::Entity) {{ let _ = (&world, entity); {attach} }}
+             #[inline]
              fn preflight() -> Result<(), ::exact_game::KindError> {{ ::exact_game::KindError::unique::<Self>(&[{preflight}])?; {saved_checks} Ok(()) }}
              fn leases(world: &::exact_game::World, entity: Option<::exact_game::Entity>, operation: &str, mutable: bool) -> Result<(), ::exact_game::KindError> {{ {leases} Ok(()) }}
              fn joined_bindings(world: &::exact_game::World, entity: ::exact_game::Entity, values: <Self::Read as ::exact_game::Query>::Item<'_>, operation: &str) -> Result<(), ::exact_game::KindError> {{ let _ = (world, entity, &values, operation); {joined_bindings} Ok(()) }}
              fn insert(self, world: &mut ::exact_game::World, entity: ::exact_game::Entity) {{ {insert} }}
              fn check(world: &::exact_game::World, entity: ::exact_game::Entity, operation: &str) -> Result<(), ::exact_game::KindError> {{ {check} Ok(()) }}
              fn bindings(world: &::exact_game::World, entity: ::exact_game::Entity, initialize: bool, operation: &str) -> Result<(), ::exact_game::KindError> {{ let _ = (world, entity, initialize, operation); {bindings} Ok(()) }}
+             #[inline]
              fn view<'w>(id: ::exact_game::Id<Self>, values: <Self::Read as ::exact_game::Query>::Owned<'w>) -> Self::Ref<'w> {{ {read} {{ id, {views} }} }}
+             #[inline]
              fn view_mut<'w>(id: ::exact_game::Id<Self>, values: <Self::Write as ::exact_game::Query>::Owned<'w>) -> Self::Mut<'w> {{ {write} {{ id, {views} }} }}
              fn row<'w>(world: &'w ::exact_game::World, id: ::exact_game::Id<Self>, operation: &str) -> Result<Self::Ref<'w>, ::exact_game::KindError> {{ let entity = id.entity(); Ok({read} {{ id, {} }}) }}
              fn row_mut<'w>(world: &'w ::exact_game::World, id: ::exact_game::Id<Self>, operation: &str) -> Result<Self::Mut<'w>, ::exact_game::KindError> {{ let entity = id.entity(); Ok({write} {{ id, {} }}) }}

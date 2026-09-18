@@ -86,6 +86,7 @@ impl KindError {
     }
     /// Refuse declared child IDs that Data omits.
     #[doc(hidden)]
+    #[inline]
     pub fn saved_field<K: Kind, C: Component>(field: &str) -> Result<(), Self> {
         if C::SAVED_FIELDS.contains(&field) {
             Ok(())
@@ -95,6 +96,7 @@ impl KindError {
     }
     /// Reject aliases of the same component before spawning or leasing.
     #[doc(hidden)]
+    #[inline]
     pub fn unique<K: Kind>(fields: &[(std::any::TypeId, &str, &str)]) -> Result<(), Self> {
         for (i, (id, field, ty)) in fields.iter().enumerate() {
             if let Some((_, previous, _)) = fields[..i].iter().find(|(other, _, _)| other == id) {
@@ -227,6 +229,7 @@ impl<'w, K: Kind> KindRows<'w, K> {
 }
 impl<'w, K: Kind> Iterator for KindRows<'w, K> {
     type Item = K::Ref<'w>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.0
             .next_entity()
@@ -249,6 +252,7 @@ impl<'w, K: Kind> KindRowsMut<'w, K> {
 }
 impl<'w, K: Kind> Iterator for KindRowsMut<'w, K> {
     type Item = K::Mut<'w>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.0
             .next_entity()

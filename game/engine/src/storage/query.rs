@@ -417,6 +417,7 @@ impl<'w, Q: Query> Iterator for QueryRows<'w, Q> {
 }
 impl<'w, Q: Query> QueryRows<'w, Q> {
     /// Next guarded row together with its entity, in the same storage scan.
+    #[inline]
     pub fn next_entity(&mut self) -> Option<(Entity, Q::Owned<'w>)> {
         let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
