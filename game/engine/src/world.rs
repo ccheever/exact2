@@ -862,6 +862,17 @@ impl World {
         Ok(())
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        // Reading in place must have the same empty storage/derived-state baseline
+        // as load. In particular, equal alive masks can hide new incarnations from
+        // existence caches. Keep registrations/assets and identity, never caches.
+        // This private decoder is not atomic; load decodes into a candidate first.
+        let mut empty = Self::new(1, 0);
+        empty.registry = std::mem::take(&mut self.registry);
+        empty.assets = std::mem::take(&mut self.assets);
+        empty.id = self.id();
+        empty.presentation_generation = self.presentation_generation;
+        empty.epoch.set(self.epoch.get().wrapping_add(1));
+        *self = empty;
         r.begin_struct()?;
         let mut seen = 0u8;
         while let Some(field) = r.field()? {

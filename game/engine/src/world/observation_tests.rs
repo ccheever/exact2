@@ -85,6 +85,52 @@ struct Payload {
 }
 #[derive(Default, crate::Resource)]
 struct Count(u32);
+
+#[test]
+fn in_place_read_discards_every_observation_cache() {
+    let mut w = World::new(60, 7);
+    let old = w.spawn_named("old", crate::Transform::default());
+    w.insert_resource(Count(1));
+    let mut before = Observation::default();
+    w.observe_with_hash(&mut before, true);
+    let id = w.id();
+    let mut source = World::new(60, 19);
+    let dead = source.spawn(());
+    source.despawn(dead);
+    let new = source.spawn_named("new", crate::Transform::at(9.0, 0.0, 0.0));
+    source.insert_resource(Count(2));
+    assert_eq!(old.index(), new.index());
+    assert_ne!(old, new);
+    let bytes = source.save();
+    let mut decoder = bin::Decoder::for_load(&bytes[MAGIC.len()..], None);
+    w.read(&mut decoder).unwrap();
+    decoder.finish().unwrap();
+    assert_eq!(w.id(), id);
+    assert!(!w.contains(old));
+    assert_eq!(w.get::<crate::Transform>(new).unwrap().position.x, 9.0);
+    assert_eq!(w.resource::<Count>().0, 2);
+    for full in [false, true] {
+        let mut cached = Observation::default();
+        let mut oracle = Observation::default();
+        w.observe_with_hash(&mut cached, full);
+        w.observe_uncached(&mut oracle, full);
+        assert_eq!(cached.entries, oracle.entries);
+        assert_ne!(cached.entries, before.entries);
+        assert_eq!(w.hash(), source.hash());
+    }
+    // A smaller, sparse save must also clear old alive bits and absent columns.
+    source.despawn(new);
+    let bytes = source.save();
+    w.read(&mut bin::Decoder::for_load(&bytes[MAGIC.len()..], None))
+        .unwrap();
+    assert_eq!(w.entities().count(), 0);
+    let mut cached = Observation::default();
+    let mut oracle = Observation::default();
+    w.observe(&mut cached);
+    w.observe_uncached(&mut oracle, false);
+    assert_eq!(cached.entries, oracle.entries);
+    assert_eq!(w.save(), bytes);
+}
 #[derive(Default, crate::Data)]
 struct AmbientResource(u32);
 impl crate::Resource for AmbientResource {
