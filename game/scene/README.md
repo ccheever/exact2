@@ -138,3 +138,9 @@ without mutation and runtime progress surviving later scene edits. The build tes
 edits a lantern in scratch content, checks changed content identity, unchanged native
 baker bytes/mtime, zero compiled Cargo targets and failure retention. Those are
 simulation and bake proofs; they do not establish GPU rendering or live-host timing.
+
+Lanterns and Beacons use save version 2 for authored scene construction. Saves
+from the earlier Rust-only setup lack the required scene argument and are refused;
+start a new run for this authoring rollout. Subsequent compatible reloads retain
+the saved scene. The equivalence oracle qualifies the old lantern child names
+with `/` to match the new authored keys; it compares their construction semantics.

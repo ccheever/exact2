@@ -75,6 +75,7 @@ pub struct Lanterns;
 impl Game for Lanterns {
     const CAPTURE_SUPPORTED: bool = true;
     const ID: &'static str = "lanterns";
+    const SAVE_VERSION: u32 = 2;
     type Args = Options;
 
     fn assets() -> &'static [Asset] {

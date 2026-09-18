@@ -538,6 +538,7 @@ macro_rules! host {
         pub extern "C" fn exact_begin_boot() -> u32 {
             EXACT_BRIDGE.with(|b| u32::from(b.borrow_mut().begin_boot()))
         }
+        /// Commit or roll back the synchronous presenter transaction.
         #[no_mangle]
         pub extern "C" fn exact_finish_boot(commit: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().finish_boot(commit != 0))

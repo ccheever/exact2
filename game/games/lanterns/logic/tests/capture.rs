@@ -74,6 +74,13 @@ fn crate_checkpoint_finishes_route_twice_and_restores_terminal_state() {
         seed: 1_041_003,
         started: true,
         sound: true,
+        scene: exact_game_scene::bake::compile(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scene.json"),
+            &lanterns_logic::scene_types(),
+            <Lanterns as exact_game::Game>::assets(),
+        )
+        .unwrap()
+        .content,
         ..Default::default()
     })
     .unwrap();
