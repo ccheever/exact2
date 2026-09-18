@@ -39,6 +39,7 @@ strict full acceptance, which also requires common-route and world-pixel checks.
 | After | [A2](evidence/I2/after/a-2/trial.json) | 483.3 | 18.4 | 21.5 | Task pass; context deviation | 154,867 / 18,857 | 13 | 815 / 696 | 0 / 3 / 6 | 4 (1) |
 | After | [B2](evidence/I2/after/b-2/trial.json) | 400.0 | 18.2 | 18.7 | Fail: phase contract | 80,958 / 14,329 | 5 | 103 / 27 | 0 / 3 / 5 | 3 (2) |
 | After2 | [A1](evidence/I4/after2/a-1/trial.json) | 506.0 | 20.2 | 21.1 | Task pass | 310,295 / 12,631 | 8 | 130 / 13 | 0 / 2 / 2 | 1 (1) |
+| After2 | [B1](evidence/I4/after2/b-1/trial.json) | 258.3 | 20.2 | 20.3 | Task pass | 69,322 / 9,370 | 5 | 66 / 8 | 0 / 2 / 4 | 3 (1) |
 | babylon reference | A1 | 407.2 | 2.0 | 20.9 | Pass | 63,450 / 13,307 | unknown | unknown | unknown | unknown |
 | babylon reference | A2 | 468.7 | 2.1 | 20.4 | Pass | 51,682 / 12,038 | unknown | unknown | unknown | unknown |
 | babylon reference | B1 | 220.4 | 2.2 | 20.2 | Pass | 49,007 / 8,330 | unknown | unknown | unknown | unknown |
@@ -48,3 +49,46 @@ strict full acceptance, which also requires common-route and world-pixel checks.
 | playcanvas reference | B1 | 457.5 | 0.5 | 8.2 | Functional pass; repair-cap failure | 55,906 / 18,233 | unknown | unknown | unknown | 6 (5); cap exceeded |
 | playcanvas reference | B2 | 566.2 | 0.5 | 9.2 | Pass | 53,345 / 15,291 | unknown | unknown | unknown | unknown |
 
+
+## Where after2 sessions lost time
+
+CLI JSONL records item order and output but has no per-item wall timestamps.
+Attribution below is qualitative; no seconds are invented for individual phases.
+
+**After2 A1 — discovery, one repin, then repeated verification.**
+[Log](evidence/I4/after2/a-1/agent.log),
+[diff](evidence/I4/after2/a-1/changes.diff),
+[audit](evidence/I4/after2/a-1/audit.json).
+It read README lines 1–240 (item_2), then the game, route implementation and
+physics sources, and inspected generated scene artifacts after its final diff.
+The full route passed first time. The timing test failed on changed scene hashes:
+“The only failure is the expected deterministic pin mismatch caused by adding
+scene entities; all three execution modes produced identical new hashes”
+(item_18). Item_19 invoked `bun game/proof.mjs lanterns --repin` successfully,
+including the three-mode tests/proofs. Only `pins.json` changed for pin maintenance:
+**one file, +3/−3 lines**. Historical engine evidence stayed untouched.
+It then said “I’m now running the two exact verification commands requested
+against the final files” (item_23), repeating package tests and the ordinary Linux
+proof after repin's checks. **One repair**. The original live-terminal recapture
+and the inherited fractional-clock regression both remain; neither failed.
+The sign-board diagnostic appeared only in the inherited successful negative-control
+proof, not as an unexpected route failure demanding a repair.
+
+**After2 B1 — formatting, terminal tolerance, and a Contract type name.**
+[Log](evidence/I4/after2/b-1/agent.log),
+[diff](evidence/I4/after2/b-1/changes.diff),
+[audit](evidence/I4/after2/b-1/audit.json).
+It read README lines 1–240 (item_1). Its first combined test command stopped at
+formatting. After that repair, `Sim::move_to` failed toward exact spawn with
+`{"blocker":null,"nearestClearSide":null}` (item_14). The agent correctly identified
+that “simulation froze on victory around 1.98 units, so the helper kept waiting
+for 1.95” (item_15) and changed tolerance to 2.0. This was a terminal-state stall,
+not a geometric obstruction that could truthfully be named. It then passed the
+capture test and full package suite. Linux proof compilation reported
+“unknown type `boolean`”; item_21 calls it “one schema spelling issue,” and the
+agent changed the Contract field to `bool`, then passed the proof. **Three repairs
+in three distinct loops**, none above the cap. A broad spelling search returned
+unrelated root applications' `bool` field declarations; no other game's
+implementation appeared. No fixture edits or `--repin` were needed. Its derived
+`returnHome` publication leaves the public phase `playing`, and all seven v3 Task B
+checks pass. Both live-terminal capture assertions remain and pass.

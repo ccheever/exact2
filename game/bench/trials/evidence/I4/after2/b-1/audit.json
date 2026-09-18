@@ -1,0 +1,73 @@
+{
+  "selfRepairRounds": 3,
+  "repairLoops": [
+    {
+      "name": "formatting",
+      "repairs": 1,
+      "items": [
+        "item_12",
+        "item_14"
+      ]
+    },
+    {
+      "name": "terminal navigation tolerance",
+      "repairs": 1,
+      "items": [
+        "item_14",
+        "item_16",
+        "item_17"
+      ]
+    },
+    {
+      "name": "Contract bool spelling",
+      "repairs": 1,
+      "items": [
+        "item_20",
+        "item_23",
+        "item_24"
+      ]
+    }
+  ],
+  "maximumRepairsInOneLoop": 1,
+  "repairCapCompliant": true,
+  "screenshotInspections": 0,
+  "readmeReads": [
+    {
+      "path": "game/README.md",
+      "lines": "1\u2013240",
+      "item": "item_1"
+    },
+    {
+      "path": "game/games/lanterns/README.md",
+      "lines": "1\u2013260 (whole file)",
+      "item": "item_3"
+    }
+  ],
+  "recurrence": {
+    "repinUsed": false,
+    "pinFiles": 0,
+    "pinLinesAdded": 0,
+    "pinLinesDeleted": 0,
+    "historicalEvidenceChanged": false,
+    "unexpectedRouteStalls": true,
+    "inheritedStallDiagnosticRan": true,
+    "diagnosticNamedBlocker": null,
+    "actedOnUnexpectedStall": "Changed tolerance 1.95 to 2.0 for a terminal victory freeze, item_16; no geometry obstruction was identified.",
+    "semanticStateHashMismatch": false,
+    "resourceLeaseBorrowError": false,
+    "taskBPhaseContract": "PASS: phase remains playing; derived returnHome publication carries the objective."
+  },
+  "captureCoverage": "Original live-terminal recapture and inherited fractional-clock terminal regression retained and passed.",
+  "timingAttribution": "Qualitative only; JSONL lacks per-item wall timestamps.",
+  "quotes": [
+    {
+      "item": "item_15",
+      "text": "simulation froze on victory around 1.98 units, so the helper kept waiting for 1.95"
+    },
+    {
+      "item": "item_21",
+      "text": "The Linux proof reached app-contract compilation and found one schema spelling issue: this contract language uses a different Boolean type name than `boolean`."
+    }
+  ],
+  "contextNote": "Broad bool-spelling search returned unrelated app.contract field declarations from supplied root apps; no other game implementation output observed."
+}

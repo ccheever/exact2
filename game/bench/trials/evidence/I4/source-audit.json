@@ -1,0 +1,76 @@
+{
+  "records": [
+    {
+      "cohort": "after2",
+      "attempt": "a-1",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "a6e5fd61e94b0e9ad2599332cfd8047cbdce84234ed18de9428d0be6d8f5fe58",
+        "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+        "game/games/lanterns/logic/src/kind_tests.rs": "22886739458c5e8dcd4f2bd566c1abde0be6d779bbedb520214ae6e5d3be8dfe",
+        "game/games/lanterns/logic/src/lib.rs": "23d3a68f43f033a79a513a0fbd9a1baf60c4a37e2da4b47013a8d0bbfb586b43",
+        "game/games/lanterns/logic/tests/capture.rs": "bb813634bb983cec4a424ae712b8b850bc6142243e71df26155bb23577e02174",
+        "game/games/lanterns/pins.json": "6e77985b24d00b7b160301244291611b425cdee261a6daced8c2cc1cbb5a3be5",
+        "game/games/lanterns/proof.mjs": "47bb4232230e6233597e248ce73adcc7076c738432eef535011042b5c9af075b",
+        "game/games/lanterns/scene.json": "443ff52b68daed65b3b549f2642ad46ea24c46838c86a86d8d6e944104c3f632"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 107,
+        "game/games/lanterns/logic/src/kind_tests.rs": 130,
+        "game/games/lanterns/logic/src/lib.rs": 644,
+        "game/games/lanterns/logic/tests/capture.rs": 265,
+        "game/games/lanterns/pins.json": 5,
+        "game/games/lanterns/proof.mjs": 51,
+        "game/games/lanterns/scene.json": 386
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "after2",
+      "attempt": "b-1",
+      "sha": "a30e5e36b3be8d518471b76b1b439af5e227f98a",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "daad98b546fec0086863334b3d42a5426af1edf170c4d7e1c364598aca6bd7a1",
+        "game/games/lanterns/app.contract": "9b9c39ac88627ffc957b06f2070b4db887b18b76f9afc5b8bfac94ceac50f129",
+        "game/games/lanterns/assets/lanterns-adapter.mjs": "87a163ce019e1e5a9183070de08dfa89bd5e3eb101c04367acaea6ad3ca4b292",
+        "game/games/lanterns/logic/src/lib.rs": "2584cf2df28d6f3c2f9fff74b08545654306b52b603267a9c39d6e42bc233ee8",
+        "game/games/lanterns/logic/tests/capture.rs": "0cd78dd679db68d52019e9c4bca585095529ae6d21344d89f2a4e62aa7b014a5"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 110,
+        "game/games/lanterns/assets/lanterns-adapter.mjs": 227,
+        "game/games/lanterns/logic/src/lib.rs": 663,
+        "game/games/lanterns/logic/tests/capture.rs": 246
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    },
+    {
+      "cohort": "baseline",
+      "attempt": "a-4",
+      "sha": "e47a09fc36c07103cdc3645b7061cca305af6c14",
+      "matchedHashes": {
+        "game/games/lanterns/README.md": "b37e976ed1e368b392bbad09c4d043df2b66f8b8930ce3075922155f9d892fc5",
+        "game/games/lanterns/app.contract": "6b18f1656b8077561cf35da2aa8494155ac7c0dd1efc7718a1c22dad65fefdbb",
+        "game/games/lanterns/logic/src/lib.rs": "0b8c022a3b523d43f97f8420d397e42546a711bd18f2ae4f9775349ecf525254",
+        "game/games/lanterns/logic/src/scene_tests.rs": "4867884e8f09ec7b9e355a497b45543c992fafae0d2487f0de0be5381b16e693",
+        "game/games/lanterns/logic/tests/capture.rs": "a440bbeb7dee08610253ed78beb468a1d5a61fa7a685ed6790f3a48f03697d05",
+        "game/games/lanterns/proof.mjs": "b00fc2f275cbea1d83ce6e1571a473d14c0a0f0090ddbbd8d14b11389abeab48",
+        "game/games/lanterns/scene.json": "5a7eb9390244b0e70cfee65b405c06022a902f31341320d93c999c1f486cb94d"
+      },
+      "sourceLineCounts": {
+        "game/games/lanterns/app.contract": 107,
+        "game/games/lanterns/logic/src/lib.rs": 633,
+        "game/games/lanterns/logic/src/scene_tests.rs": 244,
+        "game/games/lanterns/logic/tests/capture.rs": 177,
+        "game/games/lanterns/proof.mjs": 63,
+        "game/games/lanterns/scene.json": 386
+      },
+      "matched": true,
+      "buildOutputCreated": false
+    }
+  ],
+  "allMatched": true,
+  "sourceCopiesDeleted": true
+}
