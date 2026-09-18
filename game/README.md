@@ -646,6 +646,33 @@ game logic is unchanged, as requested. This is not an engine stale-ID bug: the
 engine correctly refuses the invalid cached handle. Game caches need structural
 invalidation or revalidation, not just initialization after load.
 
+Follow-up verification after the EXPHYS correction (2026-09-18): **417 Rust
+workspace tests passed, 1 failed, 11 ignored**. Only the new cached-child regression
+fails; the original continuation comparison and every corrected pin pass.
+Each of the three consumer-suite runs (environment `0`, `1`, `fresh-game`) reports
+**29 passed, 1 failed, 1 ignored**, with that same game-side failure. The physics
+suite reports **35 passed, 0 failed, 1 ignored**. `pile --verify` passes in all
+three environments, including the two-body every-step reconstruction comparison.
+
+| Linux proof, after correction | Normal | Save | FreshGame |
+| --- | --- | --- | --- |
+| Greybox | 62/0 | 63/0 | 63/0 |
+| Beacons | 54/0 | 55/0 | 55/0 |
+| Lanterns | 8/0 | 9/0 | 9/0 |
+| Asset fixture | 6/0 | 7/0 | 7/0 |
+| Cubes | 3/0 | 4/0 | 4/0 |
+
+All **15 proof runs / 409 assertions** pass. The proof scripts regenerated their
+ignored artifacts; no committed physics checkpoint exists in this clone. Clippy
+`--workspace --all-targets -- -D warnings`, formatting, caps and boot pass.
+`cd game && bun test` remains **38 passed / 2 environmental failures** (Chrome and
+60/120 Hz feel bakes unavailable). GPU pixels, browser and Apple execution are
+unverified here. No further engine divergence surfaced after the Rapier fix.
+Root Cargo metadata confirms that no game or Rapier package entered its workspace.
+All vendored Rust files also meet the 1,500-line task cap, independently of caps'
+vendor exemption. The only upstream Rust changes are the serialization fix and
+three same-module file splits; no dependency-cache source was modified.
+
 Initial T4 verification, before EXPHYS v2 (2026-09-18): the game workspace reported **415 passed, 1 failed,
 11 ignored**. The failure is the newly added Lanterns normal/paranoid comparison;
 all pre-existing pins still pass normally. Consumer suites report **28/1** with
@@ -666,7 +693,7 @@ Counts are pass/fail; paranoid adds the final comparison. Cubes' new Linux branc
 executes one tick with the existing 100,000-cube manifest; its simulation test
 uses 100 cubes and 120 ticks. No GPU, browser or Apple runtime was verified.
 
-Median wall time over three scripted simulation runs, optimized dev/test profile,
+Initial T4 median wall time over three scripted simulation runs, optimized dev/test profile,
 excluding construction and compilation (shared CPU; these are diagnostic numbers):
 
 | Script | Normal ms | Save ms / slowdown | FreshGame ms / slowdown |
