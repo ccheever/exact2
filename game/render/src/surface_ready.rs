@@ -277,4 +277,66 @@ mod tests {
                 > 0
         );
     }
+    struct Fox;
+    impl Game for Fox {
+        type Args = ();
+        const ID: &'static str = "restore-fox-upload";
+        fn assets() -> &'static [exact_game::Asset] {
+            lanterns_logic::Lanterns::assets()
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn((Transform::default(), Mesh::asset("Fox.glb")));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    #[test]
+    fn restore_upload_subset_is_reported_without_hiding_total_violations() {
+        for mode in [exact_game::Paranoid::Save, exact_game::Paranoid::FreshGame] {
+            let mut s = WorldSurface::<Fox>::default();
+            s.sim = Some(Sim::new(()).unwrap().paranoid(mode));
+            s.headless_feed();
+            assert_eq!(state(&mut s)["ready"], true);
+            s.agent(r#"{"op":"clock","now":0}"#);
+            s.agent(r#"{"op":"clock","now":17}"#);
+            let gpu = state(&mut s)["gpu"].clone();
+            assert!(gpu["restoreUploads"]["events"].as_u64().unwrap() > 0);
+            assert_eq!(
+                gpu["afterReady"]["violations"],
+                gpu["restoreUploads"]["events"]
+            );
+            for key in ["meshBytesUploaded", "textureBytesUploaded"] {
+                assert!(gpu["restoreUploads"]["counts"][key].as_u64().unwrap() > 0);
+                assert_eq!(gpu["afterReady"][key], gpu["restoreUploads"]["counts"][key]);
+            }
+            // Unrelated new geometry after that restore must still fail the proof.
+            s.sim
+                .as_mut()
+                .unwrap()
+                .world_mut()
+                .spawn((Transform::default(), Mesh::sphere(1.)));
+            let gpu = state(&mut s)["gpu"].clone();
+            assert!(
+                gpu["afterReady"]["violations"].as_u64().unwrap()
+                    > gpu["restoreUploads"]["events"].as_u64().unwrap()
+            );
+        }
+    }
+    #[test]
+    #[ignore = "known embedded Fox restore re-upload defect; see QUEUE.md T6 ready-work"]
+    fn restoring_fox_uploads_zero_asset_bytes_after_ready() {
+        // QUEUE.md: T6 ready-work; the engine asset-path owner will retain allocations.
+        let mut s = WorldSurface::<Fox>::default();
+        s.bind(&[]).unwrap();
+        assert_eq!(state(&mut s)["ready"], true);
+        let sim = s.sim.as_mut().unwrap();
+        let bytes = sim.save();
+        sim.restore(&bytes).unwrap();
+        let gpu = state(&mut s)["gpu"].clone();
+        let uploaded = gpu["afterReady"]["meshBytesUploaded"].as_u64().unwrap()
+            + gpu["afterReady"]["textureBytesUploaded"].as_u64().unwrap();
+        assert_eq!(
+            uploaded, 0,
+            "restore must reuse the resident Fox assets: {gpu}"
+        );
+    }
 }

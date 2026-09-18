@@ -38,6 +38,10 @@ struct State {
     last: Option<Value>,
     name: Option<(String, bool)>,
     streaming: [u64; 2],
+    restoring: bool,
+    restore: [u64; 11],
+    restore_events: u64,
+    last_restore: Option<Value>,
 }
 #[derive(Clone, Default)]
 pub(crate) struct Audit(Rc<RefCell<State>>);
@@ -54,7 +58,17 @@ impl Drop for Name {
         self.0 .0.borrow_mut().name = self.1.take();
     }
 }
+pub(crate) struct Restore(Audit, bool);
+impl Drop for Restore {
+    fn drop(&mut self) {
+        self.0 .0.borrow_mut().restoring = self.1;
+    }
+}
 impl Audit {
+    pub fn restoring(&self, restoring: bool) -> Restore {
+        let old = std::mem::replace(&mut self.0.borrow_mut().restoring, restoring);
+        Restore(self.clone(), old)
+    }
     pub fn current() -> Self {
         ACTIVE.with(|a| a.borrow().clone().unwrap_or_default())
     }
@@ -89,7 +103,8 @@ impl Audit {
         after["violations"] = json!(s.violations);
         after["declaredExceptions"] = json!({"events":s.exception_events,
             "counts":counts(&s.exceptions), "last":s.last_exception});
-        json!({"device":device,"beforeReady":before,"afterReady":after,"lastAfterReady":s.last})
+        json!({"device":device,"beforeReady":before,"afterReady":after,"lastAfterReady":s.last,
+            "restoreUploads":{"events":s.restore_events,"counts":counts(&s.restore),"last":s.last_restore}})
     }
 }
 pub(crate) fn record(what: usize, name: &str, amount: u64) {
@@ -116,6 +131,11 @@ pub(crate) fn record(what: usize, name: &str, amount: u64) {
         } else {
             s.during[what] += amount;
             s.violations += 1;
+            if s.restoring {
+                s.restore[what] += amount;
+                s.restore_events += 1;
+                s.last_restore = event.clone();
+            }
             s.last = event;
         }
     });

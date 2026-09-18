@@ -297,10 +297,16 @@ impl Feed {
         self.scene.frame(world, alpha, aspect)
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
-        if self.generation != w.presentation_generation() {
+        // Retain only this feed's old identities to attribute redundant embedded uploads.
+        // This does not preserve their allocations or change reset behavior.
+        let restored = if self.generation != w.presentation_generation() {
+            let instances = std::mem::take(&mut self.asset_instances);
             self.reset();
             self.generation = w.presentation_generation();
-        }
+            instances
+        } else {
+            BTreeMap::new()
+        };
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
@@ -467,6 +473,8 @@ impl Feed {
                             self.asset_vertices
                                 .extend(sampled.into_iter().map(asset_vertex));
                             let _name = crate::audit::Audit::current().name(name, false);
+                            let _restore = crate::audit::Audit::current()
+                                .restoring(restored.get(&e).is_some_and(|old| old.name == *name));
                             let mesh_id =
                                 r.textured_mesh(&self.asset_vertices, &model.indices, &model.image);
                             let group = self.groups.len();

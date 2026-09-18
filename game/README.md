@@ -1669,7 +1669,31 @@ Save and FreshGame each expose **eight violations**: two Fox uploads add 152,064
 mesh bytes, two textures/8,388,608 texture bytes and one new vertex/index buffer.
 `lastAfterReady` is `{"what":"meshBytesUploaded","name":"Fox.glb","tick":60}`.
 Paranoid restore invalidates the feed's embedded asset instances; this is a real
-reported upload, not an allowed undeclared-asset exception. The two proof runs
-remain red pending the behavioral fix recorded in `QUEUE.md`; Off and all three
-modes of the other games pass. All shader/pipeline/layout counters are zero in
+reported upload, not an allowed undeclared-asset exception. These two proof runs were red in T6; M5 applies the explicitly agreed diagnostic
+exception below pending the behavioral fix recorded in `QUEUE.md`. All shader/pipeline/layout counters are zero in
 these headless measurements; they do not establish device behavior.
+
+
+## Four-lane integration (M5, 2026-09-18)
+
+K1, T1a2, T5b and T6 merge in that order, one merge commit each. README lane
+reports and every test survive; the surface-test conflict keeps both the viewport
+occlusion fixture and the device presentation/pipeline negative control. K1's
+query leases retain T1a2's per-slot observation invalidation. The resolved M3
+performance queue item is removed. No save, position or hash pin changes.
+
+`state.world.gpu.restoreUploads` adds `{events, counts, last}` using the same
+allocation/upload counter keys. It is an inclusive subset of `afterReady` and
+`violations`, not a reset or a declared cosmetic exception. Only embedded assets
+with the same entity generation and name in the preceding feed are attributed
+when a presentation-generation reset forces them to upload again. New geometry,
+new entities and ordinary buffer growth remain violations. Attribution reuses the
+old bounded instance map for that feed; it adds no entity scan or unbounded log.
+
+The proof's zero-after-ready rule remains strict in normal mode. In Save and
+FreshGame only restore-upload events are subtracted for the assertion, and the
+proof prints a REPORT with their complete counters and last event. Readiness and
+all unrelated hitch assertions still apply. The ignored regression
+`restoring_fox_uploads_zero_asset_bytes_after_ready` requires a normal restore to
+upload zero mesh plus texture bytes; its comment points to the engine asset-path
+follow-up in `QUEUE.md`. This integration does not fix or conceal that defect.

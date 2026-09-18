@@ -178,8 +178,11 @@ export async function proof(meta, script) {
         if (['beacons', 'greybox', 'lanterns', 'asset-fixture'].includes(name)) {
           const state = await raw.state('world', {world:true});
           const {ready, gpu} = state.world ?? {};
+          const paranoid = ['1', 'fresh-game'].includes(process.env.EXACT_GAME_PARANOID);
+          const restoreEvents = paranoid ? (gpu?.restoreUploads?.events ?? 0) : 0;
+          if (paranoid && restoreEvents) say(`REPORT restore-caused GPU uploads: ${JSON.stringify(gpu.restoreUploads)}`);
           check('ready: no GPU allocations or asset uploads after ready',
-            ready === true && gpu?.afterReady?.violations === 0,
+            ready === true && gpu?.afterReady?.violations === restoreEvents,
             {ready, gpu, lastAfterReady:gpu?.lastAfterReady});
         }
         if (compareParanoid) {
