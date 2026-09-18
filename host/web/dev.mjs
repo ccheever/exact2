@@ -566,7 +566,7 @@ function sceneContractInput(path) {
 function publishScenePlan(saved, snapshot, inputs) {
   if (!planCompiler || !existsSync(planCompiler)) throw new Error('scene plan compiler is not ready');
   const stage = mkdtempSync(resolve(app.target, 'scene-plan-'));
-  const previous = {current, seq};
+  const previous = current;
   let committed = false;
   try {
     const candidate = resolve(stage, 'app.plan');
@@ -588,7 +588,9 @@ function publishScenePlan(saved, snapshot, inputs) {
     push({...announcement(), bytes:bytes.length});
     console.log(`scene → candidate plan ready in ${ready-saved} ms; existing behavior module retained`);
   } catch (error) {
-    if (!committed) { current = previous.current; seq = previous.seq; }
+    // captureGeneration may already have retained immutable files at seq,
+    // even if it or the plan rename failed. Only the accepted head rolls back.
+    if (!committed) current = previous;
     throw error;
   } finally { rmSync(stage, {recursive:true, force:true}); }
 }

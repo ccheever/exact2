@@ -398,6 +398,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Publish into the candidate only; the presenter holds every resulting op
+    /// until its bindings validate and finish_boot commits the whole session.
+    pub fn stage_surface_record(&mut self, len: usize) -> u32 {
+        if !self.boot_transaction || self.retained_host.is_none() {
+            return self.emit(exact_runner::agent::error(
+                "surface staging requires a candidate boot",
+            ));
+        }
+        self.surface_record(len)
+    }
+
     /// Re-answer viewport resources and return the resulting batch.
     /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
@@ -598,6 +609,12 @@ macro_rules! host {
                 };
                 bridge.surface_record(len as usize)
             })
+        }
+
+        /// Validate candidate publications without presenting their batches.
+        #[no_mangle]
+        pub extern "C" fn exact_stage_surface_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().stage_surface_record(len as usize))
         }
 
         /// The viewport changed; returns the batch length.

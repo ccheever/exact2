@@ -157,13 +157,14 @@ impl<D: DataSource> Host<D> {
             plan, data, kernel, carried, snapshot, delivery, viewport, launch,
         )
         .map_err(HostError::Runner)?;
+        let now_ms = runner.now_ms();
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
             springs: Springs::new(),
-            now_ms: 0.0,
+            now_ms,
             font_names,
             font_catalog,
             location: launch.into(),

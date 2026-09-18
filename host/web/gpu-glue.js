@@ -71,6 +71,16 @@ function frame(now) {
 
 function schedule() { if (raf === null) raf = requestAnimationFrame(frame); }
 
+function bindingValues(entry, values) {
+  const requested = structuredClone(values);
+  const changed = index => JSON.stringify(values[index]) !== JSON.stringify(entry.requestedValues?.[index]);
+  // Unchanged construction keeps its carry; a deliberate setup-counter change
+  // uses all requested construction values, including the new authored scene.
+  if (!(entry.setupIndices ?? []).some(changed)) values = values.map((value, i) => changed(i) ? value : entry.values[i]);
+  entry.requestedValues = requested;
+  return entry.values = values;
+}
+
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
   const { w, h, s } = size(entry.host);
@@ -465,14 +475,7 @@ exact.gpu = {
       if (staged) attach(entry); else ensure(entry);
       checkpoint(entry, "save"); checkpoint(entry, "load");
       return; }
-    const requestedValues = structuredClone(values);
-    const changed = index => JSON.stringify(values[index]) !== JSON.stringify(entry.requestedValues?.[index]);
-    // A carried world retains setup until the UI deliberately changes one
-    // setup value (for example its round counter). That new construction uses
-    // the complete requested setup, including the latest authored scene.
-    if (!(entry.setupIndices ?? []).some(changed)) values = values.map((value, i) => changed(i) ? value : entry.values[i]);
-    entry.requestedValues = requestedValues;
-    entry.values = values;
+    values = bindingValues(entry, values);
     if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
   destroy(view) {
@@ -621,6 +624,47 @@ function rebaseStage(module, entries) {
     if (!reply?.reload || reply.error) throw new Error(`surface ${entry.name}: final clock rebase refused`);
   }
 }
+function validatePublications(batch, staged, module, at) {
+  const published = new Map(), ops = [...batch.ops];
+  for (let round = 0; round < 16; round++) {
+    const bindings = new Map();
+    for (const entry of staged.values()) {
+      const json = entry.stagedPublication;
+      delete entry.stagedPublication;
+      if (json === undefined || published.get(entry.name) === json) continue;
+      const result = exact.stageSurfaceRecord(entry.name, json);
+      if (result.error) throw new Error(`surface ${entry.name}: publication: ${result.error}`);
+      published.set(entry.name, json);
+      if (result.ops.some(op => ["store", "command", "storage", "request"].includes(op.op))) throw new Error("candidate publication has irreversible effects; restart required");
+      for (const op of result.ops) {
+        if (op.op === "destroy" && staged.has(op.id)) throw new Error("candidate publication removed a staged canvas; restart required");
+        if (op.op === "surface") {
+          if (staged.get(op.id)?.name !== op.name) throw new Error("candidate publication changed the canvas roster; restart required");
+          bindings.set(op.id, op.values);
+        }
+      }
+      ops.push(...result.ops);
+      batch.timers = result.timers ?? batch.timers;
+      batch.clock = result.clock ?? batch.clock;
+    }
+    // Apply the complete round's bindings together: one world's HUD can bind
+    // another world, and later publications can refine that same binding.
+    for (const [id, values] of bindings) {
+      const entry = staged.get(id);
+      if (JSON.stringify(values) === JSON.stringify(entry.requestedValues)) continue;
+      if (!module.gpu_bind_at(entry.id, JSON.stringify(bindingValues(entry, values)), at)) throw new Error(`surface ${entry.name}: publication bind: ${module.gpu_error()}`);
+      validateStage(entry, module, at, false);
+    }
+    if (![...staged.values()].some(entry => entry.stagedPublication !== undefined)) {
+      // Present only the final bindings; intermediate ones were already applied
+      // privately. The HUD deltas join the initial boot in one outer batch.
+      batch.ops = ops.filter(op => op.op !== "surface");
+      for (const entry of staged.values()) batch.ops.push({op:"surface",id:entry.view,name:entry.name,values:entry.requestedValues ?? entry.values});
+      return;
+    }
+  }
+  throw new Error("candidate publications and bindings did not settle after 16 rounds");
+}
 function successfulSwap(start, artifact, entries, intent, extra = {}) {
   const committed = performance.now();
   reload.successes++; reload.phase = "committed"; reload.loaded = structuredClone(artifact); delete reload.error;
@@ -653,7 +697,7 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}) {
       if (matches.length > 1 || rows.filter(r => r.name === row.name).length > 1) throw new Error(`surface ${row.name}: ambiguous duplicate identity; restart required`);
       const previous = matches[0];
       const entry = previous ? candidateEntry(previous, row.values) : {
-        view:row.id, name:row.name, values:row.values, el:document.createElement("canvas"),
+        view:row.id, name:row.name, values:row.values, requestedValues:structuredClone(row.values), el:document.createElement("canvas"),
         host:{getBoundingClientRect:()=>({width:1,height:1})}, id:0, wants:true, logCursor:0,
       };
       entry.view = row.id; staged.set(row.id, entry);
@@ -663,6 +707,7 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}) {
     for (const entry of old) if (entry.id && gpu.gpu_carry(entry.id) !== undefined && !rows.some(row => row.name === entry.name)) {
       throw new Error(`surface ${entry.name}: participating world removed; explicit restart required`);
     }
+    validatePublications(batch, staged, gpu, at);
     rebaseStage(gpu, staged.values());
   } catch (error) { disposeStage(gpu, staged.values()); reload.phase = "failed"; reload.error = String(error); reload.failures++; reload.restoreOutcome = {status:"refused",retained:true,reason:String(error)}; throw error; }
   finally { gpu.gpu_seekable(Boolean(exact.now)); }
