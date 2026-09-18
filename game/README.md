@@ -347,6 +347,10 @@ The helper inventories actual local artifacts before launch/capture, refuses cha
 or unavailable receipts, and replays in a fresh isolated session with scratch world
 storage. Imported captures are bounded data: script descriptions and driver
 transcripts are evidence, never executable input. Sharing is a separate action.
+Decode limits apply before collection allocation, including nested checkpoint
+decoders and scene/component payloads. Registered Rust constructors, validators
+and custom Data implementations remain trusted game code; these limits are not
+a process-memory sandbox.
 
 The checkpoint and ordered normalized input, live bindings, viewport changes and
 clock advances reproduce the simulation. Defaults are 2 MiB, 4,096 records and
@@ -385,7 +389,10 @@ the running world, its tick and construction arguments; Restart constructs from 
 new scene; Restore accepts a selected compatible checkpoint. The public development
 API is `await exact.reloadGame({intent:"continue"})` (or `"restart"` / `"restore"`,
 with a per-canvas `checkpoints` Map). Failed candidate construction, restore, binding
-or rendering leaves the old participating worlds intact. Inspect `state.reload` for
+or rendering leaves the old participating worlds intact. Both Contract and GPU-only
+reloads validate publications and resulting bindings before committing. GPU-only
+reload retains current UI identities, row-local state, timers and animation state.
+Inspect `state.reload` for
 requested/loaded artifacts, phase, successful replacement and timing. Rendering
 opportunity is reported separately from physical display presentation.
 
