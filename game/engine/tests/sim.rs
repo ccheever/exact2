@@ -436,21 +436,49 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save();
     let mut old = saved.clone();
-    old[6] = 3;
+    assert!(saved.starts_with(b"EXSIM\0\x05"));
+    old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v3"));
+        .contains("EXSIM v5"));
     assert_eq!(s.save(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
-    old[7] = 1;
+    assert!(saved.starts_with(b"EXGAME\0\x03"));
+    old[7] = 2;
     assert!(s
         .world_mut()
         .load(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXGAME v1"));
+        .contains("EXGAME v3"));
     assert_eq!(s.world().save(), saved);
+}
+
+#[test]
+fn wrong_magic_reports_actual_bytes_and_expected_format() {
+    let mut s = sim();
+    let saved = s.save();
+    for bytes in [
+        b"random!!".to_vec(),
+        b"EXGAME\0\x02".to_vec(),
+        b"EXSIM\0\x04!".to_vec(),
+        vec![0xff; 8],
+        b"short".to_vec(),
+    ] {
+        let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
+        let error = s.restore(&bytes).unwrap_err().to_string();
+        assert!(
+            error.contains(&seen) && error.contains("EXSIM v5"),
+            "{error}"
+        );
+        let error = s.world_mut().load(&bytes).unwrap_err().to_string();
+        assert!(
+            error.contains(&seen) && error.contains("EXGAME v3"),
+            "{error}"
+        );
+        assert_eq!(s.save(), saved);
+    }
 }

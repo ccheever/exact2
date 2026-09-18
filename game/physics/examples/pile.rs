@@ -56,7 +56,7 @@ fn main() {
         }
         println!("MID_BOUNCE_RESUME=exact ticks=45..240");
         let hash = minimal::simulate(120);
-        assert_eq!(hash, 0x2c1221fdf12e6744);
+        assert_eq!(hash, 0x9960c10fadbb9c4b);
         println!("MINIMAL_HASH_120=0x{hash:016x}");
         return;
     }

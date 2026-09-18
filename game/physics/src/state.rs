@@ -64,10 +64,12 @@ impl Saved {
         if self.bytes.is_empty() {
             return Ok(());
         }
-        let payload = self
-            .bytes
-            .strip_prefix(SNAPSHOT)
-            .ok_or_else(|| DataError::new("physics: snapshot format/version mismatch"))?;
+        let payload = self.bytes.strip_prefix(SNAPSHOT).ok_or_else(|| {
+            DataError::new(format!(
+                "physics: expected EXPHYS v1 (unversioned snapshots obsolete); saw {:02x?}",
+                &self.bytes[..self.bytes.len().min(8)]
+            ))
+        })?;
         let rapier = bincode::DefaultOptions::new()
             .with_limit(payload.len() as u64)
             .deserialize(payload)
@@ -174,6 +176,20 @@ pub(crate) fn raw(handle: ColliderHandle) -> [u32; 2] {
 mod tests {
     use super::*;
     use exact_game::bin;
+
+    #[test]
+    fn snapshot_refusal_names_expected_format_and_seen_bytes() {
+        let mut saved = Saved {
+            bytes: b"random!!".to_vec(),
+            ..Saved::default()
+        };
+        let error = saved.decode().unwrap_err().to_string();
+        assert!(
+            error.contains("EXPHYS v1") && error.contains("unversioned snapshots obsolete"),
+            "{error}"
+        );
+        assert!(error.contains(&format!("{:02x?}", saved.bytes)), "{error}");
+    }
 
     #[test]
     fn stale_physics_is_refused_during_read() {

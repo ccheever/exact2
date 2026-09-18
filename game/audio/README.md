@@ -121,14 +121,15 @@ use RecordingOutput. The existing million-transfer SPSC ordering test is retaine
 
 | Sound | Current PCM hash |
 |---|---|
-| chime | `e9a167c58f84df24` |
-| footstep | `9ebb544ce4c25a86` |
-| thud | `0272cb7bdffcc068` |
-| looped wind | `4bd1a25503d77bbd` |
-| night-sting | `034b3dd59c4a8e50` |
+| chime | `b0df0c973190c087` |
+| footstep | `3fb464e28571d7c1` |
+| thud | `212e79c768c1fa8b` |
+| looped wind | `0a81380038622d05` |
+| night-sting | `bde9e602c3ce2406` |
 
-All five demo cards agree on arm64 macOS and x86-64 Linux (2026-09-17).
-Chrome 153 wasm also agrees on chime via `null_probe`'s `chime_hash()` export;
-initializing its wasm-bindgen module does not open a device. The chime pin is in
-`src/synth_tests.rs`; the unlooped wind pin is `16544282b3706864` in `tests/player.rs`.
-Bulk f32 hashing changed these hashes without changing the generated samples.
+D1b typed-bulk cards agree on arm64 macOS, x86-64 Linux and Chrome 153 wasm
+(2026-09-17), for all five demo sounds. The browser ran the demo definitions
+through a temporary wasm card and chime through `null_probe`'s `chime_hash()`
+export; no audio device is opened. The chime pin is in
+`src/synth_tests.rs`; the unlooped wind pin is `c72651fc30eafc30` in `tests/player.rs`.
+Typed bulk f32 hash framing changed these hashes without changing the generated samples.

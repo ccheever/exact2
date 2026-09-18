@@ -666,7 +666,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut bytes = b"EXSIM\0\x04".to_vec();
+        let mut bytes = b"EXSIM\0\x05".to_vec();
         bytes.extend(bin::to_vec(&saved));
         bytes
     }
@@ -680,10 +680,11 @@ impl<G: Game> Sim<G> {
         self.restore_into(bytes, Some(&args))
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
-        let payload = bytes.strip_prefix(b"EXSIM\0\x04").ok_or_else(|| {
-            DataError::new(
-                "unsupported simulation save format (expected EXSIM v4; EXSIM v3 is obsolete)",
-            )
+        let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
+            DataError::new(format!(
+                "unsupported simulation save format (expected EXSIM v5; saw {:02x?})",
+                &bytes[..bytes.len().min(8)]
+            ))
         })?;
         let s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {

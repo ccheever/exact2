@@ -2,6 +2,7 @@
 //! lanes use SplitMix64's published avalanche multipliers (Vigna, 2015).
 //! Tags frame values; record/field names are absent, enum ordinals are present.
 //! NaNs use IEEE's positive quiet NaN; negative zero retains its sign bit.
+use super::BulkKind;
 use super::{f32_bits, f64_bits, Data, Number, Writer};
 
 /// Hash the values in declaration order.
@@ -89,8 +90,8 @@ impl Hasher {
     }
 }
 impl Writer for Hasher {
-    fn bytes(&mut self, value: &[u8]) {
-        self.raw(&[16]);
+    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
+        self.raw(&[17 + kind as u8]);
         self.raw(&(value.len() as u64).to_le_bytes());
         self.raw(value);
     }

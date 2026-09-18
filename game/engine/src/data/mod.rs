@@ -144,14 +144,38 @@ pub enum Number {
     F64(f64),
 }
 
+/// Element kind of a little-endian bulk payload; part of both wire and hash framing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BulkKind {
+    /// Bytes.
+    U8,
+    /// Unsigned 16-bit integers.
+    U16,
+    /// Unsigned 32-bit integers.
+    U32,
+    /// Canonical IEEE binary32 values.
+    F32,
+}
+impl BulkKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::F32 => "f32",
+        }
+    }
+}
+
 /// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
     /// Write a boolean.
     fn boolean(&mut self, value: bool);
     /// Write a number, canonicalizing NaNs in binary representations.
     fn number(&mut self, value: Number);
-    /// Write an opaque length-prefixed byte payload; JSON emits an inspection summary.
-    fn bytes(&mut self, value: &[u8]);
+    /// Write a typed length-prefixed byte payload; JSON emits an inspection summary.
+    fn bytes(&mut self, kind: BulkKind, value: &[u8]);
     /// Write a UTF-8 value (as opposed to a field name).
     fn string(&mut self, value: &str);
     /// Begin a sequence of exactly `len` elements.
@@ -194,8 +218,9 @@ pub trait Reader {
     fn boolean(&mut self) -> Result<bool, DataError>;
     /// Read a number without losing integer precision.
     fn number(&mut self) -> Result<Number, DataError>;
-    /// Read an owned byte payload, claiming its allocation before reserving.
-    fn bytes(&mut self) -> Result<Vec<u8>, DataError>;
+    /// Read a matching typed payload, claiming its byte size before reserving.
+    /// This claim also covers conversion into a same-sized numeric destination.
+    fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError>;
     /// Read UTF-8 text.
     fn string(&mut self) -> Result<String, DataError>;
     /// Enter a sequence.

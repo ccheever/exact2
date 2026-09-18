@@ -1,6 +1,7 @@
 //! Tagged little-endian values, unsigned/zigzag varints, and an incremental
 //! name table. Unknown fields must still be walked to intern their names.
 use super::limits::{Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
+use super::BulkKind;
 use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -58,8 +59,8 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
-    fn bytes(&mut self, value: &[u8]) {
-        self.bytes.push(12);
+    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
+        self.bytes.push(12 + kind as u8);
         self.var(value.len() as u64);
         self.bytes.extend_from_slice(value);
     }
@@ -228,8 +229,18 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
-    fn bytes(&mut self) -> Result<Vec<u8>, DataError> {
-        self.tag(12, "expected bytes")?;
+    fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError> {
+        let tag = self.byte()?;
+        if tag != 12 + kind as u8 {
+            let seen = match tag {
+                12 => "u8",
+                13 => "u16",
+                14 => "u32",
+                15 => "f32",
+                _ => "non-bulk value",
+            };
+            return Err(self.err(&format!("expected bulk {}; found {seen}", kind.name())));
+        }
         let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
         let bytes = self.take(len)?;
         self.claim(len)?;
@@ -375,7 +386,7 @@ impl Reader for Decoder<'_> {
             Some(6) => {
                 self.string()?;
             }
-            Some(12) => {
+            Some(12..=15) => {
                 self.byte()?;
                 let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
                 self.take(len)?;

@@ -306,7 +306,7 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     cursor
         .claim(exact_game::data::MAX_LOAD_BYTES - 255)
         .unwrap();
-    assert!(cursor.bytes().is_err());
+    assert!(cursor.bytes(exact_game::data::BulkKind::U8).is_err());
     let u16s = vec![0x1234u16, 0xffff];
     assert_eq!(&bin::to_vec(&u16s)[2..], &[0x34, 0x12, 0xff, 0xff]);
     assert_eq!(
@@ -315,9 +315,9 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     );
     let encoded_u32 = bin::to_vec(&vec![1u32]);
     let mut cursor = bin::Decoder::new(&encoded_u32);
-    cursor.claim(exact_game::data::MAX_LOAD_BYTES - 7).unwrap();
+    cursor.claim(exact_game::data::MAX_LOAD_BYTES - 3).unwrap();
     let mut decoded_u32 = Vec::<u32>::new();
-    assert!(decoded_u32.read(&mut cursor).is_err()); // payload fits, typed allocation does not
+    assert!(decoded_u32.read(&mut cursor).is_err()); // destination exceeds the remaining budget
     assert_eq!(decoded_u32.capacity(), 0);
     let u32s = vec![0x12345678u32, u32::MAX];
     assert_eq!(&bin::to_vec(&u32s)[2..6], &[0x78, 0x56, 0x34, 0x12]);
@@ -338,7 +338,7 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     let mut encoded = bin::Encoder::default();
     encoded.begin_seq(2);
     encoded.item();
-    encoded.bytes(&bytes);
+    encoded.bytes(exact_game::data::BulkKind::U8, &bytes);
     encoded.item();
     encoded.number(exact_game::data::Number::Unsigned(42));
     encoded.end_seq();

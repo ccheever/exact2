@@ -228,9 +228,14 @@ fn a08_huge_counts_and_strings_refuse_without_allocating_the_claim() {
         out.push(n as u8);
         out
     }
-    let mut seq = vec![7];
+    let mut seq = vec![12];
     seq.extend(var(MAX_LOAD_BYTES as u64 + 1));
-    assert!(bin::from_slice::<Vec<u8>>(&seq).is_err());
+    let err = bin::from_slice::<Vec<u8>>(&seq).unwrap_err().to_string();
+    assert!(err.contains("length") || err.contains("truncated"), "{err}");
+    assert_eq!(
+        bin::from_slice::<Vec<u8>>(&[seq[0], 0]).unwrap(),
+        Vec::<u8>::new()
+    );
     let mut string = vec![6];
     string.extend(var(MAX_LOAD_STRING as u64 + 1));
     let err = bin::from_slice::<String>(&string).unwrap_err().to_string();

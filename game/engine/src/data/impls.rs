@@ -1,3 +1,4 @@
+use super::BulkKind;
 use super::{Data, DataError, Number, Reader, Writer};
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -98,21 +99,21 @@ impl<T: Data> Data for Vec<T> {
         // bulk types without unsafe layout casts or changing other Vec<T> values.
         let any = self as &dyn Any;
         if let Some(v) = any.downcast_ref::<Vec<u8>>() {
-            w.bytes(v);
+            w.bytes(BulkKind::U8, v);
             return;
         }
         macro_rules! bulk {
-            ($ty:ty, $bytes:expr) => {
+            ($ty:ty, $kind:ident, $bytes:expr) => {
                 if let Some(v) = any.downcast_ref::<Vec<$ty>>() {
                     let bytes: Vec<u8> = v.iter().flat_map($bytes).collect();
-                    w.bytes(&bytes);
+                    w.bytes(BulkKind::$kind, &bytes);
                     return;
                 }
             };
         }
-        bulk!(u16, |v: &u16| v.to_le_bytes());
-        bulk!(u32, |v: &u32| v.to_le_bytes());
-        bulk!(f32, |v: &f32| super::f32_bits(*v).to_le_bytes());
+        bulk!(u16, U16, |v: &u16| v.to_le_bytes());
+        bulk!(u32, U32, |v: &u32| v.to_le_bytes());
+        bulk!(f32, F32, |v: &f32| super::f32_bits(*v).to_le_bytes());
         w.begin_seq(self.len());
         for v in self {
             w.item();
@@ -123,13 +124,13 @@ impl<T: Data> Data for Vec<T> {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let any = self as &mut dyn Any;
         if let Some(v) = any.downcast_mut::<Vec<u8>>() {
-            *v = r.bytes()?;
+            *v = r.bytes(BulkKind::U8)?;
             return Ok(());
         }
         macro_rules! bulk {
-            ($ty:ty, $decode:expr) => {
+            ($ty:ty, $kind:ident, $decode:expr) => {
                 if let Some(v) = any.downcast_mut::<Vec<$ty>>() {
-                    let bytes = r.bytes()?;
+                    let bytes = r.bytes(BulkKind::$kind)?;
                     const WIDTH: usize = std::mem::size_of::<$ty>();
                     if bytes.len() % WIDTH != 0 {
                         return Err(DataError::new(concat!(
@@ -138,7 +139,7 @@ impl<T: Data> Data for Vec<T> {
                             ">"
                         )));
                     }
-                    r.claim(bytes.len())?;
+                    // Reader::bytes already claimed WIDTH * element count.
                     let mut out = Vec::new();
                     out.try_reserve_exact(bytes.len() / WIDTH)
                         .map_err(super::limits::allocation)?;
@@ -148,9 +149,13 @@ impl<T: Data> Data for Vec<T> {
                 }
             };
         }
-        bulk!(u16, |b: &[u8]| u16::from_le_bytes(b.try_into().unwrap()));
-        bulk!(u32, |b: &[u8]| u32::from_le_bytes(b.try_into().unwrap()));
-        bulk!(f32, |b: &[u8]| f32::from_bits(super::f32_bits(
+        bulk!(u16, U16, |b: &[u8]| u16::from_le_bytes(
+            b.try_into().unwrap()
+        ));
+        bulk!(u32, U32, |b: &[u8]| u32::from_le_bytes(
+            b.try_into().unwrap()
+        ));
+        bulk!(f32, F32, |b: &[u8]| f32::from_bits(super::f32_bits(
             f32::from_le_bytes(b.try_into().unwrap())
         )));
         super::limits::read_vec(r, self, super::MAX_LOAD_BYTES)

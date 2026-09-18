@@ -89,5 +89,5 @@ fn chime_hash_is_pinned() {
         .layer(Synth::sine(1320.0).gain(0.4));
     let pcm = render(&chime, 48000);
     assert_eq!(pcm, render(&chime, 48000));
-    assert_eq!(exact_game::hash::of(&pcm), 16834850980301692708);
+    assert_eq!(exact_game::hash::of(&pcm), 12744919313992958087);
 }

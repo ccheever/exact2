@@ -95,9 +95,9 @@ ray distance ≤3 mm; curved sweeps ≤5 mm per 3 m (measured 2.955 mm; Parry st
 Rolling contact drift is bounded at 0.1 m/s and acceleration within 3% of (5/7)g sin θ.
 Physics, engine and audio tests pass on arm64 macOS and x86-64 Linux.
 Pile resume hashes are checked every tick through 600, mid-bounce through 240.
-D1 bulk-format cards agree on **arm64 macOS, x86-64 Linux and Chrome 153 wasm**:
-pile tick 600 `0x68fadd78ef1d93f8`, two-body `simulate(120)`
-`0x2c1221fdf12e6744`. The browser pile card saves at tick 90, restores and checks
+D1b typed-bulk cards agree on **arm64 macOS, x86-64 Linux and Chrome 153 wasm**:
+pile tick 600 `0x5ba7691abdc98058`, two-body `simulate(120)`
+`0x9960c10fadbb9c4b`. The browser pile card saves at tick 90, restores and checks
 exact continuation every tick through 600. `minimal.wasm` exports `pile_hash()`
 and `simulate(ticks)` for direct `WebAssembly.instantiate` calls.
 Enhanced determinism, glam scalar-math/libm; no parallel, simd8 or fast-math features.

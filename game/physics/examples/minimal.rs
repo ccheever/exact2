@@ -35,6 +35,6 @@ pub extern "C" fn pile_hash() -> u64 {
         assert_eq!(sim.world().hash(), restored.world().hash());
     }
     let hash = sim.world().hash();
-    assert_eq!(hash, 0x68fadd78ef1d93f8);
+    assert_eq!(hash, 0x5ba7691abdc98058);
     hash
 }

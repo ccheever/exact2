@@ -168,7 +168,7 @@ const SINGLETON: Entity = Entity {
     index: 0,
     generation: 0,
 };
-const MAGIC: &[u8; 8] = b"EXGAME\0\x02";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
 
 impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
@@ -672,9 +672,10 @@ impl World {
             return Err(DataError::new("save exceeds load size limit"));
         }
         if !bytes.starts_with(MAGIC) {
-            return Err(DataError::new(
-                "unsupported world save format (expected EXGAME v2; EXGAME v1 is obsolete)",
-            ));
+            return Err(DataError::new(format!(
+                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
+                &bytes[..bytes.len().min(8)]
+            )));
         }
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();

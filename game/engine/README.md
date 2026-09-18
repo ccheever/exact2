@@ -44,11 +44,13 @@ Page write generations let unchanged transform pages skip reading/hashing their 
 
 Opaque vectors (`Vec<u8>`, `Vec<u16>`, `Vec<u32>`, `Vec<f32>`) use length-prefixed
 bytes. Numeric bulk payloads are little-endian; f32 NaNs canonicalize, negative
-zero survives. JSON exposes only `{"bytes":n,"hash":"0x…"}`; these summaries cannot
+zero survives. Each bulk kind has a distinct binary and hash tag, even when empty.
+JSON exposes only `{"bytes":n,"hash":"0x…"}`; summaries and numeric arrays cannot
 be loaded as data. Other vectors remain structural sequences. Bulk readers claim
-both payload and decoded allocations; custom readers must preserve this accounting.
+the destination byte size once, including conversion from the temporary payload;
+custom readers must preserve this accounting.
 
-World containers are EXGAME v2; Sim containers are EXSIM v4. Older containers are
+World containers are EXGAME v3; Sim containers are EXSIM v5. Older containers are
 refused by name, without migration. Sim's encoded world is one bytes field.
 Undelivered `emit` messages remain saved, in order, but are excluded from the
 simulation hash. Host draining never changes that hash. Restore retains Input's

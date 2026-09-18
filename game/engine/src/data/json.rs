@@ -1,6 +1,7 @@
 //! Human-readable streaming JSON. Records are objects, tuples/vectors are arrays,
 //! enums are one-key objects, and options are zero/one-element arrays.
 use super::limits::{allocation, Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
+use super::BulkKind;
 use super::{Data, DataError, Number, Reader, Writer};
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -95,9 +96,9 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
-    fn bytes(&mut self, value: &[u8]) {
+    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
         let mut hash = super::hash::Hasher::default();
-        hash.bytes(value);
+        hash.bytes(kind, value);
         write!(
             self.text,
             "{{\"bytes\":{},\"hash\":\"0x{:016x}\"}}",
@@ -300,9 +301,10 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
-    fn bytes(&mut self) -> Result<Vec<u8>, DataError> {
+    fn bytes(&mut self, _kind: BulkKind) -> Result<Vec<u8>, DataError> {
+        self.skip()?;
         Err(DataError::new(
-            "JSON byte summaries are inspection-only; restore from binary",
+            "JSON bulk summaries are inspection-only; arrays are refused too; restore from binary",
         ))
     }
     fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
