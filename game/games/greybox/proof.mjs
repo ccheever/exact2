@@ -29,11 +29,13 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
   const golden = JSON.parse(readFileSync(new URL('./logic/tests/snapshots/layout.json', import.meta.url), 'utf8'));
-  const eyes = await s.layout('world:player');
-  // Screen coordinates depend on the host viewport; all geometric snapshot fields do not.
-  delete eyes.entity.screen;
-  delete golden.entity.screen;
-  check('geometric layout snapshot is identical on the host', equal({tick: eyes.tick, entity: eyes.entity}, golden), eyes);
+  const eyesSession = await open({size:[800,600]});
+  await eyesSession.tap('play');
+  const eyes = await eyesSession.layout('world:player');
+  // Match the fixture viewport; only carrier epoch/incarnation/clock are outside the engine reply.
+  check('complete geometric layout snapshot is identical on the host',
+    equal({tick: eyes.tick, entity: eyes.entity}, golden), eyes);
+  await eyesSession.close();
   const initial = await s.state();
   check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7df5e5a89b4d0207', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
