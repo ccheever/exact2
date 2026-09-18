@@ -1,6 +1,8 @@
 //! CPU geometry shared by layout and pick. The renderer is not a source of truth.
 use crate::{math, Affine3A, Camera, Entity, Mesh, Vec2, Vec3, Visible, World};
 use glam::Mat4;
+pub(crate) mod index;
+use index::Sight;
 
 pub(crate) struct View {
     pub pose: Affine3A,
@@ -281,90 +283,76 @@ fn ray_hit(w: &World, e: Entity, mesh: &Mesh, origin: Vec3, direction: Vec3) -> 
     let inv = pose.inverse();
     let o = inv.transform_point3(origin);
     let d = inv.transform_vector3(direction);
+    let (half, center) = bounds(w, e, Some(mesh));
+    shape_hit(mesh, o, d, half, center)
+}
+fn shape_hit(mesh: &Mesh, o: Vec3, d: Vec3, half: Vec3, center: Vec3) -> Option<f32> {
     match mesh {
         Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
         Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
         Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
 
-        _ => {
-            let (half, center) = bounds(w, e, Some(mesh));
-            slab(o - center, d, half)
-        }
+        _ => slab(o - center, d, half),
     }
-}
-
-/// All intersections on the open segment; endpoint entities never obstruct it.
-pub(crate) fn blockers(w: &World, from: Vec3, to: Vec3, exclude: &[Entity]) -> Vec<(Entity, f32)> {
-    let delta = to - from;
-    let distance = delta.length();
-    if distance <= 1e-5 {
-        return Vec::new();
-    }
-    let direction = delta / distance;
-    let mut hits: Vec<_> = w
-        .query::<&Mesh>()
-        .iter()
-        .filter_map(|(e, mesh)| {
-            if exclude.iter().any(|&root| {
-                let mut current = Some(e);
-                for _ in 0..=w.len() {
-                    let Some(entity) = current else {
-                        return false;
-                    };
-                    if entity == root {
-                        return true;
-                    }
-                    current = w.get::<crate::Parent>(entity).map(|p| p.0);
-                }
-                false
-            }) {
-                return None;
-            }
-            let t = ray_hit(w, e, mesh, from, direction)?;
-            (t > 1e-5 && t < distance - 1e-5).then_some((e, t))
-        })
-        .collect();
-    hits.sort_by(|(a, x), (b, y)| x.total_cmp(y).then_with(|| a.index().cmp(&b.index())));
-    hits
 }
 
 /// Eight corners, six face centres, and centre of the oriented bounds.
 pub(crate) fn occlusion(
-    w: &World,
-    e: Entity,
+    sight: &mut Sight<'_>,
     origin: Vec3,
     corners: &[Vec3; 8],
-) -> (f32, Vec<Entity>) {
-    let center = (corners[0] + corners[7]) * 0.5;
-    let mut samples = corners.to_vec();
+) -> Result<(f32, Vec<Entity>), String> {
+    let mut samples = [Vec3::ZERO; 15];
+    samples[..8].copy_from_slice(corners);
+    let mut n = 8;
     for bit in [1, 2, 4] {
         for side in [0, bit] {
-            samples.push(
-                (0..8)
-                    .filter(|i| i & bit == side)
-                    .map(|i| corners[i])
-                    .sum::<Vec3>()
-                    * 0.25,
-            );
+            samples[n] = (0..8)
+                .filter(|i| i & bit == side)
+                .map(|i| corners[i])
+                .sum::<Vec3>()
+                * 0.25;
+            n += 1;
         }
     }
-    samples.push(center);
+    samples[14] = (corners[0] + corners[7]) * 0.5;
     let mut hidden = 0;
-    let mut occluders = std::collections::BTreeMap::<Entity, f32>::new();
+    let mut nearest: [Option<(Entity, f32)>; 4] = [None; 4];
     for sample in samples {
-        let hits = blockers(w, origin, sample, &[e]);
-        hidden += usize::from(!hits.is_empty());
-        for (entity, distance) in hits {
-            occluders
-                .entry(entity)
-                .and_modify(|d| *d = d.min(distance))
-                .or_insert(distance);
-        }
+        let mut blocked = false;
+        sight.segment(origin, sample, 2, |entity, distance| {
+            blocked = true;
+            let mut candidate = (entity, distance);
+            if let Some(i) = nearest
+                .iter()
+                .position(|v| v.is_some_and(|(e, _)| e == entity))
+            {
+                candidate.1 = candidate.1.min(nearest[i].unwrap().1);
+                for j in i..3 {
+                    nearest[j] = nearest[j + 1];
+                }
+                nearest[3] = None;
+            }
+            for slot in &mut nearest {
+                if slot.is_none_or(|(e, d)| distance_order(candidate.0, candidate.1, e, d).is_lt())
+                {
+                    let old = slot.replace(candidate);
+                    if let Some(old) = old {
+                        candidate = old;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            false // Collect nearest four across every hit; LOS instead stops at one.
+        })?;
+        hidden += usize::from(blocked);
     }
-    let mut occluders: Vec<_> = occluders.into_iter().collect();
-    occluders.sort_by(|(a, x), (b, y)| x.total_cmp(y).then_with(|| a.index().cmp(&b.index())));
-    (
+    Ok((
         hidden as f32 / 15.0,
-        occluders.into_iter().take(4).map(|(e, _)| e).collect(),
-    )
+        nearest.into_iter().flatten().map(|(e, _)| e).collect(),
+    ))
+}
+fn distance_order(a: Entity, x: f32, b: Entity, y: f32) -> std::cmp::Ordering {
+    x.total_cmp(&y).then_with(|| a.index().cmp(&b.index()))
 }

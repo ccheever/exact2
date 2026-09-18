@@ -209,6 +209,7 @@ impl<G: Game> Sim<G> {
             self.asset_mesh_revision = revision;
         }
         let assets = &mut self.world.assets;
+        assets.geometry_revision = assets.geometry_revision.wrapping_add(1);
         let names: Vec<_> = assets
             .states
             .iter()
@@ -269,6 +270,7 @@ impl<G: Game> Sim<G> {
     fn finish_assets(&mut self) -> Result<(), String> {
         use crate::asset::AssetState;
         let assets = &mut self.world.assets;
+        assets.geometry_revision = assets.geometry_revision.wrapping_add(1);
         for (name, model) in &assets.models {
             if matches!(assets.states.get(name), Some(AssetState::Failed(_))) {
                 continue;

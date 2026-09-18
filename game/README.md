@@ -340,6 +340,20 @@ segment, excluding both endpoint entities and their descendants). Coincident ori
 and bearing zero and clear sight; zero horizontal directions have bearing zero.
 Visibility retains `{"unavailable":true}` without camera/viewport.
 These queries take only shared world reads and preserve the mutation epoch.
+Visibility uses a separate, retained mesh-bounds BVH (physics indexes colliders).
+The cache is world-owned derived data, excluded from saves, hashes and observation.
+It invalidates on Mesh, Transform, Parent, Visible and ModelBounds revisions,
+entity membership, propagated hierarchy generation, presentation generation and
+asset geometry revision. Layout never advances or mutates simulation state.
+An index rebuild admits at most 262,144 entity slots, including dead slots;
+beyond that `layout` returns an explicit index-limit error before allocation.
+Balanced median construction is O(N log N), at most 19 levels and 524,287 nodes.
+Each request additionally allows 1,000,000 total hierarchy-exclusion/BVH-node
+visits across all 15 sample rays and the optional line-of-sight ray; exhaustion
+returns `layout visibility work budget exceeded`, never a partial fraction.
+Exclusions are built once, line-of-sight exits on the first blocker, and rays
+allocate and sort no hit lists. Occlusion retains only four distinct nearest hits.
+
 
 The native bake binds the GPU product digest to the app and cohort before loading.
 `EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.

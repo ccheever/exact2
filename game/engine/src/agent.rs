@@ -359,6 +359,7 @@ impl<G: Game> Sim<G> {
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
         let forward = pose.transform_vector3(Vec3::NEG_Z).normalize_or_zero();
         let view = spatial::View::new(w, viewport);
+        let mut sight = spatial::index::Sight::new(w, e, to, None)?;
         let toward = view
             .as_ref()
             .map(|v| forward.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()));
@@ -387,7 +388,7 @@ impl<G: Game> Sim<G> {
                     )
                     .to_degrees()
                 };
-            let clear = spatial::blockers(w, position, target, &[e, to]).is_empty();
+            let clear = !sight.segment(position, target, 1, |_, _| true)?;
             facing.push_str(&format!(
                 ",\"bearingTo\":{},\"distanceTo\":{},\"lineOfSight\":{clear}",
                 encode(&bearing)?,
@@ -410,7 +411,7 @@ impl<G: Game> Sim<G> {
                 .unwrap_or_else(|| "{\"unavailable\":true}".into());
             let (inside, behind, distance, depth) = view.visibility(&corners, position);
             let (occluded, occluders) =
-                spatial::occlusion(w, e, view.pose.translation.into(), &corners);
+                spatial::occlusion(&mut sight, view.pose.translation.into(), &corners)?;
             let names: Vec<_> = occluders
                 .into_iter()
                 .map(|e| {

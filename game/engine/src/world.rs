@@ -193,6 +193,7 @@ impl Eq for WorldId {}
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
     pub(crate) assets: crate::asset::Assets,
+    pub(crate) sight: crate::spatial::index::Cache,
     id: WorldId,
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
@@ -239,6 +240,7 @@ impl World {
         rng.insert(Rng::new(seed));
         Self {
             assets: Default::default(),
+            sight: Default::default(),
             id: WorldId(std::rc::Rc::new(())),
             epoch,
             observed_epoch: 0,

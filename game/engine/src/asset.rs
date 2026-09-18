@@ -351,6 +351,7 @@ pub enum AssetState {
 }
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
+    pub geometry_revision: u64,
     pub models: BTreeMap<String, Arc<Model>>,
     pub states: BTreeMap<String, AssetState>,
     pub declared: BTreeSet<String>,
