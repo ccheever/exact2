@@ -53,3 +53,44 @@ clean shadows by default (R3), save/restore through the agent plus the engine's
 paper cuts (D6), the world dev loop (E2), generated host shells (E3). Then Task 001
 is built **again, from scratch, by a fresh builder**, and scored again by the same
 two judges. The bar is to beat 29.
+
+
+## Second score (2026-09-17, late) — Beacons rebuilt from scratch on the engine after the consolidation pass
+
+Same two judges, same rubric, same twins; the exact2 entry is `001-beacons-exact-r2.md`
+(181 game lines, 6 min 9 s to a passing proof, no engine change, no workaround). The
+Feel row is scored from the probe's provisional twin numbers; exact2's own numbers
+could not be taken (the display was locked), so its Feel stays unverified.
+
+| | Godot | three.js | exact2 r2 | | Godot | three.js | exact2 r2 |
+|---|---:|---:|---:|---|---:|---:|---:|
+| **sol** | | | | **grok** | | | |
+| Small | 2 | 5 | 3 | | 3 | 4 | 3 |
+| Direct | 3 | 4 | 4 | | 2 | 4 | 3 |
+| Provable | 4 | 4 | **5** | | 4 | 4 | 4 |
+| Repeatable | 4 | 4 | 4 | | 4 | 4 | 4 |
+| Loop | 5 | 4 | 4 | | 4 | 3 | 3 |
+| UI | 3 | 5 | 4 | | 3 | 4 | 3 |
+| six rows, of 30 | 21 | 26 | **24** | | 20 | 23 | **20** |
+| Feel | 2 | 4 | unverified | | 2 | 4 | unverified |
+
+Up from 19 (sol: 24, grok: 20), still behind three.js (26 / 23) on the six rows. The
+gate of LLP 1041.005 §3 is not passed. What both judges ask for, again concretely:
+
+1. **A game is two or three files.** The generator still copies three host crates and
+   their manifests (91 lines) into every game; the bake should synthesize them.
+2. **Motion reads like the brief.** `math::ease(v, d, 0.074690334, dt)` and
+   `velocity.y = 4.852216` are the engine's fault as much as the builder's: named
+   kinematics (`move_toward`-style acceleration, a jump from a height), one
+   `scene::follow`, a restart that is not a dummy argument.
+3. **A simulation-only snapshot, and a proof that needs no browser.** `state world:*`
+   carries the carrier's clock beside the world's fields (the only r2 proof failure,
+   40 s to diagnose); a sub-second headless proof that can also see the HUD would
+   beat Godot's 10 s loop instead of losing to it.
+4. **UI defaults.** Accessible names and a live region from the Contract, the first
+   button focused, a centred overlay helper, and a look that reads as designed
+   (three.js's halo, ring, grid and fog are one-liners there).
+5. **Feel numbers**, and `feel.mjs` present in the game the bench expects it in.
+
+What they said to keep: the proof through the shared agent interface (sol's 5 — "no
+Beacons-specific browser API"), the save and restore, the Contract HUD at 37 lines.
