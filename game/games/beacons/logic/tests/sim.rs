@@ -76,3 +76,19 @@ fn jump_no_double_jump_and_restore() {
     b.run(827.0);
     assert_eq!(a.save(), b.save());
 }
+
+#[path = "../../../../paranoid-test.rs"]
+mod paranoid;
+#[test]
+fn every_tick_save_matches_normal_script() {
+    paranoid::compare(
+        || sim(7),
+        |sim| {
+            sim.hold("KeyW", 713.123);
+            sim.tap("Space");
+            sim.run(286.877);
+            sim.tap("KeyE");
+            sim.run(1000.0);
+        },
+    );
+}

@@ -58,3 +58,16 @@ fn typed_facade_preserves_original_world_bytes() {
         }
     }
 }
+
+#[path = "../../../../paranoid-test.rs"]
+mod paranoid;
+#[test]
+fn every_tick_save_matches_normal_script() {
+    paranoid::compare(game, |sim| {
+        sim.hold("KeyW", 713.123);
+        sim.tap("Space");
+        sim.run(286.877);
+        sim.tap("KeyE");
+        sim.run(1000.0);
+    });
+}

@@ -740,7 +740,9 @@ impl<G: Game> Sim<G> {
             assets.models.clear();
             // Drop all old component/resource values (including skipped fields
             // and physics executors) before invoking setup for the replacement.
+            let generation = self.world.presentation_generation;
             self.world = World::new(G::HZ, 0);
+            self.world.presentation_generation = generation;
             for (name, bytes) in models {
                 assets.models.insert(
                     name,

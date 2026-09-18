@@ -592,6 +592,21 @@ simulation state in shipped games.
 | `scene/tests/authoring.rs`: `SERIAL` | Harmless test scratch-name allocator. |
 | `render/tests/timing/mod.rs`: `REPORTED` | Harmless one-time test diagnostic flag. |
 
+T4 found an engine defect, not a game-field omission: Lanterns diverges at tick 2
+inside `Physics.executor`'s Rapier snapshot. `BroadPhaseBvh::deferred_optimize_pending`
+is skipped by Rapier's serde implementation, but the engine's post-kinematic
+`CollisionPipeline::step` can leave it set at a save boundary. The next normal
+broad-phase update executes the deferred optimization; the restored one loses it.
+The dynamic-stack fixture does not take that extra collision pass and agrees.
+
+Three diagnostic rounds ended with a local dependency experiment: including that
+one bool in serialization makes both Lanterns paranoid comparisons pass, but
+changes the existing tick-60 pin `0x99071d4692d75e6f` to `0x72c4c497e0d9a2dc`.
+The dependency experiment is **not applied**: this task forbids changing pinned
+hashes. The new Lanterns regression remains red instead of ignoring the divergence.
+An engine snapshot/determinism decision is required before claiming all state is
+saved correctly. Existing game fields and pins are unchanged.
+
 ## Linux proof baseline (T0c, 2026-09-18)
 
 The original converged trunk (`8189f90`) was compared by running both merge parents:
