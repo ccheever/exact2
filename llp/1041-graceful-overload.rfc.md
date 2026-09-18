@@ -3279,3 +3279,43 @@ Messages latency comparison or a physical 120Hz claim.
 Exact production/test patch `e9c5902487d17c48f4b40994e643d12c972889bc51f2c4fd07c13fcbc0fa86d3`
 and the control, eight-case and natural-draw evidence are retained in the private
 `exact2-appkit-prefit-document/target/appkit-prefit-validation/` archive.
+
+### 8.46 Linux UI work and presentation waiting, 2026-09-18
+
+One instrumented actual-Linux 1MiB run now completes the cold source and the
+600→984 content-width transition on a fixed 1024×768, 60Hz VKMS display. Two
+fresh reference processes and the candidate pass: both accepted RGB crops,
+all 26 reference fields, both 40px overlapping scroll strips, retained-A input,
+autonomous B publication, shared-width reuse and old-backing retirement. Four
+jobs build one shape and two layouts/indexes; giant UI construction counters
+remain zero. This is one transition, not continuous display resizing or 120Hz.
+
+The saved journal closes 129 UI turns, 3,226 numeric spans and 12 worker-port
+lifecycles through the final picture at frame31/input48. Seven ordinary text
+submissions have typed null proof IDs; four giant submissions retain their
+distinct job identities. The original diagnostic boot assertion on the 46-byte
+placeholder remains a failed run. The correction has five exact-source,
+standalone Mac Rust tests; the separate Cargo attempt refused before launch
+because warm test dependencies were absent. Neither is a Linux test-suite pass.
+
+Only display submission and page-flip waiting contain individual recorded spans
+over 8.333ms. Frame building reaches 4.141ms, painting 3.741ms and input dispatch
+1.921ms. The largest nonboot turn after excluding display wait, observer work
+and VNC publication is 6.640479ms; it still includes display copy/submission and
+unattributed work. Boot retains a 9.915537ms remainder even after excluding all
+those display and observer intervals. These are synchronous wall measurements,
+including scheduling, not isolated CPU costs. Observer work reaches 4.753ms and
+display wait 20.419ms. Excluding them does not make the actual loop a 120Hz loop.
+
+The four giant slot-store→take intervals are 0.057792, 14.777387, 0.041667 and
+8.460530ms; the two long cases are cached completions. Production `present`
+currently waits for the page-flip event before the loop returns to its input and
+worker wake descriptors. That is a concrete next scheduling investigation, not
+proof that every measured delay has that cause or a reason to add a worker pool.
+
+All processes retired; the candidate's SIGTERM followed completed observations.
+The original failure, bounded recorder, censored final observer flush and
+`nonquiet=true` label are retained. No individual-keystroke visibility, CPU,
+memory-saving or physical-frame claim follows. Evidence is under
+`target/linux-ui-critical-runtime-1m-v4/`, manifest
+`18eedd010b432164e3b839fe85d3d51da051b52d98b703f578b69c599a9f9bbe`.
