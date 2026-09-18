@@ -3371,3 +3371,48 @@ Both cells pass, all 72 offered inputs reply, selected full histories agree and
 all owned processes retire. No further run or generalized frame-rate claim is
 implied. Reverse-pair evidence: `target/native-630-prefit-reverse-pair-v1/`,
 manifest `5456d96efee7993ce86496e1f3c9f6d3aa5d33a68ebdc16a149079804930da29`.
+
+### 8.48 Native resize measurement cache hits, 2026-09-18
+
+One further prefit-B diagnostic adds two counters in Text and two trace rows per
+resize in Session. The captured product differs from the preceding B only in
+those two Swift files; no cache, Rust memo, timer or worker policy changes.
+All 54 inside-edge resize parents have complete, ordered count pairs matching
+the original C96 callback total. Each phase still has 18 distinct viewport
+changes, all 10,000 rows and batch32.
+
+| Phase | Swift callbacks | Intrinsic | Definite | Scalar hits | Geometry hits | Without either hit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Idle | 2,998 | 360 | 2,638 | 360 | 2,004 | 634 |
+| Load | 2,496 | 360 | 2,136 | 360 | 1,622 | 514 |
+| Recovery | 2,496 | 360 | 2,136 | 360 | 1,622 | 514 |
+
+Every parent has 20 intrinsic requests and 20 scalar hits. Thus the geometry
+hits in this sample are definite-width requests; that is not a general rule
+about the counter. During load, 1,982 of 2,496 callbacks (79.4%) return through
+one of these Swift caches. They still cross the foreign-call boundary and the
+existing entry constructs strings and measurement specifications before lookup.
+Avoiding that construction on an exact cached request is the next source-level
+candidate. No such optimization is included in this diagnostic.
+
+These are counts, not cost shares or proof of Rust memo eviction. Changed
+height, source, owner and cache lifetime remain possible reasons for entry.
+The 514 loaded requests without a recorded hit are not a typesetter-construction
+count. The results do not by themselves justify reserving intrinsic memo slots,
+changing definite-width retention or adding parallel measurement. Counters end
+before apply and exclude its feedback; inclusive nested spans are not summed.
+
+The original functional endpoints pass and all 36 inputs receive replies.
+Primary trace omissions are zero; passive mode omissions still prevent a mode
+coverage claim. This is one instrumented cell, not a performance comparison.
+Whole resize maxima remain 15.919/12.530/13.508ms, with 11/10/14 of 18 calls
+over 8.333ms. Two of seven loaded timer chains miss that budget. The separate
+command-free interval retains five misses in eight timer chains, median
+10.740ms and maximum 15.422ms. Probe-excluded AppKit work, physical presentation,
+per-kind CPU cost and a 120Hz guarantee remain unmeasured.
+
+One build and one cell completed without retry; all owned processes retired.
+The 20 pure counter/oracle checks are retained separately from native evidence.
+Raw count identities and timer tails were independently reconstructed. Evidence:
+`target/native-630-prefit-text-mix-native-v1/`, manifest
+`fa7a794fcd4fbcf498751fd62e39e74585ececcd91a6981f964f8b6e506490d7`.
