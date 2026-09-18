@@ -91,6 +91,8 @@ pub enum Lifecycle {
     AudioInterrupted,
     /// The host audio session interruption ended.
     AudioResumed,
+    /// A frame was submitted to the presentation queue.
+    Presented,
 }
 
 /// What an app implements per canvas.
@@ -1007,6 +1009,7 @@ impl Module {
             return None;
         }
         gpu.queue.present(texture);
+        inst.surface.lifecycle(Lifecycle::Presented);
         inst.dirty = false;
         Some(wants)
     }

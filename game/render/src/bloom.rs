@@ -63,6 +63,7 @@ impl BloomTargets {
         let mut binds = Vec::with_capacity(6);
         let (mut width, mut height) = ((size.0 / 2).max(1), (size.1 / 2).max(1));
         loop {
+            crate::audit::record(crate::audit::TEXTURE, "bloom target", 1);
             let view = device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("game bloom octave"),

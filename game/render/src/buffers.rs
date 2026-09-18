@@ -41,6 +41,12 @@ impl Buffer {
         usage: wgpu::BufferUsages,
         label: &'static str,
     ) -> Self {
+        if usage.contains(wgpu::BufferUsages::VERTEX) {
+            crate::audit::record(crate::audit::VERTEX, label, 1);
+        }
+        if usage.contains(wgpu::BufferUsages::INDEX) {
+            crate::audit::record(crate::audit::INDEX, label, 1);
+        }
         let usage = usage | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
         Self {
             raw: device.create_buffer(&wgpu::BufferDescriptor {
@@ -70,6 +76,18 @@ impl Buffer {
         };
         assert!(needed <= limit, "buffer exceeds device limits");
         let capacity = needed.next_power_of_two().min(limit);
+        if self
+            .usage
+            .intersects(wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::UNIFORM)
+        {
+            crate::audit::record(crate::audit::GROW, self.label, 1);
+            if matches!(
+                self.label,
+                "game slots" | "game model instances" | "game transforms a"
+            ) {
+                crate::audit::record(crate::audit::SLOTS, self.label, 1);
+            }
+        }
         let mut next = Self::new(device, capacity, self.usage, self.label);
         if self.live != 0 {
             let mut encoder = device.create_command_encoder(&Default::default());
@@ -107,6 +125,7 @@ impl Targets {
         uniform: &wgpu::Buffer,
     ) -> Self {
         let texture = |format, sample_count, usage| {
+            crate::audit::record(crate::audit::TEXTURE, "game offscreen", 1);
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("game offscreen"),

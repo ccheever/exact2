@@ -1580,3 +1580,96 @@ unverified on this host; device-dependent Rust tests may return early.
 The initial game build refused a stale ignored asset-fixture `crate.model` without
 its generation manifest; it was preserved in task scratch and regenerated from
 tracked art. Logs and that preserved artifact are in `~/lanes/gamenext/scratch/T5b/`.
+
+
+## Ready, and nothing after it
+
+`state world` adds `ready`, `readyReasons`, and `gpu`. Ready means all declared
+assets (including their textures) are Loaded or Failed with a reason, a renderer
+exists for the current surface format, and its first frame has been presented.
+Headless uses the same Feed with recording Writes and its first completed feed;
+`device:false` means no shaders, pipelines or attachment textures were exercised.
+`Lifecycle::Presented` is sent after the host submits a frame for presentation;
+it is not a physical-display scanout measurement. Device loss makes ready false.
+
+The exact shape below shows a newly bound headless world with one cube (values
+vary with content). Both phases have the same eleven allocation/upload counters;
+`violations` counts after-ready work events, not bytes. Exceptions have bounded
+aggregate counters and only their last named event, never an unbounded log.
+
+```json
+{
+  "ready": true,
+  "readyReasons": [],
+  "gpu": {
+    "device": false,
+    "beforeReady": {
+      "shaderModules": 0, "renderPipelines": 0, "computePipelines": 0,
+      "bindGroupLayouts": 0, "textures": 0, "textureBytesUploaded": 0,
+      "vertexBuffers": 1, "indexBuffers": 1, "meshBytesUploaded": 1104,
+      "bufferReallocations": 3, "slotCapacityGrowth": 1,
+      "streamingVertexBytes": 0
+    },
+    "afterReady": {
+      "shaderModules": 0, "renderPipelines": 0, "computePipelines": 0,
+      "bindGroupLayouts": 0, "textures": 0, "textureBytesUploaded": 0,
+      "vertexBuffers": 0, "indexBuffers": 0, "meshBytesUploaded": 0,
+      "bufferReallocations": 0, "slotCapacityGrowth": 0,
+      "streamingVertexBytes": 0,
+      "violations": 0,
+      "declaredExceptions": {
+        "events": 0,
+        "counts": {
+          "shaderModules": 0, "renderPipelines": 0, "computePipelines": 0,
+          "bindGroupLayouts": 0, "textures": 0, "textureBytesUploaded": 0,
+          "vertexBuffers": 0, "indexBuffers": 0, "meshBytesUploaded": 0,
+          "bufferReallocations": 0, "slotCapacityGrowth": 0
+        },
+        "last": null
+      }
+    },
+    "lastAfterReady": null
+  }
+}
+```
+
+A violation replaces `lastAfterReady` with `{ "what": "meshBytesUploaded",
+"name": "Sphere", "tick": 1 }`. Undeclared `Mesh::asset` delivery is the existing
+pop-in exception: preparation/upload work goes to `declaredExceptions`, with the
+asset name in `last`. Growing world/instance buffers remains a violation.
+`vertexBuffers`/`indexBuffers` count actual shared arena creation, including growth;
+`meshBytesUploaded` counts initial geometry payloads. Existing animation writes
+into retained vertex ranges are `streamingVertexBytes`, separately visible like
+ordinary transform/material updates; they create no asset or capacity and are
+not violations. This distinction is necessary for the existing animated Fox.
+
+Accounting is always on, independent of perf sampling, and never reset by perf
+reset, restore, visibility, format change or device recovery. Work after the first
+ready stays after-ready even while readiness is temporarily false. It uses fixed
+counter storage and one last event per category, O(1) per allocation/upload.
+The headless feed records the same geometric payload lengths and power-of-two
+arena growth without retaining duplicate payloads; it refuses entity/draw slots
+past 200,000 explicitly. Feed work remains O(entity slots + changed geometry),
+asset validation retains its existing name/payload/texture limits, and device
+feeds retain their granted buffer limits. These are work bounds, not a promise
+that arbitrarily growing a world meets a frame deadline.
+
+Beacons, Greybox, Lanterns and the asset fixture assert ready and zero violations
+at session close in their standard proofs, printing counters and the last event.
+The negative control spawns a never-seen sphere after ready and must trip it.
+The unfavorable 256→2,560 entity test must report buffer and slot growth, and
+checks explicit refusal past the headless limit. No asset-loader or pipeline
+preparation policy is changed by the accounting.
+
+T6 measurement on Linux: Lanterns before ready creates four vertex and four index
+buffers, uploads 103,624 mesh bytes and one 4,194,304-byte texture, and records four
+buffer reallocations/two slot growth events. Off has **zero after-ready violations**.
+Its retained animation streams 69,120 bytes before and 138,240 after ready.
+Save and FreshGame each expose **eight violations**: two Fox uploads add 152,064
+mesh bytes, two textures/8,388,608 texture bytes and one new vertex/index buffer.
+`lastAfterReady` is `{"what":"meshBytesUploaded","name":"Fox.glb","tick":60}`.
+Paranoid restore invalidates the feed's embedded asset instances; this is a real
+reported upload, not an allowed undeclared-asset exception. The two proof runs
+remain red pending the behavioral fix recorded in `QUEUE.md`; Off and all three
+modes of the other games pass. All shader/pipeline/layout counters are zero in
+these headless measurements; they do not establish device behavior.
