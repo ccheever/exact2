@@ -70,3 +70,10 @@ VERDICT: MATERIAL FINDINGS
 **Disposition (Claude):**
 1. Confirmed, and **declared rather than fixed**. Lane S1 had used its three review-fix rounds (RULES: fix loops get three rounds). The oscillation needs a fully visible window of rows far below the 32 px estimate, and no current consumer comes near that. It is recorded in LLP 1027.004 D5 and `QUEUE.md` (e61369b) as a question for Charlie: authorize one more round or leave it queued.
 2. Confirmed. It went to lane S2 as its third and last fix round: a cursor resolves to the last surviving row at or before its position, which arrivals can never capture.
+
+Outcome of round final-3, finding 2: fixed in 574955e (cursor resolves to the predecessor; reproduced first: an arrival had changed the first row from `sent-711` to `sent-712`).
+
+## Round delta at 04a08d0 (verbatim; brief sha256 `fdbb2a529cccc41c895b93e418037f6cc53ab3b3789d1185fc6af0f5bfe7d45e`, diff e08e25a..04a08d0, code paths only)
+
+VERDICT: NO MATERIAL FINDING
+**Summary (Claude):** the last code review, of the delta at 04a08d0, found nothing material. The only open review finding is final-3 #1, declared in LLP 1027.004 D5 and `QUEUE.md`. Grok never completed a code review (see the grok file), so these slices have single-family (Astra) code review only.
