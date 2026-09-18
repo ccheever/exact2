@@ -8,6 +8,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::Cursor;
 
+/// Skinned position, normal and texture coordinates for one vertex.
+type SampledVertex = ([f32; 3], [f32; 3], [f32; 2]);
+
 #[derive(Clone)]
 pub(crate) struct Image {
     pub width: u32,
@@ -84,7 +87,11 @@ impl Model {
         let joints = read_u16(&doc, bin, index(attrs.get("JOINTS_0"), "JOINTS_0")?, 4)?;
         let weights = read_f32(&doc, bin, index(attrs.get("WEIGHTS_0"), "WEIGHTS_0")?, 4)?;
         let count = positions.len() / 3;
-        if count == 0 || uvs.len() != count * 2 || joints.len() != count * 4 || weights.len() != count * 4 {
+        if count == 0
+            || uvs.len() != count * 2
+            || joints.len() != count * 4
+            || weights.len() != count * 4
+        {
             return Err("glTF vertex attributes have different counts".into());
         }
         let indices = if let Some(i) = primitive.get("indices") {
@@ -131,7 +138,9 @@ impl Model {
             if let Some(children) = n.get("children").and_then(Value::as_array) {
                 for child in children {
                     let child = child.as_u64().ok_or("glTF node child is not an index")? as usize;
-                    let node = nodes.get_mut(child).ok_or("glTF node child is out of range")?;
+                    let node = nodes
+                        .get_mut(child)
+                        .ok_or("glTF node child is out of range")?;
                     if node.parent.replace(parent).is_some() {
                         return Err("glTF node has two parents".into());
                     }
@@ -145,7 +154,11 @@ impl Model {
             .as_array()
             .ok_or("glTF skin.joints is missing")?
             .iter()
-            .map(|v| v.as_u64().map(|v| v as usize).ok_or("glTF joint is not an index"))
+            .map(|v| {
+                v.as_u64()
+                    .map(|v| v as usize)
+                    .ok_or("glTF joint is not an index")
+            })
             .collect::<Result<_, _>>()?;
         if joints.iter().any(|&i| i >= nodes.len()) {
             return Err("glTF joint is out of range".into());
@@ -181,10 +194,20 @@ impl Model {
                 let sampler = samplers
                     .get(index(channel.get("sampler"), "animation sampler")?)
                     .ok_or("glTF animation sampler is out of range")?;
-                if sampler.get("interpolation").and_then(Value::as_str).unwrap_or("LINEAR") != "LINEAR" {
+                if sampler
+                    .get("interpolation")
+                    .and_then(Value::as_str)
+                    .unwrap_or("LINEAR")
+                    != "LINEAR"
+                {
                     return Err("glTF animation interpolation must be LINEAR".into());
                 }
-                let times = read_f32(&doc, bin, index(sampler.get("input"), "animation input")?, 1)?;
+                let times = read_f32(
+                    &doc,
+                    bin,
+                    index(sampler.get("input"), "animation input")?,
+                    1,
+                )?;
                 let path = match channel["target"]["path"].as_str() {
                     Some("translation") => Path::Translation,
                     Some("rotation") => Path::Rotation,
@@ -192,7 +215,12 @@ impl Model {
                     _ => return Err("glTF animation path is unsupported".into()),
                 };
                 let lanes = if matches!(path, Path::Rotation) { 4 } else { 3 };
-                let raw = read_f32(&doc, bin, index(sampler.get("output"), "animation output")?, lanes)?;
+                let raw = read_f32(
+                    &doc,
+                    bin,
+                    index(sampler.get("output"), "animation output")?,
+                    lanes,
+                )?;
                 if raw.len() != times.len() * lanes || times.windows(2).any(|p| p[0] > p[1]) {
                     return Err("glTF animation samples are malformed".into());
                 }
@@ -209,7 +237,9 @@ impl Model {
                 });
             }
             if duration <= 0.0 || channels.iter().any(|c| c.node >= nodes.len()) {
-                return Err(format!("glTF animation {name} has no duration or an invalid node"));
+                return Err(format!(
+                    "glTF animation {name} has no duration or an invalid node"
+                ));
             }
             clips.insert(name, Clip { duration, channels });
         }
@@ -236,7 +266,12 @@ impl Model {
     }
 
     /// Write skinned position, normal and UV triples at one deterministic cursor.
-    pub fn sample(&self, clip: &str, seconds: f32, looped: bool) -> Result<Vec<([f32; 3], [f32; 3], [f32; 2])>, String> {
+    pub fn sample(
+        &self,
+        clip: &str,
+        seconds: f32,
+        looped: bool,
+    ) -> Result<Vec<SampledVertex>, String> {
         let clip = self
             .clips
             .get(clip)
@@ -252,7 +287,9 @@ impl Model {
             let node = &mut nodes[channel.node];
             match channel.path {
                 Path::Translation => node.translation = value.xyz(),
-                Path::Rotation => node.rotation = Quat::from_xyzw(value.x, value.y, value.z, value.w).normalize(),
+                Path::Rotation => {
+                    node.rotation = Quat::from_xyzw(value.x, value.y, value.z, value.w).normalize()
+                }
                 Path::Scale => node.scale = value.xyz(),
             }
         }
@@ -301,10 +338,24 @@ impl Channel {
         }
         let lower = upper - 1;
         let span = self.times[upper] - self.times[lower];
-        let t = if span > 0.0 { (at - self.times[lower]) / span } else { 0.0 };
+        let t = if span > 0.0 {
+            (at - self.times[lower]) / span
+        } else {
+            0.0
+        };
         if matches!(self.path, Path::Rotation) {
-            let a = Quat::from_xyzw(self.values[lower].x, self.values[lower].y, self.values[lower].z, self.values[lower].w);
-            let b = Quat::from_xyzw(self.values[upper].x, self.values[upper].y, self.values[upper].z, self.values[upper].w);
+            let a = Quat::from_xyzw(
+                self.values[lower].x,
+                self.values[lower].y,
+                self.values[lower].z,
+                self.values[lower].w,
+            );
+            let b = Quat::from_xyzw(
+                self.values[upper].x,
+                self.values[upper].y,
+                self.values[upper].z,
+                self.values[upper].w,
+            );
             Vec4::from_array(a.slerp(b, t).to_array())
         } else {
             self.values[lower].lerp(self.values[upper], t)
@@ -331,7 +382,10 @@ fn global(index: usize, nodes: &[Node], cache: &mut [Option<Mat4>]) -> Result<Ma
 }
 
 fn glb(bytes: &[u8]) -> Result<(Value, &[u8]), String> {
-    if bytes.len() < 28 || &bytes[..4] != b"glTF" || u32::from_le_bytes(bytes[4..8].try_into().unwrap()) != 2 {
+    if bytes.len() < 28
+        || &bytes[..4] != b"glTF"
+        || u32::from_le_bytes(bytes[4..8].try_into().unwrap()) != 2
+    {
         return Err("asset is not binary glTF 2.0".into());
     }
     let declared = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
@@ -347,7 +401,8 @@ fn glb(bytes: &[u8]) -> Result<(Value, &[u8]), String> {
     if &bytes[bin_at + 4..bin_at + 8] != b"BIN\0" || bin_at + 8 + bin_len > bytes.len() {
         return Err("GLB BIN chunk is malformed".into());
     }
-    let doc = serde_json::from_slice(&bytes[20..20 + json_len]).map_err(|e| format!("GLB JSON: {e}"))?;
+    let doc =
+        serde_json::from_slice(&bytes[20..20 + json_len]).map_err(|e| format!("GLB JSON: {e}"))?;
     Ok((doc, &bytes[bin_at + 8..bin_at + 8 + bin_len]))
 }
 
@@ -372,25 +427,56 @@ fn view_bytes<'a>(doc: &Value, bin: &'a [u8], view_index: usize) -> Result<&'a [
         return Err("glTF external buffers are unsupported".into());
     }
     let start = view.get("byteOffset").and_then(Value::as_u64).unwrap_or(0) as usize;
-    let len = view["byteLength"].as_u64().ok_or("glTF bufferView.byteLength is missing")? as usize;
-    bin.get(start..start + len).ok_or_else(|| "glTF bufferView exceeds BIN chunk".into())
+    let len = view["byteLength"]
+        .as_u64()
+        .ok_or("glTF bufferView.byteLength is missing")? as usize;
+    bin.get(start..start + len)
+        .ok_or_else(|| "glTF bufferView exceeds BIN chunk".into())
 }
 
-fn accessor<'a>(doc: &Value, bin: &'a [u8], at: usize, lanes: usize) -> Result<(&'a [u8], usize, usize, u64), String> {
-    let access = array(doc, "accessors")?.get(at).ok_or("glTF accessor is out of range")?;
-    let count = access["count"].as_u64().ok_or("glTF accessor.count is missing")? as usize;
-    let component = access["componentType"].as_u64().ok_or("glTF accessor.componentType is missing")?;
-    let width = match component { 5123 => 2, 5125 | 5126 => 4, _ => return Err("glTF accessor component type is unsupported".into()) };
+fn accessor<'a>(
+    doc: &Value,
+    bin: &'a [u8],
+    at: usize,
+    lanes: usize,
+) -> Result<(&'a [u8], usize, usize, u64), String> {
+    let access = array(doc, "accessors")?
+        .get(at)
+        .ok_or("glTF accessor is out of range")?;
+    let count = access["count"]
+        .as_u64()
+        .ok_or("glTF accessor.count is missing")? as usize;
+    let component = access["componentType"]
+        .as_u64()
+        .ok_or("glTF accessor.componentType is missing")?;
+    let width = match component {
+        5123 => 2,
+        5125 | 5126 => 4,
+        _ => return Err("glTF accessor component type is unsupported".into()),
+    };
     let view_index = index(access.get("bufferView"), "accessor.bufferView")?;
     let view = array(doc, "bufferViews")?.get(view_index).unwrap();
-    let stride = view.get("byteStride").and_then(Value::as_u64).unwrap_or((width * lanes) as u64) as usize;
+    let stride = view
+        .get("byteStride")
+        .and_then(Value::as_u64)
+        .unwrap_or((width * lanes) as u64) as usize;
     if stride < width * lanes {
         return Err("glTF accessor stride is too short".into());
     }
-    let offset = access.get("byteOffset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let offset = access
+        .get("byteOffset")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
     let bytes = view_bytes(doc, bin, view_index)?;
     let needed = offset + count.saturating_sub(1) * stride + width * lanes;
-    Ok((bytes.get(offset..needed).ok_or("glTF accessor exceeds bufferView")?, count, stride, component))
+    Ok((
+        bytes
+            .get(offset..needed)
+            .ok_or("glTF accessor exceeds bufferView")?,
+        count,
+        stride,
+        component,
+    ))
 }
 
 fn read_f32(doc: &Value, bin: &[u8], at: usize, lanes: usize) -> Result<Vec<f32>, String> {
@@ -425,24 +511,51 @@ fn read_u16(doc: &Value, bin: &[u8], at: usize, lanes: usize) -> Result<Vec<u16>
 
 fn read_indices(doc: &Value, bin: &[u8], at: usize) -> Result<Vec<u32>, String> {
     let (bytes, count, stride, component) = accessor(doc, bin, at, 1)?;
-    let width = if component == 5123 { 2 } else if component == 5125 { 4 } else { return Err("glTF indices must be u16 or u32".into()) };
-    Ok((0..count).map(|row| {
-        let at = row * stride;
-        if width == 2 { u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap()) as u32 }
-        else { u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) }
-    }).collect())
+    let width = if component == 5123 {
+        2
+    } else if component == 5125 {
+        4
+    } else {
+        return Err("glTF indices must be u16 or u32".into());
+    };
+    Ok((0..count)
+        .map(|row| {
+            let at = row * stride;
+            if width == 2 {
+                u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap()) as u32
+            } else {
+                u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+            }
+        })
+        .collect())
 }
 
 fn vec3(value: Option<&Value>, default: Vec3) -> Vec3 {
-    value.and_then(Value::as_array).filter(|a| a.len() == 3).map_or(default, |a| {
-        Vec3::new(a[0].as_f64().unwrap_or_default() as f32, a[1].as_f64().unwrap_or_default() as f32, a[2].as_f64().unwrap_or_default() as f32)
-    })
+    value
+        .and_then(Value::as_array)
+        .filter(|a| a.len() == 3)
+        .map_or(default, |a| {
+            Vec3::new(
+                a[0].as_f64().unwrap_or_default() as f32,
+                a[1].as_f64().unwrap_or_default() as f32,
+                a[2].as_f64().unwrap_or_default() as f32,
+            )
+        })
 }
 
 fn quat(value: Option<&Value>, default: Quat) -> Quat {
-    value.and_then(Value::as_array).filter(|a| a.len() == 4).map_or(default, |a| {
-        Quat::from_xyzw(a[0].as_f64().unwrap_or_default() as f32, a[1].as_f64().unwrap_or_default() as f32, a[2].as_f64().unwrap_or_default() as f32, a[3].as_f64().unwrap_or(1.0) as f32).normalize()
-    })
+    value
+        .and_then(Value::as_array)
+        .filter(|a| a.len() == 4)
+        .map_or(default, |a| {
+            Quat::from_xyzw(
+                a[0].as_f64().unwrap_or_default() as f32,
+                a[1].as_f64().unwrap_or_default() as f32,
+                a[2].as_f64().unwrap_or_default() as f32,
+                a[3].as_f64().unwrap_or(1.0) as f32,
+            )
+            .normalize()
+        })
 }
 
 fn decode_png(bytes: &[u8]) -> Result<Image, String> {
@@ -450,17 +563,35 @@ fn decode_png(bytes: &[u8]) -> Result<Image, String> {
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(|e| format!("glTF PNG: {e}"))?;
     let mut raw = vec![0; reader.output_buffer_size().ok_or("glTF PNG is too large")?];
-    let info = reader.next_frame(&mut raw).map_err(|e| format!("glTF PNG: {e}"))?;
+    let info = reader
+        .next_frame(&mut raw)
+        .map_err(|e| format!("glTF PNG: {e}"))?;
     raw.truncate(info.buffer_size());
     let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
     match info.color_type {
         png::ColorType::Rgba => rgba = raw,
-        png::ColorType::Rgb => for p in raw.chunks_exact(3) { rgba.extend_from_slice(&[p[0], p[1], p[2], 255]); },
-        png::ColorType::Grayscale => for &v in &raw { rgba.extend_from_slice(&[v, v, v, 255]); },
-        png::ColorType::GrayscaleAlpha => for p in raw.chunks_exact(2) { rgba.extend_from_slice(&[p[0], p[0], p[0], p[1]]); },
+        png::ColorType::Rgb => {
+            for p in raw.chunks_exact(3) {
+                rgba.extend_from_slice(&[p[0], p[1], p[2], 255]);
+            }
+        }
+        png::ColorType::Grayscale => {
+            for &v in &raw {
+                rgba.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        png::ColorType::GrayscaleAlpha => {
+            for p in raw.chunks_exact(2) {
+                rgba.extend_from_slice(&[p[0], p[0], p[0], p[1]]);
+            }
+        }
         png::ColorType::Indexed => return Err("glTF PNG palette was not expanded".into()),
     }
-    Ok(Image { width: info.width, height: info.height, rgba })
+    Ok(Image {
+        width: info.width,
+        height: info.height,
+        rgba,
+    })
 }
 
 #[cfg(test)]
@@ -475,7 +606,10 @@ mod tests {
         assert_eq!(fox.source.len(), 1728);
         assert_eq!(fox.indices.len(), 1728);
         assert_eq!((fox.image.width, fox.image.height), (1024, 1024));
-        assert_eq!(fox.clip_names().collect::<Vec<_>>(), ["Run", "Survey", "Walk"]);
+        assert_eq!(
+            fox.clip_names().collect::<Vec<_>>(),
+            ["Run", "Survey", "Walk"]
+        );
         let survey = fox.sample("Survey", 0.0, true).unwrap();
         let run = fox.sample("Run", 0.5, true).unwrap();
         assert!(survey.iter().all(|v| v.0.iter().all(|n| n.is_finite())));
