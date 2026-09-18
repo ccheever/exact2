@@ -104,7 +104,10 @@ impl Saved {
     }
 }
 #[derive(Default)]
-pub(crate) struct Executor(pub RefCell<Saved>);
+pub(crate) struct Executor(
+    pub RefCell<Saved>,
+    pub RefCell<Option<crate::queries::Cached>>,
+);
 impl Executor {
     pub fn refresh(&self) -> usize {
         self.0.borrow_mut().refresh()
@@ -114,27 +117,30 @@ impl Clone for Executor {
     fn clone(&self) -> Self {
         let mut s = self.0.borrow_mut();
         s.refresh();
-        Self(RefCell::new(Saved {
-            bytes: s.bytes.clone(),
-            entries: s.entries.clone(),
-            live: s.live.as_ref().map(|live| Live {
-                rapier: PhysicsWorld {
-                    gravity: live.rapier.gravity,
-                    integration_parameters: live.rapier.integration_parameters,
-                    islands: live.rapier.islands.clone(),
-                    broad_phase: live.rapier.broad_phase.clone(),
-                    narrow_phase: live.rapier.narrow_phase.clone(),
-                    bodies: live.rapier.bodies.clone(),
-                    colliders: live.rapier.colliders.clone(),
-                    impulse_joints: live.rapier.impulse_joints.clone(),
-                    multibody_joints: live.rapier.multibody_joints.clone(),
-                    ..PhysicsWorld::default()
-                },
-                entries: live.entries.clone(),
-                reverse: live.reverse.clone(),
+        Self(
+            RefCell::new(Saved {
+                bytes: s.bytes.clone(),
+                entries: s.entries.clone(),
+                live: s.live.as_ref().map(|live| Live {
+                    rapier: PhysicsWorld {
+                        gravity: live.rapier.gravity,
+                        integration_parameters: live.rapier.integration_parameters,
+                        islands: live.rapier.islands.clone(),
+                        broad_phase: live.rapier.broad_phase.clone(),
+                        narrow_phase: live.rapier.narrow_phase.clone(),
+                        bodies: live.rapier.bodies.clone(),
+                        colliders: live.rapier.colliders.clone(),
+                        impulse_joints: live.rapier.impulse_joints.clone(),
+                        multibody_joints: live.rapier.multibody_joints.clone(),
+                        ..PhysicsWorld::default()
+                    },
+                    entries: live.entries.clone(),
+                    reverse: live.reverse.clone(),
+                }),
+                dirty: false,
             }),
-            dirty: false,
-        }))
+            RefCell::new(None),
+        )
     }
 }
 impl std::fmt::Debug for Executor {
@@ -155,6 +161,7 @@ impl Data for Executor {
         next.read(r)?;
         next.decode()?;
         *self.0.get_mut() = next;
+        *self.1.get_mut() = None;
         Ok(())
     }
 }

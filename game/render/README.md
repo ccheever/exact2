@@ -71,14 +71,15 @@ first render constructs Renderer. Feed setup and only the last two completed tic
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work.
 
-Feed fingerprints allocated Transform pages against each target history, patches
-parented global poses into retained scratch, coalesces dirty runs and writes them.
-After two still ticks, unchanged column revisions skip hashing. A changed column
-still requires a page scan, even when most pages are unchanged. Selected pages
-are copied into retained scratch; this is not zero-copy. At least 75% dirty pages
-selects full-run uploads; every 32nd feed probes three ticks to return to hashing.
-Scenes below 32 pages always hash. Materials use one history and repack 40-byte
-engine records into 48-byte GPU records.
+Feed checks storage write generations against each target history and reads only
+changed pages. It patches parented global poses into retained scratch, coalesces
+dirty runs and writes them. Same-value assignment filtering hashes changed pages
+only; `filter_same_values(false)` skips hashes for streams known to change every
+leased page. The default filters. There is no dense/probe/adaptive-skip policy.
+Metadata still scales with allocated pages; selected pages are copied into scratch,
+not uploaded zero-copy. Parented pages are checked when any ancestor might move.
+Materials use the same generation gate, one history, and repack engine records
+into GPU records; structural mesh/transform changes also refresh defaults/dimensions.
 
 Fresh/teleported entities and Parent edits patch both histories. World replacement
 generations force both histories to refresh even without a tick. Revisions and
@@ -108,21 +109,39 @@ input viewport, while a finite seekable clock can still advance.
 
 ## Latest recorded performance and remaining budgets
 
-Apple M5 Max / Metal, release, 2026-09-17; shared-machine observations, not vsync
-or a speedup claim. Feed diagnostic: 2560×1440, 4× MSAA, 60 warmup + 240 frames.
-These are the latest recorded feed measurements; D1 changes persistence/APIs.
+P1, 2026-09-17, release: before is a237949; after is this worktree. Each entry
+is the median of three run summaries (p50 / p95 milliseconds); load1 lists the
+three runs in order. Final benchmarks started after our builds completed. The Mac
+was shared and busy; Linux supplies the CPU-only comparison.
 
-| Cubes | Sim ms p50/p95 | Feed ms p50/p95 | Encode ms p50/p95 |
-|---:|---:|---:|---:|
-| 10,000 | 0.0418 / 0.0911 | 0.1724 / 0.4077 | 0.1671 / 0.5722 |
-| 100,000 | 0.4080 / 0.8699 | 0.9537 / 2.0966 | 0.1929 / 0.4053 |
-| 200,000 | 0.7976 / 1.1324 | 1.6949 / 2.2815 | 0.1960 / 0.3274 |
-| 500,000 | 2.3245 / 3.0835 | 4.5562 / 5.6280 | 0.2170 / 0.4038 |
+The cubes diagnostic uses 60 warmup + 240 frames, 2560×1440, 4× MSAA. The 1%
+case moves a contiguous prefix, plus the camera; scattered movers can touch every
+page. All-moving disables same-value filtering explicitly; the old adaptive policy
+also normally skipped hashing there. Sparse/still cases retain filtering.
 
-**Both feed targets remain unmet.** Turning 500k: 4.5562 ms p50 versus 3 ms.
-Still 500k with only a moving camera: **1.1262 / 1.4261 ms p50/p95 versus a
-0.3 ms target**. Unchanged pages still cost a scan when the column changes.
-The 28.72 GB/s page-hash microbenchmark does not establish whole-feed latency.
+| Mac GPU feed | Before ms | Before load1 | After ms | After load1 |
+|---|---:|---|---:|---|
+| 200,000, all moving | 1.0662 / 1.3807 | 19.63/19.63/19.63 | 0.9591 / 1.1879 | 18.10/18.10/18.10 |
+| 200,000, 1% moving | 0.2752 / 0.4076 | 18.62/18.62/18.62 | 0.1634 / 0.2915 | 17.29/17.29/17.29 |
+| 200,000, camera only | 0.2630 / 0.3597 | 18.62/18.62/18.62 | 0.0567 / 0.1143 | 17.29/17.29/17.19 |
+| 500,000, all moving | 2.9601 / 3.5473 | 18.62/17.61/17.40 | 3.9434 / 4.8623 | 17.19/17.19/16.69 |
+| 500,000, 1% moving | 0.6926 / 0.8115 | 17.40/17.40/16.49 | 0.1284 / 0.1638 | 16.69/16.16/16.16 |
+| 500,000, camera only | 0.7176 / 0.9204 | 16.49/16.49/16.49 | 0.0643 / 0.0988 | 16.16/15.74/15.74 |
+
+The still-camera target passes. The all-moving 500k GPU target remains unmet:
+the final measured median is slower than baseline on this shared Mac. The CPU
+recording backend below excludes wgpu, copies the same feed writes into retained
+arrays, and makes no claim about GPU submission latency. Its setup fresh list is
+cleared before timing; the initial diagnostic that failed to clear it was discarded.
+
+| Linux CPU feed | Before ms | Before load1 | After ms | After load1 |
+|---|---:|---|---:|---|
+| 200,000, all moving | 0.5006 / 0.9388 | 1.20/1.33/1.52 | 0.4371 / 0.4483 | 1.72/1.66/1.88 |
+| 200,000, 1% moving | 0.4431 / 0.4501 | 1.20/1.33/1.52 | 0.0136 / 0.0137 | 1.72/1.66/1.88 |
+| 200,000, camera only | 0.4395 / 0.4458 | 1.20/1.33/1.52 | 0.0063 / 0.0063 | 1.72/1.66/1.88 |
+| 500,000, all moving | 1.6043 / 2.7648 | 1.20/1.33/1.52 | 1.6659 / 1.7357 | 1.72/1.66/1.88 |
+| 500,000, 1% moving | 1.1081 / 1.1204 | 1.20/1.33/1.52 | 0.0287 / 0.0291 | 1.72/1.66/1.88 |
+| 500,000, camera only | 1.0985 / 1.1067 | 1.20/1.33/1.52 | 0.0091 / 0.0091 | 1.72/1.66/1.88 |
 
 Latest paired renderer diagnostics: 200k cubes, effects off, 1280×720, CPU encode
 0.2429 ms, tick upload 1.4430 ms, GPU-completed frame 2.8317 ms. Shadowed Beacons
@@ -143,7 +162,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo build -p greybox-gpu --profile web --target wasm32-unknown-unknown
 cargo run -p exact-game-render --release --example cubes -- 500000 240
+cargo run -p exact-game-render --release --example cubes -- 500000 240 one-percent
 cargo run -p exact-game-render --release --example cubes -- 500000 240 still
+cargo test -p exact-game-render --release --lib feed_cpu_cost -- --ignored --nocapture --test-threads=1
 cargo test -p exact-game-render --release -- --ignored --nocapture --test-threads=1
 bun games/greybox/proof.mjs web
 bun games/beacons/proof.mjs web

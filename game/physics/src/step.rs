@@ -5,7 +5,7 @@ use crate::{
 };
 use exact_game::{Parent, Transform, World};
 use rapier3d::prelude::*;
-use std::{collections::BTreeSet, sync::Mutex};
+use std::sync::Mutex;
 
 pub(crate) fn body_type(kind: BodyKind) -> RigidBodyType {
     match kind {
@@ -59,7 +59,6 @@ pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> Colli
 }
 pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
     let mut moved_kinematic = false;
-    let mut seen = BTreeSet::new();
     let mut wake = false;
     for (e, (b, c, t, parent)) in world
         .query::<(
@@ -68,11 +67,9 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
             Option<&Transform>,
             Option<&Parent>,
         )>()
+        .with_any::<Body, Collider>()
         .iter()
     {
-        if b.is_none() && c.is_none() {
-            continue;
-        }
         if b.is_some() {
             assert!(
                 parent.is_none(),
@@ -85,7 +82,6 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
         } else {
             t.copied().unwrap_or_default()
         };
-        seen.insert(e);
         let entry = live.entries.entry(e).or_insert_with(|| Entry {
             entity: e,
             ..Entry::default()
@@ -224,7 +220,7 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
         entry.pose = t;
     }
     live.entries.retain(|e, entry| {
-        if seen.contains(e) {
+        if world.has::<Body>(*e) || world.has::<Collider>(*e) {
             return true;
         }
         if let Some(h) = entry.bh() {
@@ -251,11 +247,9 @@ fn unchanged_asleep(world: &World, live: &Live) -> bool {
             Option<&Transform>,
             Option<&Parent>,
         )>()
+        .with_any::<Body, Collider>()
         .iter()
     {
-        if b.is_none() && c.is_none() {
-            continue;
-        }
         let Some(p) = previous.next() else {
             return false;
         };

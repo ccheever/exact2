@@ -7,6 +7,8 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
+mod cell;
+pub(crate) use cell::{make_cell, Singleton};
 mod pages;
 mod query;
 pub use pages::{Page, Pages, Plain};
@@ -22,6 +24,17 @@ struct Lease<'a> {
     mutable: bool,
 }
 impl<'a> Lease<'a> {
+    fn new(name: &str, count: &'a Cell<isize>, mutable: bool) -> Self {
+        let n = count.get();
+        assert!(n >= 0, "{} is already borrowed mutably", name);
+        assert!(!mutable || n == 0, "{} is already borrowed immutably", name);
+        count.set(if mutable {
+            -1
+        } else {
+            n.checked_add(1).expect("too many borrows")
+        });
+        Self { count, mutable }
+    }
     // Split only for disjoint slots yielded once by an owning query iterator.
     fn split(&self) -> Self {
         self.count.set(if self.mutable {
@@ -83,6 +96,7 @@ pub(crate) struct Storage<C> {
     name: &'static str,
     pages: Vec<Option<Box<Slots<C>>>>,
     counts: Vec<usize>,
+    generations: Vec<Cell<u64>>,
     mask: Vec<u64>,
     len: usize,
     borrowed: Cell<isize>,
@@ -96,6 +110,7 @@ impl<C> Default for Storage<C> {
             name: crate::data::type_name::<C>(),
             pages: vec![],
             counts: vec![],
+            generations: vec![],
             mask: vec![],
             len: 0,
             borrowed: Cell::new(0),
@@ -133,6 +148,11 @@ impl<C> Storage<C> {
     pub(crate) fn membership(&self) -> u64 {
         self.membership
     }
+    fn mark_page(&self, page: usize) {
+        if let Some(generation) = self.generations.get(page) {
+            generation.set(self.revision.get());
+        }
+    }
     fn edited(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
         self.revision.set(self.revision.get().wrapping_add(1));
@@ -140,29 +160,16 @@ impl<C> Storage<C> {
 }
 impl<C: Data> Storage<C> {
     fn lease(&self, mutable: bool) -> Lease<'_> {
-        let n = self.borrowed.get();
-        assert!(n >= 0, "{} is already borrowed mutably", self.name);
-        assert!(
-            !mutable || n == 0,
-            "{} is already borrowed immutably",
-            self.name
-        );
-        self.borrowed.set(if mutable {
-            -1
-        } else {
-            n.checked_add(1).expect("too many borrows")
-        });
+        let lease = Lease::new(self.name, &self.borrowed, mutable);
         if mutable {
             self.edited();
         }
-        Lease {
-            count: &self.borrowed,
-            mutable,
-        }
+        lease
     }
     pub(crate) fn insert(&mut self, index: usize, c: C) {
         self.edited();
         if self.has(index) {
+            self.mark_page(index / PAGE);
             // SAFETY: the bit proves initialization; &mut self excludes all leases.
             // Replace before dropping, so even a panicking destructor leaves a live slot.
             drop(unsafe { self.ptr(index).replace(c) });
@@ -173,8 +180,10 @@ impl<C: Data> Storage<C> {
         if page >= self.pages.len() {
             self.pages.resize_with(page + 1, || None);
             self.counts.resize(page + 1, 0);
+            self.generations.resize_with(page + 1, || Cell::new(0));
             self.mask.resize((page + 1) * WORDS, 0);
         }
+        self.mark_page(page);
         self.pages[page].get_or_insert_with(|| {
             // MaybeUninit accepts zero bits for every C, including zero-sized types.
             // Zero backing bytes also make absent Plain slots safe to upload.
@@ -193,6 +202,7 @@ impl<C: Data> Storage<C> {
         }
         self.edited();
         self.membership = self.membership.wrapping_add(1);
+        self.mark_page(index / PAGE);
         let ptr = self.ptr(index);
         self.mask[index / 64] &= !(1 << (index % 64));
         self.len -= 1;
@@ -223,9 +233,11 @@ impl<C: Data> Storage<C> {
         if !self.has(index) {
             return None;
         }
+        let lease = self.lease(true);
+        self.mark_page(index / PAGE);
         Some(RefMut {
             ptr: self.ptr(index),
-            _lease: self.lease(true),
+            _lease: lease,
             _life: PhantomData,
         })
     }
@@ -450,6 +462,7 @@ impl<C: Data> Erased for Storage<C> {
                 let words = (page + 1) * WORDS - self.mask.len();
                 crate::data::limits::reserve(r, &mut self.pages, pages)?;
                 crate::data::limits::reserve(r, &mut self.counts, counts)?;
+                crate::data::limits::reserve(r, &mut self.generations, pages)?;
                 crate::data::limits::reserve(r, &mut self.mask, words)?;
             }
             if self.pages.get(page).is_none_or(Option::is_none) {

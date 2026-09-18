@@ -1,4 +1,4 @@
-use crate::{math, queries::Scene, Body, BodyKind, Character, Collider, Shape};
+use crate::{math, queries::queries, Body, BodyKind, Character, Collider, Shape};
 use exact_game::{Entity, Transform, Vec3, World};
 use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::{
@@ -56,8 +56,12 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     collider.sensor = true;
     let shape = math::shape(&collider.shape, Vec3::ONE);
     let mask = collider.mask;
-    world.insert(e, collider);
-    let mut scene = Scene::new(world);
+    if world.get::<Collider>(e).as_deref() != Some(&collider) {
+        world.insert(e, collider);
+    }
+    let view = queries(world);
+    let mut scene_guard = view.scene();
+    let scene = &mut *scene_guard;
     let own = scene
         .entities
         .iter()
@@ -161,16 +165,21 @@ pub fn move_character(world: &mut World, e: Entity, desired_velocity: Vec3) {
     for (h, co) in r.colliders.iter() {
         if let Some(rb) = co.parent().map(|h| &r.bodies[h]).filter(|b| b.is_dynamic()) {
             let entity = scene.entities[&crate::state::raw(h)];
-            let mut b = world.get_mut::<Body>(entity).unwrap();
             let v = math::vec3(rb.linvel());
             let spin = math::vec3(rb.angvel());
-            if b.velocity != v || b.spin != spin {
+            let changed = world
+                .get::<Body>(entity)
+                .is_some_and(|b| b.velocity != v || b.spin != spin);
+            if changed {
+                let mut b = world.get_mut::<Body>(entity).unwrap();
                 b.velocity = v;
                 b.spin = spin;
                 b.asleep = false;
             }
         }
     }
+    drop(scene_guard);
+    drop(view);
     world.insert(e, pose);
     world.insert(e, c);
 }

@@ -120,6 +120,7 @@ struct State {
 struct Registration {
     id: TypeId,
     make: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
+    make_resource: fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>,
     ambient: bool,
 }
 
@@ -148,7 +149,7 @@ pub struct World {
     pub(crate) in_tick: bool,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
-    rng: Storage<Rng>,
+    rng: storage::Singleton<Rng>,
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
@@ -173,9 +174,9 @@ impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
-        let mut rng = Storage::default();
-        rng.insert(0, Rng::new(seed));
-        let epoch = rng.epoch.clone();
+        let epoch = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut rng = storage::Singleton::new("Rng", epoch.clone());
+        rng.insert(Rng::new(seed));
         Self {
             epoch,
             observed_epoch: 0,
@@ -228,6 +229,7 @@ impl World {
                 Registration {
                     id,
                     make: storage::make::<C>,
+                    make_resource: storage::make_cell::<C>,
                     ambient,
                 },
             );
@@ -478,13 +480,13 @@ impl World {
         self.register_resource::<R>();
         self.resources
             .entry(R::NAME)
-            .or_insert_with(|| storage::make::<R>(R::NAME, self.epoch.clone()))
+            .or_insert_with(|| storage::make_cell::<R>(R::NAME, self.epoch.clone()))
             .any_mut()
-            .downcast_mut::<Storage<R>>()
+            .downcast_mut::<storage::Singleton<R>>()
             .unwrap()
-            .insert(0, r);
+            .insert(r);
     }
-    fn resource_storage<R: Resource>(&self) -> &Storage<R> {
+    fn resource_storage<R: Resource>(&self) -> &storage::Singleton<R> {
         self.resources
             .get(R::NAME)
             .and_then(|s| s.any().downcast_ref())
@@ -495,16 +497,16 @@ impl World {
         self.resources
             .get(R::NAME)?
             .any()
-            .downcast_ref::<Storage<R>>()?
-            .get(0)
+            .downcast_ref::<storage::Singleton<R>>()?
+            .get()
     }
     /// Borrow a resource; absence panics with its name.
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
-        self.resource_storage::<R>().get(0).unwrap()
+        self.resource_storage::<R>().get().unwrap()
     }
     /// Borrow a resource exclusively; absence panics with its name.
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
-        self.resource_storage::<R>().get_mut(0).unwrap()
+        self.resource_storage::<R>().get_mut().unwrap()
     }
     /// Current fixed-step tick.
     pub fn tick(&self) -> u64 {
@@ -524,7 +526,7 @@ impl World {
     }
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
-        self.rng.get_mut(0).unwrap()
+        self.rng.get_mut().unwrap()
     }
     /// Draw one value and release the random column before returning.
     pub fn rand<T: crate::RangeValue>(&self, range: std::ops::Range<T>) -> T {
@@ -599,7 +601,7 @@ impl World {
         w.field("state");
         self.state.write(w);
         w.field("rng");
-        self.rng.get(0).unwrap().write(w);
+        self.rng.get().unwrap().write(w);
         for (kind, storages) in [
             ("components", &self.components),
             ("resources", &self.resources),
@@ -760,8 +762,13 @@ impl World {
                                     }
                                 ))
                             })?;
-                        let mut s = (reg.make)(key, self.epoch.clone());
                         let resource = field == "resources";
+                        let make = if resource {
+                            reg.make_resource
+                        } else {
+                            reg.make
+                        };
+                        let mut s = make(key, self.epoch.clone());
                         s.read(r, &|e| {
                             if resource {
                                 e == SINGLETON

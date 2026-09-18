@@ -822,3 +822,43 @@ fn revealing_a_hidden_primitive_keeps_its_dimensions() {
     assert_eq!(f.batches.len(), 1);
     assert_eq!(&r.materials[9..12], &[4.0; 3]);
 }
+
+#[test]
+#[ignore = "release CPU feed diagnostic; recording backend, no GPU"]
+fn feed_cpu_cost() {
+    use std::time::Instant;
+    for n in [200_000, 500_000] {
+        for moving in [n, n / 100, 0] {
+            let mut w = World::new(60, 0);
+            for _ in 0..n {
+                w.spawn((Transform::default(), Mesh::cube(1.0), Material::default()));
+            }
+            let camera = w.spawn((Transform::default(), Camera::default()));
+            w.load(&w.save()).unwrap(); // Clear setup-only fresh entities before steady measurements.
+            let mut f = Feed::default();
+            f.filter_same_values(moving != n);
+            let mut r = Recording {
+                record: false,
+                ..Recording::default()
+            };
+            f.feed_to(&w, &mut r).unwrap();
+            let mut samples = Vec::new();
+            for tick in 0..300 {
+                for (_, t) in w.query::<&mut Transform>().iter().take(moving) {
+                    t.position.x += 1.;
+                }
+                w.get_mut::<Transform>(camera).unwrap().position.x += 1.;
+                let start = Instant::now();
+                f.feed_to(&w, &mut r).unwrap();
+                if tick >= 60 {
+                    samples.push(start.elapsed().as_secs_f64() * 1000.);
+                }
+            }
+            samples.sort_by(f64::total_cmp);
+            eprintln!(
+                "CPU_FEED n={n} moving={moving} p50={:.4} p95={:.4}",
+                samples[119], samples[227]
+            );
+        }
+    }
+}

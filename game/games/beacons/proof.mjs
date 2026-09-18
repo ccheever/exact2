@@ -45,7 +45,7 @@ async function run(number) {
     const forward = await snapshot('W1500');
     check(`run ${number}: 90 fixed ticks`, forward.tick===90, forward.hash);
     check(`run ${number}: native/web simulation hash parity`, forward.hash==='0xd17e623e56fb8dc9', forward.hash);
-    check(`run ${number}: capsule dimensions`, equal(forward.entities.player.Mesh.Capsule,{radius:0.4,height:1.8}));
+    check(`run ${number}: capsule dimensions`, forward.entities.player.Mesh.Capsule.radius===0.4 && forward.entities.player.Mesh.Capsule.height===1.8);
     check(`run ${number}: 40 m ground`, equal(forward.entities.ground.Mesh.Plane,{width:40,depth:40}));
     for (const [i,expected] of [[1,[8,1,0]],[2,[-6,1,7]],[3,[3,1,-9]]]) {
       const beacon = forward.entities[`beacon-${i}`];

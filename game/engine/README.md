@@ -2,7 +2,9 @@
 
 - A tick calls ordinary functions; all saved state lives in components and resources.
 - `#[derive(Component)]` names per-entity data; `#[derive(Resource)]` names singleton
-  data. Register resource types for loading with `register_resource::<T>()`.
+  data. Resources and the RNG occupy singleton cells, not component pages; they
+  retain the same Data save/hash/JSON representation and resource ambient opt-out.
+  Register resource types for loading with `register_resource::<T>()`.
 - `despawn(e)` removes only `e`. Descendants leave at the end of the tick: after
   `Game::tick`, `Sim` reaps dead-parent children in entity order, repeating for
   orphaned chains, then propagates transforms.
@@ -38,7 +40,7 @@ portable exponential and snaps within 1e-4 so settling is finite.
 
 Mesh dimensions are authored once; see `Mesh` for conventions and constructors.
 The renderer shares unit geometry per primitive kind; dimensions are instance data.
-Unchanged transform pages avoid writes but changed column revisions still cause scans. `Collider::of(&mesh)` supplies matching primitive geometry.
+Page write generations let unchanged transform pages skip reading/hashing their bytes. `Collider::of(&mesh)` supplies matching primitive geometry.
 
 Opaque vectors (`Vec<u8>`, `Vec<u16>`, `Vec<u32>`, `Vec<f32>`) use length-prefixed
 bytes. Numeric bulk payloads are little-endian; f32 NaNs canonicalize, negative
@@ -52,8 +54,10 @@ Undelivered `emit` messages remain saved, in order, but are excluded from the
 simulation hash. Host draining never changes that hash. Restore retains Input's
 viewport for headless touch continuation; a later host resize replaces it.
 
-Storage revisions/membership serve rendering; the shared mutation epoch invalidates
-quiescence on every mutable lease. There is no last-changed-tick API. `Play` is a
+Storage revisions/membership serve derived caches. Every mutable row lease marks
+its page; query iteration marks once per visited page and caches its backing pointer,
+including filtered, optional and owning iteration. Insert/remove/load mark writes too.
+The shared mutation epoch still invalidates quiescence on every mutable lease. There is no last-changed-tick API. `Play` is a
 must-use builder: `.start()` creates a voice. PCM generation belongs to `game/audio`.
 
 D1 measurements (2026-09-17, arm64 M5 Max, release; five frozen-snapshot
@@ -76,3 +80,25 @@ Greybox's standalone GPU crate (`--profile web`, raw / gzip -9 bytes) is
 1,677,842 / 455,002 → **1,676,464 / 454,447**. This measures the simulation
 and renderer artifact before host bindgen/optimization, not an engine-only library; unused synthesis was already
 removed by linking, so moving its source is not claimed as a wasm saving.
+
+
+P1 measurements, 2026-09-17, release; median of three runs, with each run's load1.
+`examples/churn` retains its median-of-five rotation sampling within each run.
+The final iteration chunk caches its page pointer as well as marking its generation;
+there is no per-row generation store. CPU runs on Linux are the primary comparison.
+
+| Churn ns/entity/tick | Before | Before load1 | After | After load1 |
+|---|---:|---|---:|---|
+| Mac, 100k | 2.50 | 19.84/22.50/22.50 | 1.99 | 20.12/20.12/19.15 |
+| Mac, 500k | 2.44 | 19.84/22.50/22.50 | 1.97 | 20.12/20.12/19.15 |
+| Linux, 100k | 5.74 | 1.26/1.24/1.22 | 5.22 | 1.67/1.62/1.57 |
+| Linux, 500k | 5.79 | 1.26/1.24/1.22 | 5.27 | 1.67/1.62/1.57 |
+
+Greybox seed 7 setup retains **309,641 → 301,713 bytes** on both architectures.
+This is requested live heap allocation plus `size_of::<World>()`, not process RSS:
+heap **308,873 → 301,025**, inline **768 → 688**. It includes the new per-page
+metadata; component pages still dominate this eight-entity world. All three runs
+reported the same byte counts. Load1: Mac before 21.58/21.58/21.58, after 19.15/19.15/19.15;
+Linux before 3.32/3.32/3.32, after 1.85/1.85/1.85.
+The RNG is this fixture's singleton; ordinary Resource cells use the same storage.
+Run `cargo run --release -p exact-game --example memory` or `--example churn`.

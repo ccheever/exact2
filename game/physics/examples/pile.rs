@@ -142,6 +142,33 @@ fn main() {
                 break;
             }
         }
+        if args.iter().any(|a| a == "--queries") {
+            use std::hint::black_box;
+            let start = Instant::now();
+            let q = physics::queries(&w);
+            for i in 0..1000 {
+                black_box(q.raycast(
+                    Vec3::new((i % 10) as f32 - 4.5, 30., 0.),
+                    -Vec3::Y,
+                    60.,
+                    u32::MAX,
+                ));
+            }
+            drop(q);
+            println!(
+                "RAYCAST_1000 boxes={count} ms={:.3}",
+                start.elapsed().as_secs_f64() * 1000.
+            );
+            let character = w.spawn((Transform::at(-4., 1., -4.), physics::Character::default()));
+            let mut times = Vec::new();
+            for _ in 0..120 {
+                let start = Instant::now();
+                physics::move_character(&mut w, character, Vec3::X);
+                times.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+            let p = percentiles(times);
+            println!("CHARACTER boxes={count} ms={:.3}/{:.3}", p.0, p.1);
+        }
         if args.iter().any(|a| a == "--save") {
             let mut sim = Sim::<SaveFixture>::new(()).unwrap();
             *sim.world_mut() = w;

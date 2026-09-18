@@ -43,6 +43,7 @@ impl<'w, C: Component> Pages<'w, C> {
             s.pages.iter().enumerate().filter_map(|(i, slots)| {
                 slots.as_ref().map(|slots| Page {
                     first: (i * PAGE) as u32,
+                    generation: s.generations[i].get(),
                     mask: &s.mask[i * WORDS..(i + 1) * WORDS],
                     slots: slots.get().cast::<C>(),
                     _life: PhantomData,
@@ -56,6 +57,9 @@ impl<'w, C: Component> Pages<'w, C> {
 pub struct Page<'a, C> {
     /// Entity index of the first of PAGE slots.
     pub first: u32,
+    /// Conservative write generation; changes when a mutable row is handed out,
+    /// inserted or removed. Compare only within one world presentation generation.
+    pub generation: u64,
     /// Sixteen presence words; bit zero corresponds to `first`.
     pub mask: &'a [u64],
     slots: *const C,

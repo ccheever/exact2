@@ -15,7 +15,7 @@ mod types;
 
 pub use character::move_character;
 use exact_game::{Ref, World};
-pub use queries::{overlap, raycast, sweep};
+pub use queries::{overlap, queries, raycast, sweep, Queries};
 pub use step::step;
 pub use types::*;
 

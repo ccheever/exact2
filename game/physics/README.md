@@ -5,6 +5,7 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
+  Synchronization visits the union of Body/Collider membership, not every living entity.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
@@ -14,10 +15,40 @@ Call `register` during setup, `move_character` after controls, and `step` per ti
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
   (row-major, rows Z/columns X). Curved shapes need uniform positive scale.
   Bodies are roots; parented boxes must not acquire shear. Sweeps translate convex shapes.
-- Queries rebuild an O(n) component view, see same-tick edits and never mutate hashes.
-  Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
+- `let q = physics::queries(world); q.raycast(..); q.sweep(..);` shares a lazy
+  query scene retained in the world's physics executor, outside Data and hashes.
+  Drop the scope before structural edits or `step`; the next scope reuses it.
+  Body/Collider/Transform/Parent write revisions (including membership and load)
+  invalidate it, so same-tick edits are visible on the next operation. Unchanged
+  queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
+  The free query functions are thin one-shot calls through this same cache.
+  `move_character` uses the shared scene. Characters use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
   the character's rigid collider is a sensor.
+
+P1 query/sync measurements, 2026-09-17, release, 2,000-box pour: median of three
+run summaries. Entries with two numbers are p50 / p95 ms. Each row carries its
+three load1 readings. The ray batch includes the first lazy scene build; character
+timing is `move_character` per 60 Hz movement tick against the settled pile,
+without a solver step between movements. The pile timings separately include
+`physics::step` through active and sleeping ticks.
+
+| Host / work | Before ms | Before load1 | After ms | After load1 |
+|---|---:|---|---:|---|
+| Mac, 1,000 rays | 652.038 | 21.58/21.58/20.73 | 1.417 | 19.15/19.15/18.10 |
+| Mac, character | 1.108 / 1.330 | 21.58/21.58/20.73 | 0.971 / 1.164 | 19.15/19.15/18.10 |
+| Mac, pile active | 4.463 / 5.868 | 21.58/21.58/20.73 | 3.400 / 3.936 | 19.15/19.15/18.10 |
+| Mac, pile asleep | 0.023 / 0.048 | 21.58/21.58/20.73 | 0.020 / 0.029 | 19.15/19.15/18.10 |
+| Linux, 1,000 rays | 1914.686 | 3.32/3.37/3.18 | 3.991 | 1.85/1.78/1.78 |
+| Linux, character | 2.820 / 2.871 | 3.32/3.37/3.18 | 2.039 / 2.442 | 1.85/1.78/1.78 |
+| Linux, pile active | 7.978 / 8.367 | 3.32/3.37/3.18 | 7.830 / 8.166 | 1.85/1.78/1.78 |
+| Linux, pile asleep | 0.046 / 0.050 | 3.32/3.37/3.18 | 0.045 / 0.048 | 1.85/1.78/1.78 |
+
+Character movement still invalidates the query scene after relevant edits; the
+remaining O(n) rebuild is once per changed revision set, not once per ray/sweep.
+A view cannot ignore same-tick edits merely to enforce one rebuild per tick.
+Repeated unchanged scopes/ticks reuse the scene. These reads do not serialize
+or advance the saved solver. `pile -- 2000 --queries` reproduces the timings.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.

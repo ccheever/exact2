@@ -1,6 +1,7 @@
 use super::{Lease, Ref, RefMut, Storage};
 use crate::{Component, Entity, World};
 use std::any::TypeId;
+use std::cell::Cell;
 use std::marker::PhantomData;
 
 mod sealed {
@@ -21,7 +22,8 @@ pub trait Query: sealed::Sealed {
     /// Human-readable component names.
     fn names() -> String;
     /// # Safety
-    /// The index must match, and may be yielded only once while this state lives.
+    /// Mark its page first. The index must match, and may be yielded only once
+    /// while this state lives.
     #[doc(hidden)]
     unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w>;
     /// Storage leases acquired once at query construction.
@@ -37,10 +39,12 @@ pub trait Query: sealed::Sealed {
 pub trait Fetch {
     type Item<'a>;
     fn words(&self) -> usize;
+    fn mark_page(&self, page: usize);
     fn word(&self, word: usize) -> u64;
     /// # Safety
     /// The index must pass this fetch's mask. Call at most once per index within
-    /// an exclusive borrow of the state lasting at least 'a; keep its leases alive.
+    /// an exclusive borrow of the state lasting at least 'a; keep its leases alive
+    /// and call mark_page for this index's page before fetching.
     unsafe fn fetch<'a>(&self, index: usize) -> Self::Item<'a>;
 }
 
@@ -48,6 +52,7 @@ pub trait Fetch {
 pub struct ComponentBorrow<'w, C, const MUT: bool, const OPTIONAL: bool> {
     storage: Option<&'w Storage<C>>,
     _lease: Option<Lease<'w>>,
+    page: Cell<*mut C>,
 }
 impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O> {
     fn new(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self {
@@ -66,6 +71,7 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         Self {
             storage,
             _lease: storage.map(|s| s.lease(M)),
+            page: Cell::new(std::ptr::null_mut()),
         }
     }
     fn required_words(&self) -> usize {
@@ -86,7 +92,9 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         }
     }
     fn ptr(&self, index: usize) -> *mut C {
-        self.storage.unwrap().ptr(index)
+        // next_index selects the page once per iteration chunk. The lease keeps
+        // its backing alive; optional fetches test presence before dereferencing.
+        self.page.get().wrapping_add(index % super::PAGE)
     }
     fn has(&self, index: usize) -> bool {
         self.storage.is_some_and(|s| s.has(index))
@@ -127,6 +135,19 @@ macro_rules! reference {
         }
         impl<C: Component> Fetch for ComponentBorrow<'_, C, $m, $o> {
             type Item<'a> = $item;
+            fn mark_page(&self, page: usize) {
+                if let Some(s) = self.storage {
+                    if $m {
+                        s.mark_page(page);
+                    }
+                    self.page.set(
+                        s.pages
+                            .get(page)
+                            .and_then(Option::as_ref)
+                            .map_or(std::ptr::null_mut(), |slots| slots.get().cast::<C>()),
+                    );
+                }
+            }
             fn words(&self) -> usize {
                 self.required_words()
             }
@@ -205,6 +226,7 @@ macro_rules! tuples {
         }
         impl<$($T: Fetch),+> Fetch for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
+            fn mark_page(&self, page: usize) { $(self.$i.mark_page(page);)+ }
             fn words(&self) -> usize { usize::MAX $(.min(self.$i.words()))+ }
             fn word(&self, word: usize) -> u64 { u64::MAX $(& self.$i.word(word))+ }
             unsafe fn fetch<'a>(&self, index: usize) -> Self::Item<'a> {
@@ -249,7 +271,7 @@ tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
 pub struct QueryBorrow<'w, Q: Query> {
     world: &'w World,
     state: Q::State<'w>,
-    filters: [(&'w [u64], bool); 4],
+    filters: [(&'w [u64], &'w [u64], bool); 4],
     filter_count: usize,
     words: usize,
 }
@@ -260,7 +282,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         Self {
             world,
             state,
-            filters: [(&[], false); 4],
+            filters: [(&[], &[], false); 4],
             filter_count: 0,
             words,
         }
@@ -270,6 +292,15 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);
         self.words = self.words.min(mask.len());
         self.filter::<C>(mask, true);
+        self
+    }
+    /// Keep the union of A/B membership, without borrowing their values.
+    pub fn with_any<A: Component, B: Component>(mut self) -> Self {
+        let a = self.world.storage::<A>().map_or(&[][..], |s| &s.mask);
+        let b = self.world.storage::<B>().map_or(&[][..], |s| &s.mask);
+        self.words = self.words.min(a.len().max(b.len()));
+        self.filter::<A>(a, true);
+        self.filters[self.filter_count - 1].1 = b;
         self
     }
     /// Keep entities without C, without borrowing its values.
@@ -284,7 +315,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             "query exceeds 4 filters at {}",
             C::NAME
         );
-        self.filters[self.filter_count] = (mask, with);
+        self.filters[self.filter_count] = (mask, &[], with);
         self.filter_count += 1;
     }
     /// The sole item, or None. Multiple matches are refused in every build.
@@ -299,6 +330,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             query: self,
             word: 0,
             bits: 0,
+            page: usize::MAX,
         }
     }
 }
@@ -315,6 +347,7 @@ pub struct QueryRows<'w, Q: Query> {
     query: QueryBorrow<'w, Q>,
     word: usize,
     bits: u64,
+    page: usize,
 }
 impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
     type Item = Q::Owned<'w>;
@@ -324,13 +357,14 @@ impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
             query: self,
             word: 0,
             bits: 0,
+            page: usize::MAX,
         }
     }
 }
 impl<'w, Q: Query> Iterator for QueryRows<'w, Q> {
     type Item = Q::Owned<'w>;
     fn next(&mut self) -> Option<Self::Item> {
-        let index = next_index(&self.query, &mut self.word, &mut self.bits)?;
+        let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
         // Each returned guard splits the lease, so dropping this iterator is safe.
         Some(unsafe { Q::owned(&self.query.state, index) })
@@ -341,6 +375,7 @@ fn next_index<Q: Query>(
     query: &QueryBorrow<'_, Q>,
     word: &mut usize,
     bits: &mut u64,
+    page: &mut usize,
 ) -> Option<usize> {
     while *bits == 0 {
         if *word == query.words {
@@ -349,9 +384,16 @@ fn next_index<Q: Query>(
         let i = *word;
         *word += 1;
         *bits = query.world.alive_mask[i] & query.state.word(i);
-        for &(mask, with) in &query.filters[..query.filter_count] {
-            let filter = mask.get(i).copied().unwrap_or(0);
+        for &(mask, other, with) in &query.filters[..query.filter_count] {
+            let filter = mask.get(i).copied().unwrap_or(0) | other.get(i).copied().unwrap_or(0);
             *bits &= if with { filter } else { !filter };
+        }
+        // Once per visited page, outside the row loop. Optional columns may mark
+        // conservatively; acquiring the query still bumps the world lease epoch.
+        let next_page = i / super::WORDS;
+        if *bits != 0 && *page != next_page {
+            query.state.mark_page(next_page);
+            *page = next_page;
         }
     }
     let index = (*word - 1) * 64 + bits.trailing_zeros() as usize;
@@ -364,12 +406,13 @@ pub struct QueryIter<'a, 'w, Q: Query> {
     query: &'a mut QueryBorrow<'w, Q>,
     word: usize,
     bits: u64,
+    page: usize,
 }
 impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
     type Item = (Entity, Q::Item<'a>);
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let index = next_index(self.query, &mut self.word, &mut self.bits)?;
+        let index = next_index(self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: mask intersection proves presence, each index is yielded only once,
         // and the exclusive borrow of QueryBorrow keeps leases alive for every row.
         let item = unsafe { self.query.state.fetch(index) };

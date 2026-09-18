@@ -136,6 +136,7 @@ impl Versions {
 /// Storage, batches and meshes grow only when scene structure changes.
 pub struct Feed {
     versions: Option<Versions>,
+    filter_same_values: bool,
     tick: u64,
     history_pending: bool,
     groups: Vec<Group>,
@@ -158,6 +159,7 @@ impl Default for Feed {
     fn default() -> Self {
         Self {
             versions: None,
+            filter_same_values: true,
             tick: 0,
             history_pending: false,
             groups: Vec::new(),
@@ -179,6 +181,11 @@ impl Default for Feed {
     }
 }
 impl Feed {
+    /// Filter same-value assignments by hashing only pages with new write generations.
+    /// Enabled by default. Disable for streams known to change every leased page.
+    pub fn filter_same_values(&mut self, enabled: bool) {
+        self.filter_same_values = enabled;
+    }
     /// Forget world history after replacement, retaining registered geometry and scratch.
     pub fn reset(&mut self) {
         self.versions = None;
@@ -243,25 +250,26 @@ impl Feed {
                     self.overrides.push((e, floats(t)));
                 }
             }
-            let (a, b) = self.transforms.split_at_mut(1);
-            if self.current == 0 {
-                a[0].inherit_policy(&b[0]);
-            } else {
-                b[0].inherit_policy(&a[0]);
+            if parent_changed {
+                for e in &self.parents {
+                    self.transforms[self.current].invalidate(e.index() as usize / PAGE);
+                }
             }
             let pages = w.pages::<Transform>();
-            let hashing = self.transforms[self.current].start(pages.iter().count(), initial);
             let mut overrides = self.overrides.iter().peekable();
             let mut run = 0;
             self.scratch.clear();
             for page in pages.iter() {
                 let len = page_len(page.first, r.max_slots()) * 10;
                 let index = page.first as usize / PAGE;
-                let mut values = &page.floats()[..len];
-                if overrides
+                let parented = overrides
                     .peek()
-                    .is_some_and(|(e, _)| e.index() < page.first + PAGE as u32)
-                {
+                    .is_some_and(|(e, _)| e.index() < page.first + PAGE as u32);
+                if !parented && !self.transforms[self.current].needs_check(index, page.generation) {
+                    continue;
+                }
+                let mut values = &page.floats()[..len];
+                if parented {
                     self.transform_page[..len].copy_from_slice(values);
                     while let Some((e, pose)) =
                         overrides.next_if(|(e, _)| e.index() < page.first + PAGE as u32)
@@ -271,8 +279,12 @@ impl Feed {
                     }
                     values = &self.transform_page[..len];
                 }
-                let hash = if hashing { upload::hash(values) } else { 0 };
-                if self.transforms[self.current].dirty(index, hash, initial) {
+                if self.transforms[self.current].dirty(
+                    index,
+                    page.generation,
+                    values,
+                    self.filter_same_values,
+                ) {
                     if !self.scratch.is_empty()
                         && run + (self.scratch.len() / 10) as u32 != page.first
                     {
@@ -284,18 +296,18 @@ impl Feed {
                     }
                     self.scratch.extend_from_slice(values);
                 }
-                if initial {
-                    let other = &mut self.transforms[1 - self.current].hashes;
-                    if other.len() <= index {
-                        other.resize(index + 1, 0);
-                    }
-                    other[index] = hash;
+            }
+            if initial {
+                let (a, b) = self.transforms.split_at_mut(1);
+                if self.current == 0 {
+                    b[0].clone_from(&a[0]);
+                } else {
+                    a[0].clone_from(&b[0]);
                 }
             }
             if !self.scratch.is_empty() {
                 r.transforms(run, &self.scratch, initial)?;
             }
-            self.transforms[self.current].finish();
             if !initial {
                 for &e in w.fresh() {
                     if let Some(t) = scene::pose(w, e) {
@@ -367,10 +379,6 @@ impl Feed {
         if material {
             let transforms = w.pages::<Transform>();
             let materials = w.pages::<Material>();
-            let hashing = self.materials.start(
-                transforms.iter().count().max(materials.iter().count()),
-                initial,
-            );
             let mut tp = transforms.iter().peekable();
             let mut mp = materials.iter().peekable();
             let mut run = 0;
@@ -388,6 +396,15 @@ impl Feed {
                 } else {
                     None
                 };
+                let index = first as usize / PAGE;
+                let generation = page.as_ref().map_or(0, |p| p.generation);
+                if !initial
+                    && next.mesh == old.mesh
+                    && next.membership == old.membership
+                    && !self.materials.needs_check(index, generation)
+                {
+                    continue;
+                }
                 let len = page_len(first, r.max_slots());
                 let default = material_floats(Material::default());
                 for (i, out) in self.material_page[..len * 12]
@@ -407,8 +424,10 @@ impl Feed {
                     );
                 }
                 let values = &self.material_page[..len * 12];
-                let hash = if hashing { upload::hash(values) } else { 0 };
-                if self.materials.dirty(first as usize / PAGE, hash, initial) {
+                if self
+                    .materials
+                    .dirty(index, generation, values, self.filter_same_values)
+                {
                     if !self.scratch.is_empty() && run + (self.scratch.len() / 12) as u32 != first {
                         r.materials(run, &self.scratch)?;
                         self.scratch.clear();
@@ -422,7 +441,6 @@ impl Feed {
             if !self.scratch.is_empty() {
                 r.materials(run, &self.scratch)?;
             }
-            self.materials.finish();
         }
         if batches {
             r.batches(&self.batches, &self.slots)?;

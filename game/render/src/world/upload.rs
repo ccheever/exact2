@@ -39,59 +39,39 @@ pub(super) fn hash(floats: &[f32]) -> u64 {
     (h ^ (h >> 29)).max(1)
 }
 
-#[derive(Default)]
-pub(super) struct Pages {
-    pub hashes: Vec<u64>,
-    dense: bool,
-    round: u64,
-    probe: u8,
-    dirty: usize,
-    total: usize,
+#[derive(Default, Clone, Copy)]
+struct Stamp {
+    generation: Option<u64>,
+    hash: u64,
 }
+#[derive(Default, Clone)]
+pub(super) struct Pages(Vec<Stamp>);
 impl Pages {
     pub fn invalidate(&mut self, page: usize) {
-        if self.hashes.len() <= page {
-            self.hashes.resize(page + 1, 0);
+        if let Some(stamp) = self.0.get_mut(page) {
+            *stamp = Stamp::default();
         }
-        self.hashes[page] = 0;
     }
     pub fn reset(&mut self) {
-        self.hashes.fill(0);
-        self.dense = false;
-        self.round = 0;
-        self.probe = 0;
+        self.0.fill(Stamp::default());
     }
-    pub fn inherit_policy(&mut self, other: &Self) {
-        self.dense = other.dense;
-        self.round = other.round;
-        self.probe = other.probe;
+    pub fn needs_check(&self, page: usize, generation: u64) -> bool {
+        self.0
+            .get(page)
+            .is_none_or(|s| s.generation != Some(generation))
     }
-    pub fn start(&mut self, count: usize, initial: bool) -> bool {
-        self.round += 1;
-        self.dirty = 0;
-        self.total = 0;
-        // Tiny scenes never amortize adaptive probing, and must notice same-value
-        // assignments immediately. Probe three feeds to populate both tick roles
-        // before deciding whether the target contents actually changed.
-        if self.round.is_multiple_of(32) {
-            self.probe = 3;
+    pub fn dirty(&mut self, page: usize, generation: u64, values: &[f32], filter: bool) -> bool {
+        if self.0.len() <= page {
+            self.0.resize(page + 1, Stamp::default());
         }
-        let hashing = initial || count < 32 || !self.dense || self.probe > 0;
-        self.probe = self.probe.saturating_sub(1);
-        hashing
-    }
-    pub fn dirty(&mut self, page: usize, hash: u64, initial: bool) -> bool {
-        if self.hashes.len() <= page {
-            self.hashes.resize(page + 1, 0);
-        }
-        self.total += 1;
-        let dirty = initial || hash == 0 || self.hashes[page] != hash;
-        self.hashes[page] = hash;
-        self.dirty += usize::from(dirty);
+        let stamp = &mut self.0[page];
+        let hash = if filter { hash(values) } else { 0 };
+        let dirty = hash == 0 || stamp.hash != hash;
+        *stamp = Stamp {
+            generation: Some(generation),
+            hash,
+        };
         dirty
-    }
-    pub fn finish(&mut self) {
-        self.dense = self.total > 0 && self.dirty * 4 >= self.total * 3;
     }
 }
 

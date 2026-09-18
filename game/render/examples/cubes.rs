@@ -20,7 +20,7 @@ struct Orbit {
 struct Cubes;
 #[derive(Default, Resource)]
 struct Still {
-    enabled: bool,
+    moving: u64,
 }
 #[derive(Default, exact_game::Args)]
 struct CubesArgs {
@@ -85,8 +85,11 @@ impl Game for Cubes {
         });
     }
     fn tick(w: &mut World, _: &Input, _: &Self::Args) {
-        if !w.try_resource::<Still>().is_some_and(|s| s.enabled) {
-            for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter() {
+        let moving = w
+            .try_resource::<Still>()
+            .map_or(usize::MAX, |s| s.moving as usize);
+        {
+            for (_, (spin, t)) in w.query::<(&Spin, &mut Transform)>().iter().take(moving) {
                 t.rotation = (spin.step * t.rotation).normalize();
             }
         }
@@ -153,11 +156,18 @@ fn main() {
     for n in counts {
         assert!(n > 0);
         let mut sim = Sim::<Cubes>::new(CubesArgs { n: n as u64 }).unwrap();
-        let still = args.get(2).is_some_and(|s| s == "still");
-        if still {
-            sim.world_mut().insert_resource(Still { enabled: true });
+        let mode = args.get(2).map_or("all", String::as_str);
+        if mode != "all" {
+            sim.world_mut().insert_resource(Still {
+                moving: if mode == "one-percent" {
+                    (n / 100) as u64
+                } else {
+                    0
+                },
+            });
         }
         let mut feed = Feed::default();
+        feed.filter_same_values(mode != "all");
         let mut renderer = gpu
             .as_ref()
             .map(|g| Renderer::new(&g.device, &g.queue, wgpu::TextureFormat::Rgba8Unorm));
@@ -218,6 +228,6 @@ fn main() {
                 g.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
             }
         }
-        println!("still={still} N={n} 2560x1440 4xMSAA frames={frames} | sim/tick ms {} | feed/tick ms {} | encode/frame ms {}",summary(&mut ticks),summary(&mut feeds),summary(&mut encodes));
+        println!("mode={mode} N={n} 2560x1440 4xMSAA frames={frames} | sim/tick ms {} | feed/tick ms {} | encode/frame ms {}",summary(&mut ticks),summary(&mut feeds),summary(&mut encodes));
     }
 }
