@@ -4,15 +4,17 @@ import Foundation
 extension NodeView {
     /// Resolve the computed tagged row after inheritance, using this node's font.
     var usedLineHeight: CGFloat? {
-        if let ratio = style["line_height"] as? Double { return CGFloat(ratio) * number("font_size", 16) }
-        if let length = style["line_height"] as? String, length.hasSuffix("px"), let n = Double(length.dropLast(2)) { return CGFloat(n) }
+        // JSON carries shortest f32 decimals; the measurement ABI carries f32
+        // values. Resolve in the kernel's precision before widening for CoreText.
+        if let ratio = style["line_height"] as? Double { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
+        if let length = style["line_height"] as? String, length.hasSuffix("px"), let n = Float(length.dropLast(2)) { return CGFloat(n) }
         return nil
     }
 
     func textRun(_ value: String) -> Run {
-        Run(text: value, size: number("font_size", 16), weight: Int(number("font_weight", 400)),
+        Run(text: value, size: CGFloat(Float(number("font_size", 16))), weight: Int(number("font_weight", 400)),
             family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic",
-            lineHeight: usedLineHeight, letterSpacing: number("letter_spacing"))
+            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))))
     }
 
     var isParagraph: Bool { kind == "text" && textParent == nil && (superview as? NodeView)?.kind != "text" }
@@ -74,13 +76,11 @@ extension NodeView {
         let night = drawsDark
         func collect(_ node: NodeView) {
             if let value = node.props["text"] {
-                runs.append(Run(text: value, size: node.number("font_size", 16),
-                    weight: Int(node.number("font_weight", 400)), family: Int(node.number("font_family")),
-                    italic: (node.style["font_style"] as? String) == "italic",
-                    lineHeight: node.usedLineHeight, letterSpacing: node.number("letter_spacing"),
-                    color: node.channels("text_color", dark: night),
-                    decoration: node.style["text_decoration_line"] as? String ?? "",
-                    href: node.props["href"] ?? ""))
+                var run = node.textRun(value)
+                run.color = node.channels("text_color", dark: night)
+                run.decoration = node.style["text_decoration_line"] as? String ?? ""
+                run.href = node.props["href"] ?? ""
+                runs.append(run)
             } else {
                 for child in node.textChildren where child.kind == "text" { collect(child) }
             }
