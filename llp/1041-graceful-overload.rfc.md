@@ -5910,6 +5910,12 @@ The first two windows have no trace attribution. Frame-callback gaps still
 reach335ms, and tracing overhead is uncalibrated; no matched gain, physical
 presentation or120Hz claim follows. All recorded processes and the private
 listener retire. The20-file frozen archive is under
-`target/web-giant-markdown-8d9858c/cell-trace-v1/`. Next work is a bounded source
-check for avoidable width invalidations or forced reads, preserving full content
-and actual wrapping rather than changing the workload.
+`target/web-giant-markdown-8d9858c/cell-trace-v1/`. A bounded source check finds
+no supported duplicate-layout patch: all six long Layout intervals across the
+whole trace correspond in order to actual width changes, while a repeated1200px
+offer adds no giant layout. The four contained long tasks have no recognized
+script interval. Inactive context, collection and gesture paths do not supply a
+demonstrated cause. Observer reads remain a possible perturbation, not the
+identified trigger of these four FrameWidget IPC tasks. No further browser run
+or production change is selected from this evidence; full content and actual
+wrapping remain required.
