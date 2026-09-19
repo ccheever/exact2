@@ -7,8 +7,16 @@ use crate::{
 };
 use std::collections::HashSet;
 
+struct Provisional {
+    geometry: Rc<RegionGeometry>,
+    // Default: ready artifact index. Split: scalar fact index until final adoption.
+    paints: Vec<(NodeKey, usize)>,
+}
 pub(crate) struct RegionState {
     pub binding: ContentRegion,
+    pub profile: RegionProfile,
+    leases: RegionLeases,
+    lease: Option<Arc<()>>,
     members: HashSet<NodeKey>,
     inherited: StyleProps,
     ticket: Option<RegionTicket>,
@@ -17,14 +25,23 @@ pub(crate) struct RegionState {
     offer: Option<Offer>,
     pub pending: Option<RegionTextRequest>,
     ready: Vec<RegionArtifact>,
-    sources: Vec<Arc<RegionTextSource>>,
+    facts: Arc<FactSet>,
+    provisional: Option<Provisional>,
     accepted: Option<Rc<RegionPublication>>,
 }
 impl RegionState {
-    pub fn new(arena: &NodeArena, binding: ContentRegion) -> Result<Self, LayoutError> {
+    pub fn new(
+        arena: &NodeArena,
+        binding: ContentRegion,
+        profile: RegionProfile,
+        leases: RegionLeases,
+    ) -> Result<Self, LayoutError> {
         validate(arena, binding)?;
         Ok(Self {
             binding,
+            profile,
+            leases,
+            lease: None,
             members: members(arena, binding.content)?,
             inherited: arena.computed_style(binding.content.index, StyleMask::INHERITED),
             ticket: None,
@@ -33,43 +50,72 @@ impl RegionState {
             offer: None,
             pending: None,
             ready: Vec::new(),
-            sources: Vec::new(),
+            facts: Arc::new(FactSet::default()),
+            provisional: None,
             accepted: None,
         })
     }
     pub fn retention(&self) -> RegionRetention {
         let mut accepted = HashSet::new();
         let accepted_source_bytes = self.accepted.as_ref().map_or(0, |p| {
-            p.artifacts
+            p.facts
+                .sources
                 .iter()
-                .filter_map(|a| {
-                    let source = a.request.source();
-                    accepted.insert(Arc::as_ptr(source)).then_some(source.bytes)
-                })
+                .filter_map(|s| accepted.insert(Arc::as_ptr(s)).then_some(s.bytes))
                 .sum()
         });
-        let candidate_source_bytes = self.sources.iter().map(|s| s.bytes).sum();
+        let candidate_source_bytes = self.facts.sources.iter().map(|s| s.bytes).sum();
         let shared_source_bytes = self
+            .facts
             .sources
             .iter()
             .filter(|s| accepted.contains(&Arc::as_ptr(s)))
             .map(|s| s.bytes)
             .sum();
+        let candidate_offers = self.ready.len()
+            + usize::from(
+                self.pending
+                    .as_ref()
+                    .is_some_and(|p| p.purpose() != RegionRequestPurpose::Measurement),
+            );
+        let accepted_offers = self.accepted.as_ref().map_or(0, |p| p.artifacts.len());
         RegionRetention {
             accepted_source_bytes,
             candidate_source_bytes,
             shared_source_bytes,
             total_source_bytes: accepted_source_bytes + candidate_source_bytes
                 - shared_source_bytes,
-            accepted_offers: self.accepted.as_ref().map_or(0, |p| p.artifacts.len()),
-            candidate_offers: self.ready.len() + usize::from(self.pending.is_some()),
+            accepted_offers,
+            candidate_offers,
+            accepted_facts: self.accepted.as_ref().map_or(0, |p| {
+                if self.profile == RegionProfile::SplitFacts {
+                    p.facts.entries.len()
+                } else {
+                    p.artifacts.len()
+                }
+            }),
+            candidate_facts: if self.profile == RegionProfile::SplitFacts {
+                self.facts.entries.len()
+                    + usize::from(
+                        self.pending
+                            .as_ref()
+                            .is_some_and(|p| p.purpose() == RegionRequestPurpose::Measurement),
+                    )
+            } else {
+                candidate_offers
+            },
         }
     }
     pub fn invalidate(&mut self) {
         self.ticket = None;
+        self.clear_candidate();
+    }
+    fn clear_candidate(&mut self) {
         self.pending = None;
         self.ready.clear();
-        self.sources.clear();
+        self.facts = Arc::new(FactSet::default());
+        self.provisional = None;
+        self.lease = None;
     }
     pub fn observe(&mut self, arena: &NodeArena, r: &CommitReceipt) -> bool {
         if arena.resolve(self.binding.owner).is_none() {
@@ -94,8 +140,6 @@ impl RegionState {
             self.invalidate();
             self.inherited = inherited;
         }
-        // Bounded mounted membership, not visited source history. A later
-        // over-limit candidate is explicitly refused before construction.
         if let Ok(m) = members(arena, self.binding.content) {
             self.members = m;
         }
@@ -112,6 +156,7 @@ impl RegionState {
         metrics: TextMetrics,
         payload: Rc<dyn Any>,
     ) -> Result<bool, LayoutError> {
+        // Purpose and reservation belong to this private Arc, never inferred from tuple equality.
         if !self
             .pending
             .as_ref()
@@ -124,11 +169,51 @@ impl RegionState {
                 request.stamp().owner().index,
             ));
         }
-        self.ready.push(RegionArtifact {
-            request: request.clone(),
-            metrics,
-            payload,
-        });
+        match request.purpose() {
+            RegionRequestPurpose::Measurement => {
+                let source = self
+                    .facts
+                    .sources
+                    .iter()
+                    .position(|s| Arc::ptr_eq(s, request.source()))
+                    .expect("pending captured source");
+                Arc::get_mut(&mut self.facts)
+                    .expect("candidate facts are private")
+                    .push(ScalarFact {
+                        source: source as u16,
+                        offer: request.offer(),
+                        metrics,
+                    });
+                // No native owner or ready artifact is retained by a scalar fact.
+                drop(payload);
+            }
+            RegionRequestPurpose::FinalPaint => {
+                let fact = self
+                    .facts
+                    .find(request.stamp(), request.offer())
+                    .expect("final request has an exact fact");
+                if !same_metrics(self.facts.entries[fact].metrics, metrics) {
+                    return Err(LayoutError::ContentRegion(
+                        "final paint metrics differ from exact fact",
+                    ));
+                }
+                if self.ready.capacity() == 0 {
+                    self.ready.reserve_exact(SPLIT_PAINTS);
+                }
+                self.ready.push(RegionArtifact {
+                    request: request.clone(),
+                    metrics,
+                    payload,
+                });
+            }
+            RegionRequestPurpose::RetainedOffer => {
+                self.ready.push(RegionArtifact {
+                    request: request.clone(),
+                    metrics,
+                    payload,
+                });
+            }
+        }
         self.pending = None;
         Ok(true)
     }
@@ -146,10 +231,7 @@ impl RegionState {
         if root != self.binding.owner.index && !arena.is_ancestor(root, self.binding.owner.index) {
             return Err(LayoutError::ContentRegion("region belongs to another root"));
         }
-        // The zero percentage flex basis and root percentages must resolve
-        // before the cut. In particular, Auto height bypasses the older
-        // percentage-only check below. Refuse before changing shell/catalog,
-        // request identity or selected publication, even for point-sized roots.
+        // Preflight Auto flex axes before any shell mutation, as in the default path.
         if arena.style(self.binding.owner.index).height == Dimension::Auto
             && ![outer.width, outer.height].into_iter().all(
                 |axis| matches!(axis, crate::AxisOffer::Definite(n) if n.is_finite() && n >= 0.),
@@ -172,9 +254,6 @@ impl RegionState {
             }
         }
         let b = self.binding;
-        // The catalog also identifies ordinary shell text. Invalidate before
-        // computing it, including the first registered pass over a previously
-        // measured ordinary tree. Keep handles and unchanged-catalog caches.
         if self.shell_catalog != Some(inputs.catalog) {
             for slot in arena.iter_live() {
                 if arena.node_type(slot).is_measured_leaf() {
@@ -185,8 +264,7 @@ impl RegionState {
             }
             self.shell_catalog = Some(inputs.catalog);
         }
-        // Keep the ordinary shell cache and its arena handle map. Only this
-        // owner's derived child edge is cut; publication uses the same cut.
+        // One common ordinary-shell path, including reservation saturation.
         let shell_frames = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
         let origin = shell_frames
             .iter()
@@ -194,114 +272,50 @@ impl RegionState {
             .unwrap()
             .frame;
         let offer = Offer::definite(origin.width, origin.height);
-        if self.inputs.is_some_and(|old| old.catalog != inputs.catalog) || self.offer != Some(offer)
+        if self.inputs.is_some_and(|old| old.catalog != inputs.catalog)
+            || self.offer != Some(offer)
+            || (self.profile == RegionProfile::SplitFacts
+                && self
+                    .inputs
+                    .is_some_and(|old| old.consumer_revision != inputs.consumer_revision))
         {
             self.invalidate()
         }
-        if self.ticket.is_none() {
+        self.inputs = Some(inputs);
+        self.offer = Some(offer);
+        let already_current = self.accepted.as_ref().is_some_and(|p| {
+            self.ticket
+                .as_ref()
+                .is_some_and(|ticket| p.ticket == *ticket)
+                && p.inputs == inputs
+        });
+        let admitted = if !already_current && self.profile == RegionProfile::SplitFacts {
+            if self.lease.is_none() {
+                self.lease = self.leases.reserve();
+            }
+            self.lease.is_some()
+        } else {
+            true
+        };
+        if admitted && self.ticket.is_none() {
             self.members = members(arena, b.content)?;
             self.ticket = Some(RegionTicket(Arc::new(())));
-            self.inputs = Some(inputs);
-            self.offer = Some(offer);
         }
-        // Collection feedback epochs can advance on unrelated typing while
-        // paragraph/source inputs stay identical. Preserve source work, but a
-        // new consumer revision still requires a fresh UI geometry publication.
-        self.inputs = Some(inputs);
-        let ticket = self.ticket.as_ref().unwrap().clone();
-        let already_current = self
-            .accepted
-            .as_ref()
-            .is_some_and(|p| p.ticket == ticket && p.inputs == inputs);
-        let mut next_accepted = None;
-        if !already_current && self.pending.is_none() {
-            let mut candidate = Derived::build(
-                arena,
-                b.owner.index,
-                Some(b.owner.index),
-                Some(b.content.index),
-                true,
-            )?;
-            candidate.constrain_owner(arena, b.owner.index, origin);
-            let mut latch = Candidate {
-                ticket: ticket.clone(),
-                ready: &mut self.ready,
-                accepted: self.accepted.as_deref(),
-                catalog: inputs.catalog,
-                sources: &mut self.sources,
-                missing: None,
-                refused: false,
-            };
-            let result = candidate.compute(arena, &mut latch, offer);
-            // No candidate survives this scope. Pending zeros and *all*
-            // descendant engine caches disappear together, even on success.
-            result?;
-            // Layout offers are insufficient proof for a painter. Pin each
-            // paragraph at its final inner width too. Still only the first miss
-            // escapes; every poisoned tree is dropped, including this one.
-            let mut paints = Vec::new();
-            if latch.missing.is_none() && !latch.refused {
-                for (slot, width) in candidate.paint_offers(arena) {
-                    let mut runs = Vec::new();
-                    arena.text_runs(slot, &mut runs);
-                    if runs.is_empty() {
-                        continue;
-                    }
-                    let stamp = arena
-                        .paragraph_stamp(slot)
-                        .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
-                    let request = TextMeasureRequest {
-                        runs: &runs,
-                        paragraph: Paragraph::from_style(
-                            &arena.computed_style(slot, StyleMask::INHERITED),
-                        ),
-                        width: crate::AxisOffer::Definite(width),
-                        height: crate::AxisOffer::MaxContent,
-                    };
-                    latch.measure_identified(&stamp, &request);
-                    if latch.missing.is_some() || latch.refused {
-                        break;
-                    }
-                    let key = TextKey {
-                        stamp,
-                        offer: Offer {
-                            width: request.width,
-                            height: request.height,
-                        },
-                    };
-                    let index = latch
-                        .ready
-                        .iter()
-                        .position(|a| a.request.0.key == key)
-                        .unwrap();
-                    paints.push((arena.key(slot), index));
-                }
-            }
-            if latch.refused {
-                return Err(LayoutError::ContentRegion(
-                    "exact-offer/source budget exhausted",
-                ));
-            }
-            if let Some(request) = latch.missing {
-                self.pending = Some(request);
-            } else {
-                let geometry = candidate.frames(
-                    arena,
-                    b.owner.index,
-                    Some(b.owner.index),
-                    Some(b.content.index),
-                )?;
-                next_accepted = Some(Rc::new(RegionPublication {
-                    ticket: ticket.clone(),
-                    inputs,
-                    geometry,
-                    artifacts: self.ready.clone(),
-                    paints,
-                }));
-            }
-        }
+        // Default keeps the original consumer-revision republish semantics.
+        // Split waits nonfatally when external A+B still own both tokens: no C
+        // facts/request/geometry, but shell and retained selection still publish.
+        let next_accepted = if admitted && !already_current && self.pending.is_none() {
+            self.advance(arena, origin, offer, inputs)?
+        } else {
+            None
+        };
         let selected = next_accepted.as_ref().or(self.accepted.as_ref());
-        let current = selected.is_some_and(|p| p.ticket == ticket && p.inputs == inputs);
+        let current = selected.is_some_and(|p| {
+            self.ticket
+                .as_ref()
+                .is_some_and(|ticket| p.ticket == *ticket)
+                && p.inputs == inputs
+        });
         let pending_geometry = if selected.is_none() {
             let mut pending = Derived::build(
                 arena,
@@ -321,11 +335,9 @@ impl RegionState {
         } else {
             RegionGeometry::default()
         };
-        // One parent-first projection for the entire selected branch. Finite
-        // local coordinates can overflow with this origin. Validate every
-        // intermediate/result before *any* arena publication or accepted swap.
+        // Both policies share exactly one projection/validation/publication barrier.
         let frames = selected
-            .map(|p| &p.geometry)
+            .map(|p| p.geometry.as_ref())
             .unwrap_or(&pending_geometry)
             .project(origin)?;
         let selection = match selected {
@@ -337,8 +349,7 @@ impl RegionState {
         publish(arena, &frames, current || selected.is_none(), &mut changed);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
-            self.ready.clear();
-            self.sources.clear();
+            self.clear_candidate();
         }
         Ok(RegionLayoutReceipt {
             shell: LayoutReceipt {
@@ -351,19 +362,157 @@ impl RegionState {
             current,
         })
     }
+    fn advance(
+        &mut self,
+        arena: &NodeArena,
+        origin: Frame,
+        offer: Offer,
+        inputs: RegionInputs,
+    ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
+        let b = self.binding;
+        let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
+        if self.provisional.is_none() {
+            let mut candidate = Derived::build(
+                arena,
+                b.owner.index,
+                Some(b.owner.index),
+                Some(b.content.index),
+                true,
+            )?;
+            candidate.constrain_owner(arena, b.owner.index, origin);
+            let mut latch = Candidate {
+                ticket: ticket.clone(),
+                profile: self.profile,
+                lease: self.lease.clone(),
+                ready: &mut self.ready,
+                facts: Arc::get_mut(&mut self.facts).expect("unpublished candidate facts"),
+                accepted: self.accepted.as_deref(),
+                catalog: inputs.catalog,
+                missing: None,
+                refused: None,
+            };
+            candidate.compute(arena, &mut latch, offer)?;
+            let mut paints = Vec::new();
+            if latch.missing.is_none() && latch.refused.is_none() {
+                if self.profile == RegionProfile::SplitFacts {
+                    paints.reserve_exact(SPLIT_PAINTS);
+                }
+                for (slot, width) in candidate.paint_offers(arena) {
+                    let mut runs = Vec::new();
+                    arena.text_runs(slot, &mut runs);
+                    if runs.is_empty() {
+                        continue;
+                    }
+                    let stamp = arena
+                        .paragraph_stamp(slot)
+                        .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
+                    let request = TextMeasureRequest {
+                        runs: &runs,
+                        paragraph: Paragraph::from_style(
+                            &arena.computed_style(slot, StyleMask::INHERITED),
+                        ),
+                        width: crate::AxisOffer::Definite(width),
+                        height: crate::AxisOffer::MaxContent,
+                    };
+                    latch.measure_identified(&stamp, &request);
+                    if latch.missing.is_some() || latch.refused.is_some() {
+                        break;
+                    }
+                    if self.profile == RegionProfile::SplitFacts && paints.len() == SPLIT_PAINTS {
+                        return Err(LayoutError::ContentRegion(
+                            "split final owner budget exhausted",
+                        ));
+                    }
+                    let key = TextKey {
+                        stamp,
+                        offer: Offer {
+                            width: request.width,
+                            height: request.height,
+                        },
+                    };
+                    let index = latch.index(&key).expect("measured final offer");
+                    paints.push((arena.key(slot), index));
+                }
+            }
+            if let Some(reason) = latch.refused {
+                return Err(LayoutError::ContentRegion(reason));
+            }
+            if let Some(request) = latch.missing {
+                self.pending = Some(request);
+                return Ok(None);
+            }
+            // Only immutable geometry/ordinals survive. All Taffy state drops here.
+            self.provisional = Some(Provisional {
+                geometry: Rc::new(candidate.frames(
+                    arena,
+                    b.owner.index,
+                    Some(b.owner.index),
+                    Some(b.content.index),
+                )?),
+                paints,
+            });
+        }
+        let provisional = self.provisional.as_ref().unwrap();
+        let paints = if self.profile == RegionProfile::SplitFacts {
+            if let Some((_, index)) = provisional.paints.get(self.ready.len()) {
+                let fact = self.facts.entries[*index];
+                let source = self.facts.sources[fact.source as usize].clone();
+                self.pending = Some(RegionTextRequest(Arc::new(RequestData {
+                    ticket,
+                    key: TextKey {
+                        stamp: source.stamp.clone(),
+                        offer: fact.offer,
+                    },
+                    catalog: inputs.catalog,
+                    source,
+                    purpose: RegionRequestPurpose::FinalPaint,
+                    _lease: self.lease.clone(),
+                })));
+                return Ok(None);
+            }
+            provisional
+                .paints
+                .iter()
+                .enumerate()
+                .map(|(i, (key, _))| (*key, i))
+                .collect()
+        } else {
+            provisional.paints.clone()
+        };
+        Ok(Some(Rc::new(RegionPublication {
+            ticket,
+            inputs,
+            geometry: provisional.geometry.clone(),
+            facts: self.facts.clone(),
+            _lease: self.lease.clone(),
+            artifacts: self.ready.clone(),
+            paints,
+        })))
+    }
 }
 struct Candidate<'a> {
     ticket: RegionTicket,
+    profile: RegionProfile,
+    lease: Option<Arc<()>>,
     ready: &'a mut Vec<RegionArtifact>,
+    facts: &'a mut FactSet,
     accepted: Option<&'a RegionPublication>,
     catalog: u64,
-    sources: &'a mut Vec<Arc<RegionTextSource>>,
     missing: Option<RegionTextRequest>,
-    refused: bool,
+    refused: Option<&'static str>,
+}
+impl Candidate<'_> {
+    fn index(&self, key: &TextKey) -> Option<usize> {
+        if self.profile == RegionProfile::SplitFacts {
+            self.facts.find(&key.stamp, key.offer)
+        } else {
+            self.ready.iter().position(|a| a.request.0.key == *key)
+        }
+    }
 }
 impl TextMeasurer for Candidate<'_> {
     fn measure(&mut self, _: &TextMeasureRequest<'_>) -> TextMetrics {
-        self.refused = true;
+        self.refused = Some("exact-offer/source budget exhausted");
         TextMetrics::default()
     }
     fn measure_identified(
@@ -371,7 +520,7 @@ impl TextMeasurer for Candidate<'_> {
         stamp: &ParagraphStamp,
         r: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
-        if self.missing.is_some() || self.refused {
+        if self.missing.is_some() || self.refused.is_some() {
             return TextMetrics::default();
         }
         let key = TextKey {
@@ -381,56 +530,95 @@ impl TextMeasurer for Candidate<'_> {
                 height: r.height,
             },
         };
-        if let Some(a) = self.ready.iter().find(|a| a.request.0.key == key) {
-            return a.metrics;
+        let split = self.profile == RegionProfile::SplitFacts;
+        if let Some(index) = self.index(&key) {
+            return if split {
+                self.facts.entries[index].metrics
+            } else {
+                self.ready[index].metrics
+            };
         }
-        if self.ready.len() == REGION_OFFERS {
-            self.refused = true;
+        if (split && self.facts.entries.len() == SPLIT_FACTS)
+            || (!split && self.ready.len() == REGION_OFFERS)
+        {
+            self.refused = Some(if split {
+                "split scalar fact budget exhausted"
+            } else {
+                "exact-offer/source budget exhausted"
+            });
             return TextMetrics::default();
         }
-        let source = if let Some(source) = self.sources.iter().find(|s| s.stamp == *stamp) {
-            source.clone()
-        } else {
-            let bytes = r
-                .runs
-                .iter()
-                .try_fold(0usize, |n, r| n.checked_add(r.text.len()));
-            let retained: usize = self.sources.iter().map(|s| s.bytes).sum();
-            if bytes.is_none_or(|n| n > REGION_SOURCE_BYTES.saturating_sub(retained)) {
-                self.refused = true;
-                return TextMetrics::default();
-            }
-            // One allocation for a source revision, even while old and new
-            // width publications coexist. Canonical metric inputs do not carry
-            // a font catalog; only ready answers require equal catalogs.
-            let source = self
-                .accepted
-                .and_then(|p| p.artifacts.iter().find(|a| a.request.stamp() == stamp))
-                .map(|a| a.request.source().clone())
-                .unwrap_or_else(|| {
-                    Arc::new(RegionTextSource {
-                        stamp: stamp.clone(),
-                        paragraph: r.paragraph,
-                        runs: r
-                            .runs
-                            .iter()
-                            .map(|r| (Box::<str>::from(r.text), r.style))
-                            .collect(),
-                        bytes: bytes.unwrap(),
-                    })
-                });
-            self.sources.push(source.clone());
-            source
-        };
+        let source_index =
+            if let Some(i) = self.facts.sources.iter().position(|s| s.stamp == *stamp) {
+                i
+            } else {
+                if split && self.facts.sources.len() == SPLIT_PAINTS {
+                    self.refused = Some("split canonical source budget exhausted");
+                    return TextMetrics::default();
+                }
+                let bytes = r
+                    .runs
+                    .iter()
+                    .try_fold(0usize, |n, r| n.checked_add(r.text.len()));
+                let retained: usize = self.facts.sources.iter().map(|s| s.bytes).sum();
+                if bytes.is_none_or(|n| n > REGION_SOURCE_BYTES.saturating_sub(retained)) {
+                    self.refused = Some("exact-offer/source budget exhausted");
+                    return TextMetrics::default();
+                }
+                let source = self
+                    .accepted
+                    .and_then(|p| p.facts.sources.iter().find(|s| s.stamp == *stamp))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        Arc::new(RegionTextSource {
+                            stamp: stamp.clone(),
+                            paragraph: r.paragraph,
+                            runs: r
+                                .runs
+                                .iter()
+                                .map(|r| (Box::<str>::from(r.text), r.style))
+                                .collect(),
+                            bytes: bytes.unwrap(),
+                        })
+                    });
+                if split && self.facts.sources.capacity() == 0 {
+                    self.facts.sources.reserve_exact(SPLIT_PAINTS);
+                }
+                self.facts.sources.push(source);
+                self.facts.sources.len() - 1
+            };
+        let source = self.facts.sources[source_index].clone();
+        if let Some(metrics) = self
+            .accepted
+            .filter(|p| split && p.inputs.catalog == self.catalog)
+            .and_then(|p| {
+                p.facts
+                    .find(stamp, key.offer)
+                    .map(|i| p.facts.entries[i].metrics)
+            })
+        {
+            self.facts.push(ScalarFact {
+                source: source_index as u16,
+                offer: key.offer,
+                metrics,
+            });
+            return metrics;
+        }
         let request = RegionTextRequest(Arc::new(RequestData {
             ticket: self.ticket.clone(),
             key,
             catalog: self.catalog,
             source,
+            purpose: if split {
+                RegionRequestPurpose::Measurement
+            } else {
+                RegionRequestPurpose::RetainedOffer
+            },
+            _lease: self.lease.clone(),
         }));
         if let Some(a) = self
             .accepted
-            .filter(|p| p.inputs.catalog == self.catalog)
+            .filter(|p| !split && p.inputs.catalog == self.catalog)
             .and_then(|p| {
                 p.artifacts
                     .iter()
@@ -438,8 +626,6 @@ impl TextMeasurer for Candidate<'_> {
             })
         {
             let metrics = a.metrics;
-            // Import only offers actually requested by the new UI pass, never
-            // the entire previous cache or a history of visited widths.
             self.ready.push(RegionArtifact {
                 request,
                 metrics,
@@ -448,7 +634,6 @@ impl TextMeasurer for Candidate<'_> {
             return metrics;
         }
         self.missing = Some(request);
-        // Private unpublished containment value. This is never stored as Ready.
         TextMetrics::default()
     }
 }

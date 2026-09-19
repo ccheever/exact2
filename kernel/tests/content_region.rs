@@ -1094,3 +1094,7 @@ fn review_grid_baseline_dependency_requires_refusal_or_ordinary_shell_parity() {
 mod flex;
 #[path = "content_region/projection.rs"]
 mod projection;
+
+// Split-profile acceptance tests; baseline uses a separate existing-API fragment.
+#[path = "content_region/split_facts.rs"]
+mod split_facts;

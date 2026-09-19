@@ -1073,4 +1073,6 @@ mod region_admission {
             }
         }
     }
+    // Tests-first split-profile draft; retains the real existing helper.
+    include!("reuse/region_split.rs");
 }

@@ -1,8 +1,9 @@
 //! One explicitly contained content publication, with UI-owned offer discovery.
 //!
 //! This is a kernel trial, not a native paint/selection or worker implementation.
-//! Ordinary text callbacks remain final-only. Every ready answer must retain the
-//! exact immutable source/shape artifact used for those metrics. Hosts must paint
+//! Ordinary callbacks and the default profile retain final-only artifact semantics.
+//! The explicit split profile separates exact measurement facts from final owners.
+//! Hosts must paint
 //! the selected publication, never read candidate source through live NodeRefs
 //! while displaying an older publication. Opaque artifact bytes are host-budgeted;
 //! the kernel bounds request counts, captured source bytes, and geometry entries.
@@ -14,7 +15,12 @@ use crate::{
     TextMetrics,
 };
 pub(crate) use state::RegionState;
-use std::{any::Any, rc::Rc, sync::Arc};
+use std::{
+    any::Any,
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Weak},
+};
 
 /// Maximum mounted nodes in either region branch (not logical document rows).
 pub const REGION_NODES: usize = 4096;
@@ -22,6 +28,91 @@ pub const REGION_NODES: usize = 4096;
 pub const REGION_OFFERS: usize = 64;
 /// Captured UTF-8 bytes per candidate/publication, excluding host artifacts.
 pub const REGION_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Explicit count policy. SplitFacts is not native byte admission or activation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RegionProfile {
+    /// Existing64 retained exact-offer artifacts; no ownership-policy change.
+    #[default]
+    PinnedOffers,
+    /// At most768 scalar facts and192 sources/final owners per generation.
+    /// Two live reservations include externally held requests/artifacts/publications.
+    /// Native adapters must separately admit bytes, external owners and paint context.
+    SplitFacts,
+}
+/// What the current private request must deliver. Tuple equivalence alone is
+/// insufficient: a final request is fresh even for an already measured offer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegionRequestPurpose {
+    /// Default profile: keep the artifact for every measured offer.
+    RetainedOffer,
+    /// Split profile: validate scalar metrics, release the supplied payload.
+    Measurement,
+    /// Split profile: retain final paint ownership with bit-identical metrics.
+    FinalPaint,
+}
+const SPLIT_FACTS: usize = 768;
+const SPLIT_PAINTS: usize = 192;
+// Runtime-local two-slot admission; never a worker, waiter list or wake source.
+// It survives registration/reset in Kernel. Tokens themselves are Send and
+// payload-free, so request transport cannot carry UI ownership to a worker.
+#[derive(Clone, Default)]
+pub(crate) struct RegionLeases(Rc<RefCell<[Weak<()>; 2]>>);
+impl RegionLeases {
+    pub fn has_live(&self) -> bool {
+        self.0.borrow().iter().any(|w| w.strong_count() != 0)
+    }
+    fn reserve(&self) -> Option<Arc<()>> {
+        let mut slots = self.0.borrow_mut();
+        let slot = slots.iter_mut().find(|w| w.strong_count() == 0)?;
+        let lease = Arc::new(());
+        *slot = Arc::downgrade(&lease);
+        Some(lease)
+    }
+}
+// Stamp/source/catalog provenance is stored once in the set/source table.
+// No native payload or per-fact Arc; two typed axes and optional baseline stay exact.
+#[derive(Clone, Copy)]
+struct ScalarFact {
+    source: u16,
+    offer: Offer,
+    metrics: TextMetrics,
+}
+const _: () = assert!(std::mem::size_of::<ScalarFact>() <= 48);
+#[derive(Default)]
+struct FactSet {
+    entries: Vec<ScalarFact>,
+    sources: Vec<Arc<RegionTextSource>>,
+}
+impl FactSet {
+    fn find(&self, stamp: &ParagraphStamp, offer: Offer) -> Option<usize> {
+        self.entries.iter().position(|f| {
+            self.sources[f.source as usize].stamp == *stamp && same_offer(f.offer, offer)
+        })
+    }
+    fn push(&mut self, fact: ScalarFact) {
+        // One exact requested allocation; no geometric growth beyond M768.
+        if self.entries.capacity() == 0 {
+            self.entries.reserve_exact(SPLIT_FACTS);
+        }
+        assert!(self.entries.len() < SPLIT_FACTS);
+        self.entries.push(fact);
+    }
+}
+fn same_offer(a: Offer, b: Offer) -> bool {
+    use crate::AxisOffer::*;
+    let same = |a, b| match (a, b) {
+        (Definite(a), Definite(b)) => a.to_bits() == b.to_bits(),
+        (MinContent, MinContent) | (MaxContent, MaxContent) => true,
+        _ => false,
+    };
+    same(a.width, b.width) && same(a.height, b.height)
+}
+fn same_metrics(a: TextMetrics, b: TextMetrics) -> bool {
+    a.width.to_bits() == b.width.to_bits()
+        && a.height.to_bits() == b.height.to_bits()
+        && a.first_baseline.map(f32::to_bits) == b.first_baseline.map(f32::to_bits)
+}
 
 /// Explicit direct children of an independently sized, clipped View.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,6 +156,8 @@ struct RequestData {
     key: TextKey,
     catalog: u64,
     source: Arc<RegionTextSource>,
+    purpose: RegionRequestPurpose,
+    _lease: Option<Arc<()>>,
 }
 /// One immutable canonical source per full paragraph stamp, shared by all exact
 /// offers and widths while the full stamp is unchanged. It retains no Kernel,
@@ -90,6 +183,10 @@ impl RegionTextSource {
     }
 }
 impl RegionTextRequest {
+    /// Retention/delivery policy of this exact private request.
+    pub fn purpose(&self) -> RegionRequestPurpose {
+        self.0.purpose
+    }
     /// Candidate provenance, independent of sibling typing epochs.
     pub fn ticket(&self) -> &RegionTicket {
         &self.0.ticket
@@ -261,7 +358,9 @@ impl RegionGeometry {
 pub struct RegionPublication {
     ticket: RegionTicket,
     inputs: RegionInputs,
-    geometry: RegionGeometry,
+    geometry: Rc<RegionGeometry>,
+    facts: Arc<FactSet>,
+    _lease: Option<Arc<()>>,
     artifacts: Vec<RegionArtifact>,
     paints: Vec<(NodeKey, usize)>,
 }
@@ -282,7 +381,7 @@ impl RegionPublication {
     pub fn frames(&self) -> &[RegionFrame] {
         &self.geometry.frames
     }
-    /// Retained exact-offer paragraph artifacts.
+    /// Default: all retained offers. Split profile: final paint owners only.
     pub fn artifacts(&self) -> &[RegionArtifact] {
         &self.artifacts
     }
@@ -331,6 +430,9 @@ pub struct RegionLayoutReceipt {
     pub selection: RegionSelection,
     /// Whether accepted geometry matches the requested source/offer/inputs now.
     /// False means no current collection measurements, even for still-live keys.
+    /// With no pending text request this can also mean both split reservations
+    /// are occupied. The independent shell still publishes; a later compute may
+    /// resume after an old lease drops. No timer or native wake is implied.
     pub current: bool,
 }
 impl RegionLayoutReceipt {
@@ -360,8 +462,62 @@ pub struct RegionRetention {
     pub shared_source_bytes: usize,
     /// Deduplicated UTF-8 bytes owned across accepted and candidate sources.
     pub total_source_bytes: usize,
-    /// Accepted exact-offer artifact count; payload sizes are host-budgeted.
+    /// Accepted artifacts: all exact offers by default, final owners in SplitFacts.
+    /// Payload sizes and externally extracted native objects are host-budgeted.
     pub accepted_offers: usize,
-    /// Ready answers plus the one pending request.
+    /// Default ready answers plus pending request; split final owners plus a
+    /// pending final request. Scalar-only answers are counted separately below.
     pub candidate_offers: usize,
+    /// Exact scalar facts (default: same count as accepted retained offers).
+    pub accepted_facts: usize,
+    /// Candidate scalar facts plus a pending measurement slot (default: offers).
+    pub candidate_facts: usize,
+}
+
+#[cfg(test)]
+mod split_storage_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_allocation_uses_exact_fixed_capacity_without_payload_owners() {
+        let mut facts = FactSet::default();
+        for _ in 0..SPLIT_FACTS {
+            facts.push(ScalarFact {
+                source: 0,
+                offer: Offer::definite(1., 1.),
+                metrics: TextMetrics::default(),
+            });
+        }
+        assert_eq!(facts.entries.len(), 768);
+        assert_eq!(facts.entries.capacity(), 768);
+        assert_eq!(std::mem::size_of::<ScalarFact>(), 36);
+        assert_eq!(
+            facts.entries.capacity() * std::mem::size_of::<ScalarFact>(),
+            27_648
+        );
+        assert_eq!(
+            2 * facts.entries.capacity() * std::mem::size_of::<ScalarFact>(),
+            55_296
+        );
+        assert!(facts.entries.capacity() * std::mem::size_of::<ScalarFact>() <= 36 * 1024);
+        facts.sources.reserve_exact(SPLIT_PAINTS);
+        assert_eq!(facts.sources.capacity(), 192);
+        assert_eq!(std::mem::size_of::<RegionFrame>(), 32);
+        assert_eq!(std::mem::size_of::<RegionOffset>(), 16);
+        assert_eq!(
+            REGION_NODES
+                * (std::mem::size_of::<RegionFrame>() + std::mem::size_of::<RegionOffset>()),
+            196_608
+        );
+        let mut final_owners: Vec<RegionArtifact> = Vec::new();
+        final_owners.reserve_exact(SPLIT_PAINTS);
+        assert_eq!(final_owners.capacity(), 192);
+        let mut final_ordinals: Vec<(NodeKey, usize)> = Vec::new();
+        final_ordinals.reserve_exact(SPLIT_PAINTS);
+        assert_eq!(final_ordinals.capacity(), 192);
+        eprintln!("scalar_fact_bytes={} fact_capacity={} source_slot_bytes={} source_capacity={} frame_bytes={} offset_bytes={}",
+            std::mem::size_of::<ScalarFact>(), facts.entries.capacity(),
+            std::mem::size_of::<Arc<RegionTextSource>>(), facts.sources.capacity(),
+            std::mem::size_of::<RegionFrame>(), std::mem::size_of::<RegionOffset>());
+    }
 }

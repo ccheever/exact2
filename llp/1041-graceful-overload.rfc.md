@@ -6649,3 +6649,62 @@ build, input-latency or performance result follows. Final evidence is
 36files/7,782,499B, report208532e3. All eight recorded PIDs/groups are absent;
 earlier fixture and compilation failures remain preserved. Kernel capacity and
 Linux retained-action work continue independently.
+
+### 8.120 Separate measurement facts from final text owners, 2026-09-19
+
+The optional SplitFacts kernel profile now completes the unchanged full Messages
+viewport without retaining a native artifact for every intermediate measurement.
+The default PinnedOffers profile still admits64 retained exact offers. This is
+an explicit kernel policy, not a host entry change or native Messages activation.
+
+SplitFacts stores at most768 exact scalar measurement facts and192 sources/final
+paint owners per generation. Measurement completion validates its private request
+then drops the supplied opaque payload. Once geometry is complete, each final
+paint tuple receives a fresh request and must return bit-identical width, height
+and optional baseline before any new publication becomes current. Source/catalog
+identity and both typed offer axes remain exact; stale identity is checked first.
+Fact reuse imports scalar information without carrying an old artifact wrapper.
+The common layout, shell and parent-first f32 projection remain shared with the
+default path; final ownership does not require repeating that completed layout.
+
+Two payload-free reservation tokens limit live split generations, including
+external request, artifact and publication aliases. The weak slots survive
+unregister/reset on the same Kernel. While both are occupied, a third candidate
+allocates no facts or request: retained A and outside shell progress remain,
+current is false, and later explicit computation can resume after release. There
+is no new queue, worker, poll or wake source. A new Kernel has its own domain;
+host-extracted payload aliases and native memory admission remain host obligations.
+
+Tests using only the old API first reproduce two failures: an actual resolved
+measurement keeps its payload alive, and the real10,000/batch32 Contract stops
+bootstrap at exactly64 deliveries with an offer-budget refusal. With only the
+registration statement changed, both tests pass. Bootstrap completes288
+measurements plus64 final requests; the first tail refinement completes594 plus
+132, preserving all33 mounted rows and132 paragraphs. This is more total delivery
+work than retaining every measured artifact, and is not a measured speedup.
+Full-source and ordinary-geometry comparisons, batch32 updates, width changes,
+selected row heights and live focus/interaction pins pass without an epsilon,
+smaller viewport or altered Contract.
+
+The actual scalar record is36 bytes, with768 slots reserved exactly;192 source
+pointer slots are separately bounded. Existing4,096-node and16MiB captured UTF8
+limits per generation remain. These counts exclude opaque native shapes/layouts,
+font caches, temporary layout storage and allocator/RSS costs. A native adapter
+must separately admit aggregate payload ownership and arrange progress when a
+display acknowledgement releases a parked generation. Count fit alone does not
+authorize192 native indexes under the old per-index byte ceiling.
+
+Owner validation passes84 canonical tests plus two diagnostic baseline controls
+(86 distinct,88 executions), strict Clippy and scoped formatting. The formatter's
+brace changes caused the initial token-equality proof to fail; that false result
+remains, followed by explicit hunk qualification and exact inverse verification.
+Final owner freeze is `exact2-region-facts-final-owners/target/region-facts-final-owners-validation/freeze-v1/`,
+manifestc5fb5274/source29319de8. Fresh MAIN compilation passes57 kernel-region,
+26 Messages, one scalar-storage,15 Linux-region, nine Apple-region and86 Apple
+library tests,194 total, plus strict all-target Clippy for the four affected
+packages, formatting, caps and boot. The Apple library command selected the full
+library rather than only three batch tests; all86 actual results are retained.
+MAIN evidence is `target/split-facts-integration/`; all46 recorded PIDs/seven
+groups retire. A lead preflight JSON-schema mismatch stopped before application
+or compilation and remains recorded separately. Native bytes, retained actions,
+worker-backed app activation and physical120Hz remain unproved by this increment.
