@@ -447,11 +447,13 @@ impl<D: DataSource> Host<D> {
         {
             return Err("native candidate publication mismatch".into());
         }
-        if candidate.nodes.len() != publication.frames().len()
+        if candidate.nodes.len() > native.limits.nodes
+            || candidate.nodes.len() != publication.frames().len()
             || candidate
                 .nodes
                 .iter()
-                .any(|n| !publication.frames().iter().any(|f| f.node == n.header.key))
+                .zip(publication.frames())
+                .any(|(n, f)| f.node != n.header.key)
         {
             return Err("native publication membership mismatch".into());
         }
@@ -462,6 +464,11 @@ impl<D: DataSource> Host<D> {
         if wire_upper > native.limits.diff_wire_bound {
             return Err("native diff admission".into());
         }
+        // One checked parent-first world projection, bounded before allocating.
+        // The current receipt has already published these frames to the arena.
+        let frames = publication
+            .projected_frames(origin)
+            .map_err(|e| format!("native frame projection: {e:?}"))?;
         let op_count = candidate
             .nodes
             .len()
@@ -470,9 +477,8 @@ impl<D: DataSource> Host<D> {
             .and_then(|n| n.checked_add(3))
             .ok_or("native op overflow")?;
         let mut staged = Batch::staging(op_count)?;
-        // Uses the current public compatibility local-frame meaning. Exact f64
-        // origin-qualified wire adaptation is separately priced; do not pretend
-        // raw .frames() are the kernel's parent-first world projection.
+        // Use ordinary native f32 subtraction against the current arena parent.
+        // This path never reprojects or relabels a retained/noncurrent A.
         let kernel = self.runner.kernel();
         let mut candidate = self
             .content_region
@@ -484,18 +490,12 @@ impl<D: DataSource> Host<D> {
             .candidate
             .take()
             .unwrap();
-        for n in &mut candidate.nodes {
-            let world = publication
-                .frame(n.header.key, origin)
-                .ok_or("native frame missing")?;
+        for (n, projected) in candidate.nodes.iter_mut().zip(frames) {
             let live = kernel
                 .node_by_key(n.header.key)
                 .ok_or("native current node missing")?;
-            let parent = live
-                .parent
-                .and_then(|id| kernel.node(id))
-                .map(|p| publication.frame(p.key, origin).unwrap_or(p.frame));
-            n.mirror.frame = Some(relative(world, parent));
+            let parent = live.parent.and_then(|id| kernel.node(id)).map(|p| p.frame);
+            n.mirror.frame = Some(relative(projected.frame, parent));
             if style::effective_overflow(&live) != (Overflow::Visible, Overflow::Visible) {
                 // Preserve the ordinary native overflow computation while current;
                 // it cannot run against live B for an old selected A.

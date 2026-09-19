@@ -443,3 +443,265 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
     settle(&mut host, &drops);
     assert_ne!(host.region_publication_id(), Some(selected));
 }
+
+/// Accumulated actual public frame/content ops, following the existing host
+/// test's last-op reader. No reconstructed native batch or epsilon oracle.
+fn projection_wire(history: &str, id: u32, op: &str) -> Option<(Vec<u32>, String)> {
+    let marker = format!("\"op\":\"{op}\",\"id\":{id},");
+    let at = history.rfind(&marker)?;
+    let rest = &history[at..];
+    let raw = &rest[..=rest.find('}').unwrap()];
+    let fields: &[&str] = if op == "frame" {
+        &["x", "y", "w", "h"]
+    } else {
+        &["w", "h"]
+    };
+    let bits = fields
+        .iter()
+        .map(|name| {
+            let field = format!("\"{name}\":");
+            let value = &raw[raw.find(&field).unwrap() + field.len()..];
+            let n: f32 = value[..value.find([',', '}']).unwrap()].parse().unwrap();
+            assert!(n.is_finite());
+            n.to_bits()
+        })
+        .collect();
+    Some((bits, raw.to_owned()))
+}
+
+fn projection_id(host: &Host<Data>, name: &str) -> u32 {
+    let k = host.runner().kernel();
+    k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+}
+
+fn projection_ids(host: &Host<Data>) -> Vec<u32> {
+    let mut stack = vec![projection_id(host, "content")];
+    let mut ids = Vec::new();
+    while let Some(id) = stack.pop() {
+        ids.push(id);
+        stack.extend(
+            host.runner()
+                .kernel()
+                .node(id)
+                .unwrap()
+                .children()
+                .into_iter()
+                .rev(),
+        );
+    }
+    ids
+}
+
+fn projection_complete(host: &mut Host<Data>, history: &mut String) -> usize {
+    let mut count = 0;
+    while let Some((id, request)) = host.pending_region_request() {
+        let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
+        let batch = host.complete_region_text(id, metrics, Rc::new(()));
+        assert!(!batch.contains("\"error\":\""), "{batch}");
+        history.push_str(&batch);
+        count += 1;
+        assert!(count <= 64);
+    }
+    count
+}
+
+fn projection_matches_ordinary(
+    ordinary: &Host<Data>,
+    native: &Host<Data>,
+    ordinary_wire: &str,
+    native_wire: &str,
+) {
+    let ids = projection_ids(native);
+    assert_eq!(ids, projection_ids(ordinary));
+    let mut inline = 0;
+    let mut content_ops = 0;
+    for id in ids {
+        let expected = ordinary.runner().kernel().node(id).unwrap();
+        let actual = native.runner().kernel().node(id).unwrap();
+        assert!(
+            actual.frame.bits_eq(expected.frame),
+            "world frame {id}: {:?} != {:?}",
+            actual.frame,
+            expected.frame
+        );
+        let parent = expected
+            .parent
+            .and_then(|p| ordinary.runner().kernel().node(p));
+        let f = expected.frame;
+        let tuple = parent.map_or([f.x, f.y, f.width, f.height], |p| {
+            [f.x - p.frame.x, f.y - p.frame.y, f.width, f.height]
+        });
+        let expected_wire =
+            projection_wire(ordinary_wire, id, "frame").expect("ordinary frame emitted");
+        assert_eq!(
+            expected_wire.0,
+            tuple.map(f32::to_bits),
+            "ordinary wire/kernel {id}"
+        );
+        let actual_wire = projection_wire(native_wire, id, "frame").expect("native frame emitted");
+        assert_eq!(
+            actual_wire, expected_wire,
+            "all f32 bits and exact frame bytes {id}"
+        );
+        let content = projection_wire(ordinary_wire, id, "content");
+        content_ops += usize::from(content.is_some());
+        assert_eq!(
+            projection_wire(native_wire, id, "content"),
+            content,
+            "overflow {id}"
+        );
+        if native
+            .runner()
+            .kernel()
+            .arena()
+            .is_inline_run(actual.key.index)
+        {
+            inline += 1;
+            assert!(actual.frame.bits_eq(exact_kernel::Frame::default()));
+        }
+    }
+    assert!(
+        inline >= 2,
+        "the inline-zero control must actually participate"
+    );
+    assert!(
+        content_ops > 0,
+        "the overflow control must actually participate"
+    );
+}
+
+#[test]
+fn native_bulk_projection_matches_ordinary_through_origin_pending_and_width() {
+    let source = r#"component App
+  state top = 213.6
+  action shift writes top
+    top = 213.7
+  action shiftAgain writes top
+    top = 214.1
+  view
+    column width="100%" height="100%" padding-top=top
+      view id="owner" testId="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" testId="content" width="100%" height="100%" padding-top=0.1
+          view testId="nested" padding-top=0.1
+            text testId="paragraph" font-size=14 line-height=1.45
+              text "Exact α emoji 👩🏽‍💻 and mixed inline text for a genuinely new width " testId="inline-one"
+              text "second run with more words to wrap across the current offered width" testId="inline-two" font-weight=700
+            scroll testId="overflow" width="100%" height=60
+              view width="100%" height=480
+        text "Preparing" id="pending"
+      button press=shift testId="shift"
+        text "Shift"
+      button press=shiftAgain testId="shift-again"
+        text "Shift again"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut ordinary, mut ordinary_wire) = Host::boot(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        900.,
+    )
+    .unwrap();
+    let (mut native, mut native_wire) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        900.,
+        registration(),
+        Default::default(),
+    )
+    .unwrap();
+    assert!(projection_complete(&mut native, &mut native_wire) > 0);
+    projection_matches_ordinary(&ordinary, &native, &ordinary_wire, &native_wire);
+    let first = native.region_publication_id().unwrap();
+    let owner = native
+        .runner()
+        .kernel()
+        .node(projection_id(&native, "owner"))
+        .unwrap()
+        .frame;
+    let paragraph = native
+        .runner()
+        .kernel()
+        .node(projection_id(&native, "paragraph"))
+        .unwrap()
+        .frame;
+    assert_eq!(owner.y.to_bits(), 213.6_f32.to_bits());
+    assert_eq!(
+        paragraph.y.to_bits(),
+        ((owner.y + 0.1_f32) + 0.1_f32).to_bits()
+    );
+    assert_ne!(
+        paragraph.y.to_bits(),
+        (owner.y + (0.1_f32 + 0.1_f32)).to_bits(),
+        "real nonassociative f32 control"
+    );
+
+    // Same shape width/source, different actual parent origin. No new metadata
+    // or width-history identity may be substituted for ordinary f32 residuals.
+    let ordinary_shift = projection_id(&ordinary, "shift");
+    let native_shift = projection_id(&native, "shift");
+    ordinary_wire.push_str(&ordinary.dispatch_at(ordinary_shift, Event::Press, 10.));
+    native_wire.push_str(&native.dispatch_at(native_shift, Event::Press, 10.));
+    assert!(
+        native.pending_region_request().is_none(),
+        "origin-only must reuse complete metrics"
+    );
+    assert_ne!(
+        native.region_publication_id(),
+        Some(first),
+        "new origin owns a new selected packet"
+    );
+    projection_matches_ordinary(&ordinary, &native, &ordinary_wire, &native_wire);
+
+    let a = native.region_publication_id().unwrap();
+    let saved: Vec<_> = projection_ids(&native)
+        .into_iter()
+        .map(|id| {
+            (
+                id,
+                projection_wire(&native_wire, id, "frame"),
+                projection_wire(&native_wire, id, "content"),
+            )
+        })
+        .collect();
+    ordinary_wire.push_str(&ordinary.resize(359., 900.));
+    let pending = native.resize(359., 900.);
+    assert!(!pending.contains("\"error\":\""), "{pending}");
+    assert!(pending.contains("\"current\":false"));
+    assert!(native.pending_region_request().is_some());
+    native_wire.push_str(&pending);
+    let os = projection_id(&ordinary, "shift-again");
+    let ns = projection_id(&native, "shift-again");
+    ordinary_wire.push_str(&ordinary.dispatch_at(os, Event::Press, 11.));
+    let moved = native.dispatch_at(ns, Event::Press, 11.);
+    assert!(!moved.contains("\"error\":\""), "{moved}");
+    native_wire.push_str(&moved);
+    assert_eq!(native.region_publication_id(), Some(a));
+    for (id, frame, content) in &saved {
+        assert_eq!(
+            &projection_wire(&native_wire, *id, "frame"),
+            frame,
+            "pending A frame stays immutable"
+        );
+        assert_eq!(
+            &projection_wire(&native_wire, *id, "content"),
+            content,
+            "pending A extent stays immutable"
+        );
+    }
+    assert!(projection_complete(&mut native, &mut native_wire) > 0);
+    assert_ne!(native.region_publication_id(), Some(a));
+    projection_matches_ordinary(&ordinary, &native, &ordinary_wire, &native_wire);
+
+    // Existing public invalid-viewport refusal cannot project/relabel A.
+    let before = native.region_publication_id();
+    let refused = native.resize(f32::NAN, 900.);
+    assert!(refused.contains("\"error\":\""), "{refused}");
+    assert_eq!(native.region_publication_id(), before);
+    for id in projection_ids(&native) {
+        assert!(projection_wire(&refused, id, "frame").is_none());
+    }
+}

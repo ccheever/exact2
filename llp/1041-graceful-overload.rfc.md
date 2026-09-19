@@ -6478,3 +6478,33 @@ The pending picture carries scalar targets; no source/image history is added.
 Painting with a pending target clones the live scroll map once, an explicit
 allocation/traversal cost. No new native/VM run, full10k baseline, timing gain or
 physical120Hz result is established by these tests.
+
+### 8.116 Project native subtree coordinates once, 2026-09-19
+
+The explicit Apple native-region producer now checks exact paint-order membership
+and projects the complete bounded publication once before staging its node diff.
+It uses ordinary f32 subtraction against current parent frames for native-local
+coordinates. It no longer scans publication membership and reconstructs ancestor
+coordinates separately for every node. Current receipt/candidate identity checks,
+diff admission and immutable retained A remain unchanged.
+
+The same ordinary/native public-batch regression passes on old and new code:
+first complete A, origin-only movement, width B pending while A remains selected,
+another origin change, complete B and invalid-viewport refusal. It compares exact
+four-f32 frames and wire bytes for all protected descendants, overflow extents and
+two real zero-frame inline runs. The213.6+0.1+0.1 fixture verifies nonassociative
+f32 arithmetic; no epsilon or alternate arithmetic is introduced. This baseline
+is a PASS, not a claimed semantic RED.
+
+Owner and fresh MAIN checks each pass9 Host and3 library tests, strict Apple
+all-target Clippy and scoped formatting; the library tests retain72 ordinary batch
+byte combinations. Actual verbose kernel/Runner/Apple compilation and unchanged
+entry-byte refreshes qualify both owner arms and MAIN. The owner's initial empty
+dependency-file collection is preserved; corrected copies are explicitly
+post-check evidence. Source/execution freeze: `exact2-apple-native-projection/target/`;
+MAIN receipt: `target/native-projection-integration/`.
+
+The projection adds one transient Vec bounded by the admitted4,096-node ceiling.
+Other capture/header/diff scans remain; the complete selection is not claimed
+linear or allocation-free. No Swift subtree consumer, app entry, public ABI,
+native performance result or120Hz claim is added.
