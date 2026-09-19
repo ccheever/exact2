@@ -246,6 +246,7 @@ impl<G: Game> Sim<G> {
         };
         let mut validated = validated;
         validated.assets = assets.clone();
+        Self::declare_assets(&mut validated.assets);
         let mut next =
             Self::with_store(initial, assets, 0, Some(validated)).map_err(DataError::new)?;
         next.args_json = crate::json::to_string(&bound)?;
@@ -328,6 +329,47 @@ mod reload_atomic_tests {
             );
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    #[test]
+    fn standalone_restore_requires_declared_assets_and_never_runs_setup() {
+        thread_local! { static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+        struct NeedsAsset;
+        impl Game for NeedsAsset {
+            const ID: &'static str = "standalone-declared-assets";
+            fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+                w.register::<Transform>();
+            }
+            const ASSETS: &'static [&'static str] = &["crate.model"];
+            type Args = ();
+            fn setup(w: &mut World, _: &()) {
+                SETUPS.with(|n| n.set(n.get() + 1));
+                w.spawn_named("probe", Transform::at(2., 3., 4.));
+            }
+            fn tick(_: &mut World, _: &Input, _: &()) {}
+        }
+        let mut source = Sim::<NeedsAsset>::new(()).unwrap();
+        source
+            .asset(
+                "crate.model",
+                Some(&bin::to_vec(&crate::asset::Model::default())),
+            )
+            .unwrap();
+        let saved = source.save().unwrap();
+        SETUPS.with(|n| n.set(0));
+        let error = Sim::<NeedsAsset>::from_save(&saved)
+            .err()
+            .expect("missing declared asset must refuse");
+        assert!(error.message.contains("awaits declared assets"), "{error}");
+        assert_eq!(SETUPS.with(|n| n.get()), 0);
+        // A supplied complete closure must decode real data, with identical bytes.
+        let restored =
+            Sim::<NeedsAsset>::from_save_in(&saved, source.world.assets.clone(), None).unwrap();
+        assert_eq!(
+            restored.world().require::<Transform>("probe").position,
+            Vec3::new(2., 3., 4.)
+        );
+        assert_eq!(restored.save().unwrap(), saved);
+        assert_eq!(SETUPS.with(|n| n.get()), 0);
     }
     fn encode(saved: &Saved) -> Vec<u8> {
         let mut w = bin::Encoder::prefixed(b"EXSIM\0\x07");

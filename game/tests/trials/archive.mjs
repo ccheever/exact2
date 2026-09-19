@@ -6,7 +6,7 @@ export async function prepareContext(work, {target} = {}) {
   const {gameDefaults,prepareGame}=await import(pathToFileURL(resolve(work,'game/app/shells.mjs')));
   const {resolveApp}=await import(pathToFileURL(resolve(work,'scripts/app.mjs')));
   const selected=resolve(work,'game/games/lanterns'), consumers=[];
-  for(const group of ['games','bench','verification']) {
+  for(const group of ['games','bench','verification','tests']) {
     const base=resolve(work,'game',group);
     if(!existsSync(base))continue;
     for(const name of readdirSync(base)) {
@@ -30,7 +30,7 @@ export async function prepareContext(work, {target} = {}) {
     writeFileSync(resolve(dir,'logic/Cargo.toml'),manifest);
     writeFileSync(resolve(dir,'logic/src/lib.rs'),'// Unavailable consumer fixture; captured Cargo metadata only.\n');
   }
-  for(const group of ['bench','verification']) {
+  for(const group of ['bench','verification','tests']) {
     const base=resolve(work,'game',group);
     if(existsSync(base))for(const name of readdirSync(base))if(!consumers.includes(resolve(base,name)))rmSync(resolve(base,name),{recursive:true,force:true});
   }

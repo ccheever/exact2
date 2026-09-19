@@ -68,7 +68,7 @@ impl Game for Evidence {
         baseline::Lanterns::release_input(args);
     }
     fn register(w: &mut World, args: &std::collections::BTreeMap<&str, exact_game::Value>) {
-        match args["variant"].as_f64().unwrap() as u32 {
+        match args["variant"].as_number().unwrap() as u32 {
             2 => physics_edit::Lanterns::register(w, args),
             3 => clip_edit::Lanterns::register(w, args),
             4 => appearance_edit::Lanterns::register(w, args),

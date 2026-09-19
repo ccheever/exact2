@@ -334,9 +334,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     let (retired, _) = module.readback(id, &frame).unwrap();
     assert_eq!(before.data, retired.data, "retire A while B remains");
     module.lose_device();
-    let Some(replacement) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-        return;
-    };
+    let replacement = exact_gpu::fixture::device().unwrap();
     module.set_gpu(replacement);
     assert!(module.take_assets(id).requests.is_empty());
     let (recovered, _) = module.readback(id, &frame).unwrap();

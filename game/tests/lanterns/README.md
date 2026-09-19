@@ -1,7 +1,7 @@
 # Fixed twelve-lantern I3 evidence
 
 This is a separate app-owned test consumer, adapted from
-`360921d386f212965cbc28229f21c93d280a753a:game/tests/lanterns`.
+`360921d386f212965cbc28229f21c93d280a753a:game/verification/lanterns`.
 Gameplay changes belong in `game/games/lanterns`. The fixed source preserves the
 measured twelve-lantern scene, ordinary-input script, apex and supplementary
 moving-crate cases. Four independently compiled edits exercise placement,

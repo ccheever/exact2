@@ -238,20 +238,23 @@ impl<G: Game> Sim<G> {
             .collect();
         G::register(world, &fields);
     }
+    fn declare_assets(assets: &mut crate::asset::AssetStore) {
+        for &name in G::ASSETS {
+            if !assets.declared.contains(name) {
+                assets.declared.insert(name.into());
+            }
+            if !assets.required.contains(name) {
+                assets.required.insert(name.into());
+            }
+            if !assets.models.contains_key(name) {
+                assets.request(name);
+            }
+        }
+    }
     fn build(args: &G::Args, assets: crate::asset::AssetStore) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
-        for &name in G::ASSETS {
-            if !world.assets.declared.contains(name) {
-                world.assets.declared.insert(name.into());
-            }
-            if !world.assets.required.contains(name) {
-                world.assets.required.insert(name.into());
-            }
-            if !world.assets.models.contains_key(name) {
-                world.assets.request(name);
-            }
-        }
+        Self::declare_assets(&mut world.assets);
         if !world.assets.ready() {
             return world;
         }
