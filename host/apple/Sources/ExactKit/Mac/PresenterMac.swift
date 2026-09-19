@@ -322,6 +322,9 @@ final class Presenter {
         // 1.2 s with this thread idle (LLP 1044, the pump's first version).
         pumpTarget.fire = { [weak self] in self?.pump() }
         let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
+        // Only speculative list/text admission is paced here. AppKit owns
+        // scrolling; visible gaps and the agent's settle path still fill now.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
         link.add(to: .main, forMode: .common)
         pumpLink = link
     }

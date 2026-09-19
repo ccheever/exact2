@@ -33,9 +33,9 @@ final class NavigationHost {
         for node in presenter.views.values {
             let inert = node.inert
             let hidden = inert || node.isHiddenOrHasHiddenAncestor
-            // Other projections (notably the toolbar) also set native state.
-            // Read that state instead of keeping a second, potentially stale copy.
-            if node.isAccessibilityHidden() != hidden { node.setAccessibilityHidden(hidden) }
+            // The AX getter can traverse the legacy unsupported-attribute path
+            // for non-elements; writing this property is cheaper than querying it.
+            node.setAccessibilityHidden(hidden)
             let enabled = !node.disabled && !inert
             if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
             let editable = enabled && node.props["editable"] != "false"
