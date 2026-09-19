@@ -1,7 +1,7 @@
 //! Bounded native I/O (LLP 1016 / 1041). Unannotated requests and native
 //! continuations share one FIFO. Explicit independent HTTP uses two workers
 //! with separate transports; their held sockets cannot occupy the ordered lane.
-use exact_runner::{RequestOut, Work};
+use exact_runner::{Outcome, RequestOut, Work};
 use std::ffi::c_void;
 #[path = "executor_core.rs"]
 mod core;

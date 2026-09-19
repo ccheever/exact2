@@ -125,7 +125,14 @@ fn error_from(error: &Json) -> DataError {
 }
 
 fn request_json(request: &Request) -> Json {
+    let max_response_bytes = match request.http {
+        exact_runner::HttpScheduling::Ordered => None,
+        exact_runner::HttpScheduling::Independent { max_response_bytes } => {
+            Some(max_response_bytes)
+        }
+    };
     json!({
+        "maxResponseBytes": max_response_bytes,
         "continuation": request.continuation,
         "storage": request.storage.as_deref().map(base64),
         "grants": request.grants,
@@ -157,7 +164,17 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         })
         .transpose()?
         .unwrap_or_default();
+    let http = match &json["maxResponseBytes"] {
+        Json::Null => exact_runner::HttpScheduling::Ordered,
+        value => exact_runner::HttpScheduling::Independent {
+            max_response_bytes: value
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| unavailable("turn reply: an invalid HTTP response limit"))?,
+        },
+    };
     Ok(Request {
+        http,
         continuation: json["continuation"].as_u64(),
         storage,
         grants: text("grants"),

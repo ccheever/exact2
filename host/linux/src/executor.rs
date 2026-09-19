@@ -1,6 +1,6 @@
 //! Bounded native I/O, shared with Apple. A nonblocking socketpair makes
 //! completions and admission refusals visible to the Linux display loop.
-use exact_runner::{RequestOut, Work};
+use exact_runner::{Outcome, RequestOut, Work};
 use std::io::{Read, Write};
 use std::os::unix::{
     io::{AsRawFd, RawFd},
