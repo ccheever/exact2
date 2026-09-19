@@ -331,7 +331,9 @@ final class Presenter {
             let visible = scroll.contentView.bounds, port = visible.height
             let first = cover.top + cover.origin, last = cover.bottom + cover.origin
             if (!cover.atEnd && visible.maxY + port * 0.35 > last) || (!cover.atStart && visible.minY - port * 0.35 < first) { return .now }
-            if (!cover.atEnd && visible.maxY + port + 1 > last) || (!cover.atStart && visible.minY - port - 1 < first) { need = .soon }
+            // Consume a quarter of the overscan before refilling, so adjacent
+            // rows enter together instead of committing at each row boundary.
+            if (!cover.atEnd && visible.maxY + port * 0.75 + 1 > last) || (!cover.atStart && visible.minY - port * 0.75 - 1 < first) { need = .soon }
         }
         return need
     }
