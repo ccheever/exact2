@@ -8217,3 +8217,76 @@ raw data. MAIN`target/invisible-fill-evaluation` holds independent reconstructio
 and selection. Masked rounded fills remain a measured cost; the next discriminator
 is actual eligibility and work avoided, including partially visible fills, before
 selecting further clipping changes. The NativeSplit reference budget remains3/3.
+
+### 8.149 Clipped-fill attribution: little cost in wholly invisible calls
+
+One new diagnostic keeps the original Raster draw path and the same full10,000
+records/32 changes. It classifies actual masked path bounds using the exact
+§8.148 culling predicate: wouldSkip, partialBounds, containedBounds or unknown.
+These are conservative geometric classes, not actual mask coverage; contained
+does not prove all255 and partial does not prove visible pixels. Twenty-four
+checked u64 counts/time sums add48KiB fixed TLS. The same method clock endpoints
+feed both original and class totals; class time is not added twice. Classification
+and serialization remain observer overhead. No mask scan, new renderer owner,
+extra per-call clock, area estimate or production change is introduced.
+
+The extracted actual recorder/classifier/fill passes15 Rust checks, including
+360 path/transform comparisons with the frozen predicate,10 refused contexts,
+45 complete RGBA comparisons and identity/overflow controls. The supplementary
+reader passes24 checks. Its exact old version has four meaningful assertion
+failures plus two controls; that baseline was executed **after** candidate
+validation, not an executed tests-first sequence. Source inverses are exact.
+The integrated optimized Linux build passes once in42.365s. Its2,006 physical
+source entries differ from control only in the three observed files; generated
+Reusable entry/plan/compat, fonts and external inputs remain equal.
+
+The single actual run passes original functional acceptance. Raw stderr equals
+4,578 journal events,892 turns and13,880 spans; all207 picture/Paint chains close,
+maximum66 rows/turn. Every class partition equals its original masked category.
+The full supplementary reader correctly refuses attribution:94 unknown calls
+occur in two early Paint parents at journal6/11, totaling0.032998ms. The refusal
+and raw data remain preserved. All fixed scoring cohorts have zero unknown;
+the predeclared complete-timer subsets below are independently qualified. This
+does not relabel the full capture as attribution PASS or identify the unknown
+calls' cause.
+
+| Masked-rounded class | Loaded7 Paints: calls / sum ms / share | Silent8 Paints: calls / sum ms / share |
+|---|---:|---:|
+| wouldSkip |14 /0.079665 /1.143%|16 /0.028708 /0.311%|
+| partialBounds |14 /4.144309 /59.460%|16 /5.715230 /61.967%|
+| containedBounds |14 /2.745927 /39.397%|16 /3.479054 /37.722%|
+
+Each selected Paint has two calls in each known class. Per-Paint class medians
+are0.002999/0.569710/0.382252ms loaded and0.003459/0.730690/0.442585ms silent,
+in table order. These are inclusive aggregate wall times, not individual-call
+medians, avoided CPU or predicted gains. The small wouldSkip share makes
+whole-fill culling low priority for this workload. Most measured masked time
+belongs to calls whose padded bounds overlap or lie within the clip bound.
+
+Eight loaded complete timer turns have median8.910013ms/max11.830420ms and6/8
+misses over8.33ms; the seven with Paint form the table's loaded subset. Eight
+command-free turns advance0→8 with median11.601044ms/max15.955185ms and8/8
+misses. All36 handlers and18 signed40-unit wheels remain inside the fixed2s
+windows. Initial fullHistory9 and three setup RGB buffers match the prior run;
+final revision17 versus prior16 is unequal and not a matched final-pixel claim.
+The first9,968 rows are unchanged and the32 updated rows preserve their other
+four fields. Final picture207/fence4578 is complete. Allsix recorded runtime
+PIDs/four groups retire,5941 is free, and native−15 is deliberate cleanup after
+acceptance, separate from outer0. No runtime retry, A/B gain, continuous resize,
+CPU or physical120Hz claim follows.
+
+A separate public-API vertical-band prototype is rejected before timing. It
+keeps the original mask blending but draws through a shorter destination view
+and copied mask. Case48 changes three RGBA bytes with crop top0: even without
+path translation, altered scan clipping changes a rounded edge. The remaining
+random and timing cases are UNRUN. Production stays unchanged. Future partial
+fill work must preserve original scan conversion as well as masked AA.
+
+Private ink-pair `fill-eligibility-source-v1` seal`d59a95da`, build capture
+`4fca7e4e`/ELF`13ad71e0`, runtime capture`5e73d627`/seal`a1898565` and separate
+cohort addendum`b63922ef` retain the exact sources, products and raw limits.
+MAIN`target/fill-eligibility-evaluation` holds independent reconstruction and
+`target/fill-band-probe-v1` (`b64b8d65`) the rejected prototype. A source-priced
+opaque full-coverage span shortcut would require an isolated dependency patch
+and exact-pixel/performance evidence; these bounds counts do not establish its
+all255-mask eligibility. No dependency fork is selected. NativeSplit remains3/3.
