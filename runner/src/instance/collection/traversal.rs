@@ -81,26 +81,27 @@ impl Tree {
         out
     }
     /// Targeted geometry update. Never evaluates collection data or key expressions,
-    /// settles resources, or traverses unmounted rows. False means stale/no change.
-    pub fn update_collection(
+    /// settles resources, or traverses unmounted rows. An edge is returned only
+    /// for accepted geometry; the runner dispatches it after committing the ops.
+    pub(crate) fn update_collection(
         &mut self,
         u: &mut Update<'_>,
         feedback: CollectionFeedback,
-    ) -> Result<bool, InstanceError> {
+    ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         if !self.has_collections {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         }
         feedback
             .validate()
             .map_err(|_| invalid("invalid collection feedback"))?;
         let Some(target) = find_collection(&self.children, feedback.view) else {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         };
         let Some(by_view) = target.prepare_feedback(&feedback)? else {
             self.last_work = u.work;
-            return Ok(false);
+            return Ok((false, None));
         };
         let categories = [
             feedback.focus_view.is_some(),
@@ -111,16 +112,53 @@ impl Tree {
         } else {
             false
         };
-        let changed = feedback_walk(&mut self.children, u, &[], &feedback, &by_view)?
-            .unwrap_or(false)
-            || released;
+        let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view)?
+            .unwrap_or((false, None));
         let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
             .into_iter()
             .partition(|op| !matches!(op, Op::DestroyView { .. }));
         live.extend(gone);
         u.ops = live;
         self.last_work = u.work;
-        Ok(changed)
+        Ok((changed || released, edge))
+    }
+    pub(crate) fn has_collection(&self, view: ViewId) -> bool {
+        find_collection(&self.children, view).is_some()
+    }
+    /// Publish one fresh set of host measurement identities after a deferred
+    /// edge's state change settles. No keys, data or row bodies are evaluated.
+    /// Reuses the hosts' bounded feedback scheduling, even for unchanged rows.
+    pub(crate) fn wake_collection_edge(&mut self, view: ViewId) -> Result<(), InstanceError> {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            for row in &mut collection.mounted {
+                row.epoch = advance(&mut collection.next_epoch)?;
+            }
+            advance(&mut collection.revision)?;
+        }
+        Ok(())
+    }
+    /// A refused action did not consume its edge. Retry only on later accepted
+    /// host feedback, never by redispatching inside the current call.
+    pub(crate) fn rearm_collection_edge(&mut self, view: ViewId, event: EventKind) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            let index = match event {
+                EventKind::Reachstart => 0,
+                EventKind::Reachend => 1,
+                _ => unreachable!("collection edge"),
+            };
+            collection.edge_armed[index] = true;
+        }
+    }
+    /// Consume the second candidate after the runner established a pure no-op.
+    pub(crate) fn take_collection_end(&mut self, view: ViewId) -> bool {
+        let Some(collection) = find_collection_mut(&mut self.children, view) else {
+            return false;
+        };
+        if !collection.edge_armed[1] {
+            return false;
+        }
+        collection.edge_armed[1] = false;
+        true
     }
 }
 fn feedback_walk(
@@ -129,7 +167,7 @@ fn feedback_walk(
     frames: &[Frame],
     feedback: &CollectionFeedback,
     by_view: &BTreeMap<ViewId, usize>,
-) -> Result<Option<bool>, InstanceError> {
+) -> Result<Option<(bool, Option<CollectionEdges>)>, InstanceError> {
     for child in children {
         let found = match child {
             Child::Node(node) => {
@@ -196,6 +234,32 @@ fn find_collection(children: &[Child], view: ViewId) -> Option<&Collection> {
                 Active::Rows { rows } => {
                     for row in rows {
                         stack.extend(row.roots.iter());
+                    }
+                }
+            },
+        }
+    }
+    None
+}
+
+fn find_collection_mut(children: &mut [Child], view: ViewId) -> Option<&mut Collection> {
+    let mut stack: Vec<_> = children.iter_mut().collect();
+    while let Some(child) = stack.pop() {
+        match child {
+            Child::Node(node) => {
+                if let Some(collection) = &mut node.collection {
+                    if collection.view == view {
+                        return Some(collection);
+                    }
+                    // Virtual row descendants cannot contain another collection.
+                }
+                stack.extend(node.children.iter_mut());
+            }
+            Child::Region(region) => match &mut region.active {
+                Active::Arm { roots, .. } => stack.extend(roots.iter_mut()),
+                Active::Rows { rows } => {
+                    for row in rows {
+                        stack.extend(row.roots.iter_mut());
                     }
                 }
             },

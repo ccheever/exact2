@@ -23,6 +23,65 @@ const reactions = [
   {id:'hundred',value:'💯',label:'One hundred'}, {id:'thanks',value:'🙏',label:'Thank you'},
 ];
 const threads = new Map<string, StoredMessage[]>();
+type ThreadIndex = {
+  byId:Map<string,StoredMessage>;
+  replyCounts:Map<string,number>;
+  replies:Map<string,StoredMessage[]>;
+  lastOutgoing:StoredMessage|undefined;
+  replyOutgoing:Map<string,StoredMessage>;
+};
+const emptyIndex=():ThreadIndex=>({byId:new Map(),replyCounts:new Map(),replies:new Map(),lastOutgoing:undefined,replyOutgoing:new Map()});
+const indexes = new Map<string,ThreadIndex>();
+const windowSize = 200;
+type Position = Pick<StoredMessage,'order'|'id'>;
+const compareMessages=(a:Position,b:Position)=>a.order-b.order || (a.id<b.id?-1:a.id>b.id?1:0);
+const positionCursor=(row:StoredMessage|undefined)=>row?`${row.order}:${row.id}`:'';
+function cursorPosition(cursor:string):Position {
+  const separator=cursor.indexOf(':'),order=cursor.slice(0,separator),id=cursor.slice(separator+1);
+  if(separator<1 || !id || !/^[0-9]+$/.test(order) || !Number.isSafeInteger(Number(order)))throw new Error('Invalid conversation cursor');
+  return {order:Number(order),id};
+}
+function lowerBound(rows:StoredMessage[],position:Position) {
+  let low=0,high=rows.length;
+  while(low<high){const mid=Math.floor((low+high)/2);if(compareMessages(rows[mid],position)<0)low=mid+1;else high=mid;}
+  return low;
+}
+function cursorAnchor(rows:StoredMessage[],cursor:string) {
+  const position=cursorPosition(cursor),at=lowerBound(rows,position);
+  // Resolve deleted anchors backward so later arrivals cannot capture them.
+  return at<rows.length && compareMessages(rows[at],position)===0?at:Math.max(0,at-1);
+}
+function insertSorted(rows:StoredMessage[],row:StoredMessage) {
+  if(!rows.length || compareMessages(rows[rows.length-1],row)<0)rows.push(row);
+  else rows.splice(lowerBound(rows,row),0,row);
+}
+// All membership changes pass through these helpers. The durable rows retain
+// exactly their old shape; these indexes are rebuilt, never persisted.
+function insertMessage(id:string,row:StoredMessage) {
+  if(!threads.has(id))replaceThread(id,[]);
+  const rows=threads.get(id)!,index=indexes.get(id)!;
+  if(index.byId.has(row.id))return;
+  insertSorted(rows,row);index.byId.set(row.id,row);
+  const replies=index.replies.get(row.replyRoot)||[];
+  insertSorted(replies,row);index.replies.set(row.replyRoot,replies);
+  if(row.id!==row.replyRoot)index.replyCounts.set(row.replyRoot,(index.replyCounts.get(row.replyRoot)||0)+1);
+  if(row.outgoing){
+    if(!index.lastOutgoing || compareMessages(index.lastOutgoing,row)<0)index.lastOutgoing=row;
+    const previous=index.replyOutgoing.get(row.replyRoot);
+    if(!previous || compareMessages(previous,row)<0)index.replyOutgoing.set(row.replyRoot,row);
+  }
+}
+function replaceThread(id:string,rows:StoredMessage[]) {
+  threads.set(id,[]);
+  indexes.set(id,emptyIndex());
+  for(const row of rows)insertMessage(id,row);
+}
+function removeMessages(id:string,selected:Set<string>) {
+  const removed:StoredMessage[]=[],kept:StoredMessage[]=[];
+  for(const row of threads.get(id)||[])(selected.has(row.id)?removed:kept).push(row);
+  if(removed.length)replaceThread(id,kept);
+  return removed;
+}
 const muted = new Set<string>();
 const blocked = new Set<string>();
 const localContacts = new Map<string,{first:string,last:string,company:string,phone:string,email:string,notes:string}>();
@@ -68,14 +127,14 @@ function refreshPreview(id:string) {
   const person=people.find(p=>p.id===id),rows=threads.get(id),last=rows?.[rows.length-1];
   if(person){person.preview=last?.body || '';person.time=last?(last.day==='Today'?last.time:last.day):'';}
 }
-function replyTo(item:StoredMessage,rows:StoredMessage[],root:string) {
+function replyTo(item:StoredMessage,id:string,root:string) {
   if(!root) return;
-  const parent=rows.find(m=>m.id===root);
+  const index=indexes.get(id)!,parent=index.byId.get(root);
   // A thread keeps its identity when its original bubble is deleted.
   item.replyRoot=parent?.replyRoot || root;
-  item.reply=parent?.body || rows.find(m=>m.replyRoot===root)?.reply || '';
+  item.reply=parent?.body || index.replies.get(root)?.[0]?.reply || '';
 }
-threads.set('maya',[
+replaceThread('maya',[
   message('m1','Hey! Are you around this morning?',false,'9:30 AM'),
   message('m2','Yeah! Just finishing a few things',true,'9:31 AM'),
   message('m3','Want to grab coffee? There’s a new place on Valencia I’ve been wanting to try',false,'9:32 AM'),
@@ -88,12 +147,12 @@ threads.set('maya',[
   message('m10','See you there! ☕️',false,'9:41 AM'),
 ]);
 threads.get('maya')![6].reactions.maya='❤️';
-for(const person of people.slice(2)) threads.set(person.id,[
+for(const person of people.slice(2)) replaceThread(person.id,[
   message(`${person.id}-1`,'Hey! How’s your week going?',false,'9:20 AM','',person.time),
   message(`${person.id}-2`,'Really good! How about yours?',true,'9:24 AM','me',person.time),
   message(`${person.id}-3`,person.preview,false,'9:32 AM','',person.time),
 ]);
-threads.set('weekend',[
+replaceThread('weekend',[
   message('weekend-1','Anyone up for a hike on Saturday?',false,'9:20 AM','maya'),
   message('weekend-2','Definitely! Count me in 🌲',true,'9:24 AM'),
   message('weekend-3','Who’s bringing snacks?',false,'9:32 AM','alex'),
@@ -138,7 +197,7 @@ function ensureConversation(id:string) {
   const address=recipientById(id);
   if(address) {
     if(!people.some(p=>p.id===id)) people.unshift(address);
-    threads.set(id,[]);
+    replaceThread(id,[]);
     return;
   }
   if(!id.startsWith('group:')) return;
@@ -146,23 +205,25 @@ function ensureConversation(id:string) {
   if(members.length<2 || recipientTarget(members)!==id) return;
   groups.set(id,members.map(p=>p.id).sort());
   people.unshift({id,name:members.map(p=>p.name.split(' ')[0]).join(', '),initials:members.slice(0,2).map(p=>p.initials[0]).join(''),color:'#829baa',preview:'',time:'Now',unread:false});
-  threads.set(id,[]);
+  replaceThread(id,[]);
 }
 function responder(id:string) {
   return recipientById(groups.get(id)?.[0] || id);
 }
-function conversation(id:string,replying:string,selection:string):Result<'conversation'> {
+function conversation(id:string,replying:string,selection:string,cursor:string):Result<'conversation'> {
   const person=people.find(p=>p.id===id) || people[0];
   const rows=threads.get(person.id) || [];
-  const replyCounts=new Map<string,number>();
-  for(const row of rows)if(row.id!==row.replyRoot)replyCounts.set(row.replyRoot,(replyCounts.get(row.replyRoot)||0)+1);
-  const selected=new Set(selection.split("|").filter(id=>rows.some(m=>m.id===id)));
-  const decorate=(visible:StoredMessage[])=>{
-    let lastOutgoing=-1;
-    visible.forEach((m,i)=>{if(m.outgoing)lastOutgoing=i;});
+  const index=indexes.get(person.id)||emptyIndex();
+  const anchor=cursor===''?rows.length-1:cursorAnchor(rows,cursor);
+  const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,anchor-windowSize/2);
+  const end=Math.min(rows.length,start+windowSize);
+  const selectedRows=[...new Set(selection.split('|'))].flatMap(id=>{const row=index.byId.get(id);return row?[row]:[];});
+  const selected=new Set(selectedRows.map(m=>m.id));
+  const decorate=(visible:StoredMessage[],before:StoredMessage|undefined,after:StoredMessage|undefined,lastOutgoing:StoredMessage|undefined)=>{
     return visible.map((m,i)=>{
+      const previous=i===0?before:visible[i-1],next=i===visible.length-1?after:visible[i+1];
       const sender=groups.has(person.id) && !m.outgoing?recipientById(m.sender):undefined;
-      const startsDay=!visible[i-1] || visible[i-1].day!==m.day;
+      const startsDay=!previous || previous.day!==m.day;
       const {second:_second,order:_order,reactions:saved,...content}=m;
       const entries=Object.entries(saved).sort(([a],[b])=>a==='me'?-1:b==='me'?1:0).map(([id,value],i)=>{
         const who=id==='me'?{name:'You',initials:'ME',color:'#859bc1'}:recipientById(id);
@@ -171,23 +232,24 @@ function conversation(id:string,replying:string,selection:string):Result<'conver
       const byValue=new Map<string,typeof entries>();
       for(const entry of entries){const group=byValue.get(entry.value)||[];group.push({...entry,offset:group.length*18});byValue.set(entry.value,group);}
       const reactionGroups=[...byValue].map(([value,people])=>({value,people,width:32+(people.length-1)*18}));
-      return {...content,reaction:saved.me||'',reactionCount:entries.length,reactionEntries:entries,reactionGroups,reactionPanelWidth:Math.max(124,18+reactionGroups.length*98),chosen:selected.has(m.id),selection:(selected.has(m.id)?[...selected].filter(id=>id!==m.id):[...selected,m.id]).join("|"),timeLabel:startsDay?`${m.day} ${m.time}`:'',delivery:i===lastOutgoing?m.delivery:'',
-        tail:!sameRun(m,visible[i+1]),
+      return {...content,reaction:saved.me||'',reactionCount:entries.length,reactionEntries:entries,reactionGroups,reactionPanelWidth:Math.max(124,18+reactionGroups.length*98),chosen:selected.has(m.id),selection:(selected.has(m.id)?[...selected].filter(id=>id!==m.id):[...selected,m.id]).join("|"),timeLabel:startsDay?`${m.day} ${m.time}`:'',delivery:m===lastOutgoing?m.delivery:'',
+        tail:!sameRun(m,next),
         senderName:sender?.name || '',senderInitials:sender?.initials || '',senderColor:sender?.color || '',
-        showSender:!!sender && (startsDay || visible[i-1].sender!==m.sender),
-        replyCount:replyCounts.get(m.id)||0};
+        showSender:!!sender && (startsDay || previous!.sender!==m.sender),
+        replyCount:index.replyCounts.get(m.id)||0};
     });
   };
-  const messages=decorate(rows);
+  const messages=decorate(rows.slice(start,end),rows[start-1],rows[end],index.lastOutgoing);
   const activity=pending.get(person.id);
   const typing=!!activity && ticks>=activity.start;
-  return {selectedText:rows.filter(m=>selected.has(m.id)).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
+  return {selectedText:selectedRows.sort(compareMessages).map(m=>m.body).join("\n"),selectionCount:selected.size,typingName:typing?(responder(person.id)?.name || ''):'',
     typingAvatar:typing && groups.has(person.id)?responder(person.id)!.initials:'',typingRoot:typing?activity!.reply:'',
     id:person.id,name:person.name,initials:person.initials,color:person.color,reactions,
     muted:muted.has(person.id),blocked:blocked.has(person.id),knownContact:!person.id.startsWith('address:') || localContacts.has(person.id),
     contactKind:person.address?.includes('@')?'email':'phone',
     contactAddress:person.address && /^\+1\d{10}$/.test(person.address)?`+1 (${person.address.slice(2,5)}) ${person.address.slice(5,8)}-${person.address.slice(8)}`:person.address || '',
-    messages,replies:decorate(rows.filter(m=>m.replyRoot===replying)),revision,scrollRevision:scrollRevisions.get(person.id)||0};
+    messages,earlier:positionCursor(rows[start]),later:positionCursor(rows[end-1]),hasEarlier:start>0,hasLater:end<rows.length,
+    replies:decorate(index.replies.get(replying)||[],undefined,undefined,index.replyOutgoing.get(replying)),revision,scrollRevision:scrollRevisions.get(person.id)||0};
 }
 const sources: Sources = {
   syncMessages: () => changed(),
@@ -217,7 +279,7 @@ const sources: Sources = {
       target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending) && !!body.trim()};
   },
   conversationDraft: ([id,_revision])=>({thread:id,...(drafts.get(id)||{draft:'',reply:''})}),
-  conversation: ([id,_revision,replying,selection])=>conversation(id,replying,selection),
+  conversation: ([id,_revision,replying,selection,cursor])=>conversation(id,replying,selection,cursor),
   markRead: ([id])=>{const p=people.find(p=>p.id===id);if(p)p.unread=false;revision++;return changed();},
   setConversationUnread: ([id,unread])=>{
     const person=people.find(p=>p.id===id && !deleted.has(id));
@@ -252,15 +314,14 @@ const sources: Sources = {
   },
   deleteConversation: ([id,now])=>{
     const rows=threads.get(id);
-    if(rows){archiveMessages(id,rows,now);threads.set(id,[]);deleted.add(id);pending.delete(id);drafts.delete(id);revision++;}
+    if(rows){archiveMessages(id,rows,now);replaceThread(id,[]);deleted.add(id);pending.delete(id);drafts.delete(id);revision++;}
     return changed();
   },
   recoverConversations: ([selection,now])=>{
     expireDeleted(now);
     for(const id of new Set(selection.split('|'))) {
       const records=recoverable.get(id);if(!records?.length)continue;
-      const rows=threads.get(id)||[],existing=new Set(rows.map(m=>m.id));
-      threads.set(id,[...rows,...records.map(r=>r.message).filter(m=>!existing.has(m.id))].sort((a,b)=>a.order-b.order));
+      for(const row of records)insertMessage(id,row.message);
       recoverable.delete(id);deleted.delete(id);refreshPreview(id);revision++;
     }
     return changed();
@@ -287,8 +348,8 @@ const sources: Sources = {
       const at=fixtureTime(nowMs);
       const item=message(`sent-${namespace}${++revision}`,body,true,at.time,'me','Today',at.second);
       item.delivery='Delivered';
-      replyTo(item,rows,reply);
-      rows.push(item);person.preview=body;person.time=item.time;person.unread=false;
+      replyTo(item,id,reply);
+      insertMessage(id,item);person.preview=body;person.time=item.time;person.unread=false;
       drafts.delete(id);
       scrollRevisions.set(id,++scrollGeneration);
       if(!blocked.has(id)) pending.set(id,{start:now+3,end:now+15,reply:reply?item.replyRoot:''});
@@ -304,30 +365,30 @@ const sources: Sources = {
         revision++;
       }
       if(now<activity.end) continue;
-      const rows=threads.get(id)!, person=people.find(p=>p.id===id)!;
+      const person=people.find(p=>p.id===id)!;
       const body=id==='weekend'?'Sounds good! 🌲':id==='maya'?'See you soon! ☕️':'Sounds good 😊';
       const sender=groups.has(id)?responder(id):undefined;
       const at=fixtureTime(nowMs);
       const item=message(`received-${namespace}${++revision}`,body,false,at.time,sender?.id || '','Today',at.second);
-      replyTo(item,rows,activity.reply);
-      rows.push(item);person.preview=sender?`${sender.name.split(' ')[0]}: ${body}`:body;person.time=item.time;person.unread=id!==activeThread;
+      replyTo(item,id,activity.reply);
+      insertMessage(id,item);person.preview=sender?`${sender.name.split(' ')[0]}: ${body}`:body;person.time=item.time;person.unread=id!==activeThread;
       pending.delete(id);
       // Incoming activity follows only an already-pinned reader; no scroll command.
     }
     return changed();
   },
   react: ([id,messageId,emoji])=>{
-    const m=threads.get(id)?.find(m=>m.id===messageId);
+    const m=indexes.get(id)?.byId.get(messageId);
     if(m){if(m.reactions.me===emoji)delete m.reactions.me;else m.reactions.me=emoji;revision++;}
     return changed();
   },
   deleteMessages: ([id,selection,now])=>{
     const selected=new Set(selection.split('|')),rows=threads.get(id);
     if(rows){
-      const remaining=rows.filter(m=>!selected.has(m.id));
-      if(remaining.length!==rows.length){
-        archiveMessages(id,rows.filter(m=>selected.has(m.id)),now);
-        threads.set(id,remaining);revision++;
+      const removed=removeMessages(id,selected);
+      if(removed.length){
+        archiveMessages(id,removed,now);
+        revision++;
         refreshPreview(id);
       }
     }
@@ -361,16 +422,16 @@ function restore(records:Records):void {
       messages.push(row);
     }else throw new Error('Unknown Messages replica record');
   }
-  people.splice(0);threads.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
+  people.splice(0);threads.clear();indexes.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
   for(const row of persons.sort((a,b)=>a.position-b.position || a.person.id.localeCompare(b.person.id))){
     const id=row.person.id;people.push(row.person);
-    if(row.conversation)threads.set(id,[]);
+    if(row.conversation)replaceThread(id,[]);
     if(row.muted)muted.add(id);if(row.blocked)blocked.add(id);if(row.deleted)deleted.add(id);
     if(row.draft)drafts.set(id,row.draft);if(row.group)groups.set(id,row.group);if(row.contact)localContacts.set(id,row.contact);
   }
-  for(const row of messages.sort((a,b)=>a.message.order-b.message.order || a.message.id.localeCompare(b.message.id))){
+  for(const row of messages.sort((a,b)=>compareMessages(a.message,b.message))){
     if(row.expires!==null){const rows=recoverable.get(row.conversation)||[];rows.push({message:row.message,expires:row.expires});recoverable.set(row.conversation,rows);}
-    else {const rows=threads.get(row.conversation)||[];rows.push(row.message);threads.set(row.conversation,rows);}
+    else insertMessage(row.conversation,row.message);
     messageOrder=Math.max(messageOrder,row.message.order+1);
   }
   for(const id of pending.keys())if(deleted.has(id)||blocked.has(id)||!threads.has(id))pending.delete(id);

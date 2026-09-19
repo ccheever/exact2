@@ -30,7 +30,7 @@ beforeAll(async () => {
     return result.result.value;
   };
   await call('Page.navigate', { url: `http://127.0.0.1:${server.port}` });
-  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.createMotion = module.motionController; })`);
+  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.applyCollectionFeedback = module.applyCollectionFeedback; globalThis.createMotion = module.motionController; })`);
   await evaluate(`(${setup})()`);
 });
 afterAll(async () => {
@@ -93,6 +93,35 @@ test('rejected duplicate facts and feedback-caused revisions cannot spin an unbo
   const result = await evaluate(`(() => { const f=fixture(); let revision=1; f.onReport=()=>{ f.views.get(2).style.height=(40+revision)+'px'; f.controller.commit([f.snapshot(String(++revision))]); }; f.controller.commit([f.snapshot()]); for(let n=0;n<20;n++) f.flush(); return {reports:f.reports.length,pending:f.frames.size}; })()`);
   expect(result.reports).toBe(2);
   expect(result.pending).toBe(0);
+});
+test('edge membership commits keep scheduling fresh rows beyond two reports without a scroll', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture(); let revision=1, shifted=0, peak=0;
+    f.port.firstElementChild.remove(); f.views.get(1).lastElementChild.remove();
+    const snapshot=()=>f.snapshot(String(revision), {count:2,totalExtent:100,
+      rows:f.snapshot().rows.map((row,index)=>({...row,index,epoch:String(revision),measured:false}))});
+    f.onReport=()=>{ if(shifted<6) { shifted++; revision++; f.controller.commit([snapshot()]); } };
+    f.controller.commit([snapshot()]);
+    for(let n=0;n<20;n++) { const before=f.reports.length; f.flush(); peak=Math.max(peak,f.reports.length-before); }
+    return {shifted,reports:f.reports.length,peak,pending:f.frames.size,scrollable:f.port.scrollHeight>f.port.clientHeight};
+  })()`);
+  expect(result).toEqual({shifted:6,reports:7,peak:1,pending:0,scrollable:false});
+});
+test('activation retries unchanged geometry once and a continuing edge refusal becomes idle', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture(); let ready=false, attempts=0, successes=0, errors=0;
+    f.onReport=()=>{
+      attempts++; if(ready) successes++;
+      return applyCollectionFeedback({accepted:true,error:ready?null:'executor not activated'}, batch=>{if(batch.error)errors++;});
+    };
+    f.controller.commit([f.snapshot()]); for(let i=0;i<8;i++)f.flush();
+    const before=attempts;
+    ready=true; f.controller.dataReady(); for(let i=0;i<8;i++)f.flush();
+    const after=attempts;
+    ready=false; f.controller.dataReady(); for(let i=0;i<8;i++)f.flush();
+    return {before,after,attempts,successes,errors,pending:f.frames.size};
+  })()`);
+  expect(result).toEqual({before:1,after:2,attempts:3,successes:1,errors:2,pending:0});
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
   const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].height===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
@@ -164,6 +193,19 @@ test('hidden old owner releases using prior geometry; rejected release never gra
   expect(result.pins).toEqual([[1,0,0],[10,12,12],[20,0,0]]);
   expect(result.peak).toBe(2);
   expect(result.idle).toBe(0);
+});
+
+test('accepted pin release with an edge refusal permits the replacement pin report', async () => {
+  const result = await evaluate(`(() => {
+    const f=(${nestedFixture})(); f.contact(22,22); f.settle();
+    const commit=f.onReport; let surfaced=0;
+    f.onReport=r=>applyCollectionFeedback({accepted:true,error:r.view===20?'edge refused':null}, batch=>{
+      commit(r); if(batch.error) surfaced++;
+    });
+    f.contact(12,12); f.settle();
+    return {pins:[...f.accepted.values()].map(r=>[r.view,r.focus,r.interaction]),peak:f.peak,pending:f.frames.size,surfaced};
+  })()`);
+  expect(result).toEqual({pins:[[1,0,0],[10,12,12],[20,0,0]],peak:2,pending:0,surfaced:1});
 });
 
 

@@ -164,6 +164,7 @@ impl Device {
                 Value::Number(0.),
                 Value::str(""),
                 Value::str(""),
+                Value::str(""),
             ],
         )
     }

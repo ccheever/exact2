@@ -405,17 +405,18 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Actual nested scrollport and mounted row geometry, in the shared LE wire
-    /// format. Geometry does not advance timers or settle data/resources.
+    /// format. Edge actions may settle resources; geometry never advances timers.
     pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
         match self.runner.collection_feedback_bytes(bytes) {
-            Ok(Some(receipt)) => self.batch_for(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None),
+            Ok(mut result) => {
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                let error = result.error.map(|e| format!("collection: {e:?}"));
+                let mut batch = Batch::new();
+                batch.accept_collection();
+                self.batch_from(batch, &result.receipts, error.as_deref())
+            }
             Err(error) => Batch::new().finish(
                 self.runner.has_timers(),
                 self.runner.now_ms(),
@@ -835,7 +836,11 @@ impl<D: DataSource> Host<D> {
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let css = host_css(&node, css);
-        let handlers: Vec<&str> = kinds.iter().map(|e| e.name()).collect();
+        let handlers: Vec<&str> = kinds
+            .iter()
+            .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
+            .map(|e| e.name())
+            .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
         batch.create(id, tag, &pairs, &css, &handlers);

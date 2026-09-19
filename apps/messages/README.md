@@ -7,6 +7,26 @@ through Snapback4. Apple and Linux use the reusable native device; the browser
 runs the upstream TypeScript replica over the existing SQLite capability.
 The baked conversation fixtures still provide the first frame without app code.
 
+Conversation answers contain at most 200 messages, centered on an opaque `order:id` cursor
+(empty means latest). Long histories show explicit **Show earlier messages** /
+**Show later messages** rows and **Show latest messages**. Each shift starts at
+the top of its new window; latest and sending return to the end. History does
+not follow arrivals: non-empty cursors keep their start as arrivals append,
+even in a partial window near the tail. The eager transcript retains up to 200 mounted messages,
+without preserving position across shifts; its scrollbar spans that window.
+Short fixture threads keep their existing presentation. The scroll policy passes
+on web; the headless Linux drive still ignores the authored end request
+(pre-existing at `ccc5367`, tracked in `QUEUE.md`), so Linux latest/send
+positioning is not verified.
+
+Per-thread indexes bound transcript reads to a binary search, the window and
+its two neighbors. Selection uses only selected IDs (sorted by order in O(S log S));
+the reply sheet still returns all R rows of its indexed root, including its own
+receipt. Thus an open reply chain can still cost O(N) when R=N. Durable writes
+remain O(total records): `snapshot()` clones the model, `persist` diffs it, and
+startup/sync `restore` loads it all. The 512-record edit cap still limits bulk
+delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
+
 The development connection is explicit in `snapback-client.ts`: origin
 `http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own
 app-scoped database and stable device identity. Start the Messages backend locally

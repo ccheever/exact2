@@ -184,7 +184,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 32] = [
+pub const HANDLERS: [&str; 34] = [
     "press",
     "change",
     "hover",
@@ -217,6 +217,8 @@ pub const HANDLERS: [&str; 32] = [
     "transformgeometry",
     "transformrelease",
     "reorderdrop",
+    "reachstart",
+    "reachend",
 ];
 
 /// What a handler's event carries as its action's last argument: `change`
@@ -346,7 +348,9 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
         } else {
             usize::from(handler_payload(attr).is_some())
         };
-        let valid = if attr == "navigate" {
+        let valid = if matches!(attr, "reachstart" | "reachend") {
+            given == 0 && params.is_empty()
+        } else if attr == "navigate" {
             given == 0 && params.len() <= 1
         } else {
             given + payload == params.len()

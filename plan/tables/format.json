@@ -478,6 +478,8 @@
       "transformgeometry",
       "transformrelease",
       "reorderdrop",
+      "reachstart",
+      "reachend",
       "loadedmetadata",
       "durationchange",
       "timeupdate",

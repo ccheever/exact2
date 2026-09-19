@@ -53,6 +53,38 @@ final class CollectionMacTests: XCTestCase {
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
     }
+    func testFeedbackMembershipCommitsContinueOnLaterTurnsWithoutScroll() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        let finished = expectation(description: "new row epochs measured after two passes")
+        var reports = 0
+        p.collections.onFeedback = { _ in
+            reports += 1
+            if reports < 7 {
+                var next = self.snapshot(revision: reports + 1)
+                next["rows"] = [["view": 2, "root": 3, "epoch": reports + 7]]
+                p.apply(self.batch([["op": "collections", "items": [next]]]))
+            } else { finished.fulfill() }
+        }
+        p.collections.flush()
+        XCTAssertEqual(reports, 2, "two reports per turn, never recursive")
+        wait(for: [finished], timeout: 2)
+        XCTAssertEqual(reports, 7)
+    }
+    func testActivationRetriesUnchangedFactsOnce() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        var reports = 0
+        p.collections.onFeedback = { _ in reports += 1 }
+        p.collections.flush()
+        XCTAssertEqual(reports, 1)
+        p.collections.dataReady()
+        p.collections.flush()
+        XCTAssertEqual(reports, 2)
+        p.collections.changed(1)
+        p.collections.flush()
+        XCTAssertEqual(reports, 2)
+    }
     func testCorrectionLandsBeforeDeferredAuthoredEvent() throws {
         let (p, list) = fixture()
         defer { p.collections.reset() }

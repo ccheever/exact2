@@ -244,7 +244,7 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
             work: Default::default(),
         };
         assert!(
-            !matches!(h.tree.update_collection(&mut u, f), Ok(true)),
+            !matches!(h.tree.update_collection(&mut u, f), Ok((true, _))),
             "variant {variant}"
         );
         assert!(

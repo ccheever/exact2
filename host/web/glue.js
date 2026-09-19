@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation, collectionController, scrollFollowers, motionController, motionBytes } from "./navigation.js";
+import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes } from "./navigation.js";
 // Native independent HTTP carries a response ceiling; enforce it during browser reads too.
 async function boundedHttpBody(response, limit) {
   if (limit == null) return new Uint8Array(await response.arrayBuffer());
@@ -20,7 +20,7 @@ const collections = collectionController({ root, views, report(bytes) {
   const ptr = wasm.exact_in(bytes.length);
   new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
   const batch = JSON.parse(readOut(wasm.exact_collection_feedback(bytes.length)));
-  applyBatch(batch); return !batch.error;
+  return applyCollectionFeedback(batch, applyBatch);
 } });
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const motion = motionController({views, now:()=>now(), generation:()=>incarnation, inert:inertAncestor, applyBatch,
@@ -1243,7 +1243,7 @@ let ticker = null;
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
-  applyBatch(batch); setInputReady(true); root.dataset.moduleReady = 'true';
+  applyBatch(batch); setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
 }
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).

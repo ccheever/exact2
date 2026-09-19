@@ -3,6 +3,7 @@
 pub const MAX_DRAFT_CHARS: usize = 512;
 pub const MAX_REVISION: usize = 120;
 pub const PAGE_SIZE: usize = 100;
+pub const WINDOW_SIZE: usize = 200;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Controls {
@@ -69,6 +70,59 @@ pub fn page(
     } else {
         (start + PAGE_SIZE).min(controls.count)
     };
+    Ok(slice(controls, echo, start, end))
+}
+
+pub struct Window {
+    pub rows: Vec<Row>,
+    pub earlier: String,
+    pub later: String,
+    pub has_earlier: bool,
+    pub has_later: bool,
+}
+
+/// Decimal synthetic positions are opaque to Contract. Oversized decimal values
+/// still name positions past the end; parse with saturation, never wraparound.
+pub fn window(controls: Controls, echo: &str, cursor: &str) -> Result<Window, &'static str> {
+    let controls = Controls::new(controls.count, controls.revision, controls.batch)?;
+    if echo.chars().take(MAX_DRAFT_CHARS + 1).count() > MAX_DRAFT_CHARS {
+        return Err("local echo is limited to 512 Unicode scalar values");
+    }
+    let position = if cursor.is_empty() {
+        controls.count - 1
+    } else {
+        if !cursor.bytes().all(|c| c.is_ascii_digit()) {
+            return Err("cursor must be a decimal synthetic index or empty for the tail");
+        }
+        cursor
+            .bytes()
+            .fold(0usize, |n, c| {
+                n.saturating_mul(10).saturating_add((c - b'0') as usize)
+            })
+            .min(controls.count - 1)
+    };
+    let start = if cursor.is_empty() {
+        controls.count.saturating_sub(WINDOW_SIZE)
+    } else {
+        position.saturating_sub(WINDOW_SIZE / 2)
+    };
+    let end = (start + WINDOW_SIZE).min(controls.count);
+    Ok(Window {
+        // A local echo belongs at the history tail, never inside an older window.
+        rows: slice(
+            controls,
+            if end == controls.count { echo } else { "" },
+            start,
+            end,
+        ),
+        earlier: start.to_string(),
+        later: (end - 1).to_string(),
+        has_earlier: start > 0,
+        has_later: end < controls.count,
+    })
+}
+
+fn slice(controls: Controls, echo: &str, start: usize, end: usize) -> Vec<Row> {
     let mut rows = Vec::with_capacity(end - start + usize::from(!echo.is_empty()));
     for i in start..end {
         let outgoing = i % 3 == 0;
@@ -102,5 +156,5 @@ pub fn page(
             meta: "Local only · one echo retained · not sent anywhere".into(),
         });
     }
-    Ok(rows)
+    rows
 }

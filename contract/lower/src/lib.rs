@@ -1129,6 +1129,13 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
+            return err(
+                "lower-attr-tag",
+                format!("`{}` belongs to `list`", a.name),
+                a.span,
+            );
+        }
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
@@ -1273,7 +1280,9 @@ impl<'a> Lowerer<'a> {
                             | "navigate"
                     ))
                 };
-                let valid = if event == "navigate" {
+                let valid = if matches!(event, "reachstart" | "reachend") {
+                    args.is_empty() && params == 0
+                } else if event == "navigate" {
                     args.is_empty() && params <= 1
                 } else {
                     args.len() + payload == params

@@ -1326,6 +1326,8 @@ fn refine_params_from_view(
                             | "contextmenu"
                             | "dblclick"
                             | "swiperight"
+                            | "reachstart"
+                            | "reachend"
                             | "scroll"
                             | "loadedmetadata"
                             | "durationchange"

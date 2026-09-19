@@ -209,6 +209,13 @@ final class CollectionHost {
         dirty.insert(view)
         if batchDepth == 0 { if user { flush() } else { schedule() } }
     }
+    func dataReady() {
+        // Retry armed edges once after deferred activation without forgetting
+        // the accepted pin reservations used to order transfers.
+        for entry in entries.values { entry.lastSequence = nil }
+        dirty.formUnion(entries.keys)
+        schedule()
+    }
     func pinsChanged() {
         guard !entries.isEmpty else { return }
         dirty.formUnion(entries.keys)

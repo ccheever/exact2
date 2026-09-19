@@ -96,18 +96,19 @@ impl<D: DataSource> Runner<D> {
         {
             return Err(RunnerError::UnknownView(view));
         }
-        self.update_tree(|tree, u| tree.update_list(u, view, geometry))
+        self.update_tree(false, |tree, u| tree.update_list(u, view, geometry))
     }
 
     /// Re-evaluate every site and apply one batch. A failure here means the
     /// instance tree and the kernel may disagree; the runner is poisoned and
     /// the host restarts it — never a half-applied frame.
     pub(super) fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        self.update_tree(|tree, u| tree.update(u))
+        self.update_tree(true, |tree, u| tree.update(u))
     }
 
     fn update_tree(
         &mut self,
+        settled: bool,
         update: impl FnOnce(&mut Tree, &mut Update<'_>) -> Result<(), crate::instance::InstanceError>,
     ) -> Result<CommitReceipt, RunnerError> {
         let mut tree = self.tree.take().expect("booted");
@@ -131,6 +132,14 @@ impl<D: DataSource> Runner<D> {
                 return Err(e.into());
             }
         };
+        // Only ordinary settlement wakes deferred collection edges; geometry-only
+        // feedback must not replenish this work.
+        if settled
+            && let Err(error) = self.wake_deferred_edges()
+        {
+            self.poison();
+            return Err(error);
+        }
         match self.apply(ops) {
             Ok(receipt) => {
                 self.surfaces.extend(surfaces);

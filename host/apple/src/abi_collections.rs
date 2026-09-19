@@ -61,15 +61,14 @@ impl<D: DataSource> Bridge<D> {
 
     /// One common LE collection feedback packet in the input buffer. An invalid
     /// length is rejected by decoding an empty packet, never a truncated prefix.
-    /// Feedback cannot issue requests, so even malformed/stale calls avoid the
-    /// executor dispatch path and merely publish their returned batch.
+    /// Edge actions can issue requests; publish the batch and submit that work
+    /// through the same executor path as an ordinary event.
     pub fn collection_feedback(&mut self, len: usize, now_ms: f64) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = self
             .host
             .as_mut()
             .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
-        self.output = out.into_bytes();
-        self.output.len() as u32
+        self.emit(out)
     }
 }

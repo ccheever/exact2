@@ -667,7 +667,10 @@ public final class ExactSession {
                 return
             }
             apply(batch)
-            if batch.error == nil { app.firstPixel(token) }
+            if batch.error == nil {
+                presenter.collections.dataReady()
+                app.firstPixel(token)
+            }
             canvases.loadIfNeeded()
             frames.run(frames.motion || canvases.wantsFrames)
         }
