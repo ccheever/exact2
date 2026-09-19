@@ -104,3 +104,17 @@ unchanged incoming tree snapshot omitted the new Glow component; the snapshot
 was updated from the actual failed reply, preserving all original entities and
 fields. Its hash remains exclusively in pins.json. Clippy's Copy warning in
 registry inheritance is corrected without changing behavior.
+
+## End-to-end unfavorable restore
+
+The new opt-in `fold_restore_200k_interleaved_churn_decodes_before_setup` runs
+200,000 named entities in a coprime slot/name permutation, replaces every seventh
+slot and edits every third runtime value. It corrupts the final byte of a fully
+framed 53,158,370-byte save: typed decode refuses in 327.796 ms with zero setup
+calls and an unchanged destination save. Valid bound restore then runs setup
+exactly once and performs the authored merge in 4.121289 s. Every one of 200,000
+values is checked, including kept runtime edits, adopted authored edits and
+recycled identities; an empty or unchanged implementation cannot pass. Peak RSS:
+1,333,528 kB. Release, one local run; no speedup claim. The existing decode and
+projection bounds above still govern admission. This diagnostic adds one ignored
+test to the ordinary suite and passes when explicitly run with `--release --ignored`.

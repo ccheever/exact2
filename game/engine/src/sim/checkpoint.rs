@@ -356,3 +356,104 @@ mod reload_atomic_tests {
         assert_ne!(target.reload.json(), report);
     }
 }
+
+#[cfg(test)]
+mod fold_cost {
+    use super::*;
+    use crate::{Transform, Vec3};
+    thread_local! { static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    const COUNT: u32 = 200_000;
+    struct Interleaved<const EDIT: bool>;
+    impl<const EDIT: bool> Game for Interleaved<EDIT> {
+        const ID: &'static str = "fold-interleaved-restore";
+        type Args = ();
+        fn register(w: &mut World, _: &()) {
+            w.register::<Transform>();
+        }
+        fn setup(w: &mut World, _: &()) {
+            SETUPS.with(|n| n.set(n.get() + 1));
+            for slot in 0..COUNT {
+                // Coprime permutation: name order disagrees with slot order.
+                let name = (u64::from(slot) * 7919 % u64::from(COUNT)) as u32;
+                w.spawn_named(
+                    format!("node-{name}"),
+                    Transform::at(name as f32, 0., 0.).with_scale(if EDIT { 2. } else { 1. }),
+                );
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    #[test]
+    #[ignore = "bounded 200k end-to-end typed restore, churn, refusal and authored merge cost"]
+    fn fold_restore_200k_interleaved_churn_decodes_before_setup() {
+        let mut source = Sim::<Interleaved<false>>::new(()).unwrap();
+        let churn = source
+            .world()
+            .entities()
+            .filter(|e| e.index() % 7 == 0)
+            .collect::<Vec<_>>();
+        for entity in churn {
+            source.world_mut().despawn(entity);
+            let replacement = source.world_mut().spawn_named(
+                format!("replacement-{}", entity.index()),
+                Transform::default(),
+            );
+            assert_eq!(replacement.index(), entity.index());
+        }
+        for (entity, t) in source.world().query::<&mut Transform>().iter() {
+            if entity.index() % 3 == 0 {
+                t.scale = Vec3::splat(3.);
+            }
+        }
+        let saved = source.save().unwrap();
+        let mut target = Sim::<Interleaved<true>>::new(()).unwrap();
+        let before = target.save().unwrap();
+        SETUPS.with(|n| n.set(0));
+        let mut bad: Saved = bin::from_slice(&saved[7..]).unwrap();
+        bad.world.pop(); // Complete outer envelope; invalid end of typed world.
+        let mut encoder = bin::Encoder::prefixed(b"EXSIM\0\x07");
+        bad.write(&mut encoder);
+        let start = std::time::Instant::now();
+        assert!(target.restore_bound(&encoder.finish()).is_err());
+        let refused = start.elapsed();
+        assert_eq!(SETUPS.with(|n| n.get()), 0, "typed refusal ran setup");
+        assert_eq!(
+            target.save().unwrap(),
+            before,
+            "refusal changed destination"
+        );
+        drop(bad);
+        drop(before);
+        let start = std::time::Instant::now();
+        target.restore_bound(&saved).unwrap();
+        let restored = start.elapsed();
+        assert_eq!(SETUPS.with(|n| n.get()), 1);
+        assert_eq!(target.world().len(), COUNT as usize);
+        let mut checked = 0;
+        for (entity, t) in target.world().query::<&Transform>().iter() {
+            let expected = if entity.index() % 3 == 0 {
+                3.
+            } else if entity.index() % 7 == 0 {
+                1.
+            } else {
+                2.
+            };
+            assert_eq!(t.scale, Vec3::splat(expected), "slot {}", entity.index());
+            checked += 1;
+        }
+        assert_eq!(checked, COUNT, "empty/partial restore cannot pass");
+        println!(
+            "FOLD 200k saved_bytes={} refused={refused:?} restore_with_merge={restored:?}",
+            saved.len()
+        );
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            println!(
+                "FOLD {}",
+                status
+                    .lines()
+                    .find(|line| line.starts_with("VmHWM:"))
+                    .unwrap()
+            );
+        }
+    }
+}
