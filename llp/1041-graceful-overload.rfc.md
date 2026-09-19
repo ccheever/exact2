@@ -6954,3 +6954,42 @@ Raw manifest `affbacff` covers23 files /24,819,126B, verified by the lead, under
 Independent reconstruction is `target/messages-linux-frame-split-lead/selected-raw.json`
 (`4d17c3f5`). These results select investigation within painting; they do not
 justify removing collection feedback, activating a worker, or claiming a gain.
+
+### 8.127 Reuse cached glyph placement when building Linux ink bounds, 2026-09-19
+
+Ink-index construction previously rasterized all four X phases uncached even
+when ordinary drawing had already cached the exact glyph image. It now reads
+only the placement scalars from an existing full `CacheKey` entry. Cached
+`None` remains no ink; an absent entry takes the original uncached path. No
+extra phase is inserted, image cloned, owner retained or cache limit changed.
+The four-phase union, numeric bounds, query order and index budget stay intact.
+Cold misses add a map lookup; the opportunity depends on existing cache entries.
+
+The same seven tests run against the original formula and the candidate. The
+baseline has four controls pass and three intended call-count failures: ordinary
+rendered A followed by different-source B makes40 uncached calls where28 are
+needed; a partially warm cache makes60 instead of45; cached no-ink glyphs make
+four instead of zero. These are fixture work counts, not a measured Messages
+cache-hit rate or timing gain. Assertions after each baseline failure did not run.
+
+All seven candidate tests pass, including exact index bounds, query selections,
+paint order and RGBA comparisons against the copied original formula and existing
+full-glyph renderer. Controls cover cold/partial/full caches, fractional geometry
+and scale, full font keys, cached no ink and zero-size images, catalog replacement,
+accepted old owners, index refusal and warm repaint. The existing real Painter
+failed-frame lease test separately checks accepted-owner preservation.
+
+Final validation is28 ink tests plus that one Painter test:29 unique passes,
+zero ignored, strict `exact-linux --all-targets` Clippy and scoped formatting.
+The initial Clippy failure was test-helper ordering; moving the unchanged helper
+and formatting both files passed the same checks. Original failures and the
+exact relocation inverse remain recorded. Tests ran on macOS against the Linux
+crate, with private Motion/kernel/Runner/Linux compilation verified; they are
+not actual Linux workload or physical120 evidence.
+
+The two-file donor is
+`exact2-linux-ink-cached-placement/target/ink-cached-placement-validation/`:
+final source card `74d6de26`, patch `e5b40c3e`, original source card `44a999ad`.
+No native comparison has yet run for this shortcut. Section8.126's single
+diagnostic remains historical context, not a matched baseline or attribution
+of its Paint time to this function.
