@@ -7375,3 +7375,41 @@ separate. The next reader change must qualify both the offered and actual
 installed target, retain refusal for incompatible geometry or ownership,
 and measure movement from the actual picture. It must preserve this failed
 archive and all fixed-prefix, fresh-History and final-publication guards.
+
+### 8.135 Sort cold text entries only when eviction is needed, 2026-09-19
+
+Linux paragraph maintenance now skips sorting cold widths when their byte
+budget already fits. After the unchanged width-eviction loop, it sorts cold
+identities only if the original keep-inclusive count or remaining byte cost
+still exceeds its limit. The full scan, dead-weak pruning, temporary vectors,
+cost accounting, pin checks, eviction loops and final binding pruning remain.
+When eviction is necessary, the original comparator and order apply. This
+removes unnecessary sort calls; it does not remove the linear scan or change
+cache policy, ownership, the256-identity limit or the64-entry handoff limit.
+
+Seven tests compare independently owned catalogs against the original trim
+body. They cover below/exact/over-budget costs, width reclamation before the
+identity decision,256/257 identities, absent and pinned keep values, tied
+identity ages, dead widths and stale bindings, handoffs and lazy ink growth.
+Test-only counters sit at the two actual sort sites. The corrected baseline
+has six count failures and one passing control; the candidate passes7/7.
+Full residency32 and identified-cache10 tests pass:42 distinct tests across49
+executions, with strict all-targets Clippy and scoped formatting passing.
+Actual compiler commands use the private Motion/Kernel/Runner/Linux sources.
+
+The earlier supervisor argument failure and one fixture failure are retained.
+The fixture had assigned both bindings the same node owner, so the second
+correctly replaced the first before trim. Distinct nodes2/3 in one kernel fix
+the setup without changing production, the original reference or assertions.
+The third attempt supplies the meaningful baseline and passing candidate;
+formatting afterward changes only presentation of the tested source.
+
+The integrated files are `cache.rs` (`5b026302`,795 lines) and
+`residency_tests.rs` (`889350d0`,1316 lines). Evidence is under
+`exact2-linux-trim-sort/target/trim-sort-validation`: source seal `8bf4b9d5`,
+production-only patch `3b20b2f0`, corrected baseline log `29e4962b` and
+`cpu03-candidate` logs. All36 recorded candidate PIDs/six groups are gone.
+This is scoped Mac-hosted CPU validation; no native timing improvement is
+established, and the font-metric comparison in§8.134 remains failed with its
+candidate runtime unrun. The diagnostic's callback share does not attribute
+time to cache sorting, and no120Hz claim follows from these call counts.

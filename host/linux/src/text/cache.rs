@@ -151,6 +151,13 @@ impl Payloads {
     }
 }
 
+#[cfg(test)]
+thread_local! { static TRIM_SORTS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) }; }
+#[cfg(test)]
+pub(super) fn trim_sort_calls() -> (usize, usize) {
+    TRIM_SORTS.with(std::cell::Cell::get)
+}
+
 struct Snapshot {
     weak: Weak<Paragraph>,
     cold: Option<Rc<Paragraph>>,
@@ -533,6 +540,72 @@ impl Cache {
                 }
             }
         }
+        if bytes > self.target {
+            #[cfg(test)]
+            TRIM_SORTS.with(|n| {
+                let (a, b) = n.get();
+                n.set((a + 1, b));
+            });
+            cold.sort_unstable_by_key(|v| v.0);
+        }
+        for (_, hash, id, width, cost) in cold {
+            if bytes <= self.target {
+                break;
+            }
+            self.entry((hash, id)).widths.remove(&width);
+            bytes -= cost;
+        }
+        let mut count = cold_keys.len() + usize::from(keep.is_some());
+        if count > COLD_IDENTITIES || bytes > self.target {
+            #[cfg(test)]
+            TRIM_SORTS.with(|n| {
+                let (a, b) = n.get();
+                n.set((a, b + 1));
+            });
+            cold_keys.sort_unstable();
+        }
+        for (_, hash, id) in cold_keys {
+            if count <= COLD_IDENTITIES && bytes <= self.target {
+                break;
+            }
+            let bucket = self.identities.get_mut(&hash).unwrap();
+            let pos = bucket.iter().position(|e| e.id == id).unwrap();
+            let old = bucket.remove(pos);
+            bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
+            count -= 1;
+            if bucket.is_empty() {
+                self.identities.remove(&hash);
+            }
+        }
+        self.prune_bindings();
+    }
+    #[cfg(test)]
+    pub fn trim_reference(&mut self, keep: Option<u64>) {
+        let mut cold = Vec::new();
+        let mut bytes = 0;
+        let mut cold_keys = Vec::new();
+        for (hash, bucket) in &mut self.identities {
+            for entry in bucket {
+                entry
+                    .widths
+                    .retain(|_, value| value.weak.strong_count() != 0);
+                if !entry.pinned() {
+                    bytes += entry.key_bytes() + entry.source_bytes();
+                    if Some(entry.id) != keep {
+                        cold_keys.push((entry.used, *hash, entry.id));
+                    }
+                }
+                for (width, slot) in &entry.widths {
+                    if !slot.pinned() {
+                        if let Some(p) = &slot.cold {
+                            let cost = p.layout_capacity_bytes() + p.private_text_bytes_estimate;
+                            bytes += cost;
+                            cold.push((slot.used, *hash, entry.id, *width, cost));
+                        }
+                    }
+                }
+            }
+        }
         cold.sort_unstable_by_key(|v| v.0);
         for (_, hash, id, width, cost) in cold {
             if bytes <= self.target {
@@ -557,6 +630,88 @@ impl Cache {
             }
         }
         self.prune_bindings();
+    }
+    // Test-only inspection/setup never clones a Paragraph owner into a twin.
+    #[cfg(test)]
+    pub fn trim_test_target(&mut self, bytes: usize) {
+        self.target = bytes;
+    }
+    #[cfg(test)]
+    pub fn trim_test_tie_keys(&mut self) {
+        for entry in self.identities.values_mut().flatten() {
+            entry.used = 1;
+        }
+    }
+    #[cfg(test)]
+    pub fn trim_test_dead_width(&mut self, key: (u64, u64)) {
+        self.entry(key).widths.insert(
+            Width::from(Some(-1.)),
+            Snapshot {
+                weak: Weak::new(),
+                cold: None,
+                used: 0,
+            },
+        );
+    }
+    #[cfg(test)]
+    pub fn trim_test_state(&self) -> String {
+        let mut entries = Vec::new();
+        for (hash, bucket) in &self.identities {
+            for entry in bucket {
+                let mut widths = Vec::new();
+                for (width, slot) in &entry.widths {
+                    let pins = (slot.pinned(), slot.weak.strong_count(), slot.cold.is_some());
+                    let metrics = slot.weak.upgrade().map(|p| {
+                        (
+                            [
+                                p.width.to_bits(),
+                                p.height.to_bits(),
+                                p.first_baseline.to_bits(),
+                            ],
+                            p.baselines.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                            p.layout_capacity_bytes(),
+                            p.private_text_bytes_estimate,
+                        )
+                    });
+                    widths.push(format!(
+                        "{:?}:{:?}:{:?}",
+                        (width.0, slot.used),
+                        pins,
+                        metrics
+                    ));
+                }
+                widths.sort();
+                let intrinsic = entry.intrinsic.map(|m| m.map(|m| format!("{m:?}")));
+                entries.push(format!(
+                    "{:?}:{:?}:{:?}",
+                    (
+                        *hash,
+                        entry.id,
+                        entry.used,
+                        entry.key_bytes(),
+                        entry.source_bytes(),
+                        entry.pinned()
+                    ),
+                    widths,
+                    intrinsic
+                ));
+            }
+        }
+        entries.sort();
+        format!(
+            "{:?}:{:?}:{:?}:{:?}:{:?}",
+            (self.serial, self.clock, self.target),
+            entries,
+            self.bindings
+                .iter()
+                .map(|(_, key)| *key)
+                .collect::<Vec<_>>(),
+            self.handoffs
+                .iter()
+                .map(|h| (h.identity, h.width.0))
+                .collect::<Vec<_>>(),
+            self.residency()
+        )
     }
     #[cfg(test)]
     pub fn binding_count(&self) -> usize {
