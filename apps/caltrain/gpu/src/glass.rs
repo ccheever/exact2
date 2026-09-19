@@ -85,12 +85,8 @@ impl Surface for GlassSurface {
         Ok(())
     }
 
-    fn wants_children(&self) -> bool {
-        true
-    }
-
-    fn wants_previous_children(&self) -> bool {
-        true
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        exact_gpu::ChildrenMode::Composite { previous: true }
     }
 
     fn children(&mut self, texture: Option<&wgpu::TextureView>) {

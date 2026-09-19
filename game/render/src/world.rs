@@ -11,6 +11,16 @@ use scene::Scene;
 
 // The same feed algorithm runs against the GPU and the recording test backend.
 pub(crate) trait Writes {
+    fn attachments(
+        &mut self,
+        _: &mut scene::Attachments,
+        _: &World,
+        _: bool,
+        _: bool,
+        _: bool,
+        _: bool,
+    ) {
+    }
     fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
         None
     }
@@ -33,6 +43,19 @@ pub(crate) trait Writes {
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> {
+    fn attachments(
+        &mut self,
+        a: &mut scene::Attachments,
+        w: &World,
+        initial: bool,
+        tick: bool,
+        parent: bool,
+        models: bool,
+    ) {
+        if ASSETS {
+            a.feed(w, initial, tick, parent, models);
+        }
+    }
     fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
         if ASSETS {
             self.models
@@ -552,13 +575,20 @@ impl Feed {
             r.model_poses(w, &self.assets.entities, initial || parent_changed);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
+        r.attachments(
+            &mut self.scene.attachments,
+            w,
+            initial,
+            initial || self.tick != w.tick(),
+            parent_changed,
+            initial || next.assets != old.assets,
+        );
         self.scene.feed(
             w,
             initial || self.tick != w.tick(),
             moved,
             next.live != old.live || next.membership != old.membership,
             parent_changed,
-            initial || next.assets != old.assets,
         );
         self.tick = w.tick();
         self.versions = Some(next);

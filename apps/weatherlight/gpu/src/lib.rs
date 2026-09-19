@@ -147,10 +147,6 @@ impl Surface for WeatherSurface {
         queue.submit([encoder.finish()]);
         self.animated
     }
-
-    fn wants_children(&self) -> bool {
-        false
-    }
 }
 
 fn build(device: &wgpu::Device, format: wgpu::TextureFormat, generation: u32) -> Gpu {

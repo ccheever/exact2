@@ -127,10 +127,8 @@ extension Canvases {
     func save(_ e: Entry) -> [String: Any] {
         guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
         let length = carry(e.id)
-        guard length != UInt32.max else {
-            let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]
-            return ["error": "save refused: \(state["assets"] ?? [])", "assets": state["assets"] ?? []]
-        }
+        if length == UInt32.max - 1 { return ["error": m.error()] }
+        guard length != UInt32.max else { return ["error": "surface carries no state"] }
         guard length <= WorldCarrier.limit else { return ["error": WorldCarrier.refusal] }
         guard let bytes = length == 0 ? Data() : m.output(length) else { return ["error": "surface returned no save bytes"] }
         let state = agent(e.view.id, ["op": "state"])?["world"] as? [String: Any] ?? [:]

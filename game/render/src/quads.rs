@@ -89,7 +89,7 @@ pub(crate) struct Quads {
     particle_data: Vec<Quad>,
     sprite_data: Vec<Quad>,
     particle_arena: Arena,
-    sprite_arena: Arena,
+    sprite_arena: Option<Arena>,
     pub order: Vec<Order>,
     pub draws: Vec<Draw>,
     layout: wgpu::BindGroupLayout,
@@ -116,7 +116,8 @@ impl Quads {
         self.particle_data.capacity()
     }
     pub fn reallocations(&self) -> u64 {
-        self.particle_arena.reallocations + self.sprite_arena.reallocations
+        self.particle_arena.reallocations
+            + self.sprite_arena.as_ref().map_or(0, |a| a.reallocations)
     }
     pub fn work_pipelines(&self) -> u64 {
         let count = u64::from(self.particle_pipelines.is_some()) * 2
@@ -154,10 +155,11 @@ impl Quads {
         let mut result = Self {
             particles: Vec::new(),
             sprites: Vec::new(),
-            sprite_data: Vec::with_capacity(4096),
+            sprite_data: Vec::with_capacity(if ASSETS { 4096 } else { 0 }),
             particle_data: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize),
             particle_arena: Arena::new(d, exact_game::emitter::PARTICLE_BUDGET as usize),
-            sprite_arena: Arena::new(d, if ASSETS { 4096 } else { 0 }),
+            sprite_arena: (ASSETS || cfg!(not(target_arch = "wasm32")))
+                .then(|| Arena::new(d, 4096)),
             order: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
             draws: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
             layout,
@@ -175,9 +177,11 @@ impl Quads {
             child_pipeline: None,
         };
         result.prepare(d, q);
-        if ASSETS || cfg!(not(target_arch = "wasm32")) {
+        if ASSETS {
             result.prepare_sprites(d);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        result.prepare_children(d);
         result
     }
     pub fn feed<const ASSETS: bool>(
@@ -257,7 +261,7 @@ impl Quads {
             let Some(plane) = child.plane.filter(|p| !p.placement.hidden) else {
                 continue;
             };
-            self.prepare_sprites(d);
+            self.prepare_children(d);
             if self
                 .child_textures
                 .get(&i)
@@ -296,8 +300,8 @@ impl Quads {
     pub fn has_texture(&self, name: &str) -> bool {
         self.textures.contains_key(name)
     }
-    fn prepare_sprites(&mut self, d: &wgpu::Device) {
-        if self.sprite_pipelines.is_some() {
+    fn texture_layout(&mut self, d: &wgpu::Device) {
+        if self.texture_layout.is_some() {
             return;
         }
         let texture = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -321,26 +325,44 @@ impl Quads {
                 },
             ],
         });
-        let shader = source(d, include_str!("shaders/sprite.wgsl"));
-        self.sprite_pipelines = Some(std::array::from_fn(|i| {
-            pipeline(d, &shader, &[&self.layout, &texture], i)
-        }));
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.child_pipeline = Some(pipeline(d, &shader, &[&self.layout, &texture], 4));
-        }
         self.texture_layout = Some(texture);
+    }
+    fn prepare_sprites(&mut self, d: &wgpu::Device) {
+        if self.sprite_pipelines.is_some() {
+            return;
+        }
+        self.texture_layout(d);
+        let shader = source(d, include_str!("shaders/sprite.wgsl"));
+        let texture = self.texture_layout.as_ref().unwrap();
+        self.sprite_pipelines = Some(std::array::from_fn(|i| {
+            pipeline(d, &shader, &[&self.layout, texture], i)
+        }));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn prepare_children(&mut self, d: &wgpu::Device) {
+        if self.child_pipeline.is_some() {
+            return;
+        }
+        self.texture_layout(d);
+        let shader = source(d, include_str!("shaders/sprite.wgsl"));
+        self.child_pipeline = Some(pipeline(
+            d,
+            &shader,
+            &[&self.layout, self.texture_layout.as_ref().unwrap()],
+            4,
+        ));
     }
     pub fn prepare(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
         // Membership-sized sprite capacity is reserved in feed preparation, not draw.
         let sprites = self.sprites.len();
-        self.sprite_arena.reallocations +=
-            u64::from(self.sprite_arena.buffer.grow(d, q, (sprites * 80) as u64));
+        if let Some(arena) = &mut self.sprite_arena {
+            arena.reallocations += u64::from(arena.buffer.grow(d, q, (sprites * 80) as u64));
+            arena
+                .words
+                .reserve((sprites * 20).saturating_sub(arena.words.len()));
+        }
         self.sprite_data
             .reserve(sprites.saturating_sub(self.sprite_data.len()));
-        self.sprite_arena
-            .words
-            .reserve((sprites * 20).saturating_sub(self.sprite_arena.words.len()));
         if self.particle_pipelines.is_none() {
             let shader = source(d, include_str!("shaders/particle.wgsl"));
             self.particle_pipelines = Some(std::array::from_fn(|i| {
@@ -359,7 +381,9 @@ impl Quads {
         self.particle_data.clear();
         self.sprite_data.clear();
         self.particle_arena.words.clear();
-        self.sprite_arena.words.clear();
+        if let Some(arena) = &mut self.sprite_arena {
+            arena.words.clear();
+        }
         let inv = f.view.inverse();
         let right = inv.x_axis.truncate().normalize();
         let up = inv.y_axis.truncate().normalize();
@@ -442,16 +466,22 @@ impl Quads {
                         index: at,
                     });
                 } else {
-                    let start = (self.sprite_arena.words.len() / 20) as u32;
-                    self.sprite_arena.words.extend(self.sprite_data[at].words);
+                    let start = (self.sprite_arena.as_mut().unwrap().words.len() / 20) as u32;
+                    self.sprite_arena
+                        .as_mut()
+                        .unwrap()
+                        .words
+                        .extend(self.sprite_data[at].words);
                     push_draw(&mut self.draws, &self.sprites, Kind::Sprite(index), start);
                 }
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         for &(child, p) in &self.children {
-            let index = self.sprite_arena.words.len() / 20;
+            let index = self.sprite_arena.as_mut().unwrap().words.len() / 20;
             self.sprite_arena
+                .as_mut()
+                .unwrap()
                 .words
                 .extend(quad(p.center, p.x, p.y, [1.; 4], [0., 0., 1., 1.], 4., 0.).words);
             self.order.push(Order {
@@ -463,7 +493,7 @@ impl Quads {
             });
         }
     }
-    pub fn order(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
+    pub fn order<const ASSETS: bool>(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
         self.order.sort_unstable_by(Order::compare);
         for o in &self.order {
             let at = match o.kind {
@@ -474,9 +504,11 @@ impl Quads {
                         .extend(self.particle_data[o.index].words);
                     at as u32
                 }
-                Kind::Sprite(_) => {
-                    let at = self.sprite_arena.words.len() / 20;
+                Kind::Sprite(_) if ASSETS => {
+                    let at = self.sprite_arena.as_mut().unwrap().words.len() / 20;
                     self.sprite_arena
+                        .as_mut()
+                        .unwrap()
                         .words
                         .extend(self.sprite_data[o.index].words);
                     at as u32
@@ -485,10 +517,12 @@ impl Quads {
             };
             push_draw(&mut self.draws, &self.sprites, o.kind, at);
         }
-        self.sprite_arena.upload(d, q);
+        if let Some(arena) = &mut self.sprite_arena {
+            arena.upload(d, q);
+        }
         self.particle_arena.upload(d, q);
     }
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, draw: &Draw) {
+    pub fn draw<'a, const ASSETS: bool>(&'a self, pass: &mut wgpu::RenderPass<'a>, draw: &Draw) {
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
             Kind::Particle(additive) => {
@@ -497,7 +531,7 @@ impl Quads {
                 );
                 pass.set_vertex_buffer(0, self.particle_arena.buffer.raw.slice(..));
             }
-            Kind::Sprite(i) => {
+            Kind::Sprite(i) if ASSETS => {
                 let s = &self.sprites[i].value;
                 let variant = match s.alpha {
                     AlphaMode::Opaque => 0,
@@ -506,15 +540,15 @@ impl Quads {
                 };
                 pass.set_pipeline(&self.sprite_pipelines.as_ref().unwrap()[variant]);
                 pass.set_bind_group(1, &self.textures[&s.texture].1, &[]);
-                pass.set_vertex_buffer(0, self.sprite_arena.buffer.raw.slice(..));
+                pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
             }
             #[cfg(not(target_arch = "wasm32"))]
             Kind::Child(i) => {
                 pass.set_pipeline(self.child_pipeline.as_ref().unwrap());
                 pass.set_bind_group(1, &self.child_textures[&i].1, &[]);
-                pass.set_vertex_buffer(0, self.sprite_arena.buffer.raw.slice(..));
+                pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
             }
-            Kind::Model(..) => unreachable!(),
+            Kind::Model(..) | Kind::Sprite(_) => unreachable!(),
         }
         pass.draw(0..6, draw.range.clone());
     }
@@ -522,7 +556,9 @@ impl Quads {
         matches!(draw.kind,Kind::Sprite(i) if self.sprites[i].value.alpha!=AlphaMode::Blend)
     }
     pub fn instances(&self) -> u64 {
-        ((self.particle_arena.words.len() + self.sprite_arena.words.len()) / 20) as u64
+        ((self.particle_arena.words.len()
+            + self.sprite_arena.as_ref().map_or(0, |a| a.words.len()))
+            / 20) as u64
     }
 }
 fn push_draw(draws: &mut Vec<Draw>, sprites: &[Item<Sprite>], kind: Kind, at: u32) {

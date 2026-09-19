@@ -79,6 +79,7 @@ impl Game for Moving {
     type Args = ();
     const ID: &'static str = "observed";
     fn setup(w: &mut World, _: &()) {
+        w.register::<Camera>().register::<Follow>();
         w.spawn_named("player", Transform::default());
         w.spawn_named("bird", (Transform::default(), Ambient));
         w.insert_resource(Bookkeeping::default());
@@ -143,7 +144,7 @@ fn follow_arrives_snaps_teleports_and_survives_save() {
     scene::follow(s.world());
     let x = s.world().get::<Transform>(camera).unwrap().position.x;
     assert!(x > 0.0 && x < 2.0);
-    // A world load registers Follow even when the current setup has no camera.
+    // Setup declares the types that can be spawned later, without spawning a camera.
     let saved = s.save().unwrap();
     let mut other = Sim::<Moving>::new(()).unwrap();
     other.restore(&saved).unwrap();

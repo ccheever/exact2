@@ -23,7 +23,7 @@ pub use types::*;
 /// Call once during game setup; calling again resets the Physics resource.
 pub fn register(world: &mut World) {
     world
-        .register_scene()
+        .register::<exact_game::Transform>()
         .register::<Body>()
         .register::<Collider>()
         .register::<Announce>()

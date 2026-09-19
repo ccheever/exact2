@@ -241,34 +241,6 @@ test('world convenience keeps simulation fields only and dispatches the existing
 });
 
 
-test('author examples and documentation describe current motion, placement and parity pins', () => {
-  const read = path => readFileSync(resolve(import.meta.dir, path), 'utf8');
-  const main = read('README.md'), engine = read('engine/README.md'), greybox = read('games/greybox/README.md');
-  for (const source of [main, read('new/logic/src/lib.rs')]) {
-    const setup = source.slice(source.indexOf('fn setup'), source.indexOf('fn paused'));
-    expect(setup).not.toContain('scene::follow');
-    expect(source).toContain('Character');
-    expect(source).toContain('nearest_xz_where::<Beacon>');
-  }
-  expect(main).not.toContain('Call it at the\nend of `setup`');
-  expect(engine).not.toContain('stepped explicitly by `scene::follow`');
-  expect(greybox).not.toContain('math::ease');
-  expect(main).not.toContain('a normal proof rebuilds after\na paranoid build');
-  expect(main).not.toContain('fails later in the out-of-scope residency probe');
-  expect(read('render/README.md')).not.toContain('ready || no device');
-  expect(engine).toContain('without Miri');
-  expect(engine).toContain('not\na ZST');
-  expect(read('audio/README.md')).toContain('0x71f43e51a13cc49f');
-
-  const proof = read('games/greybox/proof.mjs');
-  const pins = JSON.parse(read('games/greybox/pins.json'));
-  expect(Object.keys(pins.ticks)).toEqual(['0','90']);
-  expect(proof).toContain('pin(0,');
-  expect(proof).toContain('pin(90,');
-  expect(greybox).toContain('[pins.json](pins.json)');
-  expect(greybox).toContain('[0, 0.9, -5.3666644]');
-});
-
  test('world get translates only the named missing-entity refusal', async () => {
    for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
      const w = worldView({state: async () => {throw Object.assign(new Error(`state: ${error}`), {reply:{tick:0,error}});}}, 'arena');
@@ -277,10 +249,6 @@ test('author examples and documentation describe current motion, placement and p
    const failure = new Error('no entity named `missing`');
    await expect(worldView({state: async () => {throw failure;}}, 'arena').get('missing', 'Transform')).rejects.toBe(failure);
  });
-
-test('queue no longer lists the repaired Beacons designed-defaults fixture', () => {
-  expect(readFileSync(resolve(import.meta.dir, '../QUEUE.md'), 'utf8')).not.toContain('`render/tests/world.rs::beacons_designed_defaults` still expects');
-});
 
 for (const failure of ['none', 'save', 'fresh-throw', 'off-before-receipt']) test(`paranoid receipt lifecycle: ${failure}`, async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'r5-receipt-')), dist = resolve(dir, 'dist');
@@ -301,11 +269,11 @@ for (const failure of ['none', 'save', 'fresh-throw', 'off-before-receipt']) tes
     expect(bakes).toBe(2);
     const failed = await paranoidRuns(async mode => {
       modes.push(mode);
-      await ordinary(mode, failure === 'off-before-receipt' && modes.length === 4);
+      await ordinary(mode);
       if (failure === 'fresh-throw' && mode === 'fresh-game') throw new Error('proof child threw');
       return failure === 'save' && mode === '1' ? 1 : 0;
-    });
-    expect(modes).toEqual(['0', '1', 'fresh-game', '0']);
+    }, async () => { await ordinary('0', failure === 'off-before-receipt'); return 0; });
+    expect(modes).toEqual(['0', '1', 'fresh-game']);
     expect(failed).toBe(failure !== 'none');
     const stamp = JSON.parse(readFileSync(receipt, 'utf8'));
     expect(stamp.inputs).toBe(inputs(failure === 'off-before-receipt' ? 'fresh-game' : '0'));

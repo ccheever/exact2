@@ -518,7 +518,12 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - **R1 audio/cadence owed:** real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. Synthetic tests call interruption directly on main, not AVAudioSession notifications from a background queue. Sources: review-F2f-sol.md (`CanvasSeams.swift:507`, `game/audio/README.md:257`), review-F2f-grok.md (`game/audio/src/web.rs:47–50,117–119`). The Transform borrow regression, named nonpanic finite-source refusal, maximum-rate cap and allocation-free quantizer are fixed.
 
-- **R1 primitive-module size isolation owed:** a primitive world still owns the asset maps and `Models`; 759 KB against the ~490 KB target — the size question needs a link map, its own slice. Both reviewers: review-S3ac-sol.md (`game/engine/src/asset.rs:374`, `sim.rs:82`, `game/render/src/renderer.rs:22,245`), review-S3ac-grok.md §Primitive module vs 759 KB. Missing decoder/shader markers do not establish storage isolation.
+- **D4 primitive-module isolation remains owed:** the round's size target is not met.
+  Animation execution/inspection and sprite buffers are outside the primitive web
+  artifact, but common asset ownership/discovery and model-aware spatial bounds
+  still reach it. Move those to the model executor next, then inspect remaining
+  dynamic float formatter paths. Before/after and the particle-cost decision are
+  in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
   `screenshot run.world world save`, reopen `--world run.world`, then continue;
@@ -528,11 +533,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   regression passes all modes and byte-identical resumed continuation. Keep the
   correction in the sibling capture path (catch up before recording its hash).
 
-- PX1 root verification: `cargo build --workspace` stalls in native JS baking
-  (`weatherlight-web` on the serial retry), with child Bun processes not finishing.
-  Standard, task-owned TMPDIR, and `-j 1` attempts were stopped after three rounds;
-  do not report the root build green. Root Cargo metadata confirms Rapier is absent.
-  Re-run after resolving the local bake/process stall; game workspace checks pass.
+- Root verification remains blocked in Weatherlight's native JS bake. D4's
+  `cargo build --workspace` stalled in Bun/Rolldown; the serial retry also timed
+  out. Only D4's recorded PIDs were stopped. Relevant GPU/Caltrain tests, browser
+  host tests and the Apple ExactKit build pass; that is not a full root build.
+  Logs: `/tmp/d4-root-build-2.log`, `/tmp/d4-root-build-final.log`.
 
 - Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus is covered by the Beacons proof.
 
@@ -564,3 +569,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Game driver: consider an opt-in `world().moveTo` only after action bindings and collision boxes can identify a blocker without assuming WASD or a particular motor; E7 deliberately leaves this optional helper out.
 
 - Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.
+
+- I1 remaining scope: connect `InputEvent::Control` to ordinary Contract canvas children across the existing input carriers (including accessibility activation), then put Move/Jump/Light in Beacons and `game/new`. This needs the shared host/GPU and declaration-table paths beyond I1's listed files. Simulator Asset/Skinned currently hit `gpu/src/lib.rs`'s four-storage-buffer fallback (model pipelines need seven); Beacons victory autofocus fails in shared `Accessibility.swift` on iOS as on macOS. A live-readable iOS adapter is also needed for actual `state.world.perf` timing samples; seekable proof rings are unsampled. Scope clarification is pending; no touch-playability or live performance claim yet.

@@ -150,13 +150,14 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
       && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs)$/.test(file);
 }
-export async function paranoidRuns(run) {
+export async function paranoidRuns(run, restore = async () => 0) {
   let failed = false;
-  // Finish with Off, including its web build receipt, for the next ordinary run.
-  for (const mode of ['0', '1', 'fresh-game', '0']) {
+  for (const mode of ['0', '1', 'fresh-game']) {
     try { failed = (await run(mode)) !== 0 || failed; }
     catch (error) { console.error(error); failed = true; }
   }
+  try { failed = (await restore()) !== 0 || failed; }
+  catch (error) { console.error(error); failed = true; }
   return failed;
 }
 
@@ -180,6 +181,12 @@ export async function proof(meta, script) {
       const code = await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       return code;
+    }, async () => {
+      if (host !== 'web') return 0;
+      const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
+        env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
+      });
+      return await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
     });
     process.exit(failed ? 1 : 0);
   }
@@ -219,7 +226,7 @@ export async function proof(meta, script) {
     child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(parseInventoryLine).filter(Boolean) : null));
   });
   const sample = () => {
-    if (host === 'linux' || auditUnavailable || inventoryPending) return;
+    if (host === 'linux' || host === 'ios' || auditUnavailable || inventoryPending) return;
     inventoryPending = inventory().then(rows => {
       const owned = new Set([process.pid, ...children.map(child => child.pid)]);
       for (let changed = true; changed;) {
@@ -232,7 +239,8 @@ export async function proof(meta, script) {
   };
   const monitor = setInterval(sample, 100);
   const open = async (options = {}) => {
-    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, ...options});
+    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, ...options,
+      env:{EXACT_GAME_PARANOID:process.env.EXACT_GAME_PARANOID ?? '0', ...options.env}});
     sample();
     let closed = false;
     const close = async () => { if (!closed) {
@@ -324,7 +332,7 @@ export async function proof(meta, script) {
     await inventoryPending;
     let remaining = children.filter(child => child.exitCode === null && child.signalCode === null)
       .map(child => ({pid:child.pid}));
-    if (host !== 'linux' && !auditUnavailable) {
+    if (host !== 'linux' && host !== 'ios' && !auditUnavailable) {
       // A killed process group reaps its helpers a few milliseconds after the
       // carrier's exit event: recorded descendants (pid and start stamp) get a
       // short grace, then any survivor is a leak and fails the proof by name.

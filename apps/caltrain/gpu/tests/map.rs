@@ -93,6 +93,7 @@ fn the_map_renders_and_reads_back_on_this_machines_gpu() {
         now_ms: 0.0,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let (px, wants) = fixture::render(&gpu, &mut map, &frame).unwrap();
@@ -132,6 +133,7 @@ fn the_aurora_renders_a_lit_sky_and_wants_every_frame() {
         now_ms: 1234.0,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let (px, wants) = fixture::render(&gpu, &mut sky, &frame).unwrap();

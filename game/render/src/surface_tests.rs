@@ -262,7 +262,7 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .unwrap()
         .advance(100., Clock::Seekable);
     original.sim.as_ref().unwrap().world().publish("score", 7);
-    let saved = original.carry().unwrap();
+    let saved = original.carry().unwrap().unwrap();
     let mut restored = WorldSurface::<Move>::default();
     restored
         .bind(&[Value::Bool(false), Value::Number(9.)], None)
@@ -278,12 +278,12 @@ fn surface_carry_retains_current_bindings_and_refusal_is_atomic() {
         .agent(r#"{"op":"state"}"#)
         .unwrap()
         .contains(r#""restored":true"#));
-    let before = restored.carry().unwrap();
+    let before = restored.carry().unwrap().unwrap();
     assert!(restored
         .restore(b"invalid", exact_gpu::Restore::Open)
         .unwrap_err()
         .contains("save"));
-    assert_eq!(restored.carry().unwrap(), before);
+    assert_eq!(restored.carry().unwrap().unwrap(), before);
     restored
         .sim
         .as_mut()
@@ -305,7 +305,7 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<Move, (), true>::default();
+    let mut s = WorldSurface::<Move, crate::ModelPresentation, true>::default();
     s.bind(&[Value::Bool(true), Value::Number(0.)], None)
         .unwrap();
     let w = s.sim.as_mut().unwrap().world_mut();
@@ -426,7 +426,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     assert!(tick.contains("0x71f43e51a13cc49f"), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
-    let save = module.carry(id).unwrap();
+    let save = module.carry(id).unwrap().unwrap();
     module.lose_device();
     assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
@@ -471,7 +471,7 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
     hidden.width = 0.;
     fixture::render(&gpu, &mut s, &hidden).unwrap();
     assert!(!s.presentation.frames[2].2);
-    let saved = s.carry().unwrap();
+    let saved = s.carry().unwrap().unwrap();
     s.restore(&saved, exact_gpu::Restore::Open).unwrap();
     fixture::render(&gpu, &mut s, &frame(34.)).unwrap();
     assert!(s.presentation.frames[3].1 > s.presentation.frames[2].1);
@@ -582,12 +582,12 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     model.nodes.push(mirrored);
     let bytes = exact_game::bin::to_vec(&model);
     let fresh = || {
-        let mut s = WorldSurface::<Art, (), true>::default();
+        let mut s = WorldSurface::<Art, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         s
     };
-    let deliver = |s: &mut WorldSurface<Art, (), true>| {
+    let deliver = |s: &mut WorldSurface<Art, crate::ModelPresentation, true>| {
         assert_eq!(s.assets(), ["crate.model"]);
         s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
@@ -612,7 +612,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         );
     };
     let mut original = fresh();
-    assert!(original.carry().is_none());
+    assert!(original.carry().is_err());
     deliver(&mut original);
     let work = original.render.as_ref().unwrap().0.asset_work();
     assert_eq!(
@@ -635,7 +635,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         repeat: false,
         at_ms: 500.,
     });
-    let saved = original.carry().unwrap();
+    let saved = original.carry().unwrap().unwrap();
     let hash = original.sim().unwrap().world().hash();
     let mut restored = fresh();
     restored.restore(&saved, exact_gpu::Restore::Open).unwrap();
@@ -646,7 +646,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             && state.contains("\"restored\":false"),
         "{state}"
     );
-    assert!(restored.carry().is_none());
+    assert!(restored.carry().is_err());
     deliver(&mut restored);
     assert_eq!(restored.sim().unwrap().world().tick(), 30);
     assert_eq!(restored.sim().unwrap().world().hash(), hash);

@@ -172,98 +172,13 @@ ends; failed Start drops it into the same 300-live-frame retry as creation failu
 `module!(Game, audio)` forwards `wants_audio`, `clock`, `suspend`, `unlock` and `sync`
 through GameAudio in `game/render/src/lib.rs`; these forwarders are wired.
 
-## Synthesis and proof
+## Proof
 
-`exact_game_audio::render(&Synth, sample_rate)` generates PCM here, beside playback.
-The engine retains saved definitions, validation, durations, voices and events.
-Synthesis uses fixed operation order, libm and a local xorshift32 noise stream. Rendered PCM is made finite and
-clamped to ±4 before caching. `Synth::looped()` adds a 10 ms equal-power overlap of
-tail into head, removes that overlapped tail, and leaves one-shot renders alone.
-The demo uses it for wind. The seam now connects adjacent samples from the original
-tail. The loop is 480 samples shorter at 48 kHz; its period is the rendered length.
+The [audio tests](tests) exercise synthesis, output ownership, seek/restore, and
+sample-rate changes. [Greybox](../games/greybox/logic/src/lib.rs) is the authored
+consumer; its [proof](../games/greybox/proof.mjs) checks silent seekable execution
+and the live browser gesture path. Synthetic lifecycle events are not a physical
+phone interruption test. Simulation/save pins live in the game's `pins.json`.
 
-```sh
-cd game
-EXACT_UPDATE_TRUST=development cargo build -p exact-game -p exact-game-audio
-EXACT_UPDATE_TRUST=development cargo test -p exact-game -p exact-game-audio --no-fail-fast
-EXACT_UPDATE_TRUST=development cargo clippy -p exact-game -p exact-game-audio --all-targets -- -D warnings
-EXACT_UPDATE_TRUST=development cargo clippy -p exact-game-audio --all-targets --target wasm32-unknown-unknown -- -D warnings
-cargo fmt -p exact-game -p exact-game-audio --check
-EXACT_UPDATE_TRUST=development cargo check -p exact-game-audio --target aarch64-apple-ios
-EXACT_UPDATE_TRUST=development cargo check -p exact-game-audio --target aarch64-apple-darwin
-cargo run -p exact-game-audio --example demo -- /private/tmp/exact-au2-demo
-```
-
-The demo writes 16-bit mono WAV. Optional `--play` uses the real macOS output;
-validation does not claim listening or device interruption testing. Regression
-cases are marked AU2.1–13 in `tests/player.rs` and `src/apple_tests.rs`; callback
-and queue scenarios use the real mixer without opening a device. The Player cases
-use RecordingOutput. The existing million-transfer SPSC ordering test is retained.
-
-| Sound | Current PCM hash |
-|---|---|
-| chime | `b0df0c973190c087` |
-| footstep | `3fb464e28571d7c1` |
-| thud | `212e79c768c1fa8b` |
-| looped wind | `0a81380038622d05` |
-| night-sting | `bde9e602c3ce2406` |
-
-D1b typed-bulk cards agree on arm64 macOS, x86-64 Linux and Chrome 153 wasm
-(2026-09-17), for all five demo sounds. The browser ran the demo definitions
-through a temporary wasm card and chime through `null_probe`'s `chime_hash()`
-export; no audio device is opened. The chime pin is in
-`src/synth_tests.rs`; the unlooped wind pin is `c72651fc30eafc30` in `tests/player.rs`.
-Typed bulk f32 hash framing changed these hashes without changing the generated samples.
-
-AU3 diagnostic (64 distinct two-second voices, macOS arm64 dev profile):
-
-| Output | Cold sync before → after | Warm sync before → after | PCM cached before → after |
-|---|---|---|---|
-| Null | 75.020 ms → 0.010 ms | 66.648 µs → 0.028 µs | 64 → 0 |
-| Capacity 32 | 74.481 ms → 39.084 ms | 64.624 µs → 7.226 µs | 64 → 32 |
-
-Run `cargo test -p exact-game-audio --test player sixty_four_voice_sync_timing -- --ignored --nocapture`.
-The timing is diagnostic, not a threshold. Greybox's 1.5 s forward pin is
-`0x71f43e51a13cc49f` (moved with Character from `0x0f14b8b231091d12`),
-position `(0, 0.9, -5.3666644)`, matching the current
-native golden and AU3c web deterministic proof.
-
-Run `bun game/bench/probes/audio.mjs greybox` after the web proof, or use
-`EXACT_AUDIO_PROBE=1 bun game/games/greybox/proof.mjs web`. The shortcut closes the
-deterministic session before opening a separate live browser. The probe is under
-`game/bench`, excluded from the proof's build-input digest. It verifies both orderings:
-a completed live frame before input, and a fresh production surface created during
-a trusted gesture before its first frame. Neither rAF nor ResizeObserver callbacks
-are delayed. Both invoke resume exactly once on the trusted stack. It records context
-construction and input-to-next-frame costs, observes running device time and nonzero
-wind analyser RMS, and injects a refused start to prove retry without a wasm trap.
-
-Evidence goes to `game/games/greybox/artifacts/audio-web.json`. Synthetic page events
-prove suspension/resumption and simulation isolation; the separate listener fixture
-checks persisted pageshow with `document.hidden` still true. This is not a claim that
-Chrome actually admitted the page into bfcache. Teardown owns and awaits its browser
-process group, closes server connections, and removes the profile, including injected
-setup failures. Greybox, Beacons and the asset fixture pass on web with unchanged pins.
-
-All synth numbers must be finite. Duration is 0..=60 seconds and sustain 0..=1.
-Oscillator gain, frequency, vibrato frequency/depth, ADSR times and filter cutoffs
-are nonnegative; slide accepts either sign. Validation recurses through layers and
-applies to both saved registry and saved voice definitions; refused loads leave
-the world unchanged. Opening a `.world` restores saved `Sounds`, including runtime-registered names,
-and saved finite-voice definitions. `Sim::restore_bound` owns only app binding policy.
-The restore seam distinguishes Open from Carry:
-GameAudio overlays fresh setup definitions only on Carry, preserving runtime names;
-finite voices retain frozen definitions. Opening a file keeps its saved registry.
-
-Apple callback tests use the real mixer with fixture buffers and open no device.
-Compiled macOS Swift fixtures call `interruption(began:shouldResume:)` directly
-on the main thread; they do not post `AVAudioSession.interruptionNotification`
-from a background queue. They check aggregate visibility, activation retry,
-`shouldResume`, recovery broadcast to live lifecycles and the first silent gesture.
-AU3d built and linked the macOS `ExactMac` Swift product with a temporary native-build
-wrapper. The one greybox macOS proof attempt then failed before launch: the WebKit
-helper selected SDK 27 with Swift 6.3.3. There is no macOS device-output claim.
-Audio/render Rust libraries and the Swift `ExactKit` target build for iOS; iOS was
-not driven and interruption handling remains unproven on a device.
-
-Owed: real-device Apple interruption and multi-display sweeps; WebAudio resume-failure propagation. The fixtures do not establish these claims (`review-F2f-sol.md`, `CanvasSeams.swift:507`; `review-F2f-grok.md`, `game/audio/src/web.rs:47–50,117–119`). The authoring regression now holds a mutable `Transform` borrow across `play().at(entity).start()`. Finite attached sources are skipped and journal a named refusal once in debug and release, without a panic.
+For commands and executor selection see [the game map](../README.md); dated
+measurements belong in [bench](../bench/README.md) or the [diaries](../diaries/README.md).

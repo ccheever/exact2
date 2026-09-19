@@ -67,7 +67,7 @@ struct Light {
 #[derive(Default)]
 pub(super) struct Scene {
     versions: Option<[u64; 3]>,
-    attachments: Attachments,
+    pub(super) attachments: Attachments,
     camera: Option<(History, Camera)>,
     sun: Option<(History, DirectionalLight)>,
     lights: Vec<Light>,
@@ -107,15 +107,7 @@ impl Scene {
         moved: bool,
         structure: bool,
         parent_changed: bool,
-        assets_changed: bool,
     ) {
-        self.attachments.feed(
-            w,
-            self.versions.is_none(),
-            next_tick,
-            parent_changed,
-            assets_changed,
-        );
         let versions = [
             w.revision::<Camera>(),
             w.revision::<DirectionalLight>(),

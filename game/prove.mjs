@@ -10,8 +10,8 @@ const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag)
 const repin = args.includes('--repin');
 const hosts = option('--hosts', 'linux,web').split(','), repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1
-    || !hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux'].includes(h))) {
-  throw new Error('Usage: bun game/prove.mjs <game> --hosts web,linux --repeat 2 --compare-saves');
+    || !hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
+  throw new Error('Usage: bun game/prove.mjs <game> --hosts web,linux,ios --repeat 2 --compare-saves');
 }
 const app = resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);

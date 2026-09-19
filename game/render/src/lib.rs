@@ -32,6 +32,7 @@ pub mod world;
 pub use exact_game;
 /// GPU surface ABI, also used by module! without a direct dependency.
 pub use exact_gpu;
+pub use models::ModelPresentation;
 pub use surface::{Presentation, WorldSurface};
 pub use world::scene::DisplayedAttachment;
 pub use world::Feed;
@@ -272,10 +273,10 @@ mod tests {
 #[macro_export]
 macro_rules! module {
     ($game:ty) => { $crate::module!($game, hook (), false); };
-    ($game:ty, assets) => { $crate::module!($game, hook (), true); };
+    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelPresentation, true); };
     ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
     ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
-    ($game:ty, audio_mode $assets:literal) => {
+    ($game:ty, audio_mode $assets:tt) => {
         #[derive(Default)]
         struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
         impl $crate::Presentation for GameAudio {
@@ -299,8 +300,10 @@ macro_rules! module {
             }
             fn unlock(&mut self) { self.0.unlock(); }
         }
-        $crate::module!($game, hook GameAudio, $assets);
+        $crate::module!($game, audio_hook GameAudio, $assets);
     };
+    ($game:ty, audio_hook $hook:ty, false) => { $crate::module!($game, hook $hook, false); };
+    ($game:ty, audio_hook $hook:ty, true) => { $crate::module!($game, hook $crate::ModelPresentation<$hook>, true); };
     ($game:ty, hook $hook:ty, $assets:literal) => {
         /// The game's sole surface; shaders are embedded in the renderer.
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {

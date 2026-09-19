@@ -47,7 +47,7 @@ impl Abi {
                 "gpu_recover",
                 "gpu_child",
                 "gpu_children_count",
-                "gpu_wants_children_each",
+                "gpu_children_mode",
                 "gpu_placement",
                 "gpu_unload",
                 "gpu_create_headless",
@@ -99,7 +99,11 @@ impl Abi {
         })
     }
     fn read(&self, name: &[u8], id: u32) -> Option<Vec<u8>> {
-        self.bytes(unsafe { self.symbol::<Read>(name)(id) })
+        let length = unsafe { self.symbol::<Read>(name)(id) };
+        if name == b"gpu_carry" && length == u32::MAX - 1 {
+            return None;
+        }
+        self.bytes(length)
     }
     fn text(&self, name: &[u8], id: u32, text: &str) -> u32 {
         unsafe { self.symbol::<Text>(name)(id, text.as_ptr(), text.len()) }
@@ -460,7 +464,7 @@ impl Surfaces {
             let Some(node) = host.kernel().node(view) else {
                 continue;
             };
-            if unsafe { abi.symbol::<Read>(b"gpu_wants_children_each")(canvas.id) } == 0 {
+            if unsafe { abi.symbol::<Read>(b"gpu_children_mode")(canvas.id) } != 3 {
                 continue;
             }
             let children = node.children();
@@ -627,7 +631,7 @@ impl<D: DataSource> Presenter<D> {
                     json!({"bytes":bytes.len(),"data":base64::engine::general_purpose::STANDARD.encode(&bytes),"tick":state["world"]["tick"],"hash":state["world"]["hash"]})
                 }
                 None => {
-                    json!({"error":format!("save refused: {}",state["world"]["assets"]), "assets":state["world"]["assets"]})
+                    json!({"error":abi.error().unwrap_or_else(|| "surface carries no state".into())})
                 }
             };
         }
@@ -812,7 +816,7 @@ void gpu_load_headless(void) {}
 uint32_t gpu_recover(void) { return 0; }
 uint32_t gpu_child(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }
-uint32_t gpu_wants_children_each(void) { return 0; }
+uint32_t gpu_children_mode(void) { return 0; }
 uint32_t gpu_placement(void) { return 0; }
 void gpu_unload(void) {}
 uint32_t gpu_create_headless(void) { return 1; }

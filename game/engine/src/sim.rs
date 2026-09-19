@@ -96,14 +96,15 @@ pub enum Paranoid {
     FreshGame,
 }
 impl Paranoid {
+    #[inline]
     fn environment() -> Self {
-        // wasm has no process environment; proof builds select the same mode.
-        let mode = if cfg!(target_arch = "wasm32") {
-            option_env!("EXACT_GAME_PARANOID").map(str::to_owned)
-        } else {
-            std::env::var("EXACT_GAME_PARANOID").ok()
-        };
-        match mode.as_deref() {
+        #[cfg(target_arch = "wasm32")]
+        let mode = option_env!("EXACT_GAME_PARANOID");
+        #[cfg(not(target_arch = "wasm32"))]
+        let owned = std::env::var("EXACT_GAME_PARANOID").ok();
+        #[cfg(not(target_arch = "wasm32"))]
+        let mode = owned.as_deref();
+        match mode {
             Some("1") => Self::Save,
             Some("fresh-game") => Self::FreshGame,
             _ => Self::Off,
@@ -139,7 +140,7 @@ pub struct Sim<G: Game> {
     paused_clock: bool,
     // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
     lookahead_us_hz: i128,
-    paranoid: Paranoid,
+    paranoid: Option<fn(&mut Self)>,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -149,14 +150,24 @@ pub(crate) fn micros(ms: f64) -> i64 {
 impl<G: Game> Sim<G> {
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
-        self.paranoid = mode;
+        self.paranoid = Self::reconstruction(mode);
         self
+    }
+
+    // The ordinary artifact stores no reconstruction executor. A function pointer
+    // keeps FreshGame's model decoder out of a build whose environment selects Off.
+    #[inline]
+    fn reconstruction(mode: Paranoid) -> Option<fn(&mut Self)> {
+        match mode {
+            Paranoid::Off => None,
+            Paranoid::Save => Some(|sim| sim.paranoid_rebuild(Paranoid::Save)),
+            Paranoid::FreshGame => Some(|sim| sim.paranoid_rebuild(Paranoid::FreshGame)),
+        }
     }
 
     fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
-        world.register_scene();
         for &name in G::ASSETS {
             world.assets.declared.insert(name.into());
             world.assets.required.insert(name.into());
@@ -465,7 +476,7 @@ impl<G: Game> Sim<G> {
             period_ms: 0.0,
             paused_clock: false,
             lookahead_us_hz: 0,
-            paranoid: Paranoid::environment(),
+            paranoid: Self::reconstruction(Paranoid::environment()),
             game: PhantomData,
         })
     }
@@ -624,18 +635,7 @@ impl<G: Game> Sim<G> {
                 break;
             }
             match (&mut self.queue[i].event, &e.event) {
-                (
-                    InputEvent::Pointer {
-                        id: old,
-                        phase: PointerPhase::Move,
-                        ..
-                    },
-                    InputEvent::Pointer {
-                        id,
-                        phase: PointerPhase::Move,
-                        ..
-                    },
-                ) if old == id => {
+                (old, new) if old.same_motion(new) => {
                     self.queue.remove(i);
                     self.queue.insert(position - 1, e);
                     return;
@@ -650,6 +650,10 @@ impl<G: Game> Sim<G> {
                         phase: PointerPhase::Move,
                         ..
                     }
+                    | InputEvent::Control {
+                        phase: PointerPhase::Move,
+                        ..
+                    }
                     | InputEvent::Wheel { .. },
                     _,
                 ) => {}
@@ -661,23 +665,9 @@ impl<G: Game> Sim<G> {
             let drop = self
                 .queue
                 .iter()
-                .position(|e| {
-                    matches!(
-                        e.event,
-                        InputEvent::Pointer {
-                            phase: PointerPhase::Move,
-                            ..
-                        }
-                    )
-                })
+                .position(|e| e.event.is_move())
                 .unwrap_or(0);
-            let was_move = matches!(
-                self.queue[drop].event,
-                InputEvent::Pointer {
-                    phase: PointerPhase::Move,
-                    ..
-                }
-            );
+            let was_move = self.queue[drop].event.is_move();
             if drop == 0 {
                 self.queue.pop_front();
             } else {
@@ -928,7 +918,9 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
-            self.paranoid_rebuild();
+            if let Some(rebuild) = self.paranoid {
+                rebuild(self);
+            }
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
                 if left == 1 {
@@ -949,17 +941,14 @@ impl<G: Game> Sim<G> {
         }
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
     }
-    fn paranoid_rebuild(&mut self) {
-        if self.paranoid == Paranoid::Off {
-            return;
-        }
+    fn paranoid_rebuild(&mut self, mode: Paranoid) {
         let tick = self.world.tick();
         let hash = self.world.hash();
         // advance_with owns the seek horizon, but EXSIM checkpoints describe a
         // completed boundary. Retain the horizon outside the reconstructed Sim.
         let horizon = self.world_us;
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", self.paranoid, G::ID, G::ID));
+        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
         let host = self.last_us;
         let queue = self.queue.clone();
         let last_ms = self.last_ms;
@@ -974,7 +963,7 @@ impl<G: Game> Sim<G> {
         let messages = self.take_messages();
         // These are driver outputs/ownership, not dependencies of Game::tick.
         // Keep them outside the rebuild just like advance_with's callback.
-        if self.paranoid == Paranoid::FreshGame {
+        if mode == Paranoid::FreshGame {
             let mut assets = std::mem::take(&mut self.world.assets);
             let models = assets
                 .models
@@ -996,12 +985,12 @@ impl<G: Game> Sim<G> {
             self.world.assets = assets;
         }
         self.restore(&bytes)
-            .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", self.paranoid, G::ID, G::ID));
+            .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
         assert_eq!(
             hash,
             self.world.hash(),
             "paranoid {:?} tick {tick}: world hash; rerun bun game/games/{}/proof.mjs linux --paranoid",
-            self.paranoid, G::ID
+            mode, G::ID
         );
         self.world_us = horizon;
         self.last_us = host;

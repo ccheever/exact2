@@ -105,7 +105,7 @@ fn a04_saves_refuse_cycles_and_runtime_breaks_the_highest_cycle_entity_once() {
     let tail = w.spawn((Parent(a), Transform::at(4.0, 0.0, 0.0)));
     w.insert(a, Parent(b));
     let mut loaded = World::new(60, 0);
-    loaded.register_scene();
+    loaded.register::<Transform>().register::<Parent>();
     let before = loaded.save();
     let err = loaded.load(&w.save()).unwrap_err().to_string();
     assert!(

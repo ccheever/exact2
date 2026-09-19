@@ -296,8 +296,23 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
 #[test]
 fn beacons_grid_fog_and_bloom() {
     use beacons_logic::{Beacons, Options};
+    struct Atmosphere;
+    impl Game for Atmosphere {
+        type Args = Options;
+        const ID: &'static str = Beacons::ID;
+        fn actions() -> Actions {
+            Beacons::actions()
+        }
+        fn setup(w: &mut World, args: &Options) {
+            Beacons::setup(w, args);
+            w.register_resource::<exact_game::Environment>();
+        }
+        fn tick(w: &mut World, input: &Input, args: &Options) {
+            Beacons::tick(w, input, args);
+        }
+    }
     let Some(gpu) = gpu() else { return };
-    let mut sim = exact_game::Sim::<Beacons>::new(Options {
+    let mut sim = exact_game::Sim::<Atmosphere>::new(Options {
         seed: 7,
         paused: false,
         restart: false,
@@ -313,7 +328,7 @@ fn beacons_grid_fog_and_bloom() {
         .teleport(player, Transform::at(8.0, 0.9, 0.0));
     sim.tap("KeyE");
     sim.run(1000.0);
-    let mut surface = WorldSurface::<Beacons>::default();
+    let mut surface = WorldSurface::<Atmosphere>::default();
     surface
         .bind(
             &[Value::Number(7.0), Value::Bool(false), Value::Bool(false)],

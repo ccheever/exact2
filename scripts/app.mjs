@@ -384,7 +384,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/gpu-glue.js','host/web/pace.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/gpu-glue.js','host/web/pace.js','host/web/gpu-assets.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.

@@ -11,7 +11,7 @@ impl Game for Art {
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
-fn fresh() -> WorldSurface<Art, (), true> {
+fn fresh() -> WorldSurface<Art, exact_game_render::ModelPresentation, true> {
     let mut surface = WorldSurface::default();
     surface.bind(&[], None).unwrap();
     surface
@@ -40,7 +40,7 @@ fn pending_restore_never_escapes_as_a_current_save() {
     surface
         .restore(&source.save().unwrap(), exact_gpu::Restore::Open)
         .unwrap();
-    assert!(surface.carry().is_none());
+    assert!(surface.carry().is_err());
 }
 #[test]
 fn terminal_declaration_requests_no_more_frames() {
@@ -77,7 +77,6 @@ fn mirrored_entity_model_refuses_by_name() {
         .prepare_model("mirrored.model", &Model::default())
         .unwrap();
     let mut world = World::new(60, 0);
-    world.register_scene();
     let pose = Transform {
         scale: exact_game::Vec3::new(-1., 1., 1.),
         ..Default::default()
@@ -197,7 +196,11 @@ mod asset_fixture;
 #[test]
 fn replacement_device_draws_identical_pixels() {
     let Ok(gpu) = fixture::device() else { return };
-    let mut surface = WorldSurface::<asset_fixture::AssetFixture, (), true>::default();
+    let mut surface = WorldSurface::<
+        asset_fixture::AssetFixture,
+        exact_game_render::ModelPresentation,
+        true,
+    >::default();
     surface.device_ready();
     surface.bind(&[], None).unwrap();
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -259,7 +262,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     }
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 0, || {
-            Box::<WorldSurface<Pair, (), true>>::default()
+            Box::<WorldSurface<Pair, exact_game_render::ModelPresentation, true>>::default()
         })],
         shaders: &[],
     };

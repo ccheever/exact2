@@ -411,24 +411,6 @@ impl Default for Visible {
 }
 
 impl World {
-    /// Register the renderer's plain-data vocabulary before loading a scene.
-    pub fn register_scene(&mut self) -> &mut Self {
-        self.register::<Transform>()
-            .register::<Parent>()
-            .register::<Camera>()
-            .register::<Mesh>()
-            .register::<Material>()
-            .register::<DirectionalLight>()
-            .register::<PointLight>()
-            .register::<Visible>()
-            .register::<Ambient>()
-            .register::<Follow>()
-            .register::<crate::Emitter>()
-            .register::<crate::Sprite>()
-            .register::<crate::SpriteAnimation>()
-            .register::<crate::Placed>()
-            .register_resource::<crate::Environment>()
-    }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
     /// Stale parents act as roots; parents without Transform contribute identity.
     /// Runtime cycles lose the highest-index edge, with one journal line per cycle.

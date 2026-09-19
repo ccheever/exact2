@@ -25,7 +25,7 @@
   and accounted decoded allocations; violations return `DataError`. Custom `Data`
   readers must account their allocations through `Reader::claim` too.
 
-The [complete first game](../README.md#the-programming-model) is this crate's
+The [small example](../README.md#the-programming-model) is this crate's
 runnable doc-test. `Game::Args` is a struct with `#[derive(Args)]`: declaration order
 is positional order, `#[live]` avoids rebuilding, decoding refuses before mutation.
 Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
@@ -64,50 +64,6 @@ including filtered, optional and owning iteration. Insert/remove/load mark write
 The shared mutation epoch still invalidates quiescence on every mutable lease. There is no last-changed-tick API. `Play` is a
 must-use builder: `.start()` creates a voice. PCM generation belongs to `game/audio`.
 
-D1 measurements (2026-09-17, arm64 M5 Max, release; five frozen-snapshot
-save/restore samples, median milliseconds):
-
-| Sim | Before bytes | Current bytes | Save ms before → after | Load ms before → after |
-|---|---:|---:|---:|---:|
-| 2,000-box pour, 238 physics steps | 52,033,602 | 11,187,756 | 96.446 → 6.704 | 283.536 → 11.371 |
-| Greybox setup, seed 7 | 5,376 | 3,003 | — | — |
-| Beacons setup, seed 7 | 7,655 | 4,225 | — | — |
-
-The pile fixture freezes the tenth active snapshot, already refreshed, in a Sim
-container; timings include binary encoding/decoding and atomic restore, excluding
-physics stepping and dirty-snapshot refresh. It retains all 10,030,624 physics
-snapshot bytes (including the eight-byte physics marker), maps and components.
-Run `PILE_TICKS=238 cargo run -p exact-game-physics --release --example pile -- 2000 --save`.
-`cargo run -p exact-game --release --example parity` prints the game cards/sizes.
-
-Greybox's standalone GPU crate (`--profile web`, raw / gzip -9 bytes) is
-1,677,842 / 455,002 → **1,676,464 / 454,447**. This measures the simulation
-and renderer artifact before host bindgen/optimization, not an engine-only library; unused synthesis was already
-removed by linking, so moving its source is not claimed as a wasm saving.
-
-
-P1 measurements, 2026-09-17, release; median of three runs, with each run's load1.
-`examples/churn` retains its median-of-five rotation sampling within each run.
-The final iteration chunk caches its page pointer as well as marking its generation;
-there is no per-row generation store. CPU runs on Linux are the primary comparison.
-
-| Churn ns/entity/tick | Before | Before load1 | After | After load1 |
-|---|---:|---|---:|---|
-| Mac, 100k | 2.50 | 19.84/22.50/22.50 | 1.99 | 20.12/20.12/19.15 |
-| Mac, 500k | 2.44 | 19.84/22.50/22.50 | 1.97 | 20.12/20.12/19.15 |
-| Linux, 100k | 5.74 | 1.26/1.24/1.22 | 5.22 | 1.67/1.62/1.57 |
-| Linux, 500k | 5.79 | 1.26/1.24/1.22 | 5.27 | 1.67/1.62/1.57 |
-
-Greybox seed 7 setup retains **309,641 → 301,713 bytes** on both architectures.
-This is requested live heap allocation plus `size_of::<World>()`, not process RSS:
-heap **308,873 → 301,025**, inline **768 → 688**. It includes the new per-page
-metadata; component pages still dominate this eight-entity world. All three runs
-reported the same byte counts. Load1: Mac before 21.58/21.58/21.58, after 19.15/19.15/19.15;
-Linux before 3.32/3.32/3.32, after 1.85/1.85/1.85.
-The RNG is this fixture's singleton; ordinary Resource cells use the same storage.
-Run `cargo run --release -p exact-game --example memory` or `--example churn`.
-
-
 Publish a HUD with `w.publish_record(&Hud { beacons })` and a normal `Data` derive;
 Contract checks types when applying a surface record; missing fields default and
 extra names are ignored. Rust record field names are not checked at bake time.
@@ -122,8 +78,7 @@ including translated or rotated parents. Mandatory queries use
 `sim.save()?` checks current mesh roots before any request drain and returns
 named pending assets or failed declarations; failed cosmetics do not block saving. The game-save
 migration hook is gone: the format and game identity are checked before loading.
-The template's non-live `restart_generation` is incremented to reconstruct setup
-through the existing argument-binding path.
+The template uses a `#[restart]` argument to reconstruct setup.
 
 
 Erased component pages own values through typed descriptor operations: `read`/
@@ -156,3 +111,6 @@ use it for root-motion time, springs and HUD publication, retaining `now()` for 
 completed boundary. `Sim` and `World` expose explicit `local_position`/`global_position`.
 Character contact includes actual displacement; collision movement uses the separate
 physics `CapsuleController` handle so both component types coexist.
+
+Measurements and artifact sizes belong in the [bench README](../bench/README.md);
+working commands and the module/executor boundary are in the [game map](../README.md).

@@ -63,6 +63,12 @@ impl Target for &str {
 pub trait Component: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
+    /// Register data this component produces, before restoring a saved world.
+    fn register(_world: &mut World) {}
+    /// Refuse a component combination before changing the entity.
+    fn accepts(_world: &World, _entity: Entity) -> bool {
+        true
+    }
 }
 /// World-owned singleton data, named by the Resource derive.
 /// Semantic state has no interior mutability; derives introduce none. A manual
@@ -176,13 +182,14 @@ pub struct World {
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
+    // Executor-owned derived data, populated only by linked callers; never saved.
+    derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
-    pub(crate) animation: crate::animation::Runtime,
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
@@ -195,6 +202,15 @@ const SINGLETON: Entity = Entity {
 const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
 
 impl World {
+    pub(crate) fn derived<T: Default + 'static>(&self) -> std::cell::RefMut<'_, T> {
+        std::cell::RefMut::map(self.derived.borrow_mut(), |caches| {
+            caches
+                .entry(TypeId::of::<T>())
+                .or_insert_with(|| Box::<T>::default())
+                .downcast_mut::<T>()
+                .expect("derived cache type")
+        })
+    }
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
@@ -221,13 +237,13 @@ impl World {
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
+            derived: RefCell::new(BTreeMap::new()),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
-            animation: Default::default(),
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
@@ -245,7 +261,7 @@ impl World {
     }
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
-        crate::animation::register::<C>(self);
+        C::register(self);
         self.registration::<C>(C::NAME).make = Some(storage::make::<C>);
         self
     }
@@ -425,11 +441,7 @@ impl World {
         if !self.contains(e) {
             return false;
         }
-        if crate::animation::conflicts::<C>(self, e) {
-            self.log(format_args!(
-                "animation #{}: Animation, Blend and Animator are alternatives",
-                e.index()
-            ));
+        if !C::accepts(self, e) {
             return false;
         }
         // Acquiring a first pose is also a presentation birth, even when an

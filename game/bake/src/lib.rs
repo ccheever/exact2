@@ -348,22 +348,14 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     if !art.exists() && !manifest.exists() {
         return Ok(());
     }
-    let mut legacy = std::collections::BTreeSet::<String>::new();
     let previous: std::collections::BTreeMap<String, String> = match std::fs::read(&manifest) {
-        Ok(bytes) => match serde_json::from_slice(&bytes) {
-            Ok(map) => map,
-            Err(_) => {
-                legacy = serde_json::from_slice::<Vec<String>>(&bytes)
-                    .map_err(|e| format!("generated-output manifest: {e}"))?
-                    .into_iter()
-                    .collect();
-                Default::default()
-            }
-        },
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!(
+            "generated-output manifest: {e}; regenerate by removing .baked-assets.json and its generated outputs, then bake art again"
+        ))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Default::default(),
         Err(e) => return Err(e.to_string()),
     };
-    if previous.keys().chain(legacy.iter()).any(|n| !asset_name(n)) {
+    if previous.keys().any(|n| !asset_name(n)) {
         return Err("invalid generated-output manifest".into());
     }
     let mut outputs = std::collections::BTreeMap::new();
@@ -403,9 +395,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             check_size(name, bytes.len())?;
         }
         match std::fs::read(root.join(name)) {
-            Ok(current)
-                if previous.get(name) == Some(&digest(&current))
-                    || (legacy.contains(name) && desired == Some(&current)) => {}
+            Ok(current) if previous.get(name) == Some(&digest(&current)) => {}
             Ok(_) => {
                 return Err(format!(
                     "generated asset `{name}` collides with an authored asset"

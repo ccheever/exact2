@@ -1,3 +1,4 @@
+import {assetDelivery} from '../gpu-assets.js';
 import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 const source = readFileSync(new URL('../gpu-glue.js', import.meta.url), 'utf8');
@@ -10,9 +11,7 @@ test('asset fetches have at most eight simultaneous requests', async () => {
   const fetch = () => { peak = Math.max(peak, ++active); return new Promise(resolve => release.push(() => {
     active--; resolve(new Response(new Uint8Array(1)));
   })); };
-  const body = source.slice(source.indexOf('const ASSET_DEADLINE_MS'), source.indexOf('function size('));
-  const api = new Function('gpu','exact','live','fetch','document','messages','schedule', body + '\nreturn {assets, assetFlights};')(
-    gpu, {}, () => entry, fetch, {baseURI:'http://fixture/'}, () => {}, () => {});
+  const api = assetDelivery({getModule:()=>gpu, live:()=>entry, fetch, baseURI:()=> 'http://fixture/'});
   api.assets(entry);
   const firstPeak = peak;
   while (api.assetFlights.size) { for (const finish of release.splice(0)) finish(); await new Promise(r=>setTimeout(r,0)); }
@@ -37,9 +36,7 @@ function harness({names, fetch, exact = {}}) {
   const gpu = {gpu_assets: () => JSON.stringify(names.splice(0)), gpu_retired: () => JSON.stringify(retired.splice(0)),
     gpu_asset: (_, name, bytes) => { delivered.push([name,bytes]); return true; },
     gpu_asset_failed: (_, name, reason) => { failed.push([name,reason]); return true; }};
-  const body = source.slice(source.indexOf('const ASSET_DEADLINE_MS'), source.indexOf('function size('));
-  const api = new Function('gpu','exact','live','fetch','document','messages','schedule', body + '\nreturn {assets, assetFlights, cancelAssets};')(
-    gpu, exact, () => entry, fetch, {baseURI:'http://fixture/'}, () => {}, () => {});
+  const api = assetDelivery({getModule:()=>gpu, live:()=>entry, fetch, devAssets:()=>exact.devAssets, baseURI:()=> 'http://fixture/'});
   return {...api, entry, delivered, failed, retire: n => retired.push(n)};
 }
 test('stream limit aborts before joining an oversized chunked response', async () => {
@@ -84,11 +81,13 @@ test('deferred open retains its carrier and a late refusal journals once', async
     const gpu = {gpu_carry:()=>undefined, gpu_agent:()=>JSON.stringify({world:{restored}}), gpu_restore:()=>true,
       gpu_assets:()=>JSON.stringify(names.splice(0)), gpu_retired:()=>"[]", gpu_error:()=>"invalid save",
       gpu_asset:()=>{ restored = !refused; return !refused; }};
-    const assetBody = source.slice(source.indexOf('const ASSET_DEADLINE_MS'), source.indexOf('function size('));
-    const restoreBody = source.slice(source.indexOf('function restorePending('), source.indexOf('function ensure('));
-    const api = new Function('gpu','exact','live','fetch','document','messages','schedule','restoreJournal','worldSize',
-      assetBody + restoreBody + '\nreturn {assets, assetFlights, restorePending};')(
-      gpu, exact, ()=>entry, async()=>new Response(new Uint8Array([1])), {baseURI:'http://fixture/'}, ()=>{}, ()=>{}, journal, x=>x);
+    const restoreBody = source.slice(source.indexOf('function reportRestore('), source.indexOf('async function settled('))
+      + source.slice(source.indexOf('function restorePending('), source.indexOf('function ensure('));
+    const api = new Function('assetDelivery','gpu','exact','live','fetch','messages','schedule','restoreJournal','worldSize',
+      restoreBody + `
+const delivery = assetDelivery({getModule:()=>gpu, live, fetch, baseURI:()=> 'http://fixture/', delivered:finishRestore});
+      return {...delivery, restorePending};`)(
+      assetDelivery, gpu, exact, ()=>entry, async()=>new Response(new Uint8Array([1])), ()=>{}, ()=>{}, journal, x=>x);
     const bytes = exact.worldCarry;
     api.restorePending(entry);
     expect(exact.worldCarry).toBe(bytes);

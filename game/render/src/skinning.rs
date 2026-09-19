@@ -414,7 +414,6 @@ mod tests {
             "equal content is reused"
         );
         let mut w = World::new(60, 0);
-        w.register_scene();
         let mut pose = Pose::default();
         pose.local = animation::bind_pose(&model);
         pose.previous = pose.local.clone();

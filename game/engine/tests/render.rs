@@ -21,7 +21,6 @@ fn renderer_revisions_see_same_tick_edits_without_entering_the_hash() {
 #[test]
 fn whole_page_float_views_match_bytes_and_environment_roundtrips() {
     let mut w = World::new(60, 0);
-    w.register_scene();
     let e = w.spawn((Transform::at(1., 2., 3.), Material::rgb(0.2, 0.3, 0.4)));
     let t = w.pages::<Transform>();
     let p = t.iter().next().unwrap();
@@ -33,7 +32,10 @@ fn whole_page_float_views_match_bytes_and_environment_roundtrips() {
     w.insert_resource(Environment::default());
     let bytes = w.save();
     let mut restored = World::new(60, 0);
-    restored.register_scene();
+    restored
+        .register::<Transform>()
+        .register::<Material>()
+        .register_resource::<Environment>();
     restored.load(&bytes).unwrap();
     assert_eq!(w.hash(), restored.hash());
     assert_eq!(*restored.resource::<Environment>(), Environment::default());

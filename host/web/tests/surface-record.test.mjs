@@ -1,3 +1,4 @@
+import {assetDelivery} from '../gpu-assets.js';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -37,6 +38,7 @@ export async function fixture(options = {}) {
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
+    .replace('import { assetDelivery } from "./gpu-assets.js";', '')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
@@ -66,9 +68,9 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
+    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
     source
-  )({ exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
+  )(assetDelivery, { exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();

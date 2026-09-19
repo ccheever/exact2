@@ -346,8 +346,8 @@ impl Surface for StackSurface {
         Ok(())
     }
 
-    fn wants_children_each(&self) -> bool {
-        true
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        exact_gpu::ChildrenMode::Each
     }
 
     fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {

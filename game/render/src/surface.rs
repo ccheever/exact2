@@ -24,6 +24,14 @@ pub trait Presentation: Default {
     fn before_restore(&mut self, _world: &World, _mode: Restore) {}
     /// Overlay fresh definitions only for a development carry.
     fn after_restore(&mut self, _world: &World, _mode: Restore) {}
+    /// Specialized entity inspection supplied only by the linked executor.
+    fn inspect(_world: &World, _entity: exact_game::Entity, pose: bool) -> Result<String, String> {
+        if pose {
+            Err("pose inspection requires game.assets: true".into())
+        } else {
+            Ok(String::new())
+        }
+    }
     /// Called synchronously on key/pointer down, within the browser's gesture.
     fn unlock(&mut self) {}
 }
@@ -84,19 +92,22 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
     }
 }
 impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
+    fn commit_restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
+        let sim = self.sim.as_mut().ok_or("world has not been bound")?;
+        self.presentation.before_restore(sim.world(), mode);
+        sim.restore_bound(bytes).map_err(|e| e.to_string())?;
+        self.presentation.after_restore(sim.world(), mode);
+        self.dirty = true;
+        self.error = None;
+        self.reported = false;
+        self.perf = Perf::default();
+        Ok(())
+    }
     fn finish_restore(&mut self) {
-        if let Some(sim) = self.sim.as_mut().filter(|s| !s.is_loading()) {
+        if self.sim.as_ref().is_some_and(|s| !s.is_loading()) {
             if let Some((bytes, mode)) = self.pending_restore.take() {
-                let definitions = (ASSETS && mode == Restore::Carry)
-                    .then(|| exact_game::animation::Definitions::capture(sim.world()));
-                self.presentation.before_restore(sim.world(), mode);
-                if let Err(error) = sim.restore_bound(&bytes) {
+                if let Err(error) = self.commit_restore(&bytes, mode) {
                     self.refusal = Some(SurfaceError(format!("restore refused: {error}")));
-                } else {
-                    if let Some(definitions) = definitions {
-                        definitions.apply(sim.world());
-                    }
-                    self.presentation.after_restore(sim.world(), mode);
                 }
             }
         }
@@ -131,7 +142,11 @@ fn observer<'a, const ASSETS: bool>(
             }
         }
         if left < 2 && error.is_none() {
-            if let Err(e) = placed.feed(world) {
+            if let Err(e) = if ASSETS {
+                placed.feed(world)
+            } else {
+                placed.feed_primitive(world)
+            } {
                 *error = Some(SurfaceError(e.to_string()));
             }
             if let Some((renderer, feed)) = render {
@@ -369,29 +384,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.assets_dirty = false;
         self.dirty = true;
     }
-    fn carry(&mut self) -> Option<Vec<u8>> {
-        self.sim.as_ref().and_then(|sim| sim.save().ok())
+    fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
+        self.sim
+            .as_ref()
+            .map(|sim| sim.save().map_err(|e| SurfaceError(e.to_string())))
+            .transpose()
     }
     fn restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
         if self.sim.as_ref().is_some_and(Sim::is_loading) {
             self.pending_restore = Some((bytes.to_vec(), mode));
             return Ok(());
         }
-        let sim = self.sim.as_mut().ok_or("world has not been bound")?;
-        let definitions = (ASSETS && mode == Restore::Carry)
-            .then(|| exact_game::animation::Definitions::capture(sim.world()));
-        self.presentation.before_restore(sim.world(), mode);
-        sim.restore_bound(bytes).map_err(|e| e.to_string())?;
-        if let Some(definitions) = definitions {
-            definitions.apply(sim.world());
-        }
-        self.presentation.after_restore(sim.world(), mode);
-        self.dirty = true;
-        self.error = None;
-        self.reported = false;
-        self.perf = Perf::default();
-        Ok(())
+        self.commit_restore(bytes, mode)
     }
+
     fn device_ready(&mut self) {
         if let Some(sim) = &mut self.sim {
             sim.defer_assets(true);
@@ -521,7 +527,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if let Some(trace) = &mut self.trace {
                 trace.feed(sim.world());
             }
-            if let Err(e) = self.placed.feed(sim.world()) {
+            if let Err(e) = if ASSETS {
+                self.placed.feed(sim.world())
+            } else {
+                self.placed.feed_primitive(sim.world())
+            } {
                 self.error = Some(SurfaceError(e.to_string()));
                 return false;
             }
@@ -597,14 +607,18 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.dirty = false;
         wants
     }
-    fn wants_children_each(&self) -> bool {
-        self.sim.as_ref().is_some_and(|sim| {
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        if self.sim.as_ref().is_some_and(|sim| {
             sim.world()
                 .query::<&exact_game::Placed>()
                 .iter()
                 .next()
                 .is_some()
-        })
+        }) {
+            exact_gpu::ChildrenMode::Each
+        } else {
+            exact_gpu::ChildrenMode::Overlay
+        }
     }
     fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
         self.placed.child(index, texture, frame);
@@ -715,7 +729,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
             Ok(None) => {}
         }
-        let mut reply = sim.agent_with(
+        let mut reply = sim.agent_with_inspector(
             request,
             observer(
                 &mut self.render,
@@ -726,9 +740,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 false,
                 0,
             ),
+            P::inspect,
         );
         if self.render.is_none() {
-            let _ = self.placed.feed(sim.world());
+            let _ = if ASSETS {
+                self.placed.feed(sim.world())
+            } else {
+                self.placed.feed_primitive(sim.world())
+            };
             #[derive(Default, exact_game::Data)]
             struct Size {
                 width: f32,
@@ -952,7 +971,7 @@ mod residency_tests {
         let Ok(gpu) = exact_gpu::fixture::device() else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         let mut model = model();
@@ -1006,7 +1025,7 @@ mod residency_tests {
     #[test]
     fn identical_redelivery_survives_post_acceptance_budget_compaction() {
         let gpu = exact_gpu::fixture::device().unwrap();
-        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         let model = model();
@@ -1051,7 +1070,6 @@ mod residency_tests {
         m.positions.resize(600_000 * 3, 0.);
         m.normals.resize(600_000 * 3, 0.);
         m.uvs.resize(600_000 * 2, 0.);
-        m.tangents.clear();
         s.sim.as_mut().unwrap().world_mut().spawn((
             exact_game::Transform::at(100., 0., 0.),
             exact_game::Mesh::asset("peer.model"),
@@ -1097,7 +1115,7 @@ mod residency_tests {
         let Ok(gpu) = exact_gpu::fixture::device() else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, (), true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         let mut model = model();
@@ -1146,7 +1164,7 @@ mod residency_tests {
     }
     #[test]
     fn ready_reasons_name_declaration_and_render_failures() {
-        let mut s = WorldSurface::<Fox, (), true>::default();
+        let mut s = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         s.asset("fox.model", Err(AssetError::Missing));
@@ -1182,7 +1200,7 @@ mod residency_tests {
         let Ok(gpu) = exact_gpu::fixture::device() else {
             return;
         };
-        let mut surface = WorldSurface::<Fox, (), true>::default();
+        let mut surface = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
         surface.device_ready();
         surface.bind(&[], None).unwrap();
         surface.asset(
@@ -1209,7 +1227,7 @@ mod residency_tests {
         };
         exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
         let before = surface.render.as_ref().unwrap().0.residency_work().json();
-        let saved = surface.carry().unwrap();
+        let saved = surface.carry().unwrap().unwrap();
         for mode in [Restore::Open, Restore::Carry] {
             surface.restore(&saved, mode).unwrap();
             exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
@@ -1217,7 +1235,7 @@ mod residency_tests {
                 before,
                 surface.render.as_ref().unwrap().0.residency_work().json()
             );
-            assert_eq!(surface.carry().unwrap(), saved);
+            assert_eq!(surface.carry().unwrap().unwrap(), saved);
         }
         let mut texture: exact_game::asset::TextureData = exact_game::bin::from_slice(
             include_bytes!("../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"),

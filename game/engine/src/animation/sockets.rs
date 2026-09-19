@@ -2,7 +2,7 @@ use super::*;
 
 /// A presentation attachment. Its Transform is the fallback when the target is unavailable.
 /// Each attachment chooses its own joint; no bone entities or simulation transform writes.
-#[derive(Default, Clone, Debug, Component)]
+#[derive(Default, Clone, Debug, Data)]
 pub struct SocketFollow {
     pub target: crate::FollowTarget,
     pub joint: String,
@@ -57,7 +57,8 @@ pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result
         .models
         .get(name)
         .ok_or_else(|| format!("socket model `{name}` not loaded"))?;
-    let mut cache = w.animation.sockets.borrow_mut();
+    let runtime = w.derived::<Runtime>();
+    let mut cache = runtime.sockets.borrow_mut();
     let cached = cache
         .entry((name.clone(), joint.into()))
         .or_insert_with(|| {

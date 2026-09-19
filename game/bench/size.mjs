@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Shipped size plus pre-bindgen twiggy attribution. Diagnostic, never a gate.
-// bun game/bench/size.mjs [label] [--no-build] [--app greybox|beacons]
+// bun game/bench/size.mjs [label] [--no-build] [--app beacons|greybox|skinned-fixture]
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -11,7 +11,8 @@ const root = resolve(import.meta.dir, '../..');
 const args = process.argv.slice(2);
 const appAt = args.indexOf('--app');
 const name = appAt < 0 ? 'beacons' : args.splice(appAt, 2)[1];
-if (!['beacons', 'greybox'].includes(name)) throw new Error('Use --app beacons or greybox');
+if (!['beacons', 'greybox', 'skinned-fixture'].includes(name))
+  throw new Error('Use --app beacons, greybox or skinned-fixture');
 const app = resolve(root, 'game/games', name);
 const output = resolve(app, 'target/d3-size');
 const dist = resolve(output, 'dist');
@@ -32,7 +33,7 @@ mkdirSync(output, { recursive: true });
 if (!args.includes('--no-build')) {
   run('bun', ['host/web/build.mjs'], { stdio: 'inherit' });
 }
-const preopt = resolve(app, `target/wasm32-unknown-unknown/web/${name}_gpu.wasm`);
+const preopt = resolve(app, `target/wasm32-unknown-unknown/web/${name.replaceAll('-', '_')}_gpu.wasm`);
 const shipped = readFileSync(resolve(dist, 'gpu_bg.wasm'));
 const rows = JSON.parse(run('twiggy', ['top', '-n', '20000', '-f', 'json', preopt]));
 // Drop metadata only, never code/data. Trait impl names are attributed to their

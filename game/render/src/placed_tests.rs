@@ -61,7 +61,6 @@ fn hidden_is_explicit_for_near_offscreen_and_fixed_back() {
 #[test]
 fn invisible_owner_stays_hidden_and_duplicate_child_is_refused() {
     let mut w = World::new(60, 7);
-    w.register_scene();
     w.spawn((
         Transform::at(0., 0., -2.),
         Placed::child(0),
@@ -82,7 +81,6 @@ fn invisible_owner_stays_hidden_and_duplicate_child_is_refused() {
 #[test]
 fn saved_component_does_not_include_the_derived_outcome() {
     let mut w = World::new(60, 7);
-    w.register_scene();
     w.spawn_named(
         "sign",
         (Transform::at(0., 0., -2.), Placed::child(1).width(1.2)),
@@ -108,7 +106,6 @@ fn saved_component_does_not_include_the_derived_outcome() {
 #[test]
 fn displayed_plane_uses_interpolated_entity_and_camera() {
     let mut w = World::new(60, 7);
-    w.register_scene();
     let e = w.spawn((Transform::at(0., 0., -4.), Placed::child(0)));
     let mut p = Placements::default();
     p.child(0, None, [0., 0., 100., 50.]);
@@ -327,7 +324,6 @@ fn crossing_near_or_eye_and_beyond_far_never_emit_a_homography() {
 #[test]
 fn headless_placement_uses_the_displayed_camera_and_plane_sample() {
     let mut w = World::new(60, 0);
-    w.register_scene();
     let camera = w.spawn((Transform::at(0., 0., 8.), Camera::default()));
     let owner = w.spawn((Transform::default(), Placed::child(0)));
     w.propagate();

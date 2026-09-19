@@ -1,7 +1,7 @@
 # Game bake
 
 `exact-game-bake` imports glTF models and their textures into the engine's
-validated asset records at build time. Runtime surfaces consume those records;
+validated asset records at build time. Tangents are omitted: the model shader derives its normal-map frame from world/UV derivatives. Runtime surfaces consume those records;
 they do not import glTF or compile authoring formats. The app bake uses generated
 host adapters from `game/app`, with `app.json` selecting assets and audio support.
 
@@ -17,3 +17,7 @@ with frames in source pixels. The CLI also accepts `cargo run -p exact-game-bake
 art/strip.png assets/strip.tex`. Dimensions must be 1..=2048. The sprite fixture keeps
 its original `.tex` only as a test golden; production bytes come from its PNG.
 Generated-output ownership, collision refusal and pruning are the same as for models.
+
+The digest manifest protects authored files from replacement or pruning. Obsolete
+list-form manifests refuse with instructions to remove the manifest and its generated
+outputs, then rebake; there is no ownership guess based on a filename.

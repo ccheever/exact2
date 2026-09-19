@@ -520,9 +520,7 @@ extension Agent {
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
-        if let f = v.textArea {
-            f.becomeFirstResponder()
-            if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
+        if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
            v.forwardsCanvasKey(device.code) {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
             let phase = req["phase"] as? String
@@ -542,7 +540,9 @@ extension Agent {
             if req["phase"] as? String != "up" { presenter.press(v.id) }
             return ["typed": v.id, "key": key, "delivery": "recognized"]
         }
-        if let key = req["key"] as? String {
+        if let f = v.textArea {
+            f.becomeFirstResponder()
+            if let key = req["key"] as? String {
                 if key == "Enter" { f.insertText("\n") }
                 else if key == "Backspace" { f.deleteBackward() }
                 else { return ["error": "unsupported textarea key \(key)"] }

@@ -173,6 +173,23 @@ pub enum InputEvent {
         /// Host clock milliseconds.
         at_ms: f64,
     },
+    /// A pointer held by an app control bound to a declared action.
+    /// Coordinates are control-local points; sticks anchor on Down with a
+    /// 60-point radius. Buttons remain held until Up, Cancel or Blur.
+    Control {
+        /// Declared action name, independent of its keyboard bindings.
+        name: String,
+        /// Platform contact identifier (multiple controls can be held).
+        id: u64,
+        /// Contact phase.
+        phase: PointerPhase,
+        /// Horizontal point in the control.
+        x: f32,
+        /// Vertical point in the control.
+        y: f32,
+        /// Host clock milliseconds.
+        at_ms: f64,
+    },
     /// Wheel movement since the preceding device event.
     Wheel {
         /// Horizontal movement.
@@ -194,10 +211,40 @@ impl Default for InputEvent {
     }
 }
 impl InputEvent {
+    pub(crate) fn is_move(&self) -> bool {
+        matches!(
+            self,
+            Self::Pointer {
+                phase: PointerPhase::Move,
+                ..
+            } | Self::Control {
+                phase: PointerPhase::Move,
+                ..
+            }
+        )
+    }
+    pub(crate) fn same_motion(&self, other: &Self) -> bool {
+        if !self.is_move() || !other.is_move() {
+            return false;
+        }
+        match (self, other) {
+            (Self::Pointer { id: a, .. }, Self::Pointer { id: b, .. }) => a == b,
+            (
+                Self::Control {
+                    name: a, id: ai, ..
+                },
+                Self::Control {
+                    name: b, id: bi, ..
+                },
+            ) => a == b && ai == bi,
+            _ => false,
+        }
+    }
     pub(crate) fn set_at_ms(&mut self, value: f64) {
         match self {
             Self::Key { at_ms, .. }
             | Self::Pointer { at_ms, .. }
+            | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms = value,
         }
@@ -206,6 +253,7 @@ impl InputEvent {
         match self {
             Self::Key { at_ms, .. }
             | Self::Pointer { at_ms, .. }
+            | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms,
         }
@@ -226,6 +274,7 @@ pub struct PointerState {
 #[derive(Clone, Default, Data)]
 struct Contact {
     id: u64,
+    action: String,
     origin: Vec2,
     position: Vec2,
 }
@@ -265,21 +314,22 @@ impl Input {
     }
     fn touching(&self, regions: &[Region]) -> bool {
         self.viewport.min_element() > 0.0
-            && self
-                .contacts
-                .iter()
-                .any(|p| regions.iter().any(|r| r.contains(p.origin, self.viewport)))
+            && self.contacts.iter().any(|p| {
+                p.action.is_empty() && regions.iter().any(|r| r.contains(p.origin, self.viewport))
+            })
     }
-    fn direction(&self, s: &Stick) -> Vec2 {
+    fn direction(&self, name: &str, s: &Stick) -> Vec2 {
         let mut v = Vec2::ZERO;
         let down = |i| s.keys.iter().any(|keys| self.keys.contains(&keys[i]));
         v.x = i32::from(down(3)) as f32 - i32::from(down(2)) as f32;
         v.y = i32::from(down(0)) as f32 - i32::from(down(1)) as f32;
-        if self.viewport.min_element() > 0.0 {
-            for p in &self.contacts {
-                if s.touch.iter().any(|r| r.contains(p.origin, self.viewport)) {
-                    v += (p.position - p.origin) * Vec2::new(1.0, -1.0) / 60.0;
-                }
+        for p in &self.contacts {
+            if p.action == name
+                || (p.action.is_empty()
+                    && self.viewport.min_element() > 0.0
+                    && s.touch.iter().any(|r| r.contains(p.origin, self.viewport)))
+            {
+                v += (p.position - p.origin) * Vec2::new(1.0, -1.0) / 60.0;
             }
         }
         v.clamp_length_max(1.0)
@@ -287,9 +337,10 @@ impl Input {
     fn active(&self, a: &Action) -> bool {
         a.keys.iter().any(|k| self.keys.contains(k))
             || self.touching(&a.touch)
+            || (a.stick.is_none() && self.contacts.iter().any(|p| p.action == a.name))
             || a.stick
                 .as_ref()
-                .is_some_and(|s| self.direction(s) != Vec2::ZERO)
+                .is_some_and(|s| self.direction(&a.name, s) != Vec2::ZERO)
     }
     /// Whether the declared action is held now.
     pub fn held(&self, name: &str) -> bool {
@@ -314,7 +365,7 @@ impl Input {
     pub fn stick(&self, name: &str) -> Vec2 {
         self.action(name)
             .and_then(|a| a.stick.as_ref())
-            .map_or(Vec2::ZERO, |s| self.direction(s))
+            .map_or(Vec2::ZERO, |s| self.direction(name, s))
     }
     /// Primary contact or hover; its delta expires after this tick.
     pub fn pointer(&self) -> Option<PointerState> {
@@ -373,6 +424,40 @@ impl Input {
                 _ => {}
             },
             InputEvent::Wheel { dx, dy, .. } => self.wheel += Vec2::new(dx, dy),
+            InputEvent::Control {
+                name,
+                id,
+                phase,
+                x,
+                y,
+                ..
+            } => {
+                self.action(&name);
+                let position = Vec2::new(x, y);
+                match phase {
+                    PointerPhase::Down => {
+                        self.contacts.retain(|p| p.id != id || p.action != name);
+                        self.contacts.push(Contact {
+                            id,
+                            action: name,
+                            origin: position,
+                            position,
+                        });
+                    }
+                    PointerPhase::Move => {
+                        if let Some(p) = self
+                            .contacts
+                            .iter_mut()
+                            .find(|p| p.id == id && p.action == name)
+                        {
+                            p.position = position;
+                        }
+                    }
+                    PointerPhase::Up | PointerPhase::Cancel => {
+                        self.contacts.retain(|p| p.id != id || p.action != name)
+                    }
+                }
+            }
             InputEvent::Blur { .. } => {
                 self.keys.clear();
                 self.contacts.clear();
@@ -403,21 +488,145 @@ impl Input {
                 }
                 match phase {
                     PointerPhase::Down => {
-                        self.contacts.retain(|p| p.id != id);
+                        self.contacts.retain(|p| p.id != id || !p.action.is_empty());
                         self.contacts.push(Contact {
                             id,
+                            action: String::new(),
                             origin: position,
                             position,
                         });
                     }
                     PointerPhase::Move => {
-                        if let Some(p) = self.contacts.iter_mut().find(|p| p.id == id) {
+                        if let Some(p) = self
+                            .contacts
+                            .iter_mut()
+                            .find(|p| p.id == id && p.action.is_empty())
+                        {
                             p.position = position;
                         }
                     }
-                    PointerPhase::Up | PointerPhase::Cancel => self.contacts.retain(|p| p.id != id),
+                    PointerPhase::Up | PointerPhase::Cancel => {
+                        self.contacts.retain(|p| p.id != id || !p.action.is_empty())
+                    }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    fn control(name: &str, id: u64, phase: PointerPhase, x: f32, y: f32) -> InputEvent {
+        InputEvent::Control {
+            name: name.into(),
+            id,
+            phase,
+            x,
+            y,
+            at_ms: 0.0,
+        }
+    }
+    fn input() -> Input {
+        Input::new(
+            Actions::new()
+                .stick("move", Stick::wasd())
+                .button("jump", &["Space"])
+                .button("light", &["KeyE"]),
+        )
+    }
+    #[test]
+    fn app_controls_share_actions_with_keys_and_release_independently() {
+        let mut input = input();
+        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
+        assert!(input.pressed("jump") && input.held("jump"));
+        input.clear_edges();
+        input.apply(InputEvent::Key {
+            code: "Space".into(),
+            down: true,
+            at_ms: 0.,
+        });
+        assert!(!input.pressed("jump"));
+        input.apply(control("jump", 1, PointerPhase::Cancel, 0., 0.));
+        assert!(input.held("jump") && !input.released("jump"));
+        input.apply(InputEvent::Key {
+            code: "Space".into(),
+            down: false,
+            at_ms: 0.,
+        });
+        assert!(input.released("jump") && !input.held("jump"));
+        input.apply(control("light", 2, PointerPhase::Down, 0., 0.));
+        input.apply(control("light", 2, PointerPhase::Up, 0., 0.));
+        assert!(input.pressed("light") && input.released("light"));
+    }
+    #[test]
+    fn app_stick_is_local_unit_clamped_saved_and_cancelled_on_blur() {
+        let mut input = input();
+        input.apply(control("move", 1, PointerPhase::Down, 40., 40.));
+        input.apply(control("move", 1, PointerPhase::Move, 100., 40.));
+        input.apply(control("jump", 2, PointerPhase::Down, 0., 0.));
+        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
+        assert!(input.held("jump"));
+        let saved = crate::bin::to_vec(&input);
+        let mut restored = self::input();
+        restored.restore_dynamic(crate::bin::from_slice(&saved).unwrap());
+        assert_eq!(restored.stick_xz("move"), crate::Vec3::X);
+        assert!(restored.held("jump") && !restored.pressed("jump"));
+        restored.apply(control("move", 1, PointerPhase::Move, 100., -20.));
+        let direction = restored.stick_xz("move");
+        assert!((direction.length() - 1.).abs() < 1e-6 && direction.z < 0.);
+        restored.apply(InputEvent::Blur { at_ms: 0. });
+        assert_eq!(restored.stick_xz("move"), crate::Vec3::ZERO);
+        assert!(!restored.held("jump"));
+    }
+
+    #[test]
+    fn queued_ui_contact_continues_identically_in_a_fresh_simulation() {
+        use crate::{Clock, Game, Sim, Transform, World};
+        struct Controlled;
+        impl Game for Controlled {
+            const ID: &'static str = "ui-control-test";
+            const HZ: u32 = 60;
+            type Args = ();
+            fn actions() -> Actions {
+                input().actions
+            }
+            fn setup(w: &mut World, _: &()) {
+                w.spawn_named("player", (Transform::default(),));
+            }
+            fn tick(w: &mut World, input: &Input, _: &()) {
+                let mut t = w.get_mut::<Transform>("player").unwrap();
+                t.position += input.stick_xz("move");
+                if input.pressed("jump") {
+                    t.position.y += 1.;
+                }
+            }
+        }
+        let mut sim = Sim::<Controlled>::new(()).unwrap();
+        sim.advance(0., Clock::Seekable);
+        sim.input(control("move", 1, PointerPhase::Down, 0., 0.));
+        sim.input(control("move", 1, PointerPhase::Move, 30., 0.));
+        sim.input(control("move", 1, PointerPhase::Move, 60., 0.));
+        sim.input(control("jump", 2, PointerPhase::Down, 0., 0.));
+        sim.input(control("jump", 2, PointerPhase::Up, 0., 0.));
+        let saved = sim.save().unwrap();
+        let mut restored = Sim::<Controlled>::new(()).unwrap();
+        restored.restore(&saved).unwrap();
+        restored.advance(0., Clock::Seekable);
+        for game in [&mut sim, &mut restored] {
+            game.advance(100., Clock::Seekable);
+            assert_eq!(
+                game.get::<Transform>("player").unwrap().position,
+                crate::Vec3::new(6., 1., 0.)
+            );
+            game.input(control("move", 1, PointerPhase::Cancel, 60., 0.));
+            game.advance(200., Clock::Seekable);
+            assert_eq!(
+                game.get::<Transform>("player").unwrap().position,
+                crate::Vec3::new(6., 1., 0.)
+            );
+        }
+        assert_eq!(sim.save().unwrap(), restored.save().unwrap());
     }
 }

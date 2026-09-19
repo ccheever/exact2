@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import {readFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {proof} from '../../proof.mjs';
 
@@ -28,6 +28,7 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
     check('world deferred until Play', !node(title,'world'));
     await s.tap('play');
     const g = s.world('world');
+    if (host !== 'linux') await s.op({op:'state', ...await s.target('world'), world:true, perf_reset:true});
     await g.hold('KeyW',1500);
     const p = await g.global_position('player');
     check('W exactly 1.5s: [0, 0.9, -5.3666644] within 1mm', p.every((v,i)=>Math.abs(v-[0,0.9,-5.3666644][i])<=0.001),p);
@@ -58,6 +59,11 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
       await s.screenshot(resolve(out,'beacons.png'));
       const layout = await s.layout('world:player');
       check('rendered player has screen bounds',layout.entity?.screen?.w>0 && layout.entity.screen.h>0);
+    }
+    if (index === 1 && host !== 'linux') {
+      const measured = (await s.state()).world[0];
+      writeFileSync(resolve(out, `perf-${host}.json`), JSON.stringify({perf:measured.perf, gpu:measured.gpu}, null, 2)+'\n');
+      say(`PERF ${host} seekable counters (timing rings are unsampled, not zero-cost frames): ${JSON.stringify(measured.perf)}`);
     }
     await s.tap('pause');
     const logs=await s.logs();

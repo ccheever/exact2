@@ -122,8 +122,8 @@ impl Surface for AuroraSurface {
         true
     }
 
-    fn wants_children(&self) -> bool {
-        true
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        exact_gpu::ChildrenMode::Composite { previous: false }
     }
 
     fn children(&mut self, texture: Option<&wgpu::TextureView>) {

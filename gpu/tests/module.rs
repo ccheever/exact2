@@ -174,8 +174,11 @@ mod seams {
             self.2 = Some("{\"phase\":\"bind\"}".into());
             Ok(())
         }
-        fn carry(&mut self) -> Option<Vec<u8>> {
-            Some(self.3.clone())
+        fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
+            if self.3 == [254] {
+                return Err(SurfaceError("probe save refused".into()));
+            }
+            Ok(Some(self.3.clone()))
         }
         fn restore(&mut self, bytes: &[u8], _: exact_gpu::Restore) -> Result<(), String> {
             if bytes.first() == Some(&255) {
@@ -335,22 +338,29 @@ mod seams {
         assert!(!unsafe { gpu_restore(id, [255].as_ptr(), 1, 0) });
         assert_eq!(exact_gpu::native::error(), "probe byte refused");
         assert_eq!(gpu_dirty(id), 0, "failed restore leaves dirty unchanged");
-        assert_eq!(exact_gpu::native::carry(id), Some(vec![1, 2]));
+        assert_eq!(exact_gpu::native::carry(id).unwrap(), Some(vec![1, 2]));
         assert!(unsafe { gpu_restore(id, [3, 4, 5].as_ptr(), 3, 0) });
         assert_eq!(gpu_dirty(id), 1);
         assert_eq!(
             exact_gpu::native::published(id).as_deref(),
             Some(r#"{"phase":"restore"}"#)
         );
-        assert_eq!(exact_gpu::native::carry(id), Some(vec![3, 4, 5]));
+        assert_eq!(exact_gpu::native::carry(id).unwrap(), Some(vec![3, 4, 5]));
         assert_eq!(
             exact_gpu::native::messages(id),
             None,
             "old outputs are not restored messages"
         );
+        assert!(unsafe { gpu_restore(id, [254].as_ptr(), 1, 0) });
+        assert_eq!(
+            gpu_carry(id),
+            u32::MAX - 1,
+            "failed save is not absent state"
+        );
+        assert_eq!(exact_gpu::native::error(), "probe save refused");
         assert!(unsafe { gpu_restore(id, [].as_ptr(), 0, 0) });
         assert_eq!(gpu_carry(id), 0, "empty carry is not nothing");
-        assert_eq!(gpu_carry(u32::MAX), u32::MAX);
+        assert_eq!(gpu_carry(u32::MAX), u32::MAX - 1);
         assert_eq!(exact_gpu::native::error(), "no such canvas");
         assert!(!unsafe { gpu_restore(id, std::ptr::null(), 1, 0) });
         assert!(exact_gpu::native::error().contains("gpu_restore"));
@@ -484,8 +494,8 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         fn take_error(&mut self) -> Option<SurfaceError> {
             std::mem::take(&mut self.error).then(|| SurfaceError("probe refused".into()))
         }
-        fn carry(&mut self) -> Option<Vec<u8>> {
-            Some(self.bytes.clone())
+        fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
+            Ok(Some(self.bytes.clone()))
         }
         fn restore(&mut self, b: &[u8], _: exact_gpu::Restore) -> Result<(), String> {
             self.bytes = b.to_vec();
@@ -512,7 +522,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert_eq!(m.take_published(id).as_deref(), Some("{}"));
     assert!(m.take_published(id).is_none());
     assert!(m.restore(id, &[1, 2, 3], exact_gpu::Restore::Open));
-    assert_eq!(m.carry(id), Some(vec![1, 2, 3]));
+    assert_eq!(m.carry(id).unwrap(), Some(vec![1, 2, 3]));
     assert_eq!(m.take_published(id).as_deref(), Some("{}"));
     let f = Frame {
         width: 10.,
@@ -534,7 +544,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
     assert_eq!(m.take_error(), "probe refused");
     assert_eq!(m.take_error(), "");
     assert!(m.restore(id, &[], exact_gpu::Restore::Open));
-    assert_eq!(m.carry(id), Some(vec![]));
+    assert_eq!(m.carry(id).unwrap(), Some(vec![]));
     m.destroy(id);
     assert!(m.agent(id, "state").is_none());
     assert_eq!(m.take_error(), "no such canvas");

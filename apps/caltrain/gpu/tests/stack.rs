@@ -38,6 +38,7 @@ fn frame(now_ms: f64) -> Frame {
         now_ms,
         children_generation: 1,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     }
 }
@@ -71,7 +72,7 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
             None,
         )
         .unwrap();
-    assert!(stack.wants_children_each());
+    assert_eq!(stack.children_mode(), exact_gpu::ChildrenMode::Each);
     // Four cards, 90 points tall, laid out by the kernel as a column.
     let texture = gpu
         .device

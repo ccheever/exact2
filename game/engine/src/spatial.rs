@@ -137,7 +137,7 @@ pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, V
         if let Some(model) = w.model(name) {
             let bounds = w
                 .get::<crate::Pose>(entity)
-                .map_or_else(|| crate::animation::animated_bounds(model), |p| p.bounds);
+                .map_or_else(|| crate::asset::pose::animated_bounds(model), |p| p.bounds);
             let lo = Vec3::from_slice(&bounds[..3]);
             let hi = Vec3::from_slice(&bounds[3..]);
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);

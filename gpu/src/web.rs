@@ -247,8 +247,8 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
 }
 
 /// Whether the host should supply per-child kernel frames.
-pub fn wants_children_each(id: u32) -> bool {
-    with(|m| m.wants_children_each(id)).unwrap_or(false)
+pub fn children_mode(id: u32) -> u32 {
+    with(|m| m.children_mode(id).code()).unwrap_or(0)
 }
 /// Host-composited child: no pixel texture on the browser.
 pub fn child(id: u32, index: u32, frame: [f32; 4]) -> bool {
@@ -285,8 +285,10 @@ pub fn input(id: u32, event: &str) -> bool {
 }
 
 /// Capture state; None is distinct from a zero-byte carry.
-pub fn carry(id: u32) -> Option<Vec<u8>> {
-    with(|m| m.carry(id)).flatten()
+pub fn carry(id: u32) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
+    with(|m| m.carry(id))
+        .unwrap_or_else(|| Err(crate::SurfaceError("GPU module is not loaded".into())))
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.0))
 }
 
 /// Restore state. False leaves the surface unchanged; error explains why.
@@ -434,8 +436,8 @@ macro_rules! module {
 
         /// Supply child frames when requested; the browser composites their elements.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_wants_children_each(id: u32) -> bool {
-            $crate::web::wants_children_each(id)
+        pub fn gpu_children_mode(id: u32) -> u32 {
+            $crate::web::children_mode(id)
         }
         /// Supply one direct child frame for browser composition.
         #[::wasm_bindgen::prelude::wasm_bindgen]
@@ -488,7 +490,7 @@ macro_rules! module {
 
         /// Capture state, or undefined when this surface carries nothing.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_carry(id: u32) -> Option<Vec<u8>> {
+        pub fn gpu_carry(id: u32) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
             $crate::web::carry(id)
         }
 

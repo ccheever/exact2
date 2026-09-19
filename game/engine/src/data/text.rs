@@ -17,8 +17,6 @@ pub(crate) fn shortest<T: ryu::Float + Copy + Into<f64>>(
 ) -> fmt::Result {
     let mut buffer = ryu::Buffer::new();
     let s = buffer.format(n);
-    let mut tie = [0u8; 24];
-    let s = preserve_tie(s, n.into(), &mut tie);
     // Rust Debug switches notation at 1e-4 / 1e16; ryu's display thresholds
     // differ. Normalize notation without changing the shortest significand.
     let unsigned = s.strip_prefix('-').unwrap_or(s);
@@ -92,73 +90,6 @@ pub(crate) fn shortest<T: ryu::Float + Copy + Into<f64>>(
     }
 }
 
-// std's shortest formatter chooses the upper magnitude at an exactly equidistant
-// decimal tie; Ryu chooses an even last digit. Both round-trip, but pins keep std's
-// spelling. Compare the decimal midpoint and IEEE value as exact odd*2^exponent
-// rationals, never through a rounded decimal parse. Only short powers of five can
-// match a binary significand, so u128 is sufficient even for f64 extremes.
-fn preserve_tie<'a>(s: &'a str, n: f64, out: &'a mut [u8; 24]) -> &'a str {
-    if !n.is_finite() || n == 0.0 {
-        return s;
-    }
-    let (mantissa, exponent) = s.split_once('e').unwrap_or((s, "0"));
-    let mut exponent: i32 = exponent.parse().unwrap();
-    let mut digits = 0u64;
-    let mut fractional = false;
-    let mut last = 0;
-    for (i, b) in mantissa.bytes().enumerate() {
-        if b == b'.' {
-            fractional = true;
-        }
-        if b.is_ascii_digit() {
-            digits = digits * 10 + u64::from(b - b'0');
-            if fractional {
-                exponent -= 1;
-            }
-            if b != b'0' {
-                last = i;
-            }
-        }
-    }
-    while digits.is_multiple_of(10) {
-        digits /= 10;
-        exponent += 1;
-    }
-    if !digits.is_multiple_of(2) || !(-24..=23).contains(&exponent) {
-        return s;
-    }
-    let mut odd = u128::from(digits) * 2 + 1;
-    let five = 5u128.pow(exponent.unsigned_abs());
-    if exponent < 0 {
-        if !odd.is_multiple_of(five) {
-            return s;
-        }
-        odd /= five;
-    } else {
-        odd *= five;
-    }
-    let bits = n.to_bits();
-    let biased = ((bits >> 52) & 2047) as i32;
-    let mut binary = bits & ((1 << 52) - 1);
-    let mut power = if biased == 0 {
-        -1074
-    } else {
-        biased - 1023 - 52
-    };
-    if biased != 0 {
-        binary |= 1 << 52;
-    }
-    let zeros = binary.trailing_zeros();
-    binary >>= zeros;
-    power += zeros as i32;
-    if odd != u128::from(binary) || exponent - 1 != power {
-        return s;
-    }
-    out[..s.len()].copy_from_slice(s.as_bytes());
-    out[last] += 1; // The lower tied digit was even, so this never carries.
-    std::str::from_utf8(&out[..s.len()]).unwrap()
-}
-
 /// Existing fixed-place audio journal spelling, without core's float formatter.
 /// f32's 24 significant bits make the small decimal scaling exact in f64.
 pub(crate) struct Fixed(pub f32, pub u32);
@@ -198,18 +129,16 @@ mod tests {
         for _ in 0..100_000 {
             bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
             let n = f32::from_bits(bits as u32);
-            assert_eq!(Float(n).to_string(), format!("{n}"));
             if n.is_finite() {
                 let s = Float(n).to_string();
                 assert_eq!(s.parse::<f32>().unwrap().to_bits(), n.to_bits());
                 let mut debug = String::new();
                 shortest(&mut debug, n, true).unwrap();
-                assert_eq!(debug, format!("{n:?}"));
+                assert_eq!(debug.parse::<f32>().unwrap().to_bits(), n.to_bits());
                 assert_eq!(Fixed(n, 2).to_string(), format!("{n:.2}"));
                 assert_eq!(Fixed(n, 3).to_string(), format!("{n:.3}"));
             }
             let n = f64::from_bits(bits);
-            assert_eq!(Float(n).to_string(), format!("{n}"));
             if n.is_finite() {
                 assert_eq!(
                     Float(n).to_string().parse::<f64>().unwrap().to_bits(),
@@ -217,7 +146,7 @@ mod tests {
                 );
                 let mut debug = String::new();
                 shortest(&mut debug, n, true).unwrap();
-                assert_eq!(debug, format!("{n:?}"));
+                assert_eq!(debug.parse::<f64>().unwrap().to_bits(), n.to_bits());
             }
         }
         for n in [-0.0, 0.0, f64::MIN_POSITIVE, f64::MAX, f64::from_bits(1)] {
@@ -228,7 +157,7 @@ mod tests {
         }
     }
     #[test]
-    fn std_notation_boundaries_specials_ties_and_rounded_agent_numbers() {
+    fn notation_boundaries_specials_and_rounded_agent_numbers() {
         macro_rules! compare {
             ($ty:ty) => {
                 for n in [
@@ -253,10 +182,6 @@ mod tests {
                     -0.00005,
                     1.03125,
                 ] {
-                    assert_eq!(Float(n).to_string(), format!("{n}"));
-                    let mut debug = String::new();
-                    shortest(&mut debug, n, true).unwrap();
-                    assert_eq!(debug, format!("{n:?}"));
                     let mut encoder = crate::json::Encoder::rounded();
                     crate::Data::write(&n, &mut encoder);
                     let expected = if !n.is_finite() {
@@ -283,6 +208,19 @@ mod tests {
         compare!(f64);
         // Display stays decimal; Debug alone uses this exponent window.
         assert_eq!(Float(1e-5).to_string(), "0.00001");
-        assert_eq!(format!("{:?}", 1e-5), "1e-5");
+        for (n, expected) in [
+            (0., "0.0"),
+            (-0., "-0.0"),
+            (1e-5, "1e-5"),
+            (1e-4, "0.0001"),
+            (1e16, "1e16"),
+        ] {
+            let mut out = String::new();
+            shortest(&mut out, n, true).unwrap();
+            assert_eq!(out, expected);
+        }
+        // Both decimal endings round back to this f32; Ryu's even ending wins.
+        let tied = f32::from_bits(0x4980_0002); // exactly 1,048,576.25
+        assert_eq!(Float(tied).to_string(), "1048576.2");
     }
 }

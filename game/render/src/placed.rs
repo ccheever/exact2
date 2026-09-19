@@ -43,6 +43,16 @@ impl Placements {
         self.children[index].texture = texture.cloned();
     }
     pub fn feed(&mut self, w: &World) -> Result<(), RenderError> {
+        self.feed_with(w, scene::Attachments::feed)
+    }
+    pub fn feed_primitive(&mut self, w: &World) -> Result<(), RenderError> {
+        self.feed_with(w, |_, _, _, _, _, _| {})
+    }
+    fn feed_with(
+        &mut self,
+        w: &World,
+        attachments: impl FnOnce(&mut scene::Attachments, &World, bool, bool, bool, bool),
+    ) -> Result<(), RenderError> {
         let next = (
             w.presentation_generation(),
             w.tick(),
@@ -71,7 +81,8 @@ impl Placements {
             self.stamp.is_none_or(|old| old.1 != next.1),
             self.stamp.is_some_and(|old| old.2 != next.2),
         );
-        self.attachments.feed(
+        attachments(
+            &mut self.attachments,
             w,
             initial,
             self.stamp.is_none_or(|old| old.1 != next.1),

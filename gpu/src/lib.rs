@@ -122,6 +122,33 @@ impl Restore {
     }
 }
 
+/// How a surface composes its canvas children; the host owns overlay composition.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChildrenMode {
+    /// Ordinary host composition over the canvas.
+    #[default]
+    Overlay,
+    /// One captured subtree, optionally retaining the previous upload.
+    Composite {
+        /// Keep the subtree texture from before the latest upload.
+        previous: bool,
+    },
+    /// Separate captured children, with per-child placement.
+    Each,
+}
+
+impl ChildrenMode {
+    /// Host ABI: overlay=0, composite=1, composite with history=2, each=3.
+    pub fn code(self) -> u32 {
+        match self {
+            Self::Overlay => 0,
+            Self::Composite { previous: false } => 1,
+            Self::Composite { previous: true } => 2,
+            Self::Each => 3,
+        }
+    }
+}
+
 /// What an app implements per canvas.
 pub trait Surface {
     /// Device work follows visibility: a hidden chart stops its ticker, a video
@@ -154,8 +181,8 @@ pub trait Surface {
     }
     /// State as bytes this surface can later restore: a save or a dev reload's carry.
     /// None means this surface has nothing worth carrying.
-    fn carry(&mut self) -> Option<Vec<u8>> {
-        None
+    fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
+        Ok(None)
     }
     /// Take back a carry, possibly from an older build. Err leaves state unchanged.
     fn restore(&mut self, _bytes: &[u8], _mode: Restore) -> Result<(), String> {
@@ -199,31 +226,12 @@ pub trait Surface {
     fn agent(&mut self, _request: &str) -> Option<String> {
         None
     }
-    /// Whether the surface samples the canvas's children (LLP 1014 D2). A
-    /// host that can paint a subtree then hands it to [`Surface::children`]
-    /// and stops compositing the children itself; a host that cannot, or a
-    /// surface that answers `false`, leaves them composited over the surface.
-    fn wants_children(&self) -> bool {
-        false
+    /// Child composition selected by this surface (LLP 1014).
+    fn children_mode(&self) -> ChildrenMode {
+        ChildrenMode::Overlay
     }
-    /// Whether the surface also wants the children as they were before the
-    /// latest upload (LLP 1014): the module keeps a copy, handed over once by
-    /// [`Surface::previous_children`] and refreshed before every upload;
-    /// [`Frame::children_generation`] says when the pair changed.
-    fn wants_previous_children(&self) -> bool {
-        false
-    }
-    /// The children before the latest upload (see
-    /// [`Surface::wants_previous_children`]); `None` when there are none.
+    /// The children before the latest upload, requested by Composite { previous: true }.
     fn previous_children(&mut self, _texture: Option<&wgpu::TextureView>) {}
-    /// Whether the surface wants each direct child of the canvas as its own
-    /// texture with its kernel frame (LLP 1014 D5, the browser's `drawable`):
-    /// the host then captures every child separately, hands each one over
-    /// through [`Surface::child`], and asks [`Surface::placement`] after each
-    /// frame where the surface put it, for hit-testing and accessibility.
-    fn wants_children_each(&self) -> bool {
-        false
-    }
     /// The `index`th direct child's texture (created or resized; contents
     /// update in place) and its frame in the canvas's points — `x, y, width,
     /// height`. A `None` texture with a non-empty frame means the host composites
@@ -702,24 +710,17 @@ impl Module {
         reply
     }
 
-    /// Whether a canvas's surface samples its children (LLP 1014 D2).
-    pub fn wants_children(&self, id: u32) -> bool {
-        self.instances
-            .get(&id)
-            .is_some_and(|i| i.surface.wants_children())
-    }
-
-    /// Whether a canvas's surface wants each child as its own texture (LLP
-    /// 1014 D5).
-    pub fn wants_children_each(&mut self, id: u32) -> bool {
-        let wants = self
+    /// Child composition; changing away from Each retires captured child textures.
+    pub fn children_mode(&mut self, id: u32) -> ChildrenMode {
+        let mode = self
             .instances
             .get(&id)
-            .is_some_and(|i| i.surface.wants_children_each());
-        if !wants && self.instances.get(&id).is_some_and(|i| !i.each.is_empty()) {
+            .map_or(ChildrenMode::Overlay, |i| i.surface.children_mode());
+        if mode != ChildrenMode::Each && self.instances.get(&id).is_some_and(|i| !i.each.is_empty())
+        {
             self.children_count(id, 0);
         }
-        wants
+        mode
     }
 
     /// The `index`th direct child of a canvas, painted by the host (LLP 1014
@@ -905,7 +906,11 @@ impl Module {
             let texture = make("children");
             let view = texture.create_view(&Default::default());
             inst.surface.children(Some(&view));
-            let previous = inst.surface.wants_previous_children().then(|| {
+            let previous = matches!(
+                inst.surface.children_mode(),
+                ChildrenMode::Composite { previous: true }
+            )
+            .then(|| {
                 let previous = make("previous children");
                 let view = previous.create_view(&Default::default());
                 inst.surface.previous_children(Some(&view));
@@ -1057,11 +1062,12 @@ impl Module {
     }
 
     /// Capture state without advancing the surface or consuming its publications.
-    pub fn carry(&mut self, id: u32) -> Option<Vec<u8>> {
+    pub fn carry(&mut self, id: u32) -> Result<Option<Vec<u8>>, SurfaceError> {
         self.check_device();
-        let Some(inst) = self.instances.get_mut(&id) else {
-            return self.fail("no such canvas");
-        };
+        let inst = self
+            .instances
+            .get_mut(&id)
+            .ok_or_else(|| SurfaceError("no such canvas".into()))?;
         inst.surface.carry()
     }
 
@@ -1273,7 +1279,11 @@ impl Module {
                     gpu.queue.submit([encoder.finish()]);
                     Some(previous)
                 }
-                _ => inst.surface.wants_previous_children().then(|| {
+                _ => matches!(
+                    inst.surface.children_mode(),
+                    ChildrenMode::Composite { previous: true }
+                )
+                .then(|| {
                     let previous = gpu.device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("previous children"),
                         size,

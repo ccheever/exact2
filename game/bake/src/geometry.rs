@@ -68,15 +68,10 @@ pub fn primitive(
         .read_normals()
         .map(|v| v.flatten().collect())
         .unwrap_or_else(|| normals(&positions, &indices));
-    let tangents = r
-        .read_tangents()
-        .map(|v| v.flatten().collect())
-        .unwrap_or_else(|| tangents(&positions, &normals, &uvs, &indices));
     let mut mesh = MeshData {
         positions,
         normals,
         uvs,
-        tangents,
         joints: r
             .read_joints(0)
             .map(|v| v.into_u16().flatten().collect())
@@ -115,7 +110,6 @@ pub fn merge(a: &mut MeshData, b: MeshData) {
     a.positions.extend(b.positions);
     a.normals.extend(b.normals);
     a.uvs.extend(b.uvs);
-    a.tangents.extend(b.tangents);
     a.joints.extend(b.joints);
     a.weights.extend(b.weights);
     a.indices.extend(b.indices.into_iter().map(|i| base + i));
@@ -133,44 +127,5 @@ fn normals(p: &[f32], indices: &[u32]) -> Vec<f32> {
     }
     n.into_iter()
         .flat_map(|n| n.try_normalize().unwrap_or(Vec3::Y).to_array())
-        .collect()
-}
-fn tangents(p: &[f32], normals: &[f32], uv: &[f32], indices: &[u32]) -> Vec<f32> {
-    let mut t = vec![Vec3::ZERO; p.len() / 3];
-    let mut b = t.clone();
-    for tri in indices.chunks_exact(3) {
-        let [i, j, k] = [tri[0] as usize, tri[1] as usize, tri[2] as usize];
-        let v = |a| Vec3::from_slice(&p[a * 3..a * 3 + 3]);
-        let e1 = v(j) - v(i);
-        let e2 = v(k) - v(i);
-        let du1 = uv[j * 2] - uv[i * 2];
-        let dv1 = uv[j * 2 + 1] - uv[i * 2 + 1];
-        let du2 = uv[k * 2] - uv[i * 2];
-        let dv2 = uv[k * 2 + 1] - uv[i * 2 + 1];
-        let det = du1 * dv2 - du2 * dv1;
-        if det.abs() < 1e-12 {
-            continue;
-        }
-        let tangent = (e1 * dv2 - e2 * dv1) / det;
-        let bitangent = (e2 * du1 - e1 * du2) / det;
-        for a in [i, j, k] {
-            t[a] += tangent;
-            b[a] += bitangent;
-        }
-    }
-    t.into_iter()
-        .enumerate()
-        .flat_map(|(i, t)| {
-            let n = Vec3::from_slice(&normals[i * 3..i * 3 + 3]);
-            let t = (t - n * n.dot(t))
-                .try_normalize()
-                .unwrap_or_else(|| n.any_orthonormal_vector());
-            [
-                t.x,
-                t.y,
-                t.z,
-                if n.cross(t).dot(b[i]) < 0. { -1. } else { 1. },
-            ]
-        })
         .collect()
 }

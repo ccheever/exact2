@@ -94,7 +94,7 @@ fn rendered_atlas_and_mid_fall_restore() {
         WorldSurface,
     };
     let gpu = fixture::device().unwrap();
-    let mut s = WorldSurface::<SmallGame, (), true>::default();
+    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
@@ -118,7 +118,7 @@ fn rendered_atlas_and_mid_fall_restore() {
     let falling = fixture::render(&gpu, &mut s, &f).unwrap().0;
     assert_ne!(first, falling);
     falling.save("sprites-mid-fall");
-    let save = s.carry().unwrap();
+    let save = s.carry().unwrap().unwrap();
     for mode in [Restore::Open, Restore::Carry] {
         s.restore(&save, mode).unwrap();
         f.now_ms = 0.;

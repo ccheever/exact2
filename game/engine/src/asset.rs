@@ -8,6 +8,8 @@ pub use names::asset_name;
 use std::{collections::BTreeSet, sync::Arc};
 
 mod map;
+/// Renderer-neutral pose records and rig geometry.
+pub mod pose;
 
 #[derive(Data, Default, Clone, Debug)]
 pub struct Model {
@@ -24,7 +26,6 @@ pub struct MeshData {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
-    pub tangents: Vec<f32>,
     pub joints: Vec<u16>,
     pub weights: Vec<f32>,
     pub indices: Vec<u32>,
@@ -194,7 +195,6 @@ impl Model {
                 || m.positions.len() != n * 3
                 || m.normals.len() != n * 3
                 || m.uvs.len() != n * 2
-                || (!m.tangents.is_empty() && m.tangents.len() != n * 4)
                 || (!m.joints.is_empty() && m.joints.len() != n * 4)
                 || (!m.weights.is_empty() && m.weights.len() != n * 4)
                 || m.joints.is_empty() != m.weights.is_empty()
@@ -210,7 +210,6 @@ impl Model {
                 .iter()
                 .chain(&m.normals)
                 .chain(&m.uvs)
-                .chain(&m.tangents)
                 .chain(&m.weights)
                 .any(|v| !v.is_finite())
             {

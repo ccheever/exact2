@@ -74,10 +74,10 @@ pub unsafe fn bytes_mut<'a>(what: &str, ptr: *mut u8, len: usize) -> Option<&'a 
     Some(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
 }
 
-/// u32::MAX is reserved for no carry; never truncate a host-sized length.
+/// The top two u32 values mean absent/refused carry; never truncate a length.
 pub fn carry_length(len: usize) -> Option<u32> {
     match u32::try_from(len) {
-        Ok(n) if n != u32::MAX => Some(n),
+        Ok(n) if n < u32::MAX - 1 => Some(n),
         _ => {
             refuse("gpu_carry: carry exceeds ABI byte limit");
             None
@@ -256,8 +256,8 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
 
 /// Whether a canvas's surface wants each child as its own texture (LLP
 /// 1014 D5).
-pub fn wants_children_each(id: u32) -> bool {
-    with(|m| m.wants_children_each(id)).unwrap_or(false)
+pub fn children_mode(id: u32) -> u32 {
+    with(|m| m.children_mode(id).code()).unwrap_or(0)
 }
 
 /// The `index`th direct child of a canvas as pixels with its frame (LLP
@@ -281,11 +281,6 @@ pub fn children_count(id: u32, count: u32) -> u32 {
 /// then the depth; `None` when it is the kernel's frame (LLP 1014 D5).
 pub fn placement(id: u32, index: u32) -> Option<crate::Placement> {
     with(|m| m.placement(id, index as usize)).flatten()
-}
-
-/// Whether a canvas's surface samples its children (LLP 1014 D2).
-pub fn wants_children(id: u32) -> bool {
-    with(|m| m.wants_children(id)).unwrap_or(false)
 }
 
 /// The canvas's children as pixels (LLP 1014 D3) (`width`×`height` premultiplied
@@ -370,8 +365,9 @@ pub fn input(id: u32, event: &str) -> bool {
 }
 
 /// Capture state; None is distinct from a zero-byte carry.
-pub fn carry(id: u32) -> Option<Vec<u8>> {
-    with(|m| m.carry(id)).flatten()
+pub fn carry(id: u32) -> Result<Option<Vec<u8>>, crate::SurfaceError> {
+    with(|m| m.carry(id))
+        .unwrap_or_else(|| Err(crate::SurfaceError("GPU module is not loaded".into())))
 }
 
 /// Restore state. False leaves the surface unchanged; error explains why.
@@ -540,17 +536,10 @@ macro_rules! module {
             $crate::native::render(id, width, height, scale, now_ms)
         }
 
-        /// Whether a canvas's surface samples its children (LLP 1014 D2): 1 or 0.
+        /// Child composition: overlay=0, composite=1, composite/history=2, each=3.
         #[no_mangle]
-        pub extern "C" fn gpu_wants_children(id: u32) -> u32 {
-            u32::from($crate::native::wants_children(id))
-        }
-
-        /// Whether a canvas's surface wants each child as its own texture
-        /// (LLP 1014 D5): 1 or 0.
-        #[no_mangle]
-        pub extern "C" fn gpu_wants_children_each(id: u32) -> u32 {
-            u32::from($crate::native::wants_children_each(id))
+        pub extern "C" fn gpu_children_mode(id: u32) -> u32 {
+            $crate::native::children_mode(id)
         }
 
         /// The `index`th direct child of a canvas: its frame in points and
@@ -681,17 +670,18 @@ macro_rules! module {
         }
 
 
-        /// Carry in the output buffer; u32::MAX means nothing, zero is an empty carry.
+        /// Carry in the output buffer; MAX means nothing, MAX-1 a refusal; zero is empty.
         #[no_mangle]
         pub extern "C" fn gpu_carry(id: u32) -> u32 {
             EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
             match $crate::native::carry(id) {
-                Some(bytes) => {
-                    let Some(len) = $crate::native::carry_length(bytes.len()) else { return u32::MAX };
+                Ok(Some(bytes)) => {
+                    let Some(len) = $crate::native::carry_length(bytes.len()) else { return u32::MAX - 1 };
                     EXACT_GPU_OUT.with(|b| *b.borrow_mut() = bytes);
                     len
                 },
-                None => u32::MAX,
+                Ok(None) => u32::MAX,
+                Err(error) => { $crate::native::refuse(&error.0); u32::MAX - 1 },
             }
         }
 
@@ -801,8 +791,12 @@ mod placement_abi_tests {
         ) -> bool {
             false
         }
-        fn wants_children_each(&self) -> bool {
-            !self.retired
+        fn children_mode(&self) -> crate::ChildrenMode {
+            if self.retired {
+                crate::ChildrenMode::Overlay
+            } else {
+                crate::ChildrenMode::Each
+            }
         }
         fn prepare_assets(&mut self, _: &wgpu::Device, _: &wgpu::Queue, _: wgpu::TextureFormat) {
             self.preparations += 1;
@@ -846,7 +840,7 @@ mod placement_abi_tests {
             );
             assert_eq!(child(id, 0, [0., 0., 20., 20.], 1, 1, &[255; 4]), 0);
             with(|m| m.agent(id, "retire"));
-            assert_eq!(gpu_wants_children_each(id), 0);
+            assert_eq!(gpu_children_mode(id), 0);
             assert_eq!(with(|m| m.instances[&id].each.len()), Some(0));
             assert_eq!(
                 with(|m| m.placement(id, 1).unwrap().homography),
@@ -899,7 +893,7 @@ mod placement_abi_tests {
         unsafe {
             let id = gpu_create_headless(b"sign".as_ptr(), 4);
             assert_ne!(id, 0);
-            assert_eq!(gpu_wants_children_each(id), 1);
+            assert_eq!(gpu_children_mode(id), 3);
             assert_eq!(
                 gpu_child(id, 0, 10., 20., 100., 50., 0, 0, std::ptr::null(), 0),
                 0

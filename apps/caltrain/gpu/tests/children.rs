@@ -77,11 +77,15 @@ fn the_aurora_composes_its_children_over_the_sky() {
         now_ms: 1234.0,
         children_generation: 0,
         seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let mut sky = AuroraSurface::new();
     sky.bind(&[Value::str("mv")], None).unwrap();
-    assert!(sky.wants_children(), "the aurora samples its children");
+    assert_eq!(
+        sky.children_mode(),
+        exact_gpu::ChildrenMode::Composite { previous: false }
+    );
 
     // The sky alone, then with a transparent children texture: the same
     // picture, pixel for pixel.

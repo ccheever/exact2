@@ -36,23 +36,11 @@ transforms. Held keys are external inputs, released at the checkpoint boundary a
 reapplied in the same way to both continuations. The script removes stale endpoint
 files before comparisons. Process runs are sequential and timeout after 60 seconds.
 
-Current result: proof steps 1–5 pass on this macOS/Godot build. Both full runs have
-28 passing assertions, and original/repeated/restored continuation states are
-byte-identical. Step 6 is blocked here: all three windowed attempts aborted with
-SIGABRT during macOS NSApplication registration, before project startup. The
-aggregate script therefore exits 1; no screenshot or visual-quality claim is made.
-The startup log also reports denied creation of Godot's default user-data directory;
-actual game saves/logs go inside this project and succeed. Those startup diagnostics
-are preserved in `.launch.json` and `.stdout.log` instead of hidden.
-
-The diary is [001-beacons-godot.md](001-beacons-godot.md). It remains here because the
-instruction to write only inside this project conflicts with the requested diary
-path outside it, and no exception was received. No repository files outside this
-project were edited. No commits, clones, remote commands or subagents were used.
+Historical proof results and startup limitations are in [the diary](001-beacons-godot.md).
 
 ## Live feel probe
 
-The verification notes above describe the original game proof. From the repo root,
+From the repo root,
 `bun game/bench/feel.mjs godot` now runs a separate visible, vsynced, live-clock
 diagnostic three times as shipped and three times with physics interpolation on.
 The adjacent `feel.gd` node is inactive unless `-- --feel` is supplied; the runner

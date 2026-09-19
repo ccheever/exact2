@@ -150,7 +150,7 @@ fn content_equal_without_ownership_never_adopts_authored_output() {
     fs::remove_dir_all(app).unwrap();
 }
 #[test]
-fn legacy_manifest_adopts_only_equal_listed_outputs_and_keeps_unknown_old_bytes() {
+fn obsolete_manifest_refuses_before_changing_outputs() {
     let app = temp();
     fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
     exact_game_bake::bake_art(&app).unwrap();
@@ -160,10 +160,10 @@ fn legacy_manifest_adopts_only_equal_listed_outputs_and_keeps_unknown_old_bytes(
         r#"["crate.model","crate/0-srgb-straight.tex","old.tex"]"#,
     )
     .unwrap();
-    exact_game_bake::bake_art(&app).unwrap();
-    assert!(fs::read_to_string(app.join(".baked-assets.json"))
-        .unwrap()
-        .starts_with('{'));
+    let before = fs::read(app.join("assets/crate.model")).unwrap();
+    let error = exact_game_bake::bake_art(&app).unwrap_err();
+    assert!(error.contains("regenerate"), "{error}");
+    assert_eq!(fs::read(app.join("assets/crate.model")).unwrap(), before);
     assert_eq!(
         fs::read(app.join("assets/old.tex")).unwrap(),
         b"cannot prove ownership"

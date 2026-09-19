@@ -4,6 +4,7 @@
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
 import { pacer } from "./pace.js";
+import { assetDelivery } from "./gpu-assets.js";
 let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
@@ -25,112 +26,12 @@ let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
 
-// Three attempts, at most 5s each, 250/500ms backoff and a 20s total deadline.
-const ASSET_DEADLINE_MS = 20_000;
-const ASSET_LIMIT = 64 * 1024 * 1024;
-const assetFlights = new Set();
-let activeAssetFlights = 0;
-function pumpAssets() {
-  for (const flight of assetFlights) {
-    if (activeAssetFlights >= 8) break;
-    if (flight.started || flight.cancelled) continue;
-    flight.started = true; activeAssetFlights++;
-    flight.run().finally(() => {
-      activeAssetFlights--; assetFlights.delete(flight); flight.resolve(); pumpAssets();
-    });
-  }
-}
-function assetName(name) {
-  return typeof name === "string" && name.length > 0 && name.length <= 128
-    && /^[\x20-\x7e]+$/.test(name) && !name.includes("\\")
-    && name.split("/").every(p => p && p !== "." && p !== "..");
-}
-function cancelAssets(entry, names) {
-  for (const flight of assetFlights) if (flight.entry === entry && (!names || names.has(flight.name))) {
-    flight.cancelled = true; flight.controller.abort();
-    assetFlights.delete(flight);
-    if (!flight.started) flight.resolve();
-  }
-}
-function assets(entry) {
-  if (!entry.id || !gpu) return;
-  const module = gpu, id = entry.id;
-  const names = JSON.parse(module.gpu_assets(id));
-  cancelAssets(entry, new Set(JSON.parse(module.gpu_retired?.(id) ?? "[]")));
-  for (const name of names) {
-    if ([...assetFlights].some(f => f.entry === entry && f.name === name && !f.cancelled)) continue;
-    if (assetFlights.size >= 256) {
-      module.gpu_asset_failed(id, name, "host limit is 256 queued and active asset flights");
-      continue;
-    }
-    const flight = {entry, name, deadline:performance.now() + ASSET_DEADLINE_MS, controller:new AbortController(), cancelled:false};
-    assetFlights.add(flight);
-    flight.promise = new Promise(resolve => { flight.resolve = resolve; });
-    flight.run = async () => {
-      let bytes = null, failure;
-      const deadline = flight.deadline;
-      if (!assetName(name)) failure = "invalid asset name";
-      else if (exact.devAssets instanceof Map) {
-        bytes = exact.devAssets.get(`assets/${name}`)?.bytes ?? null;
-        if (bytes && bytes.length > ASSET_LIMIT) { bytes = null; failure = "exceeds 64 MiB"; }
-      }
-      else for (let attempt = 0; attempt < 3 && !flight.cancelled; attempt++) {
-        const left = deadline - performance.now();
-        if (left <= 0) { failure = "fetch deadline exceeded"; break; }
-        const controller = flight.controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), Math.min(5_000, left));
-        let retry = true;
-        try {
-          const path = name.split("/").map(encodeURIComponent).join("/");
-          const response = await fetch(new URL(`./assets/${path}`, document.baseURI), {signal:controller.signal});
-          if (response.status === 404) { failure = undefined; break; }
-          if (!response.ok) {
-            retry = response.status >= 500;
-            throw new Error(`HTTP ${response.status}`);
-          }
-          const oversized = async reader => {
-            retry = false;
-            await reader?.cancel();
-            controller.abort();
-            throw new Error("exceeds 64 MiB");
-          };
-          if (Number(response.headers?.get("content-length")) > ASSET_LIMIT) await oversized(response.body?.getReader());
-          const reader = response.body?.getReader(), chunks = [];
-          let length = 0;
-          if (reader) {
-            try {
-              for (;;) {
-                const {done, value} = await reader.read();
-                if (done) break;
-                if (value.byteLength > ASSET_LIMIT - length) await oversized(reader);
-                length += value.byteLength; chunks.push(value);
-              }
-            } finally { reader.releaseLock(); }
-          }
-          bytes = new Uint8Array(length);
-          let offset = 0;
-          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-          failure = undefined; break;
-        } catch (error) { failure = !retry ? String(error.message ?? error) : controller.signal.aborted ? "fetch deadline exceeded" : String(error.message ?? error); }
-        finally { clearTimeout(timer); }
-        if (!retry || attempt === 2 || flight.cancelled) break;
-        const backoff = flight.controller = new AbortController();
-        await new Promise(resolve => {
-          const timer = setTimeout(done, Math.min(250 * (attempt + 1), Math.max(0, deadline - performance.now())));
-          function done() { clearTimeout(timer); backoff.signal.removeEventListener("abort", done); resolve(); }
-          backoff.signal.addEventListener("abort", done, {once:true});
-        });
-      }
-      if (flight.cancelled || gpu !== module || live(entry.view) !== entry || entry.id !== id) return;
-      const ok = failure ? module.gpu_asset_failed(id, name, failure) : module.gpu_asset(id, name, bytes);
-      const error = ok ? undefined : module.gpu_error();
-      if (error) console.error("exact gpu:", error);
-      finishRestore(entry, module, error);
-      messages(entry, false); entry.resampleHeld?.(); schedule();
-    };
-  }
-  pumpAssets();
-}
+const delivery = assetDelivery({getModule:() => gpu, live, baseURI:() => document.baseURI,
+  devAssets:() => exact.devAssets, delivered(entry, module, error) {
+    finishRestore(entry, module, error);
+    messages(entry, false); entry.resampleHeld?.(); schedule();
+  }});
+const {assets, cancelAssets} = delivery;
 function reportRestore(entry) {
   if (!entry.restoreError || entry.restoreReported === entry.restoreError) return;
   entry.restoreReported = entry.restoreError;
@@ -159,10 +60,8 @@ function finishRestore(entry, module, error) {
 async function settled() {
   await ready;
   await recoveringDevice;
-  const deadline = performance.now() + ASSET_DEADLINE_MS;
-  for (let round = 0; round < 16; round++) {
-    for (const entry of surfaces.values()) assets(entry);
-    if (!assetFlights.size) {
+  const pending = await delivery.settled(() => surfaces.values());
+  if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
       if (exact.now) for (let pass = 0; pass < 3; pass++) {
@@ -173,19 +72,8 @@ async function settled() {
         if (!drew) break;
       }
       if (exact.gpu.recovery?.status === "recovered") exact.gpu.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
-      return [];
-    }
-    const left = deadline - performance.now();
-    if (left <= 0) break;
-    let timer;
-    const done = await Promise.race([
-      Promise.all([...assetFlights].map(f => f.promise)).then(() => true),
-      new Promise(resolve => { timer = setTimeout(() => resolve(false), left); }),
-    ]);
-    clearTimeout(timer);
-    if (!done) break;
   }
-  return [...assetFlights].map(f => ({name:f.name, canvas:f.entry.view}));
+  return pending;
 }
 
 function size(el) {
@@ -222,7 +110,7 @@ function restoreChild(row) {
   delete row.original;
 }
 function supplyChildren(entry, module = gpu, staging = false) {
-  if (!module.gpu_wants_children_each?.(entry.id)) {
+  if (module.gpu_children_mode?.(entry.id) !== 3) {
     if (!staging) for (const row of entry.children ?? []) restoreChild(row);
     if (entry.children) {
       module.gpu_children_count(entry.id, 0);
@@ -386,7 +274,9 @@ function attach(entry) {
 }
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
-  if (module.gpu_carry(entry.id) === undefined) {
+  let carried;
+  try { carried = module.gpu_carry(entry.id); } catch { carried = null; }
+  if (carried === undefined) {
     try { if (!JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world) return; }
     catch { return; }
   }
@@ -414,7 +304,7 @@ function ensure(entry) {
 function restoreReply(reply) {
   if (exact.worldCarry !== undefined && !terminalRestoreReported) {
     const candidates = [...surfaces.values()];
-    if (candidates.length && candidates.every(e => e.id && (e.attemptedCarry === exact.worldCarry || gpu.gpu_carry(e.id) === undefined))
+    if (candidates.length && candidates.every(e => e.id && (e.attemptedCarry === exact.worldCarry || JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")?.world === undefined))
         && candidates.some(e => e.restoreError)) {
       terminalRestoreReported = true;
       return { ...reply, error: candidates.filter(e => e.restoreError).map(e => e.restoreError).join("; ") };
@@ -577,7 +467,8 @@ exact.gpu = {
       entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });
     }
     if (request.op === "screenshot" && request.form === "save") {
-      const bytes = gpu.gpu_carry(entry.id);
+      let bytes;
+      try { bytes = gpu.gpu_carry(entry.id); } catch (error) { return {error: `save refused: ${error}`}; }
       if (bytes === undefined) {
         const state = agent(request.id, {op:"state"})?.world;
         return {error: state?.assets?.length ? `save refused: ${JSON.stringify(state.assets)}` : `canvas ${entry.name} carries no state`, assets:state?.assets};
@@ -675,12 +566,10 @@ exact.gpu = {
     planCarries = new Map();
     if (carry) for (const entry of surfaces.values()) if (entry.id) {
       if ([...surfaces.values()].filter(e => e.name === entry.name).length !== 1) continue;
-      const bytes = gpu.gpu_carry(entry.id);
-      if (bytes !== undefined) planCarries.set(entry.name, { name: entry.name, bytes });
-      else {
-        const state = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
-        if (state?.assets?.length) restoreJournal.push({canvas:entry.view,error:`carry refused: ${JSON.stringify(state.assets)}`});
-      }
+      try {
+        const bytes = gpu.gpu_carry(entry.id);
+        if (bytes !== undefined) planCarries.set(entry.name, { name: entry.name, bytes });
+      } catch (error) { restoreJournal.push({canvas:entry.view,error:`carry refused: ${error}`}); }
     }
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
@@ -783,10 +672,6 @@ async function swap(version) {
       delete entry.pendingRestore; delete entry.restoreReported;
       staged.push([old, entry]);
       const carry = old.id ? gpu.gpu_carry(old.id) : old.carry;
-      if (old.id && carry === undefined) {
-        const state = JSON.parse(gpu.gpu_agent(old.id, JSON.stringify({op:"state"})) || "null")?.world;
-        if (state?.assets?.length) throw new Error(`carry refused: ${JSON.stringify(state.assets)}`);
-      }
       create(entry, next, carry);
       restorePending(entry, next, carrier);
       const {w,h,s} = size(old.host);

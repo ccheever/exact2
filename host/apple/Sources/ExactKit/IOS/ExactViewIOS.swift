@@ -136,8 +136,28 @@ public final class ExactView: UIView {
                 insets.bottom = 0
             }
         }
+        var size = frame.size
+        #if targetEnvironment(simulator)
+        // The agent's explicit viewport size is shared with web/macOS/Linux.
+        // Fit those logical points into the simulator window; hit testing and
+        // captures still use the viewport's own coordinate system.
+        let env = ProcessInfo.processInfo.environment
+        if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
+           let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
+           width.isFinite, height.isFinite, width > 0, height > 0 {
+            size = CGSize(width: width, height: height)
+            let scale = min(frame.width / size.width, frame.height / size.height)
+            presenter.viewport.transform = CGAffineTransform(scaleX: scale, y: scale)
+            presenter.viewport.bounds = CGRect(origin: .zero, size: size)
+            presenter.viewport.center = CGPoint(x: frame.midX, y: frame.midY)
+            insets = .zero
+        } else {
+            presenter.viewport.transform = .identity
+            if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+        }
+        #else
         if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
-        let size = frame.size
+        #endif
         guard size.width > 0, size.height > 0 else { return }
         if !session.booted {
             lastSize = size

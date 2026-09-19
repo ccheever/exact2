@@ -893,7 +893,6 @@ mod arrival_tests {
                 positions: vec![0.; 9],
                 normals: vec![0.; 9],
                 uvs: vec![0.; 6],
-                tangents: vec![0.; 12],
                 indices: vec![0, 1, 2],
                 ..Default::default()
             }],
@@ -1015,5 +1014,47 @@ mod retirement_regressions {
             r.models.poses, history,
             "compaction preserves the moving hero history"
         );
+    }
+}
+
+/// Model-capable presentation executor. Primitive modules never instantiate it.
+#[derive(Default)]
+pub struct ModelPresentation<P: crate::Presentation = ()> {
+    inner: P,
+    definitions: Option<exact_game::animation::Definitions>,
+}
+impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
+    fn wants_audio(&self) -> bool {
+        self.inner.wants_audio()
+    }
+    fn clock(&mut self, seekable: bool) {
+        self.inner.clock(seekable);
+    }
+    fn suspend(&mut self, suspended: bool) {
+        self.inner.suspend(suspended);
+    }
+    fn sync(&mut self, world: &exact_game::World, generation: u64, playing: bool, seekable: bool) {
+        self.inner.sync(world, generation, playing, seekable);
+    }
+    fn before_restore(&mut self, world: &exact_game::World, mode: exact_gpu::Restore) {
+        self.definitions = (mode == exact_gpu::Restore::Carry)
+            .then(|| exact_game::animation::Definitions::capture(world));
+        self.inner.before_restore(world, mode);
+    }
+    fn after_restore(&mut self, world: &exact_game::World, mode: exact_gpu::Restore) {
+        if let Some(definitions) = self.definitions.take() {
+            definitions.apply(world);
+        }
+        self.inner.after_restore(world, mode);
+    }
+    fn inspect(
+        world: &exact_game::World,
+        entity: exact_game::Entity,
+        pose: bool,
+    ) -> Result<String, String> {
+        exact_game::animation::inspect(world, entity, pose)
+    }
+    fn unlock(&mut self) {
+        self.inner.unlock();
     }
 }

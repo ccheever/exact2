@@ -30,10 +30,9 @@ mod tween;
 mod values;
 mod world;
 
-pub use animation::{
-    Animation, Animator, Blend, Cmp, Condition, Ik, Play, Pose, SocketFollow, State,
-};
+pub use animation::{Animation, Animator, Blend, Cmp, Condition, Ik, Play, SocketFollow, State};
 pub use args::{Args, ArgumentKind};
+pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{Bloom, Environment, Fog};

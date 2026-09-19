@@ -22,27 +22,11 @@ seed/PRNG and fractional accumulator. These are callable in the browser console.
 `?proof` enables the manual test clock. The full proof sends actual CDP keyboard
 and mouse events and uses fresh Chrome processes/profiles for replay and restore.
 
-## Verification status
-
-**Browser proof blocked before page load on this machine.** Three launch attempts
-failed; the last two explicitly report Chrome exiting with SIGABRT and no stderr.
-One used Bun and the other Node with GPU disabled. The underlying abort cause was
-not established. `browser-failure.json` records the observations. No screenshot
-exists; rendering, DOM/input behavior, and browser save/restore remain unverified.
-The full proof script is implemented but has never reached its browser assertions.
-
-`sim-proof-result.json` records 22 passing simulation assertions, including a
-fresh Bun process restoring `sim-save.json` and reproducing the continuation
-byte for byte. This is a substitute, not a passing browser proof. The predicted
-W position after 1.5 s is `(0, 0, -5.616435329305953)` metres. JS syntax checks pass.
-No frame pacing, cross-host determinism, or pixel identity was measured.
-
-198 physical lines of game source (155 JavaScript + 43 HTML/CSS); 237 lines of
-proof/serving code, reported separately. Diary: `game/diaries/001-beacons-three.md`.
+Historical proof results and browser limitations are in [the diary](../../../diaries/001-beacons-three.md).
 
 ## Live feel probe
 
-The verification notes above describe the original game proof. A separate headed,
+A headed,
 live-clock diagnostic is now available from the repo root:
 `bun game/bench/feel.mjs three`. `?feel=1` loads the adjacent `feel.js` observer;
 the runner arms its buffers, drives real CDP input, and reads them once at the end.

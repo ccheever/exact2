@@ -535,7 +535,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 });
             }
         }
-        self.quads.order(device, queue);
+        self.quads.order::<ASSETS>(device, queue);
         let mut encoder = device.create_command_encoder(&Default::default());
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
@@ -677,7 +677,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
             for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
-                self.quads.draw(&mut pass, draw);
+                self.quads.draw::<ASSETS>(&mut pass, draw);
                 extra_draws += 1;
             }
             if frame::has_sky(frame) {
@@ -688,6 +688,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             }
             for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
                 if let crate::quads::Kind::Model(index, slot) = draw.kind {
+                    assert!(ASSETS, "model in primitive executor");
                     let batch = &self.batches[index];
                     let material = &self.models.materials[self.model_batches[index].unwrap().0];
                     pass.set_pipeline(
@@ -712,7 +713,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     let mesh = &self.meshes[batch.mesh.0];
                     pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 } else {
-                    self.quads.draw(&mut pass, draw);
+                    self.quads.draw::<ASSETS>(&mut pass, draw);
                 }
                 extra_draws += 1;
             }

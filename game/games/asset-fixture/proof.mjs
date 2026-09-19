@@ -26,6 +26,20 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
     if(path.includes('..')) return new Response('',{status:404});
     const file = Bun.file(resolve(import.meta.dir,'dist',path==='/'?'index.html':path.slice(1)));
     const textureReply = await residency.textureResponse(path,file); if(textureReply) return textureReply;
+    if(path === '/gpu-assets.js') {
+      // The delivery gate follows the asset module; the renderer probe stays
+      // in gpu-glue. Neither probe changes the shipped source.
+      const source = (await file.text()).replace('  const names = JSON.parse(module.gpu_assets(id));', `
+        if (!entry.fixtureProbe) {
+          entry.fixtureProbe = true;
+          const world = JSON.parse(module.gpu_agent(id, JSON.stringify({op:'state'})))?.world;
+          let carry, carryError;
+          try { carry = module.gpu_carry(id)?.length ?? null; } catch (error) { carryError = String(error); }
+          fetch('/__asset-probe', {method:'POST',body:JSON.stringify({world,carry,carryError})});
+        }
+        const names = JSON.parse(module.gpu_assets(id));`);
+      return new Response(source,{headers:{'Content-Type':'text/javascript'}});
+    }
     if(path === '/gpu-glue.js') {
       // Observe the actual surface before delivery, below the agent's mandatory
       // settlement barrier. This probe exists only in this proof's HTTP response.
@@ -48,12 +62,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
           fetch('/__loss-probe', {method:'POST',body:JSON.stringify({errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
         } catch(error) { fetch('/__loss-probe', {method:'POST',body:JSON.stringify({error:String(error)})}); }
       });
-` + (await file.text()).replace('function assets(entry) {', `function assets(entry) {
-        if (entry.id && !entry.fixtureProbe) {
-          entry.fixtureProbe = true;
-          const world = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'})))?.world;
-          fetch('/__asset-probe', {method:'POST',body:JSON.stringify({world,carry:gpu.gpu_carry(entry.id)?.length ?? null})});
-        }`);
+` + await file.text();
       return new Response(source+residency.source,{headers:{'Content-Type':'text/javascript'}});
     }
     return await file.exists() ? new Response(file) : new Response('',{status:404});
@@ -63,9 +72,9 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
     const g=next(), s=await open({...options,...(world?{world}: {})});
     const play=s.tap('play');
     if(web) {
-      const observation=await g.probe; await g.request;
+      const [observation]=await Promise.race([Promise.all([g.probe,g.request]), play.then(()=>{throw new Error('Play completed before the asset delivery gate');})]);
       check('before delivery: tick 0, declaration pending, not restored', observation.world?.tick===0 && observation.world?.restored===false && observation.world?.loading?.includes('crate.model'), observation);
-      check('loading carry refuses with current named states, even during restore', observation.carry===null, observation);
+      check('loading carry refuses with current named states, even during restore', observation.carry===undefined && /assets are not ready/.test(observation.carryError ?? '') && observation.carryError.includes('crate.model'), observation);
       let answered=false; const read=s.state().then(r=>{answered=true; return r;});
       await Promise.resolve();
       check('state waits at the same settlement barrier as clock and save', !answered);
@@ -115,8 +124,9 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
     const layout=await restored.layout('world:crate');
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);
     await restored.screenshot(resolve(out,`crate-${host}.png`));
-    if(host==='macos') say('SKIP physical Metal removal: this integrated device cannot be removed; native recovery ABI and replacement-device pixels run in the GPU tests.');
+    if(host==='macos' || host==='ios') say('SKIP physical Metal removal: this integrated device cannot be removed; native recovery ABI and replacement-device pixels run in the GPU tests.');
     say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate/0-srgb-straight.tex')).length}`);
+    if(host==='ios') say('SKIP browser transport gates and residency reload probe: simulator uses bundled files; asset readiness, failure, restore, GPU counters and pins still run.');
     if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
     await restored.close();
     {
@@ -124,7 +134,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       const g = next(), refused = await open({...options, world:invalid});
       const opening = refused.tap('play').then(()=>null, error=>String(error));
       if (web) {
-        const observation = await g.probe; await g.request;
+        const [observation] = await Promise.race([Promise.all([g.probe,g.request]), opening.then(error=>{throw new Error(`restore completed before the asset delivery gate: ${error}`);})]);
         check('invalid carrier waits for declared content before validation', observation.world?.restored===false && observation.world?.loading.includes('crate.model'));
         g.release();
       }

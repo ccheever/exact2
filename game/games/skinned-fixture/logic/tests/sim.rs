@@ -25,7 +25,11 @@ fn sim() -> Sim<SmallGame> {
 fn pinned_pose_and_hash() {
     let mut s = sim();
     s.run(1000.);
-    let pose = s.agent(r#"{"op":"state","entity":"fox","pose":true}"#);
+    let pose = s.agent_with_inspector(
+        r#"{"op":"state","entity":"fox","pose":true}"#,
+        |_, _| {},
+        animation::inspect,
+    );
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
@@ -214,7 +218,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
             SmallGame::tick(w, i, a);
         }
     }
-    fn surface<G: Game>() -> WorldSurface<G, (), true> {
+    fn surface<G: Game>() -> WorldSurface<G, exact_game_render::ModelPresentation, true> {
         let mut s = WorldSurface::default();
         s.bind(&[Value::Number(0.)], None).unwrap();
         for _ in 0..16 {
@@ -257,7 +261,7 @@ fn moving_skin_and_shadow_pixels() {
         WorldSurface,
     };
     let Ok(gpu) = fixture::device() else { return };
-    let mut s = WorldSurface::<SmallGame, (), true>::default();
+    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[Value::Number(0.)], None).unwrap();
     for _ in 0..16 {
@@ -281,7 +285,7 @@ fn moving_skin_and_shadow_pixels() {
     let (stride, _) = fixture::render(&gpu, &mut s, &frame).unwrap();
     assert_ne!(bind, stride);
     stride.save("fox-tick60");
-    let saved = s.carry().unwrap();
+    let saved = s.carry().unwrap().unwrap();
     s.restore(&saved, exact_game_render::exact_gpu::Restore::Open)
         .unwrap();
     // Establish the fresh host epoch. Local pose histories survive restore.
@@ -346,7 +350,7 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
     }
     let gpu = fixture::device().unwrap();
     fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
-        let mut s = WorldSurface::<Birth<H>, (), true>::default();
+        let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         for _ in 0..16 {
@@ -371,7 +375,7 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
         if event != "birth" {
             match event {
                 "restore" | "carry" => {
-                    let saved = s.carry().unwrap();
+                    let saved = s.carry().unwrap().unwrap();
                     s.restore(
                         &saved,
                         if event == "restore" {

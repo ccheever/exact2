@@ -121,8 +121,7 @@ linear. Mips arrive baked with authored nearest/linear filters and wrap modes; f
 samplers use 4× anisotropy. Only MASK/BLEND base-colour filtering weights RGB by
 alpha; opaque and emissive maps average straight RGB. MASK mip coverage is
 retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
-derivatives (including models without tangents); baked tangents are retained in
-model data but are not uploaded. Material UV transforms apply separately to every texture.
+derivatives; baked models contain no tangent arrays. Material UV transforms apply separately to every texture.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
@@ -130,7 +129,6 @@ They keep depth testing, disable depth writes, and do not cast shadows. A model'
 own materials are multiplied by entity base colour and have entity emission added.
 The environment's hemisphere approximation supplies ambient metallic reflection;
 this is not image-based lighting.
-At 200k slots materials cost 9.6 MB, two transform histories 16 MB.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
 wins. Point-light selection is feed-only, at most sixteen lights, with a 10%
@@ -198,15 +196,6 @@ texture delivery and `Restore::Carry` directly on a device-backed Fox surface;
 `content_digest_reuses_equal_bytes_and_replaces_changed_names` covers changed
 model geometry, texture color space and sampler state. Simulation pins are unchanged.
 
-A3 measurements, 2026-09-18, web at 1280×720, Fox tick 45/hash
-`0x1f9f91652dc258e6`, 20 same-device restore-through-first-draw samples after one
-warmup: p50 **0.60 → 0.50 ms**, p95 **1.00 → 0.90 ms**. Browser clock quantization
-and shared-machine load make this a diagnostic, not a demonstrated speedup. The
-starting HEAD already retained assets on a same-scene restore; A3 adds digest
-replacement and removes whole-renderer eviction on reference retirement. The
-post-change work is exactly zero for all four recorded categories. Raw samples:
-`/tmp/a3-baseline.log`, `/tmp/a3-after.log`.
-
 R4 repairs the web probe by copying the original save before replacing the mesh
 name, then restoring that copy. It never carries the temporary pending world.
 KeyR, KeyC (changed bytes and identical redelivery), and KeyP (pop-in) run in both
@@ -215,103 +204,6 @@ device-backed runs must be ready and record zero after-ready work in the named
 counters. The native Fox test separately enables paranoid Save.
 Model digests are computed at delivery and stored with the named resident identity,
 so texture arrivals do not re-hash resident models.
-
-## Latest recorded performance and remaining budgets
-
-P1, 2026-09-17, release: before is a237949; after is this worktree. Each entry
-is the median of three run summaries (p50 / p95 milliseconds); load1 lists the
-three runs in order. Final benchmarks started after our builds completed. The Mac
-was shared and busy; Linux supplies the CPU-only comparison.
-
-The cubes diagnostic uses 60 warmup + 240 frames, 2560×1440, 4× MSAA. The 1%
-case moves a contiguous prefix, plus the camera; scattered movers can touch every
-page. All-moving disables same-value filtering explicitly; the old adaptive policy
-also normally skipped hashing there. Sparse/still cases retain filtering.
-
-| Mac GPU feed | Before ms | Before load1 | After ms | After load1 |
-|---|---:|---|---:|---|
-| 200,000, all moving | 1.0662 / 1.3807 | 19.63/19.63/19.63 | 0.9591 / 1.1879 | 18.10/18.10/18.10 |
-| 200,000, 1% moving | 0.2752 / 0.4076 | 18.62/18.62/18.62 | 0.1634 / 0.2915 | 17.29/17.29/17.29 |
-| 200,000, camera only | 0.2630 / 0.3597 | 18.62/18.62/18.62 | 0.0567 / 0.1143 | 17.29/17.29/17.19 |
-| 500,000, all moving | 2.9601 / 3.5473 | 18.62/17.61/17.40 | 3.9434 / 4.8623 | 17.19/17.19/16.69 |
-| 500,000, 1% moving | 0.6926 / 0.8115 | 17.40/17.40/16.49 | 0.1284 / 0.1638 | 16.69/16.16/16.16 |
-| 500,000, camera only | 0.7176 / 0.9204 | 16.49/16.49/16.49 | 0.0643 / 0.0988 | 16.16/15.74/15.74 |
-
-The still-camera target passes. The all-moving 500k GPU target remains unmet:
-the final measured median is slower than baseline on this shared Mac. The CPU
-recording backend below excludes wgpu, copies the same feed writes into retained
-arrays, and makes no claim about GPU submission latency. Its setup fresh list is
-cleared before timing; the initial diagnostic that failed to clear it was discarded.
-
-| Linux CPU feed | Before ms | Before load1 | After ms | After load1 |
-|---|---:|---|---:|---|
-| 200,000, all moving | 0.5006 / 0.9388 | 1.20/1.33/1.52 | 0.4371 / 0.4483 | 1.72/1.66/1.88 |
-| 200,000, 1% moving | 0.4431 / 0.4501 | 1.20/1.33/1.52 | 0.0136 / 0.0137 | 1.72/1.66/1.88 |
-| 200,000, camera only | 0.4395 / 0.4458 | 1.20/1.33/1.52 | 0.0063 / 0.0063 | 1.72/1.66/1.88 |
-| 500,000, all moving | 1.6043 / 2.7648 | 1.20/1.33/1.52 | 1.6659 / 1.7357 | 1.72/1.66/1.88 |
-| 500,000, 1% moving | 1.1081 / 1.1204 | 1.20/1.33/1.52 | 0.0287 / 0.0291 | 1.72/1.66/1.88 |
-| 500,000, camera only | 1.0985 / 1.1067 | 1.20/1.33/1.52 | 0.0091 / 0.0091 | 1.72/1.66/1.88 |
-
-The tables above are historical diagnostics with their stated revisions and sizes.
-They do not establish asset-change performance. S3a's commit-message cube numbers
-used a different run and are not a comparison against these tables. Optional GPU
-timestamp intervals overlap on Metal: **do not sum them**. `GPU_PASS_NAMES` maps
-sixteen query pairs; disabled passes leave theirs unwritten.
-
-## U1 UI/default-look measurements (2026-09-17)
-
-Paired local release executables, original source versus U1, alternating order,
-three runs each, 60 warmup + 240 measured frames at 2560×1440. Effects are off.
-Medians of run p50s below; this shared Mac varies substantially. The 500k
-numbers rose, including simulation time where the render change adds no tick
-work, so these measurements **do not establish the no-regression gate**.
-
-| Cubes | Motion | Feed before / after ms | Encode before / after ms |
-|---|---|---|---|
-| 200,000 | all | 1.3054 / 0.9518 | 0.0669 / 0.0445 |
-| 200,000 | one-percent | 0.0500 / 0.0511 | 0.0392 / 0.0391 |
-| 200,000 | still | 0.0313 / 0.0270 | 0.0406 / 0.0357 |
-| 500,000 | all | 2.7262 / 2.9332 | 0.0743 / 0.0841 |
-| 500,000 | one-percent | 0.0925 / 0.1198 | 0.0508 / 0.0683 |
-| 500,000 | still | 0.0415 / 0.0485 | 0.0420 / 0.0515 |
-
-The Beacons fixture (`beacons_designed_defaults`) now renders the lit scene,
-asserts saved grid spacing survives restore, and compares it against the same
-scene without the grid. Before/after inspection: the grid gives scale and depth;
-fog softens distant crates and the ground into the horizon; bloom is restrained.
-The victory overlay is a full-canvas centred Contract column.
-
-## S3a-b asset measurements (2026-09-18)
-
-DamagedHelmet's pinned input now produces an 885,161-byte model and five
-22,369,762-byte textures (each below the 64 MiB carrier limit). Raw RGBA8 still
-uses about 112 MB in total; splitting changes delivery and CPU lifetime, not GPU
-compression. BC7/ASTC is queued.
-
-Three fresh web sessions per revision, 1280×720, local delivery: Play through a
-completed screenshot of the loaded helmet took 774–873 ms before (median 817 ms)
-and 266–415 ms after (median 301 ms), a 515 ms / 63% median reduction. This is an
-end-to-end wall-clock diagnostic, including the screenshot; it is not scanout.
-Before/after screenshots were byte-identical. The old first-frame field counted the loading frame, so comparing that field
-would give a false result. It now waits for declarations to become ready.
-Primitive-only worlds create zero model pipelines, shader modules, layouts,
-instance buffers or textures; the GPU peer test checks that allocation boundary.
-
-Paired 200,000-cube release executables, alternating order, three runs per side,
-60 warmup + 240 measured frames, 2560×1440, effects off. Medians of run p50s:
-
-| Motion | Feed before / after ms | Encode before / after ms |
-|---|---|---|
-| All | 1.0363 / 1.0130 | 0.0842 / 0.0778 |
-| 1% | 0.0765 / 0.0597 | 0.0892 / 0.0578 |
-| Still | 0.0893 / 0.0882 | 0.1535 / 0.1502 |
-
-No regression exceeds observed run variation. The 1% feed ranges were
-0.0493–0.1128 before and 0.0560–0.0931 after; these are shared-machine diagnostics,
-not a general speedup claim. The workspace also contains concurrent live-clock
-work; this diagnostic uses seekable ticks. Raw run logs are
-`/tmp/s3ab-cubes-{before,after}-{all,one-percent,still}-{0,1,2}.log` and
-`/tmp/s3ab-play-{before,after}.log`.
 
 ## Reproduce
 
@@ -349,31 +241,6 @@ World surfaces retain small work counters by default. A world-state request with
 Arming preserves accumulated counts, means, maxima and cadence; only `perf_reset`
 clears them. The feel probe requests `perf: true`.
 
-S3a-c measurement (2026-09-18): the retained Beacons GPU wasm is 811,977 bytes
-before this pass and 758,561 after (gzip 322,782 → 301,524). Model shader and
-validation markers are absent from Beacons and present in the asset fixture.
-The roughly 490 KB pre-assets target is **not met**; concurrent D2 changes also
-contribute to this comparison. Three interleaved 200k-cube runs against the retained
-S3a-b binary have overlapping ranges: all-moving median tick/feed/encode is
-0.4342/1.0230/0.0723 ms before and 0.4443/1.0524/0.0723 ms after. This is an
-offscreen diagnostic, not an FPS claim or an isolated HEAD comparison. Native
-replacement-device pixels match: retained bytes are re-uploaded and pipelines
-re-prepare. Host recovery now uses `gpu_recover`, retaining surface IDs and state while
-requesting a replacement adapter/device/queue. Browser recovery recreates canvas
-contexts through the code-swap helper. Apple reconfigures its Metal layers and
-recaptures children on result 3 or removal. The real browser device-loss proof
-has identical recovered pixels, one retained-texture re-fetch, matching residency
-counters and empty readiness reasons. Native recovery preserves the surface table;
-headless recovery reports `no device`. Physical Metal removal cannot be tested on
-this Apple Silicon device. Apple generation texture bytes live in private reloadable
-files, and native readback keeps the target format instead of destroying resident
-textures when taking a screenshot.
-
-Also owed: primitive-module
-size isolation (a primitive world still owns the asset maps and `Models`; 759 KB
-against the ~490 KB target — the size question needs a link map, its own slice;
-Sol, `asset.rs:374`, `sim.rs:82`, `renderer.rs:22,245`; Grok §Primitive module vs 759 KB).
-
 ## Skinned model path
 
 Model-capable modules upload four joint indices/weights per vertex and a skin
@@ -407,35 +274,6 @@ with an explicit current/current oracle at zero changed pixels per event in the
 affected rectangle (channel differences up to 2 are ignored); its
 injected bind-history control detects a flash without diluting it in the background.
 The packing test checks exact local arrays and confirms priming does not mutate saves.
-
-Original S3b measurements before the reviewed fixes, Apple M5 Max / Metal, 2026-09-18:
-
-| Measurement | Result | Budget |
-| --- | ---: | ---: |
-| 100 Foxes, 24 joints, three-knot blend, live tick mean over 600 ticks | 0.182969 ms | <0.3 ms |
-| 100 palettes, GPU p50 / p95 | 0.046875 / 0.052750 ms | p50 <0.1 ms |
-| Warm pose packing, 300 feeds, counted Rust allocations | 0 | 0 new allocations |
-
-The CPU number reruns the retained release fixture binary (the earlier run was
-0.177966 ms); its skeleton code is unchanged. The GPU diagnostic was rebuilt during
-the resume; the earlier p50/p95 was 0.025208/0.049875 ms. The allocation assertion
-covers retained local-pose packing, not wgpu's command submission internals. The
-existing timing rings count time/work, not allocations.
-
-Three interleaved before/after pairs, 200k cubes, 240 measured frames after 60 warmup
-frames, 2560×1440 and 4×MSAA (median of each run's p50, milliseconds):
-
-| Moving cubes | Tick before → after | Feed before → after | Encode before → after |
-| --- | ---: | ---: | ---: |
-| All | 0.4509 → 0.4640 | 1.1572 → 1.2014 | 0.1060 → 0.1208 |
-| 1% | 0.0047 → 0.0052 | 0.0520 → 0.0531 | 0.0419 → 0.0455 |
-| None | 0.0009 → 0.0005 | 0.0357 → 0.0300 | 0.0527 → 0.0442 |
-
-The ranges overlap in every column/mode; this shared-machine diagnostic finds no
-resolved regression and is not an FPS claim. No isolated same-app skinning size
-measurement is available, so there is no skinning engine-growth claim here.
-The earlier comparison used different games and has been removed. Historical
-logs: `/tmp/s3b-resume-*`; paired baseline artifacts: `/tmp/s3b-before-*`.
 
 R3 adds an in-place same-name model replacement regression: changed content
 rebuilds GPU hierarchy/inverse binds, geometry/material handles and both sharing
@@ -483,155 +321,16 @@ The residency counters include quad pipelines and quad buffer growth. Particle
 pipelines and the full 65,536-particle arena prepare with the renderer; sprite
 pipelines prepare with the asset-capable renderer before its ready boundary.
 
-### Measured on 2026-09-18
+## Placed children
 
-Live headless Chrome, WebGPU, 1280×720 physical pixels, 6.5-second warmup, on the
-shared arm64 Mac. The sprite run holds D throughout measurement; its camera and
-parallax layers move. `measure.mjs` requests WebGPU timestamp-query support and
-instruments actual render-pass boundaries. GPU values sum the forward and ACES
-pass intervals, excluding presentation/scanout. CPU encode includes particle
-derivation, sorting, uploads, encode/submit and the timestamp instrumentation;
-it is not total frame wall time. Tick/feed columns are per-sample means. Browser
-clock quantization produces zero p50 tick/feed samples; those operations are not
-free. These are single shared-machine runs, not isolated performance guarantees.
+`Placed` feeds displayed plane geometry to the host's child-composition seam.
+Browser children use CSS homographies; native children share the quad pass and
+world depth. Socket attachments use the interpolated local joint chain.
+See [placement geometry](src/placed.rs), [tests](src/placed_tests.rs), and the
+[fixture](../games/placement-fixture/README.md). `ChildrenMode` distinguishes
+host overlay, a composite subtree with optional history, and individual children.
 
-The previous exact timing and size tables were removed: their referenced receipts
-were absent from the tracked tree. They cannot support a reproducible claim.
-The R6 receipts retain every sample, base commit `e0ab1904`, measured build input/
-artifact digests, and hardware (Apple M5 Max, 128 GiB, macOS 26.6.2). They measure
-the uncommitted R6/U1 working build, not an isolated committed revision.
-
-| Fixture | Instances | Draws | Encode p50 / p95 ms | GPU p50 / p95 ms |
-|---|---:|---:|---:|---:|
-| [20 × 1,000 particles](../bench/results/r6-particles-fixture-perf.json) | 20,000 | 2 | 2.80 / 3.50 | 0.283 / 0.312 |
-| [moving sprite strip](../bench/results/r6-sprites-fixture-perf.json) | 264 | 6 | 0.20 / 0.30 | 0.289 / 0.298 |
-
-The old 3.6 ms particle encode claim lacked its receipt; the new 2.80 ms median
-is a measured value, not a controlled speedup ratio. Compatible sprite runs reduce
-the strip from 67 draws to 6. Both captures report zero after-ready texture/mesh
-uploads, pipeline creations and tracked buffer reallocations.
-
-Reproduce from the repository root with the required build environment:
-
-```sh
-export DEVELOPER_DIR=/Library/Developer/CommandLineTools
-export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
-export EXACT_UPDATE_TRUST=development
-export EXACT_IDENTITY=-
-bun game/games/particles-fixture/proof.mjs web
-bun game/games/particles-fixture/proof.mjs linux
-bun game/games/sprites-fixture/proof.mjs web
-bun game/games/sprites-fixture/proof.mjs linux
-bun game/games/particles-fixture/measure.mjs particles-fixture
-bun game/games/particles-fixture/measure.mjs sprites-fixture
-EXACT_APP_DIR="$PWD/game/games/beacons" \
-  EXACT_WEB_DIST="$PWD/game/games/beacons/target/d3-size/dist" \
-  CARGO_TARGET_DIR="$PWD/game/games/beacons/target" bun host/web/build.mjs
-bun game/bench/size.mjs p1-recheck --no-build
-```
-
-The two fixture proofs match web/Linux tick-300 hashes and alive counts and save/
-restore at tick 150. Sprite web pixels check four leaves behind and three in front
-of the animated character. Native device tests cover equal-depth layer/slot order,
-mask cutoff, negative scale, sprite retirement/redelivery, and exact pixels after
-Open/Carry. The macOS screenshot remains owed: after two SDK linker failures, the
-third build used MacOSX26 successfully for Rust but SwiftPM failed on a missing
-BuildServerProtocol symbol. The three-round limit stopped that host loop.
-
-Sprite scale uses magnitudes; `Sprite.flip` changes UV orientation. `Sprite.layer`
-affects blended ordering only; Opaque/Mask use the depth buffer. Adjacent compatible
-sprite runs coalesce without crossing intervening translucent records. Translucent
-keys are depth, layer, entity slot, kind (model, sprite, particle, placed child), then
-stable per-owner ordinal. Particle trajectories use the emitter's **current**
-parameters and transform: local-space smoke. Detached sparks would retain spawn
-pose/configuration per birth batch; that behavior is not built.
-
-
-## Placed children (U1, 2026-09-18)
-
-Plane geometry is `Placed::project` in the engine. The render adapter retains
-child frames and texture views, follows the same displayed camera/entity histories
-as sprites, and exposes `Placement {homography, depth, hidden}`. The closed-form
-homography uses the clip-space top-left corner and its right/down differences;
-no matrix solve is needed. A hand-computed square regression checks all four
-mapped corners. Near-plane, off-canvas and Fixed back-face hiding return an
-explicit hidden placement, never None. Invisible owners keep that hidden outcome.
-There is no saved presentation cache.
-
-`Placement.depth` is negative view distance (larger nearer). `Quads::frame`
-converts it once to positive view distance with `-placement.depth` for the shared
-back-to-front translucent order. UI uses an explicit `Kind::Child(u16)` identity;
-its owner key is the Contract child index, so equal-depth children draw in the
-same order that Apple inverse-hit-testing and browser z-index use. Captured child
-views share the quad texture lifetime, arena submission and ordered pass, with
-premultiplied blending and depth testing. This native capture path is present in
-primitive modules as well as model-capable modules. It is compiled out on wasm,
-where the host supplies frames without textures and composites the real elements.
-Unplaced children, including the HUD, remain ordinary host UI. A HUD-only world
-returns false from `wants_children_each` and pays no per-child capture cost.
-
-The original U1 timing and size samples were unretained local observations,
-not reproducible receipts. The roughly 40.6 ns projection observation came from
-an ignored release diagnostic, not an ABI benchmark or a performance gate.
-Encode p50/p95 of 0.100/0.200 ms represented timer quantization (one/two timer
-ticks), not sub-tick precision. The shared-tree size observation included R6;
-it was not an isolated U1 size measurement. Exact GPU/size figures are withdrawn.
-`--capture40` prepares forty real children for native capture measurements.
-
-R7 hides the whole plane if any corner crosses near, eye, or far; it rejects a
-side only when all corners fail that same side. Every visible child corner has
-a positive homography denominator. Hidden children report a zero layout box on
-web, macOS, iOS and Linux. Ordinary HUD siblings paint and hit above placements;
-placed siblings retain their depth/Contract order below the HUD and above the
-surface. Style batches remove the web override, apply authored CSS, and immediately
-restore the placement with a fresh authored-style snapshot. The last placement
-retires captured textures and frames. Native child pipelines prepare before ready.
-
-The fixture's browser proof passes placed layout, camera orbit, Pull → lamp/HUD,
-back-face hiding and failed hidden tap, save/restore and a stationary HUD. Its
-Linux proof now covers projected composition, inverse-homography taps, hidden-tree
-removal and save/hash parity. Each child is captured and sampled through the full
-projective map; no affine approximation is used. The initial box matches web exactly.
-Headless and device placements now use the same retained camera/plane tick pair
-and `Sim::alpha()`. The fixture pins initial and moving projected bounds against
-`Placed::project` within 2 px at 1280×720; motion separately requires >1 px.
-Socket attachments use the existing
-displayed socket chain at the same alpha as the skin; attachment planes no longer
-interpolate composed tick endpoints.
-
-Pins exercised without U1 editing the existing fixtures' pins:
-
-| Fixture | Tick / checkpoint | Hash |
-| --- | --- | --- |
-| Greybox | setup | `0x9a871d8582d905e7` |
-| Greybox | W for 1500 ms | `0x71f43e51a13cc49f` |
-| Beacons | 907, three lights | `0x0b132d378ffd3b21` |
-| Asset | 60 | `0xb1365b0eb9a7c59d` |
-| Skinned | 60 | `0x749639d3ffa1be59` |
-| Skinned | 120 | `0x0960f8999dd20662` |
-| Particles | 300 | `0x8dc0cac2d2645d93` |
-| Sprites | 300 | `0x2e3d805eb6c89e55` |
-| Placement | 330 | `0x626f1c12836bea76` |
-
-Final verification: game workspace tests **516 passed, 11 ignored**; all-target
-clippy and game/root fmt pass. Root `cargo build --workspace` passes. Web tests
-**51 passed**; the native device-free ABI test confirms 0/1/2 and untouched output
-on hidden. Greybox, Beacons, asset, skinned, particles and sprites proofs pass on
-web and Linux. The sprites web build first met a concurrent Rust-edition error;
-the retry after the required wait passed. The placement proof passes on web and
-Linux with the limitations above. Caps passes with only explicitly named U1 files
-staged in a temporary index, removed afterward; the shared index is untouched.
-Logs are `/tmp/u1-*.log`. No commit, clone, stash or sub-agent.
-
-
-S4 attachments: the feed retains only requested joint ancestor chains and the owner's
-ordinary transform history. At frame alpha it mixes local translation/scale and slerps
-local rotation, composes the chain, then applies the attachment offset. The same displayed
-pose feeds primitive/model drawing, translucent depth, sprites/particles, lights and
-Contract planes. Per-frame drawing temporarily uploads that pose into both transform
-arenas, submits, then restores the ordinary histories; removing an attachment therefore
-cannot leave stale GPU values or invalidate the feed's page filtering. Birth, restore,
-teleport and model arrival prime local histories just as skinning does. The shader remains
-the skin oracle; the two-joint 90-degree test compares its GPU palette endpoint with the
-displayed attachment at alpha 0.5 to 1e-4, rejecting the (.5,.5) chord midpoint. Gameplay
-`animation::socket` remains a tick-boundary read and is not a displayed-pose claim.
+Dated measurements and the sole module-size table are in
+[bench/README.md](../bench/README.md). Residency numbers bound retired content;
+live content is not a total GPU-memory budget. GPU tests report when no adapter
+is available; a headless proof establishes simulation evidence, not pixels.

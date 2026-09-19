@@ -186,7 +186,6 @@ fn translation(name: &str, seconds: f32, distance: f32) -> Clip {
 }
 fn world() -> World {
     let mut w = World::new(60, 0);
-    w.register_scene();
     w.assets.declared.insert("rig.model".into());
     w.assets.models.insert(
         "rig.model".into(),
@@ -708,7 +707,10 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     w.step_clock();
     assert!(socket(&w, e, "").is_err());
     assert_eq!(w.get::<Pose>(e).unwrap().local, expected.rest);
-    assert_eq!(w.animation.rigs["rig.model"].bounds, expected.bounds);
+    assert_eq!(
+        w.derived::<Runtime>().rigs["rig.model"].bounds,
+        expected.bounds
+    );
     step(&mut w);
     w.step_clock();
     assert_eq!(socket(&w, e, "renamed").unwrap().position, Vec3::Y * 3.);

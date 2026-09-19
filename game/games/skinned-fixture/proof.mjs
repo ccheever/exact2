@@ -21,6 +21,7 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
   const s = await start();
   const ready = (await s.state()).world[0];
   say(`module asset states: ${JSON.stringify(ready.assets)}`);
+  if (host !== 'linux') await s.op({op:'state', ...await s.target('world'), world:true, perf_reset:true});
   await s.world('world').run(750);
   const at45 = await s.world('world').snapshot();
   check('save is mid-transition at tick 45', at45.tick === 45 && at45.entities.find(e=>e.name==='fox').components.Animator.since > 0);
@@ -56,7 +57,12 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
   check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
   const afterTicks = (await s.state()).world[0];
   checkSteadyResidency(afterTicks, check, say, host);
+  if (host !== 'linux') {
+    writeFileSync(resolve(out, `perf-${host}.json`), JSON.stringify({perf:afterTicks.perf, gpu:afterTicks.gpu}, null, 2)+'\n');
+    say(`PERF ${host} seekable counters (timing rings are unsampled, not zero-cost frames): ${JSON.stringify(afterTicks.perf)}`);
+  }
   if(host==='web') await checkResidency(probe,s,check,say);
+  else if(host==='ios') say('SKIP browser residency reload probe: simulator uses bundled files; textured pixels, pose, GPU counters, restore and pins still run.');
   else if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
   await s.close();
   const restored = await start(save);

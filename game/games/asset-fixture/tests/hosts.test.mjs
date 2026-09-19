@@ -1,17 +1,14 @@
 import {test, expect} from 'bun:test';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+import {assetDelivery, assetName} from '../../../../host/web/gpu-assets.js';
 const root = new URL('../../../../', import.meta.url).pathname;
 function harness(fetch, requested=['a.tex']) {
-  const source = readFileSync(root + '/host/web/gpu-glue.js','utf8').split('\nfunction size(')[0].replace(/^import .*;$/m,'').replace('20_000','35').replaceAll('5_000','10').replaceAll('250','1');
-  const delivered=[], failed=[], names=[...requested];
-  const context = {fetch, URL, Uint8Array, AbortController, setTimeout, clearTimeout, performance, console,
-    document:{createElement:()=>({}),head:{append(){}},baseURI:'https://example.test/'}, exact:{},
-    live:()=>entry, messages(){}, schedule(){}, module:{gpu_assets:()=>JSON.stringify(names.splice(0)),gpu_asset:(...args)=>{delivered.push(args);return true},gpu_asset_failed:(...args)=>{failed.push(args);return true}}};
-  const entry={id:1,view:1};
-  vm.createContext(context);
-  vm.runInContext(source+'\ngpu=module; surfaces.set(1, globalThis.entry); finishReady(true); globalThis.testAssets={assets,settled,cancelAssets:typeof cancelAssets===\"function\"?cancelAssets:null};', Object.assign(context,{entry}));
-  return {...context.testAssets,entry,delivered,failed};
+  const delivered=[], failed=[], names=[...requested], entry={id:1,view:1};
+  const module={gpu_assets:()=>JSON.stringify(names.splice(0)),
+    gpu_asset:(...args)=>{delivered.push(args);return true},
+    gpu_asset_failed:(...args)=>{failed.push(args);return true}};
+  const api=assetDelivery({fetch, getModule:()=>module, live:()=>entry,
+    baseURI:()=> 'https://example.test/', deadlineMs:35, attemptMs:10, backoffMs:1});
+  return {...api, settled:()=>api.settled(()=>[entry]),entry,delivered,failed};
 }
 test('404 is missing; transient failures retry before a named failure', async()=>{
  let calls=0;
@@ -34,8 +31,7 @@ test('hung responses have a deadline and destroyed surfaces cancel flights', asy
 test('web and Swift enumerate the Rust name grammar cases', async()=>{
  const good=['a','a/b.tex','space name','x:y','x%20y','x?y#z','..foo','a_-.tex','a'.repeat(128)];
  const bad=['','/a','a/','a//b','.','..','a/./b','a/../b','a\\b','雪','a\n','a\x7f','a'.repeat(129)];
- const source=readFileSync(root+'/host/web/gpu-glue.js','utf8');
- const validate=vm.runInNewContext(source.slice(source.indexOf('function assetName('),source.indexOf('\nfunction cancelAssets'))+';assetName');
+ const validate=assetName;
  for(const n of good) expect(validate(n)).toBe(true);
  for(const n of bad) expect(validate(n)).toBe(false);
  if(process.platform==='darwin') {

@@ -63,7 +63,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
         filter: [Filter::Nearest; 3],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Layers, (), true>::default();
+    let mut s = WorldSurface::<Layers, crate::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
@@ -137,7 +137,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         mips: vec![vec![255; 4]],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Cosmetic, (), true>::default();
+    let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
     assert_eq!(s.assets(), ["white.tex"]);
@@ -225,7 +225,7 @@ fn pipelines_and_particle_capacity_are_ready_before_first_emitter() {
     );
     assert_eq!(
         primitive.quads.pipeline_count(),
-        if cfg!(target_arch = "wasm32") { 2 } else { 6 }
+        if cfg!(target_arch = "wasm32") { 2 } else { 3 }
     );
     let before = r.residency_work();
     assert_eq!(
@@ -293,7 +293,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
     let gpu = fixture::device().unwrap();
-    let mut s = WorldSurface::<Mixed, (), true>::default();
+    let mut s = WorldSurface::<Mixed, crate::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
     s.assets();
@@ -342,7 +342,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     feed.feed(w, &mut r).unwrap();
     let input = feed.frame(w, 1., 1.);
     r.quads.frame::<true>(&gpu.device, &gpu.queue, &input);
-    r.quads.order(&gpu.device, &gpu.queue);
+    r.quads.order::<true>(&gpu.device, &gpu.queue);
     assert_eq!(
         r.quads.draws.len(),
         3,

@@ -50,7 +50,8 @@ impl Game for ModelGame {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
-    let mut surface = WorldSurface::<ModelGame, (), true>::default();
+    let mut surface =
+        WorldSurface::<ModelGame, exact_game_render::ModelPresentation, true>::default();
     surface.device_ready();
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets(), ["sample.model"]);

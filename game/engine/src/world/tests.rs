@@ -63,7 +63,7 @@ fn replay_equivalence() {
     let mut first = World::new(60, 42);
     churn(&mut first, 300);
     let mut restored = World::new(60, 0);
-    restored.register_scene().register::<Velocity>();
+    restored.register::<Transform>().register::<Velocity>();
     restored.load(&first.save()).unwrap();
     assert_eq!(first.hash(), restored.hash());
     churn(&mut restored, 300);

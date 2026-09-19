@@ -10,7 +10,7 @@ struct Score(u64);
 fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     let mut w = World::new(144, 8123);
     w.register::<Health>()
-        .register_scene()
+        .register::<Transform>()
         .register_resource::<Score>();
     let e = w.spawn_named("fox", (Transform::at(1.0, 2.0, 3.0), Health { hp: 15 }));
     let dead = w.spawn_named("dead", (Health { hp: 4 },));
@@ -23,7 +23,7 @@ fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     let mut loaded = World::new(30, 1);
     loaded
         .register_resource::<Score>()
-        .register_scene()
+        .register::<Transform>()
         .register::<Health>();
     loaded.load(&bytes).unwrap();
     assert_eq!(hash, loaded.hash());
