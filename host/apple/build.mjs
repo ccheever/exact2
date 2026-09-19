@@ -25,7 +25,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
@@ -80,9 +80,6 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${product}.app`),
     embed: resolve(namespace, 'embed') };
 }
-/** Explicit Swift scratch directory; no shared publication path. */
-const productPath = (product, triple, buildRoot) => resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
-
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
 export const appleBuildLock = (app, path = appleArtifacts(app).lock) => claimBuildOutput(app, path);
@@ -512,14 +509,12 @@ function main(args) {
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
-  const triple = ios ? (device ? 'arm64-apple-ios17.0' : iosTriple) : macTriple;
   const product = products[0];
   // swift build does not see the Rust archive change; drop the executables so
   // they relink against the archive cargo just built (a relink is ~0.4 s).
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
-  for (const p of products) rmSync(productPath(p, triple, swiftBuildRoot), { force: true });
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
@@ -539,10 +534,17 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
+  // SwiftPM's build engines use different output layouts. Ask the selected
+  // toolchain instead of assuming the older native engine's triple directory.
+  const output = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
+  if (output.status !== 0) throw new Error(`SwiftPM output path: ${output.stderr}`);
+  const swiftProducts = output.stdout.trim();
+  if (!isAbsolute(swiftProducts)) throw new Error('SwiftPM returned an invalid output path');
+  for (const p of products) rmSync(resolve(swiftProducts, p), { force: true });
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
-    copyFileSync(productPath(p, triple, swiftBuildRoot), executable);
+    copyFileSync(resolve(swiftProducts, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
