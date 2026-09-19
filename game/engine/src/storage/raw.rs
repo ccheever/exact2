@@ -171,6 +171,13 @@ impl RawStorage {
     pub(crate) fn membership(&self) -> u64 {
         self.membership
     }
+    pub(crate) fn lease_conflict(&self, mutable: bool) -> Option<&'static str> {
+        match self.borrowed.get() {
+            n if n < 0 => Some("mutably"),
+            n if mutable && n > 0 => Some("immutably"),
+            _ => None,
+        }
+    }
     pub(crate) fn page_count(&self) -> usize {
         self.generations.len()
     }

@@ -262,3 +262,6 @@ impl<C: Data> Erased for Storage<C> {
         self.raw.settle_tick(now, skip)
     }
 }
+
+#[cfg(test)]
+mod kind_tests;

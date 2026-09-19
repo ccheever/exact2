@@ -44,7 +44,7 @@ has not yet been certified.
    engine tip; decode/replacement rebuilds names. Scatter returns explicit errors
    instead of partial vectors, and uses engine asset bounds for placement.
 2. Incremental observation: carried with engine storage and hierarchy semantics.
-3. Typed kinds and hot joins: pending.
+3. Typed kinds and hot joins: carried with engine Target and removal semantics.
 4. Static physics split and fixes: pending.
 5. Ownership, restore clock anchor, EXCAP v2: pending.
 6. Three-way authored merge and EXSIM v7: pending. Full typed scratch decode must
@@ -96,3 +96,12 @@ Selected root crates: 517 tests pass, three exact-gpu native placement tests fai
 without an adapter, one diagnostic ignored; selected core clippy passes. Caltrain
 web dist was baked successfully, but its placement fixture then timed out after
 60 seconds. Apple fixture failures still require xcrun.
+
+Kind integration preserves Target::label and invalidates cached membership on the
+internal remove_component path used by animation Pose cleanup. Its added negative
+control proves refusal occurs before Transform takes a write lease. Incoming
+200k sparse/interleaved/churn and allocation tests remain; saved child bindings
+and compile diagnostic tests remain. The implementation's actual nesting bound is
+32, rather than the brief's proposed 64; no reason was found to expand it.
+
+Kind gate: 371 engine tests pass (6 ignored diagnostics), game and eight app clippy/fmt pass, 28 Linux normal/paranoid executions preserve pins, Bun 115 pass/1 skip, caps and boot pass. Full workspace and app test reds remain the recorded adapter-dependent rendering tests.

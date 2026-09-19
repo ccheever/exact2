@@ -34,12 +34,23 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
+    /// Entity identity used in typed-boundary diagnostics.
+    fn describe(&self, world: &World) -> String {
+        format!("entity {:?} {:?}", self.label(), self.entity(world))
+    }
     /// Name or slot for a setup error.
     fn label(&self) -> String;
     /// Resolve a live entity without consuming its diagnostic label or reviving a stale handle.
     fn entity(&self, world: &World) -> Option<Entity>;
 }
 impl Target for Entity {
+    fn describe(&self, world: &World) -> String {
+        format!(
+            "entity {:?} {:?}",
+            world.name(*self).unwrap_or("<unnamed or absent>"),
+            self
+        )
+    }
     fn label(&self) -> String {
         format!("#{}", self.index())
     }
@@ -60,7 +71,13 @@ impl Target for &str {
 /// Semantic state has no interior mutability; derives introduce none. A manual
 /// implementation that mutates semantic state through a shared reference is outside
 /// the [`Data`] contract: quiescence and the hash cache are undefined for it.
+#[diagnostic::on_unimplemented(
+    message = "expected a Component; optional Kind aliases are unsupported: spell Option<Component> directly"
+)]
 pub trait Component: Data {
+    /// Saved named fields exposed by the derive for declarative binding validation.
+    #[doc(hidden)]
+    const SAVED_FIELDS: &'static [&'static str] = &[];
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
     /// Register data this component produces, before restoring a saved world.
@@ -204,6 +221,8 @@ pub struct World {
     pub(crate) fresh: Vec<Entity>,
     orphans: Vec<Entity>,
     entities_revision: u64,
+    pub(crate) kind_operations: RefCell<Vec<crate::kind::Context>>,
+    pub(crate) kind_validated: RefCell<BTreeMap<TypeId, Vec<u64>>>,
     entity_pages: Vec<u64>,
     pub(crate) presentation_generation: u64,
 }
@@ -263,6 +282,8 @@ impl World {
             fresh: vec![],
             orphans: vec![],
             entities_revision: 0,
+            kind_operations: RefCell::new(Vec::with_capacity(32)),
+            kind_validated: RefCell::new(BTreeMap::new()),
             entity_pages: vec![],
             presentation_generation: 0,
         }
@@ -406,6 +427,7 @@ impl World {
         &self.fresh
     }
     /// Whether this exact incarnation is alive.
+    #[inline]
     pub fn contains(&self, e: Entity) -> bool {
         self.state
             .slots
@@ -511,6 +533,12 @@ impl World {
     pub(crate) fn remove_component<C: Component>(&mut self, e: Entity) -> Option<C> {
         if !self.contains(e) {
             return None;
+        }
+        // Every removal path, including produced Pose cleanup, invalidates joins.
+        for generations in self.kind_validated.get_mut().values_mut() {
+            if let Some(generation) = generations.get_mut(e.index as usize) {
+                *generation = 0;
+            }
         }
         self.components
             .get_mut(C::NAME)?
@@ -660,6 +688,13 @@ impl World {
     /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
+    }
+    #[inline]
+    pub(crate) fn kind_work_bound(&self, operation: &str) {
+        assert!(
+            self.state.slots.len() <= 200_000,
+            "{operation}: Kind iteration limit is 200000 entity slots, including despawned slots"
+        );
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {

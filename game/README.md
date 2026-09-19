@@ -123,6 +123,17 @@ and packaging reuse the content/artifact receipt.
 
 ## Author-facing edges
 
+`#[derive(Kind)]` defines typed component bundles without additional storage.
+`world.spawn_kind(name, bundle) -> Id<K>` and `world.bind::<K>(target)` establish
+checked identities; `row(id)`, `edit(id, closure)`, `rows::<K>()` and
+`rows_mut::<K>()` use joined component columns. `#[read]` keeps an editing field
+shared, `Option<C>` is optional membership, and `#[child("name", field)]` binds a
+saved `Id<Child>` field. Child identities are saved once in their component;
+validation refuses stale or missing components before taking write leases.
+`world.the::<K>()` requires exactly one structural match. Kind iteration admits
+at most 200,000 entity slots, 64 cached kinds and 32 nested edits, with named
+refusals beyond those bounds. `Id<K>` has exactly `Entity`'s wire representation.
+
 `place::{ring, ring_jittered, grid, line, facing, on_top_of, next_to, blockout}`
 supplies deterministic procedural placement. `place::scatter(seed, min, max, count,
 min_distance) -> Result<Vec<Vec3>, ScatterError>` returns a complete packing or a
