@@ -4,13 +4,13 @@
     "90": "0x164306fd0014d2eb"
   },
   "saves": {
-    "continuation": "aea7ea7adfb75e155a9ff161fcb6537a4d20a9aea632d48ec5598abde1a2774b"
+    "continuation": "0eb3e3de0f622153a875a04cc26d29a57f4da8ff477b07fde08933c3c1cfaac1"
   },
+  "game": "beacons",
   "hosts": [
     "linux"
   ],
-  "game": "beacons",
-  "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "R15/D6: the continuation save's bytes moved (restore registers before load and installs a fully decoded world; the bake's generated surfaces declaration) \u2014 tick hashes unchanged; Linux, web, paranoid modes and release agreed."
+  "generated": "bun game/prove.mjs beacons --repin --hosts linux",
+  "at": "9b70654379fa8bf1f64fb4fe2b517be6eb125ace",
+  "reason": "FOLD2 R15/D6 with EXSIM v7; Linux continuous/Save/FreshGame and release agreement"
 }

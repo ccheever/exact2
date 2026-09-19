@@ -5,11 +5,11 @@
   "saves": {
     "continuation": "a4be74d1e6e64d344abdc21e5359f99505c8ccaaeffc4a223046c6960b5d6b43"
   },
+  "game": "asset-fixture",
   "hosts": [
     "linux"
   ],
-  "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
-  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
-  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
+  "at": "7c9157e7ea205e98d0225f69705cb5a610218a18",
+  "reason": "FOLD2 R15/D6 with EXSIM v7; Linux continuous/Save/FreshGame and release agreement"
 }

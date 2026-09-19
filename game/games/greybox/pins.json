@@ -6,11 +6,11 @@
   "saves": {
     "continuation": "4a14675296f891ef23732a91a1a9698e028ccd4f57159dbe6505e975d483ada4"
   },
+  "game": "greybox",
   "hosts": [
     "linux"
   ],
-  "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts linux",
-  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
-  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
+  "at": "61c93a30ab84af0cf33483148b409b0306d310fb",
+  "reason": "FOLD2 R15/D6 with EXSIM v7; Linux continuous/Save/FreshGame and release agreement"
 }
