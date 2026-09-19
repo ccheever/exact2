@@ -100,6 +100,24 @@ fn collection_feedback_submits_edge_request_without_another_bridge_call() {
     use std::sync::mpsc::{channel, Sender};
     use std::time::Duration;
 
+    // This fixture needs an admitted executor; unrelated parallel Bridge tests
+    // can exhaust the process-wide worker cap before feedback submits its work.
+    const CHILD: &str = "EXACT_COLLECTION_FEEDBACK_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "abi::collection_tests::collection_feedback_submits_edge_request_without_another_bridge_call"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+
     struct DeferredRows(Sender<u64>);
     impl DataSource for DeferredRows {
         fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {

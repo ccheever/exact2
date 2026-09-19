@@ -109,6 +109,9 @@ impl Device {
     fn reopen(&mut self) {
         self.module = None;
         let mut m = super::native::module(super::BYTECODE, super::APP, super::GRANTS);
+        // Exercise persistence independently of the production wall-clock deadline,
+        // which also counts scheduling delays on a shared test machine.
+        m.set_budget_ms(f64::INFINITY);
         m.configure_storage(
             self.root.join("data"),
             self.root.join("cache"),
