@@ -11,6 +11,37 @@ import XCTest
 @testable import ExactKit
 
 final class NavigationRulesTests: XCTestCase {
+    func testNativeAvailabilityFollowsCurrentStateAndAncestorChanges() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        let owner = NodeView(id: 1, kind: "view", presenter: p)
+        let input = NodeView(id: 2, kind: "input", presenter: p)
+        let area = NodeView(id: 3, kind: "textarea", presenter: p)
+        input.field = NSTextField(); area.textArea = NSTextView()
+        p.views = [1: owner, 2: input, 3: area]
+        p.root.addSubview(owner); owner.addSubview(input); owner.addSubview(area)
+        p.navigation.sync()
+        XCTAssertFalse(input.isAccessibilityHidden())
+        XCTAssertTrue(input.field!.isEnabled); XCTAssertTrue(area.textArea!.isEditable)
+        owner.props["inert"] = "true"; p.navigation.sync()
+        XCTAssertTrue(input.isAccessibilityHidden()); XCTAssertTrue(area.isAccessibilityHidden())
+        XCTAssertFalse(input.field!.isEnabled); XCTAssertFalse(area.textArea!.isEditable)
+        owner.props.removeValue(forKey: "inert"); p.navigation.sync()
+        XCTAssertFalse(input.isAccessibilityHidden()); XCTAssertTrue(input.field!.isEnabled)
+        XCTAssertTrue(area.textArea!.isEditable)
+        input.props["disabled"] = "true"; area.props["editable"] = "false"; p.navigation.sync()
+        XCTAssertFalse(input.field!.isEnabled); XCTAssertFalse(area.textArea!.isEditable)
+        owner.isHidden = true; p.navigation.sync()
+        XCTAssertTrue(input.isAccessibilityHidden())
+        owner.isHidden = false; p.navigation.sync()
+        XCTAssertFalse(input.isAccessibilityHidden())
+        // Another native projection can change state between identical batches.
+        input.setAccessibilityHidden(true); input.field!.isEnabled = true
+        area.textArea!.isEditable = true; p.navigation.sync()
+        XCTAssertFalse(input.isAccessibilityHidden())
+        XCTAssertFalse(input.field!.isEnabled); XCTAssertFalse(area.textArea!.isEditable)
+    }
+
     // @ref LLP 1038 D6 — shared first controller is insufficient for a swap.
     func testPushOrPopRequiresACompletePrefix() {
         XCTAssertTrue(NavigationRules.isPushOrPop(from: [1], to: [1, 2, 3]))

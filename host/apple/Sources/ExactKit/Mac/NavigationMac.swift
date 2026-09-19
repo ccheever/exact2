@@ -32,10 +32,15 @@ final class NavigationHost {
         // accessibility subtree is suppressed as HTML inert suppresses it.
         for node in presenter.views.values {
             let inert = node.inert
-            node.setAccessibilityHidden(inert || node.isHiddenOrHasHiddenAncestor)
-            node.field?.isEnabled = !node.disabled && !inert
-            node.textArea?.isEditable = !node.disabled && !inert && node.props["editable"] != "false"
-            if (inert || node.isHiddenOrHasHiddenAncestor), let responder = node.window?.firstResponder as? NSView,
+            let hidden = inert || node.isHiddenOrHasHiddenAncestor
+            // Other projections (notably the toolbar) also set native state.
+            // Read that state instead of keeping a second, potentially stale copy.
+            if node.isAccessibilityHidden() != hidden { node.setAccessibilityHidden(hidden) }
+            let enabled = !node.disabled && !inert
+            if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
+            let editable = enabled && node.props["editable"] != "false"
+            if let area = node.textArea, area.isEditable != editable { area.isEditable = editable }
+            if hidden, let responder = node.window?.firstResponder as? NSView,
                responder === node || responder.isDescendant(of: node) || node.field?.currentEditor() === responder {
                 node.window?.makeFirstResponder(nil)
             }
