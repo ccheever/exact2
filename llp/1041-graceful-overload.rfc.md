@@ -7331,3 +7331,47 @@ The existing callback diagnostic motivates examining this code, but does not
 show that font lookup dominates callback cost. Native timing, a net workload
 gain and120Hz remain unestablished; the next comparison needs fresh control
 and candidate cells with the same full10,000/32 workload and recorder.
+
+### 8.134 Font-metric comparison: control refused, candidate unrun, 2026-09-19
+
+The first fresh native comparison stops at the control's acceptance refusal;
+the candidate is not launched. A timer installs a newer picture between the
+driver recording its wheel target and the actual wheel input. The frozen
+reader requires those picture numbers to be identical, even when target
+geometry and scroll offset agree. This attempt establishes no timing gain or
+product regression and remains failed.
+
+Independent raw reconstruction finds one mismatch among18 wheels. Loaded
+input1347/event4309 records offered frame175 (ACK4295, History revision11),
+but the actual preceding installed picture is176 (ACK4303, revision12).
+Both are current, at scroll337069.5, with transcript rectangle
+[0,211,1024,457]. The next picture177 moves exactly−40 to337029.5. The
+reader refuses the frame-number mismatch at final phase validation; the
+saved report's earlier `tail-setup` label does not locate that failure.
+
+Partial checks preserve36 scheduled in-window handlers,18 exact typing
+echoes,18 actual signed40-unit wheel movements and eight command-free
+advances0→8 inside the silent prefix. All four saved RGB buffers match the
+prior diagnostic's corresponding states. These facts do not turn the cell
+into a pass. The driver computes its local final fence before phase
+validation raises, but never reaches the report update that stores the fence,
+input proof and workload-completed flag. No success-only timing analysis or
+substitute historical control is used.
+
+The candidate's one41.315s build remains valid: ELF `e3a9930d`, capture
+`1383cd30` (21 files /12,850,572B). Its1423 source records differ from control
+`d36545c5` only in production `shaping.rs`; the ten observer overlays,
+generated app, fonts and external inputs match. The fresh pair binding
+`0c4877e8` preserves full10,000/32, all caps and fixed schedules. No rebuild,
+retry, alternate port or candidate cell follows the refusal.
+
+Native cleanup deliberately sends SIGTERM and reaps−15; driver, outer and
+Mac wrapper exit1. All six runtime PIDs/four groups retire and port5941 is
+free. Raw manifest `4bd5a36c` seals24 files /22,173,798B; final report
+`7768a733` / manifest `83153f9f` preserves42 files /44,392,807B under
+`exact2-linux-messages-ink-pair/target/messages-last-font-metrics-before-runtime-v1`.
+Lead mismatch reconstruction `bb6a2f03` and partial checks `ff0abb76` remain
+separate. The next reader change must qualify both the offered and actual
+installed target, retain refusal for incompatible geometry or ownership,
+and measure movement from the actual picture. It must preserve this failed
+archive and all fixed-prefix, fresh-History and final-publication guards.
