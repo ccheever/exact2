@@ -177,16 +177,27 @@ fn full_undrained_session_does_not_block_another_sessions_native_workers() {
     assert_eq!(a.views.len(), 2);
     assert!(a.views.values().all(|v| v.request.is_some()));
     assert!(a.bitmaps.is_empty());
-    assert_eq!(a.stats().ready, 0);
+    // Worker admission is asynchronous; requests can still be queued here.
+    until(|| a.stats().running == 2);
+    let blocked = a.stats();
+    assert_eq!(blocked.ready, 0);
+    assert_eq!(blocked.delivery_cells, 2, "cells are reserved at admission");
     // No poll may consume A between releasing decode and checking B's progress.
     release.store(true, Ordering::Release);
-    until(|| a.stats().delivery_cells == 2 && a.stats().running == 0);
+    until(|| {
+        let stats = a.stats();
+        stats.ready == 2 && stats.running == 0
+    });
+    assert_eq!(a.stats().delivery_cells, 2);
     // A receives no more UI polls during B's metadata, admission and decoding.
     let mut b = Images::with_assets(assets());
     b.sync(&k, &k.roots());
     b.wait(Duration::from_secs(2));
     assert_eq!(b.bitmaps.len(), 2);
-    assert_eq!(a.stats().delivery_cells, 2);
+    let undrained = a.stats();
+    assert_eq!(undrained.ready, 2);
+    assert_eq!(undrained.running, 0);
+    assert_eq!(undrained.delivery_cells, 2);
 }
 
 #[test]
