@@ -184,8 +184,14 @@ mod trim_sort {
         compare(&mut a, &mut b, usize::MAX, None, (0, 0));
         assert_eq!(a.engine.paragraphs.binding_count(), 1);
         assert_eq!(a.engine.paragraphs.indexed_widths(), 3);
-        assert_eq!(a.engine.paragraphs.identified(&bound), Some(a.keys[0]));
-        assert_eq!(a.engine.paragraphs.identified(&stale), None);
+        assert_eq!(
+            a.engine.paragraphs.identified(&bound).map(|(key, _)| key),
+            Some(a.keys[0])
+        );
+        assert_eq!(
+            a.engine.paragraphs.identified(&stale).map(|(key, _)| key),
+            None
+        );
     }
 
     #[test]

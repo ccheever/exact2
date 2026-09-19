@@ -229,13 +229,28 @@ impl Default for Cache {
 impl Cache {
     /// The catalog owns these specs; shortcut handles never retain them.
     pub fn spec(&self, key: (u64, u64)) -> Option<Arc<Spec>> {
+        #[cfg(test)]
+        super::identified_tests::spec_looked_up();
         self.identities
             .get(&key.0)?
             .iter()
             .find(|e| e.id == key.1)
             .map(|e| e.spec.clone())
     }
-    pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
+    pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<((u64, u64), Arc<Spec>)> {
+        let i = self
+            .bindings
+            .iter()
+            .position(|(old, _)| old.same_metrics(stamp))?;
+        let (_, key) = self.bindings.remove(i);
+        let spec = self.spec(key)?; // Evicted identities are misses, never unchecked handles.
+        self.clock += 1;
+        self.entry(key).used = self.clock;
+        self.bindings.push((stamp.clone(), key));
+        Some((key, spec))
+    }
+    #[cfg(test)]
+    pub fn identified_reference(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
         let i = self
             .bindings
             .iter()

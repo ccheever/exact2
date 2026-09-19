@@ -7656,3 +7656,32 @@ all earlier failures and evidence remain unchanged. Final owner archives seal
 52 files/50,337,095B (`da485454`) and64 files/48,004,483B (`49fb9402`), with
 pair report `e3b02a9b`. An initial report-only lookup error is preserved; no
 analyzer or native rerun follows that prose correction.
+
+### 8.140 Reuse the validated Spec on a warm lookup, 2026-09-19
+
+`Cache::identified` previously looked up and cloned an `Arc<Spec>` to validate
+a warm stamp, discarded it, then returned the key so its caller could repeat
+the same lookup and clone. It now returns that validated owner with the key.
+There is no intervening eviction or callback. Stamp qualification, stale
+binding removal, recency, clock and `used` updates retain their original order;
+width lookup, cold insertion, trimming and ownership budgets are unchanged.
+This adds no persistent owner and does not skip layout at a new width.
+
+A counter at the real `Cache::spec` entry makes the old production fail one
+warm-Painter assertion,2 calls instead of1, with two controls passing. Pixels,
+paragraph identity and absence of new host copy/hash/shape work are checked
+before that assertion. The candidate passes all three new tests, the complete
+19 identified tests and32 residency tests:51 distinct tests/54 executions.
+Independent engines using the original lookup sequence match cache state,
+geometry, glyphs, pixels and owner retirement. Baseline keeps the old two
+residency assertion forms; only the candidate adapts them to its private
+return type. The meaningful new tests are identical across arms.
+
+Strict all-targets Linux-package Clippy and scoped formatting pass. Both
+production files match their compiled bytes; later test formatting is limited
+to whitespace and optional trailing commas. All41 recorded PIDs/seven groups
+are absent. Integration takes four exact files from
+`exact2-linux-owned-text-spec/target/warm-identified-spec-validation/freeze-final`:
+source `20f1c173`, full patch `e7fb9ba3`, production-only patch `8c8b570c`.
+This proves one fewer validated-Spec search/clone/drop on the warm path,
+not the number of such hits in§8.139 or a native timing/120Hz improvement.
