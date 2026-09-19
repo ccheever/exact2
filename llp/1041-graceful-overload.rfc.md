@@ -8290,3 +8290,58 @@ MAIN`target/fill-eligibility-evaluation` holds independent reconstruction and
 opaque full-coverage span shortcut would require an isolated dependency patch
 and exact-pixel/performance evidence; these bounds counts do not establish its
 all255-mask eligibility. No dependency fork is selected. NativeSplit remains3/3.
+
+### 8.150 Opaque masked spans: exact library controls, application benefit unknown
+
+An isolated tiny-skia0.12 prototype adds49 lines to one internal blitter file.
+Only masked SolidColor/alpha1/SourceOver/Linear/lowp rectangles qualify. The
+entire existing rectangle must contain mask255 before any destination write;
+parent strides and subview origins are retained. It writes the same quantized
+opaque color. All AA routines, scan conversion, mask extents and original
+fallback pipelines remain unchanged. Forty-four other Rust files match stock.
+This is an ignored library experiment, not a selected dependency fork.
+
+The92 Rust source files supplied to these builds match the freeze. Stock6 and candidate8
+unit executions plus4 differential methods pass:12 distinct methods/18 executions.
+Controls cover all source bytes and destination alpha, SIMD tails/subview strides,
+all AA values, mixed/late masks, HQ/gamma/blend/shader fallbacks and float colors.
+The earlier rejected AA128 mask-removal example still distinguishes2 from1.
+No production/test-source correction was needed. These are library pixel controls,
+not a complete application raster or physical presentation proof.
+
+One bounded microbenchmark uses320×128 targets, four warmups and six alternating
+rounds of24 draws/arm for each case/mode. Allocation and mask/path setup are outside
+both clocks; mask inspection, original scanning and drawing are inside. Reset mode
+also includes the full RGBA copy. Pixel equality is checked before timing and after
+each round. All72 rows are retained; ratios are medians of paired round ratios,
+candidate/stock, not ratios of separate medians or individual-pixel CPU times.
+
+| Synthetic case | Reused target ratio | Reset-copy plus paint ratio |
+|---|---:|---:|
+| rounded path, mask255 |0.3076|0.3130|
+| mask254 early refusal |0.9963|1.0081|
+| last byte of each row254 |1.1179|1.1176|
+| existing all-zero skip |1.0116|1.0090|
+| alternating255/128 |1.0019|1.0066|
+| HQ fallback |1.0026|1.0017|
+
+The eligible case is lower in all six rounds in each mode. The late-mask refusal
+is higher in all six, about11.8%; smaller fallback costs and variation remain.
+This qualifies measuring actual application eligibility, not an application
+speedup. §8.149's bounds classes do not identify opaque/all255 spans, and a private
+dependency patch has a distribution/maintenance cost. No app gain, avoided CPU,
+new120Hz evidence or production dependency change is selected.
+
+Setup history is preserved. Python3.9 lacked the first manifest helper's digest
+API. Compile round1 stopped on Bash3 empty-array/nounset expansion; round2 built
+both libraries but Apple's linker rejected newer LLVM bitcode. Round3 uses equal
+Rust thin-LTO flags and compiles all six outputs in11.672s. Its two unit suites
+pass, then a busy-process preflight stops before the reference/benchmark launch.
+A separate fresh-preflight continuation runs only those two previously unstarted
+binaries once, unchanged. There is no fourth compilation, source fix or repeated
+passed test; original stopped receipts remain intact. All owned groups retire.
+
+MAIN`target/masked-opaque-span-probe-v1` preserves source seal`d588b4e3`, patch
+`5a5954e7` and all three compilation attempts. `target/fill-eligibility-evaluation`
+holds independent source/product readback and the separate unstarted-execution
+seal`9c851c81`/raw CSV`4c823149`. NativeSplit's unrelated reference allowance stays3/3.
