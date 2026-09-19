@@ -26,7 +26,12 @@ pub enum InputEvent {
     /// A key went down: the character it types, or a control key.
     Key(Key),
     /// Space/Enter press edges for focused Contract controls.
-    Activation { code: u16, down: bool },
+    Activation {
+        /// Linux input-event key code (28 for Enter, 57 for Space).
+        code: u16,
+        /// Whether the key is pressed.
+        down: bool,
+    },
 }
 
 /// A key that matters to an input.

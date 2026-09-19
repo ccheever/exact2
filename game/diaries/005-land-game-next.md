@@ -61,3 +61,24 @@ Incoming retained tests will be adapted in their capability increments; immutabl
 incoming history holds their original versions and bulk receipts.
 
 Merge gate: game workspace build and clippy passed; engine suite passed 331 tests (3 ignored diagnostics). Includes 200,000-name interleaved churn, index exclusion from saves/hash/observation, scatter impossible packing, admission, arithmetic overflow and shared budget refusals.
+
+After documenting the two public Linux Activation fields (the preexisting host
+build failed deny(missing_docs)), all seven games pass normal Linux proofs and
+all three paranoid modes: 28 executions total; all world and save pins unchanged.
+All eight app workspaces pass clippy/fmt. Game Bun tests now pass 115, with one
+existing skip. The workspace/consumer GPU failures remain adapter refusals.
+
+Chromium 1234 was tried with SwiftShader flags: production Beacons wasm built and
+launched, but WebGPU found no adapter; browser proof failed on host exceptions.
+No further software-WebGPU tuning is attempted.
+
+The brief incorrectly treats engine-tip cubes/proof.mjs as a Linux proof: it is
+an unconditional Chrome benchmark sanity run, ignores the host argument, and has
+no pins.json. prove refuses the missing file; direct invocation fails without
+WebGPU. Its temporary BENCH_N app.contract rewrite was reverted after the run.
+Cubes logic tests/clippy/fmt pass; benchmark/browser proof remains unverified.
+
+Root build/test/clippy were attempted: TS app bakes refuse the missing lean
+Hermes executor on this producer. Root fmt, caps and boot pass. Web fixture sweep:
+93 pass, 5 fail (four require xcrun/Apple SDK; Caltrain needs its web dist baked).
+These platform/tooling failures do not authorize weakening any assertion.
