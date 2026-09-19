@@ -293,7 +293,12 @@ impl DataSource for Module {
         match call(
             json!({"op":"dispatch", "id":self.id, "token":token, "store":snapshot, "grants":granted}),
         ) {
-            Ok(response) if response["ok"] == true => Dispatch::Host(token),
+            Ok(response)
+                if serde_json::from_slice::<Json>(&response)
+                    .is_ok_and(|value| value["ok"] == true) =>
+            {
+                Dispatch::Host(token)
+            }
             _ => Dispatch::Missing,
         }
     }
