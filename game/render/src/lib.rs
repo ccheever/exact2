@@ -293,7 +293,7 @@ macro_rules! module {
             fn before_restore(&mut self, world: &$crate::exact_game::World, mode: $crate::exact_gpu::Restore) {
                 self.1 = if mode == $crate::exact_gpu::Restore::Carry { world.try_resource::<$crate::exact_game::audio::Sounds>().map(|s| s.clone()) } else { None };
             }
-            fn after_restore(&mut self, world: &$crate::exact_game::World, mode: $crate::exact_gpu::Restore) {
+            fn after_restore(&mut self, world: &mut $crate::exact_game::World, mode: $crate::exact_gpu::Restore) {
                 if mode == $crate::exact_gpu::Restore::Carry {
                     if let Some(fresh) = self.1.take() {
                         if world.try_resource::<$crate::exact_game::audio::Sounds>().is_some() { world.resource_mut::<$crate::exact_game::audio::Sounds>().0.extend(fresh.0); }

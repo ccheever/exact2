@@ -1,6 +1,29 @@
 //! Host-independent f32 transcendentals. Game code uses these, never f32::sin.
 //! glam as configured (scalar-math + libm, fixed operation order and correctly
 //! rounded sqrt) is part of the deterministic set; std's float methods are not.
+
+// std's dynamic clamp pulls its general float formatter into size-optimized builds.
+// Keep the same comparisons and rejection, using our existing diagnostic writer.
+pub(crate) fn clamp<T: PartialOrd + Copy + Into<f64> + ryu::Float>(
+    mut value: T,
+    min: T,
+    max: T,
+) -> T {
+    assert!(
+        min <= max,
+        "clamp bounds must be ordered: {}..={}",
+        crate::data::text::Float(min),
+        crate::data::text::Float(max)
+    );
+    if value < min {
+        value = min;
+    }
+    if value > max {
+        value = max;
+    }
+    value
+}
+
 /// Sine in radians.
 pub fn sin(x: f32) -> f32 {
     libm::sinf(x)
@@ -125,5 +148,68 @@ pub fn ease<T: Ease>(current: T, target: T, lag: f32, dt: f32) -> T {
         target
     } else {
         current.approach(target, -libm::expm1f(-dt / lag))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp;
+
+    #[test]
+    fn compact_clamp_matches_std_bits_and_rejects_the_same_bounds() {
+        macro_rules! compare {
+            ($ty:ty) => {{
+                let edge = [
+                    <$ty>::NEG_INFINITY,
+                    -<$ty>::MAX,
+                    -1.,
+                    -0.,
+                    0.,
+                    1.,
+                    <$ty>::from_bits(1),
+                    <$ty>::MAX,
+                    <$ty>::INFINITY,
+                    <$ty>::NAN,
+                ];
+                for min in edge {
+                    for max in edge {
+                        if min <= max {
+                            for value in edge {
+                                assert_eq!(
+                                    clamp(value, min, max).to_bits(),
+                                    value.clamp(min, max).to_bits()
+                                );
+                            }
+                        } else {
+                            assert!(
+                                std::panic::catch_unwind(|| clamp(0. as $ty, min, max)).is_err()
+                            );
+                            assert!(
+                                std::panic::catch_unwind(|| (0. as $ty).clamp(min, max)).is_err()
+                            );
+                        }
+                    }
+                }
+                let mut bits = 1u64;
+                let mut next = || {
+                    bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    <$ty>::from_bits(bits as _)
+                };
+                for _ in 0..100_000 {
+                    let value = next();
+                    let (a, b) = (next(), next());
+                    if a.is_nan() || b.is_nan() {
+                        continue;
+                    }
+                    let (min, max) = if a <= b { (a, b) } else { (b, a) };
+                    assert_eq!(
+                        clamp(value, min, max).to_bits(),
+                        value.clamp(min, max).to_bits()
+                    );
+                }
+            }};
+        }
+        compare!(f32);
+        compare!(f64);
     }
 }

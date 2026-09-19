@@ -745,7 +745,7 @@ impl<G: Game> Sim<G> {
         // Schedule against this same horizon so the retained tick pair covers R.
         let wanted = Self::phase_us(live.period_ms.min(1000.0 / G::HZ as f64)) as f64;
         let budget = units * 0.0025;
-        let horizon = (wanted - live.lookahead).clamp(-budget, budget);
+        let horizon = crate::math::clamp(wanted - live.lookahead, -budget, budget);
         live.lookahead += horizon;
         let budget = (budget - horizon.abs()).max(0.0);
         if live.period_ms > 0.0 && budget > 0.0 {
@@ -761,7 +761,7 @@ impl<G: Game> Sim<G> {
                     phase
                 }
             });
-            let correction = left.clamp(-budget, budget);
+            let correction = crate::math::clamp(*left, -budget, budget);
             *left -= correction;
             let increment = correction + live.remainder;
             live.phase += increment.round() as i128;

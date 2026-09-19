@@ -227,7 +227,7 @@ final class GpuModule {
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
-        if ExactEnv.agentMode { sym("gpu_seekable", SeekableFn.self)?(true) }
+        sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         return .success(module)
     }
 

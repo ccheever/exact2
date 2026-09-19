@@ -49,6 +49,86 @@ fn surface() -> WorldSurface<Move> {
         .unwrap();
     s
 }
+
+#[test]
+fn primitive_asset_boundary_refuses_late_names_and_rechecks_after_restore() {
+    #[derive(Default, exact_game::Args)]
+    struct Args {
+        sprite: bool,
+    }
+    struct Late;
+    impl Game for Late {
+        const ID: &'static str = "late-primitive-asset";
+        type Args = Args;
+        fn setup(w: &mut World, _: &Args) {
+            w.register::<exact_game::Sprite>();
+            w.spawn_named("shape", (Transform::default(), Mesh::cube(1.)));
+        }
+        fn tick(w: &mut World, _: &Input, args: &Args) {
+            if w.tick() == 1 {
+                if args.sprite {
+                    w.spawn(exact_game::Sprite::new("late.tex", [1., 1.]));
+                } else {
+                    *w.get_mut::<Mesh>(w.resolve("shape").unwrap()).unwrap() =
+                        Mesh::asset("late.model");
+                }
+            }
+        }
+    }
+    for sprite in [false, true] {
+        let name = if sprite { "late.tex" } else { "late.model" };
+        let mut s = WorldSurface::<Late>::default();
+        s.bind(&[Value::Bool(sprite)], None).unwrap();
+        assert!(s.assets().is_empty());
+        assert!(s.error().is_none());
+        let fresh = s.carry().unwrap().unwrap();
+        for _ in 0..2 {
+            s.sim.as_mut().unwrap().run(100.);
+            let hash = s.sim().unwrap().world().hash();
+            assert!(s.assets().is_empty());
+            let error = &s
+                .error()
+                .expect("late asset must name its missing executor")
+                .0;
+            assert!(
+                error.contains(name) && error.contains("game.assets"),
+                "{error}"
+            );
+            let state = s.agent(r#"{"op":"state"}"#).unwrap();
+            assert!(state.contains("\"assets\":[]"), "{state}");
+            assert!(
+                state.contains("renderError") && state.contains(name),
+                "{state}"
+            );
+            assert_eq!(s.sim().unwrap().world().hash(), hash);
+            assert!(s.take_error().is_some());
+            assert!(s.take_error().is_none());
+            s.restore(&fresh, Restore::Open).unwrap();
+            assert!(s.assets().is_empty());
+            assert!(s.error().is_none());
+        }
+    }
+    let mut s = WorldSurface::<Late>::default();
+    s.bind(&[Value::Bool(false)], None).unwrap();
+    let mut replacement = World::new(Late::HZ, 0);
+    replacement.register::<exact_game::Sprite>();
+    replacement.spawn_named(
+        "shape",
+        (Transform::default(), Mesh::asset("replacement.model")),
+    );
+    assert_eq!(
+        replacement.revision::<Mesh>(),
+        s.sim().unwrap().world().revision::<Mesh>()
+    );
+    *s.sim.as_mut().unwrap().world_mut() = replacement;
+    assert!(s.assets().is_empty());
+    assert!(s
+        .error()
+        .expect("replacement world must be rechecked")
+        .0
+        .contains("replacement.model"));
+}
+
 #[test]
 fn live_surface_applies_a_period_and_slews_a_changed_horizon() {
     let Some(gpu) = gpu() else { return };

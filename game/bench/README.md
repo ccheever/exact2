@@ -301,8 +301,9 @@ are absent from the primitive web artifact.
 
 The next structural cut toward 550,000 is to put model asset ownership/discovery
 and model-aware spatial bounds entirely in the model executor; primitive `World`
-still owns the common asset lifecycle. Then inspect remaining formatter reachability:
-std float formatting still links through dynamic float clamp/panic paths. The final
+still owns the common asset lifecycle. At this measurement, std float formatting
+still links through dynamic float clamp/panic paths (removed in the later
+"Compact dynamic diagnostics" measurement below). The final
 pre-optimization map attributes 47,536 bytes to Data, 44,129 to World and 37,673 to
 Sim; these overlap generic/core allocations
 and are not promises of shipped savings. Typed moves, deterministic sampling and
@@ -438,3 +439,67 @@ run medians). The bounded upload queue keeps its tree map. `churn --texture-deli
 retains the workload; replacement, retirement, single-drain ownership and restore
 coverage stay in the asset tests. No shipped size saving is claimed for that
 experiment. Evidence: `/tmp/exact-game-goal-texture-registry/`.
+
+### Compact dynamic diagnostics — 2026-09-18
+
+The private clock/movement clamp keeps std's comparisons and invalid-bound
+rejection, with the existing compact float writer for panic details. Placement
+depth uses the same writer. No author API or build flag changes. Attribution
+confirms that std's float Debug/Display and `flt2dec` implementation are absent
+from the primitive module. An initial assertion before std's clamp did not remove
+the formatter under the shipped size profile; that experiment is not retained.
+
+Normal Beacons web builds measure 776,497 → 752,263 raw bytes and 330,448 → 320,319
+gzip bytes. Concurrent engine/render edits occurred between these builds, so the
+whole 24,234-byte difference is not attributed to this change. The 650,000-byte
+target remains unmet by 102,263 bytes. Hashes, source inventories and link maps:
+`/tmp/exact-game-goal-clamp-diagnostics/`.
+
+The clamp test compares both float widths bit-for-bit against std across edge
+cases and 100,000 random triples each, including invalid bounds and signed zero.
+Placement depth round-trips finite edge values through Rust's numeric parser;
+the engine's JSON reader separately refuses integral decimals beyond u64, now
+queued. Final engine/renderer coverage passes 420 tests (9 ignored). All-target
+Clippy, formatting, caps and boot pass. Beacons web and Linux's three restore
+modes retain their pins, and all six captured web/Linux save files are identical.
+Placement web also passes. Browser descendant audits report `ps` unavailable;
+all recorded children are awaited. These checks do not close the existing root
+Keychain refusal or establish new authoring/perceptual scores.
+
+### Primitive asset boundary — 2026-09-18
+
+Primitive surfaces reject unsupported models/sprites directly instead of running
+the full request, retirement and residency machinery to manufacture a failed
+delivery. Initial and late references name the missing `game.assets` setting.
+The check reuses component revisions plus the existing world identity, so unchanged
+polls do not scan entities and a replaced/restored world is always rechecked.
+The model-capable executor retains its delivery path; no author API or flag changes.
+
+Normal Beacons web builds measure **750,672 → 725,274 raw bytes** (25,398 removed)
+and **319,803 → 310,111 gzip bytes**. Only `surface.rs` changes in the production
+source inventory across this pair. The final link map excludes Sim's asset request,
+failure, retirement, device-invalidation and model-readiness paths. Common World
+asset ownership remains linked. The 650,000-byte target is still 75,274 bytes away.
+
+A temporary release probe measures `Surface::assets` over primitive-only worlds.
+Three alternating pairs, each taking the median of seven batches:
+
+| meshes | unchanged poll before/after (ns) | one Mesh write + poll before/after (µs) |
+|---|---:|---:|
+| 0 | 8.720 / 3.190 | — |
+| 100 | 11.170 / 8.069 | 0.140 / 0.145 |
+| 10,000 | 11.414 / 8.027 | 12.233 / 11.819 |
+
+All world hashes agree. The 100-mesh rescan samples overlap; these are CPU polling
+diagnostics on the shared Mac, not frame-rate claims. Probe source, binaries,
+inventories, digests and raw runs: `/tmp/exact-game-goal-primitive-assets/`.
+
+The late-reference regression fails on the prior implementation, then passes for
+models and sprites, clean-save recovery, and replacement worlds with equal revision
+counters. Final renderer coverage passes 133 tests (7 ignored), as do all-target
+Clippy, formatting, caps and boot. Beacons web/Linux pass on the final cache; Skinned
+web/Linux pass on the preceding candidate (its only subsequent runtime change is
+the primitive check's identity key). Linux uses all three restore modes. All captured
+Beacons and Skinned save pairs agree across hosts. Browser descendant audits report
+`ps` unavailable; recorded children were awaited. Existing root/Apple/perceptual
+gaps remain separate.

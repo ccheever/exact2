@@ -1,5 +1,46 @@
 use super::*;
 use exact_game::Facing;
+
+#[test]
+fn placed_status_depth_preserves_float_bits_and_other_fields() {
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        world: Info,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Info {
+        placed: Status,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Status {
+        child: u16,
+        hidden: bool,
+        depth: f32,
+    }
+    let mut world = World::new(60, 0);
+    world.spawn_named("label", Placed::child(0));
+    let mut placements = Placements::default();
+    placements.child(0, None, [0., 0., 100., 50.]);
+    let mut plane = project(
+        Placed::child(0),
+        Transform::at(0., 0., -2.),
+        [0., 0., 100., 50.],
+        Mat4::IDENTITY,
+        Camera::default().matrix(Vec2::splat(200.)),
+        Vec2::splat(200.),
+    );
+    for depth in [0., -0., 12.345, -1e-5, f32::from_bits(1), f32::MAX] {
+        plane.placement.depth = depth;
+        placements.children[0].plane = Some(plane);
+        let mut reply = r#"{"world":{"name":"label"}}"#.to_owned();
+        placements.status(&world, r#"{"op":"state","entity":"label"}"#, &mut reply);
+        let parsed: Reply = exact_game::json::from_str(&reply).unwrap();
+        assert_eq!(parsed.world.placed.child, 0);
+        assert_eq!(parsed.world.placed.hidden, plane.placement.hidden);
+        assert_eq!(parsed.world.placed.depth.to_bits(), depth.to_bits());
+    }
+}
+
 #[test]
 fn hand_computed_square_and_projective_fourth_corner() {
     let camera = Camera {

@@ -39,18 +39,7 @@ impl Data for f32 {
         w.number(Number::F32(*self));
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        *self = match r.number()? {
-            Number::Unsigned(n) => n as f32,
-            Number::Signed(n) => n as f32,
-            Number::F32(n) => n,
-            Number::F64(n) => {
-                let small = n as f32;
-                if n.is_finite() && !small.is_finite() {
-                    return Err(DataError::new("number outside f32 range"));
-                }
-                small
-            }
-        };
+        *self = r.f32()?;
         Ok(())
     }
 }
@@ -59,12 +48,7 @@ impl Data for f64 {
         w.number(Number::F64(*self));
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        *self = match r.number()? {
-            Number::Unsigned(n) => n as f64,
-            Number::Signed(n) => n as f64,
-            Number::F32(n) => n as f64,
-            Number::F64(n) => n,
-        };
+        *self = r.f64()?;
         Ok(())
     }
 }

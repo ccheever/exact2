@@ -143,7 +143,7 @@ impl Character {
         }
         if let Some([min, max]) = self.bounds {
             for axis in [0, 2] {
-                pose.position[axis] = pose.position[axis].clamp(min, max);
+                pose.position[axis] = crate::math::clamp(pose.position[axis], min, max);
                 if (pose.position[axis] == min && self.velocity[axis] < 0.0)
                     || (pose.position[axis] == max && self.velocity[axis] > 0.0)
                 {

@@ -1185,9 +1185,30 @@ impl Definitions {
                 .collect(),
         )
     }
-    pub fn apply(self, w: &World) {
+    pub fn apply(self, w: &mut World) {
         for (name, a, b, c) in self.0 {
             let Some(e) = w.named(&name) else { continue };
+            // Membership is authored too: the saved world may predate this controller.
+            // Keep dynamic playback only when the controller kind still agrees.
+            if let Some(fresh) = &a {
+                w.remove::<Blend>(e);
+                w.remove::<Animator>(e);
+                if !w.has::<Animation>(e) {
+                    w.insert(e, fresh.clone());
+                }
+            } else if let Some(fresh) = &b {
+                w.remove::<Animation>(e);
+                w.remove::<Animator>(e);
+                if !w.has::<Blend>(e) {
+                    w.insert(e, fresh.clone());
+                }
+            } else if let Some(fresh) = &c {
+                w.remove::<Animation>(e);
+                w.remove::<Blend>(e);
+                if !w.has::<Animator>(e) {
+                    w.insert(e, fresh.clone());
+                }
+            }
             if let (Some(fresh), Some(mut old)) = (a, w.get_mut::<Animation>(e)) {
                 old.clip = fresh.clip;
                 old.speed = fresh.speed;

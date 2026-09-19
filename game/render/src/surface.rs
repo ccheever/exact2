@@ -23,7 +23,7 @@ pub trait Presentation: Default {
     /// Snapshot newly constructed definitions before a carry replaces dynamic state.
     fn before_restore(&mut self, _world: &World, _mode: Restore) {}
     /// Overlay fresh definitions only for a development carry.
-    fn after_restore(&mut self, _world: &World, _mode: Restore) {}
+    fn after_restore(&mut self, _world: &mut World, _mode: Restore) {}
     /// Specialized entity inspection supplied only by the linked executor.
     fn inspect(_world: &World, _entity: exact_game::Entity, pose: bool) -> Result<String, String> {
         if pose {
@@ -50,6 +50,7 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     device: bool,
+    device_assets_invalidated: bool,
     storage_limit: u32,
     perf: Perf,
     ready_work: Option<crate::world::assets::Work>,
@@ -57,6 +58,7 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     error: Option<SurfaceError>,
     dirty: bool,
     assets_dirty: bool,
+    asset_check: Option<(exact_game::WorldId, u64, u64)>,
     model_digests: std::collections::BTreeMap<String, u64>,
     reported: bool,
     generation: u64,
@@ -76,6 +78,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             render: None,
             format: None,
             device: false,
+            device_assets_invalidated: false,
             storage_limit: 0,
             perf: Perf::default(),
             ready_work: None,
@@ -83,6 +86,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             error: None,
             dirty: true,
             assets_dirty: false,
+            asset_check: None,
             model_digests: Default::default(),
             reported: false,
             generation: 0,
@@ -94,6 +98,42 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
     }
 }
 impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
+    fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
+        if ASSETS {
+            return Ok(());
+        }
+        let Some(sim) = &self.sim else { return Ok(()) };
+        let world = sim.world();
+        let revision = (
+            world.id(),
+            world.revision::<exact_game::Mesh>(),
+            world.revision::<exact_game::Sprite>(),
+        );
+        if self.asset_check.as_ref() == Some(&revision) {
+            return Ok(());
+        }
+        if let Some((_, sprite)) = world.query::<&exact_game::Sprite>().iter().next() {
+            return Err(SurfaceError(format!(
+                "Sprite `{}` requires game.assets: true",
+                sprite.texture
+            )));
+        }
+        let missing = |name: &str| {
+            SurfaceError(format!(
+                "asset `{name}`: this module has no model support; declare game.assets"
+            ))
+        };
+        if let Some(name) = G::ASSETS.first() {
+            return Err(missing(name));
+        }
+        for (_, mesh) in world.query::<&exact_game::Mesh>().iter() {
+            if let exact_game::Mesh::Asset(name) = mesh {
+                return Err(missing(name));
+            }
+        }
+        self.asset_check = Some(revision);
+        Ok(())
+    }
     fn storage_fits(&mut self, device: &wgpu::Device) -> bool {
         self.storage_limit = device.limits().max_storage_buffers_per_shader_stage;
         let needed = if ASSETS { crate::STORAGE_BINDINGS } else { 5 };
@@ -110,7 +150,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         let sim = self.sim.as_mut().ok_or("world has not been bound")?;
         self.presentation.before_restore(sim.world(), mode);
         sim.restore_bound(bytes).map_err(|e| e.to_string())?;
-        self.presentation.after_restore(sim.world(), mode);
+        self.presentation.after_restore(sim.world_mut(), mode);
         self.dirty = true;
         self.error = None;
         self.reported = false;
@@ -232,57 +272,34 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
         } else {
             let mut sim = Sim::from_values(values).map_err(SurfaceError)?;
-            sim.defer_assets(self.device);
+            sim.defer_assets(ASSETS && self.device);
             if let Some(at) = at_ms {
                 sim.advance(at, Clock::Seekable);
             }
             self.sim = Some(sim);
         }
-        if !ASSETS {
-            let sim = self.sim.as_ref().unwrap();
-            if let Some((_, sprite)) = sim.world().query::<&exact_game::Sprite>().iter().next() {
-                return Err(SurfaceError(format!(
-                    "Sprite `{}` requires game.assets: true",
-                    sprite.texture
-                )));
-            }
-            let name = G::ASSETS.first().map(|n| (*n).to_owned()).or_else(|| {
-                sim.world()
-                    .query::<&exact_game::Mesh>()
-                    .iter()
-                    .find_map(|(_, mesh)| {
-                        if let exact_game::Mesh::Asset(name) = mesh {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    })
-            });
-            if let Some(name) = name {
-                self.sim = None;
-                return Err(SurfaceError(format!(
-                    "asset `{name}`: this module has no model support; declare game.assets"
-                )));
-            }
+        if let Err(error) = self.check_primitive_assets() {
+            self.sim = None;
+            self.asset_check = None;
+            return Err(error);
         }
         self.dirty = true;
         Ok(())
     }
     fn assets(&mut self) -> Vec<String> {
-        let names = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
         if ASSETS {
-            names
+            self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
         } else {
-            for name in names {
-                self.sim
-                    .as_mut()
-                    .unwrap()
-                    .asset_failed(&name, "module has no model support");
+            if self.error.is_none() {
+                self.error = self.check_primitive_assets().err();
             }
             Vec::new()
         }
     }
     fn retired_assets(&mut self) -> Vec<String> {
+        if !ASSETS {
+            return Vec::new();
+        }
         let retired = self
             .sim
             .as_mut()
@@ -421,12 +438,17 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
     }
 
     fn device_ready(&mut self) {
-        if let Some(sim) = &mut self.sim {
-            sim.defer_assets(true);
-            if !self.device {
-                sim.invalidate_device_assets();
+        if ASSETS {
+            if let Some(sim) = &mut self.sim {
+                sim.defer_assets(true);
+                // Loss already invalidated residency. Bytes delivered during adapter
+                // backoff belong to the replacement and must survive its attachment.
+                if !self.device && !self.device_assets_invalidated {
+                    sim.invalidate_device_assets();
+                }
             }
         }
+        self.device_assets_invalidated = false;
         self.device = true;
     }
     fn device_lost(&mut self) {
@@ -437,8 +459,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.render = None;
         self.ready_work = None;
         self.format = None;
-        if let Some(sim) = &mut self.sim {
-            sim.invalidate_device_assets();
+        if ASSETS && !self.device_assets_invalidated {
+            if let Some(sim) = &mut self.sim {
+                sim.invalidate_device_assets();
+                self.device_assets_invalidated = true;
+            }
         }
         self.assets_dirty = true;
         self.dirty = true;
@@ -537,13 +562,15 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.format = Some(format);
             self.dirty = true;
         }
-        if let Some((renderer, _)) = &mut self.render {
-            for (name, model) in &mut renderer.models.loaded {
-                let active = sim.model_prepared(name);
-                if model.active != active {
-                    model.active = active;
-                    renderer.models.revision += 1;
-                    self.dirty = true;
+        if ASSETS {
+            if let Some((renderer, _)) = &mut self.render {
+                for (name, model) in &mut renderer.models.loaded {
+                    let active = sim.model_prepared(name);
+                    if model.active != active {
+                        model.active = active;
+                        renderer.models.revision += 1;
+                        self.dirty = true;
+                    }
                 }
             }
         }
@@ -839,7 +866,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 .render
                 .as_ref()
                 .map_or_else(Default::default, |(r, _)| r.residency_work());
-            let mut reasons: Vec<String> = sim.asset_failures().map(str::to_owned).collect();
+            let mut reasons: Vec<String> = if ASSETS {
+                sim.asset_failures().map(str::to_owned).collect()
+            } else {
+                Vec::new()
+            };
             if let Some(error) = &self.error {
                 reasons.push(format!("render error: {}", error.0));
             }
@@ -849,7 +880,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if sim.is_loading() {
                 reasons.push("declared content pending".into());
             }
-            if !sim.device_assets_ready() {
+            if ASSETS && !sim.device_assets_ready() {
                 reasons.push("device assets pending".into());
             }
             if self.ready_work.is_none() {
@@ -1017,6 +1048,43 @@ mod residency_tests {
         ))
         .unwrap()
     }
+    #[test]
+    fn destroyed_device_rebuilds_textured_model_draws_after_delayed_redelivery() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+        s.device_ready();
+        s.bind(&[], None).unwrap();
+        let model = model();
+        let bytes = exact_game::bin::to_vec(&model);
+        let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        s.assets();
+        s.asset("hero.model", Ok(&bytes));
+        s.asset(&model.textures[0], Ok(tex));
+        let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
+        let work = s.render.as_ref().unwrap().0.residency_work().json();
+        assert!(!s.render.as_ref().unwrap().0.models.records.is_empty());
+        gpu.device.destroy();
+        s.device_lost();
+        // Failed adapter retries can finish redelivery before device_ready.
+        s.device_lost();
+        s.assets();
+        s.asset(&model.textures[0], Ok(tex));
+        s.device_lost(); // another failed retry must preserve delivered bytes too
+        let replacement = exact_gpu::fixture::device().unwrap();
+        s.device_ready();
+        s.prepare_assets(
+            &replacement.device,
+            &replacement.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (after, _) = exact_gpu::fixture::render(&replacement, &mut s, &frame()).unwrap();
+        assert!(
+            before == after,
+            "replacement device must draw the same model pixels"
+        );
+        assert_eq!(work, s.render.as_ref().unwrap().0.residency_work().json());
+    }
+
     #[test]
     fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
         let Ok(gpu) = exact_gpu::fixture::device() else {

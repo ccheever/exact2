@@ -169,7 +169,7 @@ impl<G: Game> Sim<G> {
     pub fn agent_with(&mut self, request: &str, after: impl FnMut(&World, u32)) -> String {
         self.agent_with_inspector(request, after, |_, _, pose| {
             if pose {
-                Err("pose inspection requires the model executor".into())
+                Err("pose inspection requires game.assets: true".into())
             } else {
                 Ok(String::new())
             }

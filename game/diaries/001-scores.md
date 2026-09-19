@@ -181,7 +181,7 @@ Feel row is scored from the first full sitting (`game/bench/README.md`) for all 
 both cards, four and six ahead of Godot; the historical Feel score is withdrawn pending comparable perceptual evidence.
 **F3 footnote to Feel:** these historical cards used world-space displacement,
 and Exact's paced intervals were compared with the twins' raw callbacks. The
-[same-trace re-score](../bench/README.md#f3--re-scored-from-the-same-traces)
+[same-trace re-score](../bench/README.md#sitting-2--landmark-re-score-2026-09-18t20-36-09-882z)
 recomputes world CV and event-to-drawn-pose milliseconds with every legacy drawn row retained, and withdraws a
 raw-pacing or perceptual winner: Exact's archived raw rAF stamps and every
 engine's camera projection are absent (`—`). Sitting #2 now records raw callbacks and cameras; its landmark re-score is in the README. All rows remain provisional, and a quiet sitting is still required.

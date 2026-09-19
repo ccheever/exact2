@@ -228,6 +228,30 @@ pub trait Reader {
     fn boolean(&mut self) -> Result<bool, DataError>;
     /// Read a number without losing integer precision.
     fn number(&mut self) -> Result<Number, DataError>;
+    /// Read binary32. Text formats can round directly to the destination width.
+    fn f32(&mut self) -> Result<f32, DataError> {
+        Ok(match self.number()? {
+            Number::Unsigned(n) => n as f32,
+            Number::Signed(n) => n as f32,
+            Number::F32(n) => n,
+            Number::F64(n) => {
+                let small = n as f32;
+                if n.is_finite() && !small.is_finite() {
+                    return Err(DataError::new("number outside f32 range"));
+                }
+                small
+            }
+        })
+    }
+    /// Read binary64, without imposing an intermediate integer range.
+    fn f64(&mut self) -> Result<f64, DataError> {
+        Ok(match self.number()? {
+            Number::Unsigned(n) => n as f64,
+            Number::Signed(n) => n as f64,
+            Number::F32(n) => n as f64,
+            Number::F64(n) => n,
+        })
+    }
     /// Read a matching typed payload, claiming its byte size before reserving.
     /// This claim also covers conversion into a same-sized numeric destination.
     fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError>;

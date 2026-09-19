@@ -968,3 +968,28 @@ reduction cost about 31% on the 256-texture reverse-order batch. Original runtim
 storage is restored byte-for-byte; its workload and ownership regression remain.
 Primitive-module isolation, fresh authoring scores and the existing root Keychain
 refusal remain open; no whole-goal completion or clean integrated commit is claimed.
+
+**Compact diagnostics — 2026-09-18, Codex, uncommitted.** Dynamic movement/clock
+clamps and placement depth now reuse the existing compact float writer. Std float
+formatting disappears from the primitive module; comparison order, invalid-bound
+rejection and saved state stay intact. The shared-tree 776,497 → 752,263-byte
+observation includes concurrent edits; attribution and checks are in the bench
+README and `/tmp/exact-game-goal-clamp-diagnostics/`. Engine/renderer tests pass
+420 cases (9 ignored), as do Beacons web, Linux's three restore modes and Placement
+web. All six captured Beacons saves agree across hosts. Clippy, formatting, caps
+and boot pass. The 650 KB target and fresh ordinary-authoring scores remain open.
+
+**Primitive asset boundary — 2026-09-18, Codex, uncommitted.** Primitive surfaces
+now refuse unsupported assets directly, with a revision/identity cache, and leave
+delivery/retirement/device residency to the model-capable path. This removes 25,398
+raw bytes in an isolated production-source pair: Beacons is 725,274 bytes. The
+10,000-mesh unchanged poll measures 11.414 → 8.027 ns; full rescans remain around
+12 µs, with hashes identical. A replacement-world regression caught reused
+revision counters; the cache now uses WorldId. Renderer tests pass 133 cases
+(7 ignored); Clippy, formatting, caps and boot pass. Beacons final web/Linux and
+Skinned candidate web/Linux proofs retain their pins and cross-host save equality.
+Detailed scope and receipts: `game/bench/README.md`,
+`/tmp/exact-game-goal-primitive-assets/`. Common World asset storage and 5/5 ordinary
+authoring evidence remain open. No commit or shared-index mutation.
+
+**R9 (2026-09-18):** The missing crate was an ordering defect: failed adapter retries allow texture delivery before `device_ready`, which invalidated those bytes a second time. WorldSurface now invalidates once per loss; the real web fail-once destruction proof and `destroyed_device_rebuilds_textured_model_draws_after_delayed_redelivery` on Metal require identical pixels and preparation counts, and both pass after failing before the change. `restore_mode` now proves Carry inserts Animation/Blend/Animator and replaces conflicting kinds while Open stays byte-exact; its primitive pose regression compares the shared `game.assets: true` wording. The score link resolves to Sitting #2. The Apple fixture’s `childrenMode:` repair was already present, and an isolated Skinned macOS bake/proof plus both dep-info resolver tests pass without a packaging edit. The iOS GPU clock now respects platform timing: Beacons and Skinned produce all four timing rings, whose simulator CPU/presentation p50/p95 figures are recorded in `game/README.md`. The Fox crop uses a 1–8% orange fraction (macOS 1.300%, iOS 3.625%); both actual images pass and 95%-white variants fail. Original pins remain unchanged. The requested game checks and host matrix pass (546 workspace tests, 11 ignored; all seven Linux paranoid proofs); the extra Apple sweep has 87 passes and a separately reproduced autofocus-reset assertion queued outside this slice.

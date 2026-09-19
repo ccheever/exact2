@@ -205,6 +205,112 @@ fn numbers_nan_and_negative_zero() {
     assert!(json::from_str::<u8>("256").is_err());
     assert!(json::from_str::<u64>("-1").is_err());
 }
+
+#[test]
+fn json_floats_accept_large_decimals_without_loosening_integer_bounds() {
+    macro_rules! round_trip_float {
+        ($ty:ty) => {{
+            for value in [
+                0.,
+                -0.,
+                1.,
+                -1.,
+                <$ty>::MAX,
+                -<$ty>::MAX,
+                <$ty>::MIN_POSITIVE,
+                <$ty>::from_bits(1),
+            ] {
+                for text in [
+                    exact_game::data::text::Float(value).to_string(),
+                    json::to_string(&value).unwrap(),
+                ] {
+                    let read = json::from_str::<$ty>(&text).unwrap();
+                    assert_eq!(read.to_bits(), value.to_bits(), "{text}");
+                }
+            }
+        }};
+    }
+    round_trip_float!(f32);
+    round_trip_float!(f64);
+    for text in ["18446744073709551616", "-9223372036854775809"] {
+        assert!(json::from_str::<u64>(text).is_err(), "{text}");
+        assert!(json::from_str::<i64>(text).is_err(), "{text}");
+        assert_eq!(
+            json::from_str::<f64>(text).unwrap(),
+            text.parse::<f64>().unwrap()
+        );
+    }
+    assert_eq!(
+        json::from_str::<u64>("18446744073709551615").unwrap(),
+        u64::MAX
+    );
+    assert_eq!(
+        json::from_str::<i64>("-9223372036854775808").unwrap(),
+        i64::MIN
+    );
+
+    #[derive(Default, Data)]
+    struct Known {
+        value: u32,
+    }
+    let text = format!(
+        r#"{{"future":{},"value":7}}"#,
+        exact_game::data::text::Float(f64::MAX)
+    );
+    assert_eq!(json::from_str::<Known>(&text).unwrap().value, 7);
+    assert_eq!(
+        json::from_str::<Known>(r#"{"future":1e999,"value":7}"#)
+            .unwrap()
+            .value,
+        7
+    );
+    for text in [r#"{"future":1e,"value":7}"#, r#"{"future":NaN,"value":7}"#] {
+        assert!(json::from_str::<Known>(text).is_err());
+    }
+}
+
+#[test]
+fn json_f32_rounds_directly_and_both_widths_reject_invalid_input() {
+    for text in [
+        "1.0000000596046448",
+        "-1.0000000596046448",
+        "9223372586610589697",
+        "-9223372586610589697",
+    ] {
+        assert_eq!(
+            json::from_str::<f32>(text).unwrap().to_bits(),
+            text.parse::<f32>().unwrap().to_bits(),
+            "{text}"
+        );
+    }
+    let mut bits = 1u64;
+    for _ in 0..100_000 {
+        bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let n = f32::from_bits(bits as u32);
+        if n.is_finite() {
+            let text = exact_game::data::text::Float(n).to_string();
+            assert_eq!(json::from_str::<f32>(&text).unwrap().to_bits(), n.to_bits());
+        }
+        let n = f64::from_bits(bits);
+        if n.is_finite() {
+            let text = exact_game::data::text::Float(n).to_string();
+            assert_eq!(json::from_str::<f64>(&text).unwrap().to_bits(), n.to_bits());
+        }
+    }
+    for text in [
+        "+1", "01", "-01", ".1", "1.", "1e", "1e+", "-", "NaN", "inf", "1e999",
+    ] {
+        assert!(json::from_str::<f32>(text).is_err(), "{text}");
+        assert!(json::from_str::<f64>(text).is_err(), "{text}");
+    }
+    for text in ["3.5e38", "-3.5e38"] {
+        let mut n = 42.0f32;
+        assert!(json::read_into(text, &mut n).is_err());
+        assert_eq!(n, 42.);
+        assert!(json::from_str::<f64>(text).is_ok());
+    }
+}
+
 #[test]
 fn builtins_and_unicode() {
     round_trip((true, vec![1u64, 2, 3], Some(Some(3i32)), Box::new(34i64)));

@@ -269,43 +269,7 @@ impl<'a> Decoder<'a> {
         }
         Ok(true)
     }
-    fn hex(&mut self) -> Result<u32, DataError> {
-        let b = self
-            .text
-            .as_bytes()
-            .get(self.pos..self.pos + 4)
-            .ok_or_else(|| self.err("truncated Unicode escape"))?;
-        let mut n = 0;
-        for &c in b {
-            n = n * 16
-                + (c as char)
-                    .to_digit(16)
-                    .ok_or_else(|| self.err("invalid Unicode escape"))?;
-        }
-        self.pos += 4;
-        Ok(n)
-    }
-}
-impl Reader for Decoder<'_> {
-    fn bytes(&mut self, _kind: BulkKind) -> Result<Vec<u8>, DataError> {
-        self.skip()?;
-        Err(DataError::new(
-            "JSON bulk summaries are inspection-only; arrays are refused too; restore from binary",
-        ))
-    }
-    fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
-        self.budget.claim(bytes)
-    }
-    fn boolean(&mut self) -> Result<bool, DataError> {
-        if self.word("true") {
-            Ok(true)
-        } else if self.word("false") {
-            Ok(false)
-        } else {
-            Err(self.err("expected a boolean"))
-        }
-    }
-    fn number(&mut self) -> Result<Number, DataError> {
+    fn number_token(&mut self) -> Result<(&'a str, bool), DataError> {
         self.ws();
         let start = self.pos;
         if self.peek() == Some(b'-') {
@@ -346,7 +310,53 @@ impl Reader for Decoder<'_> {
                 return Err(self.err("expected exponent digits"));
             }
         }
-        let s = &self.text[start..self.pos];
+        Ok((&self.text[start..self.pos], float))
+    }
+    fn parse_f64(&self, s: &str) -> Result<f64, DataError> {
+        let n: f64 = s.parse().map_err(|_| self.err("expected a number"))?;
+        if !n.is_finite() {
+            return Err(self.err("non-finite number is not JSON"));
+        }
+        Ok(n)
+    }
+    fn hex(&mut self) -> Result<u32, DataError> {
+        let b = self
+            .text
+            .as_bytes()
+            .get(self.pos..self.pos + 4)
+            .ok_or_else(|| self.err("truncated Unicode escape"))?;
+        let mut n = 0;
+        for &c in b {
+            n = n * 16
+                + (c as char)
+                    .to_digit(16)
+                    .ok_or_else(|| self.err("invalid Unicode escape"))?;
+        }
+        self.pos += 4;
+        Ok(n)
+    }
+}
+impl Reader for Decoder<'_> {
+    fn bytes(&mut self, _kind: BulkKind) -> Result<Vec<u8>, DataError> {
+        self.skip()?;
+        Err(DataError::new(
+            "JSON bulk summaries are inspection-only; arrays are refused too; restore from binary",
+        ))
+    }
+    fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
+        self.budget.claim(bytes)
+    }
+    fn boolean(&mut self) -> Result<bool, DataError> {
+        if self.word("true") {
+            Ok(true)
+        } else if self.word("false") {
+            Ok(false)
+        } else {
+            Err(self.err("expected a boolean"))
+        }
+    }
+    fn number(&mut self) -> Result<Number, DataError> {
+        let (s, float) = self.number_token()?;
         if !float && s != "-0" {
             if s.starts_with('-') {
                 return s
@@ -359,11 +369,19 @@ impl Reader for Decoder<'_> {
                 .map(Number::Unsigned)
                 .map_err(|_| self.err("integer outside u64 range"));
         }
-        let n: f64 = s.parse().map_err(|_| self.err("expected a number"))?;
+        self.parse_f64(s).map(Number::F64)
+    }
+    fn f32(&mut self) -> Result<f32, DataError> {
+        let (s, _) = self.number_token()?;
+        let n: f32 = s.parse().map_err(|_| self.err("expected a number"))?;
         if !n.is_finite() {
-            return Err(self.err("non-finite number is not JSON"));
+            return Err(self.err("number outside f32 range"));
         }
-        Ok(Number::F64(n))
+        Ok(n)
+    }
+    fn f64(&mut self) -> Result<f64, DataError> {
+        let (s, _) = self.number_token()?;
+        self.parse_f64(s)
     }
     fn string(&mut self) -> Result<String, DataError> {
         self.eat(b'"')?;
@@ -512,7 +530,8 @@ impl Reader for Decoder<'_> {
             }
             Some(b'n') if self.word("null") => {}
             _ => {
-                self.number()?;
+                // Unknown fields need valid syntax, not a destination's numeric range.
+                self.number_token()?;
             }
         }
         Ok(())

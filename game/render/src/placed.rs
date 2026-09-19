@@ -196,7 +196,7 @@ impl Placements {
             ",\"placed\":{{\"child\":{},\"hidden\":{},\"depth\":{}}}}}}}",
             value.child,
             p.is_none_or(|p| p.hidden),
-            p.map_or(0., |p| p.depth)
+            exact_game::data::text::Float(p.map_or(0., |p| p.depth))
         ));
     }
 }

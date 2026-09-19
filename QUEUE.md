@@ -522,10 +522,16 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   Animation execution/inspection and sprite buffers are outside the primitive web
   artifact. Conservative model geometry now computes at delivery, outside the
   primitive artifact; layout/picking read the retained bounds. Common asset
-  ownership/discovery still reaches it, as do dynamic float formatter paths.
-  Recovery hash reuse removed 11,233 raw bytes; the later shared-tree bounds build
-  measures 777,083 bytes, still over target. Measurements and the particle-cost decision are
+  ownership still reaches it. Primitive surfaces now reject unsupported assets
+  without linking request/retirement or device-residency bookkeeping. Std float
+  formatting is also absent. The latest paired build measures 725,274 bytes,
+  still over target. Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
+
+- Game JSON decoding rejects a large integral decimal before considering its
+  destination float type (`f32::MAX` depth reports "integer outside u64 range").
+  Both the previous std writer and the compact writer emit valid decimal JSON;
+  allow finite float destinations without weakening integer overflow rejection.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
   `screenshot run.world world save`, reopen `--world run.world`, then continue;
@@ -572,6 +578,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.
 
-- I1b verification remaining: the Contract `action` carrier, controls, named refusal/held inspection, timestamp/paranoid regressions, per-mounted Apple autofocus, field-wise GPU limits and live iOS adapter are implemented. All seven Linux paranoid proofs pass; six web proofs pass (Asset reproduces the stopped R8b recovery issue below). Apple game packaging and a freshly rebuilt host-ios fixture stop in `scripts/app.mjs` because staticlib+rlib outputs have hashed unit dep-info; an isolated resolver repair/test is prepared in `/tmp/i1b-dep-info.patch`, awaiting authorization for those out-of-scope files. Beacons/Skinned web/Linux hashes and save bytes agree; the seven iOS runs, Apple autofocus runtime checks, the iOS save-comparison column and live simulator frame/placement/HUD receipt remain owed. Full game tests reproduce the generated Sprites strip being selected as a tracked authored asset (537 pass, one fails); Caltrain web smoke’s assertions pass but Chrome Keychain/encryption stderr fails its final check. No simulator-playability or live-performance claim yet.
+- I1b verification remaining: the full seven-game iOS matrix and explicit three-host save-comparison column remain owed. R9 passes Beacons and Skinned on iOS (controls, autofocus, live CPU/presentation samples and HUD counts), Asset on web/macOS and Skinned on macOS; packaging resolves hashed rustc dep-info and real web recovery retains identical model pixels. The clean Sprites bake regression also passes; Caltrain smoke’s Chrome Keychain/encryption stderr remains a separate earlier finding. See `game/README.md`’s R9 simulator receipt.
 
-- R8b recovery follow-up: the real WebGPU fail-once adapter retry reattaches and reports ready, but the asset fixture still drops the crate after recovery (pixel equality and model-buffer preparation fail). Three local fix rounds stopped; investigate retained renderer/feed reconstruction with the concurrent R8a changes. Evidence: `/tmp/r8b-asset-web3.log`, `/tmp/r8b-asset-web-final/{before-loss,after-loss}.png`.
+- Apple autofocus reset assertion (R9 validation, 2026-09-18): `AccessibilityTests.testAutofocusNeverTakesExistingFocusOrRetriesAfterReset` fails at `host/apple/Tests/ExactKitTests/AccessibilityTests.swift:35`, expecting a freshly mounted replacement not to receive focus after `Presenter.reset()`. Full Swift suite: 87 pass, 1 fail; the isolated repeat fails too. Reconcile this assertion with I1b's per-mounted autofocus contract. All 12 `CanvasClockAudioTests` pass, including the `childrenMode:` fixture. Evidence: `/tmp/r9-apple-tests.log`, `/tmp/r9-apple-autofocus-isolated.log`.

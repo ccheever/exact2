@@ -358,6 +358,8 @@ These are partial receipts, not a clean final-suite claim.
 
 ## I1b control carrier receipt (2026-09-18, working tree)
 
+R9 below supersedes this receipt’s packaging, recovery and simulator-timing limitations.
+
 The same block is in Beacons and `game/new`, verbatim:
 
 ```contract
@@ -461,3 +463,53 @@ Beacons’ final paranoid Save and FreshGame runs also pass. Skinned’s save
 filenames now agree across hosts; their bytes already agreed. Receipts are in
 `games/{beacons,skinned-fixture}/artifacts/prove/summary.json`. The iOS column
 cannot be added until the packaging resolver is repaired.
+
+
+## R9 recovery and simulator receipt (2026-09-18)
+
+A failed adapter retry can receive replacement texture bytes before device
+attachment. WorldSurface now invalidates device assets once per loss, retaining
+those arrivals through repeated failure reports and `device_ready`. The real
+WebGPU destruction/fail-once proof passes pixel equality and the original
+preparation counts (4 textures, 2 meshes, 21 pipelines, 1 model-buffer growth).
+The Metal regression destroys its device, delivers before replacement, and
+requires identical pixels and preparation counts. Headless attachment still
+requests missing texture bytes.
+
+Development Carry adds freshly declared Animation, Blend and Animator components
+and replaces conflicting controller kinds; Open remains byte-exact. The mutable
+post-restore hook includes the audio module adapter. Primitive pose reads on Sim
+and WorldSurface both say `pose inspection requires game.assets: true`, with a
+regression comparing them. The score diary links the retained Sitting #2 heading.
+
+The isolated Skinned macOS reproduction builds and passes. The existing hashed
+rustc dep-info resolver and its library/executable regression tests pass; no
+resolver edit was needed. The Apple clock fixture already uses `childrenMode:`; all 12 clock/recovery tests pass.
+GPU module clock selection now follows `ExactEnv.agentFreezes`, so platform-timed
+agent sessions sample live rings instead of suppressing stamps as seekable work.
+Both Skinned and Beacons iOS proofs pass with the same deterministic pins.
+
+**iPhone 17 Pro simulator CPU/presentation figures, not real GPU timings.**
+Simulator `0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`, 3840 × 2160 render pixels.
+Entries are p50 / p95 in milliseconds; the frame ring records presentation-clock
+intervals. Samples were taken after resetting each live window.
+
+| Game | Tick CPU | Feed CPU | Encode CPU | Frame interval | Samples: tick/feed/encode/frame |
+|---|---:|---:|---:|---:|---:|
+| Beacons | 0.0092 / 0.0110 | 0.0093 / 0.0103 | 0.8897 / 1.1074 | 16.6667 / 16.6667 | 63 / 63 / 62 / 61 |
+| Skinned | 0.0236 / 0.0335 | 0.2458 / 0.3132 | 1.1047 / 1.3852 | 16.6667 / 16.6667 | 69 / 69 / 66 / 65 |
+
+Beacons recorded 61 renders, 0 captures, 5 HUD children and 0 placed/hidden
+children; Skinned recorded 66 renders, 0 captures, 1 HUD child and 0 placed/hidden
+children. Both report zero after-ready residency work. Full samples are in each
+fixture's ignored `artifacts/perf-ios-live.json`; seekable rings remain unsampled.
+The Fox crop now requires 1–8% orange pixels: macOS measured 1.300%, iOS 3.625%.
+Replacing 95% of either screenshot with white fails the same predicate.
+
+Validation: game workspace 546 passed, 11 ignored; game all-target Clippy,
+game/root formatting, scoped staged caps, boot and root workspace build pass.
+Asset passes on web/Linux/macOS; Skinned on macOS/iOS; Beacons on iOS. All seven
+games pass Linux continuous, Save and FreshGame proofs, with unchanged pins.
+The broader Apple suite has 87 passes and one separately reproduced autofocus
+reset assertion at `AccessibilityTests.swift:35`; it is queued, not claimed green.
+These checks ran on a shared working tree with unrelated concurrent edits retained.

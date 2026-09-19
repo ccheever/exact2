@@ -1056,7 +1056,7 @@ impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
             .then(|| exact_game::animation::Definitions::capture(world));
         self.inner.before_restore(world, mode);
     }
-    fn after_restore(&mut self, world: &exact_game::World, mode: exact_gpu::Restore) {
+    fn after_restore(&mut self, world: &mut exact_game::World, mode: exact_gpu::Restore) {
         if let Some(definitions) = self.definitions.take() {
             definitions.apply(world);
         }

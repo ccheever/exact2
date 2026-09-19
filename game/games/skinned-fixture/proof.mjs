@@ -43,14 +43,16 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
     const path = resolve(out,`fox-mid-stride-${host}.png`);
     await s.screenshot(path);
     const image = decodePng(readFileSync(path));
-    let orange = 0, sample;
+    let orange = 0, cropPixels = 0, sample;
     // Fox fur is orange. The white fallback, blue ground and yellow marker
     // cannot pass this red/green/blue separation in the model's central region.
     for(let y=Math.floor(image.height*.35);y<image.height*.7;y++) for(let x=Math.floor(image.width*.35);x<image.width*.7;x++) {
+      cropPixels++;
       const i=(y*image.width+x)*4, [r,g,b]=image.data.subarray(i,i+3);
       if(r>g*1.35 && g>b*1.2 && r>70 && g>20) { orange++; sample ??= {x,y,rgb:[r,g,b]}; }
     }
-    check('Fox screenshot has textured orange fur', orange>4000 && orange<30000, {orange,sample});
+    const fraction = orange / cropPixels;
+    check('Fox screenshot has textured orange fur', fraction > .01 && fraction < .08, {orange,cropPixels,fraction,sample});
   }
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();
