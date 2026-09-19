@@ -8046,3 +8046,92 @@ aggregate, cohort and functional proofs. The private ink-pair checkout keeps
 `messages-paint-cost-build-v1` capture`5118f90e` and
 `messages-paint-cost-runtime-v1` capture`c0c085b4`. Historical archives remain
 unchanged. No new native SplitFacts reference is consumed or authorized.
+
+### 8.147 Fill-mask shortcut rejected; actual fill categories
+
+An isolated tiny-skia0.12 prototype first checks actual clip-mask bytes for
+full255 coverage before omitting the mask. The broad version changes rounded
+AA edge pixels: masked SourceOver and mask-free Source use different lowp
+rounding. This is an executed pixel mismatch, not only a source concern.
+The broad optimization is rejected without production integration.
+
+The third/final prototype round retains only opaque integer rectangles with
+identity device transform;1,440 full-buffer controls pass, with only15 positive
+optimized cases, plus4,000 randomized rounded fallback controls. Those4,000
+are not positive optimization coverage. Eight alternating synthetic pairs of
+32 full1024x768 all255-mask fills have median58.901→7.724ms on this Mac;
+rounded and partial-mask cases retain the original path. This isolated win
+has no demonstrated Messages eligibility, Linux or whole-app benefit. The
+narrow prototype also remains unselected. The first setup failure (cached
+LLVM22 bitcode sent to Apple's LLVM21 linker without rustc LTO) and subsequent
+actual AA mismatch are preserved; thin LTO fixed only the link setup.
+
+A separate diagnostic keeps the actual Linux full10,000/32 workload, current
+rendering and acceptance unchanged. The original outer Fill timer is divided
+into five exclusive geometry/clip categories. Original method indices stay;
+legacy Fill must be zero, and the version2 reader requires all16 fields.
+Integer geometry means opaque, identity-transform, finite positive exact integer
+endpoints/limited dimensions; it does not certify mask bytes or fast-path
+eligibility. Five extra count/time pairs cost20,480 fixed TLS bytes; category
+calculation lies before the method clock and remains in the parent remainder.
+Existing caps, two clocks per outer call and zero per-glyph records remain.
+12 Python and10 actual-recorder/scalar Rust checks pass before the build.
+
+The single optimized actual-Linux product`0c6e0ea4` builds in42.050s and
+passes the original workload once. Raw stderr equals4,779 journal events;
+1,138 turns/14,937 spans close196 full picture/Paint chains, maximum66 span
+rows/turn, no missing or flagged fill aggregates. All196 Paints contain
+833 unmasked rectangle,2,940 unmasked rounded and1,774 masked rounded calls;
+**zero masked rectangles of either geometry class**. Thus the only exact-pixel
+shortcut retained by the isolated prototype has no eligible calls in this run
+and is not integrated.
+
+All36 handlers and18 exact±40 wheels are inside the three fixed2s prefixes.
+Eight command-free timers advance0→8 without drain credit. Both full10,000-row
+History9 values (initial0/final17) and allfour2,359,296-byte RGB buffers equal
+§8.146's diagnostic exactly; compared with§8.145's older final16, only setup
+RGBs are an equal-revision comparison. The final picture196/fence4779 is
+complete. This functional agreement does not pair the two diagnostics' timing.
+
+| Silent eight Paints: fill category | Calls | Per-Paint aggregate median, ms | Sum, ms | Share of summed Fill |
+|---|---:|---:|---:|---:|
+| Masked rounded |48|0.955191|7.628028|63.647%|
+| Unmasked rectangle |32|0.435127|3.400098|28.370%|
+| Unmasked rounded |120|0.128481|0.956798|7.983%|
+| Masked rectangle, both classes |0|0|0|0%|
+
+Whole Fill median is1.506111ms; whole Paint median3.760954ms and maximum
+4.775770ms. Text aggregate median1.883362ms remains separate. Category medians
+are not additive and describe per-Paint aggregates, not individual shape calls.
+Six of eight loaded complete timer turns paint; their masked-rounded sum is
+6.201359ms,64.065% of summed Fill. One idle timer paints; recovery timers do not.
+Whole silent timer median9.803542ms/max12.382469ms and6/8 misses remain;
+loaded whole median9.368477ms/max11.983176ms also has6/8 misses. All-phase
+idle/load/recovery whole maxima are8.823996/11.983176/7.748492ms. No A/B gain,
+CPU attribution, observer-free cost or physical120Hz is established.
+
+The measured fill priority is now masked rounded geometry, not the synthetic
+integer-rectangle win. The next source-sized candidate is conservative rejection
+of fully clipped fills using the existing coverage bounds, preserving the exact
+masked AA path for every visible shape. The present data do not count how many
+rounded fills are fully clipped, and establish no culling benefit or cache policy.
+
+Source/binding/capture preserve2,006 source paths (including23 links), the Reusable factory,
+unchanged entry/plan/compat and exact fonts/external inputs. The first local
+launch setup omits creation of the caller-owned output directory and fails
+writing preflight/terminal metadata before transport/native Popen. Creating that
+exact directory permits the unchanged sealed command; there is one actual
+runtime attempt, no native retry or source correction. All driver/outer exits
+are0; native−15 is deliberate post-observation cleanup. Release`bc85f47e` proves
+six runtime PIDs/four groups absent and5941 free.
+
+The rejected prototype is frozen at MAIN`target/fill-mask-probe-v1`
+(`2238d45b`). Diagnostic source`target/linux-fill-category-source-v1`
+(`ed1b1445`) and build binding`target/messages-fill-category-ready-v1`
+(`9a22ddca`) remain separate. Private ink-pair
+`messages-fill-category-build-v1` capture`2b2aca04` and
+`messages-fill-category-runtime-v1` capture`7706a7dd` preserve actual products
+and raw evidence. MAIN`target/fill-category-evaluation` holds the independent
+reconstruction, full equality checks and category tables. No rendering
+optimization is shipped in this increment; the native SplitFacts reference
+budget remains exhausted at3/3.
