@@ -7489,3 +7489,47 @@ binding is `534aeccb`. Under
 checks remain under `target/ink-placement-integration`; cohort `231a62c8`
 records corrected local inspection assumptions without changing the reader,
 raw evidence or either runtime. No further runtime is implied by this closure.
+
+### 8.137 Three approved native-reference diagnostics, 2026-09-19
+
+Charlie explicitly approved up to three additional bounded reference attempts
+after§8.122, then requested merging the verified progress. These diagnostics
+change only an appended private test; production, the original five tests,
+10,000 rows and batch32 remain unchanged. They use the ordinary native text
+engine and CPU painter without registering a content region, on macOS rather
+than an actual Linux display. Each runs once under the existing240s guard.
+
+All three attempts fail. The first reuses a helper requiring changed32 at
+revision0, where changed0 is correct, and never reaches geometry. A local
+diagnostic-only extraction corrects that premise for the second attempt; after
+eight wheel calls it still sees rows0–6 instead of row9999. The final attempt
+adds bounded before/after wheel and hit-ancestry records, preserving the point,
+movement policy and tail assertions. It fails the same6-versus9999 assertion.
+
+The final raw records explain the failed scrolling in this ordinary reference:
+each wheel at(10,228) hits `split-pending`, the fixture's absolute
+“Preparing messages…” label. Its acknowledged ancestors are `split-owner`
+and the root, all with zero scroll extent; the List is a sibling, not an
+ancestor. The List itself has a positive323,784.1875 maximum offset, but all
+eight before/immediate/settled observations retain offset0, sequence1 and
+range0–6. Thus seven mounted rows here are the head, not a measured native
+tail invariant. Full nine-field History bytes still match the canonical
+10,000-row answer and remain unchanged across the wheel attempts. The saved
+980×820 picture is acknowledged, but row9999 has no viewport intersection.
+
+This identifies the ordinary diagnostic's target obstruction; it neither
+establishes33 native tail rows nor proves the worker candidate's original
+failure has the same cause. Its132-owner, byte-admission and ACK-progress
+claims remain unproved. No fourth attempt, fixture workaround or production
+integration follows. The unvalidated Linux native adapter and Swift native
+consumer remain excluded from the verified feature branch.
+
+All three filtered tests exit101 without watchdog actions. Final execution
+`ordinary-tail-diagnostic-execution-03` records0PASS/1FAIL in1.97s; its ten
+recorded PIDs and one group are absent and the Cargo lock is released.
+Evidence remains under
+`exact2-linux-split-facts-native/target/split-facts-native-validation/`:
+source03 `804981fb`, hit addendum `ad36c9bd`, test bytes `66351f83`, final log
+`02395023` and release `6a352327`. The earlier failures and§8.122's candidate
+archive remain preserved; this is diagnostic closure, not native readiness
+or a performance result.
