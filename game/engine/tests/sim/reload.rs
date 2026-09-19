@@ -95,7 +95,7 @@ struct BindingGame;
 impl Game for BindingGame {
     const ID: &'static str = "reload-current-bindings";
     type Args = BindingArgs;
-    fn register(w: &mut World, _: &BindingArgs) {
+    fn register(w: &mut World, _: &std::collections::BTreeMap<&str, exact_game::Value>) {
         w.register::<ReloadProbe>();
     }
     fn setup(w: &mut World, args: &BindingArgs) {
@@ -241,8 +241,8 @@ fn argument_selected_variant_uses_its_own_typed_decoder_before_setup() {
     impl Game for Variant {
         const ID: &'static str = "argument-selected-decoder";
         type Args = VariantArgs;
-        fn register(w: &mut World, args: &VariantArgs) {
-            if args.variant {
+        fn register(w: &mut World, args: &std::collections::BTreeMap<&str, exact_game::Value>) {
+            if args["variant"].as_bool() == Some(true) {
                 w.register::<B>();
             } else {
                 w.register::<A>();
@@ -268,7 +268,7 @@ fn argument_selected_variant_uses_its_own_typed_decoder_before_setup() {
     assert!(target.world().get::<A>("value").is_none());
     assert_eq!(target.save().unwrap(), bytes);
     let fresh = Sim::<Variant>::from_save(&bytes).unwrap();
-    assert_eq!(SETUPS.with(|n| n.replace(0)), 1);
+    assert_eq!(SETUPS.with(|n| n.replace(0)), 0);
     assert_eq!(fresh.world().require::<B>("value").value, 29);
     let mut bad = bytes.clone();
     let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();

@@ -349,3 +349,67 @@ fn e10_contract_button_consumes_all_activation_keys() {
         done(p, path);
     }
 }
+
+#[test]
+fn r15_pointer_button_releases_focus_but_keyboard_keeps_it() {
+    let (mut p, path) = fixture();
+    let button = find(&p, "remove");
+    p.tap(button).unwrap();
+    assert_eq!(p.focus(), None);
+    p.activation_key("Space", true);
+    assert!(p
+        .surfaces
+        .canvases
+        .values()
+        .any(|c| c.held.contains("Space")));
+    p.activation_key("Space", false);
+    p.type_key(button, "Tab", true).unwrap();
+    p.activation_key("Space", true);
+    p.activation_key("Space", false);
+    assert_eq!(p.focus(), Some(button));
+    assert!(p.surfaces.canvases.values().all(|c| c.held.is_empty()));
+    done(p, path);
+}
+
+#[test]
+fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
+    let (path, _) = super::tests::fixture();
+    let plan = contract::compile(
+        r#"component Test
+  state done = false
+  action finish writes done
+    done = true
+  view
+    column
+      when done
+        button autofocus testId="next" width=100 height=30
+      else
+        button press=finish testId="start" width=100 height=30
+"#,
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot(
+        &plan.encode(),
+        NoData,
+        (100., 60.),
+        1.,
+        path.parent().unwrap().into(),
+    )
+    .unwrap();
+    let start = find(&p, "start");
+    p.tap(start).unwrap();
+    assert_eq!(p.focus(), Some(find(&p, "next")));
+    done(p, path);
+}
+
+#[test]
+fn r15_pointer_control_releases_focus_but_keyboard_control_keeps_it() {
+    let (mut p, path) = fixture();
+    let button = find(&p, "b-jump");
+    p.tap(button).unwrap();
+    assert_eq!(p.focus(), None);
+    p.type_key(button, "Space", true).unwrap();
+    p.type_key(button, "Space", false).unwrap();
+    assert_eq!(p.focus(), Some(button));
+    done(p, path);
+}

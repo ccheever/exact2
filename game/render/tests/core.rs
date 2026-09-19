@@ -1,4 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
+#[path = "fixture/device.rs"]
+mod test_device;
 
 use exact_game_render::{shapes, Batch, Environment, FrameInput, PointLightInput, Renderer, Sun};
 use exact_gpu::{fixture, wgpu, Gpu};
@@ -390,7 +392,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
 
 #[test]
 fn affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     for sign in [1., -1.] {
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let mut r = Renderer::new(&gpu.device, &gpu.queue, format);

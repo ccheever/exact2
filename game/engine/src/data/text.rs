@@ -17,33 +17,35 @@ pub(crate) fn shortest<T: ryu::Float + Copy + Into<f64>>(
 ) -> fmt::Result {
     let mut buffer = ryu::Buffer::new();
     let s = buffer.format(n);
-    // Rust Debug switches notation at 1e-4 / 1e16; ryu's display thresholds
-    // differ. Normalize notation without changing the shortest significand.
+    if !debug && !s.contains('e') {
+        return out.write_str(s.strip_suffix(".0").unwrap_or(s));
+    }
+    notation(out, s, debug)
+}
+
+fn notation(out: &mut impl Write, s: &str, debug: bool) -> fmt::Result {
+    // Rust Debug switches notation at 1e-4 / 1e16; ryu's display thresholds differ.
     let unsigned = s.strip_prefix('-').unwrap_or(s);
-    if debug && !s.contains('e') && unsigned.bytes().any(|b| (b'1'..=b'9').contains(&b)) {
-        let point = unsigned.find('.').unwrap_or(unsigned.len());
-        let first = unsigned
-            .bytes()
-            .position(|b| (b'1'..=b'9').contains(&b))
-            .unwrap();
-        let exponent = point as i32 - first as i32 - i32::from(first < point);
-        if !(-4..16).contains(&exponent) {
-            if s.starts_with('-') {
-                out.write_char('-')?;
-            }
-            let digits = unsigned[first..]
-                .trim_end_matches('0')
-                .trim_end_matches('.');
-            let mut chars = digits.chars().filter(|c| *c != '.');
-            out.write_char(chars.next().unwrap())?;
-            if let Some(c) = chars.next() {
-                out.write_char('.')?;
-                out.write_char(c)?;
-                for c in chars {
-                    out.write_char(c)?;
+    if debug && !s.contains('e') {
+        if let Some(first) = unsigned.bytes().position(|b| (b'1'..=b'9').contains(&b)) {
+            let point = unsigned.find('.').unwrap_or(unsigned.len());
+            let exponent = point as i32 - first as i32 - i32::from(first < point);
+            if !(-4..16).contains(&exponent) {
+                if s.starts_with('-') {
+                    out.write_char('-')?;
                 }
+                let digits = unsigned[first..]
+                    .trim_end_matches('0')
+                    .trim_end_matches('.');
+                out.write_str(&digits[..1])?;
+                let (whole, fraction) = digits[1..].split_once('.').unwrap_or((&digits[1..], ""));
+                if !whole.is_empty() || !fraction.is_empty() {
+                    out.write_char('.')?;
+                    out.write_str(whole)?;
+                    out.write_str(fraction)?;
+                }
+                return write!(out, "e{exponent}");
             }
-            return write!(out, "e{exponent}");
         }
     }
     if let Some((mantissa, exponent)) = s.split_once('e') {
@@ -55,32 +57,28 @@ pub(crate) fn shortest<T: ryu::Float + Copy + Into<f64>>(
             .strip_prefix('-')
             .map_or(("", mantissa), |s| ("-", s));
         out.write_str(sign)?;
-        let mut digits = [0u8; 24];
-        let mut len = 0;
-        for b in mantissa.bytes().filter(|b| *b != b'.') {
-            digits[len] = b;
-            len += 1;
-        }
+        let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
         let point = 1 + exponent;
         if point <= 0 {
             out.write_str("0.")?;
-            for _ in 0..-point {
-                out.write_char('0')?;
-            }
-        }
-        for (i, &digit) in digits[..len].iter().enumerate() {
-            if i != 0 && i as i32 == point {
+            zeros(out, -point as usize)?;
+            out.write_str(whole)?;
+            out.write_str(fraction)
+        } else {
+            out.write_str(whole)?;
+            let prefix = (point as usize - 1).min(fraction.len());
+            out.write_str(&fraction[..prefix])?;
+            if prefix < fraction.len() {
                 out.write_char('.')?;
+                out.write_str(&fraction[prefix..])?;
+            } else {
+                zeros(out, point as usize - 1 - prefix)?;
+                if debug {
+                    out.write_str(".0")?;
+                }
             }
-            out.write_char(digit as char)?;
+            Ok(())
         }
-        for _ in len as i32..point {
-            out.write_char('0')?;
-        }
-        if debug && point >= len as i32 {
-            out.write_str(".0")?;
-        }
-        Ok(())
     } else {
         out.write_str(if debug {
             s
@@ -88,6 +86,13 @@ pub(crate) fn shortest<T: ryu::Float + Copy + Into<f64>>(
             s.strip_suffix(".0").unwrap_or(s)
         })
     }
+}
+fn zeros(out: &mut impl Write, count: usize) -> fmt::Result {
+    const ZEROS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    for _ in 0..count / ZEROS.len() {
+        out.write_str(ZEROS)?;
+    }
+    out.write_str(&ZEROS[..count % ZEROS.len()])
 }
 
 /// Existing fixed-place audio journal spelling, without core's float formatter.

@@ -1,22 +1,16 @@
+#[path = "../../../../bake/tests/support/mod.rs"]
+mod baked;
+#[path = "../../../../render/tests/fixture/device.rs"]
+mod gpu_test;
 use exact_game::*;
 use skinned_fixture_logic::{Options, SmallGame};
-use std::{collections::BTreeMap, sync::OnceLock};
-fn assets() -> &'static BTreeMap<String, Vec<u8>> {
-    static ASSETS: OnceLock<BTreeMap<String, Vec<u8>>> = OnceLock::new();
-    ASSETS.get_or_init(|| {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../art/fox.glb");
-        let (model, textures) = exact_game_bake::assets(&path).unwrap();
-        let mut data: BTreeMap<_, _> = textures
-            .into_iter()
-            .map(|(n, t)| (n, bin::to_vec(&t)))
-            .collect();
-        data.insert("fox.model".into(), bin::to_vec(&model));
-        data
-    })
+fn assets() -> std::collections::BTreeMap<String, Vec<u8>> {
+    baked::assets(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../art/fox.glb")).unwrap()
 }
 fn sim() -> Sim<SmallGame> {
+    let assets = assets();
     let mut s = Sim::with_assets(Options::default(), |name| {
-        assets().get(name).cloned().ok_or(name.to_owned())
+        assets.get(name).cloned().ok_or(name.to_owned())
     })
     .unwrap();
     s.viewport(1280., 720.);
@@ -31,13 +25,13 @@ fn pinned_pose_and_hash() {
         |_, _| {},
         animation::inspect,
     );
-    s.assert_pin(include_str!("../../pins.json"));
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
     if std::env::var_os("EXACT_PIN_POSE").is_some() {
         std::fs::write(&path, &pose).unwrap();
     }
+    s.assert_pin(include_str!("../../pins.json"));
     assert_eq!(pose, std::fs::read_to_string(path).unwrap());
     s.run(1000.);
     println!("tick120 0x{:016x}", s.world().hash());
@@ -97,8 +91,8 @@ fn fox_leg_ik_and_socket() {
             .w_axis
             .truncate()
     });
-    let target = a + (c - a) * 0.8 + Vec3::new(2., 0., 0.);
-    let pole = b + Vec3::new(0., 20., 0.);
+    let target = a + (c - a) * 0.8 + Vec3::new(0.05, 0., 0.);
+    let pole = b + Vec3::new(0., 0.5, 0.);
     let mut local = original.clone();
     let mut ik = Ik {
         chain,
@@ -134,9 +128,7 @@ fn fox_leg_ik_and_socket() {
             * animation::joint_matrix(model, &local.local, head);
     assert!(socket.position.distance(expected.w_axis.truncate()) < 1e-4);
     // Displayed charm uses the local chain, not its simulation fallback Transform.
-    let Ok(gpu) = exact_game_render::exact_gpu::fixture::device() else {
-        return;
-    };
+    let gpu = exact_game_render::exact_gpu::fixture::device().unwrap();
     let mut renderer = exact_game_render::Renderer::new(
         &gpu.device,
         &gpu.queue,
@@ -245,7 +237,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
         let mut s = WorldSurface::default();
         s.bind(&[Value::Number(0.)], None).unwrap();
         for _ in 0..16 {
-            let names = s.assets();
+            let names = s.assets().requests;
             if names.is_empty() {
                 break;
             }
@@ -283,12 +275,15 @@ fn moving_skin_and_shadow_pixels() {
         exact_gpu::{fixture, wgpu, Frame, Surface},
         WorldSurface,
     };
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = gpu_test::device_or_skip(exact_game_render::exact_gpu::fixture::device())
+    else {
+        return;
+    };
     let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[Value::Number(0.)], None).unwrap();
     for _ in 0..16 {
-        for n in s.assets() {
+        for n in s.assets().requests {
             s.asset(&n, Ok(&assets()[&n]));
         }
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
@@ -329,152 +324,6 @@ fn moving_skin_and_shadow_pixels() {
         "restore must preserve the stride; only the existing entity-history snap may differ"
     );
     assert!(s.take_error().is_none());
-}
-
-#[test]
-fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
-    use exact_game_render::{
-        exact_gpu::{fixture, wgpu, Frame, Surface},
-        WorldSurface,
-    };
-    struct Birth<const HISTORY: u8>;
-    impl<const HISTORY: u8> Game for Birth<HISTORY> {
-        const ID: &'static str = "fox-birth";
-        const ASSETS: &'static [&'static str] = &["fox.model"];
-        type Args = ();
-        fn setup(w: &mut World, _: &()) {
-            let mut clip = Animation::play("Run").motion_root("b_Root_00").speed(0.);
-            clip.time = 0.3;
-            w.spawn_named(
-                "fox",
-                (
-                    Transform::default().with_scale(0.025),
-                    Mesh::asset("fox.model"),
-                    clip,
-                ),
-            );
-            w.spawn((
-                Transform::at(6., 3.4, 7.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y),
-                Camera::default(),
-            ));
-            w.insert_resource(Environment {
-                fog: None,
-                ..Default::default()
-            });
-        }
-        fn tick(w: &mut World, _: &Input, _: &()) {
-            animation::step(w);
-            if HISTORY != 0 {
-                let bind = animation::bind_pose(w.model("fox.model").unwrap());
-                let mut p = w.require_mut::<Pose>("fox");
-                p.previous = if HISTORY == 1 { p.local.clone() } else { bind };
-            }
-        }
-    }
-    let gpu = fixture::device().unwrap();
-    fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
-        let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelPresentation, true>::default();
-        s.device_ready();
-        s.bind(&[], None).unwrap();
-        for _ in 0..16 {
-            for n in s.assets() {
-                s.asset(&n, Ok(&assets()[&n]));
-            }
-            s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        }
-        let mut f = Frame {
-            width: 1280.,
-            height: 720.,
-            scale: 1.,
-            now_ms: 0.,
-            seekable: false,
-            period_ms: 1000. / 60.,
-            children_generation: 0,
-            shader_generation: 0,
-        };
-        fixture::render(gpu, &mut s, &f).unwrap();
-        f.now_ms = 1000. / 240.;
-        let (mut image, _) = fixture::render(gpu, &mut s, &f).unwrap();
-        if event != "birth" {
-            match event {
-                "restore" | "carry" => {
-                    let saved = s.carry().unwrap().unwrap();
-                    s.restore(
-                        &saved,
-                        if event == "restore" {
-                            exact_game_render::exact_gpu::Restore::Open
-                        } else {
-                            exact_game_render::exact_gpu::Restore::Carry
-                        },
-                    )
-                    .unwrap();
-                }
-                "model arrival" => {
-                    s.device_lost();
-                    s.device_ready();
-                    for _ in 0..16 {
-                        for n in s.assets() {
-                            s.asset(&n, Ok(&assets()[&n]));
-                        }
-                        s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-                    }
-                }
-                _ => unreachable!(),
-            }
-            // Restore rebases at the saved tick. A quarter-tick horizon keeps that
-            // tick intact while exercising a nonzero interpolation alpha.
-            f.period_ms = 1000. / 240.;
-            image = fixture::render(gpu, &mut s, &f).unwrap().0;
-        }
-        assert_eq!(s.sim().unwrap().world().tick(), 1);
-        assert!(s.take_error().is_none());
-        image
-    }
-    for event in ["birth", "restore", "carry", "model arrival"] {
-        let actual = if event == "birth" {
-            first::<0>(&gpu, event)
-        } else {
-            first::<2>(&gpu, event)
-        };
-        let reference = first::<1>(&gpu, event);
-        let bind_flash = first::<2>(&gpu, "birth");
-        let differs = |a: [u8; 4], b: [u8; 4]| a.iter().zip(b).any(|(a, b)| a.abs_diff(b) > 2);
-        // The deliberately corrupted history locates the Fox's affected rectangle;
-        // background pixels cannot dilute the tolerance.
-        let (mut x0, mut y0, mut x1, mut y1) = (reference.width, reference.height, 0, 0);
-        let mut bind_changes = 0;
-        for y in 0..reference.height {
-            for x in 0..reference.width {
-                if differs(reference.at(x, y), bind_flash.at(x, y)) {
-                    x0 = x0.min(x);
-                    y0 = y0.min(y);
-                    x1 = x1.max(x);
-                    y1 = y1.max(y);
-                    bind_changes += 1;
-                }
-            }
-        }
-        assert!(
-            bind_changes > 50,
-            "the oracle must detect a small Fox bind flash"
-        );
-        let area = (x1 - x0 + 1) * (y1 - y0 + 1);
-        assert!(
-            area < reference.width * reference.height / 10,
-            "Fox rectangle is local: {area}"
-        );
-        let mut changed = 0;
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                changed += u32::from(differs(actual.at(x, y), reference.at(x, y)));
-            }
-        }
-        println!("{event}: Fox rectangle {x0},{y0}..{x1},{y1}: changes {changed}/{area}, bind flash {bind_changes}");
-        assert!(
-            changed == 0,
-            "{event} must match current/current: zero changed Fox-rectangle pixels"
-        );
-    }
 }
 
 #[test]

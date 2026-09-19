@@ -219,8 +219,10 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
 }
 
 #[test]
-fn r13_empty_surface_call_and_v4_refusal() {
+fn d6_empty_v5_surface_call_is_named_and_v4_refuses() {
     let plan = contract::compile("component App\n  view\n    canvas surface=world()\n").unwrap();
+    assert_eq!(plan.surfaces[0].mode, exact_plan::SurfaceArgsMode::Named);
+    let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
     let mut runner = Runner::boot(
         plan.clone(),
         NoData,

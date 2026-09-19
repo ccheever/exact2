@@ -34,13 +34,9 @@ pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) 
 
 /// Drain requested asset paths as JSON.
 pub fn assets(id: u32) -> String {
-    with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
+    with(|m| m.take_assets(id).json()).unwrap_or_else(|| crate::AssetChanges::default().json())
 }
 
-/// Drain cancelled asset names before starting the next delivery batch.
-pub fn retired(id: u32) -> String {
-    with(|m| json::strings(&m.take_retired_assets(id))).unwrap_or_else(|| "[]".into())
-}
 /// Deliver named bytes, including a missing file, without requiring a device.
 pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
     with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
@@ -253,8 +249,8 @@ pub fn children_mode(id: u32) -> u32 {
     with(|m| m.children_mode(id).code()).unwrap_or(0)
 }
 /// Host-composited child: no pixel texture on the browser.
-pub fn child(id: u32, index: u32, frame: [f32; 4]) -> bool {
-    with(|m| m.child(id, index as usize, frame, 0, 0, &[])).unwrap_or(false)
+pub fn child(id: u32, index: u32, name: &str, frame: [f32; 4]) -> bool {
+    with(|m| m.child(id, index as usize, name, frame, [0, 0], &[])).unwrap_or(false)
 }
 /// Retire departed direct children.
 pub fn children_count(id: u32, count: u32) -> bool {
@@ -443,8 +439,16 @@ macro_rules! module {
         }
         /// Supply one direct child frame for browser composition.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_child(id: u32, index: u32, x: f32, y: f32, w: f32, h: f32) -> bool {
-            $crate::web::child(id, index, [x, y, w, h])
+        pub fn gpu_child_view(
+            id: u32,
+            index: u32,
+            name: &str,
+            x: f32,
+            y: f32,
+            w: f32,
+            h: f32,
+        ) -> bool {
+            $crate::web::child(id, index, name, [x, y, w, h])
         }
         /// Retire direct child frames past the new count.
         #[::wasm_bindgen::prelude::wasm_bindgen]
@@ -473,11 +477,6 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_assets(id: u32) -> String {
             $crate::web::assets(id)
-        }
-        /// Drain retired asset paths as JSON.
-        #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_retired(id: u32) -> String {
-            $crate::web::retired(id)
         }
         /// Deliver one requested asset, or null/undefined for a missing file.
         #[::wasm_bindgen::prelude::wasm_bindgen]

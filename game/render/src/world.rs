@@ -53,6 +53,15 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         models: bool,
     ) {
         if ASSETS {
+            if models {
+                a.model_digests.clear();
+                a.model_digests.extend(
+                    self.models
+                        .loaded
+                        .iter()
+                        .map(|(name, model)| (name.clone(), model.digest)),
+                );
+            }
             a.feed(w, initial, tick, parent, models);
         }
     }

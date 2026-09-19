@@ -298,7 +298,9 @@ impl Mesh {
 }
 
 /// Saved emissive intensity. The renderer samples this tween at frame time and
-/// multiplies Material::glow's color; no per-tick material writes are needed.
+/// multiplies the authored material emissive. Writing that intensity into both
+/// Glow and Material applies it twice; keep the material's authored color constant.
+/// A soft highlight shoulder applies only to this component's emissive output.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Glow(pub crate::Tween);
 

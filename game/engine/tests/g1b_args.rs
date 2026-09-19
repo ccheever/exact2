@@ -176,13 +176,14 @@ impl Game for Late {
     }
 }
 #[test]
-fn unregistered_saved_type_names_the_setup_fix() {
+fn unregistered_saved_type_names_the_register_fix() {
     let mut s = Sim::<Late>::new(()).unwrap();
     s.run(17.0);
     let mut fresh = Sim::<Late>::new(()).unwrap();
     let error = fresh.restore(&s.save().unwrap()).unwrap_err().to_string();
     assert!(
-        error.contains("Projectile") && error.contains("world.register::<Projectile>() in setup"),
+        error.contains("Projectile")
+            && error.contains("world.register::<Projectile>() in Game::register"),
         "{error}"
     );
     struct Registered;
@@ -280,8 +281,8 @@ fn restore_uses_saved_setup_arguments_to_register_components() {
     impl Game for Conditional {
         const ID: &'static str = "conditional-setup";
         type Args = Options;
-        fn register(w: &mut World, args: &Options) {
-            if args.extra {
+        fn register(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+            if args["extra"].as_bool() == Some(true) {
                 w.register::<Extra>();
             }
         }

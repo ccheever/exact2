@@ -79,8 +79,9 @@ fn surface_lifecycle_rebuilds_textured_draws_after_prepared_retry_loss() {
         wgpu::TextureFormat::Rgba8Unorm,
     );
     s.device_lost(); // A failed retry consumed CPU texture bytes into its renderer.
-    assert!(s.retired_assets().contains(&model.textures[0]));
-    assert!(s.assets().contains(&model.textures[0]));
+    let changes = s.assets();
+    assert!(changes.retired.contains(&model.textures[0]));
+    assert!(changes.requests.contains(&model.textures[0]));
     s.asset(&model.textures[0], Ok(tex));
     s.device_ready();
     s.prepare_assets(
@@ -117,7 +118,7 @@ fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
         .get_mut::<exact_game::Mesh>("hero")
         .unwrap() = exact_game::Mesh::asset("away.model");
     s.assets();
-    s.retired_assets();
+
     *s.sim
         .as_ref()
         .unwrap()
@@ -125,7 +126,7 @@ fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
         .get_mut::<exact_game::Mesh>("hero")
         .unwrap() = exact_game::Mesh::asset("hero.model");
     s.assets();
-    s.retired_assets();
+
     exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
     assert!(
         s.render.as_ref().unwrap().0.models.records.is_empty(),
@@ -179,7 +180,6 @@ fn identical_redelivery_survives_entry_and_post_acceptance_budget_compaction() {
             .get_mut::<exact_game::Mesh>("hero")
             .unwrap() = exact_game::Mesh::asset(name);
         s.assets();
-        s.retired_assets();
     }
     let retired = exact_game::asset::TextureData {
         width: 1024,
@@ -283,7 +283,7 @@ fn twenty_unique_models_bound_retirement_and_hash_only_at_delivery() {
             .get_mut::<exact_game::Mesh>("hero")
             .unwrap() = exact_game::Mesh::asset(&name);
         s.assets();
-        s.retired_assets();
+
         s.asset(&name, Ok(&exact_game::bin::to_vec(&model)));
         s.asset(&model.textures[0], Ok(&bytes));
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);

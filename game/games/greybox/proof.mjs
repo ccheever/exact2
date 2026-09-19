@@ -8,7 +8,9 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
 const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   let session = await open();
   const s = session;
-  const screenshot = path => host === 'web' || host === 'ios' ? s.screenshot(path) : (say(host === 'linux' ? 'SKIP headless screenshot: gameplay and HUD use tree/state' : 'SKIP macOS screenshot: screencapture has no permission in this session'), Promise.resolve({skipped:host === 'linux' ? 'headless proof' : 'screen capture permission'}));
+  const screenshot = path => host === 'linux'
+    ? (say('SKIP headless screenshot: gameplay and HUD use tree/state'), Promise.resolve({skipped:'headless proof'}))
+    : s.screenshot(path);
   const title = await s.tree();
   check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);

@@ -6,6 +6,78 @@ use exact_game::{
     asset::{AlphaMode, Filter, TextureData},
     *,
 };
+
+#[test]
+fn retained_quad_history_survives_removals_slot_reuse_and_lower_index_arrivals() {
+    struct Labels;
+    impl Game for Labels {
+        const ID: &'static str = "quad-history";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            for i in 0..4 {
+                w.spawn_named(
+                    format!("label-{i}"),
+                    (Transform::default(), Placed::child(i)),
+                );
+            }
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            for (_, pose) in w.query::<&mut Transform>().iter() {
+                pose.position.x += 1.;
+            }
+        }
+    }
+    let mut sim = Sim::<Labels>::new(()).unwrap();
+    let mut items = Vec::<crate::quads::Item<Placed>>::new();
+    crate::quads::feed(sim.world(), &mut items, true, false, false);
+    sim.run(20.);
+    crate::quads::feed(sim.world(), &mut items, false, true, false);
+    let w = sim.world_mut();
+    let ids = [0, 1, 2, 3].map(|i| w.resolve(&format!("label-{i}")).unwrap());
+    assert_eq!(items[2].poses.map(|p| p.position.x), [0., 1.]);
+    w.remove::<Transform>(ids[0]);
+    w.insert(ids[1], Visible(false));
+    w.insert(ids[2], Placed::child(2).width(7.));
+    w.despawn(ids[3]);
+    let replacement = w.spawn((Transform::at(30., 0., 0.), Placed::child(3)));
+    let added = w.spawn((Transform::at(40., 0., 0.), Placed::child(4)));
+    assert_eq!(replacement.index(), ids[3].index());
+    assert_ne!(replacement, ids[3]);
+    w.propagate();
+    crate::quads::feed(w, &mut items, false, false, false);
+    assert_eq!(
+        items.iter().map(|i| i.entity).collect::<Vec<_>>(),
+        [ids[2], replacement, added]
+    );
+    assert_eq!(items[0].poses.map(|p| p.position.x), [0., 1.]);
+    assert_eq!(items[0].value.width, 7.);
+    assert_eq!(items[1].poses.map(|p| p.position.x), [30., 30.]);
+    assert_eq!(items[2].poses.map(|p| p.position.x), [40., 40.]);
+
+    w.insert(ids[0], Transform::at(10., 0., 0.));
+    w.remove::<Visible>(ids[1]);
+    w.remove::<Placed>(replacement);
+    w.propagate();
+    crate::quads::feed(w, &mut items, false, false, false);
+    assert_eq!(
+        items.iter().map(|i| i.entity).collect::<Vec<_>>(),
+        [ids[0], ids[1], ids[2], added]
+    );
+    assert_eq!(items[0].poses.map(|p| p.position.x), [10., 10.]);
+    assert_eq!(items[1].poses.map(|p| p.position.x), [1., 1.]);
+    assert_eq!(items[2].poses.map(|p| p.position.x), [0., 1.]);
+
+    w.insert(ids[2], Parent(ids[0]));
+    w.propagate();
+    crate::quads::feed(w, &mut items, false, false, true);
+    assert_eq!(items[2].poses.map(|p| p.position.x), [11., 11.]);
+    let saved = w.save();
+    w.load(&saved).unwrap();
+    crate::quads::feed(w, &mut items, true, false, false);
+    assert!(items.iter().all(|i| i.poses[0] == i.poses[1]));
+    assert_eq!(w.save(), saved, "presentation must not change saved state");
+}
+
 struct Layers;
 impl Game for Layers {
     const ID: &'static str = "quad-order";
@@ -55,7 +127,7 @@ impl Game for Layers {
 }
 #[test]
 fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let data = bin::to_vec(&TextureData {
         width: 1,
         height: 1,
@@ -67,7 +139,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
     s.device_ready();
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
-        for name in s.assets() {
+        for name in s.assets().requests {
             s.asset(&name, Ok(&data));
         }
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
@@ -130,7 +202,7 @@ impl Game for Cosmetic {
 }
 #[test]
 fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let data = bin::to_vec(&TextureData {
         width: 1,
         height: 1,
@@ -140,7 +212,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
     let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
-    assert_eq!(s.assets(), ["white.tex"]);
+    assert_eq!(s.assets().requests, ["white.tex"]);
     s.asset("white.tex", Ok(&data));
     let frame = Frame {
         width: 100.,
@@ -153,12 +225,13 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         shader_generation: 0,
     };
     let before = fixture::render(&gpu, &mut s, &frame).unwrap().0;
-    for name in ["away.tex", "white.tex"] {
+    for (name, retired) in [("away.tex", "white.tex"), ("white.tex", "away.tex")] {
         for (_, sprite) in s.sim().unwrap().world().query::<&mut Sprite>().iter() {
             sprite.texture = name.into();
         }
-        assert_eq!(s.assets(), [name]);
-        s.retired_assets();
+        let changes = s.assets();
+        assert_eq!(changes.requests, [name]);
+        assert_eq!(changes.retired, [retired]);
     }
     let pending = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     assert_eq!(
@@ -185,7 +258,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
 
 #[test]
 fn invalid_quads_are_journaled_without_refusing_valid_neighbors() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut w = World::new(60, 0);
     w.spawn((
         Transform::default(),
@@ -212,7 +285,7 @@ fn invalid_quads_are_journaled_without_refusing_valid_neighbors() {
 
 #[test]
 fn particle_storage_and_pipelines_prepare_only_with_emitters() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut r = crate::renderer::RendererWithAssets::<true>::new(
         &gpu.device,
         &gpu.queue,
@@ -326,7 +399,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut s = WorldSurface::<Mixed, crate::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
@@ -388,7 +461,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
 #[test]
 #[should_panic(expected = "particles must prepare before drawing")]
 fn r14_unprepared_particle_draw_names_the_refusal() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut r = crate::renderer::RendererWithAssets::<false>::new(
         &gpu.device,
         &gpu.queue,

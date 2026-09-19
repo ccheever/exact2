@@ -1,15 +1,15 @@
 {
   "ticks": {
-    "330": "0x626f1c12836bea76"
+    "330": "0xe9455cc3cfcc9d31"
   },
   "saves": {
-    "continuation": "e1be13a0c7b30d37fe6651e3345b43f5766c32164bbfab24e9104bd3c66bea33"
+    "continuation": "3991952069a63f1e3bed1f2ddd6a7d07b6e224fd1156312c1d87bd46b158b2e4"
   },
   "hosts": [
     "linux"
   ],
   "game": "placement-fixture",
-  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux",
-  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
-  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux,web",
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "Named placed controls survive reorder; Pull is an input action, so saves omit the former pulls argument."
 }

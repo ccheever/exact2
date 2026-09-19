@@ -128,7 +128,7 @@ impl<G: Game> Sim<G> {
             self.world.assets.clone(),
             budget,
             carry,
-            args.map(|_| (self.base.as_slice(), self.base_args.as_str())),
+            Some((self.base.as_slice(), self.base_args.as_str())),
             Some(self.world.registered_scratch()),
         )?;
         next.defer_assets = self.defer_assets;
@@ -153,7 +153,7 @@ impl<G: Game> Sim<G> {
         *self = next;
         Ok(())
     }
-    /// Decode through `Game::register` before constructing once from saved arguments.
+    /// Decode through `Game::register` without running gameplay setup.
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
         Self::restore_candidate(bytes, None, Default::default(), None, false, None, None)
     }
@@ -201,20 +201,6 @@ impl<G: Game> Sim<G> {
         };
         initial.check_scalars().map_err(DataError::new)?;
         G::validate(&initial).map_err(DataError::new)?;
-        // The entire typed saved world, including hierarchy and clock, must
-        // decode before any setup or authored initializer can run.
-        let mut selected = World::new(G::HZ, 0);
-        G::register(&mut selected, &initial);
-        G::register(&mut selected, &bound);
-        if let Some(live) = registry {
-            selected.inherit_registry(&live);
-        }
-        let validated = selected.validate_saved_in(&s.world, budget)?;
-        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
-        if validated.hz() != G::HZ || validated.tick() as u128 != due {
-            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
-        }
-        drop(validated);
         let input = Input::new(G::actions());
         input
             .validate_saved(&s.input)
@@ -229,19 +215,51 @@ impl<G: Game> Sim<G> {
                 })?;
             }
         }
-        let mut next = Self::with_store(initial, assets, 0).map_err(DataError::new)?;
+        // The entire typed saved world, including hierarchy and clock, must
+        // decode before any setup or authored initializer can run.
+        let mut selected = World::new(G::HZ, 0);
+        Self::register(&mut selected, &initial);
+        Self::register(&mut selected, &bound);
+        if let Some(live) = registry {
+            selected.inherit_registry(&live);
+        }
+        let validated = selected.validate_saved_in(&s.world, budget)?;
+        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
+        if validated.hz() != G::HZ || validated.tick() as u128 != due {
+            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
+        }
+        // Carry needs the new build's tick-zero initializer, never setup on
+        // the decoded restoring world. Bound surfaces already captured this base.
+        let initial_json = crate::json::to_string(&initial)?;
+        let authored =
+            authored.filter(|(_, base_args)| args.is_some() || *base_args == initial_json);
+        let fresh_base = if carry && authored.is_none() {
+            let fresh = Self::build(&initial, assets.clone());
+            if !fresh.assets.ready() {
+                return Err(DataError::new(
+                    "restore refused: EXSIM v7 awaits declared assets",
+                ));
+            }
+            Some((fresh.initializer()?, crate::json::to_string(&initial)?))
+        } else {
+            None
+        };
+        let mut validated = validated;
+        validated.assets = assets.clone();
+        let mut next =
+            Self::with_store(initial, assets, 0, Some(validated)).map_err(DataError::new)?;
         next.args_json = crate::json::to_string(&bound)?;
         next.args = bound;
         if next.setup_pending {
             return Err(DataError::new("restore refused: EXSIM v7 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
         }
-        next.world.load_in(&s.world, budget)?;
-        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
-        if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
-            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
-        }
-        // Typed scratch decode precedes setup; authored merging follows both.
+        // Merge only after typed decode and any separate initializer construction.
         if carry {
+            let authored = authored.or_else(|| {
+                fresh_base
+                    .as_ref()
+                    .map(|(base, args)| (base.as_slice(), args.as_str()))
+            });
             if let Some((base, base_args)) = authored {
                 next.base = base.to_vec();
                 next.base_args = base_args.to_owned();
@@ -367,7 +385,7 @@ mod fold_cost {
     impl<const EDIT: bool> Game for Interleaved<EDIT> {
         const ID: &'static str = "fold-interleaved-restore";
         type Args = ();
-        fn register(w: &mut World, _: &()) {
+        fn register(w: &mut World, _: &std::collections::BTreeMap<&str, crate::Value>) {
             w.register::<Transform>();
         }
         fn setup(w: &mut World, _: &()) {
@@ -427,7 +445,11 @@ mod fold_cost {
         let start = std::time::Instant::now();
         target.restore_bound(&saved).unwrap();
         let restored = start.elapsed();
-        assert_eq!(SETUPS.with(|n| n.get()), 1);
+        assert_eq!(
+            SETUPS.with(|n| n.get()),
+            0,
+            "bound restore must not run setup"
+        );
         assert_eq!(target.world().len(), COUNT as usize);
         let mut checked = 0;
         for (entity, t) in target.world().query::<&Transform>().iter() {

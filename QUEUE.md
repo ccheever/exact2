@@ -317,6 +317,9 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   windows; selection, IME, a caret blink; `text_decoration`, `font_family`, RTL;
   shadows, gradients, grid; JPEG, image URLs; accessibility; a font cache; pixel
   fixtures against Chrome (needs a pinned font).
+- Linux game input: canvas action controls hold recognized contacts, but raw canvas
+  `tap … down/move/up` and entity taps still refuse. Share contact handling with
+  the evdev/VNC display path before claiming held-pointer delivery (LLP 1035.003).
 - **GPU** (LLP 1009 §4): readback bands for blending and MSAA; a generated module ABI
   once there is a second consumer; the `Custom(u16)` animatable-property extension
   when a surface needs it.
@@ -621,7 +624,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Deploy classifier (2026-09-19): `bun scripts/smoke.mjs deploy` is red on this Mac since `snapback4` joined the root workspace (2026-09-12). The classifier captures the whole root closure, which reaches the sibling repo `../snapback-sb4`; its submodules refuse the capture — at 2ac2029f `vendor/ccheever-skills` as an uncaptured submodule, after R12's submodule capture `vendor/llp`'s deliberately broken absolute fixture symlink (`fixtures/broken-ref/llp/current/abs-0000-fixture.explainer.md`). A Beacons or Caltrain bake never compiles `snapback4`: capture only the app's Cargo closure, or let a source repository declare vendored fixtures as non-source. Evidence: `receipt-R12.md` §Deployment limitation; the HEAD run in the review worktree. R13 keeps that boundary: the current smoke refuses the earlier uninitialized `snapback-sb4/vendor/ibex` gitlink with `git submodule update --init vendor/ibex`.
 
-- E9: editor-time unknown surface argument fields still need a Rust `Args` schema at Contract analysis. R13 now refuses unknown names and excess positional arguments during game bake using the actual `WorldSurface::arguments()` declaration (including unmounted branches). Measured seam: `Expr::NamedArg` and `surface_args` already carry names; `Surface::arguments()` supplies names/defaults to the runtime and game bake, but standalone analysis still cannot distinguish `seed` from `typo`. Runtime rejects `typo` atomically. Closing the earlier editor-only seam would require exporting the same declaration into compiler analysis; do not duplicate field declarations in app.json. Existing duplicate/mixed-name checks and Sim/default/positional-byte tests remain cheap.
+- E9: editor-time unknown surface argument fields still need a Rust `Args` schema at Contract analysis. D6 now refuses unknown names and excess positional arguments during game bake using `.shells/surfaces.json`, emitted from `Game::NAME` and `Args::FIELDS`/defaults (including unmounted branches). Measured seam: `Expr::NamedArg` and `surface_args` already carry names; the emitted declaration supplies names/defaults to the host bake without linking gameplay, but standalone analysis still cannot distinguish `seed` from `typo`. Runtime rejects `typo` atomically. Closing the earlier editor-only seam would require exporting the same declaration into compiler analysis; do not duplicate field declarations in app.json. Existing duplicate/mixed-name checks and Sim/default/positional-byte tests remain cheap.
 
 - Placed names now reach all hosts through `gpu_child_view`; Linux/web reorder, restore and full-save proofs pass. The macOS proof reaches the same tick/continuation pins but fails the immediate pre/post-reorder complete-save comparison: it queues two `Blur` inputs while the world snapshot stays identical (2919 → 3002 bytes). Resolve native focus delivery or the explicit input-consumption boundary without dropping complete-save comparison. Evidence: `/Users/ccheever/projects/.exact-game-verification/named-placed-current/proof-macos-round2/`; this slice stopped after three correction rounds.
 
@@ -637,7 +640,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   (no `--ignored`); verify animated repeated Carry/Open/Save/FreshGame, pending final
   texture, changed-content and replacement-device controls. This supersedes the
   predecessor's T6 restore-upload exemption, not its acceptance requirement.
-- LAND first baselines: live Lanterns and `game/verification/lanterns` pass all
+- LAND first baselines: live Lanterns and `game/tests/lanterns` pass all
   three Linux modes but intentionally retain empty pins until Linux/web agree via
   `game/prove.mjs`. Fixed I3 has 1,210 tick/save observations per mode, no active
   blend case, and its moving crate is supplementary rather than simultaneous at
@@ -646,3 +649,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   3.817 s (median 3,807 µs per edit) despite cheap ordinary cached queries. Preserve
   canonical traversal/hit ordering and the still-owed deferred-bit negative control
   while investigating this measured path; do not call it an O(1) terrain edit.
+- R15: Linux's physical evdev WASD keys still need the canvas key-down/key-up route used by the agent, and Tab traversal remains owed. Space/Enter already use the hardware activation route covered by R15; do not infer physical WASD parity from it (review-RE-grok.md).
+
+- D6 remaining verification (2026-09-19): declaration-only host interface discovery is implemented, but native receipt generation still watches the GPU product digest and rebuilds the host after a changed dylib. E10 supplied warm edit → Beacons PASS 9.5 s (unchanged 0.65 s); D6 measured unchanged 3.097 s and one-line edit 21.783 s (GPU Cargo 3.41 s, host Cargo 5.80 s), both failing the changed continuation pin. The under-three-second target is not met. D6 Beacons dev-reload timing is unavailable; the other author's separate starter measured 16.074 s → 1.010–1.111 s. Three pre-change frame attempts failed Page.navigate at 15 s. After-only 1280×720 samples (180 frames each): Skinned mean feed/encode 0.070/0.143 ms, Placement 0.082/0.106 ms, both 16.666 ms frame interval; no speedup claim. Sprites, Skinned, Beacons and Placement pins now agree across Linux/web modes and release. macOS readiness, Greybox's stale hostless Glow tree expectation, broad Bun deadlines and Caltrain's three focus assertions remain. Evidence and exact validation totals: `/private/tmp/exact2-d6-tmp/evidence/receipt.md`.

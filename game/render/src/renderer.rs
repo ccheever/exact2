@@ -34,6 +34,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) uniform: wgpu::Buffer,
     transforms: [Buffer; 2],
     attachment_matrices: Buffer,
+    attachment_words: Vec<f32>,
     current: usize,
     materials: Buffer,
     slots: Buffer,
@@ -55,7 +56,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let (entity, local, fallback) = if slot >= crate::RENDER_SLOT_BASE {
             let record = &self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize];
             (record.transform, record.local.determinant(), {
-                let pair = self.models.poses[(slot - crate::RENDER_SLOT_BASE) as usize];
+                let pair = self.models.poses
+                    [self.models.pose_indices[(slot - crate::RENDER_SLOT_BASE) as usize]];
                 crate::world::scene::interpolate(pair, frame.alpha)
                     .scale
                     .element_product()
@@ -155,6 +157,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             uniform,
             transforms,
             attachment_matrices,
+            attachment_words: Vec::new(),
             current: 1,
             materials,
             slots,
@@ -504,13 +507,19 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         {
             self.rebind();
         }
+        // Clear last frame's overrides in the same upload as this frame's poses.
+        // Storage remains dense through the highest attached entity slot.
+        let previous = self.attachment_words.len();
+        self.attachment_words
+            .resize(previous.max(end as usize / 4), 0.);
+        self.attachment_words.fill(0.);
         for attachment in frame.attachments {
-            self.queue.write_buffer(
-                &self.attachment_matrices.raw,
-                u64::from(attachment.entity.index()) * 64,
-                bytes(&attachment.matrix.to_cols_array()),
-            );
+            let at = attachment.entity.index() as usize * 16;
+            self.attachment_words[at..at + 16].copy_from_slice(&attachment.matrix.to_cols_array());
         }
+        self.attachment_matrices
+            .write(&self.queue, 0, bytes(&self.attachment_words));
+        self.attachment_words.truncate(end as usize / 4);
         let device = &self.device;
         let queue = &self.queue;
         let size = (size_px.0.max(1), size_px.1.max(1));
@@ -571,7 +580,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let center = record
                     .local
                     .transform_point3(self.meshes[record.geometry.0].center);
-                let history = self.models.poses[index];
+                let history = self.models.poses[self.models.pose_indices[index]];
                 let pose = frame
                     .attachments
                     .iter()
@@ -824,13 +833,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             pass.draw(0..3, 0..1);
         }
         queue.submit([encoder.finish()]);
-        for attachment in frame.attachments {
-            queue.write_buffer(
-                &self.attachment_matrices.raw,
-                u64::from(attachment.entity.index()) * 64,
-                bytes(&[0f32; 16]),
-            );
-        }
         let mut stats = self.counts;
         stats.draws += extra_draws;
         stats.instances += self.quads.instances();
@@ -1002,7 +1004,7 @@ mod e10_tests {
     }
     #[test]
     fn full_glow_blooms_without_clipping_the_lit_pixel_to_white() {
-        let gpu = fixture::device().unwrap();
+        let gpu = exact_gpu::fixture::device().unwrap();
         let mut surface = crate::WorldSurface::<Beacon>::default();
         surface.bind(&[], None).unwrap();
         let mut frame = Frame {
@@ -1033,5 +1035,65 @@ mod e10_tests {
             &[255, 255, 255],
             "full glow retains highlight headroom"
         );
+    }
+}
+
+#[cfg(test)]
+mod attachment_upload_tests {
+    use super::*;
+    #[test]
+    fn one_dense_attachment_upload_clears_removed_overrides_on_next_frame() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut r = crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let mut w = exact_game::World::new(60, 0);
+        let a = w.spawn(exact_game::Transform::default());
+        let b = w.spawn(exact_game::Transform::default());
+        let matrix = glam::Mat4::from_translation(glam::Vec3::X);
+        let attachments = [a, b].map(|entity| crate::DisplayedAttachment {
+            entity,
+            matrix,
+            pose: Default::default(),
+        });
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let target = texture.create_view(&Default::default());
+        let mut frame = FrameInput {
+            attachments: &attachments,
+            sun: None,
+            ..Default::default()
+        };
+        frame.environment.bloom = None;
+        r.draw(&target, (16, 16), &frame);
+        let size = (u64::from(b.index()) + 1) * 64;
+        let read = |r: &crate::Renderer| {
+            crate::skinning::tests::read(&gpu, &r.attachment_matrices.raw, size)
+        };
+        let before = read(&r);
+        assert_eq!(
+            &before[a.index() as usize * 64..(a.index() as usize + 1) * 64],
+            bytes(&matrix.to_cols_array())
+        );
+        frame.attachments = &attachments[..1];
+        r.draw(&target, (16, 16), &frame);
+        let after = read(&r);
+        assert_eq!(
+            &after[a.index() as usize * 64..(a.index() as usize + 1) * 64],
+            bytes(&matrix.to_cols_array())
+        );
+        assert!(after[b.index() as usize * 64..].iter().all(|b| *b == 0));
     }
 }

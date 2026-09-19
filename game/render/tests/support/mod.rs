@@ -1,16 +1,7 @@
 use super::*;
 
 pub(super) fn gpu() -> Option<Gpu> {
-    match fixture::device() {
-        Ok(gpu) => {
-            eprintln!("GPU: {:?}", gpu.adapter.get_info());
-            Some(gpu)
-        }
-        Err(reason) => {
-            eprintln!("SKIP exact-game-render GPU test: {reason}");
-            None
-        }
-    }
+    crate::test_device::device_or_skip(exact_gpu::fixture::device())
 }
 
 pub(super) fn target(gpu: &Gpu, size: (u32, u32), format: wgpu::TextureFormat) -> wgpu::Texture {

@@ -1,16 +1,16 @@
 {
   "ticks": {
-    "60": "0x4d44c305a176e577",
-    "120": "0xd147cd9b2a8c62f7"
+    "60": "0x75937d48d7228e0b",
+    "120": "0xe159fb2c42740548"
   },
   "saves": {
-    "continuation": "76b33c647ee21818ad4f2b31ac130872594f73485c09f0899a5ee78f1e3971d3"
+    "continuation": "f96d70aea8f9fbb72257bb0ed99ca3da2b1f5319dfe00e8191c88f9f7fde855d"
   },
   "hosts": [
     "linux"
   ],
   "game": "skinned-fixture",
-  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux",
-  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
-  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux,web",
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "D6 imports Fox into metres once, replacing model/socket reciprocal scales; tick-60 joint bases now express metres"
 }

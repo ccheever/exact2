@@ -999,7 +999,7 @@ fn aligned_live_input_is_drawn_one_frame_before_seekable_interpolation() {
 }
 
 #[test]
-fn restore_constructs_once_and_failed_world_validation_is_atomic() {
+fn restore_runs_no_setup_and_failed_world_validation_is_atomic() {
     thread_local! {
         static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     }
@@ -1023,7 +1023,7 @@ fn restore_constructs_once_and_failed_world_validation_is_atomic() {
         } else {
             s.restore(&saved).unwrap();
         }
-        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
+        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
         assert_eq!(s.save().unwrap(), saved);
     }
     // Invalid world headers must be rejected before setup has any side effects.
@@ -1043,7 +1043,7 @@ fn restore_constructs_once_and_failed_world_validation_is_atomic() {
     for mode in [Paranoid::Save, Paranoid::FreshGame] {
         s = s.paranoid(mode);
         s.run(17.0);
-        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1, "{mode:?}");
+        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0, "{mode:?}");
     }
 }
 
@@ -1125,8 +1125,8 @@ fn restore_registers_argument_dependent_types_before_setup() {
     impl Game for Conditional {
         const ID: &'static str = "conditional-registration";
         type Args = Options;
-        fn register(w: &mut World, args: &Options) {
-            if args.other {
+        fn register(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+            if args["other"].as_bool() == Some(true) {
                 w.register::<Other>();
             }
         }
@@ -1150,4 +1150,59 @@ fn restore_registers_argument_dependent_types_before_setup() {
     assert!(target.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.get()), 0);
     assert_eq!(target.save().unwrap(), before);
+}
+
+#[test]
+fn registration_filters_live_arguments_and_validates_before_register() {
+    thread_local! { static REGISTERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default, Args)]
+    struct Options {
+        extra: bool,
+        #[live]
+        enabled: bool,
+    }
+    #[derive(Default, exact_game::Component)]
+    struct Extra(u32);
+    struct Conditional;
+    impl Game for Conditional {
+        const ID: &'static str = "filtered-registration";
+        type Args = Options;
+        fn validate(a: &Options) -> Result<(), String> {
+            if !a.extra {
+                Err("extra required".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn register(w: &mut World, args: &std::collections::BTreeMap<&str, Value>) {
+            REGISTERS.with(|n| n.set(n.get() + 1));
+            assert!(!args.contains_key("enabled"));
+            if args["extra"].as_bool() == Some(true) {
+                w.register::<Extra>();
+            }
+        }
+        fn setup(w: &mut World, _: &Options) {
+            w.spawn(Extra(17));
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    let mut source = Sim::<Conditional>::new(Options {
+        extra: true,
+        enabled: true,
+    })
+    .unwrap();
+    source
+        .bind(&[Value::Bool(true), Value::Bool(false)], None)
+        .unwrap();
+    let saved = source.save().unwrap();
+    let mut target = Sim::<Conditional>::new(Options {
+        extra: true,
+        enabled: true,
+    })
+    .unwrap();
+    target.restore(&saved).unwrap();
+    assert_eq!(target.save().unwrap(), saved);
+    REGISTERS.with(|n| n.set(0));
+    assert!(Sim::<Conditional>::new(Options::default()).is_err());
+    assert_eq!(REGISTERS.with(|n| n.get()), 0);
 }

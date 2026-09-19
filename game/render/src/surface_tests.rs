@@ -39,9 +39,7 @@ fn frame(now_ms: f64) -> Frame {
     }
 }
 fn gpu() -> Option<Gpu> {
-    fixture::device()
-        .map_err(|e| eprintln!("SKIP surface GPU regression: {e}"))
-        .ok()
+    crate::test_device::device_or_skip(exact_gpu::fixture::device())
 }
 fn surface() -> WorldSurface<Move> {
     let mut s = WorldSurface::default();
@@ -79,13 +77,13 @@ fn primitive_asset_boundary_refuses_late_names_and_rechecks_after_restore() {
         let name = if sprite { "late.tex" } else { "late.model" };
         let mut s = WorldSurface::<Late>::default();
         s.bind(&[Value::Bool(sprite)], None).unwrap();
-        assert!(s.assets().is_empty());
+        assert!(s.assets().requests.is_empty());
         assert!(s.error().is_none());
         let fresh = s.carry().unwrap().unwrap();
         for _ in 0..2 {
             s.sim.as_mut().unwrap().run(100.);
             let hash = s.sim().unwrap().world().hash();
-            assert!(s.assets().is_empty());
+            assert!(s.assets().requests.is_empty());
             let error = &s
                 .error()
                 .expect("late asset must name its missing executor")
@@ -104,7 +102,7 @@ fn primitive_asset_boundary_refuses_late_names_and_rechecks_after_restore() {
             assert!(s.take_error().is_some());
             assert!(s.take_error().is_none());
             s.restore(&fresh, Restore::Open).unwrap();
-            assert!(s.assets().is_empty());
+            assert!(s.assets().requests.is_empty());
             assert!(s.error().is_none());
         }
     }
@@ -121,7 +119,7 @@ fn primitive_asset_boundary_refuses_late_names_and_rechecks_after_restore() {
         s.sim().unwrap().world().revision::<Mesh>()
     );
     *s.sim.as_mut().unwrap().world_mut() = replacement;
-    assert!(s.assets().is_empty());
+    assert!(s.assets().requests.is_empty());
     assert!(s
         .error()
         .expect("replacement world must be rechecked")
@@ -391,7 +389,7 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let w = s.sim.as_mut().unwrap().world_mut();
     *w.query::<&mut Mesh>().one().unwrap() = Mesh::asset("castle.model");
     fixture::render(&gpu, &mut s, &frame(0.0)).unwrap();
-    assert_eq!(s.assets(), ["castle.model"]);
+    assert_eq!(s.assets().requests, ["castle.model"]);
     s.asset("castle.model", Err(exact_gpu::AssetError::Missing));
     assert!(s.take_error().is_none());
     let state = s.agent(r#"{"op":"state"}"#).unwrap();
@@ -682,7 +680,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         s
     };
     let deliver = |s: &mut WorldSurface<Art, crate::ModelPresentation, true>| {
-        assert_eq!(s.assets(), ["crate.model"]);
+        assert_eq!(s.assets().requests, ["crate.model"]);
         s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
@@ -690,7 +688,10 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             s.sim().unwrap().is_loading(),
             "texture upload still gates setup"
         );
-        assert_eq!(s.assets(), textures.keys().cloned().collect::<Vec<_>>());
+        assert_eq!(
+            s.assets().requests,
+            textures.keys().cloned().collect::<Vec<_>>()
+        );
         for (name, data) in &textures {
             s.asset(name, Ok(&exact_game::bin::to_vec(data)));
         }
@@ -843,7 +844,7 @@ fn performance_recording_arms_only_through_diagnostic_state() {
 
 #[test]
 fn world_surface_retires_and_readds_a_real_placed_child() {
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut s = surface();
     let entity = s
         .sim
@@ -853,7 +854,7 @@ fn world_surface_retires_and_readds_a_real_placed_child() {
         .spawn_named("sign", (Transform::default(), exact_game::Placed::child(0)));
     for _ in 0..2 {
         assert_eq!(s.children_mode(), exact_gpu::ChildrenMode::Each);
-        s.child(0, None, [0., 0., 100., 50.]);
+        s.child(0, "", None, [0., 0., 100., 50.]);
         fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
         assert!(s.placement(0).is_some());
         s.sim
@@ -862,8 +863,8 @@ fn world_surface_retires_and_readds_a_real_placed_child() {
             .world_mut()
             .remove::<exact_game::Placed>(entity);
         assert_eq!(s.children_mode(), exact_gpu::ChildrenMode::Overlay);
-        s.child(0, None, [0.; 4]);
-        s.child(1, None, [0.; 4]); // later removals must not recreate entries
+        s.child(0, "", None, [0.; 4]);
+        s.child(1, "", None, [0.; 4]); // later removals must not recreate entries
         assert!(s.placed.children.is_empty());
         fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
         assert!(s.placement(0).is_none());
@@ -947,7 +948,7 @@ fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers
             true
         }
     }
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let mut s = WorldSurface::<Missing, crate::ModelPresentation, true>::default();
     s.bind(&[], None).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
@@ -1007,7 +1008,7 @@ fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_late
         let id = module.create_headless("world").unwrap();
         assert!(module.bind(id, &[], Some(9000.)));
         module.agent(id, r#"{"op":"clock","owner":"agent","now":9000}"#);
-        assert_eq!(module.take_assets(id), ["crate.model"]);
+        assert_eq!(module.take_assets(id).requests, ["crate.model"]);
         if !deferred {
             assert!(module.asset(id, "crate.model", Ok(&asset)));
         }
@@ -1025,4 +1026,21 @@ fn headless_module_restore_anchors_controlled_clock_even_when_assets_arrive_late
         assert!(clock.contains(r#""tick":60"#), "{clock}");
         assert_eq!(module.carry(id).unwrap().unwrap(), original.save().unwrap());
     }
+}
+
+#[test]
+fn headless_named_placed_refusal_reaches_the_agent() {
+    let mut s = surface();
+    s.sim.as_mut().unwrap().world_mut().spawn_named(
+        "label",
+        (Transform::default(), exact_game::Placed::child("sign")),
+    );
+    s.child(0, "sign", None, [0., 0., 100., 50.]);
+    s.child(1, "sign", None, [0., 50., 100., 50.]);
+    let reply = s
+        .agent(r#"{"op":"state","width":200,"height":200}"#)
+        .unwrap();
+    assert!(reply.contains("renderError"), "{reply}");
+    assert!(reply.contains("duplicate testId"), "{reply}");
+    assert!(s.take_error().unwrap().0.contains("duplicate testId"));
 }

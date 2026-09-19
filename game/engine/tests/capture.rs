@@ -20,7 +20,7 @@ impl Game for Fixture {
     const ID: &'static str = "capture-fixture";
     const CAPTURE_SUPPORTED: bool = true;
     type Args = Options;
-    fn register(w: &mut World, _: &Options) {
+    fn register(w: &mut World, _: &std::collections::BTreeMap<&str, exact_game::Value>) {
         w.register_resource::<Counts>();
     }
     fn setup(w: &mut World, _: &Options) {

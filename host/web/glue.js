@@ -2,7 +2,6 @@
 // @ref LLP 1007 §3. This is host code, not app code: the app is the wasm (runner + kernel + data crate + baked plan).
 import { navigation } from "./navigation.js";
 const root = document.getElementById("exact-root");
-const controlsStyle = document.createElement("style"); controlsStyle.textContent = "button:focus-visible{outline:revert;outline-offset:2px} button:enabled:hover{filter:brightness(1.12)}"; document.head.append(controlsStyle);
 const views = new Map(); // view id -> element
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
@@ -506,7 +505,7 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
+      on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); if (e.detail > 0 && el instanceof HTMLButtonElement && document.activeElement === el) { const canvas = el.closest("[data-gpu-input]"); if (canvas) canvas.focus({preventScroll:true}); else el.blur(); } });
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {

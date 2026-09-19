@@ -36,11 +36,24 @@ impl View {
     pub fn screen(&self, corners: &[Vec3; 8]) -> Option<[f32; 4]> {
         let inv = self.pose.inverse();
         let points = corners.map(|p| inv.transform_point3(p));
-        let mut clipped: Vec<_> = points
-            .iter()
-            .copied()
-            .filter(|p| p.z <= -self.camera.near)
-            .collect();
+        if points.iter().all(|p| p.z > -self.camera.near) {
+            return None;
+        }
+        let projection = self.projection();
+        let mut lo = Vec2::splat(f32::INFINITY);
+        let mut hi = Vec2::splat(f32::NEG_INFINITY);
+        let mut include = |p: Vec3| {
+            let p = projection.project_point3(p);
+            let p = Vec2::new(
+                (p.x + 1.0) * 0.5 * self.size.x,
+                (1.0 - p.y) * 0.5 * self.size.y,
+            );
+            lo = lo.min(p);
+            hi = hi.max(p);
+        };
+        for p in points.iter().copied().filter(|p| p.z <= -self.camera.near) {
+            include(p);
+        }
         // Clip box edges against near before perspective division; a box crossing
         // the eye must not invent an inverted or infinite screen rectangle.
         for i in 0..8 {
@@ -53,20 +66,9 @@ impl View {
                 let b = points[j];
                 if (a.z < -self.camera.near) != (b.z < -self.camera.near) {
                     let t = (-self.camera.near - a.z) / (b.z - a.z);
-                    clipped.push(a + (b - a) * t);
+                    include(a + (b - a) * t);
                 }
             }
-        }
-        let mut lo = Vec2::splat(f32::INFINITY);
-        let mut hi = Vec2::splat(f32::NEG_INFINITY);
-        for p in clipped {
-            let p = self.projection().project_point3(p);
-            let p = Vec2::new(
-                (p.x + 1.0) * 0.5 * self.size.x,
-                (1.0 - p.y) * 0.5 * self.size.y,
-            );
-            lo = lo.min(p);
-            hi = hi.max(p);
         }
         lo.is_finite()
             .then_some([lo.x, lo.y, hi.x - lo.x, hi.y - lo.y])
@@ -74,7 +76,8 @@ impl View {
     pub fn visibility(&self, corners: &[Vec3; 8], center: Vec3) -> (bool, bool, f32, f32) {
         let inv = self.pose.inverse();
         let c = inv.transform_point3(center);
-        let clip = corners.map(|p| self.projection() * inv.transform_point3(p).extend(1.0));
+        let projection = self.projection();
+        let clip = corners.map(|p| projection * inv.transform_point3(p).extend(1.0));
         let outside = (0..6).any(|plane| {
             clip.iter().all(|p| match plane {
                 0 => p.x < -p.w,
@@ -472,6 +475,7 @@ pub(crate) struct Layout {
     pub screen: Option<[f32; 4]>,
 }
 pub(crate) fn layout(world: &World, viewport: Vec2, entity: Entity) -> Layout {
+    let view = View::new(world, viewport);
     let pose = world
         .sight
         .index(world)
@@ -481,7 +485,6 @@ pub(crate) fn layout(world: &World, viewport: Vec2, entity: Entity) -> Layout {
     let mesh = world.get::<Mesh>(entity);
     let (half, center) = bounds(world, entity, mesh.as_deref());
     let corners = corners(pose, half, center);
-    let view = View::new(world, viewport);
     Layout {
         pose,
         screen: view.as_ref().and_then(|v| v.screen(&corners)),

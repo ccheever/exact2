@@ -265,20 +265,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
         self.bind_arguments(values, at_ms)
     }
-    fn assets(&mut self) -> Vec<String> {
-        if ASSETS {
-            self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
-        } else {
+    fn assets(&mut self) -> exact_gpu::AssetChanges {
+        if !ASSETS {
             if self.error.is_none() {
                 self.error = self.check_primitive_assets().err();
             }
-            Vec::new()
+            return exact_gpu::AssetChanges::default();
         }
-    }
-    fn retired_assets(&mut self) -> Vec<String> {
-        if !ASSETS {
-            return Vec::new();
-        }
+        let requests = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
         let retired = self
             .sim
             .as_mut()
@@ -288,6 +282,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             // not device residency. A later arrival must still compare its digest.
             for name in &retired {
                 self.model_digests.remove(name);
+                self.placed.attachments.model_digests.remove(name);
             }
             if let Some((renderer, _feed)) = &mut self.render {
                 for name in &retired {
@@ -301,7 +296,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.assets_dirty = true;
             self.dirty = true;
         }
-        retired
+        exact_gpu::AssetChanges { requests, retired }
     }
     fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
         if ASSETS {
@@ -312,8 +307,12 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                             if let Some((_, model)) =
                                 sim.presentation_models().find(|(n, _)| *n == name)
                             {
-                                self.model_digests
-                                    .insert(name.into(), crate::models::model_digest(model));
+                                let digest = crate::models::model_digest(model);
+                                self.model_digests.insert(name.into(), digest);
+                                self.placed
+                                    .attachments
+                                    .model_digests
+                                    .insert(name.into(), digest);
                             }
                         }
                     }
@@ -373,6 +372,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                     .model_digests
                     .entry(name.to_owned())
                     .or_insert_with(|| crate::models::model_digest(model));
+                self.placed
+                    .attachments
+                    .model_digests
+                    .insert(name.to_owned(), digest);
                 (
                     name.to_owned(),
                     renderer
@@ -668,8 +671,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             exact_gpu::ChildrenMode::Overlay
         }
     }
-    fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
-        self.placed.child(index, texture, frame);
+    fn child(
+        &mut self,
+        index: usize,
+        name: &str,
+        texture: Option<&wgpu::TextureView>,
+        frame: [f32; 4],
+    ) {
+        self.placed.child(index, name, texture, frame);
         self.dirty = true;
     }
     fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
@@ -818,18 +827,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             P::inspect,
         );
         if self.render.is_none() {
-            let _ = if ASSETS {
+            if let Err(error) = if ASSETS {
                 self.placed.feed(sim.world())
             } else {
                 self.placed.feed_primitive(sim.world())
-            };
+            } {
+                self.error = Some(SurfaceError(error.to_string()));
+            }
             #[derive(Default, exact_game::Data)]
             struct Size {
                 width: f32,
                 height: f32,
             }
             if let Ok(size) = exact_game::json::from_str::<Size>(request) {
-                if size.width > 0. && size.height > 0. {
+                if self.error.is_none() && size.width > 0. && size.height > 0. {
                     self.placed
                         .headless(exact_game::Vec2::new(size.width, size.height), sim.alpha());
                 }

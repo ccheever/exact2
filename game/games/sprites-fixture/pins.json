@@ -1,15 +1,15 @@
 {
   "ticks": {
-    "300": "0x2e3d805eb6c89e55"
+    "300": "0x4a25336e5266aa60"
   },
   "saves": {
-    "continuation": "bc16e30a2114d3b219aabd6ede719a818876bf26eb6183175c4486f721c9d314"
+    "continuation": "2049c98103f6950fbd0fccfd9340c14e605982bfb074833cd37c5dc71cb98d4b"
   },
   "hosts": [
     "linux"
   ],
   "game": "sprites-fixture",
-  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux",
-  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
-  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
+  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux,web",
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "D6 saved Parallax component replaces tick name lookup"
 }

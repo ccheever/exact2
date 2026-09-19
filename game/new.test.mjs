@@ -308,3 +308,43 @@ test('E10 compact authored manifest survives two bakes byte for byte', async () 
     }
   } finally {rmSync(parent,{recursive:true,force:true});}
 });
+
+
+test('D6 host shells discover arguments from the GPU declaration, never gameplay', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'d6-shells-'))), app=resolve(parent,'my-game');
+  try {
+    createGame(app);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    for (const name of readdirSync(resolve(app,'.shells')).filter(n=>/-web$|-apple$|-linux$/.test(n))) {
+      const shell=resolve(app,'.shells',name);
+      const cargo=Bun.TOML.parse(readFileSync(resolve(shell,'Cargo.toml'),'utf8'));
+      assert.equal(cargo['build-dependencies']['game-logic'],undefined);
+      assert.match(readFileSync(resolve(shell,'build.rs'),'utf8'),/bake_declaration/);
+    }
+  } finally {rmSync(parent,{recursive:true,force:true});}
+});
+
+test('R15 Beacons compact manifest survives two shell bakes', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const app=resolve(import.meta.dir,'games/beacons'), path=resolve(app,'app.json');
+  const authored=readFileSync(path,'utf8');
+  assert.ok(!authored.includes('_generated'));
+  assert.ok(Object.keys(JSON.parse(authored)).length <= 2);
+  for(let i=0;i<2;i++) {
+    const manifest=gameDefaults(app);gameShells(app,manifest.game,import.meta.dir);
+    assert.equal(readFileSync(path,'utf8'),authored);
+    assert.equal(JSON.parse(readFileSync(resolve(app,'.shells/app.json'),'utf8')).app.id,'com.exact.beacons');
+  }
+});
+test('R15 explicit crate and type without an inferred declaration require identity',async()=>{
+  const {gameDefaults}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'r15-identity-'))),app=resolve(parent,'odd-game');
+  try {
+    createGame(app);writeFileSync(resolve(app,'logic/src/lib.rs'),'pub use elsewhere::Game;');
+    writeFileSync(resolve(app,'app.json'),JSON.stringify({game:{crate:'odd-game-logic',type:'Game'}}));
+    assert.throws(()=>gameDefaults(app),/explicit.*id.*name/);
+    writeFileSync(resolve(app,'app.json'),JSON.stringify({id:'org.example.odd',name:'Odd',game:{crate:'odd-game-logic',type:'Game'}}));
+    assert.equal(gameDefaults(app).app.id,'org.example.odd');
+  } finally {rmSync(parent,{recursive:true,force:true});}
+});

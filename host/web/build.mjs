@@ -12,6 +12,7 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -181,7 +182,7 @@ if (app.hasGpu) {
 // can never be mistaken for a completed build of the requested app.
 writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
-  files: publicFileCards(stage),
+  files: await publicFileCards(stage).finally(closeFilesystemReader),
 }) + '\n');
 rmSync(previous, { recursive: true, force: true });
 if (existsSync(dist)) renameSync(dist, previous);

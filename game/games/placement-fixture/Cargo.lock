@@ -541,6 +541,7 @@ dependencies = [
  "exact-game",
  "exact-gpu",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -1562,13 +1563,13 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
- "placement-fixture-logic",
 ]
 
 [[package]]
 name = "placement-fixture-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-game-app",
  "exact-game-render",
  "placement-fixture-logic",
  "wasm-bindgen",
@@ -1583,7 +1584,6 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
- "placement-fixture-logic",
 ]
 
 [[package]]
@@ -1600,7 +1600,6 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
- "placement-fixture-logic",
 ]
 
 [[package]]

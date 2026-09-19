@@ -20,7 +20,7 @@ fn placed_status_depth_preserves_float_bits_and_other_fields() {
     let mut world = World::new(60, 0);
     world.spawn_named("label", Placed::child(0));
     let mut placements = Placements::default();
-    placements.child(0, None, [0., 0., 100., 50.]);
+    placements.child(0, "", None, [0., 0., 100., 50.]);
     let mut plane = project(
         Placed::child(0),
         Transform::at(0., 0., -2.),
@@ -108,7 +108,7 @@ fn invisible_owner_stays_hidden_and_duplicate_child_is_refused() {
         exact_game::Visible(false),
     ));
     let mut p = Placements::default();
-    p.child(0, None, [0., 0., 100., 50.]);
+    p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(&w).unwrap();
     p.frame(&FrameInput::default(), Vec2::splat(200.));
     assert!(p.placement(0).unwrap().hidden);
@@ -129,8 +129,8 @@ fn saved_component_does_not_include_the_derived_outcome() {
     let hash = w.hash();
     let saved = w.save();
     let mut p = Placements::default();
-    p.child(0, None, [0., 0., 100., 20.]);
-    p.child(1, None, [0., 20., 100., 20.]);
+    p.child(0, "", None, [0., 0., 100., 20.]);
+    p.child(1, "", None, [0., 20., 100., 20.]);
     p.feed(&w).unwrap();
     p.frame(&FrameInput::default(), Vec2::splat(200.));
     assert_eq!(w.hash(), hash);
@@ -149,7 +149,7 @@ fn displayed_plane_uses_interpolated_entity_and_camera() {
     let mut w = World::new(60, 7);
     let e = w.spawn((Transform::at(0., 0., -4.), Placed::child(0)));
     let mut p = Placements::default();
-    p.child(0, None, [0., 0., 100., 50.]);
+    p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(&w).unwrap();
     // Ordinary writes update the retained current pose without priming history.
     w.get_mut::<Transform>(e).unwrap().position.x = 2.;
@@ -231,7 +231,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         }
         fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
     }
-    let gpu = fixture::device().unwrap();
+    let gpu = exact_gpu::fixture::device().unwrap();
     let texture = |rgba: [u8; 4]| {
         let t = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -262,8 +262,18 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
     let mut s = crate::WorldSurface::<Signs>::default();
     s.bind(&[], None).unwrap();
     // Premultiplied half-alpha green over opaque red.
-    s.child(0, Some(&texture([0, 128, 0, 128])), [0., 0., 100., 100.]);
-    s.child(1, Some(&texture([255, 0, 0, 255])), [0., 100., 100., 100.]);
+    s.child(
+        0,
+        "",
+        Some(&texture([0, 128, 0, 128])),
+        [0., 0., 100., 100.],
+    );
+    s.child(
+        1,
+        "",
+        Some(&texture([255, 0, 0, 255])),
+        [0., 100., 100., 100.],
+    );
     let frame = Frame {
         width: 100.,
         height: 100.,
@@ -292,7 +302,12 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         .unwrap()
         .position
         .z = 0.;
-    s.child(1, Some(&texture([255, 0, 0, 255])), [0., 100., 100., 100.]);
+    s.child(
+        1,
+        "",
+        Some(&texture([255, 0, 0, 255])),
+        [0., 100., 100., 100.],
+    );
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, _, _] = pixels.at(50, 50);
     assert!(r > 200 && g < 5, "later child is on top at equal depth");
@@ -303,7 +318,12 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         .unwrap()
         .position
         .x = 0.;
-    s.child(1, Some(&texture([255, 0, 0, 255])), [0., 100., 100., 100.]);
+    s.child(
+        1,
+        "",
+        Some(&texture([255, 0, 0, 255])),
+        [0., 100., 100., 100.],
+    );
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);
     assert!(
@@ -318,7 +338,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         .unwrap()
         .position
         .z = 6.;
-    s.child(0, None, [0.; 4]);
+    s.child(0, "", None, [0.; 4]);
     fixture::render(&gpu, &mut s, &frame).unwrap();
     assert!(s.placement(0).unwrap().hidden);
 }
@@ -381,7 +401,7 @@ fn headless_placement_uses_the_displayed_camera_and_plane_sample() {
     let owner = w.spawn((Transform::default(), Placed::child(0)));
     w.propagate();
     let mut p = Placements::default();
-    p.child(0, None, [0., 0., 100., 50.]);
+    p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(&w).unwrap();
     w.get_mut::<Transform>(camera).unwrap().position.x = 1.;
     w.get_mut::<Transform>(owner).unwrap().position.x = 2.;
@@ -472,7 +492,7 @@ fn linux_placed_socket_redelivery_snaps_the_new_rig_history() {
     let saved = sim.world().save();
     sim.world_mut().load(&saved).unwrap();
     let mut p = Placements::default();
-    p.child(0, None, [0., 0., 100., 50.]);
+    p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(sim.world()).unwrap();
     p.feed(sim.world()).unwrap();
     p.headless(Vec2::splat(200.), 0.5);
@@ -679,4 +699,94 @@ fn skipped_animation_display_uses_saved_joint_with_current_owner_and_offset() {
     fresh.frame(1.);
     a.frame(1.);
     assert_eq!(a.output[0].matrix, fresh.output[0].matrix);
+}
+
+#[test]
+fn named_children_reorder_disappear_return_and_restore_without_changing_the_save() {
+    let mut w = World::new(60, 7);
+    w.spawn_named(
+        "owner",
+        (Transform::at(0., 0., -2.), Placed::child("標識 🏮")),
+    );
+    w.spawn((Transform::default(), Camera::default()));
+    let saved = w.save();
+    let mut p = Placements::default();
+    p.child(0, "hud", None, [0., 0., 100., 50.]);
+    p.child(1, "標識 🏮", None, [0., 50., 100., 50.]);
+    p.feed(&w).unwrap();
+    p.headless(Vec2::splat(200.), 0.);
+    let before = p.placement(1).unwrap();
+    assert!(!before.hidden);
+    assert!(p.placement(0).is_none());
+    let revision = w.revision::<Placed>();
+    // Change only host metadata. No component write may be required to rebind.
+    p.child(0, "標識 🏮", None, [0., 0., 100., 50.]);
+    p.child(1, "hud", None, [0., 50., 100., 50.]);
+    p.feed(&w).unwrap();
+    p.headless(Vec2::splat(200.), 0.);
+    assert_eq!(p.placement(0).unwrap().homography, before.homography);
+    assert!(p.placement(1).is_none());
+    assert_eq!(w.revision::<Placed>(), revision);
+    assert_eq!(w.save(), saved);
+    let mut reply = r#"{"world":{}}"#.to_owned();
+    p.status(&w, r#"{"op":"state","entity":"owner"}"#, &mut reply);
+    assert!(reply.contains(r#""child":0,"hidden":false"#), "{reply}");
+    // A collapsed named child retains its identity, including at the tail.
+    p.child(0, "標識 🏮", None, [0.; 4]);
+    p.feed(&w).unwrap();
+    p.headless(Vec2::splat(200.), 0.);
+    assert!(p.placement(0).unwrap().hidden);
+    p.child(0, "renamed", None, [0., 0., 100., 50.]);
+    p.feed(&w).unwrap();
+    p.headless(Vec2::splat(200.), 0.);
+    assert!(p.children.iter().all(|c| c.plane.is_none()));
+    let mut reply = r#"{"world":{}}"#.to_owned();
+    p.status(&w, r#"{"op":"state","entity":"owner"}"#, &mut reply);
+    assert!(reply.contains(r#""child":null,"hidden":true"#), "{reply}");
+    p.child(1, "", None, [0.; 4]);
+    p.child(0, "", None, [0.; 4]);
+    assert!(p.children.is_empty());
+    p.child(0, "標識 🏮", None, [0.; 4]);
+    assert_eq!(p.children.len(), 1);
+    p.child(0, "標識 🏮", None, [0., 0., 100., 50.]);
+    w.load(&saved).unwrap();
+    let mut fresh = Placements::default();
+    fresh.child(0, "", None, [0.; 4]); // anonymous collapsed HUD before the sign
+    fresh.child(1, "標識 🏮", None, [0., 0., 100., 50.]);
+    fresh.feed(&w).unwrap();
+    fresh.headless(Vec2::splat(200.), 0.);
+    assert_eq!(fresh.placement(1).unwrap().homography, before.homography);
+    assert_eq!(w.save(), saved);
+    assert_eq!(
+        w.require::<Placed>("owner").child,
+        CanvasChild::from("標識 🏮")
+    );
+}
+
+#[test]
+fn named_children_refuse_ambiguity_and_numeric_aliases() {
+    let mut w = World::new(60, 7);
+    let owner = w.spawn((Transform::default(), Placed::child("sign")));
+    let mut p = Placements::default();
+    p.child(0, "sign", None, [0., 0., 100., 50.]);
+    p.child(1, "sign", None, [0., 50., 100., 50.]);
+    assert!(p
+        .feed(&w)
+        .unwrap_err()
+        .to_string()
+        .contains("duplicate testId"));
+    p.child(1, "other", None, [0., 50., 100., 50.]);
+    p.feed(&w).unwrap();
+    let alias = w.spawn((Transform::default(), Placed::child(0)));
+    assert!(p
+        .feed(&w)
+        .unwrap_err()
+        .to_string()
+        .contains("multiple owners"));
+    w.despawn(alias);
+    w.insert(owner, exact_game::Visible(false));
+    p.feed(&w).unwrap();
+    p.frame(&FrameInput::default(), Vec2::splat(200.));
+    assert!(p.placement(0).unwrap().hidden);
+    assert!(Placed::child("").validate().unwrap_err().contains("empty"));
 }

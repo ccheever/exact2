@@ -48,7 +48,6 @@ dependencies = [
 name = "asset-fixture-apple"
 version = "0.1.0"
 dependencies = [
- "asset-fixture-logic",
  "exact-apple",
  "exact-game-app",
  "exact-runner",
@@ -59,6 +58,7 @@ name = "asset-fixture-gpu"
 version = "0.1.0"
 dependencies = [
  "asset-fixture-logic",
+ "exact-game-app",
  "exact-game-bake",
  "exact-game-render",
  "wasm-bindgen",
@@ -70,7 +70,6 @@ dependencies = [
 name = "asset-fixture-linux"
 version = "0.1.0"
 dependencies = [
- "asset-fixture-logic",
  "exact-game-app",
  "exact-linux",
  "exact-runner",
@@ -81,13 +80,13 @@ name = "asset-fixture-logic"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "exact-game-bake",
 ]
 
 [[package]]
 name = "asset-fixture-web"
 version = "0.1.0"
 dependencies = [
- "asset-fixture-logic",
  "exact-game-app",
  "exact-runner",
  "exact-web",
@@ -608,6 +607,7 @@ dependencies = [
  "exact-game",
  "exact-gpu",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]

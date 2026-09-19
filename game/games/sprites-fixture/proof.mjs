@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { checkSteadyResidency } from '../../proof.mjs';
+import { checkSteadyResidency } from '../../render/tests/residency.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

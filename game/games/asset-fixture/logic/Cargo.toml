@@ -6,3 +6,6 @@ edition = "2021"
 license = "MIT"
 [dependencies]
 exact-game = { path = "../../../engine" }
+
+[dev-dependencies]
+exact-game-bake = { path = "../../../bake" }

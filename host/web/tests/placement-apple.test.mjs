@@ -11,11 +11,11 @@ for (const host of ['Mac','IOS']) test(`${host} clears zero-sized and display-no
   const end=source.indexOf('            let hidden = child.isHidden',start);
   const branch=source.slice(start,end);
   const swift=`struct Rect { var width: Double; var height: Double }
-struct Child { var frame: Rect; var style: [String:Any] }
+struct Child { var frame: Rect; var style: [String:Any]; var props: [String:String] = [:] }
 struct Entry { var id: UInt32 = 1 }
 final class Module {
  var cleared: [UInt32] = []
- func child(_ id: UInt32,_ i: UInt32,_ x: Float,_ y: Float,_ w: Float,_ h: Float,_ pw: UInt32,_ ph: UInt32,_ bytes: UnsafePointer<UInt8>?,_ n: Int) -> UInt32 {
+ func child(_ id: UInt32,_ i: UInt32,_ name: String,_ x: Float,_ y: Float,_ w: Float,_ h: Float,_ pw: UInt32,_ ph: UInt32,_ bytes: UnsafePointer<UInt8>?,_ n: Int) -> UInt32 {
   precondition([x,y,w,h] == [0,0,0,0] && pw == 0 && ph == 0 && bytes == nil && n == 0)
   cleared.append(i); return 0
  }

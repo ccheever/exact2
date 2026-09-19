@@ -114,7 +114,7 @@ window.addEventListener("pageshow", event => lifecycle(event.persisted || !docum
 // kernel offset after its transform, so subtract that offset in homogeneous space.
 function childFrames(entry) {
   const children = [...(entry.host.children ?? [])].filter(el => !el.hasAttribute("data-surface"));
-  return children.map(el => ({el, frame:[el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight]}));
+  return children.map(el => ({el, name:el.getAttribute("data-testid") ?? "", frame:[el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight]}));
 }
 function restoreChild(row) {
   if (!row.original) return;
@@ -137,8 +137,8 @@ function supplyChildren(entry, module = gpu, staging = false) {
     const old = previous.find(old => old.el === row.el);
     row.original = old?.original;
     row.hidden = old?.hidden;
-    if (staging || previous[i]?.el !== row.el || row.frame.some((n, j) => n !== previous[i].frame[j]))
-      module.gpu_child(entry.id, i, ...row.frame);
+    if (staging || previous[i]?.el !== row.el || previous[i]?.name !== row.name || row.frame.some((n, j) => n !== previous[i].frame[j]))
+      module.gpu_child_view(entry.id, i, row.name, ...row.frame);
   }
   if (staging || !entry.children || previous.length !== rows.length) module.gpu_children_count(entry.id, rows.length);
   entry.children = rows;
@@ -524,7 +524,7 @@ function listen(entry) {
     }
     if (owner) {
       sendControl(event, owner, phase, event.pointerId, event.clientX-owner.left, event.clientY-owner.top);
-      if (phase === "up" || phase === "cancel") controls.delete(event.pointerId);
+      if (phase === "up" || phase === "cancel") { controls.delete(event.pointerId); if (owner.node === document.activeElement) el.focus({preventScroll:true}); }
       event.preventDefault(); return;
     }
     if (!fallsThrough(event)) return;
@@ -599,7 +599,9 @@ function listen(entry) {
       if (!controlKeys.has(event.code)) { controlKeys.set(event.code, binding(button)); sendControl(event, controlKeys.get(event.code), "down", event.code === "Space" ? 4294967294 : 4294967293); }
       return;
     }
-    if (["Space", "Enter", "NumpadEnter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
+    if (["Space", "Enter", "NumpadEnter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) {
+      event.preventDefault(); if (!event.repeat) target.closest('button, a[href], [role="button"], [role="link"]').click(); return;
+    }
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
     held.add(event.code);
     send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });
@@ -942,6 +944,7 @@ async function loadModule(version) {
   if (!version) {
     const module = await import("./gpu.js");
     await module.default({ module_or_path: new URL("./gpu_bg.wasm", import.meta.url) });
+    if (typeof module.gpu_child_view !== "function") throw new Error("GPU module is missing gpu_child_view");
     return module;
   }
   throw new Error("verified development GPU loader unavailable; rebuild/relaunch required");
@@ -953,7 +956,8 @@ function validateStage(entry, module, at, releaseInput = true, assets = exact.de
   // restore/rebase/publication validation. Verified development bytes are already
   // resident, so no asynchronous input can cross the capture-to-cutover boundary.
   for (let round = 0; ; round++) {
-    const names = JSON.parse(module.gpu_assets(entry.id));
+    const {requests:names, retired} = JSON.parse(module.gpu_assets(entry.id));
+    for (const name of retired) if (!assetName(name)) throw new Error(`surface ${entry.name}: invalid retired asset name ${name}`);
     if (!names.length) break;
     if (round === 16) throw new Error(`surface ${entry.name}: candidate assets exceeded 16 delivery rounds`);
     for (const name of names) {

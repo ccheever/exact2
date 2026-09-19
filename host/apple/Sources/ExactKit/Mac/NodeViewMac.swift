@@ -1237,7 +1237,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
-        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
         if event.clickCount == 2 {
             var next: NSView? = self
@@ -1254,7 +1254,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
+        if bounds.contains(local(event.locationInWindow)) { presenter?.press(id); finishPointerPress() }
     }
     override func rightMouseDown(with event: NSEvent) {
         if canvasInput?.pointer(event, phase: "down") != true { super.rightMouseDown(with: event) }

@@ -350,7 +350,13 @@ impl Surface for StackSurface {
         exact_gpu::ChildrenMode::Each
     }
 
-    fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+    fn child(
+        &mut self,
+        index: usize,
+        _name: &str,
+        texture: Option<&wgpu::TextureView>,
+        frame: [f32; 4],
+    ) {
         if texture.is_none() && frame == [0.; 4] {
             if let Some(card) = self.cards.get_mut(index) {
                 *card = CardState::new();
@@ -628,9 +634,9 @@ mod removal_tests {
     fn removal_delivery_does_not_recreate_trailing_cards() {
         let mut stack = StackSurface::default();
         for i in 0..4 {
-            stack.child(i, None, [0., 0., 100., 50.]);
+            stack.child(i, "", None, [0., 0., 100., 50.]);
         }
-        stack.child(1, None, [0.; 4]);
+        stack.child(1, "", None, [0.; 4]);
         assert_eq!(
             stack.cards.len(),
             4,
@@ -638,7 +644,7 @@ mod removal_tests {
         );
         assert_eq!(stack.cards[2].frame, [0., 0., 100., 50.]);
         for i in 1..4 {
-            stack.child(i, None, [0.; 4]);
+            stack.child(i, "", None, [0.; 4]);
         }
         assert_eq!(stack.cards.len(), 1);
     }

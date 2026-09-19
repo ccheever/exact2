@@ -247,11 +247,10 @@ impl Plan {
             }
         }
         for (i, surface) in self.surfaces.iter().enumerate() {
-            let expected = if surface.args.len == 0 {
-                SurfaceArgsMode::Empty
-            } else if self
-                .str(self.surface_arg(surface.args.iter().next().unwrap()).name)
-                .is_empty()
+            let expected = if surface.args.len != 0
+                && self
+                    .str(self.surface_arg(surface.args.iter().next().unwrap()).name)
+                    .is_empty()
             {
                 SurfaceArgsMode::Positional
             } else {

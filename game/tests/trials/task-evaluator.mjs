@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 const level = JSON.parse(readFileSync(new URL('./level.json',import.meta.url)));
 export async function evaluate(task) {
   const args=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=');return [a.slice(0,i),a.slice(i+1)];}));
-  const out=resolve(args.out ?? `game/bench/trials/evidence/task-${task}`);
+  const out=resolve(args.out ?? `game/tests/trials/evidence/task-${task}`);
   mkdirSync(out,{recursive:true});
   const a=await createCommand({root:args.root}), cases=[], trace=[];
   const command=a.command, state=()=>command({op:'state'}), step=ticks=>command({op:'step',ticks});

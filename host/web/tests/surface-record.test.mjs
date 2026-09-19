@@ -35,7 +35,7 @@ export async function fixture(options = {}) {
     gpu_agent: (id, text) => JSON.parse(text).reload ? JSON.stringify({reload:{values:options.values ?? [],names:options.names ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? [],controlContacts:options.controlContacts ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
-    gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
+    gpu_assets: () => '{"requests":[],"retired":[]}', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
     ...options.gpu,
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
@@ -328,6 +328,21 @@ test('Contract controls send named local contacts, keyboard edges and blur over 
   assert.deepEqual(f.events.slice(3).map(e=>[e.t,e.phase]), [['control','down'],['control','up'],['blur',undefined]]);
 });
 
+test('pointer release returns focus inside its canvas without clearing world input', async () => {
+  const f=await fixture({input:true}),canvas=f.create(1),button=restoredButton(f,canvas);
+  button.focus=()=>{f.document.activeElement=button;};
+  button.blur=()=>{f.document.activeElement=null;canvas.listeners.focusout({target:button,relatedTarget:null});};
+  canvas.focus=()=>{const target=f.document.activeElement;f.document.activeElement=canvas;canvas.listeners.focusout({target,relatedTarget:canvas});};
+  const event={target:button,pointerId:7,clientX:10,clientY:20,timeStamp:0,preventDefault(){}};
+  canvas.listeners.pointerdown(event);canvas.listeners.pointerup(event);
+  assert.equal(f.document.activeElement,canvas);
+  assert.deepEqual(f.events.map(e=>e.phase??e.t),['down','up']);
+  canvas.listeners.keydown({...event,target:canvas,code:'KeyW',key:'w'});
+  canvas.listeners.focusout({target:canvas,relatedTarget:new f.Element('input')});
+  canvas.listeners.keyup({...event,target:canvas,code:'KeyW',key:'w'});
+  assert.deepEqual(f.events.slice(2).map(e=>[e.t,e.down]),[['key',true],['blur',undefined]]);
+});
+
 for (const change of ['rename','clear','remove','disabled','hidden','inert']) test(`held control retains its binding through ${change}`, async () => {
   const f=await fixture({input:true}), canvas=f.create(1), button=new f.Element('button');
   let name='jump'; button.parent=canvas;
@@ -421,7 +436,7 @@ for (const status of ['healthy','no device']) test(`recovery ${status} preserves
   let resolveFetch, signal, delivered = 0;
   const f = await fixture({delivery:{fetch:(_url, options) => { signal=options.signal; return new Promise(r=>resolveFetch=r); }}});
   let pending = true;
-  f.gpu.gpu_assets = () => pending ? (pending=false, '["fox.model"]') : '[]';
+  f.gpu.gpu_assets = () => JSON.stringify({requests: pending ? (pending=false, ['fox.model']) : [], retired:[]});
   f.gpu.gpu_asset = () => { delivered++; return true; };
   f.create(1); f.gpu.gpu_recover=async()=>JSON.stringify({status});
   f.exact.gpu.deviceLost(); await new Promise(r=>setTimeout(r,0));
@@ -573,10 +588,12 @@ test('initial authored carry is explicit and ordinary initial saves retain Open'
 
 test('E10 focused Contract buttons consume activation keys before the world', async () => {
   const f = await fixture({input:true}), canvas=f.create(1), pause=new f.Element('button');
+  let prevented=0; pause.click=()=>{};
   for (const code of ['Space','Enter','NumpadEnter']) {
-    canvas.listeners.keydown({target:pause,code,timeStamp:0,preventDefault(){}});
+    canvas.listeners.keydown({target:pause,code,timeStamp:0,preventDefault(){prevented++;}});
     canvas.listeners.keyup({target:pause,code,timeStamp:0,preventDefault(){}});
   }
+  assert.equal(prevented,3);
   assert.equal(f.events.length,0);
   canvas.listeners.keydown({target:canvas,code:'KeyW',timeStamp:0});
   assert.equal(f.events.at(-1).code,'KeyW');

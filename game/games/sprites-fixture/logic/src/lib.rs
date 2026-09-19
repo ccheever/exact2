@@ -1,6 +1,9 @@
 use exact_game::asset::AlphaMode;
 use exact_game::*;
 
+#[derive(Default, Component)]
+struct Parallax(f32);
+
 pub struct SmallGame;
 impl Game for SmallGame {
     const ID: &'static str = "sprites-fixture";
@@ -22,6 +25,7 @@ impl Game for SmallGame {
                 format!("parallax-{i}"),
                 (
                     Transform::at(0., 45., depth),
+                    Parallax(0.15 + i as f32 * 0.2),
                     Sprite {
                         size: Vec2::new(640., 140.),
                         frame: [32, 0, 16, 16],
@@ -85,12 +89,9 @@ impl Game for SmallGame {
         let direction = input.stick_xz("move").x;
         w.require_mut::<Transform>("player").position.x += direction * 40. * w.dt();
         w.require_mut::<Sprite>("player").flip[0] = direction < 0.;
-        for i in 0..3 {
-            let x = w.global_position("player").unwrap().x * (0.15 + i as f32 * 0.2);
-            w.get_mut::<Transform>(format!("parallax-{i}").as_str())
-                .unwrap()
-                .position
-                .x = x;
+        let player_x = w.global_position("player").unwrap().x;
+        for (_, (parallax, transform)) in w.query::<(&Parallax, &mut Transform)>().iter() {
+            transform.position.x = player_x * parallax.0;
         }
         sprite::step(w);
         emitter::step(w);

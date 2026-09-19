@@ -48,6 +48,6 @@ export async function prepareContext(work, {target} = {}) {
     if(readFileSync(resolve(dir,'logic/src/lib.rs'),'utf8')!=='// Unavailable consumer fixture; captured Cargo metadata only.\n')throw new Error('consumer source escaped stripping');
     if(!existsSync(resolve(dir,'.shells/Cargo.toml'))||!existsSync(resolve(dir,'Cargo.lock')))throw new Error('consumer lost workspace or captured lock');
   }
-  if(existsSync(resolve(work,'game/bench/trials')))throw new Error('evaluator escaped context stripping');
+  if(existsSync(resolve(work,'game/tests/trials')))throw new Error('evaluator escaped context stripping');
   return app;
 }

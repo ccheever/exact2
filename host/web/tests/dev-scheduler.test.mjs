@@ -82,8 +82,8 @@ test('compiler cleanup kills the recorded GPU cargo group too', () => {
 test('failed Cargo metadata refuses startup before choosing a dev binary', () => {
   const body=source.slice(source.indexOf('  const metadata = spawnSync(\'cargo\''),source.indexOf('  const me = dev;'));
   let spawned=false;
-  assert.throws(()=>new Function('spawnSync','spawn',`const app={workspace:'.',crate:()=> 'fixture-web'},buildEnv={},root='.',source='',plan='';let dev;${body}`)
-    (()=>({status:1,stderr:'metadata fixture failure'}),()=>{spawned=true;}),/cargo metadata failed.*metadata fixture failure/);
+  assert.throws(()=>new Function('spawnSync','spawn','cargoReproducibilityFlags',`const app={workspace:'.',crate:()=> 'fixture-web'},buildEnv={},root='.',source='',plan='';let dev;${body}`)
+    (()=>({status:1,stderr:'metadata fixture failure'}),()=>{spawned=true;},()=>[]),/cargo metadata failed.*metadata fixture failure/);
   assert.equal(spawned,false);
 });
 test('world file size is refused before reading or launching either host', async () => {

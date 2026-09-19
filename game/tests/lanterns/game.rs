@@ -118,7 +118,7 @@ impl Game for Lanterns {
             .map(|_| ())
     }
 
-    fn register(world: &mut World, _: &Options) {
+    fn register(world: &mut World, _: &std::collections::BTreeMap<&str, exact_game::Value>) {
         physics::register(world);
         scene_types().register(world);
         world.sounds::<&str>([]);

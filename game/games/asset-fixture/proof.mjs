@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-import {checkSteadyResidency} from '../../proof.mjs';
+import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import { residencyProbe, checkResidency } from '../../proof.mjs';
+import {residencyProbe, checkResidency} from '../../render/tests/residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -25,12 +25,12 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     if(path === '/assets/crate.model') { gate.requested(); await gate.delivery; if(fail) return new Response('',{status:503}); }
     if(path.startsWith('/__')) return new Response('',{status:204});
     if(path.includes('..')) return new Response('',{status:404});
-    const file = Bun.file(resolve(import.meta.dir,'dist',path==='/'?'index.html':path.slice(1)));
+    const file = Bun.file(resolve(process.env.EXACT_WEB_DIST ?? resolve(import.meta.dir,'dist'),path==='/'?'index.html':path.slice(1)));
     const textureReply = await residency.textureResponse(path,file); if(textureReply) return textureReply;
     if(path === '/gpu-assets.js') {
       // The delivery gate follows the asset module; the renderer probe stays
       // in gpu-glue. Neither probe changes the shipped source.
-      const source = (await file.text()).replace('  const names = JSON.parse(module.gpu_assets(id));', `
+      const source = (await file.text()).replace('  const {requests: names, retired} = JSON.parse(module.gpu_assets(id));', `
         if (!entry.fixtureProbe) {
           entry.fixtureProbe = true;
           const world = JSON.parse(module.gpu_agent(id, JSON.stringify({op:'state'})))?.world;
@@ -38,7 +38,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           try { carry = module.gpu_carry(id)?.length ?? null; } catch (error) { carryError = String(error); }
           fetch('/__asset-probe', {method:'POST',body:JSON.stringify({world,carry,carryError})});
         }
-        const names = JSON.parse(module.gpu_assets(id));`);
+        const {requests: names, retired} = JSON.parse(module.gpu_assets(id));`);
       return new Response(source,{headers:{'Content-Type':'text/javascript'}});
     }
     if(path === '/gpu-glue.js') {

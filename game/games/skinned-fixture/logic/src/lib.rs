@@ -23,7 +23,7 @@ impl Game for SmallGame {
         w.spawn_named(
             "fox",
             (
-                Transform::at(0., 0., -1.8).with_scale(0.025),
+                Transform::at(0., 0., -1.8),
                 Mesh::asset("fox.model"),
                 Animator::new([
                     State::clip("survey", "Survey").to("travel", Condition::gt("speed", 0.5)),
@@ -43,8 +43,7 @@ impl Game for SmallGame {
                 Transform::default(),
                 Mesh::sphere(0.12),
                 Material::rgb(1., 0.65, 0.1),
-                SocketFollow::new("fox", "b_Head_05")
-                    .offset(Transform::at(0., 8., 0.).with_scale(40.)),
+                SocketFollow::new("fox", "b_Head_05").offset(Transform::at(0., 0.2, 0.)),
             ),
         );
         w.spawn((

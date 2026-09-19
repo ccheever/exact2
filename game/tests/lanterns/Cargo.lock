@@ -604,6 +604,7 @@ dependencies = [
  "exact-game",
  "exact-gpu",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -1423,13 +1424,13 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
- "lanterns-evidence-logic",
 ]
 
 [[package]]
 name = "lanterns-evidence-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-game-app",
  "exact-game-audio",
  "exact-game-bake",
  "exact-game-render",
@@ -1446,7 +1447,6 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
- "lanterns-evidence-logic",
 ]
 
 [[package]]
@@ -1470,7 +1470,6 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
- "lanterns-evidence-logic",
 ]
 
 [[package]]

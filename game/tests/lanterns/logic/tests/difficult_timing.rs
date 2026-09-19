@@ -151,7 +151,7 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
         fn actions() -> exact_game::Actions {
             Lanterns::actions()
         }
-        fn register(w: &mut World, args: &Options) {
+        fn register(w: &mut World, args: &std::collections::BTreeMap<&str, exact_game::Value>) {
             Lanterns::register(w, args);
         }
         fn setup(w: &mut World, args: &Options) {

@@ -379,7 +379,10 @@ dependencies = [
  "contract",
  "exact-game",
  "exact-gpu",
+ "exact-kernel",
+ "exact-plan",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]

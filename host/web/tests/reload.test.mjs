@@ -460,7 +460,7 @@ test.skipIf(!process.env.EXACT_TEST_CANDIDATE_HOST)('actual candidate host stage
 test('candidate declarations and textures finish before restore validation and cutover', async()=>{
   const delivered=[]; let requested=0;
   const f=await fixture({nextGpu:{
-    gpu_assets:()=>JSON.stringify([['crate.model'],['crate/0.tex'],[]][Math.min(requested++,2)]),
+    gpu_assets:()=>JSON.stringify({requests:[['crate.model'],['crate/0.tex'],[]][Math.min(requested++,2)],retired:[]}),
     gpu_asset:(id,name,bytes)=>{delivered.push([name,...bytes]);return true;},
     gpu_agent:(id,json)=>{
       if(JSON.parse(json).reload) {
@@ -480,7 +480,7 @@ test('candidate declarations and textures finish before restore validation and c
 test('candidate asset refusal and excessive dependency rounds retain every old canvas', async()=>{
   for(const mode of ['missing','failed','rounds']) {
     let deliveries=0;
-    const f=await fixture({nextGpu:{gpu_assets:()=> '["a.tex"]',gpu_asset:()=>{deliveries++;return mode!=='failed';}}});
+    const f=await fixture({nextGpu:{gpu_assets:()=> '{"requests":["a.tex"],"retired":[]}',gpu_asset:()=>{deliveries++;return mode!=='failed';}}});
     const a=f.create(1), old=a.canvas;
     f.exact.devAssets=new Map(mode==='missing'?[]:[['assets/a.tex',{bytes:new Uint8Array([1])}]]);
     await assert.rejects(f.exact.gpu.swap(1),mode==='rounds'?/16 delivery rounds/:/a.tex/);
@@ -539,7 +539,7 @@ test('selected checkpoint restore uses Open; authored Continue uses Carry',async
 });
 
 test('all canvases share candidate asset budget and unreadiness refuses cutover',async()=>{
-  const f=await fixture({nextGpu:{gpu_assets:()=>JSON.stringify(Array.from({length:257},()=> 'shared.bin'))}});f.create(1);
+  const f=await fixture({nextGpu:{gpu_assets:()=>JSON.stringify({requests:Array.from({length:257},()=> 'shared.bin'),retired:[]})}});f.create(1);
   f.exact.devAssets=new Map([['assets/shared.bin',{bytes:new Uint8Array([1])}]]);
   await assert.rejects(f.exact.gpu.swap(1),/256 asset deliveries/);
   assert.ok(!f.order.includes('replace'));
@@ -552,7 +552,7 @@ test('all canvases share candidate asset budget and unreadiness refuses cutover'
 
 for(const mode of [1,2,3]) test(`candidate child mode ${mode} stages its frames and relinquishes old placement styles only on commit`,async()=>{
   const calls=[];
-  const placed={gpu_dirty:()=>true,gpu_children_mode:()=>3,gpu_child:(id,index,...frame)=>calls.push(['child',id,index,...frame]),gpu_children_count:(id,count)=>calls.push(['count',id,count]),gpu_placement:(id,index,h)=>{h.set([1,0,5,0,1,6,0,0,1,.5]);return 1;}};
+  const placed={gpu_dirty:()=>true,gpu_children_mode:()=>3,gpu_child_view:(id,index,name,...frame)=>calls.push(['child',id,index,name,...frame]),gpu_children_count:(id,count)=>calls.push(['count',id,count]),gpu_placement:(id,index,h)=>{h.set([1,0,5,0,1,6,0,0,1,.5]);return 1;}};
   const f=await fixture({gpu:placed,nextGpu:{...placed,gpu_children_mode:()=>mode,gpu_render:()=>{calls.push(['render']);return 0;}}});
   const host=f.create(1), child=new f.Element('text');
   child.hasAttribute=()=>false;Object.assign(child,{offsetLeft:2,offsetTop:3,offsetWidth:20,offsetHeight:10});
@@ -562,7 +562,7 @@ for(const mode of [1,2,3]) test(`candidate child mode ${mode} stages its frames 
   await f.exact.gpu.swap(1);
   if(mode===3) {
     assert.ok(calls.findIndex(c=>c[0]==='child') < calls.findIndex(c=>c[0]==='render'));
-    assert.deepEqual(calls.find(c=>c[0]==='child').slice(2),[0,2,3,20,10]);
+    assert.deepEqual(calls.find(c=>c[0]==='child').slice(2),[0,'',2,3,20,10]);
   } else assert.equal(child.style.transform,'authored');
   f.destroy(1);assert.equal(child.style.transform,'authored','final owner restores original CSS exactly once');
 });

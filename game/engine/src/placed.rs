@@ -12,11 +12,40 @@ pub enum Facing {
     Fixed,
 }
 
-/// Place a direct canvas child, in Contract order, on this entity.
-#[derive(Clone, Copy, Debug, PartialEq, Component)]
+/// A direct Contract child, selected by `testId` or by its current order.
+#[derive(Clone, Debug, PartialEq, Eq, Data)]
+pub enum CanvasChild {
+    /// Zero-based direct child index, useful for generated lists.
+    Index(u16),
+    /// The child's Contract `testId`, independent of its order.
+    Name(String),
+}
+impl Default for CanvasChild {
+    fn default() -> Self {
+        Self::Index(0)
+    }
+}
+impl From<u16> for CanvasChild {
+    fn from(index: u16) -> Self {
+        Self::Index(index)
+    }
+}
+impl From<&str> for CanvasChild {
+    fn from(name: &str) -> Self {
+        Self::Name(name.into())
+    }
+}
+impl From<String> for CanvasChild {
+    fn from(name: String) -> Self {
+        Self::Name(name)
+    }
+}
+
+/// Place a direct Contract canvas child on this entity.
+#[derive(Clone, Debug, PartialEq, Component)]
 pub struct Placed {
-    /// Direct child index; zero is usually the unplaced HUD.
-    pub child: u16,
+    /// Direct child name or index; the selector is retained in saves.
+    pub child: CanvasChild,
     /// Width in world units; height follows the child's kernel aspect ratio.
     pub width: f32,
     /// Pivot from the lower-left corner; default bottom-centre.
@@ -29,7 +58,7 @@ pub struct Placed {
 impl Default for Placed {
     fn default() -> Self {
         Self {
-            child: 0,
+            child: CanvasChild::default(),
             width: 1.,
             anchor: [0.5, 0.],
             facing: Facing::Camera,
@@ -38,10 +67,10 @@ impl Default for Placed {
     }
 }
 impl Placed {
-    /// Select a direct Contract child.
-    pub fn child(child: u16) -> Self {
+    /// Select a direct Contract child by `testId` or zero-based index.
+    pub fn child(child: impl Into<CanvasChild>) -> Self {
         Self {
-            child,
+            child: child.into(),
             ..Self::default()
         }
     }
@@ -56,7 +85,10 @@ impl Placed {
         self
     }
     /// Validate authored geometry before presentation.
-    pub fn validate(self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
+        if matches!(&self.child, CanvasChild::Name(name) if name.is_empty()) {
+            return Err("Placed: child name must not be empty".into());
+        }
         if self.width.is_finite()
             && self.width > 0.
             && self.anchor.iter().all(|n| n.is_finite())
@@ -65,7 +97,7 @@ impl Placed {
             Ok(())
         } else {
             Err(format!(
-                "Placed child {}: expected finite positive width, anchor and offset",
+                "Placed child {:?}: expected finite positive width, anchor and offset",
                 self.child
             ))
         }
@@ -91,7 +123,7 @@ pub struct PlacedPlane {
 impl Placed {
     /// Project the displayed entity and camera poses into a host's canvas points.
     pub fn project(
-        self,
+        &self,
         pose: Transform,
         child_size: Vec2,
         view: Mat4,
@@ -108,7 +140,7 @@ impl Placed {
     }
     /// Project a full displayed affine pose, including hierarchy shear.
     pub fn project_affine(
-        self,
+        &self,
         pose: Mat4,
         child_size: Vec2,
         view: Mat4,

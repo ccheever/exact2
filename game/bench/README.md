@@ -9,7 +9,14 @@ A run records the machine's load; this machine is shared, so compare runs taken 
 Each twin is given its best idiomatic effort and its best optimized one — a strawman
 twin measures nothing. Here there is one mode: you spawn entities.
 
-## Scenes
+## Current method and limits
+
+Steady frame rings exclude seekable proofs. Asset preparation, first-emitter
+pipelines, compaction and dense attachment uploads remain presentation costs.
+Live CPU timings are submission observations, not physical input-to-photon latency;
+shared-machine runs establish no perceptual winner. Dated evidence follows below.
+
+### Scenes
 
 **`cubes`** — N unit cubes on a cubic grid (side ⌈∛N⌉, spacing 2, centred), cube *i*
 turning about axis normalize(frac(i·0.3719)−½, frac(i·0.7331)−½, frac(i·0.1913)−½) at
@@ -22,7 +29,7 @@ Modes — Godot: `nodes` (a `MeshInstance3D` each), `multimesh` (one `MultiMesh`
 GDScript each frame), `shader` (the rotation in the vertex shader; no CPU work). three.js:
 `meshes` (a `Mesh` each), `instanced` (one `InstancedMesh`, set from JS each frame).
 
-## Feel — Beacons, live clock
+### Feel — Beacons, live clock
 
 ```sh
 bun game/bench/feel.mjs exact
@@ -32,7 +39,7 @@ bun game/bench/feel.mjs compare
 bun game/bench/feel.mjs exact --game beacons --no-build --attempts 1
 ```
 
-### Method and boundaries
+#### Method and boundaries
 
 The runner presses the focused **Play** button with Enter, waits 0.5 seconds, holds
 W 2.5 seconds, D 1.5 seconds, taps Space for 20 ms, holds S 1.5 seconds, then idles
@@ -140,6 +147,41 @@ durations, quantiles and corrupt buffers. F3 verifies saved traces and unit fixt
 parser check. The orchestrator owns the next live sitting.
 
 
+#### Trace protocol
+
+Use the same trace protocol, without changing scheduling or metric logic. Register
+a web adapter in `feel.mjs` with a local `root`/`page` or an already-served `url`, plus
+an optional readiness expression. The page starts with Play focused and exposes
+`window.feel.begin(durationMs)`, `arm(trialId)` (labels the next captured key event),
+and `end()` (stops capture and returns one plain record). The probe needs the **drawn
+player and camera xyz each frame, a frame timestamp, a same-clock draw/sample time,
+and key-delivery time**. Do not expose only the last physics tick's positions.
+
+Schema 1 retains `stride: 8` and flat `frames` rows of
+`[drawn_clock_ms, sample_ms, player_x, player_y, player_z, camera_x, camera_y, camera_z]`.
+New captures also supply parallel `raw_callback_ms` and `drawn_clock_ms` arrays,
+one entry per row. `sample_ms` is the latency endpoint, **not** either frame clock.
+`camera_projection` has 18 values per row: column-major world-to-clip matrix (16),
+then physical canvas width and height. The analyzer's projection is a homogeneous
+divide, without camera reconstruction or smoothing. Exact's observer captures rAF
+arguments at each draw as `(raw, paced, generation)`, matched one-for-one to ring
+rows. Out-of-callback resize redraws inherit the preceding callback's raw stamp
+and generation, even at repeated paced time; distinct callbacks always advance
+generation. Only repeated generations are dropped in new traces. Overflow or a
+mismatched draw count refuses analysis. Arrays are preallocated and serialized
+only after sampling. Historical raw traces use raw-stamp deduplication; legacy
+Exact traces without raw callbacks retain every row (no deduplication). Old traces
+of every engine lack camera projection, and those metrics stay unavailable.
+Flat `events` rows are `[delivered_ms, VK_code, down_0_or_1, trial_id_or_minus_1]`;
+all times share one monotonic origin. Include `engine_version`, `interpolation`,
+`timestamp_source`, `window_pixels`, `overflow`, `hidden_frames` and
+`unfocused_frames` (and `viewport_css` or `viewport_pixels`). The same `script()` and
+`analyze()` apply without an engine-specific threshold or metric smoothing.
+
+
+
+## Dated receipts
+
 #### Sitting #2 — landmark re-score, 2026-09-18T20-36-09-882Z
 
 All 15 attempts satisfy the existing input/focus validity rules; all are provisional
@@ -204,39 +246,6 @@ sitting for three attempts of all five variants. The 120 Hz bake was selected an
 fingerprinted in tests, but not launched here. The normal stale-build path was
 not executed in F1d; existing bakes were trusted with `--no-build`, and no Cargo
 command ran. Earlier twin rows above remain historical, not evidence about Exact.
-
-### Trace protocol
-
-Use the same trace protocol, without changing scheduling or metric logic. Register
-a web adapter in `feel.mjs` with a local `root`/`page` or an already-served `url`, plus
-an optional readiness expression. The page starts with Play focused and exposes
-`window.feel.begin(durationMs)`, `arm(trialId)` (labels the next captured key event),
-and `end()` (stops capture and returns one plain record). The probe needs the **drawn
-player and camera xyz each frame, a frame timestamp, a same-clock draw/sample time,
-and key-delivery time**. Do not expose only the last physics tick's positions.
-
-Schema 1 retains `stride: 8` and flat `frames` rows of
-`[drawn_clock_ms, sample_ms, player_x, player_y, player_z, camera_x, camera_y, camera_z]`.
-New captures also supply parallel `raw_callback_ms` and `drawn_clock_ms` arrays,
-one entry per row. `sample_ms` is the latency endpoint, **not** either frame clock.
-`camera_projection` has 18 values per row: column-major world-to-clip matrix (16),
-then physical canvas width and height. The analyzer's projection is a homogeneous
-divide, without camera reconstruction or smoothing. Exact's observer captures rAF
-arguments at each draw as `(raw, paced, generation)`, matched one-for-one to ring
-rows. Out-of-callback resize redraws inherit the preceding callback's raw stamp
-and generation, even at repeated paced time; distinct callbacks always advance
-generation. Only repeated generations are dropped in new traces. Overflow or a
-mismatched draw count refuses analysis. Arrays are preallocated and serialized
-only after sampling. Historical raw traces use raw-stamp deduplication; legacy
-Exact traces without raw callbacks retain every row (no deduplication). Old traces
-of every engine lack camera projection, and those metrics stay unavailable.
-Flat `events` rows are `[delivered_ms, VK_code, down_0_or_1, trial_id_or_minus_1]`;
-all times share one monotonic origin. Include `engine_version`, `interpolation`,
-`timestamp_source`, `window_pixels`, `overflow`, `hidden_frames` and
-`unfocused_frames` (and `viewport_css` or `viewport_pixels`). The same `script()` and
-`analyze()` apply without an engine-specific threshold or metric smoothing.
-
-
 
 ## D3 — measured module size, 2026-09-18
 
@@ -1356,3 +1365,99 @@ isolated allocation comparison above; they prevent claiming current integration
 passes. See `integrated/` and `current-registration.log` in the evidence directory.
 
 Evidence: `/Users/ccheever/projects/.exact-game-verification/restore-bound-args/`.
+
+### Retained quad updates — 2026-09-19
+
+The shared sprite/emitter/placed-child update resolves each retained pose once,
+while removing unavailable rows. Its arrival scan follows entity order instead
+of binary-searching the retained rows for every component. No new author API,
+cache, saved field or dependency is involved.
+
+The original and candidate functions, with the actual scene helpers and engine,
+ran in one Rust 1.97 release executable. Twelve alternating samples per scene
+gave these median CPU times per retained update, in microseconds:
+
+| Objects | Parent depth | Before | After |
+|---:|---:|---:|---:|
+| 40 | 0 | 2.298 | 1.653 |
+| 40 | 8 | 4.248 | 3.808 |
+| 1,024 | 0 | 58.620 | 37.588 |
+| 1,024 | 8 | 104.963 | 93.693 |
+| 16,384 | 0 | 967.061 | 607.414 |
+| 16,384 | 8 | 1,771.240 | 1,517.485 |
+
+The empty case was approximately 12 ns in both versions. These isolate the
+retained-update routine, not total renderer or frame time. All 207 paired states
+match through component edits, visibility changes, missing poses, reused slots,
+parent changes and world restores. The placement app passes Linux and web;
+both complete saves match across hosts and retain their existing pins.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/quad-feed-current/`.
+
+
+### Screen bounds — 2026-09-19
+
+Screen projection now accumulates bounds directly, with no temporary clipped-point
+vector. Layout selects its camera once. Public APIs and saved data are unchanged.
+A paired Rust 1.97 release diagnostic compared the before/after function bodies in
+one executable: 100,000 screen/visibility cases were bit-identical; 81 public
+layout/pick replies were byte-identical after integration. Each visible sample
+previously made an allocation and a growth request (144 total requested bytes);
+now it makes neither. The all-behind sample allocates in neither version.
+
+| Screen case | Before, median ns | After, median ns |
+|---|---:|---:|
+| Perspective, visible | 127.70 | 43.47 |
+| Crossing near plane | 124.07 | 40.61 |
+| Behind near plane | 21.77 | 13.83 |
+| Orthographic | 115.69 | 42.48 |
+| Integer-scaled orthographic | 139.74 | 44.02 |
+
+Twelve alternating samples per case, 100,000 calls per sample. Allocation counting
+was disabled during timings; both versions use the same instrumented allocator.
+These are isolated screen-bound CPU costs, not frame-rate or whole-agent timings.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/spatial-bounds-current/`.
+
+
+### Shared float notation — 2026-09-19
+
+The float writer now shares notation conversion across f32/f64 and writes digit
+slices and zero blocks directly. The temporary digit array and character-copy
+loops are gone; ordinary decimal values take a short path. No public API, output
+spelling, dependency, or save format changes. Production source grows five lines.
+The placement fixture's normal web GPU module measures **740,735 → 738,540 raw
+bytes**, **316,718 → 315,927 gzip bytes**; the 550,000-byte aspiration remains open.
+
+Two native release runs, each with 16 alternating samples per case, measure
+common non-debug numbers 12–22% faster through String and Formatter destinations.
+Random f64 bit patterns, which often expand into long decimals, take 57–58% less
+time into String and 77% less through Formatter. Random f32 into String varies
+from 2% faster to 4% slower; debug-format cases vary roughly 4% either way.
+These are isolated formatting costs on a shared machine, not frame rates or
+whole-agent response times. Three candidates were evaluated; the first plain
+extraction slowed formatting, and the final version keeps the ordinary fast path.
+
+Before/after comparisons cover 100,000 random bit patterns per width, ordinary
+and debug spelling, plus boundaries and nonfinite values. Native and WebAssembly
+agree on digest `f8a958f77ad4cd3a`; 81 integrated layout/pick replies are unchanged.
+119 focused engine/data/save/agent tests pass (one ignored), as does engine Clippy.
+Linux and web placement proofs retain their tick and complete-save pins.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/float-notation-current/`.
+
+### Entity target lookup — 2026-09-19
+
+`World::resolve` returns after one failed plain-name scan. Its redundant second
+scan and enclosing branch are gone: three fewer source lines, no cache or new
+state. Literal names still precede `name#slot` and `#slot` interpretation.
+
+Eight samples per binary, in alternating ABBA order on the shared M5 Max, give
+missing-name medians of **20.1 → 12.0 ns** at 10 entities, **1.75 → 0.81 µs**
+at 1,000, and **185.2 → 73.7 µs** at 100,000. Successful-name medians vary
+within about 3%; explicit-slot samples overlap. An earlier three-sample run was
+noisy, including a slower large-world median; both series are retained. These
+are isolated lookups, not frame-rate or whole-game measurements.
+
+All 2,508 compared target results and 8,467 save bytes are identical, including
+literal `#` names, duplicate names, absent targets and recycled entities. The 39
+focused ECS, argument/agent and ergonomics tests, engine Clippy and formatting
+checks pass. Evidence: `/Users/ccheever/projects/.exact-game-verification/target-resolution-current/`.

@@ -5,7 +5,7 @@ import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 const args = Object.fromEntries(process.argv.slice(2).map(a => {const i=a.indexOf('='); return [a.slice(0,i),a.slice(i+1)];}));
 const engine = 'exact2-linux', task = args.task || 'baseline';
-const out = resolve(args.out || 'game/bench/trials/evidence/baseline');
+const out = resolve(args.out || 'game/tests/trials/evidence/baseline');
 await mkdir(out,{recursive:true});
 const level = JSON.parse(await readFile(new URL('./level.json',import.meta.url)));
 if (task === 'extra') level.lanterns.push({id:'lantern-13',position:[-8,1.2,7]});

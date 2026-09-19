@@ -10,15 +10,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   const world = s => s.world('world');
   const snapshot = s => world(s).snapshot();
   const position = s => world(s).local_position('player');
-  const moveTo = async (s, x, z) => {
+  const walkTo = async (s, x, z) => {
     await world(s).settle();
     for (const [axis, target, plus, minus] of [[0,x,'KeyD','KeyA'], [2,z,'KeyS','KeyW']]) {
-      const delta = target - (await position(s))[axis];
-      if (Math.abs(delta) < 0.15) continue;
-      // From rest, acceleration/braking lose 0.2667 m relative to 4 m/s × held time.
-      const ms = Math.round((Math.abs(delta) + 0.2666667) / 4 * 60) * 1000 / 60;
-      await world(s).hold(delta > 0 ? plus : minus, ms);
-      check('walk settles after releasing key', await world(s).settle());
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const delta = target - (await position(s))[axis];
+        if (Math.abs(delta) < 0.1) break;
+        // Observe the controller, then take a bounded step and let braking finish.
+        await world(s).hold(delta > 0 ? plus : minus, Math.abs(delta) > 1 ? 250 : 50);
+        check('walk settles after releasing key', await world(s).settle());
+      }
     }
     const p = await position(s);
     check(`walk reaches (${x}, ${z}) within 0.15 m`, Math.hypot(p[0]-x,p[2]-z) < 0.15, p);
@@ -43,7 +44,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(s).settle();
     await world(s).tap('KeyE'); await world(s).run(100);
     check('E outside range lights nothing', !(await world(s).get('beacon-1','Beacon')).lit);
-    await moveTo(s,8,0);
+    await walkTo(s,8,0);
     await world(s).tap('KeyE');
     await world(s).run(100);
     const [glow] = await world(s).get('beacon-1','Glow');
@@ -96,7 +97,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await restored.pointer('up');
     await world(restored).settle();
   }
-  await moveTo(restored,-6,7);
+  await walkTo(restored,-6,7);
   if (host === 'web' || host === 'ios') {
     const light = await restored.tap('light', {down:true});
     await world(restored).run(1000 / 60);
@@ -104,7 +105,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     check(`${host} pointer Light lights beacon-2`, (await world(restored).get('beacon-2','Beacon')).lit, light);
   } else await world(restored).tap('KeyE');
   await world(restored).run(600);
-  await moveTo(restored,3,-9);
+  await walkTo(restored,3,-9);
   await world(restored).tap('KeyE'); await world(restored).run(600);
   const won = await restored.tree();
   check('all three light and win UI appears',node(won,'hud-lit')?.props.text === 'Beacons 3 / 3' && !!node(won,'victory'));
@@ -114,4 +115,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   const logs = await restored.logs();
   check('no host exceptions', !(logs.host ?? []).some(line => /^(exception:|console\.error:|error:)/.test(line)));
   await restored.close();
+  const pointerSession = await open({fresh:true});
+  await pointerSession.tap('play');
+  await pointerSession.tap('pause'); await pointerSession.tap('pause');
+  check('pointer Resume releases focus', node(await pointerSession.tree(),'pause')?.focused !== true);
+  await pointerSession.type('world',{key:'Space',phase:'down'});
+  await world(pointerSession).run(100);
+  await pointerSession.type('world',{key:'Space',phase:'up'});
+  check('click Pause then Resume leaves Space to jump', (await position(pointerSession))[1] > 0.9);
+  await pointerSession.close();
 });

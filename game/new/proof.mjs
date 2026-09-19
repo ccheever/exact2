@@ -63,7 +63,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(500);
   if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
   await s.tap('pause');
-  check('click focuses Pause', node(await s.tree(),'pause')?.focused === true);
+  check('pointer Pause releases focus', node(await s.tree(),'pause')?.focused !== true);
   await s.type('pause',{key:'Space'});
   await game.run(100);
   check('focused Pause takes Space without a world jump', (await game.local_position('player'))[1] === 0.9);
@@ -95,4 +95,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await loaded.save(resolve(out, 'restored.world'));
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await restored.close();
+  const pointerSession = await open({fresh:true});
+  await pointerSession.tap('play');
+  await pointerSession.tap('pause'); await pointerSession.tap('pause');
+  check('pointer Resume releases focus', node(await pointerSession.tree(),'pause')?.focused !== true);
+  await pointerSession.type('world',{key:'Space',phase:'down'});
+  await pointerSession.world('world').run(100);
+  await pointerSession.type('world',{key:'Space',phase:'up'});
+  check('click Pause then Resume leaves Space to jump', (await pointerSession.world('world').local_position('player'))[1] > 0.9);
+  await pointerSession.close();
 });

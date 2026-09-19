@@ -58,6 +58,8 @@ taffy = { path = "../vendor/taffy" }
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.
 [profile.gpu-dev]
 inherits = "dev"
+debug-assertions = false
+overflow-checks = false
 opt-level = 1
 debug = false
 strip = "debuginfo"

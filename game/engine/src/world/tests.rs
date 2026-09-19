@@ -15,7 +15,7 @@ fn registration_links_only_declared_storage_kinds() {
     let mut target = World::new(60, 0);
     target.register_resource::<Both>();
     assert_eq!(target.load(&components).unwrap_err().to_string(),
-        "World: `Both` is registered as a resource; call world.register::<Both>() in setup to load components");
+        "World: `Both` is registered as a resource; call world.register::<Both>() in Game::register to load components");
     target.register::<Both>();
     target.load(&components).unwrap();
     assert_eq!(target.save(), components);
@@ -24,7 +24,7 @@ fn registration_links_only_declared_storage_kinds() {
     let mut components_only = World::new(60, 0);
     components_only.register::<Both>();
     assert_eq!(components_only.load(&both).unwrap_err().to_string(),
-        "World: `Both` is registered as a component; call world.register_resource::<Both>() in setup to load resources");
+        "World: `Both` is registered as a component; call world.register_resource::<Both>() in Game::register to load resources");
     target.load(&both).unwrap();
     assert_eq!(target.save(), both);
     assert_eq!(target.resource::<Both>().n, 7);

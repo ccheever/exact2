@@ -1,7 +1,7 @@
 # Fixed twelve-lantern I3 evidence
 
 This is a separate app-owned test consumer, adapted from
-`360921d386f212965cbc28229f21c93d280a753a:game/verification/lanterns`.
+`360921d386f212965cbc28229f21c93d280a753a:game/tests/lanterns`.
 Gameplay changes belong in `game/games/lanterns`. The fixed source preserves the
 measured twelve-lantern scene, ordinary-input script, apex and supplementary
 moving-crate cases. Four independently compiled edits exercise placement,
@@ -20,9 +20,9 @@ The viewport (1280×720) and integer-millisecond host clock are identical on the
 CPU oracle and carriers; queue phase and viewport bytes are never discarded.
 
 ```
-bun game/app/shells.mjs game/verification/lanterns
-cargo test --manifest-path game/verification/lanterns/.shells/Cargo.toml -p lanterns-evidence-logic
-bun game/prove.mjs game/verification/lanterns --hosts linux,web
+bun game/app/shells.mjs game/tests/lanterns
+cargo test --manifest-path game/tests/lanterns/.shells/Cargo.toml -p lanterns-evidence-logic
+bun game/prove.mjs game/tests/lanterns --hosts linux,web
 ```
 
 The empty first baseline is published only after all three modes agree on Linux

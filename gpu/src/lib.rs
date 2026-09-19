@@ -150,6 +150,24 @@ impl ChildrenMode {
     }
 }
 
+#[derive(Default, Debug, PartialEq, Eq)]
+/// One asset delivery transaction. Retirements precede new requests.
+pub struct AssetChanges {
+    /// Relative asset paths to deliver.
+    pub requests: Vec<String>,
+    /// Previous deliveries/flights to forget, including names requested again.
+    pub retired: Vec<String>,
+}
+impl AssetChanges {
+    pub(crate) fn json(&self) -> String {
+        format!(
+            "{{\"requests\":{},\"retired\":{}}}",
+            json::strings(&self.requests),
+            json::strings(&self.retired)
+        )
+    }
+}
+
 /// What an app implements per canvas.
 pub trait Surface {
     /// Device work follows visibility: a hidden chart stops its ticker, a video
@@ -167,13 +185,9 @@ pub trait Surface {
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
     fn bind(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError>;
-    /// Names under the app's assets directory that this surface wants; drained by the module.
-    fn assets(&mut self) -> Vec<String> {
-        Vec::new()
-    }
-    /// Names no longer referenced by the surface; discard delivery suppression.
-    fn retired_assets(&mut self) -> Vec<String> {
-        Vec::new()
+    /// Drain asset requests and retirements together; hosts cancel old flights first.
+    fn assets(&mut self) -> AssetChanges {
+        AssetChanges::default()
     }
     /// Deliver encoded content, a missing name, or a terminal transport failure.
     fn asset(&mut self, _name: &str, _bytes: Result<&[u8], AssetError>) {}
@@ -238,9 +252,17 @@ pub trait Surface {
     }
     /// The `index`th direct child's texture (created or resized; contents
     /// update in place) and its frame in the canvas's points — `x, y, width,
-    /// height`. A `None` texture with a non-empty frame means the host composites
-    /// this child (web/Linux). `None` with an empty frame means it is gone.
-    fn child(&mut self, _index: usize, _texture: Option<&wgpu::TextureView>, _frame: [f32; 4]) {}
+    /// height`, and its Contract `testId` (empty if unnamed). A `None` texture
+    /// means the host composites this child (web/Linux). An empty name, no
+    /// texture and an empty frame together mean it is gone.
+    fn child(
+        &mut self,
+        _index: usize,
+        _name: &str,
+        _texture: Option<&wgpu::TextureView>,
+        _frame: [f32; 4],
+    ) {
+    }
     /// Where the surface put the `index`th child: a 3×3 homography, row
     /// major, from the child's own points (origin at its top-left corner) to
     /// the canvas's points — the browser's `canvasTransform` — and its depth,
@@ -331,7 +353,6 @@ struct Instance {
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
-    retired: BTreeSet<String>,
     bound: bool,
     dirty: bool,
     children: Option<Children>,
@@ -578,7 +599,6 @@ impl Module {
                 layer: None,
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
-                retired: BTreeSet::new(),
                 bound: false,
                 dirty: false,
                 children: None,
@@ -735,11 +755,12 @@ impl Module {
         &mut self,
         id: u32,
         index: usize,
+        name: &str,
         frame: [f32; 4],
-        width: u32,
-        height: u32,
+        size: [u32; 2],
         bytes: &[u8],
     ) -> bool {
+        let [width, height] = size;
         self.check_device();
         if !frame.iter().all(|n| n.is_finite()) || frame[2] < 0. || frame[3] < 0. {
             self.error = format!("child {index}: invalid frame");
@@ -756,7 +777,7 @@ impl Module {
                 inst.each.push(None);
             }
             inst.each[index] = None;
-            inst.surface.child(index, None, frame);
+            inst.surface.child(index, name, None, frame);
             inst.dirty = true;
             return true;
         }
@@ -806,7 +827,7 @@ impl Module {
                 view_formats: &[],
             });
             let view = texture.create_view(&Default::default());
-            inst.surface.child(index, Some(&view), frame);
+            inst.surface.child(index, name, Some(&view), frame);
             inst.each[index] = Some(ChildTexture {
                 texture,
                 width,
@@ -816,7 +837,7 @@ impl Module {
             // The same texture; the frame may have moved.
             let texture = &inst.each[index].as_ref().expect("checked").texture;
             let view = texture.create_view(&Default::default());
-            inst.surface.child(index, Some(&view), frame);
+            inst.surface.child(index, name, Some(&view), frame);
         }
         let child = inst.each[index].as_ref().expect("just set");
         gpu.queue.write_texture(
@@ -849,7 +870,7 @@ impl Module {
         };
         if inst.each.len() > count {
             for index in count..inst.each.len() {
-                inst.surface.child(index, None, [0.0; 4]);
+                inst.surface.child(index, "", None, [0.0; 4]);
             }
             inst.each.truncate(count);
         }
@@ -983,25 +1004,22 @@ impl Module {
     }
 
     /// Drain wanted asset names once; refuse absolute, escaping or non-ASCII paths.
-    pub fn take_assets(&mut self, id: u32) -> Vec<String> {
+    pub fn take_assets(&mut self, id: u32) -> AssetChanges {
         let Some(inst) = self.instances.get_mut(&id) else {
             self.error = "no such canvas".into();
-            return Vec::new();
+            return AssetChanges::default();
         };
         let mut wanted = Vec::new();
-        let mut requested = inst.surface.assets();
-        let retired = inst.surface.retired_assets();
-        inst.retired.clear();
+        let AssetChanges {
+            requests: requested,
+            retired,
+        } = inst.surface.assets();
         if !retired.is_empty() {
-            // Retirement may invalidate still-live device dependencies. Fetch
-            // them in this drain, before a still surface can go back to sleep.
             inst.dirty = true;
-            requested.extend(inst.surface.assets());
         }
-        for name in retired {
-            inst.answered.remove(&name);
-            inst.outstanding.remove(&name);
-            inst.retired.insert(name);
+        for name in &retired {
+            inst.answered.remove(name);
+            inst.outstanding.remove(name);
         }
         for name in requested {
             if !asset_name(&name) {
@@ -1022,15 +1040,10 @@ impl Module {
                 wanted.push(name);
             }
         }
-        wanted
-    }
-
-    /// Names whose previous host flight must be cancelled, including redelivery.
-    /// Hosts drain this immediately after take_assets, before starting new flights.
-    pub fn take_retired_assets(&mut self, id: u32) -> Vec<String> {
-        self.instances.get_mut(&id).map_or_else(Vec::new, |inst| {
-            std::mem::take(&mut inst.retired).into_iter().collect()
-        })
+        AssetChanges {
+            requests: wanted,
+            retired,
+        }
     }
 
     /// Deliver one requested asset, with None for a missing file; works without a device.

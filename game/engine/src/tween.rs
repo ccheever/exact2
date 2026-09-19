@@ -41,10 +41,18 @@ impl Tween {
         if now.tick >= self.deadline(now) || self.duration == 0.0 {
             return self.target;
         }
-        let t = (now.tick.saturating_sub(self.start_tick) as f64
-            / now.hz as f64
-            / self.duration as f64)
-            .clamp(0.0, 1.0);
+        self.sample(now.tick.saturating_sub(self.start_tick) as f64 / now.hz as f64)
+    }
+    /// Sample presentation time in seconds, including the frame's sub-tick phase.
+    pub fn value_at(&self, seconds: f64, hz: u32) -> f32 {
+        assert!(hz > 0 && seconds.is_finite());
+        self.sample((seconds - self.start_tick as f64 / hz as f64).max(0.))
+    }
+    fn sample(&self, elapsed: f64) -> f32 {
+        if self.duration == 0. || elapsed >= self.duration as f64 {
+            return self.target;
+        }
+        let t = (elapsed / self.duration as f64).clamp(0.0, 1.0);
         let t = t * t * (3.0 - 2.0 * t);
         (self.start_value as f64 + (self.target as f64 - self.start_value as f64) * t) as f32
     }

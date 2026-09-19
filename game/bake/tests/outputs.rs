@@ -1,3 +1,4 @@
+mod support;
 use std::fs;
 fn temp() -> std::path::PathBuf {
     let p = std::env::temp_dir().join(format!(
@@ -203,5 +204,34 @@ fn png_non_utf8_stem_returns_an_error() {
         exact_game_bake::bake_art(&app).unwrap_err(),
         "invalid art stem"
     );
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn source_units_normalize_geometry_and_real_test_payloads() {
+    let app = temp();
+    let path = app.join("art/crate.gltf");
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    fs::write(&path, source.to_string()).unwrap();
+    let before = exact_game_bake::model(&path).unwrap();
+    source["asset"]["extras"] = serde_json::json!({"metersPerUnit":0.025});
+    fs::write(&path, source.to_string()).unwrap();
+    let data = support::assets(&path).unwrap();
+    let after: exact_game::asset::Model =
+        exact_game::bin::from_slice(&data["crate.model"]).unwrap();
+    for (a, b) in after.meshes[0]
+        .positions
+        .iter()
+        .zip(&before.meshes[0].positions)
+    {
+        assert_eq!(*a, *b * 0.025);
+    }
+    assert_eq!(after.bounds, before.bounds.map(|v| v * 0.025));
+    assert!(data.contains_key(&after.textures[0]));
+    source["asset"]["extras"]["metersPerUnit"] = serde_json::json!(0);
+    fs::write(&path, source.to_string()).unwrap();
+    assert!(exact_game_bake::model(&path)
+        .unwrap_err()
+        .contains("metersPerUnit"));
     fs::remove_dir_all(app).unwrap();
 }

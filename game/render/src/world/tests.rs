@@ -503,32 +503,29 @@ fn zero_quaternion_cpu_pose_is_finite_identity() {
 }
 
 #[test]
-fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
+fn light_selection_matches_restored_current_state_with_twenty_lights() {
     let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();
     let camera = w.spawn((Transform::default(), Camera::default()));
-    for _ in 0..15 {
-        w.spawn((Transform::at(0., 1., 0.), PointLight::default()));
+    for i in 0..20 {
+        w.spawn((
+            Transform::at(if i < 16 { -10. } else { 10.1 }, i as f32 * 0.001, 0.),
+            PointLight::default(),
+        ));
     }
-    let old = w.spawn((Transform::at(-10., 0., 0.), PointLight::default()));
-    let challenger = w.spawn((Transform::at(10.1, 0., 0.), PointLight::default()));
-    let mut f = Feed::default();
+    let mut running = Feed::default();
     let mut r = Recording::default();
-    f.feed_to(w, &mut r).unwrap();
-    sim.advance(0., Clock::Seekable);
-    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
-    let selected = |f: &Feed, e| f.scene.lights_for_test().contains(&e);
-    assert!(selected(&f, old));
-    for x in [0.2, 0., 0.2, 0.] {
-        sim.world().get_mut::<Transform>(camera).unwrap().position.x = x;
-        f.feed_to(sim.world(), &mut r).unwrap();
-        assert!(selected(&f, old));
-        assert!(!selected(&f, challenger));
-    }
-    sim.world().get_mut::<Transform>(camera).unwrap().position.x = 2.;
-    f.feed_to(sim.world(), &mut r).unwrap();
-    assert!(!selected(&f, old));
-    assert!(selected(&f, challenger));
+    running.feed_to(w, &mut r).unwrap();
+    sim.world().get_mut::<Transform>(camera).unwrap().position.x = 0.2;
+    running.feed_to(sim.world(), &mut r).unwrap();
+    let save = sim.save().unwrap();
+    sim.restore(&save).unwrap();
+    let mut restored = Feed::default();
+    restored.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(
+        running.scene.lights_for_test(),
+        restored.scene.lights_for_test()
+    );
 }
 
 #[test]
@@ -575,6 +572,7 @@ fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
         at_ms: 1600.001,
     });
     let mut glowing = 0;
+    let mut previous_emissive = 0.;
     for tick in 97..=360 {
         r.calls.clear();
         sim.advance_with(
@@ -582,14 +580,18 @@ fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
             Clock::Seekable,
             |w, _| f.feed_to(w, &mut r).unwrap(),
         );
-        assert!(writes(&r) <= 2);
-        glowing += usize::from(r.calls.iter().any(|c| matches!(c, Call::Material(..))));
+        assert!(writes(&r) <= 1);
+        assert!(!r.calls.iter().any(|c| matches!(c, Call::Material(..))));
+        let frame = f.frame(sim.world(), 1., 1.);
+        let emissive = frame.glows[0].material_at(frame.seconds)[6];
+        glowing += usize::from(emissive > previous_emissive);
+        previous_emissive = emissive;
         if tick > 300 {
             assert_eq!(writes(&r), 0);
         }
     }
     assert!(glowing > 1, "the fixture sphere must have glowed");
-    eprintln!("fixture writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
+    eprintln!("fixture writes: moving=1 transform page/tick; glow sampled without material-page writes; settled=0");
 }
 
 #[test]
@@ -793,7 +795,16 @@ fn aspect_only_feed_preserves_authored_integer_camera_height() {
 #[test]
 fn e10_glow_samples_frame_time_without_writing_saved_materials() {
     use exact_game::{Glow, Now, Tween};
-    let mut w = World::new(60, 0);
+    struct Empty;
+    impl Game for Empty {
+        const ID: &'static str = "glow-frame";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut sim = Sim::<Empty>::new(()).unwrap();
+    sim.run(250.);
+    let w = sim.world_mut();
     let e = w.spawn((
         Transform::default(),
         Mesh::sphere(0.5),
@@ -804,20 +815,31 @@ fn e10_glow_samples_frame_time_without_writing_saved_materials() {
         .unwrap()
         .0
         .to(Now { tick: 0, hz: 60 }, 1., 0.5);
-    let saved = w.hash();
     let mut feed = Feed::default();
     let mut r = Recording::default();
-    feed.feed_to(&w, &mut r).unwrap();
-    let frame = feed.frame(&w, 1., 1.);
+    feed.feed_to(w, &mut r).unwrap();
+    let frame = feed.frame(w, 1., 1.);
     assert_eq!(frame.glows.len(), 1);
     let glow = &frame.glows[0];
     assert_eq!(&glow.material_at(0.)[6..9], &[0., 0., 0.]);
     assert_eq!(&glow.material_at(0.25)[6..9], &[1.5, 1., 0.5]);
-    assert_eq!(&glow.material_at(0.5)[6..9], &[3., 2., 1.]);
+    assert_eq!(&glow.material_at(0.5)[6..9], &[2. + 1. / 1.5, 2., 1.]);
+    let saved = w.hash();
+    let frame = feed.frame(w, 0.5, 1.);
+    let expected = w.get::<Glow>(e).unwrap().0.value_at(frame.seconds, w.hz());
+    assert!((frame.seconds - 14.5 / 60.).abs() < 1e-9);
+    assert_eq!(frame.glows[0].material_at(frame.seconds)[8], expected);
+    assert!(
+        expected
+            < w.get::<Glow>(e).unwrap().0.value(Now {
+                tick: w.tick(),
+                hz: w.hz()
+            })
+    );
     assert_eq!(w.hash(), saved);
     assert_eq!(w.get::<Material>(e).unwrap().emissive, [3., 2., 1.]);
     w.remove::<Glow>(e);
-    feed.feed_to(&w, &mut r).unwrap();
-    assert!(feed.frame(&w, 1., 1.).glows.is_empty());
+    feed.feed_to(w, &mut r).unwrap();
+    assert!(feed.frame(w, 1., 1.).glows.is_empty());
     assert_eq!(&r.materials[6..9], &[3., 2., 1.]);
 }

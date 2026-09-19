@@ -541,6 +541,7 @@ dependencies = [
  "exact-game",
  "exact-gpu",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -916,13 +917,13 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
- "greybox-logic",
 ]
 
 [[package]]
 name = "greybox-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-game-app",
  "exact-game-audio",
  "exact-game-render",
  "greybox-logic",
@@ -938,7 +939,6 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
- "greybox-logic",
 ]
 
 [[package]]
@@ -955,7 +955,6 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
- "greybox-logic",
 ]
 
 [[package]]

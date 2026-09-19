@@ -689,7 +689,7 @@ mod tests {
         const ID: &'static str = "capture-hardening";
         const CAPTURE_SUPPORTED: bool = true;
         type Args = ();
-        fn register(w: &mut crate::World, _: &()) {
+        fn register(w: &mut crate::World, _: &std::collections::BTreeMap<&str, crate::Value>) {
             w.register::<crate::Transform>();
         }
         fn setup(w: &mut crate::World, _: &()) {
@@ -1026,7 +1026,10 @@ mod tests {
             const ID: &'static str = "capture-pages";
             const CAPTURE_SUPPORTED: bool = true;
             type Args = ();
-            fn register(world: &mut crate::World, _: &()) {
+            fn register(
+                world: &mut crate::World,
+                _: &std::collections::BTreeMap<&str, crate::Value>,
+            ) {
                 world.register::<Wide>();
             }
             fn setup(_: &mut crate::World, _: &()) {}

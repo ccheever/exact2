@@ -210,19 +210,12 @@ pub struct GlowInput {
 }
 impl GlowInput {
     pub(crate) fn material_at(&self, seconds: f64) -> [f32; 12] {
-        let t = &self.tween;
-        let elapsed = (seconds - t.start_tick as f64 / self.hz as f64).max(0.);
-        let progress = if t.duration == 0. {
-            1.
-        } else {
-            (elapsed / t.duration as f64).clamp(0., 1.)
-        };
-        let progress = progress * progress * (3. - 2. * progress);
-        let intensity =
-            (t.start_value as f64 + (t.target as f64 - t.start_value as f64) * progress) as f32;
+        let intensity = self.tween.value_at(seconds, self.hz);
         let mut material = self.material;
         for value in &mut material[6..9] {
-            *value *= intensity;
+            let emissive = *value * intensity;
+            let excess = (emissive - 2.).max(0.);
+            *value = emissive.min(2.) + excess / (1. + excess * 0.5);
         }
         material
     }
@@ -376,3 +369,7 @@ mod test_game;
 #[cfg(test)]
 #[path = "../tests/fixture/model.rs"]
 mod test_model;
+
+#[cfg(test)]
+#[path = "../tests/fixture/device.rs"]
+mod test_device;

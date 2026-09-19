@@ -7,14 +7,22 @@ fn sign_name_button_and_lamp_save_together() {
     let w = sim.world();
     assert_eq!(w.query::<&Placed>().iter().count(), 3);
     assert_eq!(w.require::<Placed>("sign").facing, Facing::Fixed);
-    assert_eq!(w.require::<Placed>("name").child, 2);
+    assert_eq!(w.require::<Placed>("name").child, CanvasChild::from("name"));
 }
 
 #[test]
 fn proof_endpoint_pin() {
     let mut sim = Sim::<SmallGame>::new(Options::default()).unwrap();
-    sim.bind(&[Value::Number(1.0), Value::Number(0.0)], None)
-        .unwrap();
+    for phase in [PointerPhase::Down, PointerPhase::Up] {
+        sim.input(InputEvent::Control {
+            name: "pull".into(),
+            id: 1,
+            phase,
+            x: 0.,
+            y: 0.,
+            at_ms: 0.,
+        });
+    }
     sim.run(1000.);
     sim.run(4500.);
     assert_eq!(sim.world().tick(), 330);
@@ -62,4 +70,23 @@ fn placed_sign_projection_receipt_at_1280_by_720() {
             }
         }
     }
+}
+
+#[test]
+fn d6_pull_button_is_an_input_edge() {
+    let mut sim = Sim::<SmallGame>::new(Options::default()).unwrap();
+    assert_eq!(sim.world().require::<Material>("lamp").emissive, [0.; 3]);
+    sim.input(InputEvent::Control {
+        name: "pull".into(),
+        id: 1,
+        phase: PointerPhase::Down,
+        x: 0.,
+        y: 0.,
+        at_ms: 0.,
+    });
+    sim.run(1000. / 60.);
+    assert_eq!(
+        sim.world().require::<Material>("lamp").emissive,
+        [4., 2., 0.3]
+    );
 }

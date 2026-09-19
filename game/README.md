@@ -1,6 +1,7 @@
 # game/ — the game engine add-on
 
 - To see the game: `bun game/dev.mjs beacons` (commands run from the repository root).
+- To open its native development client: use the dev server's printed **Open in native** URL.
 - To change it: edit `game/games/beacons/logic/src/lib.rs` or `game/games/beacons/app.contract`; the dev page reloads.
 - To format the UI: `cargo run -q -p contract -- fmt game/games/beacons/app.contract` (`--stdout` previews; `--check` prints a diff).
 - To find UI declarations and references: `cargo run -q -p contract -- symbols game/games/beacons/app.contract` (JSON, including values in named world arguments).
@@ -152,7 +153,7 @@ from the games linked above; Equivalent spellings preserve pins; moving saved gl
 | Camera: `scene::follow(w)` at the end of each game tick | `Follow` steps automatically after the game tick. An explicit `scene::follow(w)` remains available for ordering and is not stepped twice. |
 | Proof: `(await session.state()).world[0]` to populate the summary | `await session.world('world').snapshot()` records the same world observation. |
 | Skinned: `w.get_mut::<Transform>("fox").unwrap()` | `w.require_mut::<Transform>("fox")`; `w.require::<Animator>("fox")` also names the entity and missing component on failure. |
-| Placement: `Placed::child(1).width(1.8).facing(Facing::Fixed)` | Still ordinal. `Placed::named_child("sign")` is pending child-identifier delivery through the GPU/host seam; it is not yet an available API. |
+| Placement: `Placed::child("sign").width(1.8).facing(Facing::Fixed)` | Selects the direct Contract child with `testId="sign"`; numeric indices also work for generated lists. |
 | Sprites: `SpriteAnimation::new([[0, 0, 16, 16], [16, 0, 16, 16]], 6.)` plus a separate initial rectangle | `SpriteAnimation::strip([0, 0], [16, 16], 2, 6.).sprite(Sprite::new("strip.tex", [24., 32.]))` initializes the first rectangle; explicit frame lists use the same `.sprite(...)` pairing. |
 | Skinned: `fox.translate_local(motion.root_motion("fox"))` | `motion.apply_local(w, "fox")`, after `w.require_mut::<Transform>("fox").rotation = Quat::from_rotation_y(-end.seconds() * 0.45)`. `animation::step(w)` and marker reads remain explicit. |
 | Sprites tests: `Sim::new(())`, then `s.load_assets(...)` | `Sim::with_assets((), \|_\| Ok::<_, String>(atlas())).unwrap()` uses the same loader without engine-owned fixture paths. |
@@ -164,8 +165,11 @@ from the games linked above; Equivalent spellings preserve pins; moving saved gl
 `Material::glow` creates an opaque emissive mesh that writes depth; bloom supplies
 its visible glow. It is not an unlit alpha halo. The starter combines `Glow(Tween)` with `Material::glow`, a ground grid, pads and
 explicit sky-colored height fog. The renderer samples the tween at frame time;
-no tick copies intensity into a material. Its HDR shoulder preserves highlight
-headroom at full bloom.
+no tick copies intensity into a material. `Tween::value` and `Tween::value_at` share
+one sampler; presentation uses the frame's seconds, including its sub-tick phase.
+The soft shoulder applies only to `Glow` emissive output above 2. Ordinary emissive
+materials keep their uncompressed response. `Glow` multiplies the authored emissive;
+writing the same intensity into both applies it twice.
 
 
 Beacons' tick before E10 (verbatim):
@@ -288,6 +292,9 @@ Linux proof, including the Contract HUD. A single-host run builds only if its ow
 receipt is stale; it needs no separate build-only pass. `--hosts` selects hosts,
 and `--compare-saves` defaults to Linux plus web. From the game's directory use
 `bun /path/to/exact2/game/prove.mjs .`.
+Each invocation prints `ARTIFACTS <directory>` and keeps its summaries, saves and
+web build there. Concurrent invocations cannot replace one another’s proof files.
+To drive that web build directly, set `EXACT_WEB_DIST=<directory>/dist`.
 An ordinary proof exits nonzero and reports `UNVERIFIED` until the complete saved
 tick and continuation-save baselines match. The summary's `status` field is
 `PASS`, `UNVERIFIED` or `FAIL`; build/capture-only runs and repin collection also
@@ -307,6 +314,19 @@ What that costs, and the only rules a game author must remember:
 2. Transcendentals come from `exact_game::math` (libm), never `f32::sin`.
 3. No `HashMap` iteration in a tick, no threads in a tick.
 4. State lives in components and resources, nowhere else.
+
+Every game profile uses `-C llvm-args=-fp-contract=off` (this toolchain's LLVM
+spelling), including the generated external-app shells. `gpu-dev` keeps opt-level
+1 and no LTO, with debug assertions and overflow checks disabled as in release.
+A shared-pin update requires a matching Linux release proof even with `--hosts linux`.
+Proof receipts hash every tracked file under the selected source roots, including modulemaps
+and extensionless inputs; only the explicit unrelated/output roots are excluded — and, under
+`game/`, `tests/` and `examples/` directories, `proof.mjs`, `pins.json` and `*.test.mjs`, which
+describe proofs rather than bakes (editing a proof script rebakes nothing).
+
+Pointer-completed Contract buttons release focus to the enclosing canvas. Tab and
+keyboard activation retain button focus and its focus ring; Space is consumed without
+scrolling. Authors need no HUD-specific key handling.
 
 The journal is telemetry: a record outside the world hash and observation, so a
 read that logs (such as a malformed agent request) must not change the world's course.
@@ -351,7 +371,7 @@ reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
 reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
-arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register saved types, including those first spawned mid-game, with `world.register::<Projectile>()` in `Game::register(world, args)` so standalone saves and captures can restore them before setup. Follow argument-dependent declarations in this hook: restore runs this hook on a scratch registry and fully decodes the world before gameplay setup. The hook must have no gameplay side effects. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
+arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `Game::register`. This hook receives a map containing only named setup/restart arguments (`args["extra"].as_bool()`); live fields are absent. Arguments pass `Game::validate` before registration. Restore validates the typed world, saved input and checked event offsets, then installs the decoded world without calling `Game::setup`. Registration must have no gameplay side effects. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
 
 `layout world:entity` includes facing, signed horizontal bearing and mesh line of
 sight to an optional `to` target. Visibility samples eight corners, six face
@@ -381,13 +401,17 @@ loaded runtime Data and the current authored initializer. Changed authored field
 apply only while the runtime field still equals its saved base. `open_bound(&[u8])`
 and `from_save(&[u8])` restore exact saved world Data; bound forms retain every
 current app argument. Current live bindings and construction-base arguments are
-saved separately. Every path fully decodes a typed scratch world and checks hierarchy, input and
-exact tick/time agreement before any `Game::setup`. It then constructs one
-candidate and applies the authored merge after decode, committing only after
-full validation. Standalone `from_save` and capture replay require all saved
-types in `Game::register(&mut World, &Self::Args)`; restoring into an existing
-simulation also retains its registered types. Registration must be free of
-gameplay side effects and follow argument-dependent setup variants.
+saved separately. Input and timestamp offsets validate before registration; typed
+world decode then checks hierarchy and exact tick/time agreement. Restore installs
+that decoded world without `Game::setup`. Carry uses the current captured authored
+base, or a separate fresh construction when saved setup arguments require one;
+setup never runs on the restoring world. The authored merge follows decode and
+commits only after full validation. Standalone `from_save` and capture replay
+require all saved types in
+`Game::register(&mut World, &std::collections::BTreeMap<&str, Value>)`.
+The view contains only setup/restart fields; live fields are absent. Restoring into
+an existing simulation also retains its registered types. Registration must be
+free of gameplay side effects and follow argument-dependent setup variants.
 
 `state.world.reload` reports applied, kept, added, removed and unmatched fields,
 with 64 entries and an omitted count. Structural edits require restart, except
@@ -426,7 +450,9 @@ bun game/bench/size.mjs
 
 Use a path to choose the game's directory: `bun game/new.mjs ./my-game`.
 `bun game/dev.mjs ./my-game` and `bun game/prove.mjs ./my-game` use the same Exact2 hosts and
-driver. A bare name creates `game/games/<name>`. The first bake puts the generated
+driver. Inside the game, use `bun /path/to/exact2/game/dev.mjs .` to edit it live.
+Gameplay edits swap the GPU module and carry the running world; shared app-runtime
+edits still reload the page. A bare name creates `game/games/<name>`. The first bake puts the generated
 workspace and hosts in that game's ignored `.shells/`; its logic is a member of
 that workspace alone. Dependencies and profiles come from `game/Cargo.toml`;
 build output uses the game's `target/`. Resolution and generation run no Cargo
@@ -496,7 +522,7 @@ The smaller [pose data core](engine/src/asset/pose.rs) contains saved local pose
 rig geometry, without playback. `World` owns no animation-specific runtime field.
 Registering a controller also registers its produced `Pose`; its derived cache
 is created on first execution and excluded from saves. Put saved type declarations
-in `Game::register` so a fresh process can decode before setup. Unregistered saved types refuse by name.
+in `Game::register` so a fresh process can decode without setup. Unregistered saved types refuse by name.
 
 `let motion = animation::step(w)` returns owned markers/root motion. Apply movement
 with `motion.apply_local(w, "fox")` after authored rotation, then read `animation::socket` for a tick-boundary
@@ -527,7 +553,11 @@ its sprite pipelines and instance storage are absent from the primitive web path
 See the [particle game](games/particles-fixture/logic/src/lib.rs),
 [sprite game](games/sprites-fixture/logic/src/lib.rs), and their proofs.
 
-A `Placed` component associates a Contract child index with a world plane. The
+A `Placed` component associates a direct Contract child with a world plane.
+`Placed::child("sign")` selects `testId="sign"`; the saved name survives child
+reordering. `Placed::child(1)` selects by current order, useful for generated lists.
+A missing named child is unplaced until it arrives; duplicate names or two owners
+for one child are refused. Names resolve at scene feeds, while frames use indices. The
 browser composites CSS homographies; Apple captures child textures and can depth-test
 them against the world. Hidden placement is explicit. Kernel layout, accessibility
 and ordinary controls remain the app host's responsibility. See the
@@ -603,9 +633,9 @@ mode. HUD checkpoint loads remain exact Open. Authored merge follows world decod
 requiring the exact numeric tick. Tick/save inventories must agree completely in
 continuous, Save and FreshGame; no branch can omit another branch's observations.
 The fixed I3 consumer runs with
-`bun game/prove.mjs game/verification/lanterns --hosts linux,web`. Its first pins
+`bun game/prove.mjs game/tests/lanterns --hosts linux,web`. Its first pins
 are published only after both hosts agree. The trial harness under
-`game/bench/trials` is opt-in and is outside default checks.
+`game/tests/trials` is opt-in and is outside default checks.
 
 
 The GPU acceptance command is
@@ -616,10 +646,17 @@ Changed content and a replacement device must upload again. A machine without
 an adapter fails this test and cannot certify GPU residency or rendering.
 
 Game bakes validate surface names and arguments even in hidden UI branches.
-The ordinary `bake_game` reads `Game::NAME` and `Args::FIELDS` directly, without
-depending on the game renderer. `bake_registry` validates modules with several
-surfaces against their exported arguments. Caltrain-style apps without a game
-module do not check surface argument names at bake.
+The GPU shell reads `Game::NAME`, `Args::FIELDS` and the default argument values
+without constructing a renderer, then emits `.shells/surfaces.json`. It writes
+only when the declaration changes. Caltrain-style apps without a game module do
+not check surface argument names at bake. Host
+shells bake Contract against that file and never link gameplay for argument
+inspection; build the GPU before a host. Native receipt generation still watches
+the GPU product digest, so a new dylib can rebuild a native host. `app.json` contains authored overrides,
+with resolved defaults in `.shells/app.json`. Imported glTF may declare
+`asset.extras.metersPerUnit`; the bake normalizes geometry, node and animation
+translations, and inverse binds once. Fox uses metres at its sockets. Bake-side
+tests use `game/bake/tests/support`’s `assets` helper with `Sim::with_assets` for real payloads.
 
 `exact_game_render::fixture::Recording::feed(&mut self, &mut Feed, &World)`
 records the production primitive feed for consumer tests without a GPU. The

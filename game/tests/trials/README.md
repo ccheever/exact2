@@ -4,7 +4,7 @@ This parent-owned harness is excluded from default checks. The immutable prompts
 all original task assertions, negative controls and 900-second agent ceiling are
 retained. No agent trial is required to validate a merge.
 
-`bun game/bench/trials/run-trial.mjs --ref REF --prepare-only a 1` validates an
+`bun game/tests/trials/run-trial.mjs --ref REF --prepare-only a 1` validates an
 immutable archive: app-owned workspaces and captured locks, production Linux bake,
 Lanterns package tests, same-ref evaluator negative controls, real Landlock read
 denial and cleanup. It does not copy credentials or dispatch an agent. Preparation

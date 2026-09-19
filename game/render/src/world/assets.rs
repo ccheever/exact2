@@ -25,9 +25,11 @@ impl Assets {
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;
             }
+            if !nodes.is_empty() {
+                self.entities.push(entity);
+            }
             for &(geometry, material, local, skin) in nodes {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
-                self.entities.push(entity);
                 self.records.push(DrawInstance {
                     transform: entity.index(),
                     geometry,
