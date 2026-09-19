@@ -26,7 +26,7 @@ waits behind proving these shipped bindings in the app; Snapback2 stays deferred
 
 **Expanded (Charlie, 2026-09-12: "Include the Messages conversion"):**
 Messages is the Snapback4 consumer: the separately linked Rust device on
-Apple/Linux, its TypeScript replica on the web, and the existing host SQLite
+Apple/Linux, the matching Rust/Wasm device on the web, and the existing host SQLite
 and network capabilities. This unblocks durable conversations and offline
 writes across devices. Take: generalized native-view module loading remains
 behind proving this data-only consumer; Snapback2 stays deferred.

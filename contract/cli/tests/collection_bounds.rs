@@ -129,8 +129,8 @@ fn ordinary_sheet_and_eager_outer_list_can_contain_virtual_collections() {
 }
 
 #[test]
-fn disabled_or_ordinary_inner_lists_remain_valid_inside_virtual_rows() {
-    for inner in ["list", "list virtualized=false"] {
+fn disabled_lists_and_ordinary_scrolls_remain_valid_inside_virtual_rows() {
+    for inner in ["scroll", "list virtualized=false"] {
         let s = nested_source(&format!("          {inner} height=80\n            each y in rows key=y\n              text `${{y}}`"));
         contract::compile(&s).unwrap();
     }

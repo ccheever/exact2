@@ -301,7 +301,7 @@ fn offline_messages_drafts_and_reactions_survive_the_real_native_reopen() {
 }
 
 #[test]
-fn one_ui_edit_is_one_mutation_and_a_refused_second_row_rolls_back_the_whole_batch() {
+fn one_ui_edit_is_one_mutation_and_refused_batches_leave_no_partial_edits() {
     fn partition(d: &Device) -> exact_snapback4::Module {
         assert!(
             d.module.is_none(),
@@ -339,6 +339,66 @@ fn one_ui_edit_is_one_mutation_and_a_refused_second_row_rolls_back_the_whole_bat
     d.thread();
     d.module = None;
     let mut core = partition(&d);
+    // A fresh offline device keeps intents. Acquire actual server facts before
+    // testing prediction constraints; do not label an unacquired view empty.
+    let backend = core.call(&serde_json::json!({"op":"backend"})).unwrap()["ok"].clone();
+    let programs: Vec<snapback4_core::ir::Program> =
+        serde_json::from_value(backend["programs"].clone()).unwrap();
+    let mut server = snapback4_core::engine::Engine::memory(
+        serde_json::from_value(backend["schema"].clone()).unwrap(),
+        programs.clone(),
+    )
+    .unwrap();
+    let entries = core.call(&serde_json::json!({"op":"queued"})).unwrap()["ok"].clone();
+    for entry in entries.as_array().unwrap() {
+        let program = programs
+            .iter()
+            .find(|p| p.name == entry["op"].as_str().unwrap())
+            .unwrap();
+        let args = program
+            .args
+            .iter()
+            .map(|(name, kind)| {
+                (
+                    name.clone(),
+                    snapback4_core::wire::from_json(kind, &entry["args"][name]).unwrap(),
+                )
+            })
+            .collect();
+        let sent = server
+            .mutate(
+                &program.name,
+                entry["id"].as_str(),
+                snapback4_core::engine::Context::new("dev:alice", args),
+            )
+            .unwrap();
+        assert!(matches!(
+            sent.state,
+            snapback4_core::engine::WriteState::Sent { .. }
+        ));
+        core.call(&serde_json::json!({"op":"dequeue", "id":entry["id"]}))
+            .unwrap();
+    }
+    let (events, watermark, next, held) = server
+        .snapshot_page_with_groups_at("dev:alice", None, 4000, 0)
+        .unwrap();
+    assert!(next.is_none());
+    let events: Vec<_> = events
+        .iter()
+        .map(|event| {
+            serde_json::json!({
+                "table":event.table,"kind":event.kind.word(),"id":event.id,
+                "data":event.data.as_ref().map(snapback4_core::wire::to_json)
+            })
+        })
+        .collect();
+    let applied = core
+        .call(&serde_json::json!({"op":"apply", "first":true, "page":{
+            "snapshot":true,"events":events,"watermark":watermark,"more":false,
+            "generation":server.generation(), "held":held
+        }}))
+        .unwrap();
+    assert!(applied.get("ok").is_some(), "{applied}");
     let before = queued(&mut core);
     drop(core);
     d.reopen();
@@ -369,17 +429,73 @@ fn one_ui_edit_is_one_mutation_and_a_refused_second_row_rolls_back_the_whole_bat
         "args":{"recordIds":[first["id"], format!("{}:refused", first["id"].as_str().unwrap())],
             "keys":[first["key"], first["key"]], "payloads":[changed, {"uncommitted":true}]}}))
         .unwrap();
-    assert_eq!(refused["ok"]["denied"]["code"], "E_CONSTRAINT");
+    assert_eq!(refused["ok"]["denied"]["code"], "E_PREDICT", "{refused}");
     assert_eq!(
         rows(&mut core),
         kept,
-        "the second row's unique violation rolls back the first"
+        "missing facts for the second row leave the first row unchanged"
     );
+    assert_eq!(queued(&mut core), before + 1, "refusal adds no upload");
     drop(core);
     let mut reopened = partition(&d);
     assert_eq!(
         rows(&mut reopened),
         kept,
         "reopen retains the complete prior image"
+    );
+
+    // Prediction refuses unknown facts before claiming a constraint failure.
+    // The authoritative server can establish the duplicate key and must undo
+    // the earlier payload update in this same mutation.
+    let server_rows = |server: &mut snapback4_core::engine::Engine| {
+        server
+            .query(
+                "records",
+                snapback4_core::engine::Context::new(
+                    "dev:alice",
+                    [("c".into(), snapback4_core::value::Value::Null)].into(),
+                ),
+            )
+            .unwrap()
+    };
+    let prior = server_rows(&mut server);
+    let data = snapback4_core::wire::to_json(&prior.data);
+    let first = &data[0];
+    let mut changed = first["payload"].clone();
+    changed["uncommitted"] = Json::Bool(true);
+    let args = serde_json::json!({
+        "recordIds":[first["id"], format!("{}:refused", first["id"].as_str().unwrap())],
+        "keys":[first["key"], first["key"]],
+        "payloads":[changed, {"uncommitted":true}]
+    });
+    let program = programs.iter().find(|p| p.name == "putRecords").unwrap();
+    let args = program
+        .args
+        .iter()
+        .map(|(name, kind)| {
+            (
+                name.clone(),
+                snapback4_core::wire::from_json(kind, &args[name]).unwrap(),
+            )
+        })
+        .collect();
+    let refused = server
+        .mutate(
+            "putRecords",
+            Some("refused-batch"),
+            snapback4_core::engine::Context::new("dev:alice", args),
+        )
+        .unwrap();
+    match refused.state {
+        snapback4_core::engine::WriteState::Failed { why, .. } => {
+            assert_eq!(why.code, "E_CONSTRAINT", "{why:?}");
+        }
+        other => panic!("duplicate key was accepted: {other:?}"),
+    }
+    assert_eq!(refused.events, 0, "a refused batch publishes no row events");
+    assert_eq!(
+        server_rows(&mut server).data,
+        prior.data,
+        "the second row's unique violation rolls back the first payload update"
     );
 }

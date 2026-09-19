@@ -1841,6 +1841,7 @@ dependencies = [
  "exact-runner",
  "exact-snapback4",
  "serde_json",
+ "snapback4-core",
  "snapback4-lang",
 ]
 
@@ -2673,7 +2674,8 @@ checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 
 [[package]]
 name = "snapback4-core"
-version = "0.1.14"
+version = "0.2.30"
+source = "git+https://github.com/expo/snapback.git?rev=a397218e2332964ebe29aa1d30918c436713cc8a#a397218e2332964ebe29aa1d30918c436713cc8a"
 dependencies = [
  "argon2",
  "getrandom 0.3.4",
@@ -2682,21 +2684,26 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "unicode-normalization",
+ "wasmi",
 ]
 
 [[package]]
 name = "snapback4-device"
-version = "0.1.14"
+version = "0.2.30"
+source = "git+https://github.com/expo/snapback.git?rev=a397218e2332964ebe29aa1d30918c436713cc8a#a397218e2332964ebe29aa1d30918c436713cc8a"
 dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "snapback4-core",
 ]
 
 [[package]]
 name = "snapback4-lang"
-version = "0.1.14"
+version = "0.2.30"
+source = "git+https://github.com/expo/snapback.git?rev=a397218e2332964ebe29aa1d30918c436713cc8a#a397218e2332964ebe29aa1d30918c436713cc8a"
 dependencies = [
  "serde",
  "serde_json",
@@ -2991,6 +2998,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
 
 [[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "unicode-script"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3058,9 +3074,9 @@ dependencies = [
 
 [[package]]
 name = "ureq"
-version = "3.4.2"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
+checksum = "972d7902c8735f2695410b8aed7df6ed12a47394aa1c8d7af49f0497b731a94d"
 dependencies = [
  "base64 0.23.1",
  "log",

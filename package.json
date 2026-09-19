@@ -7,6 +7,7 @@
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
     "rolldown": "1.2.9",
+    "snapback4": "0.2.30",
     "typescript": "7.0.2"
   },
   "bin": {

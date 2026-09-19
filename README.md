@@ -8,6 +8,12 @@ build, serve, watch, and reload scripts run under Bun. Run tooling unit tests wi
 paths keep Bun from searching generated fixture checkouts. This is the source
 tooling installation; a standalone CLI distribution is not packaged yet.
 
+Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
+in `bun.lock`; Cargo pins native devices and schema compilers to the matching
+release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
+Run `bun install --frozen-lockfile` before baking Messages, and use the pinned CLI
+with `bun run --bun snapback4` from an app directory.
+
 
 A cross-platform application runtime. The Rust kernel computes layout, each platform
 renders natively, and Contract is the authoring model.

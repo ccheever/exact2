@@ -4,7 +4,7 @@ An in-progress iPhone chat example in Exact2. The view is `app.contract`;
 `app.ts` owns the shared conversation model. Messages now persists people,
 messages, drafts, reactions, muted/blocked state, contacts and recoverable deletions
 through Snapback4. Apple and Linux use the reusable native device; the browser
-runs the upstream TypeScript replica over the existing SQLite capability.
+runs the same Rust device as the published Wasm artifact over Exact SQLite.
 The baked conversation fixtures still provide the first frame without app code.
 
 Conversation answers contain at most 200 messages, centered on an opaque `order:id` cursor
@@ -30,12 +30,12 @@ delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
 The development connection is explicit in `snapback-client.ts`: origin
 `http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own
 app-scoped database and stable device identity. Start the Messages backend locally
-with `snapback4 dev` from `apps/messages` (the source is `snapback/schema.q`).
+with `bun run --bun snapback4 dev` from `apps/messages` (the source is `snapback/schema.q`).
 The build compiles that schema for a fresh device that starts offline. The footer
 shows whether changes are saved locally, waiting to sync, synced, or refused.
 A separate three-second source checks the server through normal grant-checked
-fetch; network waits do not block local edits. Acknowledged writes leave the durable
-outbox, and server snapshots replace predictions. Each edit groups up to 512 related
+fetch; network waits do not block local edits. Receipts stay in the durable
+outbox until their server data arrives; snapshots replace predictions. Each edit groups up to 512 related
 records in one mutation; a refusal cannot commit just its preview or draft change.
 New devices seed fixtures only
 when those rows are absent, so opening another device preserves existing edits.
@@ -45,11 +45,17 @@ phone numbers do not connect to SMS or iMessage.
 The existing UI behavior stays in TypeScript, including the clock-driven example
 replies. Selection, scroll commands and simulated typing remain session state.
 All persisted records contain authored model data, without derived bubble geometry.
-The browser's vendored replica is from Snapback commit
-`58251b46dce85b379bbf02f94b1ddad308b41a5d`, under its adjacent MIT license. The only
-upstream source adaptations remove `.ts` import suffixes and replace one `Array.at`
-with an ES2020-compatible indexed read. Exact's app-local store adapter batches
-SQLite writes atomically and reloads its in-memory indexes after a refusal.
+Snapback4 is pinned to **0.2.30**, published from source commit
+`a397218e2332964ebe29aa1d30918c436713cc8a` (root README setup).
+Bake copies the package's Wasm and generated bindings; the Wasm loads from the
+app's immutable assets after first pixel. Each drained device write commits in
+one SQLite transaction; a disk refusal reloads the durable device image.
+Before initial acquisition, queued record edits render as pending local content.
+The browser device uses a new SQLite table; old TypeScript-replica tables remain
+on disk but are not imported. Native partitions retain their existing data.
+
+After baking Messages, `bun test apps/messages/snapback.test.ts` exercises the
+published device and real CLI server, including offline reopen and lost receipts.
 
 Run from the Exact2 root:
 

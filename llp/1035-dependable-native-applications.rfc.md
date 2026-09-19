@@ -358,3 +358,10 @@ documents and statuses are unchanged; the root map and cross-links keep
 their decisions reachable. This focuses the working set on semantics,
 authoring, inspection and native application behavior without raising the
 cap or claiming those designs are superseded.
+
+**2026-09-18:** [LLP 1035.006 — Public UI coverage](1035.006-public-ui-coverage.plan.md)
+extends this program with Charlie's requested grouped implementation and manual
+acceptance checklist. Its working-set link replaces this umbrella's link; this
+document and the existing children remain authoritative to the same extent as
+before. The new Draft plan records coverage choices, not blanket implementation
+approval or completion of the catalog.
