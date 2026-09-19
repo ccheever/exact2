@@ -7208,3 +7208,77 @@ guards, quota and2.5GiB address-space cap. Raw `a991c30f` covers23 files
 `32a7880c` independently match all32 component arrays, history, pixels and input
 joins. A console-only formatting SyntaxError is preserved separately; it caused
 no reader, runtime or source retry.
+
+### 8.132 Linux timer layout: host text callbacks dominate, 2026-09-19
+
+One fresh diagnostic build and one functional cell add scalar count/elapsed
+aggregates around the actual `Measurer::measure_identified` and `measure`
+callbacks. Only `text.rs` and the ignored observer differ from §8.131. Existing
+Timer/Host/Geometry spans and eight-word records stay unchanged. The aggregate
+requires exact active Geometry17→Host20→Timer32 ownership and a closed scope;
+missing metadata is unavailable, distinct from a measured zero. Nested calls,
+unwind, overflow and identity/interval mismatches refuse attribution. Fifty-six
+pure reader controls pass once, including the old real Geometry witness with
+missing metadata; those tests do not execute the Rust callback failure paths.
+
+The full10,000/32 cell passes. Independent reconstruction matches5217 journal
+events,1522 turns/17067 spans,209 closed picture chains and all50 timer/aggregate
+witnesses. All32 strictly enclosed timers have complete attribution, with eight
+in each cohort and no excluded boundary timer. Every loaded/silent timer records
+82 callbacks; all idle/recovery timers explicitly record zero. The advancing
+cohorts are:
+
+| Cohort | Timers / callbacks | Geometry total | Callback total / median per timer | Geometry residual total / median |
+| --- | ---: | ---: | ---: | ---: |
+| Loaded | 8 / 656 | 12.659ms | 11.931ms / 1.413ms | 0.728ms / 0.085ms |
+| Silent producer | 8 / 656 | 14.704ms | 13.731ms / 1.693ms | 0.973ms / 0.123ms |
+
+Callback sums account for94.25%/93.39% of these Geometry totals. The scope
+includes host request/spec identity work, cache access, shaping and width layout;
+it does not separate their costs. Borrowed-run construction, inherited style,
+the layout engine and frame publication outside the callback remain in the
+residual, alongside observer bookkeeping. These are elapsed intervals, not
+CPU or font-lookup-only costs. Aggregate non-overlap is qualified by the Rust
+busy/closed/flags mechanism; the raw data does not contain leaf intervals from
+which an independent callback union could be reconstructed.
+
+Source inspection confirms ordinary measurement builds no ink index or glyph
+raster: those remain lazy paint work. Definite measurements retain their useful
+width layout for paint, and intrinsic probes already keep scalar answers.
+The next narrow candidate is local reuse of consecutive identical font/weight
+metric lookups in the width pass, preserving per-glyph size, fallback, explicit
+line-height and floating-point arithmetic. This diagnostic justifies examining
+text work; it does not measure that candidate's share or establish a gain.
+
+Whole-turn maxima remain13.974/17.909/12.650ms for idle/loaded/recovery, with
+12/17/12 misses above8.333333ms. All eight silent producer turns miss, with
+19.852ms maximum. Loaded/silent Tick medians are2.233/3.065ms. Observer costs,
+startup and final-flush censoring remain separate; no unobserved timing is
+inferred by subtracting the recorder. No latency improvement or120Hz is proved.
+
+Full History9 at0/16 and all four saved RGB buffers match §8.131's corresponding
+states, not its timings. All36 semantic input handlers are in-prefix, including
+18 exact character/draft matches and18 actual signed40-unit wheels. The silent
+prefix contains eight advances0→8, no commands and no credited drain; loaded
+progress is8→16. Finalframe209 is current and clean through5217. All six runtime
+PIDs/four groups retire and port5941 is free after acceptance.
+
+The native process exits−15 after the driver's deliberate post-acceptance
+SIGTERM; the driver and outer transport exit0. The frozen owner report's
+“Native/driver/outer terminal0” and “No cleanup signals” wording is incorrect
+for the native process. Its raw cleanup receipt preserves the signal and exit;
+the functional result and completed cleanup are unchanged.
+
+The observer adds12,296B of fixed scalar field payload and26,624B of flush-array
+payload on the pinned64-bit target, excluding padding, compiler stack and serde
+allocations. Each qualified callback adds two clock reads; there are no leaf
+records. The additional wire field is39B empty and conservatively38,182B at full
+capacity. Existing65,500B line/40MiB journal and all other limits can refuse;
+none is enlarged. The41.119s optimized build captures21 files /12,849,934B
+(`dd3fb1df`, ELF `d36545c5`), preserving all1423 source entries except the exact
+two-file delta and matching prior generated entry/plan/compat, fonts and external
+inputs. Runtime binding `da21ec0c` and raw manifest `f619cd1d` cover the released
+cell and23 copied files /25,035,241B. Lead reconstruction `92c5b3d5` and functional
+comparison `cff35bbb` match all32 component arrays and input/history/pixel checks.
+The final owner report `69abc3ea` / manifest `ddc3c998` preserves58 files
+/50,598,258B, including the original cleanup wording noted above.
