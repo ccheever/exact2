@@ -17,6 +17,7 @@ mod environment;
 mod input;
 pub mod math;
 pub mod motion;
+pub mod place;
 mod placed;
 mod rng;
 pub mod scene;

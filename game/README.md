@@ -107,6 +107,7 @@ and global positions, including parent chains (XZ ignores height). A missing ori
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
 - **Names are first class.** `world.get::<Transform>("fox")` accepts a name or an entity handle; `world:fox` addresses it in the agent. Consuming `query()` yields guarded items (mutable bindings use `mut`); `.iter()` yields `(Entity, item)` with plain references. `.one()` returns an item and refuses multiple matches in all builds.
+  Name lookup is logarithmic in distinct names and resolves duplicate names to the lowest living slot. The index is derived and never saved or hashed.
 - **Iteration is in entity order, always** — storage scans presence bitmasks in
   ascending index order, so a world loaded from a save replays exactly as the one
   that wrote it.
@@ -121,6 +122,13 @@ carrier and spawn a new process. Build
 and packaging reuse the content/artifact receipt.
 
 ## Author-facing edges
+
+`place::{ring, ring_jittered, grid, line, facing, on_top_of, next_to, blockout}`
+supplies deterministic procedural placement. `place::scatter(seed, min, max, count,
+min_distance) -> Result<Vec<Vec3>, ScatterError>` returns a complete packing or a
+named refusal: at most 4,096 points, 64 attempts per point and 1,000,000 distance
+comparisons in total. Worst-case work is quadratic below those bounds. These
+helpers use a private seeded RNG and leave the world's RNG unchanged.
 
 These small changes keep the tick and its ordering explicit. The examples come
 from the games linked above; equivalent spellings preserve their existing pins.

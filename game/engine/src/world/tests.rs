@@ -251,3 +251,69 @@ fn singleton_load_claims_inline_allocation_before_factory() {
         }
     }
 }
+
+#[test]
+fn names_preserve_lowest_live_slot_and_literal_target_precedence() {
+    let mut w = World::new(60, 0);
+    let first = w.spawn_named("same", Transform::at(1.0, 0.0, 0.0));
+    let second = w.spawn_named("same", Transform::at(2.0, 0.0, 0.0));
+    assert_eq!(w.named("same"), Some(first));
+    assert_eq!(w.get::<Transform>("same").unwrap().position.x, 1.0);
+    assert!(w.despawn(first));
+    assert_eq!(w.named("same"), Some(second));
+    let recycled = w.spawn_named("same", Transform::default());
+    assert_eq!(first.index(), recycled.index());
+    assert_ne!(first, recycled);
+    assert!(!w.despawn(first));
+    assert_eq!(w.resolve("same"), Some(recycled));
+    let explicit = format!("same#{}", second.index());
+    assert_eq!(w.resolve(&explicit), Some(second));
+    let literal = w.spawn_named(&explicit, ());
+    assert_eq!(w.resolve(&explicit), Some(literal));
+    let empty = w.spawn_named("", ());
+    assert_eq!(w.named(""), Some(empty));
+    let bytes = w.save();
+    let hash = w.hash();
+    let mut restored = World::new(60, 99);
+    restored.register::<Transform>();
+    restored.spawn_named("discarded", ());
+    restored.load(&bytes).unwrap();
+    assert_eq!(restored.named("discarded"), None);
+    assert_eq!(restored.named("same"), Some(recycled));
+    assert_eq!(restored.resolve(&explicit), Some(literal));
+    assert_eq!(restored.save(), bytes);
+    assert_eq!(restored.hash(), hash);
+    assert!(restored.load(b"bad").is_err());
+    assert_eq!(restored.named("same"), Some(recycled));
+    restored.despawn(recycled);
+    restored.despawn(second);
+    assert_eq!(restored.named("same"), None);
+}
+
+#[test]
+fn name_lookup_survives_interleaved_200k_churn_and_replacement() {
+    let mut w = World::new(60, 0);
+    let mut entities = Vec::new();
+    for i in 0..200_000 {
+        entities.push(w.spawn_named(format!("entity-{i}"), ()));
+    }
+    for i in (0..200_000).step_by(2) {
+        assert!(w.despawn(entities[i]));
+        let new = w.spawn_named(format!("replacement-{i}"), ());
+        assert_eq!(w.named(&format!("entity-{i}")), None);
+        assert_eq!(w.named(&format!("replacement-{i}")), Some(new));
+        assert_ne!(new, entities[i]);
+    }
+    assert_eq!(w.named("entity-199999"), Some(entities[199999]));
+    let bytes = w.save();
+    let mut restored = World::new(60, 1);
+    restored.spawn_named("old-name", ());
+    restored.load(&bytes).unwrap();
+    assert_eq!(restored.named("old-name"), None);
+    assert_eq!(restored.named("entity-199999"), Some(entities[199999]));
+    assert_eq!(
+        restored.named("replacement-199998"),
+        w.named("replacement-199998")
+    );
+    assert_eq!(restored.save(), bytes);
+}

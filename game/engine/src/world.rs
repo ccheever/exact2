@@ -185,6 +185,8 @@ pub struct World {
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
+    // Derived lookup only; never serialized, hashed or observed.
+    names: BTreeMap<String, BTreeSet<Entity>>,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
     registry: BTreeMap<&'static str, Registration>,
@@ -243,6 +245,7 @@ impl World {
                 ..State::default()
             },
             alive_mask: vec![],
+            names: BTreeMap::new(),
             rng,
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
@@ -323,6 +326,9 @@ impl World {
             index,
             generation: slot.generation,
         };
+        if let Some(name) = &slot.name {
+            self.names.entry(name.clone()).or_default().insert(e);
+        }
         let word = index as usize / 64;
         if word >= self.alive_mask.len() {
             self.alive_mask.push(0);
@@ -354,7 +360,13 @@ impl World {
         let slot = &mut self.state.slots[e.index as usize];
         slot.generation = generation;
         slot.alive = false;
-        slot.name = None;
+        if let Some(name) = slot.name.take() {
+            let entries = self.names.get_mut(&name).unwrap();
+            entries.remove(&e);
+            if entries.is_empty() {
+                self.names.remove(&name);
+            }
+        }
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
         self.state.free.0.insert(e.index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
@@ -420,9 +432,9 @@ impl World {
             generation: self.state.slots[index].generation,
         }
     }
-    /// The lowest-index living entity bearing this name.
+    /// The lowest-index living entity bearing this name, in O(log distinct names).
     pub fn named(&self, name: &str) -> Option<Entity> {
-        self.entities().find(|&e| self.name(e) == Some(name))
+        self.names.get(name)?.first().copied()
     }
     /// The name of a living entity.
     pub fn name(&self, e: Entity) -> Option<&str> {
@@ -445,7 +457,7 @@ impl World {
             };
             (s.alive && (name.is_empty() || s.name.as_deref() == Some(name))).then_some(e)
         } else {
-            self.named(target)
+            None
         }
     }
     /// Insert or replace a component, returning false if the entity is gone.
@@ -954,9 +966,17 @@ impl World {
                     let words = self.state.slots.len().div_ceil(64);
                     crate::data::limits::reserve(r, &mut self.alive_mask, words)?;
                     self.alive_mask.resize(words, 0);
+                    self.names.clear();
                     for (index, slot) in self.state.slots.iter().enumerate() {
                         if slot.alive {
                             self.alive_mask[index / 64] |= 1 << (index % 64);
+                            if let Some(name) = &slot.name {
+                                r.claim(512 + name.len())?;
+                                self.names.entry(name.clone()).or_default().insert(Entity {
+                                    index: index as u32,
+                                    generation: slot.generation,
+                                });
+                            }
                         }
                     }
                 }
