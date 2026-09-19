@@ -58,6 +58,24 @@ impl DataSource for Ordered {
 
 #[test]
 fn rejected_ordered_b_waits_for_held_a_and_c_cannot_bypass_b() {
+    // This fixture needs one admitted executor. Parallel Bridge tests share
+    // the process-wide worker cap, including retired workers still exiting;
+    // isolate admission so this test observes ordering, not unrelated overload.
+    const CHILD: &str = "EXACT_EXECUTOR_ORDER_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "abi::executor_order_tests::rejected_ordered_b_waits_for_held_a_and_c_cannot_bypass_b"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let plan = contract::compile(
         r#"component App
   mutation first as shape number
