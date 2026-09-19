@@ -6843,3 +6843,60 @@ Source and raw checks are in
 All recorded check processes retire. These are Mac-hosted CPU checks. Saved
 Linux Messages frames establish repeated clip inputs but not their cost; no
 fresh application timing, actual Linux comparison or 120Hz gain is claimed.
+
+### 8.125 Fresh Linux clip-mask comparison: no demonstrated timing gain, 2026-09-19
+
+One fresh before→after pair at `f6eded3` completes the full ordinary Messages
+workload: 10,000 materialized rows, batch32, three fixed two-second input phases
+and a separate two-second command-free producer interval. The two freshly built
+aarch64 Linux products differ only in `raster.rs`; generated entry, plan,
+compatibility inputs and fonts are byte-identical. Both use the existing VKMS
+1024×768, scale1 CPU recipe and DejaVu Sans, with unchanged time, address-space,
+disk and observer bounds. This is an instrumented, fixed-viewport VM comparison,
+not continuous resizing or physical presentation measurement.
+
+Both cells pass: 36 scored inputs each, including18 actual signed40-unit wheels;
+eight advancing timers in each fixed silent prefix; updated painted suffixes
+inside the loaded prefix; and a complete current final-picture fence. Full
+10,000-row History values match between arms at revisions0 and17, including all
+nine fields. Setup-margin and final RGB buffers are also byte-identical between
+arms. These selected-state comparisons do not replace the independent CPU pixel
+controls in§8.124 or prove every intermediate picture equal.
+
+| Phase | Before FrameBuild total/count | After FrameBuild total/count |
+| --- | ---: | ---: |
+| Idle | 131.482ms /12 | 131.760ms /12 |
+| Loaded | 186.431ms /20 | 186.641ms /19 |
+| Recovery | 112.324ms /12 | 119.042ms /13 |
+
+The table uses turns wholly enclosed by native timestamps at the fixed collector
+prefix boundaries. Their observed whole-turn totals are512.218→515.847ms,
+with39→41 turns exceeding8.333ms. Loaded whole-turn maxima
+remain20.998→20.351ms. Loaded advancing timers differ8→7, painted entry revisions
+are9 versus8, and recovery builds differ12→13. After's boundary-crossing loaded
+turn1540 is separately retained:10.083ms whole /7.644ms FrameBuild. Including it
+gives the broader collected-prefix totals525.930ms whole /445.088ms FrameBuild;
+the strictly enclosed FrameBuild total is437.444ms versus before430.237ms.
+Before's last loaded ACK drains beyond the scored prefix and remains excluded.
+Counts and progress are not
+normalized after the fact. No whole-workload timing benefit is established;
+neither these nested FrameBuild spans nor whole turns isolate raster CPU cost.
+The allocation/ownership proof remains valid, but no repeated gain or120Hz claim
+follows from this pair.
+
+Setup history remains separate: v1 could not open a helper outside the VM share;
+v2 compiled successfully but its capture rejected an expected compatibility digest
+computed with string ordering instead of Rust path-component ordering. The final
+third setup uses the source-derived component order; both builds and full captures
+pass. No application source was changed to repair either setup failure. Both
+runtime coordinators exit0; native SIGTERM is deliberate after observations, and
+all recorded Mac/guest processes and groups retire before the next cell. No
+runtime retry or additional cell ran.
+
+Evidence is `exact2-linux-clip-mask/target/messages-clip-mask-{before,after}-runtime-v3/`:
+copied raw manifests `3b0d521c` and `8f9aea2e` cover46 files /50,956,273B, verified
+by the lead. Build captures are `9cd6ac05` / `1258b732`; source preparation
+`14ba6f1b` and runtime binding `be02145c` remain sealed. Independent lead arithmetic
+is `target/clip-mask-integration/first-pair-selected-raw.json`. No native worker
+activation, general memory bound, quiet-observer estimate or physical120 proof
+is added.
