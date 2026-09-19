@@ -847,8 +847,14 @@ fn worker_placement_orders_the_notebook_through_the_runner_and_releases_held_tur
         root.0.join("temporary"),
     )
     .unwrap();
-    let mut runner =
-        Runner::boot(Plan::decode(PLAN).unwrap(), data, Kernel::with_monospace()).unwrap();
+    let mut runner = Runner::boot(
+        Plan::decode(PLAN).unwrap(),
+        data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
     runner.data().activate().unwrap();
     assert_eq!(runner.data().placement(), Placement::Worker);
     runner.data_ready().unwrap();
