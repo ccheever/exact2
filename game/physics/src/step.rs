@@ -1,3 +1,4 @@
+use crate::changes::Changed;
 use crate::{
     math,
     state::{raw, Entry, Live},
@@ -57,19 +58,15 @@ pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> Colli
         builder.density(1000.0)
     }
 }
-pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
+pub(crate) fn sync(world: &World, live: &mut Live, changed: &Changed) -> bool {
     let mut moved_kinematic = false;
     let mut wake = false;
-    for (e, (b, c, t, parent)) in world
-        .query::<(
-            Option<&Body>,
-            Option<&Collider>,
-            Option<&Transform>,
-            Option<&Parent>,
-        )>()
-        .with_any::<Body, Collider>()
-        .iter()
-    {
+    for &e in &changed.rows {
+        let body = world.get::<Body>(e);
+        let coll = world.get::<Collider>(e);
+        let pose = world.get::<Transform>(e);
+        let parent = world.get::<Parent>(e);
+        let (b, c, t) = (body.as_deref(), coll.as_deref(), pose.as_deref());
         if b.is_some() {
             assert!(
                 parent.is_none(),
@@ -203,8 +200,9 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
                 wake = true;
             }
             if b.is_none() && pose_changed {
+                // Rapier propagates this collider's modification to its contact
+                // islands. Waking every body perturbs unrelated carried state.
                 r.colliders[entry.ch().unwrap()].set_position(math::pose(t));
-                wake = true;
             }
         } else if let Some(h) = entry.ch() {
             r.remove_collider(h);
@@ -219,18 +217,20 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
         }
         entry.pose = t;
     }
-    live.entries.retain(|e, entry| {
-        if world.has::<Body>(*e) || world.has::<Collider>(*e) {
-            return true;
-        }
-        if let Some(h) = entry.bh() {
-            live.rapier.remove_body(h);
-        } else if let Some(h) = entry.ch() {
-            live.rapier.remove_collider(h);
-        }
-        wake = true;
-        false
-    });
+    if changed.membership {
+        live.entries.retain(|e, entry| {
+            if world.has::<Body>(*e) || world.has::<Collider>(*e) {
+                return true;
+            }
+            if let Some(h) = entry.bh() {
+                live.rapier.remove_body(h);
+            } else if let Some(h) = entry.ch() {
+                live.rapier.remove_collider(h);
+            }
+            wake = true;
+            false
+        });
+    }
     if wake {
         live.rapier.wake_up_all(true);
     }
@@ -238,38 +238,35 @@ pub(crate) fn sync(world: &World, live: &mut Live) -> bool {
 }
 // Sleeping ticks still execute exactly one Rapier step. Only skip reflection and
 // writeback when the ordered comparison proves no component/configuration edits.
-fn unchanged_asleep(world: &World, live: &Live) -> bool {
-    let mut previous = live.entries.values();
-    for (e, (b, c, t, parent)) in world
-        .query::<(
-            Option<&Body>,
-            Option<&Collider>,
-            Option<&Transform>,
-            Option<&Parent>,
-        )>()
-        .with_any::<Body, Collider>()
-        .iter()
+fn unchanged_asleep(world: &World, live: &Live, changed: &Changed) -> bool {
+    if changed.parented
+        || live.entries.len() != live.changes.bodies.len() + live.changes.statics.len()
     {
-        let Some(p) = previous.next() else {
+        return false;
+    }
+    if world.query::<&Body>().iter().any(|(_, b)| {
+        (b.kind == BodyKind::Dynamic && !b.asleep)
+            || (b.kind == BodyKind::Kinematic
+                && (b.velocity != exact_game::Vec3::ZERO || b.spin != exact_game::Vec3::ZERO))
+    }) {
+        return false;
+    }
+    for &e in &changed.rows {
+        let Some(p) = live.entries.get(&e) else {
             return false;
         };
-        if parent.is_some()
-            || p.entity != e
-            || p.body.as_ref() != b
-            || p.collider.as_ref() != c
-            || p.pose != t.copied().unwrap_or_default()
+        let body = world.get::<Body>(e);
+        let collider = world.get::<Collider>(e);
+        let pose = world.get::<Transform>(e);
+        let b = body.as_deref();
+        if p.body.as_ref() != b
+            || p.collider.as_ref() != collider.as_deref()
+            || p.pose != pose.as_deref().copied().unwrap_or_default()
         {
             return false;
         }
-        if b.is_some_and(|b| {
-            (b.kind == BodyKind::Dynamic && !b.asleep)
-                || (b.kind == BodyKind::Kinematic
-                    && (b.velocity != exact_game::Vec3::ZERO || b.spin != exact_game::Vec3::ZERO))
-        }) {
-            return false;
-        }
     }
-    previous.next().is_none()
+    true
 }
 #[derive(Default)]
 struct Events(Mutex<Vec<CollisionEvent>>);
@@ -301,8 +298,9 @@ pub fn step(world: &mut World) {
     let mut saved = physics.executor.0.borrow_mut();
     saved.dirty = true;
     let live = saved.live();
+    let changed = live.changes.refresh(world);
     let gravity = math::vector(physics.gravity);
-    if live.rapier.gravity == gravity && unchanged_asleep(world, live) {
+    if live.rapier.gravity == gravity && unchanged_asleep(world, live, &changed) {
         live.rapier.integration_parameters.dt = world.dt();
         live.rapier.step();
         drop(saved);
@@ -310,7 +308,7 @@ pub fn step(world: &mut World) {
         world.resource_mut::<Physics>().events.clear();
         return;
     }
-    let moved_kinematic = sync(world, live);
+    let moved_kinematic = sync(world, live, &changed);
     if live.rapier.gravity != gravity {
         live.rapier.wake_up_all(true);
     }
@@ -322,11 +320,17 @@ pub fn step(world: &mut World) {
     // collisions at the resulting poses so same-tick sensor transitions survive.
     if moved_kinematic {
         let r = &mut live.rapier;
-        for entry in live.entries.values().filter(|e| {
-            e.body
-                .as_ref()
-                .is_some_and(|b| b.kind == BodyKind::Kinematic)
-        }) {
+        for entry in live
+            .changes
+            .bodies
+            .iter()
+            .map(|e| &live.entries[e])
+            .filter(|e| {
+                e.body
+                    .as_ref()
+                    .is_some_and(|b| b.kind == BodyKind::Kinematic)
+            })
+        {
             if let Some(h) = entry.ch() {
                 let co = &mut r.colliders[h];
                 co.set_position(*co.position());
@@ -359,13 +363,16 @@ pub fn step(world: &mut World) {
     }
     events.sort_by_key(|e| (e.a, e.b, e.began));
     events.dedup();
-    live.reverse.retain(|h, _| {
-        live.rapier
-            .colliders
-            .contains(ColliderHandle::from_raw_parts(h[0], h[1]))
-    });
+    if changed.membership {
+        live.reverse.retain(|h, _| {
+            live.rapier
+                .colliders
+                .contains(ColliderHandle::from_raw_parts(h[0], h[1]))
+        });
+    }
     let mut updates = Vec::new();
-    for entry in live.entries.values_mut() {
+    for e in &live.changes.bodies {
+        let entry = live.entries.get_mut(e).unwrap();
         let Some(handle) = entry.bh() else {
             continue;
         };
@@ -403,3 +410,7 @@ pub fn step(world: &mut World) {
     }
     world.resource_mut::<Physics>().events = events;
 }
+
+#[cfg(test)]
+#[path = "step_tests.rs"]
+mod tests;

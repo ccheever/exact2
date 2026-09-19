@@ -23,11 +23,22 @@ actual `displacement` and `grounded` state.
   Drop the scope before structural edits or `step`; the next scope reuses it.
   Body/Collider/Transform/Parent write revisions (including membership and load)
   invalidate it, so same-tick edits are visible on the next operation. Unchanged
-  queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
+  queries/ticks do not rebuild. Static and body dirtiness are tracked separately;
+  retained geometry uses a canonical traversal certificate, with a full rebuild
+  when its partition cannot be certified. Bodies sharing pages with statics or
+  ancestors do not alone force static reflection. Membership changes and the
+  worst relevant edits still cost a full canonical rebuild.
   The free query functions are thin one-shot calls through this same cache.
   The capsule handle uses the shared scene. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
   the character's rigid collider is a sensor.
+
+Physics admits at most 200,000 participating entities (the union of Body and
+Collider, counting each entity once). Solver reflection, queries and controller
+geometry refuse larger worlds before construction. Retained memory and worst
+rebuild work are O(total physics geometry), including all mesh/terrain samples;
+query traversal has no separate hard visit budget. This is not a constant-time
+claim for edits or character movement.
 
 EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
 that changes the next physics step; it cannot be migrated and is refused by name

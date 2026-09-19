@@ -45,7 +45,7 @@ has not yet been certified.
    instead of partial vectors, and uses engine asset bounds for placement.
 2. Incremental observation: carried with engine storage and hierarchy semantics.
 3. Typed kinds and hot joins: carried with engine Target and removal semantics.
-4. Static physics split and fixes: pending.
+4. Static physics split and fixes: adapted to CapsuleHandle and decoded snapshot clones.
 5. Ownership, restore clock anchor, EXCAP v2: pending.
 6. Three-way authored merge and EXSIM v7: pending. Full typed scratch decode must
    precede setup/authored merge; restore tick/time agreement must be exact.
@@ -105,3 +105,32 @@ and compile diagnostic tests remain. The implementation's actual nesting bound i
 32, rather than the brief's proposed 64; no reason was found to expand it.
 
 Kind gate: 371 engine tests pass (6 ignored diagnostics), game and eight app clippy/fmt pass, 28 Linux normal/paranoid executions preserve pins, Bun 115 pass/1 skip, caps and boot pass. Full workspace and app test reds remain the recorded adapter-dependent rendering tests.
+
+Physics integration retains the engine's capsule target validation, displacement
+result, dual-controller refusal and snapshot-through-decode clone. The incoming
+implementation separates static/body dirtiness but retains one query collider set
+and canonical binned traversal certificate; it is not literally two independent
+query scenes. New admission counts the union once and runs before solver, query
+or controller geometry preparation. Boundary and over-limit tests include a
+controller that creates its own body/collider. Full rebuilds and total geometry
+memory (including terrain samples) remain the unfavorable bound.
+
+Physics repair rounds: incoming query tests still used the removed Character /
+move_character names; adapted them to CapsuleController and capsule.step. The
+full-scan snapshot oracle then refused an unregistered Parent on decode; added
+explicit registration in that test's destination, retaining every equality check.
+Physics tests now pass 48, with six opt-in timing diagnostics pending below.
+
+Physics release timing diagnostics: all six pass on this x86-64 box. Median
+microseconds with 20k statics: 100 bodies step 88.502, 1k checked rays 594.351,
+1k overlaps 695.793; single-static teleport with checked ray/overlap 3807.746
+(1000 edits total 3817.426 ms). One controller batch 1.171, eight 372.388;
+interleaved body/static pages with one controller: batch 2.619, solver 735.903,
+checked ray/overlap 744.486. Character-only batches: one median 18.828/p95 47.632,
+eight median 391.792/p95 31846.755. Changing scene extrema by teleport:
+median 4617.675/p95 4933.463 versus ordinary outside-scenery movement
+17.757/17.877. Retained 1024² terrain: first query 8191.275, first controller
+7923.414; RSS world/query/controller 12516/14988/20216 KiB. These are measurements
+of the merged code, not speedup claims; the canonical-fallback tail remains.
+
+Physics full gate: game and eight app clippy/fmt pass; 28 Linux normal/paranoid executions retain all world and save pins; Bun 115 pass/1 skip, caps and boot pass. Workspace/consumer test failures remain only the recorded GPU adapter refusals.
