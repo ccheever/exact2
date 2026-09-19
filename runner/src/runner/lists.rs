@@ -134,11 +134,11 @@ impl<D: DataSource> Runner<D> {
         };
         // Only ordinary settlement wakes deferred collection edges; geometry-only
         // feedback must not replenish this work.
-        if settled
-            && let Err(error) = self.wake_deferred_edges()
-        {
-            self.poison();
-            return Err(error);
+        if settled {
+            if let Err(error) = self.wake_deferred_edges() {
+                self.poison();
+                return Err(error);
+            }
         }
         match self.apply(ops) {
             Ok(receipt) => {

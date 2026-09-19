@@ -429,8 +429,14 @@ impl ListWindow {
                     // the inline axis, and absolute positioning already makes
                     // the wrapper a formatting context: a clip there is only a
                     // clipping group per row for the compositor to carry.
-                    ("overflow_x", Value::str(if self.measured { "visible" } else { "hidden" })),
-                    ("overflow_y", Value::str(if self.measured { "visible" } else { "hidden" })),
+                    (
+                        "overflow_x",
+                        Value::str(if self.measured { "visible" } else { "hidden" }),
+                    ),
+                    (
+                        "overflow_y",
+                        Value::str(if self.measured { "visible" } else { "hidden" }),
+                    ),
                 ],
             )?;
             u.ops.push(Op::SetProp {

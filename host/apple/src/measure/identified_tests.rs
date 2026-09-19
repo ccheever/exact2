@@ -146,14 +146,22 @@ fn both_axis_offers_are_exact_and_intrinsic_kinds_are_distinct() {
     for &(w, h) in &pairs {
         m.measure_identified(&stamp, &request(&runs, w, h));
     }
-    assert_eq!(state.borrow().calls, 16, "a full pass of offers is retained");
+    assert_eq!(
+        state.borrow().calls,
+        16,
+        "a full pass of offers is retained"
+    );
     m.measure_identified(
         &stamp,
         &request(&runs, AxisOffer::MaxContent, AxisOffer::MaxContent),
     );
     assert_eq!(state.borrow().calls, 17);
     m.measure_identified(&stamp, &request(&runs, pairs[0].0, pairs[0].1));
-    assert_eq!(state.borrow().calls, 18, "the seventeenth offer evicts the oldest");
+    assert_eq!(
+        state.borrow().calls,
+        18,
+        "the seventeenth offer evicts the oldest"
+    );
 }
 
 #[test]

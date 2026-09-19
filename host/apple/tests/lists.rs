@@ -132,7 +132,10 @@ fn one_report_settles_the_window() {
         .unwrap();
     assert_eq!(second.frame.y, 80.0, "corrected within the same report");
     let again = report(&mut host, list, 0.0);
-    assert!(!again.contains("\"op\":\""), "nothing left to settle: {again}");
+    assert!(
+        !again.contains("\"op\":\""),
+        "nothing left to settle: {again}"
+    );
 }
 
 /// A row that has left the window is not worth a relayout of its own: it is
@@ -147,7 +150,10 @@ fn a_row_past_the_window_waits_for_the_next_pass_that_mounts_one() {
     assert!(host.runner().kernel().find_by_test_id("row-0").is_empty());
     // Window [104, 824): row 1 is past it and no new row is inside it.
     let idle = report(&mut host, list, 344.0);
-    assert!(!idle.contains("\"op\":\""), "no pass for a retirement alone: {idle}");
+    assert!(
+        !idle.contains("\"op\":\""),
+        "no pass for a retirement alone: {idle}"
+    );
     assert!(!host.runner().kernel().find_by_test_id("row-1").is_empty());
     // Window [106, 826): row 32 enters, and row 1 goes with that pass.
     let next = report(&mut host, list, 346.0);

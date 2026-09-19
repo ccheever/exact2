@@ -730,7 +730,13 @@ impl<D: DataSource> Host<D> {
 
     /// The offset the runner last asked this list to take, if it has.
     fn list_scroll_top(&self, view: ViewId) -> Option<f64> {
-        match self.runner.kernel().node(view)?.props.get(PropId::ScrollTop) {
+        match self
+            .runner
+            .kernel()
+            .node(view)?
+            .props
+            .get(PropId::ScrollTop)
+        {
             Some(PropValue::Float(top)) => Some(*top),
             Some(PropValue::Int(top)) => Some(*top as f64),
             _ => None,
