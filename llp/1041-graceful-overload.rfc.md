@@ -6551,3 +6551,64 @@ not an allocation-free or memory-reduction result. Evidence is macOS execution
 of the Linux CPU painter at scale1, not Linux/VM/GPU presentation. Full interactive
 Messages capacity/action routing and native performance remain open; no120Hz
 claim follows from pixel parity.
+
+### 8.118 Current Linux Messages completes the full fixed workload, 2026-09-19
+
+One fresh CPU/VKMS run at6956be1 now reaches the real10,000-row tail and completes
+idle/load/recovery, the separate command-free producer interval and the final
+acknowledged-image fence. Setup takes4.233593s under the unchanged20s allowance:
+the100-row endpoint is frame128/scroll16211.400391, the10,000-row endpoint is
+frame133/337108.906250, then frame135 establishes the existing80px margin.
+This is a current-source correctness result. It does not retroactively establish
+the cause of the old failed native capture or provide a matched performance gain.
+
+The ordinary ReusableMessagesStress workload stays full10,000/batch32, windowed,
+unbounded data, cursorNone and eagerfalse at1024x768/scale1. The two complete
+History9 snapshots have10,000 exact row keys and checked UTF8 body totals:
+revision0/changed0/2,342,860B and revision16/changed32/2,344,844B. Each fixed2s
+phase delivers six typed keys and six alternating actual40px wheels. All36
+handlers and18 wheel movements join inside their conservative collector prefixes.
+The idle final picture's later drain remains separate. Eight silent timers advance
+revision0 to8 with zero input; eight loaded timers advance8 to16. Twenty installed
+loaded pictures carry their own newer History and visible changed-suffix geometry,
+not merely the revision of a newer live state at acknowledgement.
+
+| Phase | Enclosed turns | Whole wall sum ms | Whole max ms | Above8.333333ms |
+|---|---:|---:|---:|---:|
+| idle | 157 | 156.030309 | 13.408172 | 12 |
+| loaded | 234 | 240.453173 | 18.428273 | 16 |
+| recovery | 53 | 148.148812 | 12.125376 | 13 |
+
+These include cheap no-work turns and nested observer work; they are neither CPU
+time nor a frame-rate distribution. Subtracting only the recorded union of observer,
+KMS-wait and VNC intervals leaves maxima4.948351/10.373411/4.340807ms and0/5/0
+misses. That residual is observed wall time, not a prediction of an uninstrumented
+app. Native input to first covering ACK maxima remain23.474/30.431/22.784ms;
+coalescing does not prove individual physical visibility. Loaded and silent timer
+calls alone max3.803/3.873ms, a narrower scope than the whole turn.
+
+Raw stderr exactly reconstructs5,001 events,1,358 closed turns,15,147 spans and196
+complete paint/submit/ready/ACK chains. Final frame196/input1403 is acknowledged
+at sequence4945, with2,359,296 captured RGB bytes exactly matching its painted
+hash. A later clean, unchanged timer4999 needs no new pixels; its timing turn
+closes before the final5001 fence. The last observer flush remains censored.
+The app is deliberately SIGTERMed after observations, native exit-15; driver and
+outer exit0. Six recorded PIDs/four groups are absent and port5941 is free.
+
+The fresh release ELF is d4d72b5b. Actual generated entry/plan match the intended
+workload; compat930f8a9b differs from the historical expectation because the
+data-crate digest includes the changed tests/reuse.rs. Other data inputs match.
+The first launcher refused an obsolete738 source-pin literal before native Popen;
+its failed archive remains intact. The corrected binding changes only that pin,
+with old-config behavioral refusal and nine passing pure controls. There is no
+rebuild, cap change, retry of a failed native cell or observer-policy change.
+
+Build evidence is `target/messages-linux-vkms-current-6956-build-v1/`; the final
+44-file/48,760,945B runtime freeze is `target/messages-linux-vkms-current-6956-runtime-v2/`,
+manifest5d6154a0/report140caf75. The lead independently reconstructs raw counts,
+phase costs, nested exclusions, inputs, histories and final RGB; its initial
+overstrict assertion forbidding any trailing timer is preserved and corrected
+to the existing clean-state/closed-turn rule. The observer's nonquiet=true label
+remains. This is one virtual-display cell with no measured resize and no physical
+120Hz proof. The ordinary path is still synchronous; full-viewport region capacity,
+retained row actions and native worker-backed Messages activation remain open.
