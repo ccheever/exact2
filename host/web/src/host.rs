@@ -457,7 +457,7 @@ impl<D: DataSource> Host<D> {
         self.complete(batch, error.map(str::to_string))
     }
 
-    fn emit_receipts(&mut self, receipts: &[Timed], mut batch: &mut Batch) {
+    fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
@@ -498,10 +498,10 @@ impl<D: DataSource> Host<D> {
                 std::slice::from_ref(r),
                 t.at_ms / 1000.0,
             );
-            Self::emit_lowered(&mut batch, synced);
-            self.reconcile_height_drags(&mut batch);
-            self.reconcile_transform_drags(&mut batch);
-            self.emit_springs(&mut batch, &[], t.at_ms / 1000.0);
+            Self::emit_lowered(batch, synced);
+            self.reconcile_height_drags(batch);
+            self.reconcile_transform_drags(batch);
+            self.emit_springs(batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
@@ -518,9 +518,9 @@ impl<D: DataSource> Host<D> {
             batch.roots(&roots);
         }
         if !receipts.is_empty() {
-            self.emit_height_drags(&mut batch);
-            self.emit_transform_drags(&mut batch);
-            self.emit_reorder_drags(&mut batch);
+            self.emit_height_drags(batch);
+            self.emit_transform_drags(batch);
+            self.emit_reorder_drags(batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
