@@ -26,7 +26,8 @@
   readers must account their allocations through `Reader::claim` too.
 
 The [small example](../README.md#the-programming-model) is this crate's
-runnable doc-test. `Game::Args` is a struct with `#[derive(Args)]`: declaration order
+runnable doc-test. Only rustdoc includes the guide; editing it does not rebuild
+the runtime. `Game::Args` is a struct with `#[derive(Args)]`: declaration order
 is positional order, `#[live]` avoids rebuilding, decoding refuses before mutation.
 Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
 bound values for saves and agent state.
@@ -102,7 +103,9 @@ restart a completed controller. Pose inspection validates both history lengths.
 
 Animation is explicit: `let motion = animation::step(w)` samples once; its owned
 result lets the game consume markers and call `transform.translate_local(...)`
-without holding playback leases. Registration installs no callback. Attachments
+without holding playback leases. Controller registration never steps animation.
+SocketFollow registration installs pose resolution and boundary maintenance
+together; worlds without attachments link neither callback. Attachments
 choose their joint with `SocketFollow::new("fox", "head").offset(t)` and never
 write simulation transforms. `animation::socket(w, target, joint)` returns the current
 world-space tick endpoint; the renderer composes displayed attachments from the

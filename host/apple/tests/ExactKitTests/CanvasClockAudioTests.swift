@@ -60,6 +60,14 @@ final class CanvasClockAudioTests: XCTestCase {
         }
     }
 
+    func testSecondRestoreReplacesContactsIncludingEmptySave() {
+        let m=module(), s=session(module()); defer { s.destroy() }
+        let e=s.canvases.entries[100]!
+        e.controls[7]=SurfaceControl(node:101,name:"jump",offset:.zero,position:.zero)
+        e.restorePending=true; restoreState(true); s.canvases.finishRestore(m,e)
+        XCTAssertTrue(e.controls.isEmpty)
+    }
+
     private func module() -> GpuModule {
         let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, _, _ in 0 },
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },

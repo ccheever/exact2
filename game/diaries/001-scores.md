@@ -206,3 +206,51 @@ The asks, concrete on both cards:
 
 Kept, again: the proof through the product's agent, the save, and the Contract HUD.
 Raw pacing and landmark motion are measured provisionally; neither establishes a perceptual winner.
+
+## Fifth score (2026-09-18, 23:00) — Beacons rebuilt a fifth time, after the fourth score's asks landed
+
+Same brief, same two judges (sol and grok, blind to each other, reading only the checkout at
+ca24f7d7), a fresh builder with no memory of the earlier builds: `game/diaries/001-beacons-exact-r5.md`,
+`game/games/beacons/`. Six minutes and three seconds from the builder's first clock receipt to a
+passing proof of all six steps, 137 lines of logic and 48 of Contract, one pixel inspection after
+the pass, no engine change, no failing gameplay assertion.
+
+| | Godot 4.7 | three.js r186 | **exact2 r5** |
+|---|---|---|---|
+| sol | 26 | 32 | **28** |
+| grok | 26 | 31 | **29** |
+
+Per row (sol / grok): Small 4/4, Direct 4/4, Provable 5/5, Repeatable 4/5, Loop 3/3, Feel 4/4, UI 4/4.
+Against the fourth score (30/30, three.js 31, Godot 24/26) exact2 lost two points and three.js gained one.
+
+What cost the points, in the judges' words, and where it points:
+
+1. **The starter fought a confined author.** `bun game/new.mjs` writes shared state — `game/.shells/`,
+   other games' manifests, possibly the lockfile — so a builder told to touch nothing outside its game
+   hand-copied the template and wrote a 68-line nested Cargo workspace; both judges charged that
+   scaffold to the game (Small, Direct) and grok's first ask is that the starter write only the three
+   authored files inside the new game, with shells, manifests and pins generated. (R11 is building
+   exactly that.)
+2. **The inner loop is a 37-second proof.** Warm module compile is 2.96 s, but the proof starts three
+   Chrome sessions and packages the bake every run — 37.7 s warm, 136 s cold, against Godot's 10.1 s
+   and three.js's 18 s — and the builder never ran the Linux proof or the dev watcher, so the sub-second
+   headless path the fourth round built was not the path a fresh builder actually took. Both judges:
+   the *default* proof must be the GPU-less, HUD-complete one under a second, Chrome only for the
+   screenshot step, and one command must say so.
+3. **Empty pins read as unverified.** `pins.json` shipped as `{"at": "unverified"}` because the builder
+   never ran `--repin`; a normal proof should refuse or say UNVERIFIED, and the first pass should fill
+   the pins (sol's third ask).
+4. Direct's missing point (both): `world(7, paused, again)` is positional; the publication is a
+   separate resource declaration; the material sync is still a query-and-`unwrap` loop; grok sketches
+   `w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit)` returning a mutable handle.
+5. Feel 4 (both, provisional): the shipped 60 Hz row's p95 is a tick wait (17 ms) and the landmark CV
+   0.265 loses to interpolated Godot's 0.142; r5 overrode the template's 120 Hz with 60. Grok: the
+   template's 120 Hz is the default and a 60 Hz game is an explicit opt-out; the camera and follow are
+   judged on landmark pixels in a quiet sitting.
+6. UI 4: three.js's DOM gets hover, focus-visible and responsive polish for free; Contract needs them
+   as first-class defaults, and the twins' look (grid, fog, halo, shadow bias) as one-liners.
+
+Kept, again, by both: the proof through the product's agent (Provable 5), byte-identical fresh-process
+continuation (Repeatable), the Contract HUD with real accessibility. The engine's API is judged to
+express the brief "substantially better than earlier builds"; the points went to tooling — the
+starter, the proof's shape, the pins — not to the engine's ideas.

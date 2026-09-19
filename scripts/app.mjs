@@ -42,24 +42,26 @@ export function resolveApp(nameOrCrate) {
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
-  gameDefaults(dir);
+  const manifest = readManifest(dir, name);
   let workspace = ROOT;
-  if (outside) {
-    // An app inside an enclosing workspace (a game under game/games) builds with that
-    // workspace's root; one with no manifest above it is its own workspace, as before.
+  if (outside && manifest.game === undefined) {
+    // Ordinary external apps may belong to an enclosing Cargo workspace. Games
+    // always use their generated workspace below and need no Cargo process here.
     const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
     workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
   }
-  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
-  const manifest = readManifest(dir, name);
   if (dirname(dir) === resolve(workspace, 'games') && manifest.game === undefined) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
-  if (manifest.game !== undefined) name = gameShells(dir, manifest.game, workspace);
+  if (manifest.game !== undefined) {
+    name = gameShells(dir, manifest.game, resolve(ROOT, 'game'));
+    workspace = resolve(dir, '.shells');
+  }
+  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
   let packages;
   const cargoPackage = kind => {
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', '--no-deps', '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', ...(manifest.game ? [] : ['--no-deps', '--offline']), '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }
@@ -286,7 +288,8 @@ export function unitDepInfo(message, workspace) {
       if (!existsSync(candidate)) continue;
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
-      if (compilerPaths('unit: ' + output, workspace).includes(candidate)
+      // rustc leaves the single output path raw, but escapes dependency paths.
+      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
           && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) return candidate;
     }
   }
@@ -308,7 +311,8 @@ export function unitDepInfo(message, workspace) {
       if (!existsSync(candidate)) continue;
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
-      if (compilerPaths('unit: ' + output, workspace).includes(candidate)
+      // rustc leaves the single output path raw, but escapes dependency paths.
+      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
           && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
     }
     if (matches.length === 1) return matches[0];

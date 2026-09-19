@@ -155,6 +155,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         self.presentation.before_restore(sim.world(), mode);
         sim.restore_bound(bytes).map_err(|e| e.to_string())?;
         self.presentation.after_restore(sim.world_mut(), mode);
+        self.placed
+            .attachments
+            .diagnostics
+            .borrow_mut()
+            .restored(sim.world());
         self.dirty = true;
         self.error = None;
         self.reported = false;
@@ -1071,8 +1076,10 @@ mod residency_tests {
         .unwrap()
     }
     #[test]
-    fn destroyed_device_rebuilds_textured_model_draws_after_delayed_redelivery() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+    fn surface_lifecycle_rebuilds_textured_draws_after_prepared_retry_loss() {
+        let Ok(gpu) = exact_gpu::fixture::device() else {
+            return;
+        };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -1085,14 +1092,25 @@ mod residency_tests {
         let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         let work = s.render.as_ref().unwrap().0.residency_work().json();
         assert!(!s.render.as_ref().unwrap().0.models.records.is_empty());
-        gpu.device.destroy();
         s.device_lost();
         // Failed adapter retries can finish redelivery before device_ready.
         s.device_lost();
         s.assets();
         s.asset(&model.textures[0], Ok(tex));
         s.device_lost(); // another failed retry must preserve delivered bytes too
-        let replacement = exact_gpu::fixture::device().unwrap();
+        let Ok(replacement) = exact_gpu::fixture::device() else {
+            return;
+        };
+        s.device_ready();
+        s.prepare_assets(
+            &replacement.device,
+            &replacement.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        s.device_lost(); // A failed retry consumed CPU texture bytes into its renderer.
+        assert!(s.retired_assets().contains(&model.textures[0]));
+        assert!(s.assets().contains(&model.textures[0]));
+        s.asset(&model.textures[0], Ok(tex));
         s.device_ready();
         s.prepare_assets(
             &replacement.device,

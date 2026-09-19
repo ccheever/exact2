@@ -370,8 +370,35 @@ impl Owner {
         self.chain = chain;
     }
 }
-pub(crate) type AttachmentDiagnostics =
-    std::rc::Rc<std::cell::RefCell<std::collections::BTreeMap<Entity, String>>>;
+#[derive(Default)]
+pub(crate) struct DiagnosticRegistry {
+    world: Option<exact_game::WorldId>,
+    messages: std::collections::BTreeMap<(Entity, &'static str), String>,
+}
+impl std::ops::Deref for DiagnosticRegistry {
+    type Target = std::collections::BTreeMap<(Entity, &'static str), String>;
+    fn deref(&self) -> &Self::Target {
+        &self.messages
+    }
+}
+impl std::ops::DerefMut for DiagnosticRegistry {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.messages
+    }
+}
+impl DiagnosticRegistry {
+    pub(crate) fn restored(&mut self, w: &World) {
+        self.world = Some(w.id());
+    }
+    pub(crate) fn observe(&mut self, w: &World) {
+        if self.world.as_ref() != Some(&w.id()) {
+            self.messages.clear();
+            self.restored(w);
+        }
+        self.messages.retain(|(e, _), _| w.contains(*e));
+    }
+}
+pub(crate) type AttachmentDiagnostics = std::rc::Rc<std::cell::RefCell<DiagnosticRegistry>>;
 struct Attachment {
     history: History,
     owner: Owner,
@@ -393,20 +420,20 @@ impl Attachments {
         self.items.clear();
         self.output.clear();
     }
-    fn warn(&mut self, e: Entity, message: impl FnOnce() -> String) {
-        if let std::collections::btree_map::Entry::Vacant(entry) =
-            self.diagnostics.borrow_mut().entry(e)
-        {
-            let message = message();
-            // Presentation may run on only some hosts. Never put its diagnostics
-            // in the simulation journal, which is part of continuation saves.
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::warn_1(&message.clone().into());
-            #[cfg(not(target_arch = "wasm32"))]
-            eprintln!("{message}");
-            entry.insert(message);
+    fn warn(&mut self, e: Entity, identity: &'static str, message: impl FnOnce() -> String) {
+        let message = message();
+        let mut diagnostics = self.diagnostics.borrow_mut();
+        if diagnostics.get(&(e, identity)) == Some(&message) {
+            return;
         }
+        // Host-only diagnostics never enter continuation saves.
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::warn_1(&message.clone().into());
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("{message}");
+        diagnostics.insert((e, identity), message);
     }
+
     pub fn feed(
         &mut self,
         w: &World,
@@ -419,7 +446,7 @@ impl Attachments {
             self.owners.clear();
         }
         self.owners.retain(|e, _| w.contains(*e));
-        self.diagnostics.borrow_mut().retain(|e, _| w.contains(*e));
+        self.diagnostics.borrow_mut().observe(w);
         for owner in self.owners.values_mut() {
             owner.update(w, next_tick, parent_changed);
         }
@@ -450,7 +477,7 @@ impl Attachments {
                     w.current_global(e).map(Mat4::from)
                 };
                 if let (Some(held), Some(target)) = (held, target) {
-                    self.warn(e, || format!("SocketFollow `{}`: socket target `{}` has a stale pose; keeping last composed pose", w.name(e).unwrap_or("unnamed"), w.name(target).unwrap_or("unnamed")));
+                    self.warn(e, "stale", || format!("SocketFollow `{}`: socket target `{}` has a stale pose; keeping last composed pose", w.name(e).unwrap_or("unnamed"), w.name(target).unwrap_or("unnamed")));
                     if self
                         .items
                         .get(at)
@@ -481,7 +508,7 @@ impl Attachments {
             let target = match resolved {
                 Ok(target) => target,
                 Err(error) => {
-                    self.warn(e, || {
+                    self.warn(e, "socket", || {
                         format!(
                             "SocketFollow `{}`: {error}; using authored Transform",
                             w.name(e).unwrap_or("unnamed")
@@ -491,7 +518,7 @@ impl Attachments {
                 }
             };
             let (Some(home), Some(_)) = (pose(w, e), w.get::<Transform>(target)) else {
-                self.warn(e, || {
+                self.warn(e, "transform", || {
                     format!(
                         "SocketFollow `{}`: unresolved Transform",
                         w.name(e).unwrap_or("unnamed")
@@ -664,4 +691,23 @@ pub(crate) fn displayed_matrix(
         .iter()
         .find(|a| a.entity == entity)
         .map_or_else(|| matrix(fallback), |a| a.matrix)
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn distinct_diagnostic_identities_do_not_replace_each_other() {
+        let mut w = World::new(60, 0);
+        let e = w.spawn(Transform::default());
+        let mut a = Attachments::default();
+        a.warn(e, "socket", || "missing joint".into());
+        a.warn(e, "stale", || "stale pose".into());
+        a.warn(e, "socket", || "missing target".into());
+        a.warn(e, "stale", || "stale pose".into());
+        let registry = a.diagnostics.borrow();
+        assert_eq!(registry.len(), 2);
+        assert_eq!(registry[&(e, "socket")], "missing target");
+        assert_eq!(registry[&(e, "stale")], "stale pose");
+    }
 }

@@ -45,6 +45,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       // settlement barrier. This probe exists only in this proof's HTTP response.
       const source = `let fixtureDevice; const fixtureErrors=[];
       let fixtureFailAdapter = false, fixtureAdapterFailures = 0;
+      let fixtureLoseReplacement = false, replacementLosses = 0, lossDuringSecondRecovery = false;
       const fixtureAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
       navigator.gpu.requestAdapter = async (...args) => {
         if (fixtureFailAdapter) { fixtureFailAdapter = false; fixtureAdapterFailures++; return null; }
@@ -52,7 +53,9 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       };
       const fixtureRequest = GPUAdapter.prototype.requestDevice;
       GPUAdapter.prototype.requestDevice = async function(...args) {
-        fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message)); return fixtureDevice;
+        fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message));
+        if (fixtureLoseReplacement) { fixtureLoseReplacement=false; replacementLosses++; lossDuringSecondRecovery=!!recoveringDevice; fixtureDevice.destroy(); await fixtureDevice.lost; }
+        return fixtureDevice;
       };
       document.addEventListener('keydown', async event => {
         if(event.code !== 'KeyL') return;
@@ -69,11 +72,17 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
           for(let retry=0; exact.gpu.recovery?.status !== 'recovered' && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
           if(exact.gpu.recovery?.status !== 'recovered' || fixtureAdapterFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
           await settled();
+          fixtureLoseReplacement = true;
+          fixtureDevice.destroy(); await fixtureDevice.lost;
+          await new Promise(resolve=>setTimeout(resolve,0)); await recoveringDevice;
+          for(let retry=0; (replacementLosses!==1 || exact.gpu.recovery?.status!=='recovered') && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
+          if(replacementLosses!==1 || !lossDuringSecondRecovery || exact.gpu.recovery?.status!=='recovered') throw new Error('loss during second recovery did not retry');
+          await settled();
           for(const entry of surfaces.values()) render(entry, 0);
           await fixtureDevice.queue.onSubmittedWorkDone();
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
           const entry = [...surfaces.values()][0];
-          fetch('/__loss-probe', {method:'POST',body:JSON.stringify({healthyNoCutover,errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
+          fetch('/__loss-probe', {method:'POST',body:JSON.stringify({healthyNoCutover,lossDuringSecondRecovery,replacementLosses,errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
         } catch(error) { fetch('/__loss-probe', {method:'POST',body:JSON.stringify({error:String(error)})}); }
       });
 ` + await file.text();
@@ -127,6 +136,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       const lost = new Promise(resolve=>lossDone=resolve);
       await restored.type('world', {key:'KeyL'});
       const recovered = await Promise.race([lost, new Promise((_,reject)=>setTimeout(()=>reject(new Error('device recovery timeout')),20000))]);
+      check('loss during second recovery retries one replacement device',recovered.lossDuringSecondRecovery===true && recovered.replacementLosses===1,recovered);
       check('healthy device recovery attaches no replacement canvases',recovered.healthyNoCutover===true,recovered);
       check('destroyed GPUDevice recovers content and reuploads texture', !recovered.error && !recovered.errors?.length && recovered.world?.hash===recoveryHash && recovered.world?.assets.every(a=>a.state==='Loaded') && textureRequests>requestsBefore, recovered);
       await restored.screenshot(afterLoss);
@@ -134,7 +144,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       check('device recovery presents identical pixels', before.width===after.width && before.height===after.height && Buffer.from(before.data).equals(Buffer.from(after.data)));
       check('recovery has no readiness reasons', recovered.world?.ready && recovered.world.readyReasons.length===0, recovered.world?.readyReasons);
       check('replacement device uploads only retained assets and re-prepares pipelines', equal(recovered.world?.gpu.beforeReady,at30.gpu.beforeReady) && Object.values(recovered.world.gpu.afterReady).every(n=>n===0), recovered.world?.gpu);
-      check('one retained texture is fetched exactly once', textureRequests===requestsBefore+1, {before:requestsBefore,after:textureRequests});
+      check('retained texture is fetched once per loss epoch', textureRequests===requestsBefore+2+recovered.replacementLosses, {before:requestsBefore,after:textureRequests});
     }
     const layout=await restored.layout('world:crate');
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);

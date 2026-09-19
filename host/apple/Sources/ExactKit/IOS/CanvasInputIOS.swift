@@ -36,7 +36,7 @@ final class CanvasInput {
         for touch in values where touch.view === source || source.isSurfaceControl {
             let token = ObjectIdentifier(touch)
             if phase == "down" {
-                if source.isSurfaceControl || source.ownsSurfaceControl { _ = source.becomeFirstResponder() } else { _ = view.focusCanvas() }
+                _ = (source.isSurfaceControl ? source : view).focusSurfacePointer()
                 touches[token] = nextTouch
                 nextTouch += 1
             }
@@ -135,13 +135,13 @@ extension Agent {
             return ok ? ["tapped": node.id, "hover": true, "at": at, "delivery": "recognized"] : ["error": "surface refused pointer"]
         }
         if phase == nil {
-            guard (node.isSurfaceControl || node.focusCanvas()), send("down"), send("up") else { return ["error": "surface refused pointer"] }
+            guard node.focusSurfacePointer(), send("down"), send("up") else { return ["error": "surface refused pointer"] }
             return ["tapped": node.id, "at": at, "delivery": "recognized"]
         }
         switch phase {
         case "down":
             guard contact == nil else { return ["error": "a contact is already down; up or cancel it first"] }
-            guard (node.isSurfaceControl || node.focusCanvas()), send("down") else { return ["error": "surface refused pointer"] }
+            guard node.focusSurfacePointer(), send("down") else { return ["error": "surface refused pointer"] }
             contact = point; canvasContact = node
             return ["contact": node.id, "phase": "down", "at": at, "delivery": "recognized"]
         case "move", "up", "cancel":

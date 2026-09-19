@@ -246,7 +246,7 @@ function sourcePathspec(repo, app, exactRoot) {
   const workspace = canonicalPath(app.workspace ?? app.dir);
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
-    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'),
+    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'), resolve(app.dir, '.shells'),
     resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
     resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
@@ -551,7 +551,16 @@ export function materializeSnapshot(snapshot, run, app) {
   // giving this materialized generation its own cache.
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
   const manifest = readManifest(dir, app.name);
-  if (manifest.game) gameShells(dir, manifest.game, workspace);
+  if (manifest.game) {
+    gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
+    // Shell packages are derived inside this capture. Resolve their private lock
+    // before applying the locked closure check; the authored lock stays untouched.
+    const generated = spawnSync('cargo', ['metadata', '--format-version', '1', '--offline'], {
+      cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }),
+      encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    if (generated.status !== 0) refuse(`${workspace}: generated Cargo graph does not resolve: ${generated.stderr.trim()}`);
+  }
   assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
   return {
     exactRoot, sourceRoot,

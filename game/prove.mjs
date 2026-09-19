@@ -2,18 +2,21 @@
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {basename, resolve} from 'node:path';
 import {equal, agreePins, webUnavailable, comparePlacement} from './proof.mjs';
 
-const [name, ...args] = process.argv.slice(2);
+const [destination, ...args] = process.argv.slice(2);
+const local = destination?.includes('/');
+const name = local ? basename(resolve(destination)) : destination;
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
 const repin = args.includes('--repin');
 const hosts = option('--hosts', 'linux,web').split(','), repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1
     || !hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
-  throw new Error('Usage: bun game/prove.mjs <game> --hosts web,linux,ios --repeat 2 --compare-saves');
+  throw new Error('Usage: bun game/prove.mjs <name|path> --hosts web,linux,ios --repeat 2 --compare-saves');
 }
-const app = resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
+const app = local ? resolve(destination) : resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
+const argument = local ? `'${app.replaceAll("'", "'\\''")}'` : name;
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
 const root = resolve(app, 'artifacts/prove');
 mkdirSync(root, {recursive:true});
@@ -66,7 +69,7 @@ if (repin) {
   const candidate = agreePins(rows, before, hosts);
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], {cwd:app, encoding:'utf8'});
   if (revision.status !== 0) throw new Error('repin refused: cannot identify commit; pins.json unchanged');
-  const command = `bun game/prove.mjs ${name} --repin --hosts ${exercised.join(',')}`;
+  const command = `bun game/prove.mjs ${argument} --repin --hosts ${exercised.join(',')}`;
   const after = {...candidate, generated:command, at:revision.stdout.trim()};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
@@ -93,13 +96,13 @@ const rows = groups.flatMap(r => r.status === 'fulfilled' ? r.value : r.reason.r
 const hashes = row => row.worlds.map(({session, tick, hash}) => ({session, tick, hash}));
 const baseline = rows[0];
 let failed = failures.length > 0;
-console.log('| Host | Run | Seconds | World hashes | Save bytes |');
-console.log('|---|---:|---:|---|---|');
+console.log('| Host | Run | Seconds | World hashes | Save bytes | Proof |');
+console.log('|---|---:|---:|---|---|---|');
 for (const row of rows) {
   const hashOK = row.worlds.length > 0 && equal(hashes(row), hashes(baseline));
   const saveOK = row.saves.length > 0 && equal(row.saves, baseline.saves);
   failed ||= !hashOK || (args.includes('--compare-saves') && !saveOK);
-  console.log(`| ${row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} |`);
+  console.log(`| ${row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
 }
 for (const failure of failures) console.error(failure.reason);
 if (name === 'placement-fixture' && hosts.includes('linux') && hosts.includes('web')) {
@@ -110,7 +113,10 @@ if (name === 'placement-fixture' && hosts.includes('linux') && hosts.includes('w
     console.log('PLACEMENT web/Linux captured tuples agree within 0.5 px');
   } catch(error) { console.error(error.message); failed=true; }
 }
-writeFileSync(resolve(root, 'summary.json'), JSON.stringify({passed:!failed, rows}, null, 2)+'\n');
+const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
+console.log(`PROOF ${status} ${name}`);
+if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with bun game/prove.mjs ${argument} --repin`);
+writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
 process.exitCode = failed ? 1 : 0;
 
 }

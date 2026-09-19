@@ -68,7 +68,7 @@ import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
-  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-native-cache-')));
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact native cache-')));
   const write = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), bytes); };
   try {
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml')));
@@ -134,7 +134,7 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and ret
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 180000);
 
-function fixture(body) {
+async function fixture(body) {
   const root = mkdtempSync(resolve(tmpdir(), 'shell-repair-'));
   const previous = process.env.EXACT_APP_DIR;
   const write = (path, bytes) => { mkdirSync(dirname(resolve(root, path)), {recursive:true}); writeFileSync(resolve(root, path), bytes); };
@@ -154,6 +154,10 @@ function fixture(body) {
     return resolve(root, dir);
   };
   try {
+    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs']) {
+      write(path, readFileSync(resolve(import.meta.dir,'..',path)));
+    }
+    const { resolveApp: localResolveApp } = await import(resolve(root,'scripts/app.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
@@ -163,7 +167,7 @@ function fixture(body) {
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
     const dir = game('foo'); process.env.EXACT_APP_DIR = dir;
-    body({root, dir, write, run, pkg, game, app:()=>resolveApp('foo')});
+    body({root, dir, write, run, pkg, game, app:(name='foo')=>localResolveApp(name)});
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     rmSync(root,{recursive:true,force:true});
@@ -210,7 +214,7 @@ test('shell identity survives a renamed logic crate and removes old packages', (
 test('resolving a surviving game prunes a deleted game shell', () => fixture(({app, game}) => {
   const gone = game('gone');
   process.env.EXACT_APP_DIR = gone;
-  const shell = dirname(resolveApp('gone').cargoPackage('gpu').manifest_path);
+  const shell = dirname(app('gone').cargoPackage('gpu').manifest_path);
   rmSync(gone,{recursive:true});
   process.env.EXACT_APP_DIR = resolve(dirname(gone),'foo');
   assert.ok(app().hasGpu);
@@ -250,25 +254,28 @@ test('game.type module paths resolve before Rust checks the referenced export', 
   assert.ok(app().hasGpu);
 }));
 
-test('build graph refuses a requested GPU surface that Cargo cannot find', () => fixture(({app, pkg}) => {
+test('build graph refuses a requested GPU surface that Cargo cannot find', () => fixture(({app, pkg, root, run}) => {
   pkg('game/ordinary/foo','ordinary-web');
   const resolved = app();
-  const fake = {...resolved, hasGpu:true, crate:kind=>`ordinary-${kind}`};
+  run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  const fake = {...resolved, workspace:resolve(root,'game'), hasGpu:true, crate:kind=>`ordinary-${kind}`};
   assert.throws(()=>buildBake(fake,'web','wasm32-unknown-unknown'), /GPU.*ordinary-gpu|ordinary-gpu.*surface/);
 }));
 
 test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run}) => {
   const resolved = app();
+  resolved.cargoPackage('gpu');
   run('cargo',['generate-lockfile','--offline']);
+  run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
   run('git',['init','-q']); run('git',['add','.']);
   run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
   // A generated extra byte must never enter the captured source or dirty it.
-  write('game/.shells/generated-note','not source');
+  write('game/games/foo/.shells/generated-note','not source');
   const snapshot = snapshotOf(resolved,{},root);
   try {
     assert.equal(snapshot.dirty,false);
     const staged = materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
-    assert.ok(!existsSync(resolve(staged.app.workspace,'.shells/generated-note')));
+    assert.ok(!existsSync(resolve(staged.app.workspace,'generated-note')));
     const metadata = JSON.parse(spawnSync('cargo',['metadata','--no-deps','--offline','--format-version','1'],{cwd:staged.app.workspace,encoding:'utf8'}).stdout);
     const gpu = metadata.packages.find(p=>p.name==='foo-gpu');
     assert.ok(gpu,'materialized source must regenerate the GPU shell');
@@ -367,5 +374,21 @@ test.each(['library', 'executable'])('copied %s roots require unique compiler de
     assert.match(readFileSync(unitDepInfo(message, root), 'utf8'), /env-dep:EXACT_UPDATE_TRUST=development/);
     unit('aabbcc', 'selected unit');
     assert.throws(() => unitDepInfo(message, root), /ambiguous rustc unit/);
+  } finally { rmSync(root, {recursive:true, force:true}); }
+});
+
+
+test('rustc unit dep-info accepts its raw output path with spaces', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const { spawnSync } = await import('node:child_process');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact unit dep '));
+  try {
+    const source = resolve(root, 'lib.rs'), artifact = resolve(root, 'libspace_unit.rlib');
+    writeFileSync(source, 'pub fn value() -> u32 { 1 }');
+    const result = spawnSync('rustc', ['--crate-name', 'space_unit', '--crate-type', 'lib',
+      '--emit=dep-info,link', source, '--out-dir', root], {encoding:'utf8'});
+    assert.equal(result.status, 0, result.stderr);
+    const message = {filenames:[artifact], target:{name:'space_unit', src_path:source}};
+    assert.equal(unitDepInfo(message, root), resolve(root, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 });

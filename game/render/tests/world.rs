@@ -305,7 +305,7 @@ fn beacons_grid_fog_and_bloom() {
         }
         fn setup(w: &mut World, args: &Options) {
             Beacons::setup(w, args);
-            w.register_resource::<exact_game::Environment>();
+            w.insert_resource(exact_game::Environment::default());
         }
         fn tick(w: &mut World, input: &Input, args: &Options) {
             Beacons::tick(w, input, args);
@@ -318,9 +318,16 @@ fn beacons_grid_fog_and_bloom() {
         restart: false,
     })
     .unwrap();
+    // The r5 consumer leaves its ground unnamed. Identify its plane structurally.
+    let ground = sim
+        .world()
+        .query::<&Mesh>()
+        .iter()
+        .find_map(|(e, mesh)| matches!(mesh, Mesh::Plane { .. }).then_some(e))
+        .expect("Beacons ground plane");
     // This render fixture opts into a grid; the consumer's ground is plain.
     sim.world()
-        .get_mut::<Material>("ground")
+        .get_mut::<Material>(ground)
         .unwrap()
         .grid_spacing = 1.0;
     let player = sim.world().named("player").unwrap();
@@ -345,13 +352,13 @@ fn beacons_grid_fog_and_bloom() {
             .sim()
             .unwrap()
             .world()
-            .get::<Material>("ground")
+            .get::<Material>(ground)
             .unwrap()
             .grid_spacing,
         1.0
     );
     sim.world_mut()
-        .get_mut::<Material>("ground")
+        .get_mut::<Material>(ground)
         .unwrap()
         .grid_spacing = 0.0;
     surface
@@ -370,7 +377,7 @@ fn beacons_grid_fog_and_bloom() {
     );
     // At a distance, unresolved lines retain their mean instead of disappearing.
     sim.world_mut()
-        .get_mut::<Material>("ground")
+        .get_mut::<Material>(ground)
         .unwrap()
         .grid_spacing = 0.001;
     surface
@@ -388,10 +395,10 @@ fn beacons_grid_fog_and_bloom() {
         "unresolved grid retains its lined mean: {brighter}"
     );
     sim.world_mut()
-        .get_mut::<Material>("ground")
+        .get_mut::<Material>(ground)
         .unwrap()
         .grid_spacing = 0.0;
-    sim.world_mut().get_mut::<Material>("ground").unwrap().color[3] = -2.0;
+    sim.world_mut().get_mut::<Material>(ground).unwrap().color[3] = -2.0;
     surface
         .restore(&sim.save().unwrap(), exact_gpu::Restore::Open)
         .unwrap();

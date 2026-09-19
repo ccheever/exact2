@@ -1191,22 +1191,28 @@ impl Definitions {
             // Membership is authored too: the saved world may predate this controller.
             // Keep dynamic playback only when the controller kind still agrees.
             if let Some(fresh) = &a {
-                w.remove::<Blend>(e);
-                w.remove::<Animator>(e);
-                if !w.has::<Animation>(e) {
-                    w.insert(e, fresh.clone());
+                w.remove_component::<Blend>(e);
+                w.remove_component::<Animator>(e);
+                if !w.has::<Animation>(e) && !w.insert(e, fresh.clone()) {
+                    w.log(format_args!(
+                        "animation carry `{name}`: controller insert refused"
+                    ));
                 }
             } else if let Some(fresh) = &b {
-                w.remove::<Animation>(e);
-                w.remove::<Animator>(e);
-                if !w.has::<Blend>(e) {
-                    w.insert(e, fresh.clone());
+                w.remove_component::<Animation>(e);
+                w.remove_component::<Animator>(e);
+                if !w.has::<Blend>(e) && !w.insert(e, fresh.clone()) {
+                    w.log(format_args!(
+                        "animation carry `{name}`: controller insert refused"
+                    ));
                 }
             } else if let Some(fresh) = &c {
-                w.remove::<Animation>(e);
-                w.remove::<Blend>(e);
-                if !w.has::<Animator>(e) {
-                    w.insert(e, fresh.clone());
+                w.remove_component::<Animation>(e);
+                w.remove_component::<Blend>(e);
+                if !w.has::<Animator>(e) && !w.insert(e, fresh.clone()) {
+                    w.log(format_args!(
+                        "animation carry `{name}`: controller insert refused"
+                    ));
                 }
             }
             if let (Some(fresh), Some(mut old)) = (a, w.get_mut::<Animation>(e)) {

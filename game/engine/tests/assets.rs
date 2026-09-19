@@ -472,3 +472,26 @@ fn loading_refusals_name_the_state_that_contains_pending_assets() {
         "{state}"
     );
 }
+
+#[test]
+fn rearming_texture_delivery_invalidates_the_hosts_answered_name_each_time() {
+    let mut s = Sim::<Loading>::new(()).unwrap();
+    let model: asset::Model = bin::from_slice(include_bytes!(
+        "../../games/asset-fixture/assets/crate.model"
+    ))
+    .unwrap();
+    let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+    s.take_assets();
+    s.asset("crate.model", Some(&bin::to_vec(&model))).unwrap();
+    for _ in 0..3 {
+        s.take_assets();
+        s.asset(&model.textures[0], Some(tex)).unwrap();
+        assert_eq!(s.invalidate_device_assets(), model.textures);
+        assert_eq!(
+            s.take_retired_assets(),
+            model.textures,
+            "host must reopen the answered name whenever redelivery is armed"
+        );
+        assert!(s.take_assets().contains(&model.textures[0]));
+    }
+}

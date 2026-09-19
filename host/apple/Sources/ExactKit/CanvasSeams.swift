@@ -42,19 +42,25 @@ extension NodeView {
         }
     }
     @discardableResult
+    func focusSurfacePointer() -> Bool {
+        #if os(macOS)
+        if (window?.firstResponder as? NSTextView)?.isEditable == true { return true }
+        return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
+        #else
+        if presenter?.editing != nil { return true }
+        return isSurfaceControl ? becomeFirstResponder() : focusCanvas()
+        #endif
+    }
+    @discardableResult
     func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
         guard let c = presenter?.session?.canvases, let m = c.module else { return false }
         let entry: Canvases.Entry?
         if phase == "down" {
             guard let name = props["action"], !disabled, !inert, let canvas = inputCanvas, let e = c.live(canvas.id) else { return false }
-            #if os(macOS)
-            window?.makeFirstResponder(self)
-            #else
-            _ = becomeFirstResponder()
-            #endif
+            _ = focusSurfacePointer()
             e.controls[contact] = SurfaceControl(node:id, name:name, offset:convert(.zero, to:canvas), position:point)
             entry = e
-        } else { entry = c.entries.values.first { $0.controls[contact] != nil } }
+        } else { entry = inputCanvas.flatMap { c.live($0.id) } }
         guard let e = entry, var owner = e.controls[contact] else { return false }
         let p = convert(point, to:e.view)
         owner.position = CGPoint(x:p.x-owner.offset.x, y:p.y-owner.offset.y)
@@ -107,19 +113,19 @@ extension Canvases {
     func releaseContact(_ request: [String: Any]) -> [String: Any]? {
         guard let id = request["contact"] as? Int else { return nil }
         guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase), let m = module,
-              let e = entries.values.first(where: { $0.controls[id] != nil }), let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
+              let rawCanvas = request["id"] as? Int, let canvas = UInt32(exactly: rawCanvas), let e = entries[canvas], let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
         let ok = input(e,m,["t":"control","name":owner.name,"id":id,"phase":phase,"x":owner.position.x,"y":owner.position.y])
         return ok ? ["phase":phase,"delivery":"recognized"] : ["error":"control release refused"]
     }
 
-    func recoveredDevice(_ ok: Bool, error: String?) {
+    func recoveredDevice(_ ok: Bool, error: String?, recovering: Set<ObjectIdentifier> = []) {
         failed = error
         if let error { fputs("exact gpu: \(error)\n", stderr); restoreJournal.append(["lines": [error]]) }
         for entry in entries.values {
             entry.presentable = true; entry.wants = true
             entry.uploaded = false; entry.readAt = -1
             entry.view.needsCapture = true
-            if ok { entry.recoveryRedelivery = true; messages(entry) }
+            if ok { entry.recoveryRedelivery = recovering.contains(ObjectIdentifier(entry)); messages(entry) }
         }
         session?.frames.requestCanvas()
     }
@@ -173,6 +179,7 @@ extension Canvases {
         e.restorePending = false
         worldInput.bytes = nil
         let input = world["input"] as? [String: Any] ?? [:]
+        e.controls.removeAll()
         for row in input["controlContacts"] as? [[String: Any]] ?? [] {
             guard let id = row["id"] as? Int, let name = row["action"] as? String else { continue }
             let node = session?.presenter.views.values.first { $0.props["action"] == name && $0.isDescendant(of:e.view) }

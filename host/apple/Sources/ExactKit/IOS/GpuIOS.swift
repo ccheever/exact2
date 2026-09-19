@@ -413,7 +413,7 @@ final class Canvases {
     /// to. Bounded: a nested canvas that wants a frame asks its ancestor to
     /// capture again, once more here, then the display link has it.
     func settle(now: Double) {
-        guard module != nil, !settling else { return }
+        guard module != nil, !settling, session?.clock != nil else { return }
         settling = true
         let previous = frameNow
         frameNow = now

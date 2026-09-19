@@ -107,30 +107,30 @@ impl Data for Value {
 }
 
 /// A Contract value accepted by World::publish, including ordinary game scalars.
-pub struct Published(pub Value);
+pub struct Published(pub(crate) Stored);
 impl From<Value> for Published {
     fn from(v: Value) -> Self {
-        Self(v)
+        Self(v.into())
     }
 }
 impl From<bool> for Published {
     fn from(v: bool) -> Self {
-        Self(Value::Bool(v))
+        Self(Stored::Bool(v))
     }
 }
 impl From<&str> for Published {
     fn from(v: &str) -> Self {
-        Self(Value::str(v))
+        Self(Stored::Str(v.into()))
     }
 }
 impl From<String> for Published {
     fn from(v: String) -> Self {
-        Self(Value::str(&v))
+        Self(Stored::Str(v))
     }
 }
 macro_rules! numbers {
     ($($ty:ty),*) => {$(impl From<$ty> for Published {
-        fn from(v: $ty) -> Self { Self(Value::Number(v as f64)) }
+        fn from(v: $ty) -> Self { Self(Stored::Number(v as f64)) }
     })*};
 }
 numbers!(u8, u16, u32, i8, i16, i32, f32, f64);

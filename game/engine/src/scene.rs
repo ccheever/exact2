@@ -417,11 +417,8 @@ impl World {
     pub fn propagate(&mut self) {
         self.resolve_hierarchy(false)
             .expect("runtime cycles are repaired");
-        // Seed completed follower boundaries even when no presenter/audio query ran.
-        if self.attachment_pose.is_some() {
-            for (e, _) in self.query::<&crate::SocketFollow>().iter() {
-                let _ = self.current_global(e);
-            }
+        if let Some(attachments) = self.attachments {
+            (attachments.propagate)(self);
         }
     }
     pub(crate) fn validate_hierarchy(
@@ -458,7 +455,7 @@ impl World {
     /// Parented poses reflect the last propagate call.
     pub fn global(&self, e: Entity) -> Option<Affine3A> {
         // Socket-derived gameplay poses are tick-boundary reads, not stored hierarchy nodes.
-        if self.attachment_pose.is_some() {
+        if self.attachments.is_some() {
             return self.current_global(e);
         }
         if !self.has::<Parent>(e) {
@@ -479,8 +476,8 @@ impl World {
             return None;
         }
         if let Some(pose) = self
-            .attachment_pose
-            .and_then(|resolve| resolve(self, e, remaining))
+            .attachments
+            .and_then(|attachments| (attachments.pose)(self, e, remaining))
         {
             return Some(pose);
         }
@@ -495,8 +492,8 @@ impl World {
                 return Some(pose);
             };
             if let Some(parent_pose) = self
-                .attachment_pose
-                .and_then(|resolve| resolve(self, parent, remaining - 1))
+                .attachments
+                .and_then(|attachments| (attachments.pose)(self, parent, remaining - 1))
             {
                 return Some(parent_pose * pose);
             }

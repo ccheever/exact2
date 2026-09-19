@@ -109,7 +109,11 @@ and web, refuses incomplete or disagreeing tick/save observations, then rewrites
 only exercised hosts, also named in `generated`. A missing requested Chrome carrier
 refuses; Linux-only repinning requires explicit `--hosts linux`. `CHROME` selects the browser,
 which runs headless. `at` is HEAD, not a claim that the working tree was clean.
-New games start with empty pins until that command succeeds. Screenshots, receipts,
+New games start with empty pins until that command succeeds. Successful assertions
+still exit zero, but the proof and multi-host summary report `UNVERIFIED` until the
+complete saved tick and continuation-save baselines match. Their `status` field is
+`PASS`, `UNVERIFIED` or `FAIL`; build/capture-only runs and repin collection also
+remain `UNVERIFIED` because they do not check the full saved baseline. Screenshots, receipts,
 transcripts and saves belong under ignored `artifacts/`; only README-cited evidence
 is retained. No ninth operation. `--report` names unused facilities tied to observed
 refusals/stalls, retaining failed summaries and counting only relevant successful queries.
@@ -195,9 +199,23 @@ bun game/games/beacons/proof.mjs web
 bun game/bench/size.mjs
 ```
 
+Use a path to choose the game's directory: `bun game/new.mjs ./my-game`.
+`bun game/dev.mjs ./my-game`, `bun my-game/proof.mjs linux`
+and `bun game/prove.mjs ./my-game --compare-saves` use the same Exact2 hosts and
+driver. A bare name creates `game/games/<name>`. The bake puts the generated
+workspace, lockfile and hosts in that game's `.shells/`, inheriting dependencies
+and profiles from `game/Cargo.toml`; build output uses the game's `target/`.
+From an empty game directory, run `bun /path/to/exact2/game/new.mjs .`.
+Generation only writes inside that game: it never normalizes another game or
+updates `game/Cargo.lock`. `resolveApp` selects `<game>/.shells/Cargo.toml` and
+locates the four adapters through Cargo metadata there. No authored nested
+workspace is needed. Its first build has a cold cache. Pin generation with `--repin` still requires a
+Git checkout for provenance. The cold starter passes Linux and web; Beacons uses this ordinary path on all
+four hosts. See the [R11 receipt](diaries/002-ergonomics.md#r11-review-fixes-and-app-owned-starter).
+
 From `game/`, use `cargo test --workspace --no-fail-fast`,
-`cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo fmt --all -- --check`. Local Cargo validation uses
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo fmt --all -- --check`, and `bun test ./proof.test.mjs`. Local Cargo validation uses
 `DEVELOPER_DIR=/Library/Developer/CommandLineTools`,
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk`,
 `EXACT_UPDATE_TRUST=development`, and `EXACT_IDENTITY=-`.
@@ -370,7 +388,7 @@ patch were superseded by R9; they are not current limitations.
 
 Beacons and `game/new` expose accessible Move, Jump and Light buttons with
 `action="move"`, `action="jump"` and `action="light"`. A pointer down focuses its
-control and owns its original action, contact ID and local origin until release.
+control unless a text editor is active, and owns its original action, contact ID and local origin until release.
 Renaming the action, including during keyboard autorepeat, does not retarget a held contact; clearing it or removing the
 node cancels that contact. Space/Enter uses the focused control. The move stick's
 60-point radius is independent of device pixel scale.
@@ -443,12 +461,15 @@ attachment. WorldSurface now invalidates device assets once per loss, retaining
 those arrivals through repeated failure reports and `device_ready`. The real
 WebGPU destruction/fail-once proof passes pixel equality and the original
 preparation counts (4 textures, 2 meshes, 21 pipelines, 1 model-buffer growth).
-The Metal regression destroys its device, delivers before replacement, and
-requires identical pixels and preparation counts. Headless attachment still
+The Metal surface-lifecycle regression calls the surface loss hooks directly,
+including a replacement that prepares assets and then fails. It requires identical
+pixels and preparation counts; it does not test native loss detection. Headless attachment still
 requests missing texture bytes.
 
 Development Carry adds freshly declared Animation, Blend and Animator components
-and replaces conflicting controller kinds; Open remains byte-exact. The mutable
+and replaces conflicting controller kinds while preserving the sampled Pose;
+Open remains byte-exact. A Carry that changes the controller kind changes the
+world hash; deterministic setup makes that change deterministic. The mutable
 post-restore hook includes the audio module adapter. Primitive pose reads on Sim
 and WorldSurface both say `pose inspection requires game.assets: true`, with a
 regression comparing them. The score diary links the retained Sitting #2 heading.
@@ -460,7 +481,8 @@ GPU module clock selection now follows `ExactEnv.agentFreezes`, so platform-time
 agent sessions sample live rings instead of suppressing stamps as seekable work.
 Both Skinned and Beacons iOS proofs pass with the same deterministic pins.
 
-**iPhone 17 Pro simulator CPU/presentation figures, not real GPU timings.**
+**Historical standalone-iOS CPU/presentation figures, not real GPU timings.**
+These numbers do not cover macOS or the sample hosts.
 Simulator `0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`, 3840 × 2160 render pixels.
 Entries are p50 / p95 in milliseconds; the frame ring records presentation-clock
 intervals. Samples were taken after resetting each live window.
@@ -474,13 +496,22 @@ Beacons recorded 61 renders, 0 captures, 5 HUD children and 0 placed/hidden
 children; Skinned recorded 66 renders, 0 captures, 1 HUD child and 0 placed/hidden
 children. Both report zero after-ready residency work. Full samples are in each
 fixture's ignored `artifacts/perf-ios-live.json`; seekable rings remain unsampled.
-The Fox crop now requires 1–8% orange pixels: macOS measured 1.300%, iOS 3.625%.
-Replacing 95% of either screenshot with white fails the same predicate.
+The current Fox proof crops the reported screen bounds, requires varied orange
+fur and more than 10% non-white pixels, and executes a 95%-white negative image.
+It asserts the proof viewport’s 16:9 aspect; other aspects are not claimed.
 
-Validation: game workspace 546 passed, 11 ignored; game all-target Clippy,
-game/root formatting, scoped staged caps, boot and root workspace build pass.
-Asset passes on web/Linux/macOS; Skinned on macOS/iOS; Beacons on iOS. All seven
-games pass Linux continuous, Save and FreshGame proofs, with unchanged pins.
-The broader Apple suite has 87 passes and one separately reproduced autofocus
-reset assertion at `AccessibilityTests.swift:35`; it is queued, not claimed green.
-These checks ran on a shared working tree with unrelated concurrent edits retained.
+Current validation and each review fix's regression are recorded in the
+[R11 receipt](diaries/002-ergonomics.md#r11-review-fixes-and-app-owned-starter).
+All seven games pass Linux continuous, Save and FreshGame proofs with unchanged
+pins; Beacons passes all four hosts and Skinned passes macOS/iOS. ExactKit passes
+97 tests, including the formerly failing autofocus-reset case. Concurrent changes
+were retained; no commit was made.
+
+
+Socket followers hold the last composed pose during a skipped animation step in
+this session. That derived hold is neither hashed nor saved: restore (including
+paranoid Save/FreshGame) reconstructs from saved local Pose and current owner and
+offset. Deleting a controller removes Pose and resumes live bind-pose composition;
+`deleting_controller_clears_pose_and_resumes_live_bind_composition` tests that choice.
+Dead follower entries are pruned on propagation, even with no followers, and on
+queries including stale hits.

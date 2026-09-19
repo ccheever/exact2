@@ -172,10 +172,30 @@ impl Component for SocketFollow {
     const NAME: &'static str = "SocketFollow";
     fn register(w: &mut World) {
         w.register::<Pose>();
-        w.attachment_pose = Some(follower_pose);
+        w.attachments = Some(crate::world::Attachments {
+            pose: follower_pose,
+            propagate: |w| {
+                // Seed completed boundaries even when no presenter/audio query ran.
+                prune_follower_poses(w);
+                for (e, _) in w.query::<&SocketFollow>().iter() {
+                    let _ = w.current_global(e);
+                }
+            },
+        });
+    }
+}
+fn prune_follower_poses(w: &World) {
+    let stamp = (w.entities_revision(), w.membership::<SocketFollow>());
+    let mut cache = w.derived::<FollowerPoses>();
+    if cache.1 != Some(stamp) {
+        cache
+            .0
+            .retain(|entity, _| w.contains(*entity) && w.has::<SocketFollow>(*entity));
+        cache.1 = Some(stamp);
     }
 }
 fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine3A> {
+    prune_follower_poses(w);
     let follow = w.get::<SocketFollow>(e)?;
     let target = match &follow.target {
         crate::FollowTarget::Entity(e) => *e,
@@ -201,9 +221,49 @@ fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine
             follow.offset.position,
         );
     let mut cache = w.derived::<FollowerPoses>();
-    cache.0.retain(|entity, _| w.contains(*entity));
     cache.0.insert(e, (target, pose));
     Some(pose)
 }
 #[derive(Default)]
-struct FollowerPoses(BTreeMap<Entity, (Entity, crate::Affine3A)>);
+struct FollowerPoses(
+    BTreeMap<Entity, (Entity, crate::Affine3A)>,
+    Option<(u64, u64)>,
+);
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    #[test]
+    fn dead_followers_are_pruned_even_without_remaining_followers() {
+        for restore in [false, true] {
+            let mut w = World::new(60, 0);
+            let target = w.spawn(Transform::default());
+            let e = w.spawn(SocketFollow::new(target, ""));
+            if restore {
+                w.load(&w.save()).unwrap();
+            }
+            w.derived::<FollowerPoses>()
+                .0
+                .insert(e, (target, crate::Affine3A::IDENTITY));
+            w.despawn(e);
+            w.propagate();
+            assert!(w.derived::<FollowerPoses>().0.is_empty());
+        }
+    }
+    #[test]
+    fn stale_hits_prune_dead_followers_before_returning() {
+        let mut w = World::new(60, 0);
+        let target = w.spawn((Transform::default(), Animation::play("idle")));
+        let live = w.spawn(SocketFollow::new(target, ""));
+        let dead = w.spawn(SocketFollow::new(target, ""));
+        for e in [live, dead] {
+            w.derived::<FollowerPoses>()
+                .0
+                .insert(e, (target, crate::Affine3A::IDENTITY));
+        }
+        w.despawn(dead);
+        w.begin_tick();
+        assert!(follower_pose(&w, live, 10).is_some());
+        assert_eq!(w.derived::<FollowerPoses>().0.len(), 1);
+    }
+}

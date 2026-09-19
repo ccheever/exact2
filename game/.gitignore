@@ -7,3 +7,8 @@
 
 # The feel probe's per-attempt Chrome profiles (mkdtemp under bench/).
 bench/.feel-*/
+
+/games/*/.shells/
+/games/*/target/
+/bench/*/.shells/
+/bench/*/target/

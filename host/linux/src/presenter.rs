@@ -54,7 +54,7 @@ pub struct Presenter<D: DataSource> {
     pub(crate) focus: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
-    pub(crate) control_bindings: BTreeMap<u32, crate::surfaces::ControlBinding>,
+    pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
@@ -1080,7 +1080,12 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
-        if self.focus != focus {
+        let editing = self.surfaces.wants_input(hit)
+            && self
+                .focus
+                .and_then(|id| self.host.kernel().node(id))
+                .is_some_and(|node| node.node_type == NodeType::TextInput);
+        if self.focus != focus && !editing {
             self.focus = focus;
             self.dirty = true;
         }
@@ -1123,7 +1128,11 @@ impl<D: DataSource> Presenter<D> {
                 .or_else(|| self.handler_target(hit, EventKind::Press))
         });
         if let Some(actual) = actual.filter(|actual| {
-            *actual != id && self.handler_target(id, EventKind::Press) != Some(*actual)
+            *actual != id
+                && self
+                    .control_target(id)
+                    .or_else(|| self.handler_target(id, EventKind::Press))
+                    != Some(*actual)
         }) {
             return Err(format!(
                 "view {id} activates view {actual} at its projected center"
@@ -1284,8 +1293,7 @@ impl<D: DataSource> Presenter<D> {
         } else {
             u32::MAX - 2
         };
-        if !down && matches!(key, "Space" | "Enter") && self.control_bindings.contains_key(&contact)
-        {
+        if !down && matches!(key, "Space" | "Enter") && self.owns_control(id, contact) {
             return if self.control_input(id, "up", 0., 0., contact, self.host.now()) {
                 Ok(format!("{{\"typed\":{id}}}"))
             } else {
@@ -1388,7 +1396,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Drop focus.
     pub fn blur(&mut self) {
-        self.control_bindings.clear();
+        self.cancel_controls();
         if let Some((id, _, _)) = self.control_contact.take() {
             self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
         }

@@ -906,8 +906,10 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
 
 #[test]
 fn storage_capacity_is_independent_of_inter_stage_capacity() {
-    let mut available = wgpu::Limits::default();
-    available.max_inter_stage_shader_variables = 15;
+    let mut available = wgpu::Limits {
+        max_inter_stage_shader_variables: 15,
+        ..Default::default()
+    };
     let requested = exact_gpu::requested_limits(available.clone());
     assert!(requested.check_limits(&available));
     assert_eq!(requested.max_storage_buffers_per_shader_stage, 8);

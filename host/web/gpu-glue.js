@@ -58,6 +58,7 @@ function finishRestore(entry, module, error) {
   delete entry.pendingRestore; delete entry.attemptedCarry; delete entry.carry;
   delete entry.restoreError; delete entry.restoreReported;
   entry.restoredCarry = true;
+  entry.resampleHeld?.();
 }
 async function settled() {
   await ready;
@@ -170,7 +171,7 @@ function recoverDevice() {
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
-  for (const entry of entries) cancelAssets(entry);
+  const detached = new Set();
   recoveringDevice = (async () => {
     const outcome = pendingCutover?.module === module ? pendingCutover.outcome : JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
     if (gpu !== module) { for (const [, e] of staged) e.el.remove(); return; }
@@ -183,6 +184,7 @@ function recoverDevice() {
     for (const [old, entry] of staged) {
       if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
       entry.values = old.values;
+      detached.add(old);
       installCanvas(old, entry);
       surfaces.set(entry.view, entry);
       if (publishers.get(old.name) === old) publishers.set(old.name, entry);
@@ -196,12 +198,14 @@ function recoverDevice() {
   })().catch(error => {
     for (const [old, entry] of staged) {
       cancelAssets(entry); entry.observer?.disconnect(); entry.unlisten?.();
-      if (surfaces.get(old.view) === entry) {
+      if (detached.has(old) && surfaces.has(old.view)) {
         entry.el.replaceWith(old.el); surfaces.set(old.view, old);
         if (publishers.get(old.name) === entry) publishers.set(old.name, old);
         if (old.host === old.el) exact.views.set(old.view, old.el);
       }
-      if (live(old.view) === old) attach(old);
+      if (detached.has(old) && live(old.view) === old) {
+        old.observer?.disconnect(); old.unlisten?.(); attach(old);
+      }
       if (!pendingCutover) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
     }
     recoveryFailures++;
@@ -414,7 +418,7 @@ function listen(entry) {
     if (button) {
       owner = binding(button); controls.set(event.pointerId, owner);
       try { button.setPointerCapture(event.pointerId); } catch {}
-      button.focus({preventScroll:true});
+      if (!editable(document.activeElement)) button.focus({preventScroll:true});
     }
     if (owner) {
       sendControl(event, owner, phase, event.pointerId, event.clientX-owner.left, event.clientY-owner.top);
@@ -422,7 +426,7 @@ function listen(entry) {
       event.preventDefault(); return;
     }
     if (!fallsThrough(event)) return;
-    if (phase === "down") { el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
+    if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
     send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
@@ -443,7 +447,8 @@ function listen(entry) {
     held.clear(); for (const code of world.input?.forwarded ?? []) held.add(code);
     controls.clear(); controlKeys.clear();
     for (const contact of world.input?.controlContacts ?? []) {
-      const owner = {name:contact.action, left:0, top:0, origin:contact.origin, position:contact.position};
+      const node = [...el.querySelectorAll("button[data-action]")].find(node => node.getAttribute("data-action") === contact.action && node.closest("[data-gpu-input]") === el);
+      const owner = {...(node ? binding(node) : {name:contact.action, left:0, top:0}), origin:contact.origin, position:contact.position};
       if (contact.id === 4294967294) controlKeys.set("Space", owner);
       else if (contact.id === 4294967293) controlKeys.set("Enter", owner);
       else controls.set(contact.id, owner);

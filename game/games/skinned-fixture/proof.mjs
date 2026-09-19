@@ -6,7 +6,25 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
-await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
+export function foxPixels(image, screen, viewport) {
+  // This proof's requested viewport is 16:9; native screenshots may scale it.
+  if (!screen || Math.abs(image.width/image.height - 16/9) > .02 || viewport[0]/viewport[1] !== 16/9) return {ok:false,reason:'expected 16:9 viewport'};
+  const sx=image.width/viewport[0], sy=image.height/viewport[1];
+  const x0=Math.max(0,Math.floor(screen.x*sx)), y0=Math.max(0,Math.floor(screen.y*sy));
+  const x1=Math.min(image.width,Math.ceil((screen.x+screen.w)*sx)), y1=Math.min(image.height,Math.ceil((screen.y+screen.h)*sy));
+  let orange=0, nonwhite=0, cropPixels=0; const shades=new Set();
+  for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++) {
+    const i=(y*image.width+x)*4, [r,g,b]=image.data.subarray(i,i+3); cropPixels++;
+    if(Math.min(r,g,b)<235) nonwhite++;
+    if(r>g*1.35 && g>b*1.2 && r>70 && g>20) {
+      orange++; shades.add(`${r>>3},${g>>3},${b>>3}`);
+    }
+  }
+  const fraction=orange/cropPixels, nonwhiteFraction=nonwhite/cropPixels;
+  return {ok:cropPixels>0 && fraction>.001 && nonwhiteFraction>.1 && shades.size>=8, orange,cropPixels,fraction,nonwhiteFraction,shades:shades.size,crop:[x0,y0,x1,y1]};
+}
+
+if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
   const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex');
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
     const reply = await probe.fetch(request); if(reply) return reply;
@@ -43,16 +61,11 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
     const path = resolve(out,`fox-mid-stride-${host}.png`);
     await s.screenshot(path);
     const image = decodePng(readFileSync(path));
-    let orange = 0, cropPixels = 0, sample;
-    // Fox fur is orange. The white fallback, blue ground and yellow marker
-    // cannot pass this red/green/blue separation in the model's central region.
-    for(let y=Math.floor(image.height*.35);y<image.height*.7;y++) for(let x=Math.floor(image.width*.35);x<image.width*.7;x++) {
-      cropPixels++;
-      const i=(y*image.width+x)*4, [r,g,b]=image.data.subarray(i,i+3);
-      if(r>g*1.35 && g>b*1.2 && r>70 && g>20) { orange++; sample ??= {x,y,rgb:[r,g,b]}; }
-    }
-    const fraction = orange / cropPixels;
-    check('Fox screenshot has textured orange fur', fraction > .01 && fraction < .08, {orange,cropPixels,fraction,sample});
+    const pixels=foxPixels(image, layout.entity.screen, [1280,720]);
+    check('Fox screenshot has textured orange fur',pixels.ok,pixels);
+    const white={...image,data:new Uint8Array(image.data).fill(255)};
+    for(let i=0;i<image.data.length;i+=80) white.data.set(image.data.subarray(i,i+4),i);
+    check('95 percent white screenshot is rejected',!foxPixels(white,layout.entity.screen,[1280,720]).ok);
   }
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();
@@ -99,7 +112,7 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
   const replies=stdout.trim().split('\n').filter(Boolean).map(line=>{try{return JSON.parse(line);}catch{return null;}});
   check('literal CLI state world:fox pose forwards pose:true',code===0 && replies.some(r=>Array.isArray(r?.pose) && r.pose.length===24),stderr || stdout.slice(-300));
   // Live/host-only observations have no deterministic cross-host save identity.
-  if (host === 'ios' && process.env.EXACT_PROOF_COMPARE !== '1') {
+  if (['ios','macos'].includes(host) && process.env.EXACT_PROOF_COMPARE !== '1') {
     const live = await open({timing:'platform'});
     await live.tap('play');
     await live.op({op:'state', ...await live.target('world'), world:true, perf_reset:true});
@@ -110,12 +123,12 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
       measured = (await live.state()).world[0];
       if (measured.perf?.frameMs?.count >= 60) break;
     }
-    check('live simulator produces timing samples', measured.perf?.frameMs?.count >= 10, measured.perf);
+    check('platform display link produces nonzero timing samples', measured.perf?.wallClock === true && measured.perf?.frameMs?.count >= 10 && measured.perf.frameMs.p50 > 0, measured.perf);
     const presentation = {...measured.presentation, renders:measured.presentation.sessionRenders-started.sessionRenders, captures:measured.presentation.sessionCaptures-started.sessionCaptures};
     check('live presentation reports HUD and placement counts', presentation.renders > 0 && presentation.hudChildren > 0, presentation);
-    const receipt = {label:'iOS simulator CPU/presentation timings; no real GPU timing', perf:measured.perf, gpu:measured.gpu, presentation};
-    writeFileSync(resolve(out, 'perf-ios-live.json'), JSON.stringify(receipt,null,2)+'\n');
-    say(`LIVE SIMULATOR ${JSON.stringify(receipt)}`);
+    const receipt = {label:`${host} CPU/presentation timings; no GPU duration measurement`, perf:measured.perf, gpu:measured.gpu, presentation};
+    writeFileSync(resolve(out, `perf-${host}-live.json`), JSON.stringify(receipt,null,2)+'\n');
+    say(`LIVE ${host} ${JSON.stringify(receipt)}`);
     await live.close();
   }
 

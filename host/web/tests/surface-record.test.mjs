@@ -10,6 +10,7 @@ export async function fixture(options = {}) {
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [], restored = new Set();
   let mutations = Promise.resolve(), frame;
+  const document = { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
@@ -53,9 +54,10 @@ export async function fixture(options = {}) {
     .replace('await import(`./gpu.js${query}`)', 'await candidate(0)')
     .replaceAll('await loadModule(version)', 'await candidate(version)');
   class Element {
-    constructor(kind = 'canvas') { this.kind = kind; this.listeners = {}; this.isConnected = true; this.style = {}; this.dataset = {}; this.tabIndex = 0; }
+    constructor(kind = 'canvas') { this.kind = kind; this.listeners = {}; this.handlers = new Map(); this.isConnected = true; this.style = {}; this.dataset = {}; this.tabIndex = 0; }
     matches() { return false; }
     querySelector() { return this.canvas; }
+    querySelectorAll() { return this.buttons ?? []; }
     getBoundingClientRect() { return {width:10,height:10}; }
     cloneNode() { order.push('clone'); return new Element(this.kind); }
     remove() { order.push('remove clone'); this.isConnected = false; }
@@ -63,8 +65,8 @@ export async function fixture(options = {}) {
     getAttribute() { return null; }
     removeAttribute() {}
     setAttribute() {}
-    addEventListener(name, fn) { this.listeners[name] = fn; }
-    removeEventListener(name) { delete this.listeners[name]; }
+    addEventListener(name, fn) { const set = this.handlers.get(name) ?? new Set(); set.add(fn); this.handlers.set(name,set); this.listeners[name] = event => [...set].forEach(f => f(event)); }
+    removeEventListener(name, fn) { this.handlers.get(name)?.delete(fn); }
     contains(el) { return el === this || el?.parent === this; }
     closest(selector) { return this.kind === 'button' ? (selector.includes('button') ? this : null) : this.kind === 'input' ? (selector.includes('input') ? this : null) : null; }
     focus() {}
@@ -78,15 +80,15 @@ export async function fixture(options = {}) {
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
     'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
-    source
-  )(assetDelivery, { exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
+    source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
+  )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {}, removeEventListener() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
+  return { document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
@@ -390,4 +392,55 @@ for (const change of ['clear','remove']) test(`DOM ${change} cancels a held cont
   if(change==='clear')name=null;else b.isConnected=false;
   f.mutation();
   assert.deepEqual(f.events.map(e=>[e.name,e.phase,e.id]),[['jump','down',7],['jump','cancel',7]]);
+});
+
+for (const status of ['healthy','no device']) test(`recovery ${status} preserves a pending asset flight`, async () => {
+  let resolveFetch, signal, delivered = 0;
+  const f = await fixture({delivery:{fetch:(_url, options) => { signal=options.signal; return new Promise(r=>resolveFetch=r); }}});
+  let pending = true;
+  f.gpu.gpu_assets = () => pending ? (pending=false, '["fox.model"]') : '[]';
+  f.gpu.gpu_asset = () => { delivered++; return true; };
+  f.create(1); f.gpu.gpu_recover=async()=>JSON.stringify({status});
+  f.exact.gpu.deviceLost(); await new Promise(r=>setTimeout(r,0));
+  const aborted = signal.aborted;
+  resolveFetch(new Response(new Uint8Array([1]))); await f.exact.gpu.settled();
+  assert.equal(aborted,false); assert.equal(delivered,1);
+});
+for (const site of ['before swap','after swap','attach']) test(`first canvas failure ${site} restores each listener exactly once`, async () => {
+  const f=await fixture({input:true}), a=f.create(1), b=f.create(2,'other');
+  const replace=a.canvas.replaceWith; let fail=true;
+  if(site==='attach') f.gpu.gpu_wants_input=id=>{if(id===1&&fail){fail=false;throw Error('attach');}return true;};
+  else a.canvas.replaceWith=function(el){if(site==='after swap')replace.call(this,el);if(fail){fail=false;throw Error('install');} if(site==='before swap')replace.call(this,el);};
+  f.gpu.gpu_recover=async()=>' {"status":"recovered"}';
+  f.exact.gpu.deviceLost(); await new Promise(r=>setTimeout(r,0));
+  assert.ok(a.canvas.isConnected && b.canvas.isConnected);
+  for(const el of [a,b]) el.listeners.keydown({target:el,code:'KeyW',timeStamp:0});
+  const count=f.events.length;
+  await new Promise(r=>setTimeout(r,150));
+  assert.equal(count,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
+});
+function restoredButton(f, canvas) {
+  const b=new f.Element('button'); b.parent=canvas; canvas.buttons=[b];
+  b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+  b.getAttribute=()=>b.action; b.action='jump'; b.getBoundingClientRect=()=>({left:10,top:20}); return b;
+}
+test('control pointer down preserves an active editor', async () => {
+  const f=await fixture({input:true}), canvas=f.create(1), b=restoredButton(f,canvas);
+  const input=f.document.activeElement=new f.Element('input'); b.focus=()=>{f.document.activeElement=b;};
+  canvas.listeners.pointerdown({target:b,pointerId:1,clientX:10,clientY:20,timeStamp:0,preventDefault(){}});
+  assert.equal(f.document.activeElement,input); assert.equal(f.events[0].phase,'down');
+});
+for (const change of ['clear','remove']) test(`restored contact cancels on ${change}`, async () => {
+  const options={input:true,controlContacts:[{id:7,action:'jump',position:[1,2]}]};
+  const f=await fixture(options); f.exact.worldCarry=new Uint8Array([7]); const canvas=f.create(1), b=restoredButton(f,canvas);
+  f.exact.finishRestore(1);
+  if(change==='clear')b.action=null;else b.isConnected=false;
+  f.mutation(); assert.deepEqual(f.events.map(e=>[e.id,e.phase]),[[7,'cancel']]);
+});
+test('a second restore replaces host ownership immediately', async () => {
+  const options={input:true,controlContacts:[{id:7,action:'jump',position:[1,2]}]};
+  const f=await fixture(options); f.exact.worldCarry=new Uint8Array([7]); const canvas=f.create(1);
+  options.controlContacts=[]; f.exact.finishRestore(1);
+  canvas.listeners.pointerup({target:canvas,pointerId:7,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
+  assert.ok(f.events.every(e=>e.t!=='control'));
 });

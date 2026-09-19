@@ -696,6 +696,16 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     ));
     step(&mut w);
     w.step_clock();
+    let saved = w.save();
+    assert_eq!(socket_node(&w, e, ""), Ok(0));
+    assert_eq!(
+        socket_node(&w, e, "renamed"),
+        Err("unknown socket `renamed`".into())
+    );
+    assert_eq!(w.save(), saved, "warming socket lookups is not saved state");
+    // Keep the old allocation alive: replacement must compare identity, not
+    // merely whether the weak pointer can still be upgraded.
+    let old = w.assets.models.get("rig.model").unwrap().model.clone();
     let mut m = w.model("rig.model").unwrap().clone();
     m.nodes[0].name = "renamed".into();
     m.nodes[0].transform = Mat4::from_translation(Vec3::Y * 3.).to_cols_array();
@@ -714,6 +724,7 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     step(&mut w);
     w.step_clock();
     assert_eq!(socket(&w, e, "renamed").unwrap().position, Vec3::Y * 3.);
+    assert_eq!(std::sync::Arc::strong_count(&old), 1);
 }
 #[test]
 fn pose_inspection_refuses_model_length_mismatch_by_name() {
@@ -1138,4 +1149,55 @@ fn stale_follower_keeps_last_composed_pose_while_explicit_socket_refuses() {
         assert!(socket(&w, "owner", "").unwrap_err().contains("stale"));
         assert_eq!(w.global_position("charm"), Some(last));
     }
+}
+
+#[test]
+fn carry_kind_replacement_preserves_sampled_pose_and_changes_hash() {
+    let mut w = world();
+    let e = w.spawn_named(
+        "owner",
+        (
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Animation::play("slow"),
+        ),
+    );
+    step(&mut w);
+    w.step_clock();
+    let pose = crate::bin::to_vec(&*w.get::<Pose>(e).unwrap());
+    let hash = w.hash();
+    let mut fresh = world();
+    fresh.spawn_named("owner", Animator::new([State::clip("idle", "fast")]));
+    Definitions::capture(&fresh).apply(&mut w);
+    assert_eq!(
+        w.get::<Pose>(e).map(|p| crate::bin::to_vec(&*p)),
+        Some(pose)
+    );
+    assert!(w.has::<Animator>(e));
+    assert_ne!(w.hash(), hash);
+}
+#[test]
+fn deleting_controller_clears_pose_and_resumes_live_bind_composition() {
+    let mut w = world();
+    let owner = w.spawn_named(
+        "owner",
+        (
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Animation::play("slow"),
+        ),
+    );
+    w.spawn_named(
+        "charm",
+        (Transform::default(), SocketFollow::new("owner", "")),
+    );
+    step(&mut w);
+    w.step_clock();
+    let held = w.global_position("charm").unwrap();
+    w.begin_tick();
+    w.get_mut::<Transform>(owner).unwrap().position = Vec3::splat(10.);
+    assert_eq!(w.global_position("charm"), Some(held));
+    w.remove::<Animation>(owner);
+    assert!(!w.has::<Pose>(owner));
+    assert_eq!(w.global_position("charm"), Some(Vec3::splat(10.)));
 }

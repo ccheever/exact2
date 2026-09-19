@@ -140,7 +140,12 @@ struct Registration {
     ambient: bool,
 }
 
-pub(crate) type AttachmentPose = fn(&World, Entity, usize) -> Option<crate::Affine3A>;
+#[derive(Clone, Copy)]
+// Installed together by the linked attachment component, never saved as state.
+pub(crate) struct Attachments {
+    pub pose: fn(&World, Entity, usize) -> Option<crate::Affine3A>,
+    pub propagate: fn(&World),
+}
 
 /// One journal event. Reads never generate per-tick samples.
 #[derive(Clone, Debug, Default, Data)]
@@ -178,7 +183,7 @@ pub struct World {
     hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
-    pub(crate) attachment_pose: Option<AttachmentPose>,
+    pub(crate) attachments: Option<Attachments>,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
@@ -230,7 +235,7 @@ impl World {
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
-            attachment_pose: None,
+            attachments: None,
             state: State {
                 hz,
                 seed,
@@ -468,15 +473,7 @@ impl World {
     }
     /// Remove a component, returning its last value.
     pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
-        if !self.contains(e) {
-            return None;
-        }
-        let removed = self
-            .components
-            .get_mut(C::NAME)?
-            .any_mut()
-            .downcast_mut::<Storage<C>>()?
-            .remove(e.index as usize);
+        let removed = self.remove_component::<C>(e);
         if removed.is_some()
             && [
                 TypeId::of::<crate::Animation>(),
@@ -488,6 +485,17 @@ impl World {
             self.remove::<crate::Pose>(e);
         }
         removed
+    }
+    /// Remove storage only when replacing a controller while preserving its sampled Pose.
+    pub(crate) fn remove_component<C: Component>(&mut self, e: Entity) -> Option<C> {
+        if !self.contains(e) {
+            return None;
+        }
+        self.components
+            .get_mut(C::NAME)?
+            .any_mut()
+            .downcast_mut::<Storage<C>>()?
+            .remove(e.index as usize)
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
@@ -737,18 +745,23 @@ impl World {
     }
     /// Publish to the app and journal only changes to this key.
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
-        self.publish_value(key, value.into().0.into());
+        self.publish_value(key, value.into().0);
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
         let mut p = self.published.borrow_mut();
-        if p.get(key) == Some(&value) {
+        let stored = p.get_mut(key);
+        if stored.as_deref() == Some(&value) {
             return;
         }
         self.log(format_args!(
             "publish {key}: {}",
             crate::json::to_string(&value).unwrap_or_else(|e| e.to_string())
         ));
-        p.insert(key.into(), value);
+        if let Some(stored) = stored {
+            *stored = value;
+        } else {
+            p.insert(key.into(), value);
+        }
         self.published_pending.set(true);
         self.mutated();
     }
@@ -858,7 +871,7 @@ impl World {
         }
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
-        next.attachment_pose = self.attachment_pose;
+        next.attachments = self.attachments;
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;

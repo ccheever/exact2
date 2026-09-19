@@ -82,7 +82,7 @@ final class Adapter: ExactSessionDelegate {
 }
 let adapter = Adapter()
 let session = exact.makeSession(delegate: adapter, label: "main")
-if agentMode { session.clock = 0 }
+if ExactEnv.agentFreezes { session.clock = 0 }
 let launchURL = ExactEnv.environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
 var launchDevelopmentURL: URL?
 if let url = launchURL {

@@ -568,11 +568,11 @@ fn attachment_diagnostics_are_shared_and_history_reset_keeps_them() {
     b.diagnostics = a.diagnostics.clone();
     a.feed(&w, true, false, false, false);
     assert!(
-        b.diagnostics.borrow().contains_key(&e),
+        b.diagnostics.borrow().contains_key(&(e, "socket")),
         "second feed must see the first warning"
     );
     a.reset();
-    assert!(a.diagnostics.borrow().contains_key(&e));
+    assert!(a.diagnostics.borrow().contains_key(&(e, "socket")));
     b.feed(&w, true, false, false, false);
     assert_eq!(a.diagnostics.borrow().len(), 1);
     w.despawn(e);
@@ -581,4 +581,32 @@ fn attachment_diagnostics_are_shared_and_history_reset_keeps_them() {
         a.diagnostics.borrow().is_empty(),
         "dead entity warnings are pruned for both feeds"
     );
+}
+
+#[test]
+fn diagnostics_replace_changed_error_clear_on_fresh_world_and_survive_restore() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn_named(
+        "charm",
+        (
+            Transform::default(),
+            exact_game::SocketFollow::new("missing-a", "head"),
+        ),
+    );
+    let mut a = scene::Attachments::default();
+    a.feed(&w, true, false, false, false);
+    let first = a.diagnostics.borrow()[&(e, "socket")].clone();
+    w.get_mut::<exact_game::SocketFollow>(e).unwrap().target = "missing-b".into();
+    a.feed(&w, false, true, false, false);
+    assert_ne!(a.diagnostics.borrow()[&(e, "socket")], first);
+    let saved = w.save();
+    w.load(&saved).unwrap();
+    a.diagnostics.borrow_mut().restored(&w);
+    a.reset();
+    a.feed(&w, true, false, false, false);
+    assert_eq!(a.diagnostics.borrow().len(), 1);
+    let mut fresh = World::new(60, 0);
+    fresh.spawn(Transform::default());
+    a.feed(&fresh, true, false, false, false);
+    assert!(a.diagnostics.borrow().is_empty());
 }

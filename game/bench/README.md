@@ -618,3 +618,138 @@ Engine/physics tests pass (328, with 2 ignored), as do the workspace build,
 all-target Clippy and formatting. Beacons web/Linux and the animated-model web
 proof preserve their pins. Linux's first freshly linked launch timed out before
 readiness; its recorded child exited, and a cached retry passed in 5.26 seconds.
+
+### Borrowed socket lookup names — 2026-09-18
+
+The socket cache stores one model identity and a joint map per model. Warm lookups
+borrow both names, and the redundant inner `RefCell` is removed. The author API
+is unchanged. Successful joint lookups and matrix queries with a retained pose
+now allocate zero times (previously twice); a cached missing joint allocates once
+for its returned error (previously three times).
+
+Three alternating before/after native runs, each taking the median of seven
+100,000-call batches, measured these successive warm query sets. Allocation
+counting was disabled during timing; the shared Mac reported load 23.7.
+
+| Queried models × joints/model | Joint lookup, ns before → after | Retained-pose matrix, ns before → after |
+|---|---:|---:|
+| 1 × 1 | 61.9 → 33.6 | 130.7 → 108.8 |
+| 1 × 32 | 98.5 → 59.4 | 165.7 → 132.3 |
+| 32 × 8 | 111.5 → 85.1 | 199.0 → 176.5 |
+
+The probe's world hash stays `4102584e342ccf94`; its 91,001-byte save stays unchanged
+through the queries. These are CPU query timings, not frame rates. Model redelivery
+invalidates cached successes and refusals even while the old model remains alive;
+the strengthened regression also checks that warming does not alter a save.
+
+The animated fixture's observed module grows 1,063,949 → 1,065,684 raw bytes and
+440,730 → 440,879 gzip. This is a shared-tree comparison, not isolated attribution.
+The Beacons product built successfully, but another writer deleted its app and
+output for the fifth authoring build before the new bytes could be captured; no
+primitive-module size claim follows. Evidence: `/tmp/exact-game-goal-socket-cache/`.
+
+Engine tests pass (296, 2 ignored), including all 38 animation tests. The animated
+fixture passes on web and Linux with all four saves byte-identical and its existing
+tick/save pins retained. Workspace build, formatting, caps and boot pass. The first
+native launch timed out before readiness; its next attempt hit the concurrent
+Beacons deletion, and the third passed after its manifest returned. Workspace
+Clippy also hit the deletion; its replacement all-target run passed.
+
+### Game workspace resolution — 2026-09-18
+
+Games now have a known generated workspace, so `resolveApp` reads the manifest
+before deciding whether to invoke `cargo locate-project`. Only ordinary external
+apps need that lookup. A warm external-game probe measured 15 calls before and
+after: median **28.97 → 0.531 ms**, range 25.59–62.13 → 0.420–1.104 ms. Each run
+kept all 22 generated/app files byte-identical and returned the same app identity,
+manifest, workspace and target. This is resolution time, not proof time or FPS.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/resolve-probe/`.
+
+Generated-adapter cleanup also preserves Cargo's `target/` directory while
+removing old adapter identities. Six starter checks, 54 proof checks and three
+ordinary-app resolver checks pass, along with copied-index caps and boot. The
+cold new-game integration built both native binaries, then refused the build
+receipt: `no matching rustc unit dep-info for equivalent`. It did not reach app
+assertions or web; three integration attempts are closed. These results do not
+claim a sub-second complete proof.
+
+The receipt failure was rustc's raw output path containing spaces. The concurrent
+writer fixed that matcher; the existing real-Cargo regression now exercises a
+workspace with spaces. All four focused checks pass in 12.53 s, covering library
+and executable receipts, source/environment changes, cache reuse and refusal of
+ambiguous dep-info. This verifies the receipt fix, not the complete new-game proof.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/dep-info/focused.log`.
+
+### Direct publication values — 2026-09-18
+
+`World::publish` converts scalars and strings directly into its retained value;
+owned strings move into it. Updating an existing publication reuses its key and
+one map lookup. No author-facing option or cache is added. An isolated source
+snapshot, counting 20,000 warmed calls per case, measures:
+
+| Publication | Allocations/call before → after |
+|---|---:|
+| Unchanged borrowed string | 2 → 1 |
+| Unchanged owned string, including caller construction | 3 → 1 |
+| Changed scalar, including journal | 9 → 8 |
+| Changed borrowed string, including journal | 12.5 → 10.5 |
+| Unchanged two-field record | 6 → 6 |
+
+Three alternating native pairs, each using seven timed batches with counting
+disabled, put owned-string calls at 48.4–60.2 → 16.5–20.8 ns (65–66% faster).
+Changed scalar calls improve 11–24%; these are call timings, not frame rates.
+The first candidate's nested-value ownership conversion added two allocations
+for shared values and was removed. Shared/nested value allocation counts are
+unchanged in the retained candidate. Both probe binaries are 695,536 bytes;
+their published output, journal tail, 284-byte world save and hash are identical.
+
+Beacons passes on Linux and web, including HUD delivery and fresh-process restore.
+All three captured save files match across hosts; observed tick pins, final world
+hashes, publications and journal lines agree. The game's pins file remains empty,
+so these are observed comparisons, not a repinned baseline. Native journal chunks
+also carry a tick field that the web chunks omit. Evidence and rejected candidate:
+`/Users/ccheever/projects/.exact-game-verification/publication/`.
+
+The final no-host-argument proof passes in 47.90 s wall time, including another
+rebake after concurrent edits; this does not measure the warm headless loop. The
+preceding native attempt timed out before readiness. A live workspace test harness
+was independently sampled at `_dyld_start`, before Rust, during these checks.
+
+The full workspace run finished with 564 passing tests, one texture-redelivery
+failure and 11 ignored. The concurrent writer's subsequent redelivery fix passes
+all 22 asset tests. Workspace build and all-target Clippy passed; formatting passes
+after the other writer formatted its host-control regression.
+
+### Guide edits do not rebuild the engine — 2026-09-19
+
+The crate includes the game guide only under `cfg(doc)`. Normal native/Wasm
+compilation no longer depends on it, and proof inputs drop their special README
+exception. The runnable example remains one of the 21 passing documentation tests.
+
+In the isolated engine-and-consumer Cargo probe, a guide-only edit previously
+rebuilt both packages (19.31 s reported by Cargo). With the conditional include,
+another guide edit leaves both artifacts fresh: 0.064 s command wall time, with
+identical executable bytes and modification time. A subsequent Rust-source edit
+still rebuilds both packages. This measures avoided compilation, not the full
+game proof or startup. All 54 proof-harness tests pass, including documentation
+exclusion and source/asset invalidation. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/doc-build/`.
+
+### Attachment maintenance stays with its component — 2026-09-19
+
+SocketFollow installs pose resolution and tick-boundary maintenance together.
+The core world's propagation calls that optional executor instead of naming
+socket animation directly. Save/load retains both callbacks; dead-follower pruning
+and skipped-animation boundaries keep their existing behavior.
+
+The normal paired Beacons web recipe measures **754,607 → 743,249 raw bytes**
+(11,358 removed) and **323,209 → 318,687 gzip bytes**. Only the four engine files
+implementing this boundary changed among runtime inputs; a concurrent pins update
+does not enter the module. The pre-optimization map has no SocketFollow,
+FollowerPoses or prune_follower_poses entries after the change. No new public API,
+crate, feature or build option is involved. The 550,000-byte target remains open.
+
+Beacons and Skinned proofs pass on web and headless Linux with unchanged tick/save
+digests, including the model fixture's stale and restored attachments. All seven
+captured save files agree byte-for-byte across hosts. Evidence and paired artifacts:
+`/Users/ccheever/projects/.exact-game-verification/primitive-ownership/`.

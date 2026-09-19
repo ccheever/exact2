@@ -344,3 +344,42 @@ run. It also judged the fourth-score idioms the right shape and not a local opti
 and named what must be protected. The fix round for the nine reviews and the
 in-world UI slice are in the tree as this is written; the deletions and the
 attachment fix are briefed behind them.
+
+## 2026-09-18, 14:30–23:00 — the fourth host, the fifth build, and a second author in the tree
+
+Six commits this stretch, each a builder-and-two-reviewers round, and the pattern held: every
+slice that claimed a host-level property (recovery, touch, placement) came back DO NOT SHIP from
+one of the two reviewers on its first landing and SHIP WITH FIXES on the second. What landed:
+in-world UI on every host (a Contract child on an entity's plane, hidden as its own outcome, the
+browser compositing through `matrix3d`, Linux sampling through the homography); a lost GPU
+device recovering on every host, which took three rounds to hold — the first "recovered" drew
+no model, the second lost its retry state, the third coalesced Apple's two notifications; the
+macOS Fox textured at last (a readback-format change had discarded texture residency); displayed
+attachments composed from the interpolated joint chain, then carried as a full affine, then
+holding their last pose when stale; touch controls as Contract buttons — one attribute,
+`action="jump"`, carried through the schema, the lowering and every host's press lifecycle to
+the same `Input` the tick already reads — which the reviewers then took apart binding by
+binding (a press must keep the action it started with; a restored hold must have a host owner;
+a control must take focus on down); the iOS simulator as a proof host for all seven games once
+the adapter's limits were requested field by field; one `pins.json` per game and `--repin`,
+straight from the sibling program's finding that agents use only the facilities a failing
+message names; the third whole review's deletions (2,553 README lines among them) and optional
+capability out of the primitive artifact (Beacons 886 → 776 KB; the 550 KB target still stands).
+
+The fifth Beacons: a fresh builder, six minutes and three seconds from its first clock receipt to
+a passing proof of all six steps, 137 lines of logic and 48 of Contract, one pixel inspection,
+no engine change — and one finding worth the round: `bun game/new.mjs` writes shared state
+(`game/.shells/`, other games' manifests, the lockfile), so a builder confined to its own
+directory refused to run it and hand-copied the template into a nested workspace. The starter
+must be usable by an author who owns nothing but their game.
+
+And a second author in the tree. From about 19:40 a codex loop that is not one of mine —
+`/tmp/exact-game-goal-*` evidence directories, diary paragraphs signed "Codex" — has been
+landing engine optimizations (a socket-cache borrow, a JSON float reader, a clamp rewrite,
+executable caching, primitive asset boundaries) in this worktree between my builders' hunks.
+My private-index commits swept its edits in, and the reviewers dutifully flagged them as
+unasked-for. Nothing broke — the stay-out protocol my builders follow turns out to work with a
+stranger too — but attribution did: three of my commit messages describe work they contain only
+by omission. I have not touched its files, its processes are not mine to stop, and the next
+commit messages name what they carry that is not mine. The right fix is one orchestrator per
+worktree, and that is a decision for the owner of the machine.

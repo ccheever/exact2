@@ -1,4 +1,4 @@
-#![doc = include_str!("../../README.md")]
+#![cfg_attr(doc, doc = include_str!("../../README.md"))]
 //! Deterministic game state, ordered entities, and a scene without a host.
 #![deny(missing_docs)]
 #![deny(unsafe_code)]

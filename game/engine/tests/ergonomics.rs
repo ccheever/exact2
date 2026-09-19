@@ -328,6 +328,51 @@ fn record_publication_keeps_names_nested_values_and_saved_state() {
 }
 
 #[test]
+fn publication_preserves_owned_and_shared_contract_values() {
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    let saved = sim.world().save();
+    let hash = sim.world().hash();
+    sim.world().publish("text", "beacon ready");
+    assert_eq!(
+        sim.take_published().as_deref(),
+        Some(r#"{"text":"beacon ready"}"#)
+    );
+    let events = sim.world().journal().len();
+    sim.world().publish("text", String::from("beacon ready"));
+    assert!(sim.take_published().is_none());
+    assert_eq!(sim.world().journal().len(), events);
+    sim.world().publish("text", String::from("lit"));
+    assert_eq!(sim.take_published().as_deref(), Some(r#"{"text":"lit"}"#));
+
+    let value = || {
+        Value::record(vec![
+            Value::str("héllo"),
+            Value::list(vec![Value::Number(7.0), Value::Bool(true)]),
+            Value::Option(Some(std::rc::Rc::new(Value::str("present")))),
+        ])
+    };
+    let shared = value();
+    sim.world().publish("record", shared.clone());
+    assert_eq!(
+        shared,
+        value(),
+        "publication must leave shared inputs intact"
+    );
+    assert_eq!(sim.world().published("record"), Some(shared.clone()));
+    assert_eq!(
+        sim.take_published().as_deref(),
+        Some(r#"{"record":["héllo",[7,true],"present"],"text":"lit"}"#)
+    );
+    let events = sim.world().journal().len();
+    sim.world().publish("record", value());
+    assert!(sim.take_published().is_none());
+    assert_eq!(sim.world().journal().len(), events);
+    assert_eq!(sim.world().published("record"), Some(shared));
+    assert_eq!(sim.world().hash(), hash);
+    assert_eq!(sim.world().save(), saved);
+}
+
+#[test]
 fn proximity_uses_both_parent_chains_and_returns_mutable_global_rows() {
     #[derive(Default, Component)]
     struct Beacon {

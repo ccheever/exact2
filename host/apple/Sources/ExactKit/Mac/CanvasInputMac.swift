@@ -86,7 +86,7 @@ final class CanvasInput {
         let bit = event.buttonNumber == 0 ? 1 : event.buttonNumber == 1 ? 2 : event.buttonNumber == 2 ? 4 : 1 << min(event.buttonNumber, 30)
         if phase == "down" {
             guard fallsThrough(event, view) else { return false }
-            _ = view.focusCanvas()
+            _ = view.focusSurfacePointer()
             buttons |= bit
         } else if phase == "up" {
             guard buttons & bit != 0 else { return false }

@@ -124,6 +124,13 @@ export function pinRecorder(previous, name, check, collecting = false) {
     pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
   };
 }
+// Gameplay assertions can succeed before a game's first baseline exists.
+export function proofStatus({failures, expected, pins, collecting = false, partial = false}) {
+  if (failures.length) return 'FAIL';
+  if (collecting || partial || ['ticks', 'saves'].some(section =>
+    !Object.keys(expected[section] ?? {}).length || !equal(expected[section], pins[section]))) return 'UNVERIFIED';
+  return 'PASS';
+}
 // Compare the captured hosts directly; separate oracle checks cannot prove parity.
 export function comparePlacement(linux, web, tolerance = 0.5) {
   for (const sample of ['initial','moving']) {
@@ -157,16 +164,31 @@ export function facilityReport(replies) {
 
 /// Whether a repository file is outside a game's deterministic build inputs:
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
-/// outputs, tests, proofs — and every non-source file except the README and the
+/// outputs, tests, proofs — and every non-source file except the
 /// game's own art, assets and deck.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
     || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
-    || /(^|\/)(artifacts|dist|target|node_modules|tests|examples)\//.test(file)
-    || file.startsWith('apps/')
+    || /(^|\/)(artifacts|dist|dist.previous|target|node_modules|tests|examples|\.shells)\//.test(file)
+    || (file.startsWith('apps/') && !file.startsWith(appPrefix))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
-      && file !== 'game/README.md' && !file.startsWith(`game/games/${name}/art/`) && !file.startsWith(`game/games/${name}/assets/`) && !file.startsWith(`game/games/${name}/deck/`))
+      && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs)$/.test(file);
+}
+export function proofInputFiles(root, app) {
+  const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
+  const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
+    if (['.git','target','node_modules','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name)) return [];
+    const path = prefix + entry.name;
+    return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
+  });
+  // Fleet exports have no Git index; external games are outside exact2's index.
+  // Always include the app's own inputs, even when its defaults are gitignored.
+  const sources = files.status === 0 ? files.stdout.trim().split('\n') : walk(root);
+  sources.push(...walk(app).map(file => relative(root, resolve(app, file))));
+  const prefix = relative(root, app) + '/';
+  return [...new Set(sources)].sort().filter(file =>
+    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(root, file)));
 }
 export async function paranoidRuns(run, restore = async () => 0) {
   let failed = false;
@@ -185,7 +207,6 @@ export async function proof(meta, script) {
   const host = process.argv[2] ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts'));
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
-  const appPrefix = relative(root, app) + '/';
   const dist = resolve(app, 'dist');
   mkdirSync(out, {recursive:true});
   // Re-execute the actual proof, comparing every session's final simulation state.
@@ -300,20 +321,8 @@ export async function proof(meta, script) {
   };
   try {
     if (!['web','macos','ios','linux'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
-    const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
-    // Fleet source exports have no .git directory. Walk the same source tree,
-    // excluding build outputs; the extension/path filters below still apply.
-    if (files.status !== 0) {
-      const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
-        if (['.git','target','node_modules','.build','.shells','dist','artifacts'].includes(entry.name)) return [];
-        const path = prefix + entry.name;
-        return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
-      });
-      files.stdout = walk(root).join('\n');
-    }
     const hash = buildInputHash(host, resolveApp(name).target, process.env.EXACT_GAME_PARANOID ?? '0');
-    for (const file of [...new Set(files.stdout.trim().split('\n'))].sort()) {
-      if (proofInputExcluded(file, name, appPrefix) || !existsSync(resolve(root,file))) continue;
+    for (const file of proofInputFiles(root, app)) {
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
     const digest = hash.digest('hex'), receipt = resolve(buildOut, `build-${host}.sha256`);
@@ -323,7 +332,7 @@ export async function proof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     const built = await ensureBuildReceipt({receipt, inputs:digest,
       artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
-      say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun game/games/${name}/proof.mjs ${host} --build-only`);
+      say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
         // Native mode is read at launch; keep compile-time environment stable.
@@ -337,7 +346,6 @@ export async function proof(meta, script) {
     }});
     if (!built) say(`BUILD cached ${name} ${host}`);
     if (!process.argv.includes('--build-only')) {
-      if (!Object.keys(previousPins.ticks).length) say(`UNPINNED: verify and generate with bun game/prove.mjs ${name} --repin`);
       await script({open, check, equal, out, host, say, pin, pinSave});
       if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section]))
@@ -379,9 +387,13 @@ export async function proof(meta, script) {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
     });
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
+    const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, status, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
-    say(`PROOF ${failures.length ? 'FAIL' : 'PASS'} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
+    say(`PROOF ${status} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
+    if (status === 'UNVERIFIED' && !collecting && !partial)
+      say(`No complete tick/save baseline was checked. Generate it with bun game/prove.mjs '${app.replaceAll("'", "'\\''")}' --repin`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }

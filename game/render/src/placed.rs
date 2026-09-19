@@ -67,10 +67,7 @@ impl Placements {
             self.claims.clear();
             self.cameras.clear();
             self.attachments.reset();
-            self.attachments
-                .diagnostics
-                .borrow_mut()
-                .retain(|e, _| w.contains(*e));
+            self.attachments.diagnostics.borrow_mut().observe(w);
             self.stamp = Some(next);
             return Ok(());
         }

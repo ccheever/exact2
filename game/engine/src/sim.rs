@@ -276,6 +276,9 @@ impl<G: Game> Sim<G> {
                 assets.requested.remove(name);
                 assets.redelivery.insert(name.clone());
                 retry.push(name.clone());
+                // The module must reopen this answered name even if the replacement
+                // attached and prepared assets before failing again.
+                assets.retired.push(name.clone());
             }
         }
         retry

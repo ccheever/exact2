@@ -525,9 +525,9 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   ownership still reaches it. Primitive surfaces now reject unsupported assets
   without linking request/retirement or device-residency bookkeeping. Std float
   formatting is also absent. Geometry now shares portable trig and computes each
-  longitude once. Target labels now format only on failure. The latest shared-tree
-  module is 737,332 bytes (concurrent edits prevent attributing its whole delta),
-  still over target.
+  longitude once. Target labels now format only on failure. Socket attachment
+  maintenance now links only when its component is registered: the paired primitive
+  module falls 754,607 → 743,249 bytes, still over target.
   Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
@@ -537,10 +537,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   `/tmp/exact-game-goal-json-floats/`; forced inlining added 5,108 module bytes
   and was rejected. Finite round trips and native/Wasm bit equality now pass.
 
-- Warm socket queries still allocate two cache-key strings per call, after removing
-  diagnostic labels from success paths. `animation::SocketCache` uses an owned
-  `(model, joint)` tuple for every lookup; retain borrowed lookup without another
-  author API. The real-API allocation probe is in `/tmp/exact-game-goal-target-labels/`.
+- Unchanged record publication still constructs a temporary value tree: a two-field
+  HUD allocates six times per call in the native probe. Scalar/string publication
+  now skips the temporary Contract value and reuses existing keys. Any further
+  simplification must preserve atomic refusal, named fields and change-only delivery.
+  Evidence: `/Users/ccheever/projects/.exact-game-verification/publication/`.
 
 - Shadow splitting retains std `powf`: sharing portable power increased a cascade
   fit from 0.166 to 0.202 µs in paired native runs, so that candidate was reverted.

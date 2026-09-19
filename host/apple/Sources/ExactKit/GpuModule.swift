@@ -126,6 +126,7 @@ final class GpuModule {
         guard !recovering, deviceLost?() == true else { return }
         recovering = true
         let generation = lossGeneration
+        let recoveryEntries = canvases.allObjects.flatMap { Array($0.entries.values) }
         let delay = failures == 0 ? 0 : min(5.0, 0.1 * pow(2.0, Double(failures - 1)))
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -141,7 +142,9 @@ final class GpuModule {
                 self.observeDevice()
             } else { self.failures += 1 }
             let reason = ok ? nil : "device recovery: \(self.error()) \(outcome ?? [:])"
-            for owner in self.canvases.allObjects { owner.recoveredDevice(ok, error: reason) }
+            // Retaining the entries until here prevents address reuse during backoff.
+            let entries = Set(recoveryEntries.map(ObjectIdentifier.init))
+            for owner in self.canvases.allObjects { owner.recoveredDevice(ok, error: reason, recovering: entries) }
             if !ok { DispatchQueue.main.async { [weak self] in self?.recoverDevice() } }
         }
     }
