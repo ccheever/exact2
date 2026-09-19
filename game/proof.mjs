@@ -1,3 +1,4 @@
+import {sceneInputs} from './app/scenes.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -213,7 +214,7 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
   return (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
     || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
     || /(^|\/)(node_modules|tests|examples)\//.test(file)
-    || ['target/', '.shells/', 'dist/', 'dist.previous/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
+    || ['target/', '.shells/', '.scene/', 'dist/', 'dist.previous/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
     || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
@@ -225,7 +226,7 @@ export function proofInputFiles(root, app) {
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
   const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
-    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name))) return [];
+    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','.scene','dist','dist.previous','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
@@ -234,8 +235,10 @@ export function proofInputFiles(root, app) {
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
   sources.push(...walk(app).map(file => relative(repository, resolve(app, file))));
   const prefix = relative(repository, app) + '/';
+  const contentInputs = new Set(sceneInputs(app).map(file => relative(repository, file)));
+  sources.push(...contentInputs);
   return [...new Set(sources)].sort().filter(file =>
-    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file))).sort();
+    (!proofInputExcluded(file, basename(app), prefix) || contentInputs.has(file)) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file))).sort();
 }
 export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
   let failed = false;

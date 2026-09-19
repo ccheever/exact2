@@ -47,6 +47,9 @@ final class Canvases {
         var controls: [Int: SurfaceControl] = [:]
         var recoveryRedelivery = false
         var restorePending = false
+        var checkpointPending = false
+        var saveToken = 0
+        var loadToken = 0
         var restoreError: String?
         /// The surface samples the children (LLP 1014 D2): the overlay is
         /// captured into its texture and composited at alpha 0.

@@ -11,6 +11,8 @@ use std::{
     path::PathBuf,
 };
 
+#[path = "surface_checkpoints.rs"]
+mod checkpoints;
 #[path = "surface_controls.rs"]
 mod controls;
 
@@ -140,6 +142,16 @@ impl Abi {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or(Value::Null)
     }
+    fn restore(&self, id: u32, bytes: &[u8]) -> bool {
+        unsafe {
+            self.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(b"gpu_restore")(
+                id,
+                bytes.as_ptr(),
+                bytes.len(),
+                0,
+            )
+        }
+    }
     fn destroy(&self, id: u32) {
         unsafe { self.symbol::<unsafe extern "C" fn(u32)>(b"gpu_destroy")(id) }
     }
@@ -201,6 +213,7 @@ struct Canvas {
     restore_input: bool,
     restore_bytes: Option<Vec<u8>>,
     restore_logged: bool,
+    checkpoints: checkpoints::Requests,
 }
 impl Canvas {
     fn finish_restore(&mut self, error: Option<String>, state: Option<&Value>) -> Option<String> {
@@ -213,8 +226,17 @@ impl Canvas {
                 error.strip_prefix("restore refused: ").unwrap_or(&error)
             );
             self.restore_error = Some(error.clone());
+            self.checkpoints.finish(true);
             self.restore_input = false;
             return Some(error);
+        }
+        // Opaque non-game surfaces commit synchronously at the restore ABI.
+        // Only a world can advertise deferred asset completion.
+        if self.checkpoints.pending && state.is_some_and(|s| !s["world"].is_object()) {
+            self.restore_input = false;
+            self.restore_bytes = None;
+            self.checkpoints.finish(false);
+            return None;
         }
         if let Some(state) = state.filter(|s| s["world"]["restored"] == true) {
             self.held = state["world"]["input"]["forwarded"]
@@ -231,6 +253,7 @@ impl Canvas {
             );
             self.restore_input = false;
             self.restore_bytes = None;
+            self.checkpoints.finish(false);
         }
         None
     }
@@ -330,6 +353,7 @@ impl Surfaces {
                         restore_input: false,
                         restore_bytes: None,
                         restore_logged: false,
+                        checkpoints: Default::default(),
                     },
                 );
             }
@@ -362,11 +386,7 @@ impl Surfaces {
                 && abi.agent(c.id, &json!({"op":"state"}))["world"].is_object()
             {
                 let result = self.restore.take().unwrap().and_then(|bytes| {
-                    let ok = unsafe {
-                        abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(
-                            b"gpu_restore",
-                        )(c.id, bytes.as_ptr(), bytes.len(), 0)
-                    };
+                    let ok = abi.restore(c.id, &bytes);
                     c.restore_bytes = Some(bytes);
                     if ok {
                         c.restore_input = true;
@@ -386,6 +406,7 @@ impl Surfaces {
             }
         }
         for (&view, c) in &mut self.canvases {
+            checkpoints::requests(c, view, abi, host, compat);
             let mut delivered = false;
             for _ in 0..16 {
                 let names = abi
@@ -444,6 +465,7 @@ impl Surfaces {
                 let state = abi.agent(c.id, &json!({"op":"state"}));
                 c.finish_restore(None, Some(&state));
             }
+            changed |= checkpoints::reply(c, view, host);
             if let Some(bytes) = abi.read(b"gpu_published", c.id) {
                 if c.owner {
                     let record = String::from_utf8_lossy(&bytes);
@@ -793,6 +815,7 @@ mod tests {
                 restore_input: true,
                 restore_bytes: Some(vec![1]),
                 restore_logged: false,
+                checkpoints: Default::default(),
             };
             c.finish_restore(None, Some(&json!({"world":{"restored":false}})));
             assert_eq!(c.restore_bytes, Some(vec![1]));
@@ -818,6 +841,13 @@ mod tests {
                 assert!(c.held.contains("KeyW"));
             }
             assert!(!c.restore_input);
+            c.restore_input = true;
+            c.restore_bytes = Some(vec![3]);
+            c.checkpoints.pending = true;
+            c.finish_restore(None, Some(&Value::Null));
+            assert!(!c.restore_input, "opaque surface restore is synchronous");
+            assert!(c.restore_bytes.is_none());
+            assert!(!c.checkpoints.pending);
         }
     }
     pub(super) fn fixture() -> (PathBuf, Value) {
@@ -951,6 +981,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 restore_input: false,
                 restore_bytes: None,
                 restore_logged: false,
+                checkpoints: Default::default(),
             },
         );
         let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
@@ -1023,6 +1054,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 restore_input: false,
                 restore_bytes: None,
                 restore_logged: false,
+                checkpoints: Default::default(),
             },
         );
         p.boxes();
@@ -1101,6 +1133,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 restore_input: false,
                 restore_bytes: None,
                 restore_logged: false,
+                checkpoints: Default::default(),
             },
         );
         assert!(p.tap(under).unwrap_err().contains("covered or not hit"));

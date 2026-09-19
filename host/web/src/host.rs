@@ -770,6 +770,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
+            PropId::SurfaceSave => "surface-save",
+            PropId::SurfaceLoad => "surface-load",
             PropId::Id => "id",
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",

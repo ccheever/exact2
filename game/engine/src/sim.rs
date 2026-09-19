@@ -918,6 +918,10 @@ impl<G: Game> Sim<G> {
         let horizon = self.world_us;
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
         let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
+        // EXSIM restore clears completed-tick edges for a new host. Paranoid
+        // reconstruction stays inside that same tick and must retain its input
+        // snapshot, including edges, until advance clears them at the next tick.
+        let input = self.input.clone();
         let host = self.last_us;
         let queue = self.queue.clone();
         let last_ms = self.last_ms;
@@ -967,6 +971,7 @@ impl<G: Game> Sim<G> {
         );
         self.recorder = recorder;
         self.reload = reload;
+        self.input = input;
         self.world_us = horizon;
         self.last_us = host;
         self.last_ms = last_ms;

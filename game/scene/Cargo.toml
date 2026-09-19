@@ -1,0 +1,10 @@
+[package]
+name = "exact-game-scene"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game.workspace = true
+serde_json = "1"
+sha2 = "0.10"

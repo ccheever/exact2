@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Lanterns Exact",
+  "short_name": "Lanterns",
+  "id": "com.exact.lanterns.exact",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#130f24",
+  "background_color": "#130f24",
+  "app": {
+    "id": "com.exact.lanterns.exact",
+    "name": "Lanterns Exact"
+  },
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1280,
+        "height": 720
+      }
+    },
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "web": {}
+  },
+  "game": {
+    "crate": "lanterns-logic",
+    "type": "Lanterns",
+    "assets": true,
+    "audio": true
+  },
+  "rust": false,
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

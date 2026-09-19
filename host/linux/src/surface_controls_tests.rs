@@ -70,6 +70,7 @@ fn fixture() -> (Presenter<NoData>, PathBuf) {
                 restore_input: false,
                 restore_bytes: None,
                 restore_logged: false,
+                checkpoints: Default::default(),
             },
         );
     }

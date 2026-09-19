@@ -8,11 +8,12 @@ import { readFileSync } from 'node:fs';
 export async function fixture(options = {}) {
   const views = new Map(), records = [], diagnostics = [], observers = [];
   let next = 0, hud = null, expectedView = null;
+  const checkpointMessages = [], storage = options.storage ?? new Map();
   const changed = new Map(), events = [], order = [], restored = new Set();
   let mutations = Promise.resolve(), frame;
   const window = new EventTarget();
   const document = { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
-  const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
+  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
       return { ops: [() => {
@@ -25,7 +26,7 @@ export async function fixture(options = {}) {
     gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
-    gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { if (options.refuse?.(id)) return false; restored.add(id); return true; },
+    gpu_carry: () => new Uint8Array([1]), gpu_restore(id, bytes, mode) { order.push(`restore mode ${mode}`); if (options.refuse?.(id)) return false; if (!options.deferredRestore) restored.add(id); return true; },
     gpu_error: () => options.error ?? "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
     gpu_agent: id => JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? [],controlContacts:options.controlContacts ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
@@ -63,9 +64,9 @@ export async function fixture(options = {}) {
     cloneNode() { order.push('clone'); return new Element(this.kind); }
     remove() { order.push('remove clone'); this.isConnected = false; }
     replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
-    getAttribute() { return null; }
-    removeAttribute() {}
-    setAttribute() {}
+    getAttribute(name) { return this.attributes?.[name] ?? null; }
+    removeAttribute(name) { delete this.attributes?.[name]; }
+    setAttribute(name,value) { (this.attributes ??= {})[name] = String(value); }
     addEventListener(name, fn) { const set = this.handlers.get(name) ?? new Set(); set.add(fn); this.handlers.set(name,set); this.listeners[name] = event => [...set].forEach(f => f(event)); }
     removeEventListener(name, fn) { this.handlers.get(name)?.delete(fn); }
     contains(el) { return el === this || el?.parent === this; }
@@ -80,16 +81,16 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
-    source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
+    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage',
+    source + `;exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
   )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
-    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window);
+    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)});
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
+  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, mutation: () => observers.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
@@ -484,4 +485,37 @@ test('R13 named and empty argument objects survive the web batch and GPU binding
     await f.applyBatch({ops:[{op:'surface',id:1,name:'world',values}],timers:false,motion:false});
     assert.deepEqual(seen.at(-1),values);
   }
+});
+
+
+test('checkpoint tokens scope bytes, retain them on refusal, and acknowledge deferred loads only at commit', async () => {
+  const f = await fixture({deferredRestore:true});
+  const host = f.create(1);
+  host.setAttribute('surface-save',1); f.exact.checkpoint(1,'save');
+  await Promise.resolve();
+  assert.equal(f.storage.size,1);
+  assert.equal(f.checkpointMessages.at(-1)[1],'surface-save:saved');
+  const saved = [...f.storage.values()][0];
+  f.exact.checkpoint(1,'save'); await Promise.resolve();
+  assert.equal(f.checkpointMessages.length,1,'unchanged token performs no I/O or reply');
+  const duplicate = f.create(2);
+  duplicate.setAttribute('surface-save',1); f.exact.checkpoint(2,'save'); await Promise.resolve();
+  assert.equal(f.checkpointMessages.at(-1)[1],'surface-save:error');
+  assert.equal([...f.storage.values()][0],saved);
+  host.setAttribute('surface-load',1); f.exact.checkpoint(1,'load'); await Promise.resolve();
+  assert.equal(f.checkpointMessages.length,2,'pending assets cannot claim loaded');
+  assert.ok(f.order.includes('restore mode 0'),'user load uses Open semantics');
+  f.restored.add(1); f.exact.finishCheckpoint(1); await Promise.resolve();
+  assert.equal(f.checkpointMessages.at(-1)[1],'surface-load:loaded');
+  f.exact.finishCheckpoint(1); await Promise.resolve(); assert.equal(f.checkpointMessages.length,3);
+  f.restored.clear(); host.setAttribute('surface-load',2); f.exact.checkpoint(1,'load');
+  f.exact.finishCheckpoint(1,'late asset refusal'); await Promise.resolve();
+  assert.equal(f.checkpointMessages.at(-1)[1],'surface-load:error');
+  assert.equal([...f.storage.values()][0],saved);
+  const other = await fixture({app:'other.app',storage:f.storage});
+  const foreign = other.create(1); foreign.setAttribute('surface-load',1); other.exact.checkpoint(1,'load');
+  await Promise.resolve(); assert.equal(other.checkpointMessages.at(-1)[1],'surface-load:error');
+  const collision = await fixture({app:'fixture',storage:f.storage});
+  const dotted = collision.create(1,'app.world'); dotted.setAttribute('surface-load',1); collision.exact.checkpoint(1,'load');
+  await Promise.resolve(); assert.equal(collision.checkpointMessages.at(-1)[1],'surface-load:error','app/surface separators cannot collide');
 });

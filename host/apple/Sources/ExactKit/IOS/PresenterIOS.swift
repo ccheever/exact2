@@ -498,6 +498,9 @@ final class Presenter {
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
+        if let canvases = session?.canvases {
+            for entry in canvases.entries.values { canvases.checkpoints(entry.view) }
+        }
         for node in views.values {
             // A modal's live source retains its old geometry until release.
             // Its scroll writes must wait too, especially on newly added rows

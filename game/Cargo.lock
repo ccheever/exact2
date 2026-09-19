@@ -442,6 +442,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-game-scene"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-gpu"
 version = "0.1.0"
 dependencies = [

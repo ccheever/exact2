@@ -366,6 +366,9 @@ final class Presenter {
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
+        if let canvases = session?.canvases {
+            for entry in canvases.entries.values { canvases.checkpoints(entry.view) }
+        }
         for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
         segments.sync()
         menus.sync()

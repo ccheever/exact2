@@ -12,3 +12,6 @@ bench/.feel-*/
 /games/*/target/
 /bench/*/.shells/
 /bench/*/target/
+
+/games/*/.scene/
+/verification/*/.scene/

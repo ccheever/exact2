@@ -455,3 +455,22 @@ materialize its shell with `bun -e 'import {gameDefaults,gameShells} from "./gam
 and prefetch with `cargo fetch --locked --manifest-path <path>/.shells/Cargo.toml`.
 A shell lock without a captured source lock is removed and refused; the committed
 `game/new/Cargo.lock` is the first-bake seed, never a publisher's generated cache.
+
+## Typed scene content and user checkpoints
+
+`exact-game-scene::Types::prepare(content, &[Asset::new(name, sha256)])` validates
+baked scene bytes against typed component readers and the baked asset manifest.
+`PreparedScene::instantiate(&mut World)` constructs the initial world. Lanterns uses
+`Game::ASSETS = &["fox.model"]`, `CapsuleController`, and explicit animation stepping;
+its `world(..., scene=sceneContent())` construction uses named arguments throughout.
+`bun game/dev.mjs lanterns --scene-only [--reuse-baker]` rebakes content in its
+app-owned workspace. [Scene API and bounds](scene/README.md) describe fragments,
+source provenance, work limits and reload behavior.
+
+A canvas accepts integer `surface-save` and `surface-load` tokens. A changed positive
+token requests one operation. The first owning canvas stores opaque bytes by app ID
+and surface name. Save replies `surface-save:saved`; Open restore replies
+`surface-load:loaded` after commit, including deferred assets. Failures reply the
+corresponding `:error`. Other canvases cannot overwrite that surface's checkpoint.
+Web uses localStorage; Apple/Linux use app data (`EXACT_SURFACE_STORE` for isolated
+proofs). The common carrier limit is 256 MiB; filesystem writes replace atomically.

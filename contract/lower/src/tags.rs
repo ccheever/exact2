@@ -208,6 +208,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
+        "surface-save" => AttrTarget::Prop(p("surfaceSave")),
+        "surface-load" => AttrTarget::Prop(p("surfaceLoad")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),

@@ -51,7 +51,7 @@ has not yet been certified.
    Typed world decode and exact tick/time validation precede authored merging.
    R14 will move the decode ahead of setup as well.
 7. Geometric layout and movement diagnostics: adapted and headless-verified.
-8. Typed scenes and adapted Lanterns: pending.
+8. Typed scenes and adapted Lanterns: adapted; Linux verified, first web baseline pending.
 9. DX host transactions and handoff: pending.
 10. I3 fixed evidence and opt-in trials: pending.
 11. Named real-GPU Fox acceptance, final documentation/matrix: pending.
@@ -266,3 +266,64 @@ Rust movement fixture used the opposite stick-Y convention; it now uses G's
 negative-Z forward convention. Bun proof tests pass 70/70 with installed Chromium.
 
 Geometry gate completed: 672 game-workspace passes / 14 adapter failures / 23 ignored; 29 app-workspace passes / 3 adapter failures / 1 ignored. Game and all eight app clippy/fmt pass; all 28 Linux normal/paranoid executions pass without moving a pin. Bun 118 pass / 1 skip, caps and boot pass. No non-hardware red was left by this increment.
+
+Typed scenes use a scene-owned `Asset::new(name, digest)` descriptor derived from
+G's baked manifest. Lanterns declares `fox.model`, uses `CapsuleController` and
+explicitly steps `Animation::play` through G's motion API. Its concrete logic
+manifest owns `.shells`, with a separately captured Cargo.lock. The Contract uses
+named arguments throughout: G correctly refuses mixing the brief's suggested
+trailing named scene with positional arguments. Beacons r5 remains procedural.
+
+N's source-span parser repeatedly rescanned source prefixes; line/column tracking
+now advances with its byte cursor. Shared bake bounds cover repeated empty
+fragments as well as output entities: 64 MiB total reads, 16 MiB per read and
+256 MiB charged expansion/cloning work. JSON/fragment/parent depths remain
+64/32/256, entities 100k and component decode allocation 64 MiB. Parent lookups use
+a name map. JS dependency discovery is iterative, bounded to 4096 files/64 MiB,
+and refuses oversized reads. The unfavorable repeated-fragment and cyclic-edit
+controls pass. Scene tests 17/17; the real scratch content rebake measured 9.00 ms
+(n=1), zero Cargo targets compiled, and unchanged baker SHA/mtime.
+
+Schema IDs 77/78 add canvas-only save/load tokens without moving action=76. Web,
+Apple and Linux scope the opaque checkpoint by app/surface, refuse duplicate
+publishers and acknowledge Load only after deferred restore commits. Load uses
+G's Open mode. Web quota/write errors retain the preceding value; filesystem
+writes replace atomically. Tokens preserve G controls, ChildrenMode and recovery.
+Linux's real HUD Save/Load proof preserves exact tick/hash and subsequent save
+bytes, as does a fresh-process restore. Apple source and its scoped store test are
+carried but cannot execute without its SDK. Production web fixture tests cover
+late asset failure, deferred success, unchanged tokens, duplicate ownership and
+app isolation (60 focused Bun tests including scene tooling pass).
+
+The enlarged won-state live capture test exposed G paranoid reconstruction
+clearing the completed tick's transient input edges. World hashes agreed while
+save bytes differed (`released: ["light"]` versus `[]`). Reconstruction now retains
+the same input snapshot until the next tick clears edges; ordinary Open/Carry
+restore semantics remain unchanged. Actual won/lost live instances now pass
+fractional clock, held input, prefix-zero, full replay and full save-byte equality
+across Off/Save/FreshGame and Seekable/Live. All 14 Lanterns tests pass. Its wall
+fixture was scaled/positioned against G's actual conservative Fox rig bounds;
+the original increasing-occlusion, wall identity, LOS and removal assertions stay.
+
+Lanterns Linux runs pass in all three modes. G's `agreePins` accepts the three
+independently recorded Linux tick/save inventories; no pins were hand-written.
+The first-baseline command requires web as well as Linux, so `pins.json` stays
+empty and ordinary `prove --hosts linux` intentionally refuses. The Linux-only
+candidate is recorded in scratch, not promoted to a cross-host baseline. Owner
+must run `bun game/prove.mjs lanterns --hosts linux,web` on a WebGPU host. Existing
+seven-game pins have not moved in this increment. Core selected tests: 519 pass,
+3 existing no-adapter registry failures, 1 ignored; selected core clippy passes.
+
+Scene gate completed: game tests 689 pass / 14 no-adapter failures / 23 ignored;
+app tests 43 pass / 3 no-adapter failures / 1 ignored. Game and all nine app
+workspaces pass clippy/fmt. All 28 established-game Linux normal/paranoid runs
+pass without moving a pin. Lanterns additionally passes normal and all three
+modes, including fresh-process title Load without Play, and G's Linux-only
+pin/save agreement; its first cross-host baseline remains blocked as above.
+Bun 121 pass / 1 skip; host web fixtures 94 pass / 5 known platform failures
+(four missing xcrun, Caltrain placement 60s timeout). Root build/test/clippy still
+refuse the absent lean Hermes producer; root fmt/caps/boot pass. Final checkpoint
+checks add a dotted app/surface collision control (JSON tuple key) and allow
+opaque non-game surfaces to acknowledge synchronous restore; 57 web production
+fixture tests and 37 Linux host tests pass, Linux clippy passes. Apple remains
+source-reviewed, not SDK-verified. No incoming assertion was weakened/deleted.

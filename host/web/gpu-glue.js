@@ -47,6 +47,7 @@ function finishRestore(entry, module, error) {
     entry.restoreError = `surface ${entry.name}: restore refused: ${String(error).replace(/^restore refused: /, "")}`;
     delete entry.pendingRestore;
     reportRestore(entry);
+    if (pending.checkpoint) checkpointReply(entry, "surface-load:error", entry.restoreError);
     return;
   }
   const world = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
@@ -59,6 +60,7 @@ function finishRestore(entry, module, error) {
   delete entry.restoreError; delete entry.restoreReported;
   entry.restoredCarry = true;
   entry.resampleHeld?.();
+  if (pending.checkpoint) checkpointReply(entry, "surface-load:loaded");
 }
 async function settled() {
   await ready;
@@ -162,7 +164,7 @@ function placeChildren(entry) {
 // Both code replacement and device recovery replace the presentation context.
 const replacementCanvas = entry => entry.el.cloneNode(false);
 function installCanvas(old, entry) {
-  cancelAssets(old); old.observer?.disconnect(); old.unlisten?.();
+  cancelAssets(old); old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.();
   old.el.replaceWith(entry.el);
   if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
 }
@@ -170,7 +172,7 @@ function recoverDevice() {
   if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
-  const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
+  const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, checkpointObserver:null, unlisten:null}]);
   const detached = new Set();
   recoveringDevice = (async () => {
     const outcome = pendingCutover?.module === module ? pendingCutover.outcome : JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
@@ -197,14 +199,14 @@ function recoverDevice() {
     schedule();
   })().catch(error => {
     for (const [old, entry] of staged) {
-      cancelAssets(entry); entry.observer?.disconnect(); entry.unlisten?.();
+      cancelAssets(entry); entry.observer?.disconnect(); entry.checkpointObserver?.disconnect(); entry.unlisten?.();
       if (detached.has(old) && surfaces.has(old.view)) {
         entry.el.replaceWith(old.el); surfaces.set(old.view, old);
         if (publishers.get(old.name) === entry) publishers.set(old.name, old);
         if (old.host === old.el) exact.views.set(old.view, old.el);
       }
       if (detached.has(old) && live(old.view) === old) {
-        old.observer?.disconnect(); old.unlisten?.(); attach(old);
+        old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.(); attach(old);
       }
       if (!pendingCutover) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
     }
@@ -293,6 +295,7 @@ function create(entry, module, carry) {
 function attach(entry) {
   entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, frameAt ?? performance.now()); });
   entry.observer.observe(entry.el);
+  watchCheckpoints(entry);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
@@ -369,6 +372,64 @@ function messages(entry, drainAssets = true) {
     if (live(entry.view) !== entry) break;
     if (text !== "exact:audio") exact.message(entry.host, text);
   }
+}
+function checkpointKey(entry) {
+  const app = exact.compat?.inputs?.app;
+  if (typeof app !== "string" || !app) throw new Error("missing app identity");
+  return `exact.surface.${JSON.stringify([app, entry.name])}`;
+}
+function checkpointReply(entry, text, error) {
+  if (error) console.warn(`exact: ${text}:`, String(error));
+  queueMicrotask(() => { if (live(entry.view) === entry) exact.message(entry.host, text); });
+}
+function checkpointToken(entry, attribute) {
+  const token = Number(entry.host.getAttribute(attribute) ?? 0);
+  return Number.isSafeInteger(token) && token >= 0 ? token : 0;
+}
+function checkpoint(entry, kind) {
+  const attribute = kind === "save" ? "surface-save" : "surface-load";
+  const field = kind === "save" ? "saveToken" : "loadToken";
+  const token = checkpointToken(entry, attribute);
+  if (entry[field] === token) return;
+  entry[field] = token;
+  if (!token) return;
+  try {
+    if (!entry.id) throw new Error("surface is not ready");
+    if (publishers.get(entry.name) !== entry) throw new Error("duplicate canvas cannot checkpoint");
+    if (entry.pendingRestore) throw new Error("surface restore is pending");
+    const key = checkpointKey(entry);
+    if (kind === "save") {
+      const bytes = gpu.gpu_carry(entry.id);
+      if (bytes === undefined) throw new Error("surface carries no state");
+      worldSize(bytes);
+      let encoded = "";
+      for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      localStorage.setItem(key, btoa(encoded));
+      checkpointReply(entry, "surface-save:saved");
+      return;
+    }
+    const encoded = localStorage.getItem(key);
+    if (encoded === null) throw new Error("no saved game");
+    if (encoded.length > Math.ceil(WORLD_LIMIT / 3) * 4) throw new Error("world carrier exceeds 256 MiB limit");
+    const raw = atob(encoded);
+    const bytes = worldSize(Uint8Array.from(raw, c => c.charCodeAt(0)));
+    if (!gpu.gpu_restore(entry.id, bytes, 0)) throw new Error(gpu.gpu_error() || "surface refused saved state");
+    entry.pendingRestore = {bytes, checkpoint:true};
+    messages(entry); schedule();
+  } catch (error) {
+    checkpointReply(entry, `surface-${kind}:error`, error);
+  }
+}
+function watchCheckpoints(entry) {
+  entry.saveToken ??= 0;
+  entry.loadToken ??= 0;
+  entry.checkpointObserver = new MutationObserver((records = []) => {
+    if (live(entry.view) !== entry) return;
+    if (records.some(record => record.attributeName === "surface-save")) checkpoint(entry, "save");
+    if (records.some(record => record.attributeName === "surface-load")) checkpoint(entry, "load");
+  });
+  entry.checkpointObserver.observe(entry.host, { attributes: true, attributeFilter: ["surface-save", "surface-load"] });
+  queueMicrotask(() => { if (live(entry.view) === entry) { checkpoint(entry, "save"); checkpoint(entry, "load"); } });
 }
 function listen(entry) {
   const el = entry.host, listeners = [];
@@ -674,7 +735,7 @@ exact.gpu = {
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
     // is the first thing to navigate away from a canvas and back).
-    if (entry) { entry.observer?.disconnect(); entry.unlisten?.(); entry.id = 0; }
+    if (entry) { entry.observer?.disconnect(); entry.checkpointObserver?.disconnect(); entry.unlisten?.(); entry.id = 0; }
     surfaces.delete(view);
     if (entry && publishers.get(entry.name) === entry) { publishers.delete(entry.name); surfaceRecord(entry.name, null); }
   },
@@ -785,7 +846,7 @@ async function swap(version) {
     // canvases; the old canvases and their worlds remain untouched until commit.
     // No await from carry through cutover; input cannot arrive between them.
     for (const old of surfaces.values()) {
-      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, unlisten: null };
+      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, checkpointObserver: null, unlisten: null };
       delete entry.restoreError; delete entry.attemptedCarry;
       delete entry.pendingRestore; delete entry.restoreReported;
       staged.push([old, entry]);

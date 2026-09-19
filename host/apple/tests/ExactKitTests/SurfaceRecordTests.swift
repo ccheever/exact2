@@ -69,6 +69,21 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertNoThrow(try WorldCarrier.check(WorldCarrier.limit))
     }
 
+    func testSurfaceCheckpointStoreScopesOpaqueBytesByAppAndSurface() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = Data([0, 1, 2, 255])
+        let second = Data("another world".utf8)
+        try SurfaceCheckpointStore.write(first, app: "app.one", surface: "world/a", under: root)
+        try SurfaceCheckpointStore.write(second, app: "app.two", surface: "world/a", under: root)
+        XCTAssertEqual(try SurfaceCheckpointStore.read(app: "app.one", surface: "world/a", under: root), first)
+        XCTAssertEqual(try SurfaceCheckpointStore.read(app: "app.two", surface: "world/a", under: root), second)
+        XCTAssertNotEqual(
+            try SurfaceCheckpointStore.url(app: "app.one", surface: "world/a", under: root),
+            try SurfaceCheckpointStore.url(app: "app.one", surface: "world/b", under: root))
+    }
+
+
     func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {
         let session = try fixture()
         defer { session.destroy() }

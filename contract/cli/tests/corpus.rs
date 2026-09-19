@@ -642,6 +642,17 @@ fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar()
 
 #[test]
 fn canvas_messages_deliver_strings_and_other_tags_still_refuse_them() {
+    contract::compile("component App\n  state save = 0\n  state load = 0\n  view\n    canvas surface-save=save surface-load=load\n").unwrap();
+    for attr in ["surface-save=1", "surface-load=1"] {
+        let error = contract::compile(&format!("component App\n  view\n    column {attr}\n"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("belongs to `canvas`, not `column`"),
+            "{error}"
+        );
+    }
+
     let plan = contract::compile(&corpus("canvas.contract")).unwrap();
     let mut r = Runner::boot(
         plan,

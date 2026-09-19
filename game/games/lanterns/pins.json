@@ -1,0 +1,8 @@
+{
+  "ticks": {},
+  "saves": {},
+  "hosts": [],
+  "generated": "bun game/prove.mjs lanterns",
+  "at": "unverified",
+  "help": "First baseline: bun game/prove.mjs lanterns; changed golden: add --repin. Empty pins fail ordinary proofs."
+}
