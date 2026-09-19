@@ -668,3 +668,324 @@ fn glyph_capacity_compaction_keeps_ordinary_small_storage_unchanged() {
     eprintln!("ordinary unchanged glyph capacity: {a:?}; line-header bytes={}; this is not a timing measurement",
         a.line_capacity * size_of::<cosmic_text::LayoutLine>());
 }
+
+// Local width-pass lookup reuse. The reference method is the pinned original
+// production method, not a second implementation of the candidate slot.
+mod last_font_metrics {
+    use super::*;
+
+    fn engine() -> TextEngine {
+        let mut db = fontdb::Database::new();
+        for bytes in [
+            include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").as_slice(),
+            include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf")
+                .as_slice(),
+            include_bytes!("../../../../vendor/cosmic-text/fonts/Inter-Regular.ttf").as_slice(),
+            include_bytes!("../../../../vendor/cosmic-text/fonts/NotoSansArabic.ttf").as_slice(),
+        ] {
+            db.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
+        }
+        db.set_sans_serif_family("DejaVu Sans");
+        TextEngine::with_catalog(catalog::Catalog::with_fonts(
+            FontSystem::new_with_locale_and_db("en-US".into(), db),
+        ))
+    }
+
+    fn source(engine: &TextEngine, spec: Spec) -> Rc<ShapedSource> {
+        Rc::new(ShapedSource::new(engine.catalog.clone(), Arc::new(spec)))
+    }
+
+    fn transitions(p: &Paragraph) -> (usize, usize) {
+        let mut last = None;
+        let mut calls = 0;
+        let mut glyphs = 0;
+        for g in p.layout_runs().flat_map(|r| r.glyphs) {
+            let key = (g.font_id, g.font_weight);
+            if last != Some(key) {
+                calls += 1;
+                last = Some(key);
+            }
+            glyphs += 1;
+        }
+        (calls, glyphs)
+    }
+
+    fn pixels(engine: &mut TextEngine, p: &Paragraph, scale: f32, y: f32) -> Vec<u8> {
+        let palette: Vec<_> = p
+            .source
+            .spec
+            .runs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| RunPaint {
+                color: [30 + i as u8, 70, 160, 231],
+                source: i as u32,
+            })
+            .collect();
+        let mut image = Pixmap::new(320, 180).unwrap();
+        let mut mask = Mask::new(320, 180).unwrap();
+        for row in 7..165 {
+            mask.data_mut()[row * 320 + 11..row * 320 + 297].fill(255);
+        }
+        engine.paint_clipped(
+            &mut image,
+            p,
+            &palette,
+            (7.375, y),
+            scale,
+            Transform::from_scale(scale, scale),
+            Some(&mask),
+            (11., 7., 286., 158.),
+        );
+        image.data().to_vec()
+    }
+
+    fn parity(engine: &mut TextEngine, p: &Paragraph, old: &Paragraph) {
+        assert_eq!(
+            [p.width, p.height, p.first_baseline].map(f32::to_bits),
+            [old.width, old.height, old.first_baseline].map(f32::to_bits),
+        );
+        assert_eq!(
+            p.baselines.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            old.baselines
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            p.layout_runs().map(signature).collect::<Vec<_>>(),
+            old.layout_runs().map(signature).collect::<Vec<_>>()
+        );
+        for (scale, y) in [(1., 0.625), (1.25, -13.375), (2., -31.125)] {
+            // Both cold and subsequently warmed raster/index paths compare to
+            // the unchanged loop's independently placed Paragraph.
+            for _ in 0..2 {
+                assert_eq!(pixels(engine, p, scale, y), pixels(engine, old, scale, y));
+            }
+        }
+    }
+
+    #[test]
+    fn repetitive_width_pass_counts_actual_font_lookups() {
+        let mut engine = engine();
+        let s = crate::paint::text_spec(
+            &exact_kernel::StyleProps::default(),
+            &"office café words 1234 ".repeat(24),
+        );
+        let source = source(&engine, s);
+        for width in [193.25, 241.75, 193.25] {
+            let before = shaping::width_font_lookups();
+            let p = source.layout(Some(width), None);
+            let actual = shaping::width_font_lookups() - before;
+            let (expected, glyphs) = transitions(&p);
+            assert!(glyphs > 100 && expected < glyphs / 2);
+            let old = source.layout_reference(Some(width), None);
+            parity(&mut engine, &p, &old);
+            assert!(pixels(&mut engine, &p, 1., 0.625)
+                .chunks_exact(4)
+                .any(|p| p[3] != 0));
+            eprintln!(
+                "width={width} glyphs={glyphs} transitions={expected} actual_get_font={actual}"
+            );
+            assert_eq!(actual, expected, "per-glyph font lookup was not eliminated");
+        }
+    }
+
+    #[test]
+    fn fallback_weights_sizes_and_metadata_keep_exact_results() {
+        let mut engine = engine();
+        engine.catalog.borrow_mut().families[0] = FamilyChoice::Declared("Inter".into());
+        let mut s = crate::paint::text_spec(
+            &exact_kernel::StyleProps::default(),
+            "café العربية abc abc ",
+        );
+        for (weight, size, height) in [
+            (700, 21.25, None),
+            (400, 12.5, Some(7.25)),
+            (400, 23.5, None),
+        ] {
+            let mut r = s.runs[0].clone();
+            r.text = "tail שלום xyz xyz ".into();
+            r.weight = weight;
+            // Inter fixture is regular-only: use the already loaded bold face
+            // for the weight control; keep the first run's actual fallback.
+            if weight == 700 {
+                r.family = 1;
+            }
+            r.size = size;
+            r.line_height = height;
+            s.runs.push(r);
+        }
+        let source = source(&engine, s);
+        let before = shaping::width_font_lookups();
+        let p = source.layout(Some(211.125), None);
+        let calls = shaping::width_font_lookups() - before;
+        let keys: Vec<_> = p
+            .layout_runs()
+            .flat_map(|r| r.glyphs)
+            .map(|g| (g.font_id, g.font_weight, g.font_size.to_bits(), g.metadata))
+            .collect();
+        assert!(keys.iter().any(|k| k.1 == Weight(700)));
+        assert!(keys.iter().any(|k| k.1 == Weight(400)));
+        assert!(keys.iter().any(|k| k.2 == 12.5f32.to_bits()));
+        assert!(keys.iter().any(|k| k.2 == 23.5f32.to_bits()));
+        assert!(keys
+            .iter()
+            .all(|k| engine.catalog.borrow().fonts.db().face(k.0).is_some()));
+        let first_run_fonts: std::collections::HashSet<_> =
+            keys.iter().filter(|k| k.3 == 0).map(|k| k.0).collect();
+        assert!(
+            first_run_fonts.len() >= 2,
+            "Latin/Arabic must exercise actual fallback faces"
+        );
+        let old = source.layout_reference(Some(211.125), None);
+        parity(&mut engine, &p, &old);
+        assert_eq!(calls, transitions(&p).0);
+    }
+
+    #[test]
+    fn explicit_normal_equal_ties_and_zero_height_keep_bits() {
+        let mut engine = engine();
+        let mut s = crate::paint::text_spec(&exact_kernel::StyleProps::default(), "aaa ");
+        s.strut.size = 17.25;
+        s.runs[0].size = 17.25;
+        let (a, d, l) = engine.catalog.borrow_mut().font_metrics(&s.strut);
+        let normal = a + d + l;
+        for height in [Some(normal), Some(0.), Some(7.25), None] {
+            s.strut.line_height = height;
+            s.runs[0].line_height = height;
+            let mut normal_run = s.runs[0].clone();
+            normal_run.line_height = None;
+            normal_run.text = "bbb ".into();
+            s.runs.truncate(1);
+            s.runs.push(normal_run);
+            for reverse in [false, true] {
+                let mut current = s.clone();
+                if reverse {
+                    current.runs.reverse();
+                }
+                let source = source(&engine, current);
+                let p = source.layout(Some(270.5), None);
+                let old = source.layout_reference(Some(270.5), None);
+                parity(&mut engine, &p, &old);
+                if height == Some(normal) {
+                    // This fixture's strut and normal run use the SAME font and
+                    // size, so equal ascent/descent ties must preserve the old
+                    // explicit &= normal decision, including final ceil.
+                    assert_eq!(p.height.to_bits(), normal.ceil().to_bits());
+                }
+            }
+        }
+    }
+
+    fn raw_bits(m: shaping::RawFontMetrics) -> [u32; 4] {
+        [
+            u32::from(m.units_per_em),
+            m.ascent.to_bits(),
+            m.descent.to_bits(),
+            m.leading.to_bits(),
+        ]
+    }
+
+    #[test]
+    fn slot_keys_include_weight_and_missing_none_is_a_hit() {
+        let engine = engine();
+        let mut catalog = engine.catalog.borrow_mut();
+        let id = catalog.fonts.db().faces().next().unwrap().id;
+        let missing = fontdb::ID::dummy();
+        let keys = [
+            (missing, Weight(400)),
+            (missing, Weight(400)),
+            (id, Weight(400)),
+            (id, Weight(400)),
+            (id, Weight(700)),
+            (id, Weight(700)),
+            (id, Weight(400)),
+            (missing, Weight(400)),
+        ];
+        let expected: Vec<_> = keys
+            .iter()
+            .map(|&(id, weight)| {
+                catalog.fonts.get_font(id, weight).map(|font| {
+                    let m = font.metrics();
+                    [
+                        u32::from(m.units_per_em),
+                        m.ascent.to_bits(),
+                        m.descent.to_bits(),
+                        m.leading.to_bits(),
+                    ]
+                })
+            })
+            .collect();
+        assert!(expected[0].is_none() && expected[2].is_some() && expected[4].is_some());
+        let mut slot = shaping::LastFontMetrics::default();
+        let before = shaping::width_font_lookups();
+        let actual: Vec<_> = keys
+            .iter()
+            .map(|&(id, weight)| slot.get(&mut catalog.fonts, id, weight).map(raw_bits))
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(shaping::width_font_lookups() - before, 5);
+    }
+
+    #[test]
+    fn copied_slot_does_not_retain_font_arc_or_catalog_owner() {
+        let engine = engine();
+        let mut catalog = engine.catalog.borrow_mut();
+        let id = catalog.fonts.db().faces().next().unwrap().id;
+        let font = catalog.fonts.get_font(id, Weight(400)).unwrap();
+        let weak = Arc::downgrade(&font);
+        let count = Arc::strong_count(&font);
+        let mut slot = shaping::LastFontMetrics::default();
+        assert!(slot.get(&mut catalog.fonts, id, Weight(400)).is_some());
+        assert_eq!(Arc::strong_count(&font), count);
+        drop(font);
+        drop(catalog);
+        drop(engine);
+        assert!(
+            weak.upgrade().is_none(),
+            "scalar slot retained a font owner"
+        );
+        // Keep the slot live past the final owner assertion.
+        std::hint::black_box(slot);
+    }
+
+    #[test]
+    fn catalog_reset_keeps_old_paragraph_and_new_width_exact() {
+        let mut engine = engine();
+        let s = crate::paint::text_spec(
+            &exact_kernel::StyleProps::default(),
+            "old catalog café words ",
+        );
+        let source = source(&engine, s);
+        let old_catalog = Rc::downgrade(&source.catalog);
+        let p = source.layout(Some(160.25), None);
+        let expected = pixels(&mut engine, &p, 1.25, 0.625);
+        engine.catalog = Rc::new(RefCell::new(catalog::Catalog::with_fonts(
+            FontSystem::new_with_locale_and_db("en-US".into(), fontdb::Database::new()),
+        )));
+        assert_eq!(pixels(&mut engine, &p, 1.25, 0.625), expected);
+        let before = shaping::width_font_lookups();
+        let b = source.layout(Some(201.75), None);
+        let calls = shaping::width_font_lookups() - before;
+        assert!(calls > 0, "slot must not outlive one width layout");
+        let old = source.layout_reference(Some(201.75), None);
+        parity(&mut engine, &b, &old);
+        assert_eq!(calls, transitions(&b).0);
+        drop((p, b, old, source));
+        assert!(old_catalog.upgrade().is_none());
+    }
+
+    #[test]
+    fn empty_paragraph_has_no_width_font_lookup() {
+        let mut engine = engine();
+        let s = crate::paint::text_spec(&exact_kernel::StyleProps::default(), "");
+        let source = source(&engine, s);
+        let before = shaping::width_font_lookups();
+        let p = source.layout(Some(0.), None);
+        assert_eq!(shaping::width_font_lookups(), before);
+        assert_eq!(transitions(&p), (0, 0));
+        let old = source.layout_reference(Some(0.), None);
+        parity(&mut engine, &p, &old);
+    }
+}

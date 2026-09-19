@@ -7282,3 +7282,52 @@ cell and23 copied files /25,035,241B. Lead reconstruction `92c5b3d5` and functio
 comparison `cff35bbb` match all32 component arrays and input/history/pixel checks.
 The final owner report `69abc3ea` / manifest `ddc3c998` preserves58 files
 /50,598,258B, including the original cleanup wording noted above.
+
+### 8.133 Linux width layout: reuse consecutive font metrics, 2026-09-19
+
+The width-layout pass now keeps one local last-font/weight slot containing only
+units-per-em, ascent, descent and leading. Consecutive identical keys reuse
+these unscaled values, including a missing-font result. A different key uses
+the original `get_font` path. The slot dies with the width pass under its
+existing exclusive catalog borrow; it retains no font, paragraph or catalog
+owner and adds no cross-call cache or policy. Per-glyph size, metadata,
+fallback font, explicit/normal line-height, floating-point operation order,
+comparisons and equal-value flags remain unchanged.
+
+Seven tests were authored before the candidate. An instrumented original loop
+fails four lookup-count assertions while three controls pass. Actual width
+passes record481→1,75→5 and23→1 lookups; a direct same-ID/different-weight and
+missing-font sequence records8→5. The candidate passes all seven. Its repeated
+width fixture records1 lookup for481/485/481 glyphs across three independent
+passes. These counts measure calls to the existing font cache, not font
+allocations or elapsed-time savings.
+
+An exact test-only copy of the original layout loop provides the metrics,
+baseline, glyph/source/selection and RGBA oracle. Controls exercise fallback
+faces, weights, sizes, metadata, explicit/normal equal ties, zero/fractional
+line-height, empty text, catalog replacement and last-owner release. Pixel
+comparisons cover three scales, fractional origins, clipping and cold/warm
+paths. The full sharing and ink suites pass14+28 distinct tests; the initial
+seven are repeated within those14, not additional distinct coverage. Strict
+`exact-linux --all-targets` Clippy and scoped formatting pass. Actual compiler
+commands use the private Motion/Kernel/Runner/Linux sources. This is scoped
+Mac-hosted CPU validation, not a whole-workspace or actual-Linux runtime sweep.
+
+One test-fixture correction is preserved: the bundled Inter face is regular
+only, so the requested-bold witness initially failed before its comparison.
+Selecting the already loaded DejaVu bold family for that run preserves the
+fallback and every assertion; production code required no correction. The
+corrected baseline's four failures are lookup counts, not missing APIs or
+pixel/metric differences. Source formatting follows the successful checks;
+the original source seal and both baseline logs remain retained separately.
+
+The integrated files are `shaping.rs` (`7ccbc339`,517 lines) and
+`sharing_tests.rs` (`78366f3c`,991 lines), based on unchanged `aa26f2a4` /
+`4c099d21`. Private evidence is under
+`exact2-linux-last-font-metrics/target/last-font-metrics-validation`, with
+source-v1 `298670f5`, corrected baseline log `662503fc`, candidate log
+`8668c928`, sharing `7b5a5c89`, ink `fdf69e0a` and Clippy `7e6ca178`.
+The existing callback diagnostic motivates examining this code, but does not
+show that font lookup dominates callback cost. Native timing, a net workload
+gain and120Hz remain unestablished; the next comparison needs fresh control
+and candidate cells with the same full10,000/32 workload and recorder.
