@@ -5737,3 +5737,39 @@ The15-file failed-trace archive is under
 `target/web-current-messages-00272ea/cell-headed-v1/`. All three recorded PIDs,
 the owned group and its private listener retire before the next native lane.
 Source/product identities and the original headless archive remain unchanged.
+
+### 8.97 Final metadata comparison refuses unequal scrollbar geometry, 2026-09-18
+
+Source diagnosis of8.95 finds that RegionController.flush marks the Surface for
+layout even when its outer frame is unchanged; image assignment can complete
+independently. This does not identify the saved sample's last setter or establish
+a product defect. No production invalidation guard is added: document extent,
+scrollbar policy and other geometry can change without changing that outer frame.
+
+A separate three-module reader correction includes strict Cocoa admission in
+initial readiness. Known boolean layout/constraint dirtiness may consume the
+existing12-check/15s/1s cadence only after all other source, geometry, topology,
+scale and certificate checks pass. Unknown flags and invalid geometry still
+throw immediately. The shared28-read cap,60s driver,75s watchdog and separate
+strict pre-edge/cross-arm guard remain. Both actual caller extracts pass14 pure
+tests after the old readers produce eight passes and six behavioral failures;
+setup failures remain separate. Synthetic pending-to-settled samples test reader
+logic, not actual AppKit settlement. No native source or product changes.
+
+The third and final fresh C→T attempt passes each arm's strict ready and pre-edge
+admissions, then refuses the candidate before its poster. The control's legacy
+style0 has a963×400 clip; the candidate's overlay style1 has a980×400 clip. Each
+matches its own independent Cocoa sizing and current pixel certificate, but
+the sampled cross-arm tuples differ. The underlying policy difference is not
+explained. Both apps already report clean layout flags at their full ready
+sample, so this run does not exercise the new known-pending wait branch.
+
+The control completes one edge; the candidate has no measured resize/input
+edge, final-width result or performance comparison. All seven recorded PIDs and
+three groups retire, with one actual control poster release and none invented
+for the candidate. The82-file final archive is under
+`target/apple-region-metadata-startup-execution-v1/`. The original missing-module
+and pending-layout failures remain sealed. This measurement campaign is stopped
+after three attempts: no fourth retry, forced scrollbar policy, wider admission
+or replacement timing is selected. The controlled metadata constructor savings
+in8.92 remain valid; full-app savings and physical120Hz remain unproved.
