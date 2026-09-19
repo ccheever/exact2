@@ -196,11 +196,19 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 
 impl CallbackMeasurer {
     fn foreign_measure(&mut self, request: &TextMeasureRequest<'_>) -> CMetrics {
-        let runs: Vec<CRun> = request
-            .runs
-            .iter()
-            .map(|r| c_run(r.text, r.style))
-            .collect();
+        let single;
+        let owned;
+        let runs: &[CRun] = if let [run] = request.runs {
+            single = c_run(run.text, run.style);
+            std::slice::from_ref(&single)
+        } else {
+            owned = request
+                .runs
+                .iter()
+                .map(|r| c_run(r.text, r.style))
+                .collect::<Vec<CRun>>();
+            &owned
+        };
         let c = CRequest {
             runs: runs.as_ptr(),
             count: runs.len(),

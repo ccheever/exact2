@@ -388,6 +388,239 @@ mod storage {
         }
     }
 
+    struct RequestProbe {
+        expected: CRequest,
+        calls: usize,
+        exact: bool,
+    }
+
+    fn same_run(actual: &crate::measure::CRun, expected: &crate::measure::CRun) -> bool {
+        actual.text == expected.text
+            && actual.len == expected.len
+            && actual.font_size.to_bits() == expected.font_size.to_bits()
+            && actual.font_weight == expected.font_weight
+            && actual.font_family == expected.font_family
+            && actual.italic == expected.italic
+            && actual.has_line_height == expected.has_line_height
+            && actual.line_height.to_bits() == expected.line_height.to_bits()
+            && actual.letter_spacing.to_bits() == expected.letter_spacing.to_bits()
+    }
+
+    extern "C" fn inspect_request(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
+        // Caller-owned inputs and probe remain alive for this synchronous call.
+        // Record scalars only: never retain the actual request or run pointers.
+        let probe = unsafe { &mut *ctx.cast::<RequestProbe>() };
+        let actual = unsafe { &*request };
+        let expected = &probe.expected;
+        probe.calls += 1;
+        probe.exact &= actual.count == expected.count
+            && actual.width.to_bits() == expected.width.to_bits()
+            && actual.height.to_bits() == expected.height.to_bits()
+            && actual.align == expected.align
+            && actual.line_clamp == expected.line_clamp
+            && actual.overflow_wrap == expected.overflow_wrap
+            && same_run(&actual.strut, &expected.strut)
+            && !actual.runs.is_null();
+        if probe.exact {
+            let actual = unsafe { std::slice::from_raw_parts(actual.runs, actual.count) };
+            let expected = unsafe { std::slice::from_raw_parts(expected.runs, expected.count) };
+            for (a, b) in actual.iter().zip(expected) {
+                probe.exact &= same_run(a, b);
+                if a.text == b.text && a.len == b.len {
+                    let a = unsafe { std::slice::from_raw_parts(a.text, a.len) };
+                    let b = unsafe { std::slice::from_raw_parts(b.text, b.len) };
+                    probe.exact &= a == b;
+                }
+            }
+        }
+        CMetrics {
+            width: 73.125,
+            height: 17.5,
+            baseline: 9.25,
+        }
+    }
+
+    fn request_storage(count: usize, variant: usize) -> Counts {
+        use crate::measure::CRun;
+        use exact_kernel::{FontStyle, OverflowWrap, StyleProps, TextAlign, TextRun, TextStyle};
+
+        // No input construction or assertion formatting occurs while tracking.
+        let source = String::from("Ée\u{301} 👩‍🔬 العربية\0尾");
+        let heights = [
+            None,
+            Some(-0.0),
+            Some(22.75),
+            Some(f32::from_bits(0x7fc00023)),
+        ];
+        let sizes = [14.25, -0.0, 31.5, f32::INFINITY];
+        let style = TextStyle {
+            font_size: sizes[variant],
+            font_weight: 537,
+            font_style: FontStyle::Italic,
+            font_family: 23,
+            line_height: heights[variant],
+            letter_spacing: -0.125,
+            font_variant_numeric: 0,
+        };
+        let strut = TextStyle {
+            font_size: 19.5,
+            font_weight: 411,
+            font_style: FontStyle::Normal,
+            font_family: 7,
+            line_height: Some(30.25),
+            letter_spacing: -0.0,
+            font_variant_numeric: 0,
+        };
+        let runs = [
+            TextRun {
+                text: &source,
+                style,
+            },
+            TextRun {
+                text: "",
+                style: strut,
+            },
+        ];
+        let expected_runs = [
+            CRun {
+                text: source.as_ptr(),
+                len: source.len(),
+                font_size: sizes[variant],
+                font_weight: 537,
+                font_family: 23,
+                italic: 1,
+                has_line_height: u8::from(variant != 0),
+                line_height: heights[variant].unwrap_or(0.0),
+                letter_spacing: -0.125,
+            },
+            CRun {
+                text: "".as_ptr(),
+                len: 0,
+                font_size: 19.5,
+                font_weight: 411,
+                font_family: 7,
+                italic: 0,
+                has_line_height: 1,
+                line_height: 30.25,
+                letter_spacing: -0.0,
+            },
+        ];
+        let widths = [
+            AxisOffer::Definite(-0.0),
+            AxisOffer::MinContent,
+            AxisOffer::MaxContent,
+            AxisOffer::Definite(127.25),
+        ];
+        let heights = [
+            AxisOffer::MaxContent,
+            AxisOffer::Definite(19.75),
+            AxisOffer::MinContent,
+            AxisOffer::Definite(-0.0),
+        ];
+        let mut paragraph = exact_kernel::text::Paragraph::from_style(&StyleProps::default());
+        paragraph.strut = strut;
+        paragraph.text_align = [
+            TextAlign::Left,
+            TextAlign::Center,
+            TextAlign::Right,
+            TextAlign::Justify,
+        ][variant];
+        paragraph.line_clamp = 3;
+        paragraph.overflow_wrap = OverflowWrap::Anywhere;
+        let request = TextMeasureRequest {
+            runs: &runs[..count],
+            paragraph,
+            width: widths[variant],
+            height: heights[variant],
+        };
+        let mut probe = RequestProbe {
+            expected: CRequest {
+                runs: expected_runs.as_ptr(),
+                count,
+                strut: expected_runs[1],
+                width: [-0.0, -2.0, -1.0, 127.25][variant],
+                height: [-1.0, 19.75, -2.0, -0.0][variant],
+                align: variant as u8,
+                line_clamp: 3,
+                overflow_wrap: 2,
+            },
+            calls: 0,
+            exact: true,
+        };
+        let mut m = CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast());
+        TRACK.with(|s| {
+            s.set(Counts {
+                active: true,
+                ..Counts::default()
+            })
+        });
+        let metrics = m.measure(&request);
+        let counted = TRACK.with(|s| {
+            let c = s.get();
+            s.set(Counts::default());
+            c
+        });
+        drop(m);
+        assert_eq!(probe.calls, 1);
+        assert!(
+            probe.exact,
+            "every C field and original Unicode pointer must match"
+        );
+        assert_eq!(
+            metrics,
+            TextMetrics {
+                width: 73.125,
+                height: 17.5,
+                first_baseline: Some(9.25),
+            }
+        );
+        assert_eq!(
+            counted.live, 0,
+            "request storage must end with the foreign call"
+        );
+        assert_eq!(counted.allocations, counted.frees);
+        eprintln!(
+            "request runs={count} variant={variant} slot={} allocations={} frees={} largest_requested={} final_live={} exact=true calls=1",
+            size_of::<CRun>(),
+            counted.allocations,
+            counted.frees,
+            counted.max_allocation,
+            counted.live
+        );
+        counted
+    }
+
+    #[test]
+    fn single_run_callback_uses_no_heap_request_storage() {
+        let counted = request_storage(1, 0);
+        assert_eq!(
+            counted.allocations, 0,
+            "single borrowed run needs no heap request array"
+        );
+    }
+
+    #[test]
+    fn callback_fields_and_unicode_lifetimes_match_for_empty_single_and_multiple_runs() {
+        for count in 0..=2 {
+            for variant in 0..4 {
+                let counted = request_storage(count, variant);
+                if count == 0 {
+                    assert_eq!(counted.allocations, 0);
+                }
+                if count == 2 {
+                    assert_eq!(
+                        counted.allocations, 1,
+                        "existing multi-run Vec path retained"
+                    );
+                    assert_eq!(
+                        counted.max_allocation,
+                        2 * size_of::<crate::measure::CRun>()
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn occupied_payload_cold_owner_and_actual_hash_table_allocation_are_separate() {
         let mut k = fixture();

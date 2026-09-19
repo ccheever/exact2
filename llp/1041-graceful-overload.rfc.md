@@ -6778,3 +6778,35 @@ is `exact2-linux-split-facts-native/target/split-facts-native-validation/cpu03/`
 the source-v4 seal and both earlier attempts remain preserved. The kernel profile
 in§8.120 and verified retained gestures in§8.121 remain separate verified changes
 on the feature branch. No native-memory, latency or120Hz result follows here.
+
+A subsequent source-only postmortem finds that33/132 was copied from the kernel
+Monospace test immediately after one feedback, before further settlement. The
+native fixture settles before scrolling and after every wheel. Neither a native
+font count nor a settled-tail invariant established33. This invalidates that
+test premise without proving the native adapter correct or explaining the seven
+rows. An unapplied ordinary-renderer diagnostic is prepared separately; no
+exception to the three-round execution limit has been granted.
+
+### 8.123 Avoid a temporary array for one native text run, 2026-09-19
+
+The Apple callback adapter now passes one local CRun through a borrowed singleton
+slice when a measurement contains exactly one run. Empty and multi-run requests
+keep the original vector path. Field conversion, synchronous callback lifetime,
+raw result validation, metric memo admission and the C ABI are unchanged. No new
+retained state, text copy, cache entry or pointer escape is added.
+
+Identical tests on the old adapter observe one40-byte allocation/free, then fail
+the intended zero-allocation assertion after all request/metric/lifetime checks
+pass. The other two storage tests pass. The candidate passes all16 measurement
+tests and observes zero request-storage allocations for one run. Twelve request
+variants compare exact fields, both offer axes, Unicode bytes and source pointers;
+empty/multiple runs and existing invalid-result, catalog, frame and baseline
+controls remain. Strict Apple all-target Clippy and scoped formatting pass on the
+same-base private checkout; the exact two tested source snapshots are integrated.
+No duplicate integration run is claimed. Caps passes after staging.
+
+Evidence is `exact2-apple-measure-request/target/measure-request-source-v1/` and
+`target/measure-request-execution-v1/`; the MAIN source receipt is
+`target/measure-request-integration/`. This proves a removed allocation with no
+additional retained payload, not native callback frequency, whole-frame savings
+or120Hz. Swift/CoreText, full native builds and runtime timing were not rerun.
