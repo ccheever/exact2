@@ -109,8 +109,7 @@ final class Presenter {
 
     deinit {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
-        if let pumpObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), pumpObserver, .commonModes) }
-        pumpTimer?.invalidate()
+        pumpLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
@@ -211,9 +210,8 @@ final class Presenter {
 
     // MARK: The pump — list fill and text admission, a slice per frame
 
-    private var pumpTimer: Timer?
-    private var pumpObserver: CFRunLoopObserver?
-    private var sliceDue = false
+    private var pumpLink: CADisplayLink?
+    private let pumpTarget = PumpTarget()
     private var listSyncPending = false
     private var textPending = false
 
@@ -236,25 +234,21 @@ final class Presenter {
     }
 
     private func startPump() {
-        guard pumpTimer == nil else { return }
-        // The timer only paces: a slice is due about once a frame. The slice
-        // itself runs from the run loop's before-waiting observer, after Core
-        // Animation's (order 2,000,000) has committed whatever this pass did —
-        // AppKit's scroll synchronization above all — so a slice never sits
-        // between a frame's work and its commit, and has the whole sleep ahead.
-        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.sliceDue = true }
-        timer.tolerance = 0
-        RunLoop.main.add(timer, forMode: .common)
-        pumpTimer = timer
-        if pumpObserver == nil {
-            let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) { [weak self] _, _ in
-                guard let self, self.sliceDue else { return }
-                self.sliceDue = false
-                self.pump()
-            }
-            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-            pumpObserver = observer
-        }
+        guard pumpLink == nil else { return }
+        // A display link, not a timer: a slice's commit must keep one phase
+        // against the refresh. A free-running 120 Hz timer drifts through the
+        // frame, and about once a second its commit landed in the scrolling
+        // thread's own commit window and cost that frame — a hitch every
+        // 1.2 s with this thread idle (LLP 1044, the pump's first version).
+        pumpTarget.fire = { [weak self] in self?.pump() }
+        let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        pumpLink = link
+    }
+
+    private func stopPump() {
+        pumpLink?.invalidate()
+        pumpLink = nil
     }
 
     /// Everything the pump owes, now. The agent's wheel is synchronous — it
@@ -264,8 +258,7 @@ final class Presenter {
         if listSyncPending { listSyncPending = false; syncLists() }
         refreshVisibleText()
         textPending = false
-        pumpTimer?.invalidate()
-        pumpTimer = nil
+        stopPump()
     }
 
     /// One slice: the list window if it is owed, else a few text bands.
@@ -282,10 +275,7 @@ final class Presenter {
             textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
             Self.signposts.endInterval("pump-text", post)
         }
-        if !listSyncPending && !textPending {
-            pumpTimer?.invalidate()
-            pumpTimer = nil
-        }
+        if !listSyncPending && !textPending { stopPump() }
     }
 
     /// Whether a windowed list is close to showing past its mounted rows — a
@@ -363,8 +353,7 @@ final class Presenter {
         selection.structureChanged()
         visibleText.removeAll()
         textViewportIndex = nil
-        pumpTimer?.invalidate()
-        pumpTimer = nil
+        stopPump()
         listSyncPending = false
         textPending = false
         listGeometry.removeAll()
@@ -883,5 +872,10 @@ extension NSRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
         NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
+}
+/// The display link's Objective-C target: `Presenter` is not an `NSObject`.
+final class PumpTarget: NSObject {
+    var fire: (() -> Void)?
+    @objc func tick(_ link: CADisplayLink) { fire?() }
 }
 #endif
