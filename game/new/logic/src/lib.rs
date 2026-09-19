@@ -17,7 +17,6 @@ pub struct Options {
 #[derive(Default, Component)]
 pub struct Beacon {
     pub lit: bool,
-    glow: Spring,
 }
 pub struct SmallGame;
 impl Game for SmallGame {
@@ -34,6 +33,10 @@ impl Game for SmallGame {
         w.reseed(args.seed);
         w.insert_resource(Environment {
             background: Some([0.49, 0.67, 0.64]),
+            fog: Some(Fog {
+                color: Some([0.49, 0.67, 0.64]),
+                ..Fog::new(0.02, 0.08)
+            }),
             ..Environment::default()
         });
         w.spawn((
@@ -80,7 +83,11 @@ impl Game for SmallGame {
                 (
                     Transform::at(x, 0.7, 0.0),
                     Mesh::sphere(0.5),
-                    Material::default(),
+                    Material {
+                        color: [0.22, 0.68, 0.74, 1.],
+                        ..Material::glow([3., 1.5, 0.3])
+                    },
+                    Glow::default(),
                     Beacon::default(),
                 ),
             );
@@ -93,23 +100,21 @@ impl Game for SmallGame {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
-        if input.pressed("light") {
-            if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        let mut near = String::new();
+        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            if input.pressed("light") {
                 beacon.lit = true;
-                beacon.glow.set_target(w.tick_end(), 1.0);
+                w.get_mut::<Glow>(entity)
+                    .unwrap()
+                    .0
+                    .to(w.tick_end(), 1.0, 0.5);
+            } else {
+                near = w.name(entity).unwrap_or_default().to_owned();
             }
         }
-        let near = w
-            .nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit)
-            .and_then(|e| w.name(e))
-            .unwrap_or("")
-            .to_owned();
-        let mut count = 0;
-        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(w.tick_end()) * 3.0; 3];
-            count += u32::from(beacon.lit);
-        }
-        w.publish_record(&Hud { lit: count, near });
-        scene::follow(w);
+        w.publish_record(&Hud {
+            lit: w.count::<Beacon>(|b| b.lit),
+            near,
+        });
     }
 }

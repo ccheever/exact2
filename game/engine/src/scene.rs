@@ -297,6 +297,11 @@ impl Mesh {
     }
 }
 
+/// Saved emissive intensity. The renderer samples this tween at frame time and
+/// multiplies Material::glow's color; no per-tick material writes are needed.
+#[derive(Clone, Debug, Default, Component)]
+pub struct Glow(pub crate::Tween);
+
 /// Renderer-neutral surface properties: ten contiguous f32s including grid spacing.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 #[repr(C)]
@@ -346,6 +351,7 @@ impl Material {
     }
     /// Emissive black surface. HDR values bloom with the default Environment;
     /// this is a glowing mesh, not an extra halo shell or an unlit shader.
+    /// Add a [`Glow`] component to animate its intensity without changing Material.
     pub fn glow(color: [f32; 3]) -> Self {
         Self::rgb(0.0, 0.0, 0.0).emissive(color[0], color[1], color[2])
     }
@@ -693,7 +699,7 @@ impl FollowTarget {
     }
 }
 
-/// A saved camera follower. Call `scene::follow` only where motion happens in tick.
+/// A saved camera follower, stepped by the scene after each game tick.
 /// The engine places followers after setup and setup-argument rebuilds. Restore
 /// places uninitialized followers while preserving saved, initialized poses and
 /// smoothing, so restoring never advances the simulation by an extra step.
@@ -735,9 +741,14 @@ impl Follow {
         self
     }
 }
+/// Optionally step followers earlier in your tick for explicit ordering.
+/// The automatic scene step will not step them twice in the same tick.
 /// Step followers in entity order. The look direction follows the eased position,
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
 pub fn follow(world: &World) {
+    if world.in_tick && world.followed.replace(true) {
+        return;
+    }
     follow_inner(world, false);
 }
 pub(crate) fn place_followers(world: &World) {
@@ -834,5 +845,57 @@ mod camera_patch_regression {
         )
         .unwrap();
         assert_eq!(camera, Camera::default());
+    }
+}
+
+#[cfg(test)]
+mod e10_tests {
+    use crate::*;
+    struct Following;
+    impl Game for Following {
+        const ID: &'static str = "e10-follow";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let player = w.spawn_named("player", Transform::default());
+            w.spawn_named(
+                "camera",
+                (Transform::default(), Follow::new(player).offset(0., 2., 3.)),
+            );
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.require_mut::<Transform>("player").position.x += 1.;
+        }
+    }
+    #[test]
+    fn scene_steps_follow_after_game_tick_and_restore_does_not_step() {
+        let mut sim = Sim::<Following>::new(()).unwrap();
+        sim.run(1000.);
+        assert_eq!(
+            sim.world().require::<Transform>("camera").position.x,
+            sim.world().require::<Transform>("player").position.x
+        );
+        let save = sim.save().unwrap();
+        let mut restored = Sim::<Following>::new(()).unwrap();
+        restored.restore(&save).unwrap();
+        assert_eq!(restored.save().unwrap(), save);
+        sim.run(1000.);
+        restored.run(1000.);
+        assert_eq!(sim.save().unwrap(), restored.save().unwrap());
+    }
+    #[test]
+    fn count_and_proximity_name_are_read_only_and_ignore_despawned_entities() {
+        let mut w = World::new(60, 0);
+        let a = w.spawn_named("one", (Transform::default(), Mesh::cube(1.)));
+        let b = w.spawn_named("two", (Transform::at(1., 0., 0.), Mesh::cube(2.)));
+        let hash = w.hash();
+        assert_eq!(w.count::<Mesh>(|_| true), 2);
+        let (entity, _mesh) = w.nearest_xz_mut::<Mesh>("one", 2., |_| true).unwrap();
+        assert_eq!(w.name(entity), Some("two"));
+        drop(_mesh);
+        assert_eq!(w.hash(), hash);
+        w.despawn(a);
+        assert_eq!(w.count::<Mesh>(|_| true), 1);
+        w.despawn(b);
+        assert_eq!(w.count::<Mesh>(|_| true), 0);
     }
 }

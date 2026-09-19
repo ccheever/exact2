@@ -276,6 +276,12 @@ impl Scene {
             .copied()
             .unwrap_or_default();
         FrameInput {
+            glows: &[],
+            seconds: if w.tick() == 0 {
+                0.
+            } else {
+                (w.tick() as f64 - 1. + alpha.clamp(0., 1.) as f64) / w.hz() as f64
+            },
             view: Mat4::from_scale_rotation_translation(
                 camera_pose.scale,
                 camera_pose.rotation,

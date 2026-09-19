@@ -550,6 +550,14 @@ impl<'a> Resolver<'a> {
 
     fn attr(&mut self, a: &'a Attr) {
         match (a.name.as_str(), &a.value) {
+            // The surface name belongs to the GPU module; only its arguments
+            // refer to Contract values (LLP 1009 D3).
+            ("surface", Expr::Call(_, args, _)) => {
+                for arg in args {
+                    self.expr(arg);
+                }
+            }
+            ("surface", _) => {}
             ("id", Expr::Str(..)) => {}
             ("class", Expr::Ident(name, span)) => {
                 if let Some(i) = self.find(&["style"], name, None) {

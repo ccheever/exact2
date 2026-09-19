@@ -17,7 +17,6 @@ pub struct Options {
 #[derive(Default, Component)]
 pub struct Beacon {
     pub lit: bool,
-    pub glow: Tween,
 }
 pub struct Beacons;
 impl Game for Beacons {
@@ -100,7 +99,11 @@ impl Game for Beacons {
                 (
                     Transform::at(x, 1.0, z),
                     Mesh::sphere(0.5),
-                    Material::rgb(0.12, 0.55, 0.6),
+                    Material {
+                        color: [0.12, 0.55, 0.6, 1.],
+                        ..Material::glow([3.; 3])
+                    },
+                    Glow::default(),
                     Beacon::default(),
                 ),
             );
@@ -118,7 +121,10 @@ impl Game for Beacons {
         {
             if input.pressed("light") {
                 beacon.lit = true;
-                beacon.glow.to(w.tick_end(), 1.0, 0.5);
+                w.get_mut::<Glow>(entity)
+                    .unwrap()
+                    .0
+                    .to(w.tick_end(), 1.0, 0.5);
             }
             if beacon.lit {
                 String::new()
@@ -128,12 +134,9 @@ impl Game for Beacons {
         } else {
             String::new()
         };
-        let mut count = 0;
-        for (beacon, mut material) in w.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(w.tick_end()) * 3.0; 3];
-            count += u32::from(beacon.lit);
-        }
-        w.publish_record(&Hud { lit: count, near });
-        scene::follow(w);
+        w.publish_record(&Hud {
+            lit: w.count::<Beacon>(|b| b.lit),
+            near,
+        });
     }
 }

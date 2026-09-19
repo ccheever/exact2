@@ -34,6 +34,9 @@ pub trait Game: 'static {
     fn validate(_args: &Self::Args) -> Result<(), String> {
         Ok(())
     }
+    /// Register types that vary with setup arguments, without gameplay side effects.
+    /// Called before setup and on a scratch registry before restore validation.
+    fn register(_world: &mut World, _args: &Self::Args) {}
     /// Construct the world after argument decoding succeeds.
     fn setup(world: &mut World, args: &Self::Args);
     /// Stop world time while continuing to serve reads.
@@ -163,9 +166,21 @@ impl<G: Game> Sim<G> {
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
         struct Pins {
+            game: String,
             ticks: std::collections::BTreeMap<String, String>,
         }
-        let pins: Pins = crate::json::from_str(pins).expect("pins.json must contain ticks");
+        let pins: Pins = crate::json::from_str(pins).unwrap_or_else(|error| {
+            panic!("pins.json game <invalid>, expected `{game}`: {error}; run bun game/prove.mjs {game}")
+        });
+        assert!(
+            pins.game == game,
+            "pins.json game `{}`, expected `{game}`; run bun game/prove.mjs {game}",
+            if pins.game.is_empty() {
+                "<missing>"
+            } else {
+                &pins.game
+            }
+        );
         let expected = pins
             .ticks
             .get(&tick.to_string())
@@ -209,6 +224,7 @@ impl<G: Game> Sim<G> {
         if !world.assets.ready() {
             return world;
         }
+        G::register(&mut world, args);
         G::setup(&mut world, args);
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
@@ -467,9 +483,13 @@ impl<G: Game> Sim<G> {
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
-        Self::with_store(args, Default::default())
+        Self::with_store(args, Default::default(), QUEUE_LIMIT)
     }
-    fn with_store(args: G::Args, assets: crate::asset::AssetStore) -> Result<Self, String> {
+    fn with_store(
+        args: G::Args,
+        assets: crate::asset::AssetStore,
+        queue_capacity: usize,
+    ) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
@@ -505,7 +525,7 @@ impl<G: Game> Sim<G> {
             restored_from: None,
             settle_delay: std::cell::Cell::new(100),
             input: Input::new(G::actions()),
-            queue: VecDeque::with_capacity(QUEUE_LIMIT),
+            queue: VecDeque::with_capacity(queue_capacity),
             overflow_logged: false,
             rebase_queue: false,
             restored: false,
@@ -963,6 +983,7 @@ impl<G: Game> Sim<G> {
             self.restored = false;
             self.restored_from = None;
             G::tick(&mut self.world, &self.input, &self.args);
+            crate::scene::follow(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
@@ -1022,7 +1043,7 @@ impl<G: Game> Sim<G> {
             // Drop all old component/resource values (including skipped fields
             // and physics executors) before invoking setup for the replacement.
             let generation = self.world.presentation_generation;
-            self.world = World::new(G::HZ, 0);
+            self.world = self.world.registered_scratch();
             self.world.presentation_generation = generation;
             for (name, bytes) in models {
                 assets.models.insert(
@@ -1329,15 +1350,15 @@ impl<G: Game> Sim<G> {
         Ok(w.finish())
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
+    /// Preflight extends the live type registry through `Game::register` for the chosen arguments.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.restore_into(bytes, None)
+        self.restore_into(bytes, false)
     }
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let args = crate::json::to_string(&self.args)?;
-        self.restore_into(bytes, Some(&args))
+        self.restore_into(bytes, true)
     }
-    fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
+    fn restore_into(&mut self, bytes: &[u8], retain_args: bool) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
             DataError::new(format!(
                 "restore refused: unsupported simulation save format (expected EXSIM v5; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
@@ -1358,10 +1379,22 @@ impl<G: Game> Sim<G> {
         if self.setup_pending {
             return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
         }
-        World::saved_payload(&s.world)?;
-        let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
+        let args = if retain_args {
+            &self.args_json
+        } else {
+            &s.args
+        };
+        let bound: G::Args = crate::json::from_str(args)?;
+        let mut registry = self.world.registered_scratch();
+        G::register(&mut registry, &bound);
+        let validated = registry.validate_saved(&s.world)?;
+        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
+        if validated.hz() != G::HZ || validated.tick() as u128 != due {
+            return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
+        }
+        drop(validated);
         let mut next =
-            Self::with_store(bound, self.world.assets.clone()).map_err(DataError::new)?;
+            Self::with_store(bound, self.world.assets.clone(), 0).map_err(DataError::new)?;
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
             return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));

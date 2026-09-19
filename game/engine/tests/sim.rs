@@ -1030,6 +1030,13 @@ fn restore_constructs_once_and_failed_world_validation_is_atomic() {
     assert!(s.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
     assert_eq!(s.save().unwrap(), saved);
+    // Game::register extends the scratch schema for the chosen arguments;
+    // malformed typed data is refused before gameplay setup has side effects.
+    let mut bad = saved.clone();
+    bad[world + 8] = 0xff;
+    assert!(s.restore(&bad).is_err());
+    assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
+    assert_eq!(s.save().unwrap(), saved);
     for mode in [Paranoid::Save, Paranoid::FreshGame] {
         s = s.paranoid(mode);
         s.run(17.0);
@@ -1092,4 +1099,46 @@ fn r13_empty_and_short_calls_take_all_remaining_rust_defaults() {
     .err()
     .unwrap()
     .contains("got 4"));
+}
+
+#[test]
+fn restore_registers_argument_dependent_types_before_setup() {
+    thread_local! { static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default, Args)]
+    struct Options {
+        other: bool,
+    }
+    #[derive(Default, exact_game::Component)]
+    struct Other {
+        value: u32,
+    }
+    struct Conditional;
+    impl Game for Conditional {
+        const ID: &'static str = "conditional-registration";
+        type Args = Options;
+        fn register(w: &mut World, args: &Options) {
+            if args.other {
+                w.register::<Other>();
+            }
+        }
+        fn setup(w: &mut World, args: &Options) {
+            SETUPS.with(|calls| calls.set(calls.get() + 1));
+            if args.other {
+                w.spawn(Other { value: 17 });
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    let source = Sim::<Conditional>::new(Options { other: true }).unwrap();
+    let mut target = Sim::<Conditional>::new(Options::default()).unwrap();
+    target.restore(&source.save().unwrap()).unwrap();
+    assert_eq!(source.world().hash(), target.world().hash());
+    SETUPS.with(|calls| calls.set(0));
+    let before = target.save().unwrap();
+    let mut bad = before.clone();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    bad[world + 8] = 0xff;
+    assert!(target.restore(&bad).is_err());
+    assert_eq!(SETUPS.with(|calls| calls.get()), 0);
+    assert_eq!(target.save().unwrap(), before);
 }

@@ -1,15 +1,17 @@
 {
   "ticks": {
-    "0": "0x0d24c948c995ab14",
-    "90": "0x4f198d7b34cba602"
+    "0": "0xb6e90714710c57ff",
+    "90": "0x164306fd0014d2eb"
   },
   "saves": {
-    "continuation": "1012a823b7ec264cfdd64c748a794691225ac186761d7e9d76f390bc626409e9"
+    "continuation": "75d5d8a6bab81218f2d55b07bb98bc42a05dfde1fa0e7a5db75ffebb4af421d1"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "ca24f7d70f0bde59ffb88c07823735ffbb295387"
+  "at": "8db5e42e8f05122e7f4ca265ba0bd480c6ab7621",
+  "reason": "E10: replace the saved Beacon Tween/material copy loop with renderer-sampled Glow(Tween); count and automatic Follow preserve tick ordering."
 }

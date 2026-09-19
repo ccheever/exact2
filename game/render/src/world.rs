@@ -191,6 +191,7 @@ struct Versions {
     transform: u64,
     parent: u64,
     material: u64,
+    glow: u64,
     mesh: u64,
     visible: u64,
     live: u64,
@@ -203,6 +204,7 @@ impl Versions {
             transform: w.revision::<Transform>(),
             parent: w.revision::<Parent>(),
             material: w.revision::<Material>(),
+            glow: w.revision::<exact_game::Glow>(),
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
             live: w.entities_revision(),
@@ -237,6 +239,7 @@ pub struct Feed {
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
     scene: Scene,
+    glows: Vec<crate::GlowInput>,
 }
 impl Default for Feed {
     fn default() -> Self {
@@ -260,6 +263,7 @@ impl Default for Feed {
             parents: Vec::new(),
             overrides: Vec::new(),
             scene: Scene::default(),
+            glows: Vec::new(),
         }
     }
 }
@@ -280,6 +284,7 @@ impl Feed {
         self.tick = 0;
         self.history_pending = false;
         self.scene.reset();
+        self.glows.clear();
         for buffer in &mut self.transforms {
             buffer.reset();
         }
@@ -304,8 +309,13 @@ impl Feed {
     /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
     /// No world queries; retained attachment chains are composed at this alpha.
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
-        self.scene
-            .frame(world, alpha, glam::Vec2::new(aspect, 1.), false)
+        {
+            let mut frame = self
+                .scene
+                .frame(world, alpha, glam::Vec2::new(aspect, 1.), false);
+            frame.glows = &self.glows;
+            frame
+        }
     }
     /// Frame projection at the CSS-pixel viewport size, including integer scaling.
     pub fn frame_pixels(
@@ -314,8 +324,13 @@ impl Feed {
         alpha: f32,
         size: (f32, f32),
     ) -> crate::FrameInput<'_> {
-        self.scene
-            .frame(world, alpha, glam::Vec2::new(size.0, size.1), true)
+        {
+            let mut frame = self
+                .scene
+                .frame(world, alpha, glam::Vec2::new(size.0, size.1), true);
+            frame.glows = &self.glows;
+            frame
+        }
     }
     pub(crate) fn feed_to(&mut self, w: &World, r: &mut impl Writes) -> Result<(), RenderError> {
         if self.generation != w.presentation_generation() {
@@ -328,6 +343,7 @@ impl Feed {
         let moved = initial || next.transform != old.transform || next.parent != old.parent;
         let material = initial
             || next.material != old.material
+            || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
         let batches = initial
@@ -504,6 +520,7 @@ impl Feed {
                 let generation = page.as_ref().map_or(0, |p| p.generation);
                 if !initial
                     && next.mesh == old.mesh
+                    && next.glow == old.glow
                     && next.membership == old.membership
                     && !self.materials.needs_check(index, generation)
                 {
@@ -564,6 +581,23 @@ impl Feed {
             parent_changed,
             initial || next.assets != old.assets,
         );
+        if material {
+            self.glows.clear();
+            for (entity, (glow, material)) in w.query::<(&exact_game::Glow, &Material)>().iter() {
+                let mut values = material_floats(*material);
+                values[9..12].copy_from_slice(
+                    self.dimensions
+                        .get(entity.index() as usize)
+                        .unwrap_or(&[1.; 3]),
+                );
+                self.glows.push(crate::GlowInput {
+                    slot: entity.index(),
+                    material: values,
+                    tween: glow.0.clone(),
+                    hz: w.hz(),
+                });
+            }
+        }
         self.scene.feed(
             w,
             initial || self.tick != w.tick(),

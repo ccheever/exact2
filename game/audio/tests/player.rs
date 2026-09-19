@@ -8,9 +8,7 @@ impl Game for SoundGame {
     type Args = ();
     const ID: &'static str = "audio-test";
     fn setup(w: &mut World, _: &Self::Args) {
-        w.register_audio();
-        w.resource_mut::<Sounds>()
-            .add("chime", Synth::sine(880.0).seconds(1.0));
+        w.sounds([("chime", Synth::sine(880.0).seconds(1.0))]);
         w.spawn((AudioListener, Transform::default()));
         w.play("chime").ui().gain(0.8).start();
     }
@@ -64,9 +62,7 @@ fn save_mid_chime_restores_offset_and_ends() {
 #[test]
 fn loops_follow_sources_and_cache_once() {
     let mut w = World::new(60, 0);
-    w.register_audio();
-    w.resource_mut::<Sounds>()
-        .add("wind", Synth::noise().looped());
+    w.sounds([("wind", Synth::noise().looped())]);
     let e = w.spawn((
         Transform::at(1.0, 0.0, 0.0),
         AudioSource {
@@ -152,9 +148,7 @@ fn recording() -> Player<RecordingOutput> {
 }
 fn world() -> World {
     let mut w = World::new(60, 0);
-    w.register_audio();
-    w.resource_mut::<Sounds>()
-        .add("wind", Synth::noise().seconds(2.0).looped());
+    w.sounds([("wind", Synth::noise().seconds(2.0).looped())]);
     w
 }
 fn advance(sim: &mut Sim<SoundGame>, ms: f64) {
@@ -170,9 +164,7 @@ fn tick_zero_ten_ms_click_starts_at_sample_zero() {
         type Args = ();
         const ID: &'static str = "click";
         fn setup(w: &mut World, _: &Self::Args) {
-            w.register_audio();
-            w.resource_mut::<Sounds>()
-                .add("click", Synth::square(500.0).seconds(0.01));
+            w.sounds([("click", Synth::square(500.0).seconds(0.01))]);
         }
         fn tick(w: &mut World, _: &Input, _: &Self::Args) {
             if w.tick() == 0 {

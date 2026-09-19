@@ -25,12 +25,11 @@ export function createGame(destination, directory = import.meta.dir, options = {
   writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.shells/\n/app.contract.d.ts\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
-  const appJson = resolve(destination, 'app.json');
-  const manifest = gameDefaults(destination, directory) ?? {};
-  if (options.assets === true && manifest.game) {
-    manifest.game.assets = true;
-    writeFileSync(appJson, JSON.stringify({game:{assets:true}}, null, 2) + "\n");
-  }
+  const manifest = gameDefaults(destination, directory);
+  writeFileSync(resolve(destination, 'app.json'), JSON.stringify({
+    app:{id:manifest.app.id, name:manifest.app.name},
+    game:{...manifest.game, ...(options.assets === true ? {assets:true} : {})},
+  }, null, 2) + "\n");
 
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const argument = local ? quote(destination) : name;

@@ -46,13 +46,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await moveTo(s,8,0);
     await world(s).tap('KeyE');
     await world(s).run(100);
-    const partial = (await world(s).get('beacon-1','Material')).emissive[0] / 3;
+    const [glow] = await world(s).get('beacon-1','Glow');
+    const t = Math.min(1,Math.max(0,((await snapshot(s)).tick-glow.start_tick)/60/glow.duration));
+    const partial = glow.start_value+(glow.target-glow.start_value)*t*t*(3-2*t);
     check('glow is partway at 0.1 s', partial > 0 && partial < 1, partial);
     check('beacon-1 lit', (await world(s).get('beacon-1','Beacon')).lit);
     const hud = node(await s.tree(),'hud-lit');
     check('HUD is Beacons 1 / 3 and a polite live region', hud?.props.text === 'Beacons 1 / 3' && hud?.props.accessibilityLive === 'polite');
     await world(s).run(900);
-    check('glow fully up at 1 s', equal((await world(s).get('beacon-1','Material')).emissive,[3,3,3]));
+    check('glow completes at its declared half-second deadline', (await snapshot(s)).tick >= glow.start_tick + 60*glow.duration && glow.target === 1);
+    check('saved material stays constant while renderer samples glow', equal((await world(s).get('beacon-1','Material')).emissive,[3,3,3]));
     // Pause while moving and mid-jump, so freezing is not a stationary-world tautology.
     await world(s).key_down('KeyW'); await world(s).tap('Space'); await world(s).run(100);
     await s.tap('pause');

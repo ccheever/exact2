@@ -2,9 +2,7 @@ use super::*;
 #[test]
 fn journal_lifetime_state_and_listener_refusal() {
     let mut w = World::new(60, 0);
-    w.register_audio();
-    w.resource_mut::<Sounds>()
-        .add("chime", Synth::sine(880.0).seconds(0.25));
+    w.sounds([("chime", Synth::sine(880.0).seconds(0.25))]);
     let e = w.spawn_named("lantern-3", ());
     w.play("chime").at(e).gain(0.8).start();
     let j = w.journal();
@@ -44,8 +42,7 @@ fn unknown_sound_names_itself() {
 #[test]
 fn discarding_play_never_commits_a_voice_or_journal_line() {
     let mut w = World::new(60, 0);
-    w.register_audio();
-    w.resource_mut::<Sounds>().add("chime", Synth::sine(880.0));
+    w.sounds([("chime", Synth::sine(880.0))]);
     let before = w.journal();
     {
         let _pending = w.play("chime").gain(0.5);
@@ -55,4 +52,12 @@ fn discarding_play_never_commits_a_voice_or_journal_line() {
     let id = w.play("chime").start();
     assert_eq!(w.resource::<Voices>().voices.len(), 1);
     assert_eq!(w.resource::<Voices>().voices[0].id, id);
+}
+
+#[test]
+#[should_panic(expected = "AudioSource `orphan` requires sounds")]
+fn r14_audio_source_requires_sound_definitions() {
+    let mut w = World::new(60, 0);
+    w.spawn_named("orphan", AudioSource::new("wind"));
+    step(&mut w);
 }

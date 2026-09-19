@@ -51,6 +51,41 @@ fn named_world_arguments_refer_to_values_not_field_labels() {
 const MISMATCH: &str = "shape Item\n  id: string\ncomponent App\n  state chosen = \"\"\n  action choose(id: string, why: string) writes chosen\n    chosen = id\n  resource items = items() as shape list<Item>\n  view\n    column\n      each item in items key=item.id\n        Row(item=item, pick=choose)\ncomponent Row\n  props\n    item: Item\n    pick: action\n  view\n    button press=pick(item.id)\n      text item.id\n";
 
 #[test]
+fn surface_names_do_not_resolve_as_contract_values_or_functions() {
+    let dir = std::env::temp_dir().join(format!("exact-surface-symbols-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("app.contract");
+    let src = "fn world(value: bool): bool = not value\ncomponent App\n  state paused = false\n  state backdrop = 1\n  view\n    column\n      canvas surface=world(paused=world(paused))\n      canvas surface=world(world(paused))\n      canvas surface=world()\n      canvas surface=backdrop\n      text `${world(paused)}`\n";
+    contract::compile(src).unwrap();
+    std::fs::write(&file, src).unwrap();
+    let (defs, refs) = contract::symbols::symbols(&file).unwrap();
+    let resolved: Vec<_> = refs
+        .iter()
+        .map(|r| {
+            let line = src.lines().nth(r.span.line as usize - 1).unwrap();
+            assert_eq!(
+                &line[r.span.col as usize - 1..r.span.end_col as usize - 1],
+                r.name
+            );
+            assert_eq!(defs[r.to].name, r.name);
+            (r.kind, r.name.as_str(), r.span.line, r.span.col)
+        })
+        .collect();
+    assert_eq!(
+        resolved,
+        [
+            ("fn", "world", 7, 35),
+            ("state", "paused", 7, 41),
+            ("fn", "world", 8, 28),
+            ("state", "paused", 8, 34),
+            ("fn", "world", 11, 15),
+            ("state", "paused", 11, 21),
+        ]
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn an_action_props_arity_is_inferred_from_its_invocations_and_checked_at_the_binding() {
     let e = contract::compile(MISMATCH).unwrap_err();
     assert_eq!(e.id, "analyze-action-arity");

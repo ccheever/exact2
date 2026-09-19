@@ -924,3 +924,60 @@ fn storage_capacity_is_independent_of_inter_stage_capacity() {
         4
     );
 }
+
+#[test]
+fn child_count_shrink_retires_each_index_exactly_once() {
+    use exact_gpu::{ChildrenMode, Surface};
+    #[derive(Default)]
+    struct Children(Vec<usize>);
+    impl Surface for Children {
+        fn bind(
+            &mut self,
+            _: &[exact_gpu::Value],
+            _: Option<f64>,
+        ) -> Result<(), exact_gpu::SurfaceError> {
+            Ok(())
+        }
+        fn children_mode(&self) -> ChildrenMode {
+            ChildrenMode::Each
+        }
+        fn child(
+            &mut self,
+            index: usize,
+            texture: Option<&exact_gpu::wgpu::TextureView>,
+            frame: [f32; 4],
+        ) {
+            if texture.is_none() && frame == [0.; 4] {
+                self.0.push(index);
+            }
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some(format!("{:?}", self.0))
+        }
+        fn render(
+            &mut self,
+            _: &exact_gpu::Frame,
+            _: &exact_gpu::wgpu::Device,
+            _: &exact_gpu::wgpu::Queue,
+            _: &exact_gpu::wgpu::TextureView,
+            _: exact_gpu::wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("children", 0, || Box::<Children>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    let id = module.create_headless("children").unwrap();
+    for index in 0..4 {
+        assert!(module.child(id, index, [0., 0., 10., 10.], 0, 0, &[]));
+    }
+    assert!(module.children_count(id, 1));
+    assert_eq!(module.agent(id, ""), Some("[1, 2, 3]".into()));
+    assert!(module.children_count(id, 1));
+    assert_eq!(module.agent(id, ""), Some("[1, 2, 3]".into()));
+    assert!(module.children_count(id, 0));
+    assert_eq!(module.agent(id, ""), Some("[1, 2, 3, 0]".into()));
+}

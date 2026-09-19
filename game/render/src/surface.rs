@@ -619,7 +619,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.placed
             .frame(&input, exact_game::Vec2::new(frame.width, frame.height));
         #[cfg(not(target_arch = "wasm32"))]
-        renderer.quads.children(&renderer.device, &self.placed);
+        renderer
+            .quads
+            .children(&renderer.device, &renderer.queue, &self.placed);
         self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
         self.ready_work
             .get_or_insert_with(|| renderer.residency_work());
@@ -1334,14 +1336,12 @@ mod residency_tests {
         surface.bind(&[], None).unwrap();
         surface.asset(
             "fox.model",
-            Ok(include_bytes!(
-                "../../games/skinned-fixture/assets/fox.model"
-            )),
+            Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
         );
         surface.asset(
             "fox/0-srgb-straight.tex",
             Ok(include_bytes!(
-                "../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"
+                "../../bake/tests/fixtures/crate/0-srgb-straight.tex"
             )),
         );
         let mut frame = Frame {
@@ -1367,7 +1367,7 @@ mod residency_tests {
             assert_eq!(surface.carry().unwrap().unwrap(), saved);
         }
         let mut texture: exact_game::asset::TextureData = exact_game::bin::from_slice(
-            include_bytes!("../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"),
+            include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex"),
         )
         .unwrap();
         texture.mips[0][0] ^= 127;

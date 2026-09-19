@@ -1,11 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
+#[path = "fixture/mod.rs"]
+mod test_game;
+use crate::test_game::Fixture;
 use exact_game::{Actions, Camera, Data, Game, Input, Material, Mesh, Transform, Vec3, World};
 use exact_game_render::WorldSurface;
 use exact_gpu::{
     fixture::{self, Pixels},
     Frame, Gpu, InputEvent, Surface, Value,
 };
-use greybox_logic::Greybox;
 
 fn gpu() -> Option<Gpu> {
     match fixture::device() {
@@ -104,11 +106,11 @@ fn luminance(image: &Pixels, rect: &Rect) -> f64 {
     total / count as f64
 }
 #[test]
-fn greybox_surface_agent_pixels_and_beacon() {
+fn fixture_surface_agent_pixels_and_beacon() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut surface = WorldSurface::<Greybox>::default();
+    let mut surface = WorldSurface::<Fixture>::default();
     surface
         .bind(
             &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
@@ -119,18 +121,18 @@ fn greybox_surface_agent_pixels_and_beacon() {
     assert!(surface.published().unwrap().contains(r#""beacons":0"#));
     assert!(surface.published().is_none());
     assert!(surface.messages().is_empty());
-    let first = render(&gpu, &mut surface, 0., "world-greybox-0");
+    let first = render(&gpu, &mut surface, 0., "world-fixture-0");
     let rect = bounds(&mut surface, "player");
     let y = orange_y(&first, &rect);
     assert!((rect.y as f64..(rect.y + rect.h) as f64).contains(&y));
     let plane = first.at((rect.x - 8.).max(0.) as u32, (rect.y + rect.h * 0.6) as u32);
     assert!(!orange(plane), "plane probe accidentally hits the capsule");
     assert!(first.count(|p| p[0] > 20 || p[1] > 20 || p[2] > 20) > 200_000);
-    render(&gpu, &mut surface, 350., "world-greybox-350");
+    render(&gpu, &mut surface, 350., "world-fixture-350");
     key(&mut surface, "KeyW", true, 350.);
     // 1.35 s of W under Move's acceleration and braking stops about 1.3 m short of the
     // beacon at z = -6.5: in range, and not hiding it behind the capsule.
-    render(&gpu, &mut surface, 1700., "world-greybox-walk");
+    render(&gpu, &mut surface, 1700., "world-fixture-walk");
     key(&mut surface, "KeyW", false, 1700.);
     let before = render(&gpu, &mut surface, 2150., "world-beacon-before");
     let rect = bounds(&mut surface, "beacon-1");
@@ -157,21 +159,21 @@ fn greybox_surface_agent_pixels_and_beacon() {
     assert!(state.contains(r#""frameMs":{"p50":0"#));
     assert!(surface.published().unwrap().contains(r#""beacons":1"#));
 }
-// Greybox follows the capsule exactly. Freeze ONLY its camera in this fixture so
+// Fixture follows the capsule exactly. Freeze ONLY its camera in this fixture so
 // screen-space movement proves the input → simulation → slot upload path.
-struct FixedCameraGreybox;
-impl Game for FixedCameraGreybox {
-    const ID: &'static str = "fixed-camera-greybox";
-    type Args = <Greybox as Game>::Args;
+struct FixedCameraFixture;
+impl Game for FixedCameraFixture {
+    const ID: &'static str = "fixed-camera-fixture";
+    type Args = <Fixture as Game>::Args;
     fn setup(w: &mut World, a: &Self::Args) {
-        Greybox::setup(w, a)
+        Fixture::setup(w, a)
     }
 
     fn actions() -> Actions {
-        Greybox::actions()
+        Fixture::actions()
     }
     fn tick(w: &mut World, i: &Input, args: &Self::Args) {
-        Greybox::tick(w, i, args);
+        Fixture::tick(w, i, args);
         let e = w.named("camera").unwrap();
         *w.get_mut::<Transform>(e).unwrap() =
             Transform::at(0., 5.9, 8.).looking_at(Vec3::new(0., 0.9, 0.), Vec3::Y);
@@ -182,7 +184,7 @@ fn holding_w_moves_capsule_pixels_up_screen() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<FixedCameraGreybox>::default();
+    let mut s = WorldSurface::<FixedCameraFixture>::default();
     s.bind(
         &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
         None,
@@ -234,14 +236,14 @@ fn stopped_pixels_identical_across_alphas_and_agent_seeks_feed_history() {
             render(&gpu, &mut s, now, "world-stop-alpha").data
         );
     }
-    let mut via_agent = WorldSurface::<FixedCameraGreybox>::default();
+    let mut via_agent = WorldSurface::<FixedCameraFixture>::default();
     via_agent
         .bind(
             &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
             None,
         )
         .unwrap();
-    let mut via_frame = WorldSurface::<FixedCameraGreybox>::default();
+    let mut via_frame = WorldSurface::<FixedCameraFixture>::default();
     via_frame
         .bind(
             &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
@@ -260,7 +262,7 @@ fn stopped_pixels_identical_across_alphas_and_agent_seeks_feed_history() {
 }
 #[test]
 fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
-    let mut surface = WorldSurface::<Greybox>::default();
+    let mut surface = WorldSurface::<Fixture>::default();
     assert!(surface
         .bind(&[Value::Bool(false)], None)
         .unwrap_err()
@@ -270,7 +272,7 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
     surface.bind(&[], None).unwrap();
     assert_eq!(
         surface.sim().unwrap().save().unwrap(),
-        exact_game::Sim::<Greybox>::new(Default::default())
+        exact_game::Sim::<Fixture>::new(Default::default())
             .unwrap()
             .save()
             .unwrap()
@@ -307,21 +309,21 @@ fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
 }
 
 #[test]
-fn beacons_grid_fog_and_bloom() {
-    use beacons_logic::{Beacons, Options};
+fn fixture_grid_fog_and_bloom() {
+    use crate::test_game::{Fixture, Options};
     struct Atmosphere;
     impl Game for Atmosphere {
         type Args = Options;
-        const ID: &'static str = Beacons::ID;
+        const ID: &'static str = Fixture::ID;
         fn actions() -> Actions {
-            Beacons::actions()
+            Fixture::actions()
         }
         fn setup(w: &mut World, args: &Options) {
-            Beacons::setup(w, args);
+            Fixture::setup(w, args);
             w.insert_resource(exact_game::Environment::default());
         }
         fn tick(w: &mut World, input: &Input, args: &Options) {
-            Beacons::tick(w, input, args);
+            Fixture::tick(w, input, args);
         }
     }
     let Some(gpu) = gpu() else { return };
@@ -337,7 +339,7 @@ fn beacons_grid_fog_and_bloom() {
         .query::<&Mesh>()
         .iter()
         .find_map(|(e, mesh)| matches!(mesh, Mesh::Plane { .. }).then_some(e))
-        .expect("Beacons ground plane");
+        .expect("fixture ground plane");
     // This render fixture opts into a grid; the consumer's ground is plain.
     sim.world()
         .get_mut::<Material>(ground)

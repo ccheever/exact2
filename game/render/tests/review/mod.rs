@@ -70,7 +70,13 @@ fn overrange_emissive_cannot_poison_bloom_or_tonemap() {
     r.write_materials(0, &material([0.0; 3], 1e8)).unwrap();
     let bright = render(&gpu, &mut r, &texture, &f);
     bright.save("overrange-emissive");
-    assert!(bright.at(320, 180)[..3].iter().all(|&c| c >= 254));
+    assert!(
+        bright.at(320, 180)[..3]
+            .iter()
+            .all(|&c| (245..255).contains(&c)),
+        "HDR shoulder retains highlight headroom: {:?}",
+        bright.at(320, 180)
+    );
     for (a, b) in bright.at(0, 0)[..3].iter().zip(&baseline.at(0, 0)[..3]) {
         assert!(a.abs_diff(*b) <= 2, "far corner contaminated: {a} vs {b}");
     }

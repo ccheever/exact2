@@ -8,7 +8,7 @@ fn temp() -> std::path::PathBuf {
     fs::create_dir_all(p.join("art")).unwrap();
     p
 }
-const CRATE: &str = include_str!("../../games/asset-fixture/art/crate.gltf");
+const CRATE: &str = include_str!("fixtures/crate.gltf");
 #[test]
 fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_authored_assets() {
     let app = temp();
@@ -51,8 +51,7 @@ fn authored_collision_and_invalid_stems_refuse_by_name() {
 
 #[test]
 fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     assert_eq!(
         exact_game::bin::to_vec(&model),
@@ -176,28 +175,16 @@ fn obsolete_manifest_refuses_before_changing_outputs() {
 #[test]
 fn clean_sprites_checkout_bakes_without_generated_ownership() {
     let app = temp();
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games/sprites-fixture");
-    // Copy only tracked, still-present files: no ignored ownership or generated outputs.
-    let tracked = std::process::Command::new("git")
-        .args(["ls-files", "-z", "."])
-        .current_dir(&source)
-        .output()
-        .unwrap();
-    assert!(tracked.status.success());
-    for name in tracked.stdout.split(|b| *b == 0).filter(|n| !n.is_empty()) {
-        let path = std::path::Path::new(std::str::from_utf8(name).unwrap());
-        if !source.join(path).is_file() {
-            continue;
-        }
-        fs::create_dir_all(app.join(path).parent().unwrap()).unwrap();
-        fs::copy(source.join(path), app.join(path)).unwrap();
-    }
+    let image = image::RgbaImage::from_fn(8, 2, |x, y| {
+        image::Rgba([x as u8 * 20, y as u8 * 100, 128, 255])
+    });
+    image.save(app.join("art/strip.png")).unwrap();
     assert!(!app.join(".baked-assets.json").exists());
     exact_game_bake::bake_art(&app).unwrap();
-    assert_eq!(
-        fs::read(app.join("assets/strip.tex")).unwrap(),
-        fs::read(app.join("logic/tests/strip.tex")).unwrap()
-    );
+    let texture: exact_game::asset::TextureData =
+        exact_game::bin::from_slice(&fs::read(app.join("assets/strip.tex")).unwrap()).unwrap();
+    assert_eq!((texture.width, texture.height), (8, 2));
+    assert_eq!(texture.mips[0], image.into_raw());
     fs::remove_dir_all(app).unwrap();
 }
 

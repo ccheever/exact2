@@ -124,6 +124,7 @@ impl World {
     pub(crate) fn begin_tick(&mut self) {
         self.mutated();
         self.in_tick = true;
+        self.followed.set(false);
         self.state.busy.get_mut().clear();
         self.fresh.clear();
     }

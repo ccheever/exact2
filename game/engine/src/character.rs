@@ -4,6 +4,13 @@ use crate::{Component, Target, Transform, Vec3, World};
 use std::ops::RangeInclusive;
 
 /// Movement configuration and velocity, attached directly to a named entity.
+///
+/// With constant directional input from rest, no bounds, tick rate `h`, speed
+/// `v` and positive acceleration `a`, `v_k = min(k*a/h, v)`. Semi-implicit
+/// integration sums these velocities: after `n` ticks, let
+/// `m = min(n, floor(v*h/a))`; distance is
+/// `a*m*(m+1)/(2*h*h) + (n-m)*v/h`, up to scalar f32 rounding.
+/// This is constant acceleration toward a speed limit, not exponential easing.
 #[derive(Clone, Debug, Component)]
 pub struct Character {
     /// Current velocity in metres per second; saved and hashed with the component.

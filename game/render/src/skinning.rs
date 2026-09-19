@@ -399,10 +399,7 @@ mod tests {
         let Some(gpu) = device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut model: Model = exact_game::bin::from_slice(include_bytes!(
-            "../../games/skinned-fixture/assets/fox.model"
-        ))
-        .unwrap();
+        let mut model = crate::test_model::skinned_model();
         let mut renderer =
             crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         renderer.prepare_model("fox.model", &model).unwrap();

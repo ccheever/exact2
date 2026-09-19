@@ -1075,9 +1075,7 @@ fn socket_follower_gameplay_bounds_and_pick_use_head_plus_offset() {
         crate::spatial::pick(&w, &view, crate::Vec2::new(x + width / 2., y + height / 2.)).unwrap();
     assert_eq!(hit.0, charm);
     assert_eq!(w.get::<Transform>(charm).unwrap().position, Vec3::ZERO);
-    w.register_audio();
-    w.resource_mut::<crate::audio::Sounds>()
-        .add("bell", crate::audio::Synth::sine(880.).seconds(1.));
+    w.sounds([("bell", crate::audio::Synth::sine(880.).seconds(1.))]);
     w.play("bell").at("charm").start();
     crate::audio::step(&mut w);
     assert_eq!(

@@ -102,8 +102,8 @@ fn loaded_content_reprepares_after_device_loss() {
     let Ok(gpu) = fixture::device() else { return };
     let mut surface = fresh();
     surface.device_ready();
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
@@ -147,8 +147,8 @@ fn loss_during_loading_reissues_unanswered_names() {
 #[test]
 fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
     let mut surface = fresh();
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
@@ -164,8 +164,8 @@ fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
 #[test]
 fn deferred_restore_preserves_the_last_texture_until_upload() {
     let Ok(gpu) = fixture::device() else { return };
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     let mut source = Sim::<Art>::new(()).unwrap();
     source
@@ -190,20 +190,29 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     assert!(surface.sim().unwrap().device_assets_ready());
 }
 
-#[path = "../../games/asset-fixture/logic/src/lib.rs"]
-mod asset_fixture;
+struct VisibleArt;
+impl Game for VisibleArt {
+    const ID: &'static str = "renderer-visible-art";
+    const ASSETS: &'static [&'static str] = Art::ASSETS;
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        Art::setup(w, &());
+        w.spawn((
+            Transform::at(2.8, 2., 3.8).looking_at(exact_game::Vec3::ZERO, exact_game::Vec3::Y),
+            exact_game::Camera::default(),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
 #[test]
 fn replacement_device_draws_identical_pixels() {
     let Ok(gpu) = fixture::device() else { return };
-    let mut surface = WorldSurface::<
-        asset_fixture::AssetFixture,
-        exact_game_render::ModelPresentation,
-        true,
-    >::default();
+    let mut surface =
+        WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
     surface.device_ready();
     surface.bind(&[], None).unwrap();
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
@@ -266,8 +275,8 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         shaders: &[],
     };
     let Ok(gpu) = fixture::device() else { return };
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (mut model, _) = exact_game_bake::assets(&path).unwrap();
     model.textures.clear();
     for material in &mut model.materials {

@@ -640,8 +640,8 @@ fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
 }
 
 #[test]
-fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
-    let mut sim = Sim::<greybox_logic::Greybox>::from_values(&[
+fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
+    let mut sim = Sim::<crate::test_game::Fixture>::from_values(&[
         exact_game::Value::Number(7.),
         exact_game::Value::Bool(false),
         exact_game::Value::Bool(false),
@@ -696,8 +696,8 @@ fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
             assert_eq!(writes(&r), 0);
         }
     }
-    assert!(glowing > 1, "the actual greybox beacon must have glowed");
-    eprintln!("greybox writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
+    assert!(glowing > 1, "the fixture sphere must have glowed");
+    eprintln!("fixture writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
 }
 
 #[test]
@@ -896,4 +896,36 @@ fn aspect_only_feed_preserves_authored_integer_camera_height() {
     f.feed_to(&w, &mut Recording::default()).unwrap();
     assert!((f.frame(&w, 1., 2.).proj.y_axis.y - 2. / 180.).abs() < 1e-7);
     assert!((f.frame_pixels(&w, 1., (800., 400.)).proj.y_axis.y - 2. / 200.).abs() < 1e-7);
+}
+
+#[test]
+fn e10_glow_samples_frame_time_without_writing_saved_materials() {
+    use exact_game::{Glow, Now, Tween};
+    let mut w = World::new(60, 0);
+    let e = w.spawn((
+        Transform::default(),
+        Mesh::sphere(0.5),
+        Material::glow([3., 2., 1.]),
+        Glow(Tween::new(0.)),
+    ));
+    w.get_mut::<Glow>(e)
+        .unwrap()
+        .0
+        .to(Now { tick: 0, hz: 60 }, 1., 0.5);
+    let saved = w.hash();
+    let mut feed = Feed::default();
+    let mut r = Recording::default();
+    feed.feed_to(&w, &mut r).unwrap();
+    let frame = feed.frame(&w, 1., 1.);
+    assert_eq!(frame.glows.len(), 1);
+    let glow = &frame.glows[0];
+    assert_eq!(&glow.material_at(0.)[6..9], &[0., 0., 0.]);
+    assert_eq!(&glow.material_at(0.25)[6..9], &[1.5, 1., 0.5]);
+    assert_eq!(&glow.material_at(0.5)[6..9], &[3., 2., 1.]);
+    assert_eq!(w.hash(), saved);
+    assert_eq!(w.get::<Material>(e).unwrap().emissive, [3., 2., 1.]);
+    w.remove::<Glow>(e);
+    feed.feed_to(&w, &mut r).unwrap();
+    assert!(feed.frame(&w, 1., 1.).glows.is_empty());
+    assert_eq!(&r.materials[6..9], &[3., 2., 1.]);
 }

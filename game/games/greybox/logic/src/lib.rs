@@ -5,8 +5,8 @@ use exact_game::audio::{self, AudioListener, AudioSource, Synth};
 use exact_game::character::Character;
 use exact_game::Vec3Swizzles;
 use exact_game::{
-    scene, Actions, Camera, Component, DirectionalLight, Follow, Game, Input, Material, Mesh,
-    Spring, Stick, Transform, Vec3, World,
+    Actions, Camera, Component, DirectionalLight, Follow, Game, Glow, Input, Material, Mesh, Stick,
+    Transform, Vec3, World,
 };
 
 #[derive(Default, exact_game::Data)]
@@ -24,10 +24,8 @@ pub struct Player {
 pub struct Beacon {
     /// Whether act has lit this beacon.
     pub lit: bool,
-    /// Emission envelope; the engine discovers its settling state automatically.
-    pub glow: Spring,
 }
-/// Logic behind `canvas surface=world(seed: seed, paused: paused)`.
+/// Logic behind `canvas surface=world(seed=seed, paused=paused)`.
 pub struct Greybox;
 /// Typed canvas arguments bound by field name.
 #[derive(Default, exact_game::Args)]
@@ -143,7 +141,11 @@ impl Game for Greybox {
             (
                 Transform::at(0.0, 0.75, -6.5),
                 Mesh::sphere(0.5),
-                Material::rgb(0.15, 0.6, 0.8),
+                Material {
+                    color: [0.15, 0.6, 0.8, 1.],
+                    ..Material::glow([3.; 3])
+                },
+                Glow::default(),
                 Beacon::default(),
             ),
         );
@@ -177,16 +179,15 @@ impl Game for Greybox {
                 world.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit)
             {
                 beacon.lit = true;
-                beacon.glow.set_target(now, 1.0);
-                world.publish_record(&Hud { beacons: 1 });
+                world.get_mut::<Glow>(entity).unwrap().0.to(now, 1.0, 0.5);
+
                 world.log("beacon-1 lit");
                 world.play("chime").at(entity).start();
             }
         }
-        for (beacon, mut material) in world.query::<(&Beacon, &mut Material)>() {
-            material.emissive = [beacon.glow.value(now) * 3.0; 3];
-        }
-        scene::follow(world);
+        world.publish_record(&Hud {
+            beacons: world.count::<Beacon>(|b| b.lit),
+        });
         audio::step(world);
     }
 }

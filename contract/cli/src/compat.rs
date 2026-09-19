@@ -138,11 +138,21 @@ impl Manifest {
         let id = app
             .and_then(|a| a.get("id"))
             .and_then(|v| v.as_str())
+            .or_else(|| {
+                json.get("game")
+                    .and_then(|_| json.get("id"))
+                    .and_then(|v| v.as_str())
+            })
             .ok_or_else(|| format!("{}: `app.id` is required", path.display()))?
             .to_string();
         let name = app
             .and_then(|a| a.get("name"))
             .and_then(|v| v.as_str())
+            .or_else(|| {
+                json.get("game")
+                    .and_then(|_| json.get("name"))
+                    .and_then(|v| v.as_str())
+            })
             .ok_or_else(|| format!("{}: `app.name` is required", path.display()))?
             .to_string();
         Ok(Manifest {

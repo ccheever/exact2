@@ -129,3 +129,26 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     );
     assert_eq!(game.world().published("near").unwrap().as_str(), Some(""));
 }
+
+#[test]
+fn starter_keeps_grid_sky_fog_pads_and_saved_glow() {
+    use exact_game::{Environment, Glow, Material};
+    let game = Sim::<SmallGame>::new(Options::default()).unwrap();
+    let w = game.world();
+    let env = w.resource::<Environment>();
+    assert_eq!(env.fog.unwrap().color, env.background);
+    assert!(w.count::<Material>(|m| m.grid_spacing > 0.) > 0);
+    assert_eq!(w.count::<Glow>(|_| true), 2);
+    assert_eq!(w.require::<Material>("beacon-1").emissive, [3., 1.5, 0.3]);
+}
+
+#[test]
+fn held_w_matches_the_closed_form_acceleration_series() {
+    let mut game = Sim::<SmallGame>::new(Options::default()).unwrap();
+    game.hold("KeyW", 1500.);
+    // v_k = min(k*a/h, v), d_n = a*m*(m+1)/(2*h*h)+(n-m)*v/h.
+    let (h, n, a, v): (f64, f64, f64, f64) = (120., 180., 12., 4.);
+    let m = n.min((v * h / a).floor());
+    let distance = a * m * (m + 1.) / (2. * h * h) + (n - m) * v / h;
+    assert!((game.local_position("player").unwrap().z as f64 + distance).abs() < 0.001);
+}

@@ -269,6 +269,7 @@ fn particle_storage_and_pipelines_prepare_only_with_emitters() {
         r.quads.order::<true>(&gpu.device, &gpu.queue);
         assert_eq!(r.quads.reserved_bytes(), capacity);
         assert_eq!(r.residency_work().since(work).pipeline_creations, 0);
+        assert_eq!(r.residency_work().since(work).buffer_reallocations, 0);
         assert_eq!(
             r.quads.instances(),
             u64::from(count.min(emitter::PARTICLE_BUDGET))
@@ -382,4 +383,23 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         "sprite + particle + adjacent 60 sprites"
     );
     assert_eq!(r.quads.reallocations(), 0);
+}
+
+#[test]
+#[should_panic(expected = "particles must prepare before drawing")]
+fn r14_unprepared_particle_draw_names_the_refusal() {
+    let gpu = fixture::device().unwrap();
+    let mut r = crate::renderer::RendererWithAssets::<false>::new(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+    r.quads.order.push(crate::quads::Order {
+        kind: crate::quads::Kind::Particle(false),
+        depth: 0.,
+        layer: 0,
+        slot: 0,
+        index: 0,
+    });
+    r.quads.order::<false>(&gpu.device, &gpu.queue);
 }

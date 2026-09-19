@@ -182,6 +182,7 @@ pub struct World {
     hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
+    pub(crate) followed: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
@@ -235,6 +236,7 @@ impl World {
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
+            followed: std::cell::Cell::new(false),
             attachments: None,
             detach: None,
             state: State {
@@ -419,6 +421,13 @@ impl World {
             index: index as u32,
             generation: self.state.slots[index].generation,
         }
+    }
+    /// Count living components matching a predicate, without changing the world.
+    pub fn count<T: Component>(&self, mut predicate: impl FnMut(&T) -> bool) -> u32 {
+        self.query::<&T>()
+            .iter()
+            .filter(|(_, item)| predicate(item))
+            .count() as u32
     }
     /// The lowest-index living entity bearing this name.
     pub fn named(&self, name: &str) -> Option<Entity> {
@@ -901,6 +910,19 @@ impl World {
         *self = next;
         Ok(())
     }
+    // Decode with the live registration table, without gameplay setup side effects.
+    pub(crate) fn registered_scratch(&self) -> Self {
+        let mut scratch = Self::new(self.hz(), 0);
+        scratch.registry = self.registry.clone();
+        scratch.attachments = self.attachments;
+        scratch.detach = self.detach;
+        scratch
+    }
+    pub(crate) fn validate_saved(&self, bytes: &[u8]) -> Result<Self, DataError> {
+        let mut scratch = self.registered_scratch();
+        scratch.load(bytes)?;
+        Ok(scratch)
+    }
     pub(crate) fn saved_payload(bytes: &[u8]) -> Result<&[u8], DataError> {
         if bytes.len() > crate::data::MAX_LOAD_BYTES {
             return Err(DataError::new("save exceeds load size limit"));
@@ -1064,6 +1086,12 @@ mod nearest_xz_mut_tests {
         if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             assert_eq!(entity, first);
             beacon.lit = true;
+            assert_eq!(w.named("player").unwrap().index(), 0);
+            assert_eq!(w.get::<Transform>(entity).unwrap().position.x, 1.5);
+            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _same_column = w.get::<Beacon>(second);
+            }))
+            .is_err());
         }
         assert!(w.get::<Beacon>(first).unwrap().lit);
         assert!(!w.get::<Beacon>(second).unwrap().lit);
@@ -1094,6 +1122,15 @@ mod required_tests {
         w.require_mut::<crate::Transform>("fox").position.x = 3.;
         assert_eq!(w.require::<crate::Transform>("fox").position.x, 3.);
         for name in ["fox", "missing"] {
+            let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                w.require_mut::<crate::Mesh>(name);
+            }))
+            .unwrap_err();
+            let message = failure.downcast_ref::<String>().unwrap();
+            assert!(
+                message.contains(name) && message.contains("Mesh"),
+                "{message}"
+            );
             let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 w.require::<crate::Mesh>(name);
             }))

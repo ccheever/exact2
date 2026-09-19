@@ -4,15 +4,35 @@
 
 The simulation defaults to 120 Hz: the measured 60 Hz tick-wait p95 was about 17 ms. Choosing 60 Hz is an explicit latency/CPU trade, not the starter default.
 
-The canvas binds `world(seed=7, paused=false, restart=again)` by the names in
+The canvas binds `world(seed=7, paused=paused, restart=again)` by the names in
 `Options`. Reorder these arguments freely; omitted fields use `Options::default()`.
 `world()` takes every default; short positional calls take the remaining defaults.
 Raw host JSON key order is not a hash input.
 
-Material synchronization uses the joined `w.query::<(&Beacon, &mut Material)>()` directly: no entity lookup or unwrap. `Material::grid(color, spacing)` supplies the ground; `Environment::default()` supplies height fog and bloom. The beacon uses `Material::default()` and changes its emissive color in the tick; bloom supplies the visible glow.
+The picture below is captured by `bun proof.mjs web` at `artifacts/web/game.png`.
+The grid, sky-colored height fog, beacon pads and bloom are starter defaults.
+`Glow(Tween)` on a `Material::glow` mesh is sampled by the renderer at frame time;
+the tick only retargets the tween. The scene steps `Follow` after your tick.
+`scene::follow(w)` remains optional when you need to choose an earlier ordering.
+
+![Starter proof capture](artifacts/web/game.png)
+
+One `nearest_xz_mut` result supplies both the lighting write and the HUD name;
+`w.count::<Beacon>(|b| b.lit)` supplies the total. The proof checks W against
+`d = a*m*(m+1)/(2*h*h) + (n-m)*v/h`, where `m=min(n,floor(v*h/a))`.
+Character uses constant acceleration up to its speed limit, so this is the sum
+of its semi-implicit velocity steps, with a 1 mm float tolerance. Hash pins still
+check the exact saved simulation. Space and Enter on the focused Pause button
+activate that button without reaching the world.
+
+`app.json` contains authored identity and game keys. The bake resolves host defaults
+into ignored `.shells/app.json` and leaves the authored file byte-for-byte intact.
+Linux proofs use the incremental `gpu-dev` profile; web, Apple and deploy retain
+their production profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks
+Linux against release without changing the game.
 
 
-The template supplies `Cargo.lock` beside `app.json`; the first bake creates ignored
+`Cargo.lock` beside `app.json` is captured package state; the first bake creates ignored
 `.shells/` hosts and resolves with `--offline --locked`. Commit that source lock; builds and deployment resolve it locked.
 After changing dependencies, update it deliberately with
 `bun /path/to/exact2/game/app/shells.mjs . --update-lock`.

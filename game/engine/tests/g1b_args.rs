@@ -280,6 +280,11 @@ fn restore_uses_saved_setup_arguments_to_register_components() {
     impl Game for Conditional {
         const ID: &'static str = "conditional-setup";
         type Args = Options;
+        fn register(w: &mut World, args: &Options) {
+            if args.extra {
+                w.register::<Extra>();
+            }
+        }
         fn setup(w: &mut World, args: &Options) {
             if args.extra {
                 w.spawn_named("extra", Extra { value: 17 });

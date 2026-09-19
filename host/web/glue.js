@@ -1,8 +1,8 @@
 // Apply batches, forward events and tick the clock; per-frame layout and motion belong to the browser.
 // @ref LLP 1007 §3. This is host code, not app code: the app is the wasm (runner + kernel + data crate + baked plan).
-
 import { navigation } from "./navigation.js";
 const root = document.getElementById("exact-root");
+const controlsStyle = document.createElement("style"); controlsStyle.textContent = "button:focus-visible{outline:revert;outline-offset:2px} button:enabled:hover{filter:brightness(1.12)}"; document.head.append(controlsStyle);
 const views = new Map(); // view id -> element
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
@@ -87,7 +87,6 @@ const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
 let installedFonts = [];
-
 function commitGuestOrigin(el) {
   const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
   const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
