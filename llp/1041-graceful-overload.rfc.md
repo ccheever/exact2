@@ -6064,3 +6064,57 @@ the final report. The370-file runtime archive at
 `target/messages-strut-native-execution-v1/` is sealed by manifest9e9468aa;
 report42e70c2a preserves the full tables, progress differences and negative tails.
 The separate569-file build archive and source preparation remain unchanged.
+
+### 8.106 Linux Messages reaches display but refuses tail setup, 2026-09-18
+
+One optimized7384567 Linux Messages build completes in40.769s. The actual
+generated entry uses ReusableMessagesStress; source, plan, compatibility and
+fonts are pinned. This fixed1024×768 VKMS diagnostic is intended to establish
+the full10,000-row/32-change workload with its changing suffix actually visible.
+It does not exercise continuous window resizing. Four ignored observation paths
+retain CPU-picture ownership and bounded scalar row witnesses; production is
+unchanged. The20-file build capture identifies ELF c4ecfff1.
+
+Reader checks distinguish painted History from newer live state, seal the silent
+2s prefix before draining, close later dirty/timing work at the final fence, and
+check setup time and records at the actual handoff. The separate v5 diagnostic
+budget permits49,152 setup spans/16,384 events/32MiB, reserving4,096 spans,
+4,096 events and8MiB for later work. Total bounds are53,248 spans/20,480 events/
+40MiB. The native recorder remains256 fixed rows per turn with depth32; setup20s,
+native60s, outer220s, transport250s and2.5GiB address space remain unchanged.
+These are diagnostic capacities, not a receiver-memory bound or proof that
+natural tail traversal fits. Saved focused validation passes28 pure tests;
+earlier reader failures and setup errors remain preserved.
+
+The first attempt exits before driver or app launch: the ordinary VM user lacks
+read/write access to the root:video0660 DRM node. A requested Runas-group route
+also refuses noninteractive authentication. A separately qualified sudo→setpriv
+launch instead drops all real/effective/saved user IDs to501 and group IDs to44,
+retains the original home/lock, and enables NoNewPrivs before running Python.
+Only the recorded sudo monitor retains root privileges. No account, device,
+ACL, module or persistent permission changes are made. The original refusals
+remain separate from the corrected attempt.
+
+The corrected attempt reaches actual native display and accepts the windowed
+and batch32 controls, followed by four real+40 wheel inputs while paused at100
+rows. It exits1 during that first setup batch. Independently reconstructed raw
+records show frame5/input11→frame7/input23, scroll0→160 and an unchanged
+`[0,211,1024,471]` transcript rectangle. The picture-state comparison differs
+only in layout epoch5→6. The reader's cross-picture equality guard rejects this
+as changed geometry/state; neither a production defect nor a weakened identity
+rule follows from that rejection.
+
+All91 journal records,16 timing turns and258 spans are retained, with seven CPU
+pictures, no recorder failures and no timer events. No tail checkpoint, full10k
+transition, History snapshot, RGB capture, silent interval or scored phase
+completes. Thus setup remains unestablished; this is not a successful baseline,
+pixel acceptance, performance result or120Hz claim. The native process exits-15
+after the reader's owned cleanup SIGTERM, not an application crash. All six
+recorded Mac/guest PIDs and owned groups retire; the listener is absent.
+
+The corrected archive is
+`target/messages-linux-vkms-tail-runtime-v5-setpriv-v1/`, report ad8cf857 and
+manifest51bf3464. The original prelaunch failure remains under
+`target/messages-linux-vkms-tail-runtime-v5/`. Next work is a source-only
+investigation of cross-picture setup qualification while preserving each
+picture's exact paint/ACK/current-state guards; no further runtime is selected.
