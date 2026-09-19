@@ -153,6 +153,37 @@ fn a05_duplicate_record_and_map_keys_refuse_in_both_decoders() {
     let bytes = out.finish();
     assert!(bin::from_slice::<Health>(&bytes).is_err());
     assert!(bin::from_slice::<BTreeMap<String, u32>>(&bytes).is_err());
+    // Separate literal introductions of the same name still duplicate a key;
+    // neither an intern index nor the input address defines name equality.
+    let literals = [8, 1, 0, 2, b'h', b'p', 2, 1, 1, 0, 2, b'h', b'p', 2, 99, 0];
+    for error in [
+        bin::from_slice::<Health>(&literals).err().unwrap(),
+        bin::from_slice::<BTreeMap<String, u32>>(&literals)
+            .err()
+            .unwrap(),
+    ] {
+        assert_eq!(error.message, "duplicate field");
+        assert!(error.path.ends_with("hp"));
+    }
+    // Names introduced while skipping nested fields remain available to later
+    // records, but duplicate detection belongs to each record's own scope.
+    let mut out = bin::Encoder::default();
+    out.begin_seq(2);
+    for hp in [4u32, 7] {
+        out.item();
+        out.begin_struct();
+        out.field("future");
+        out.begin_struct();
+        out.field("hp");
+        99u32.write(&mut out);
+        out.end_struct();
+        out.field("hp");
+        hp.write(&mut out);
+        out.end_struct();
+    }
+    out.end_seq();
+    let health = bin::from_slice::<Vec<Health>>(&out.finish()).unwrap();
+    assert_eq!(health.iter().map(|h| h.hp).collect::<Vec<_>>(), [4, 7]);
     // Escapes compare by decoded names; unknown fields are checked too.
     assert!(json::from_str::<Health>(r#"{"hp":1,"h\u0070":2}"#).is_err());
     assert!(json::from_str::<Health>(r#"{"future":{"a":1,"a":2}}"#).is_err());

@@ -124,7 +124,11 @@ export function assertWebDistApp(dist, app) {
   if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
+  if (reuse) {
+    try { await reuse.reset(); return reuse; }
+    catch (error) { await reuse.close(); throw error; }
+  }
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
   if (!pageURL) assertWebDistApp(dist, selected);
@@ -230,6 +234,21 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     };
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
+      async reset() {
+        // Navigate to a fresh document, keeping this Chrome process and HTTP cache.
+        hostLines.length = 0; gpuMs = null;
+        await call('Page.navigate', {url:'about:blank'});
+        await call('Page.navigate', {url:page.href});
+        const deadline = Date.now() + 30000;
+        while (!await evaluate("document.getElementById('exact-root')?.dataset.bootMs != null").catch(() => false)) {
+          if (Date.now() > deadline) throw new Error('the reused page never booted');
+          await sleep(15);
+        }
+        await evaluate('exact.ready');
+        contact = null;
+        if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
+        touch = false;
+      },
       ask,
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
@@ -794,7 +813,7 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
   if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
@@ -815,8 +834,9 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess });
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
   const s = {
+    carrier,
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
     sessions: carrier.sessions ?? null,

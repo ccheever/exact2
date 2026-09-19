@@ -344,6 +344,11 @@ impl Material {
             ..Self::rgb(color[0], color[1], color[2])
         }
     }
+    /// Emissive black surface. HDR values bloom with the default Environment;
+    /// this is a glowing mesh, not an extra halo shell or an unlit shader.
+    pub fn glow(color: [f32; 3]) -> Self {
+        Self::rgb(0.0, 0.0, 0.0).emissive(color[0], color[1], color[2])
+    }
     /// Set linear RGB emitted light.
     pub fn emissive(mut self, r: f32, g: f32, b: f32) -> Self {
         self.emissive = [r, g, b];

@@ -7,13 +7,13 @@ import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
 
 // Exercise the copied files unchanged, including their manifests and shared bake.
-test('a newly generated game builds, tests and proves without editing', async () => {
+test('a newly generated game builds, refuses empty pins and captures without editing', async () => {
   const directory = realpathSync(mkdtempSync(resolve(tmpdir(), 'game new-proof-')));
   const name = `new-proof-${process.pid}`, app = resolve(directory, name);
   const env = {...process.env, EXACT_UPDATE_TRUST:'development'};
   delete env.EXACT_APP_DIR;
   delete env.CARGO_TARGET_DIR;
-  const run = (command, args, cwd = resolve(import.meta.dir, '..')) => new Promise((ok, fail) => {
+  const run = (command, args, cwd = resolve(import.meta.dir, '..'), expected = 0) => new Promise((ok, fail) => {
     const child = spawn(command, args, {cwd, env, detached:true, stdio:['ignore','pipe','pipe']});
     let timer;
     const reset = () => {
@@ -24,12 +24,12 @@ test('a newly generated game builds, tests and proves without editing', async ()
     for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { process.stdout.write(data); reset(); });
     reset();
     child.on('error', error => { clearTimeout(timer); fail(error); });
-    child.on('close', (code, signal) => { clearTimeout(timer); code === 0 ? ok() : fail(new Error(`${command} exited ${code ?? signal}`)); });
+    child.on('close', (code, signal) => { clearTimeout(timer); code === expected ? ok() : fail(new Error(`${command} exited ${code ?? signal}; expected ${expected}`)); });
   });
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.shells','app.contract','app.json','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.shells','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
     rmSync(resolve(app, 'app.json'));
     rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
@@ -49,7 +49,10 @@ test('a newly generated game builds, tests and proves without editing', async ()
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
     await run('cargo', ['test', '--no-fail-fast', '-p', `${name}-logic`], resolve(app,'.shells'));
-    await run('bun', [resolve(app, 'proof.mjs'), 'linux']);
+    // The starter must refuse an empty baseline. All-mode first-pin agreement
+    // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
+    await run('bun', [resolve(app, 'proof.mjs')], undefined, 1);
+    assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
     await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only']);
     assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const receipt = resolve(app, 'artifacts/build-linux.sha256');

@@ -528,6 +528,9 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   longitude once. Target labels now format only on failure. Socket attachment
   maintenance now links only when its component is registered: the paired primitive
   module falls 754,607 → 743,249 bytes, still over target.
+  Three shared record-decoding candidates saved 9–18 KB but slowed native Mesh
+  decoding; all are reverted and that loop is closed. The current control is
+  746,976 bytes; pursue ownership boundaries next.
   Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
@@ -601,3 +604,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - I1b verification remaining: the full seven-game iOS matrix and explicit three-host save-comparison column remain owed. R9 passes Beacons and Skinned on iOS (controls, autofocus, live CPU/presentation samples and HUD counts), Asset on web/macOS and Skinned on macOS; packaging resolves hashed rustc dep-info and real web recovery retains identical model pixels. The clean Sprites bake regression also passes; Caltrain smoke’s Chrome Keychain/encryption stderr remains a separate earlier finding. See `game/README.md`’s R9 simulator receipt.
 
 - Apple autofocus reset assertion (R9 validation, 2026-09-18): `AccessibilityTests.testAutofocusNeverTakesExistingFocusOrRetriesAfterReset` fails at `host/apple/Tests/ExactKitTests/AccessibilityTests.swift:35`, expecting a freshly mounted replacement not to receive focus after `Presenter.reset()`. Full Swift suite: 87 pass, 1 fail; the isolated repeat fails too. Reconcile this assertion with I1b's per-mounted autofocus contract. All 12 `CanvasClockAudioTests` pass, including the `childrenMode:` fixture. Evidence: `/tmp/r9-apple-tests.log`, `/tmp/r9-apple-autofocus-isolated.log`.
+
+- E8: named world arguments and inline typed publication need a compiler/plan seam: `Expr::Call` stores `Vec<Expr>` (no names), surface lowering emits positional values, and the runner/GPU ABI binds an ordered value slice. Carry and validate names against game Args metadata through syntax, analyzer, plan/runner and GPU binding before offering `world(seed: 7, paused: paused, restart: again)`. `resource hud = exactSurface("world") as shape Hud` remains the one typed publication declaration; inline canvas publication also needs syntax and scope rules.
+- E8: restore browser button focus-visible/hover defaults across presenters. Web's `all: unset` removes UA affordances; Apple has custom NodeViews (macOS draws a press-handler focus mask), and Linux paints controls from kernel boxes. Linux and iOS lack the input-modality state needed to distinguish keyboard focus from pointer focus. Add that state and verify against a bare browser button before claiming equivalent defaults; a CSS-only ring would leave native hosts inconsistent.
+- E8: external Bun entrypoint startup still exceeds the sub-second budget (starter: 1.655 s whole command versus 0.246 s inside the Linux proof); the external-report fixture still hit its 5 s cumulative timeout after three fix attempts. Investigate startup/module resolution without adding Cargo or machine checks to proof execution; in-repository Beacons/template commands measured 0.512/0.306 s.

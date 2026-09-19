@@ -11,6 +11,7 @@
 // Intended pin change: bun game/prove.mjs small-game --repin
 // Save/setup investigation: bun game/games/small-game/proof.mjs linux --paranoid
 import {resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
 import { proof } from '../../proof.mjs';
 
 await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
@@ -54,6 +55,22 @@ await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
   await game.settle();
   check('prompt disappears outside range', !node(await s.tree(), 'near-prompt'));
   await game.save(resolve(out, 'final.world'));
-  pinSave('continuation', resolve(out, 'final.world'));
+  const checkpoint = await game.snapshot();
+  await game.hold('KeyA', 250);
+  await game.settle();
+  const continued = await game.snapshot();
+  await game.save(resolve(out, 'continued.world'));
+  pinSave('continuation', resolve(out, 'continued.world'));
+  if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
   await s.close();
+  const restored = await open({fresh:true, world:resolve(out, 'final.world')});
+  await restored.tap('play');
+  const loaded = restored.world('world');
+  check('fresh process restores snapshot', JSON.stringify(await loaded.snapshot()) === JSON.stringify(checkpoint));
+  await loaded.hold('KeyA', 250);
+  await loaded.settle();
+  check('fresh process continues identically', JSON.stringify(await loaded.snapshot()) === JSON.stringify(continued));
+  await loaded.save(resolve(out, 'restored.world'));
+  check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
+  await restored.close();
 });

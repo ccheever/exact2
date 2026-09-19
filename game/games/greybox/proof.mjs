@@ -160,7 +160,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await session.world('world').save(originalFile);
   pinSave("continuation", originalFile);
   await session.close(); session = null; say('CLOSED original browser/process before restoring');
-  session = await open({world:worldFile});
+  session = await open({fresh:true, world:worldFile});
   check('save waits behind Play', !node(await session.tree(), 'world'));
   await session.tap('play');
   const restored = (await session.state()).world[0];
@@ -174,7 +174,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await session.close(); session = null;
   const refusedFile = resolve(out, 'refused.world');
   writeFileSync(refusedFile, 'invalid simulation save');
-  session = await open({world:refusedFile});
+  session = await open({fresh:true, world:refusedFile});
   let refusal;
   try { await session.tap('play'); } catch (error) { refusal = error.message; }
   check('the operation creating the canvas reports its restore refusal', refusal?.includes('restore refused'), refusal);

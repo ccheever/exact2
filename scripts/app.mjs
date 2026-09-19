@@ -61,7 +61,7 @@ export function resolveApp(nameOrCrate) {
   let packages;
   const cargoPackage = kind => {
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', ...(manifest.game ? [] : ['--no-deps', '--offline']), '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', ...(manifest.game ? [] : ['--no-deps']), '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }

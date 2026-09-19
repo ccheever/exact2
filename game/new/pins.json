@@ -3,5 +3,6 @@
   "saves": {},
   "hosts": [],
   "generated": "bun game/prove.mjs small-game --repin",
-  "at": "unverified"
+  "at": "unverified",
+  "help": "First baseline: bun game/prove.mjs small-game; changed golden: add --repin. Empty pins fail ordinary proofs."
 }

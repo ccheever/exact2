@@ -2,7 +2,9 @@
 
 - To see the game: `bun game/dev.mjs beacons` (commands run from the repository root).
 - To change it: edit `game/games/beacons/logic/src/lib.rs` or `game/games/beacons/app.contract`; the dev page reloads.
-- To verify gameplay: `bun game/games/beacons/proof.mjs linux`.
+- To verify gameplay and HUD: `bun game/games/beacons/proof.mjs` (GPU-less Linux).
+- To fill a first baseline: `bun game/prove.mjs beacons` (all modes, Linux and web).
+- To compare hosts: `bun game/prove.mjs beacons --hosts linux,web --compare-saves`.
 - To verify pixels: `bun game/games/beacons/proof.mjs web`.
 - To drive the simulator: `env -u SDKROOT DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer EXACT_UPDATE_TRUST=development EXACT_IDENTITY=- bun game/games/beacons/proof.mjs ios`.
 - To check save/setup determinism: `bun game/games/beacons/proof.mjs linux --paranoid`.
@@ -98,6 +100,13 @@ and global positions, including parent chains (XZ ignores height). A missing ori
   ascending index order, so a world loaded from a save replays exactly as the one
   that wrote it.
 
+Warm E8 Beacons whole-command measurements: **0.512 s** for
+`bun game/games/beacons/proof.mjs`, **4.327 s** for its `web` variant.
+A generated template under `game/games/` measured **0.306 s** Linux and **2.930 s**
+web (warm compiler/artifact cache). Web resets a document in the same Chrome carrier for the repeated script; the
+continuation assertion closes that carrier and launches a fresh process. Build
+and packaging reuse the content/artifact receipt.
+
 ## Proof pins
 
 Each game's `pins.json` is the authority for simulation tick and continuation-save goldens. Algorithm constants and synthetic hash-format fixtures are outside this claim. Its proof calls `pin(tick, state)`
@@ -109,9 +118,14 @@ and web, refuses incomplete or disagreeing tick/save observations, then rewrites
 only exercised hosts, also named in `generated`. A missing requested Chrome carrier
 refuses; Linux-only repinning requires explicit `--hosts linux`. `CHROME` selects the browser,
 which runs headless. `at` is HEAD, not a claim that the working tree was clean.
-New games start with empty pins until that command succeeds. Successful assertions
-still exit zero, but the proof and multi-host summary report `UNVERIFIED` until the
-complete saved tick and continuation-save baselines match. Their `status` field is
+With empty pins, `bun game/prove.mjs <name|path>` establishes the first baseline
+through that same Linux/web agreement. Once pins exist, it defaults to one headless
+Linux proof, including the Contract HUD. A single-host run builds only if its own
+receipt is stale; it needs no separate build-only pass. `--hosts` selects hosts,
+and `--compare-saves` defaults to Linux plus web. From the game's directory use
+`bun /path/to/exact2/game/prove.mjs .`.
+An ordinary proof exits nonzero and reports `UNVERIFIED` until the complete saved
+tick and continuation-save baselines match. The summary's `status` field is
 `PASS`, `UNVERIFIED` or `FAIL`; build/capture-only runs and repin collection also
 remain `UNVERIFIED` because they do not check the full saved baseline. Screenshots, receipts,
 transcripts and saves belong under ignored `artifacts/`; only README-cited evidence
@@ -200,8 +214,7 @@ bun game/bench/size.mjs
 ```
 
 Use a path to choose the game's directory: `bun game/new.mjs ./my-game`.
-`bun game/dev.mjs ./my-game`, `bun my-game/proof.mjs linux`
-and `bun game/prove.mjs ./my-game --compare-saves` use the same Exact2 hosts and
+`bun game/dev.mjs ./my-game` and `bun game/prove.mjs ./my-game` use the same Exact2 hosts and
 driver. A bare name creates `game/games/<name>`. The bake puts the generated
 workspace, lockfile and hosts in that game's `.shells/`, inheriting dependencies
 and profiles from `game/Cargo.toml`; build output uses the game's `target/`.
@@ -209,8 +222,9 @@ From an empty game directory, run `bun /path/to/exact2/game/new.mjs .`.
 Generation only writes inside that game: it never normalizes another game or
 updates `game/Cargo.lock`. `resolveApp` selects `<game>/.shells/Cargo.toml` and
 locates the four adapters through Cargo metadata there. No authored nested
-workspace is needed. Its first build has a cold cache. Pin generation with `--repin` still requires a
-Git checkout for provenance. The cold starter passes Linux and web; Beacons uses this ordinary path on all
+workspace is needed. Its first build has a cold cache. Updating existing pins with
+`--repin` requires a Git checkout for provenance; an initial external baseline
+without Git is labeled as such. The cold starter passes Linux and web; Beacons uses this ordinary path on all
 four hosts. See the [R11 receipt](diaries/002-ergonomics.md#r11-review-fixes-and-app-owned-starter).
 
 From `game/`, use `cargo test --workspace --no-fail-fast`,

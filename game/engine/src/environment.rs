@@ -48,6 +48,18 @@ pub struct Fog {
     /// Exponential height falloff per metre.
     pub height_falloff: f32,
 }
+impl Fog {
+    /// Exponential extinction per metre and height falloff, not near/far planes.
+    pub fn new(density: f32, height_falloff: f32) -> Self {
+        assert!(density.is_finite() && density >= 0.0);
+        assert!(height_falloff.is_finite() && height_falloff >= 0.0);
+        Self {
+            color: None,
+            density,
+            height_falloff,
+        }
+    }
+}
 impl Default for Fog {
     fn default() -> Self {
         Self {

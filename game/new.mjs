@@ -35,9 +35,8 @@ export function createGame(destination, directory = import.meta.dir, _run = unde
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const argument = local ? quote(destination) : name;
   const proof = local ? quote(resolve(destination, 'proof.mjs')) : `game/games/${name}/proof.mjs`;
-  return `Game owns its generated workspace, lockfile and hosts under .shells/.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun ${proof} linux
-  bun ${proof} web --screenshot-only
-  bun game/prove.mjs ${argument} --repin`;
+  return `Game owns its generated workspace, lockfile and hosts under .shells/.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun game/prove.mjs ${argument}
+  bun ${proof} web`;
 }
 
 if (import.meta.main) console.log(createGame(process.argv[2], undefined, undefined, {assets:process.argv.includes("--assets")}));

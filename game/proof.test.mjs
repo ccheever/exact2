@@ -513,8 +513,10 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
   try {
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(pins));
     writeFileSync(resolve(app,'proof.mjs'),`
-      import {mkdirSync,writeFileSync} from 'node:fs';
+      import {appendFileSync,mkdirSync,writeFileSync} from 'node:fs';
+      if (import.meta.main) {
       const out=process.env.EXACT_PROOF_OUT, host=process.argv[2];
+      appendFileSync(${JSON.stringify(resolve(app,'calls.jsonl'))},JSON.stringify({host,build:process.argv.includes('--build-only'),mode:process.env.EXACT_GAME_PARANOID})+'\\n');
       mkdirSync(out,{recursive:true});
       const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web' && process.env.R8B_PASS_WEB!=='1');
       const status=failed?'FAIL':process.env.R8B_UNVERIFIED==='1'||process.env.R8B_UNVERIFIED_HOST===host||process.env.EXACT_PROOF_REPIN==='1'?'UNVERIFIED':'PASS';
@@ -522,21 +524,40 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
       process.exit(failed?1:0);
+      }
     `);
-    const run=async(args,extra={})=>{
-      const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),directory ? app : name,...args],{env:{...process.env,...extra},stdout:'pipe',stderr:'pipe'});
+    const run=async(args,extra={},current=false)=>{
+      writeFileSync(resolve(app,'calls.jsonl'),'');
+      const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),current ? '.' : directory ? app : name,...args],{cwd:current ? app : undefined,env:{...process.env,...extra},stdout:'pipe',stderr:'pipe'});
       const [code,stdout,stderr]=await Promise.all([p.exited,new Response(p.stdout).text(),new Response(p.stderr).text()]);
-      return {code,text:stdout+stderr};
+      const calls=readFileSync(resolve(app,'calls.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+      return {code,text:stdout+stderr,calls};
     };
     if (scenario.endsWith('report')) {
+    const ordinary=await run(['--report']);
+    expect(ordinary.code).toBe(0);
+    expect(ordinary.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
+    expect(ordinary.text).toContain('REPORT linux 0: no recorded stalls or refusals');
+    expect(JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
+    const repeated=await run(['--repeat','2']);
+    expect(repeated.code).toBe(0);
+    expect(repeated.calls).toEqual(Array(2).fill({host:'linux',build:false,mode:'0'}));
+    if (directory) {
+      const here=await run(['--report'],{},true);
+      expect(here.code).toBe(0);
+      expect(here.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
+    }
+    const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
+    // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
+    if (directory) expect(performance.now() - started).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
     const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
     expect(summary.status).toBe('FAIL');
     for (const status of ['UNVERIFIED','PASS']) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
-      expect(completed.code).toBe(0);
+      expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
       expect(JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8')).status).toBe(status);
@@ -544,8 +565,18 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
       expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     }
     if (scenario === 'report') {
+      const web=await run(['--hosts','web'],{R8B_PASS_WEB:'1'});
+      expect(web.code).toBe(0);
+      expect(web.calls).toEqual([{host:'web',build:false,mode:'0'}]);
+      const compared=await run(['--compare-saves'],{R8B_PASS_WEB:'1'});
+      expect(compared.code).toBe(0);
+      expect(compared.calls.length).toBe(4);
+      expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual(['linux','web']);
       const mixed=await run(['--hosts','linux,web','--compare-saves'],{R8B_PASS_WEB:'1',R8B_UNVERIFIED_HOST:'web'});
-      expect(mixed.code).toBe(0);
+      expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
+      expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
+      expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
+      expect(mixed.code).toBe(1);
       const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');
@@ -554,11 +585,25 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
+    expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux']);
     expect(allowed.code).toBe(0);
     const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
     expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
+    const empty={ticks:{},saves:{}};
+    writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
+    const firstRefused=await run([]);
+    expect(firstRefused.code).toBe(1);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
+    const first=await run([],{R8B_PASS_WEB:'1'});
+    expect(first.code).toBe(0);
+    expect(first.calls).toEqual([
+      ...['linux','web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
+      {host:'web',mode:'0',build:true},
+    ]);
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual(['linux','web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
 });

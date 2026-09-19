@@ -123,13 +123,13 @@ impl Writer for Encoder {
 pub struct Decoder<'a> {
     bytes: &'a [u8],
     pos: usize,
-    names: Vec<String>,
-    frames: Vec<Frame>,
+    names: Vec<&'a str>,
+    frames: Vec<Frame<'a>>,
     budget: Budget,
 }
-enum Frame {
+enum Frame<'a> {
     Seq(u64),
-    Struct(BTreeSet<String>),
+    Struct(BTreeSet<&'a str>),
     Variant,
     Option,
 }
@@ -194,32 +194,29 @@ impl<'a> Decoder<'a> {
         }
         Err(self.err("varint overflow"))
     }
-    fn text(&mut self) -> Result<String, DataError> {
+    fn text(&mut self) -> Result<&'a str, DataError> {
         let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
         if len > MAX_LOAD_STRING {
             return Err(self.err("string exceeds load limit"));
         }
         let b = self.take(len)?;
-        let s = std::str::from_utf8(b).map_err(|_| self.err("invalid UTF-8"))?;
-        self.budget.text(s)
+        std::str::from_utf8(b).map_err(|_| self.err("invalid UTF-8"))
     }
-    fn name(&mut self) -> Result<String, DataError> {
+    fn name(&mut self) -> Result<&'a str, DataError> {
         let n = self.var()?;
         if n == 0 {
             let s = self.text()?;
-            let interned = self.budget.text(&s)?;
             self.budget.reserve(&mut self.names)?;
-            self.names.push(interned);
+            self.names.push(s);
             Ok(s)
         } else {
-            let s = self
-                .names
+            self.names
                 .get(usize::try_from(n - 1).map_err(|_| self.err("name overflow"))?)
-                .ok_or_else(|| self.err("unknown name index"))?;
-            self.budget.text(s)
+                .copied()
+                .ok_or_else(|| self.err("unknown name index"))
         }
     }
-    fn push(&mut self, f: Frame) -> Result<(), DataError> {
+    fn push(&mut self, f: Frame<'a>) -> Result<(), DataError> {
         if self.frames.len() >= 256 {
             return Err(self.err("nesting exceeds 256"));
         }
@@ -294,7 +291,8 @@ impl Reader for Decoder<'_> {
     }
     fn string(&mut self) -> Result<String, DataError> {
         self.tag(6, "expected a string")?;
-        self.text()
+        let text = self.text()?;
+        self.budget.text(text)
     }
     fn begin_seq(&mut self) -> Result<(), DataError> {
         self.tag(7, "expected a sequence")?;
@@ -335,12 +333,12 @@ impl Reader for Decoder<'_> {
                 let Some(Frame::Struct(seen)) = self.frames.last_mut() else {
                     unreachable!()
                 };
-                if seen.contains(&name) {
+                if seen.contains(name) {
                     return Err(DataError::new("duplicate field").at(name));
                 }
                 self.budget.claim(64)?;
-                seen.insert(self.budget.text(&name)?);
-                Ok(Some(name))
+                seen.insert(name);
+                Ok(Some(self.budget.text(name)?))
             }
             _ => Err(self.err("expected a field")),
         }
@@ -350,7 +348,7 @@ impl Reader for Decoder<'_> {
         self.var()?;
         let name = self.name()?;
         self.push(Frame::Variant)?;
-        Ok(name)
+        self.budget.text(name)
     }
     fn end_variant(&mut self) -> Result<(), DataError> {
         if matches!(self.frames.pop(), Some(Frame::Variant)) {

@@ -753,3 +753,75 @@ Beacons and Skinned proofs pass on web and headless Linux with unchanged tick/sa
 digests, including the model fixture's stale and restored attachments. All seven
 captured save files agree byte-for-byte across hosts. Evidence and paired artifacts:
 `/Users/ccheever/projects/.exact-game-verification/primitive-ownership/`.
+The full game workspace passes 565 tests (11 ignored), build, all-target Clippy
+and formatting; caps and boot pass. The cleanup regression covers a restored world
+with its last follower despawned. Browser descendant inventory was unavailable for
+Beacons; all recorded carrier children exited. No frame-rate change is claimed.
+
+### Ordinary proof uses one headless run — 2026-09-19
+
+With existing pins, `bun game/prove.mjs beacons` selects Linux and lets that proof
+check its own build receipt. It no longer starts a second build-only invocation
+or a browser. Explicit multi-host checks retain their serial bake phase;
+`--compare-saves`, first-baseline collection and `--repin` still default to Linux
+and web. The starter prints this ordinary command, and `prove.mjs .` works from
+the game directory. These are routing changes, not reduced gameplay assertions.
+
+The 55 harness tests cover default, repeat, explicit web, cross-host comparison,
+external/current-directory entrypoints, failures and all-mode initial pinning.
+Three actual default Beacons runs pass with the existing tick/save observations
+and all recorded carrier children exited. All three refreshed stale build receipts
+as the shared tree changed (5.74, 259.82 and 12.62 s command wall time); no warm-loop
+improvement is claimed. The long run was sampled inside Cargo's build-script output
+wait. Evidence: `/Users/ccheever/projects/.exact-game-verification/proof-default/`.
+
+### Binary decoding borrows internal names — 2026-09-19
+
+The decoder's name table and per-record duplicate guard borrow validated UTF-8
+from the input. Only names returned through `Reader` allocate a string. The
+reader API, encoder and save format are unchanged; no new option or dependency.
+
+An isolated source snapshot differs only in `data/bin.rs`. Three alternating
+native pairs, each with seven timed batches and allocation counting disabled
+during timing, measure:
+
+| Decode | Allocations before → after | Requested bytes before → after | Time reduction |
+|---|---:|---:|---:|
+| 256 five-field rows | 3,087 → 1,802 | 127,538 → 96,690 | 16–25% |
+| 4,096 five-field rows | 49,171 → 28,686 | 2,042,954 → 1,551,306 | 19–21% |
+| Restore a 1,024-entity world | 32,854 → 19,507 | 1,746,030 → 1,205,355 | 22–27% |
+
+World-load medians are 0.824–0.876 → 0.639–0.658 ms. Every pair preserves
+encoded bytes and hashes. These are native decode/restore measurements, not frame
+rates or end-to-end proof latency. The standalone probe grows 64 executable bytes;
+no shipped module size reduction is claimed. Regression coverage checks duplicate
+literal names at different input offsets, nested skipped names and their later
+reuse. Evidence: `/Users/ccheever/projects/.exact-game-verification/codec-names/`.
+
+Beacons and Skinned proofs pass on web and headless Linux with their existing
+pins. All seven captured saves match across hosts, including fresh-process
+continuation and stale/restored model attachments. All recorded carrier children
+exited; browser descendant audits were unavailable on this run.
+The full game workspace passes 566 tests (11 ignored), build, all-target Clippy
+and formatting; caps and boot pass.
+
+### Shared record traversal rejected — 2026-09-19
+
+Three derive candidates used the same normal Beacons web recipe and isolated
+native decode probe, with three alternating pairs of seven timed batches each:
+
+| Candidate | Raw bytes removed | 4,096 mixed Mesh values: decode slowdown |
+|---|---:|---:|
+| Shared runtime record loop with a field callback | 17,956 | 6–23% |
+| One field loop per enum, dispatching by its active variant | 15,129 | 7–11% |
+| Error context shared after each field match | 9,346 | 2–8% |
+
+All preserve probe save bytes and allocation counts. **All are reverted**: their
+smaller code comes with observed decode costs. The first also slows 256-row
+decoding by 6–15%. These are native decode timings, not FPS; the three-candidate
+loop is closed. The baseline is 746,976 raw / 320,274 gzip bytes. Further size work
+should remove unnecessary linked ownership/execution, with these traversal shapes
+left alone. Evidence: `/Users/ccheever/projects/.exact-game-verification/shared-record-read/`.
+The rebuilt restored artifact matches the baseline byte-for-byte; 34 focused
+data/save tests, caps and boot pass. Restoration explicitly refreshed source
+timestamps after the first check caught Cargo reusing an experimental artifact.

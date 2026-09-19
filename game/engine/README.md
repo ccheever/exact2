@@ -24,6 +24,8 @@
 - Saves are limited to 16 Mi entity slots, 64 MiB per string, and 2 GiB of input
   and accounted decoded allocations; violations return `DataError`. Custom `Data`
   readers must account their allocations through `Reader::claim` too.
+  The binary decoder borrows internal field/variant names from its input; values
+  returned through `Reader` remain owned, with the same allocation accounting.
 
 The [small example](../README.md#the-programming-model) is this crate's
 runnable doc-test. Only rustdoc includes the guide; editing it does not rebuild

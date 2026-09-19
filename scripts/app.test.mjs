@@ -135,7 +135,9 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and ret
 }, 180000);
 
 async function fixture(body) {
-  const root = mkdtempSync(resolve(tmpdir(), 'shell-repair-'));
+  const scratch = resolve(import.meta.dir, '../target');
+  mkdirSync(scratch, {recursive:true});
+  const root = mkdtempSync(resolve(scratch, 'shell-repair-'));
   const previous = process.env.EXACT_APP_DIR;
   const write = (path, bytes) => { mkdirSync(dirname(resolve(root, path)), {recursive:true}); writeFileSync(resolve(root, path), bytes); };
   const run = (cmd, args) => {
@@ -161,9 +163,9 @@ async function fixture(body) {
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
-    write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","games/*/logic",".shells/*","ordinary/*"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
+    write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","games/*/logic","ordinary/*"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
-    write('game/.shells/.gitignore', '*\n!.gitignore\n');
+    write('game/games/.gitignore', '*/.shells/\n');
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
     const dir = game('foo'); process.env.EXACT_APP_DIR = dir;
@@ -207,7 +209,7 @@ test('shell identity survives a renamed logic crate and removes old packages', (
   const after = app();
   assert.equal(after.cargoPackage('gpu').manifest_path, before);
   assert.equal(after.name, 'renamed');
-  const metadata = JSON.parse(run('cargo',['metadata','--manifest-path','game/Cargo.toml','--no-deps','--offline','--format-version','1']));
+  const metadata = JSON.parse(run('cargo',['metadata','--manifest-path','game/games/foo/.shells/Cargo.toml','--no-deps','--offline','--format-version','1']));
   assert.ok(!metadata.packages.some(p=>p.name==='foo-gpu'));
 }));
 
@@ -265,6 +267,7 @@ test('build graph refuses a requested GPU surface that Cargo cannot find', () =>
 test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run}) => {
   const resolved = app();
   resolved.cargoPackage('gpu');
+  run('cargo',['generate-lockfile','--offline','--manifest-path','game/games/foo/.shells/Cargo.toml']);
   run('cargo',['generate-lockfile','--offline']);
   run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
   run('git',['init','-q']); run('git',['add','.']);

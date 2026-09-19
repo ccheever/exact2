@@ -548,6 +548,17 @@ impl World {
             .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
             .map(|(entity, _, _)| entity)
     }
+    /// Mutably borrow the closest matching component in an inclusive XZ radius.
+    /// Selection uses nearest_xz_where's global positions and entity-index ties.
+    pub fn nearest_mut<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+        predicate: impl FnMut(&C) -> bool,
+    ) -> Option<RefMut<'_, C>> {
+        let entity = self.nearest_xz_where::<C>(origin, radius, predicate)?;
+        self.get_mut::<C>(entity)
+    }
     /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances and returned poses use global transforms; missing origins yield no rows.
     /// Poses are copied, so neither component storage stays borrowed.
@@ -1013,3 +1024,39 @@ pub(crate) use inspect::{Observation, ObservationState};
 
 mod save;
 use save::Free;
+
+#[cfg(test)]
+mod nearest_mut_tests {
+    use super::*;
+    use crate::Transform;
+    #[derive(Default, crate::Component)]
+    struct Beacon {
+        lit: bool,
+    }
+
+    #[test]
+    fn nearest_mut_selects_filters_and_releases_its_guard() {
+        let mut w = World::new(120, 7);
+        w.spawn_named("player", Transform::default());
+        let first = w.spawn((Transform::at(1.5, 10.0, 0.0), Beacon::default()));
+        let second = w.spawn((Transform::at(-1.5, 0.0, 0.0), Beacon::default()));
+        assert!(w.nearest_mut::<Beacon>("missing", 1.5, |_| true).is_none());
+        assert!(w.nearest_mut::<Beacon>("player", 1.49, |_| true).is_none());
+        if let Some(mut beacon) = w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            beacon.lit = true;
+        }
+        assert!(w.get::<Beacon>(first).unwrap().lit);
+        assert!(!w.get::<Beacon>(second).unwrap().lit);
+        assert_eq!(
+            w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit),
+            Some(second)
+        );
+        w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit)
+            .unwrap()
+            .lit = true;
+        assert!(w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit).is_none());
+        let saved = w.save();
+        w.load(&saved).unwrap();
+        assert!(w.get::<Beacon>(first).unwrap().lit);
+    }
+}

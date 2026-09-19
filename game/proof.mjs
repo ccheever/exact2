@@ -204,7 +204,7 @@ export async function paranoidRuns(run, restore = async () => 0) {
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
-  const host = process.argv[2] ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts'));
+  const host = process.argv.slice(2).find(arg => !arg.startsWith('--')) ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts'));
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
   const dist = resolve(app, 'dist');
@@ -277,8 +277,14 @@ export async function proof(meta, script) {
     }).finally(() => { inventoryPending = null; });
   };
   const monitor = setInterval(sample, 100);
+  let reusableWeb, reusableOptions;
   const open = async (options = {}) => {
-    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, ...options,
+    const signature = JSON.stringify(options);
+    if ((options.fresh || options.world || options.plan || signature !== reusableOptions) && reusableWeb) { await reusableWeb.close(); reusableWeb = null; }
+    const reuse = host === 'web' && !options.world && !options.plan ? reusableWeb : null;
+    reusableWeb = null;
+    if (reuse) say('CARRIER reused web process; fresh document');
+    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, reuse, ...options,
       env:{EXACT_GAME_PARANOID:process.env.EXACT_GAME_PARANOID ?? '0', ...options.env}});
     sample();
     let closed = false;
@@ -299,7 +305,11 @@ export async function proof(meta, script) {
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
         }
         sample();
-      } finally { await raw.close(); closed = true; }
+      } finally {
+        if (host === 'web' && !options.fresh && !options.world && !options.plan && !reusableWeb) { reusableWeb = raw.carrier; reusableOptions = signature; }
+        else await raw.close();
+        closed = true;
+      }
     } };
     sessions.add({close});
     const id = sessions.size;
@@ -348,12 +358,13 @@ export async function proof(meta, script) {
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});
       if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
-        for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section]))
+        for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
   } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
+    if (reusableWeb) await reusableWeb.close();
     closeFilesystemReader(); // The static server's resident reader is this process's child.
     await inventoryPending;
     let remaining = children.filter(child => child.exitCode === null && child.signalCode === null)
@@ -393,9 +404,9 @@ export async function proof(meta, script) {
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'UNVERIFIED' && !collecting && !partial)
-      say(`No complete tick/save baseline was checked. Generate it with bun game/prove.mjs '${app.replaceAll("'", "'\\''")}' --repin`);
+      say(`UNVERIFIED: no pins — run bun game/prove.mjs '${app.replaceAll("'", "'\\''")}' --repin`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
-  process.exit(failures.length ? 1 : 0);
+  process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
 }

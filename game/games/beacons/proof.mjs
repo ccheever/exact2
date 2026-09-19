@@ -78,8 +78,8 @@ await proof(import.meta, async ({open, check, equal, out, host, pin, pinSave, sa
     }
     await s.close();
   }
-  say('Original processes closed before fresh restore.');
-  const restored = await open({world:checkpoint});
+  const restored = await open({fresh:true, world:checkpoint});
+  say('Original carrier closed before fresh restore.');
   await restored.tap('play');
   check('fresh process restores full mid-jump world', equal(checkpointState,await snapshot(restored)));
   check('restore explicitly acknowledged', (await restored.state()).world[0].restored === true);

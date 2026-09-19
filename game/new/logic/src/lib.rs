@@ -93,16 +93,14 @@ impl Game for SmallGame {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
-        let nearest = w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit);
         if input.pressed("light") {
-            if let Some(e) = nearest {
-                let mut beacon = w.get_mut::<Beacon>(e).unwrap();
+            if let Some(mut beacon) = w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit) {
                 beacon.lit = true;
                 beacon.glow.set_target(w.tick_end(), 1.0);
             }
         }
-        let near = nearest
-            .filter(|&e| !w.get::<Beacon>(e).unwrap().lit)
+        let near = w
+            .nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit)
             .and_then(|e| w.name(e))
             .unwrap_or("")
             .to_owned();

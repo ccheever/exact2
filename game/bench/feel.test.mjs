@@ -188,12 +188,23 @@ test('CLI accepts --game, --no-build and --hz 120 with explicit adapter paramete
 });
 
 test('--no-build reads existing 60 and 120 Hz bakes without running the proof build gate', async () => {
-  for (const hz of [60, 120]) {
-    const adapter = await prepareExact(cli(['exact', '--no-build', '--hz', String(hz)]));
-    expect(adapter.hz).toBe(hz);
-    expect(adapter.build).toMatchObject({ source: '--no-build', freshness_checked: false });
-    expect(adapter.build.artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(adapter.root).toEndWith(hz === 60 ? '/beacons/dist' : '/beacons/target/feel120');
+  const dir = mkdtempSync(join(tmpdir(), 'feel-bakes-'));
+  const previous = process.env.FEEL_EXACT_DIST;
+  try {
+    // No developer-local bake is required: these are the adapter's three inputs.
+    for (const name of ['index.html', 'exact.json', 'gpu_bg.wasm']) writeFileSync(join(dir, name), 'fixture');
+    process.env.FEEL_EXACT_DIST = dir;
+    for (const hz of [60, 120]) {
+      const adapter = await prepareExact(cli(['exact', '--no-build', '--hz', String(hz)]));
+      expect(adapter.hz).toBe(hz);
+      expect(adapter.build).toMatchObject({ source: '--no-build', freshness_checked: false });
+      expect(adapter.build.artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(adapter.root).toBe(dir);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.FEEL_EXACT_DIST;
+    else process.env.FEEL_EXACT_DIST = previous;
+    rmSync(dir, {recursive:true, force:true});
   }
 });
 
