@@ -7785,7 +7785,13 @@ Each callback median is over eight per-timer aggregates of82 calls, not656
 individual measurements. Loaded revisions8→16 match. Recovery has7→8 timer
 calls; idle/loaded/recovery whole-turn populations are212/130/49 versus
 243/55/153. Those different loop populations are not equal-work frame rates.
-The control's three recovery drain events remain outside its fixed prefix.
+A later reconstruction of the same parent/child spans finds a FrameBuild in
+only5/8 loaded timer turns for the control versus7/8 for the candidate; all8
+silent timer turns contain a frame in both arms. The loaded whole-turn medians
+therefore also mix different in-turn painting work. An absent frame in a timer
+turn does not mean eventual painting is missing: the installed-picture counts
+above remain unchanged. The control's three recovery drain events remain outside
+its fixed prefix.
 All-phase whole-turn maxima are13.578/15.448/13.016 versus
 14.974/17.764/12.174ms. The silent observer median is8.005→8.892ms and paint
 median3.836→3.953ms. Instrumentation remains inside whole-turn costs; its
@@ -7804,3 +7810,49 @@ Frozen build/runtime evidence is in the private ink-pair checkout under
 `target/messages-current-integrated-{build,control-runtime,candidate-runtime}-v1`;
 lead raw reconstruction and equality checks are in MAIN
 `target/integrated-text-cache-evaluation`. The earlier archives remain intact.
+
+
+### 8.143 Linux observer hashing costs a substantial part of a frame interval, 2026-09-19
+
+A separate optimized primitive probe measures the exact13-line RGB batching
+helper from observer`17537a6f`, using the unchanged§8.142 candidate's final
+1024x768 RGB capture. Its2,359,296 bytes have SHA-256`e080ceb8`; opaque RGBA
+reconstruction happens before sampling. Each of24 alternating-order pairs
+hashes both that contiguous RGB buffer and the reconstructed RGBA through the
+original extraction/helper. All48 results equal the saved full digest.
+Initialization, updates and finalization are timed; input construction, digest
+comparison and output formatting are outside the samples. No application or
+GUI runs, no workload is reduced and no production source changes.
+
+| Standalone wall time,24 samples each | Minimum | Median | Maximum |
+|---|---:|---:|---:|
+| Exact RGB extraction plus SHA-256, ms |3.927266|3.958974|4.172725|
+| Contiguous RGB SHA-256, ms |3.709098|3.726827|3.783265|
+
+The actual AArch64 Linux ELF`3d7092dd` is freshly compiled with the app's opt3,
+thin LTO, one codegen unit and panic-abort release settings, debug0 and no
+incremental compilation. Actual sha2`0.10.9` features are default/std, without
+asm; its captured dispatcher selects the software backend on AArch64 despite
+the VM detecting the SHA2 hardware feature. This identifies an available
+investigation, not a measured hardware-backend benefit. All10 dependency
+archives match the repository lock checksums and their actual extracted source
+members; compilation uses the existing offline cache, with no new dependency.
+
+The original prebuild wrapper incorrectly expected a vendor checksum file in
+Cargo's registry cache; v1 stops before any compilation or probe. V2 preserves
+that failure and checks the cached archives directly. Its single build exits0
+in1.556s and its single probe exits0, without retry or cleanup signals.
+The fixed120s/30s guards and disk floor remain intact; owned process/group
+absence and Cargo-lock release are recorded separately.
+
+The primitive's roughly4ms median supports reducing recorder overhead before
+another whole-application comparison. It is not a CPU profile, a full observer
+measurement, an application gain or a quantity to subtract from old timings.
+The existing silent timer turns contain observer medians8.005/8.892ms; nested
+journal work accounts for only0.013521/0.015771ms at the median. Sampling,
+geometry witnesses and other recorder work remain in the observer interval,
+and medians are not additive. No uninstrumented or physical120Hz result follows.
+The private ink-pair checkout retains`target/observer-rgb-cost-v1` and`-v2`;
+MAIN`target/observer-cost-investigation` holds the independent48-sample arithmetic
+and the existing-span reconstruction, including§8.142's5/8 versus7/8 loaded
+painting qualification. Earlier captures and timings remain unchanged.
