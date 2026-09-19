@@ -6100,7 +6100,7 @@ and batch32 controls, followed by four real+40 wheel inputs while paused at100
 rows. It exits1 during that first setup batch. Independently reconstructed raw
 records show frame5/input11→frame7/input23, scroll0→160 and an unchanged
 `[0,211,1024,471]` transcript rectangle. The picture-state comparison differs
-only in layout epoch5→6. The reader's cross-picture equality guard rejects this
+only in kernel commit epoch5→6. The reader's cross-picture equality guard rejects this
 as changed geometry/state; neither a production defect nor a weakened identity
 rule follows from that rejection.
 
@@ -6118,3 +6118,57 @@ manifest51bf3464. The original prelaunch failure remains under
 `target/messages-linux-vkms-tail-runtime-v5/`. Next work is a source-only
 investigation of cross-picture setup qualification while preserving each
 picture's exact paint/ACK/current-state guards; no further runtime is selected.
+
+### 8.107 Setup epoch correction advances, then a newer anchor stops the final attempt, 2026-09-18
+
+The setup reader now distinguishes the kernel's global commit epoch from the
+History revision. Collection realization can change kernel nodes during a
+wheel without changing message data. Only comparisons between setup pictures
+permit a nondecreasing positive epoch; all other sampled identity/workload keys,
+incarnation, paused full/windowed100-or10000/batch32 state and target geometry
+remain qualified. Intermediate input/timer/snapshot states cannot change and
+then hide a reset or data mutation. Each picture's own paint/ACK epoch equality,
+latest current coordinates, closed turn, final fence, silent prefix and scored
+painted-History rules remain unchanged.
+
+Replaying the actual91-event failure produces one intended old-reader failure
+and three passing controls. The isolated candidate passes11 focused tests,
+including stale ACK, dirty C, unacknowledged picture, incomplete timing turn,
+geometry, data and incarnation controls. The batch mark is reconstructed from
+the saved initial-mask boundary and exact driver fields; the original driver
+did not save the refused batch. This is reader evidence, not a retroactive PASS
+for §8.106. Only acceptance.py changes behavior; the other four readers, native
+binary, recorder, fixed capacities and timing limits stay identical. The new
+reader adds bounded prefix scanning, whose runtime overhead is not isolated.
+
+One final third command in this attempt sequence uses the qualified nonroot
+graphics route and ELF c4ecfff1. It exits1 after2.152s during paused100-row setup.
+The epoch correction accepts51 four-wheel batches,204 notches, reaching
+scroll8160. Before the next batch, the driver's cached frame74 is superseded by
+an independently acknowledged frame75, so its existing exact frame-ID guard
+refuses `setup anchor superseded`. No further input batch is sent.
+
+The last accepted batch closes at seq1916. Paused timer1917 changes the clock
+and marks the state dirty; picture75 then submits and ACKs clean before turn1924
+closes. Input623, epoch89, incarnation, sampled workload, scroll8160 and transcript
+`[0,211,1024,471]` remain equal between pictures74/75. Only sampled clock changes
+1501.568→1752.265ms. Their recorded CPU-pixel hashes also match; no RGB capture
+or independent pixel oracle ran. The trace establishes why the reader stopped,
+not a production correctness defect or a successful performance baseline.
+
+The preserved setup journal has1,924 records,370 turns,5,340 spans,75 complete
+picture chains and seven timers. Recorder failures are zero and the largest
+turn has59 of256 slots. No budget, deadline or disk-floor refusal occurs. No
+tail checkpoint,10k transition, full changed-suffix workload, silent interval
+or scored phase completes. Native exit-15 follows owned failure-cleanup SIGTERM;
+all six recorded Mac/guest PIDs and groups retire, and port5941 has no entries.
+The archive at `target/messages-linux-vkms-tail-runtime-v5-setpriv-epoch-v1/`
+has34 files, manifest9ed40e2b and report69debf03.
+
+The three-command attempt sequence is stopped; no fourth run, wider limit or
+easier workload is selected. Source-only follow-up examines unnecessary repaint
+after a provably unchanged timer while preserving effects and independent
+invalidations. Separately, the complete Messages viewport worker path still
+needs faithful collection, decoration and action ownership; a text-only stand-in
+would not satisfy this workload. Neither investigation establishes a speedup,
+physical120Hz or a completed Linux baseline.
