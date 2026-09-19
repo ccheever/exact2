@@ -34,6 +34,14 @@ fn indicator(base: f64, caught: f64, progress: f64) -> f64 {
 
 impl<D: DataSource> Presenter<D> {
     pub(super) fn swipe_candidate(&self, hit: NodeKey) -> Option<NodeKey> {
+        if self
+            .host
+            .kernel()
+            .node_by_key(hit)
+            .is_some_and(|n| self.brush.region_blocks_action(n.id))
+        {
+            return self.retained_swipe_candidate(hit);
+        }
         if !self.input_live(hit) {
             return None;
         }
@@ -149,7 +157,11 @@ impl<D: DataSource> Presenter<D> {
         end: HoldEnd,
         now_ms: f64,
     ) -> Result<(), String> {
-        let mut error = self.host.hold_end(held.primary.token, end, now_ms).err();
+        let ended = self.host.hold_end(held.primary.token, end, now_ms);
+        if matches!(ended, Ok(true)) {
+            self.retained_motion_returned(held.primary.token);
+        }
+        let mut error = ended.err();
         let HeldKind::Swipe { companions } = &held.kind else {
             unreachable!()
         };

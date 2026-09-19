@@ -177,6 +177,7 @@ pub struct Kernel {
     incarnation: u64,
     receipts: VecDeque<CommitReceipt>,
     region: Option<crate::region::RegionState>,
+    region_leases: crate::region::RegionLeases,
 }
 
 impl Kernel {
@@ -191,6 +192,7 @@ impl Kernel {
             incarnation: 1,
             receipts: VecDeque::new(),
             region: None,
+            region_leases: Default::default(),
         }
     }
 
@@ -279,18 +281,39 @@ impl Kernel {
         &mut self,
         binding: Option<crate::ContentRegion>,
     ) -> Result<bool, KernelError> {
+        self.set_content_region_profile(binding, crate::region::RegionProfile::PinnedOffers)
+    }
+
+    /// Explicit kernel count policy. SplitFacts callers must understand request
+    /// purpose and separately admit native bytes/external retained owners.
+    /// Existing registration keeps PinnedOffers64 and all its artifact semantics.
+    pub fn set_content_region_profile(
+        &mut self,
+        binding: Option<crate::ContentRegion>,
+        profile: crate::region::RegionProfile,
+    ) -> Result<bool, KernelError> {
         if binding.is_some() && self.layout.has_presented_height() {
             return Err(LayoutError::ContentRegion(
                 "clear the presented height before region registration",
             )
             .into());
         }
-        if self.region.as_ref().map(|r| r.binding) == binding {
+        if self.region.as_ref().map(|r| (r.binding, r.profile)) == binding.map(|b| (b, profile)) {
             return Ok(false);
+        }
+        if binding.is_some()
+            && profile == crate::region::RegionProfile::PinnedOffers
+            && self.region_leases.has_live()
+        {
+            return Err(
+                LayoutError::ContentRegion("split leases prevent profile downgrade").into(),
+            );
         }
         let replacing = self.region.is_some();
         let next = binding
-            .map(|b| crate::region::RegionState::new(&self.arena, b))
+            .map(|b| {
+                crate::region::RegionState::new(&self.arena, b, profile, self.region_leases.clone())
+            })
             .transpose()?;
         self.region = next;
         // The previous region cut its owner's ordinary child edge. Restore
@@ -352,7 +375,9 @@ impl Kernel {
         self.region.as_ref()?.pending.as_ref()
     }
 
-    /// Deliver an exact final answer and its retained source/shape owner.
+    /// Deliver an exact answer. Default/final-paint requests retain their
+    /// source/shape owner; explicit split measurements release the payload.
+    /// Final-paint metrics must exactly match the prior scalar fact.
     /// Stale/duplicate delivery returns false before metric validation. The host
     /// must budget opaque allocations; this API bounds their number, not heap.
     pub fn resolve_region_text(
@@ -682,6 +707,7 @@ impl Kernel {
             incarnation: self.incarnation,
             receipts: VecDeque::new(),
             region: None,
+            region_leases: Default::default(),
         }
     }
 }

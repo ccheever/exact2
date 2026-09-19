@@ -1,5 +1,24 @@
 import Foundation
 import CoreText
+import CryptoKit
+// Only live layouts own this preparation. It never crosses the worker queue or
+// attaches to Sendable source/metadata. Attributed and opaque typesetter storage
+// now live as long as their last layout; pixel/index budgets do not cover them.
+final class RegionPreparedSource {
+    let source: RegionTextSource
+    let sourceSHA256: String
+    let attributed: NSAttributedString
+    let typesetter: CTTypesetter
+    init(_ source: RegionTextSource) {
+        precondition(!Thread.isMainThread, "region preparation must be worker-owned")
+        self.source = source
+        // Diagnostic identity belongs to this live preparation, not UI capture
+        // or a width/history cache. Metadata retains only the immutable string.
+        sourceSHA256 = SHA256.hash(data: Data(source.text.utf8)).map { String(format: "%02x", $0) }.joined()
+        attributed = source.attributed()
+        typesetter = CTTypesetterCreateWithAttributedString(attributed)
+    }
+}
 // This record is deliberately NOT Sendable. CTLines and index survive all
 // viewport queries on one queue, then die there before metadata publication.
 final class RegionWorkerLayout {
@@ -7,14 +26,25 @@ final class RegionWorkerLayout {
     let lines: [CTLine]
     let baselines: [CGFloat]
     let metadata: RegionParagraph
-    private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph) {
+    let preparation: RegionPreparedSource
+    private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph,
+                 preparation: RegionPreparedSource) {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
+        self.preparation = preparation
     }
-    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true) -> RegionWorkerLayout {
+    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+                      preparation: RegionPreparedSource? = nil) -> RegionWorkerLayout {
+        shape(source, width: width, retainHits: retainHits, preparation: preparation, beforeMetadata: {})
+    }
+    static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
+                      preparation: RegionPreparedSource? = nil,
+                      beforeMetadata: () throws -> Void) rethrows -> RegionWorkerLayout {
         precondition(!Thread.isMainThread, "region shape must be worker-owned")
         let spec = source
-        let attributed = source.attributed()
-        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        let preparation = preparation ?? RegionPreparedSource(source)
+        precondition(preparation.source === source, "preparation belongs to this exact captured source")
+        let attributed = preparation.attributed
+        let typesetter = preparation.typesetter
         let length = source.utf16Count
         func extents(_ run: RegionTextRun) -> (CGFloat, CGFloat) {
             (run.font.above, run.font.below)
@@ -72,14 +102,12 @@ final class RegionWorkerLayout {
             }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
-                var offset = 0
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
                 for authored in spec.runs {
-                    let end = offset + (authored.text as NSString).length
-                    defer { offset = end }
-                    guard offset < range.location + range.length && end > range.location else { continue }
+                    guard authored.range.location < range.location + range.length &&
+                          NSMaxRange(authored.range) > range.location else { continue }
                     matched = true
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
@@ -121,10 +149,26 @@ final class RegionWorkerLayout {
         // An authored CSS line height fixes the line box, including fractions.
         // Keep intrinsic width and `normal` height measurement separate: changing
         // their rounding also changes wrapping and the established host parity.
-        let metadata = RegionParagraph(source: source, lines: lines, baselines: baselines,
+        // Check before metadata and at its coarse line boundaries. No partial
+        // metrics or layout binding escape if the authoritative owner changed.
+        try beforeMetadata()
+        let metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
+                                       lines: lines, baselines: baselines,
                                        width: ceil(maxWidth), height: explicit ? y : ceil(y),
-                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits)
-        return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [], metadata: metadata)
+                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
+                                       metadataCheckpoint: beforeMetadata)
+        return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],
+                                  metadata: metadata, preparation: preparation)
+    }
+
+    func exactIndex(at point: CGPoint, in bounds: CGRect) -> Int {
+        precondition(!Thread.isMainThread)
+        if point.y < bounds.minY { return 0 }
+        if point.y > bounds.maxY { return source.utf16Count }
+        guard let i = metadata.lineIndex(at: point.y - bounds.minY) else { return 0 }
+        let value = CTLineGetStringIndexForPosition(lines[i],CGPoint(
+            x: point.x - bounds.minX - metadata.lines[i].flushOffset,y: 0))
+        return value == kCFNotFound ? source.utf16Count : min(max(0,value),source.utf16Count)
     }
 
     static func minimumWidth(_ source: RegionTextSource) -> CGFloat {

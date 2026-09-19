@@ -1,0 +1,826 @@
+// Exact Live: one device-local creative workspace, ordinary Exact hosts.
+fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
+
+shape Theme
+  page: string
+  card: string
+  edge: string
+  ink: string
+  muted: string
+  wash: string
+  accent: string
+
+shape Photo
+  id: string
+  title: string
+  subtitle: string
+  asset: string
+  alt: string
+  tone: string
+  notes: string
+  rank: number
+
+shape ViewerState
+  viewerToken: number
+  photo: Photo
+  naturalWidth: number
+  naturalHeight: number
+
+shape GalleryState
+  mode: string
+  total: number
+  requested: number
+  page: number
+  pages: number
+  first: number
+  end: number
+  revision: number
+  selected: Photo
+  hasSelection: bool
+  viewerOpen: bool
+  viewerToken: number
+  hasPrevious: bool
+  hasNext: bool
+  reordering: bool
+  dragToken: number
+  liftedId: string
+  beforeId: string
+  previewLabel: string
+  notice: string
+  returnKind: string
+  returnId: string
+  canInsert: bool
+  canPagePrevious: bool
+  canPageNext: bool
+  viewer: list<ViewerState>
+
+shape Viewport
+  height: number
+  width: number
+shape Message
+  id: string
+  sender: string
+  body: string
+  outgoing: bool
+  meta: string
+shape History
+  rows: list<Message>
+  materialized: number
+  revision: number
+  changed: number
+  bodyBytes: number
+  earlier: string
+  later: string
+  hasEarlier: bool
+  hasLater: bool
+shape Run
+  id: string
+  text: string
+  weight: number
+  slant: string
+  mono: bool
+  href: string
+shape Cell
+  id: string
+  runs: list<Run>
+shape Block
+  id: string
+  kind: string
+  depth: number
+  marker: string
+  text: string
+  href: string
+  header: bool
+  runs: list<Run>
+  cells: list<Cell>
+shape Runbook
+  title: string
+  sourceBytes: number
+  blocks: list<Block>
+shape Wave
+  id: number
+  count: number
+  message: string
+shape Reply
+  wave: number
+  lane: number
+  ok: bool
+  message: string
+shape Control
+  message: string
+  received: number
+  issued: number
+  held: number
+
+component ExactLive
+  resource viewport = exactViewport() as shape Viewport
+  resource theme = theme() as shape Theme
+  resource initial = gallery() as shape GalleryState
+  mutation changed as shape GalleryState
+  derive gallery = match changed { case some(value) => value, case none => initial }
+  resource rows = galleryRows(gallery.revision, 0, true) as shape list<Photo>
+  state bookBytes = 0
+  resource book = runbook(bookBytes) as shape Runbook
+  state pane = "rundown"
+  state inspector = false
+  state crewSheet = false
+  state sheetPx = 360
+  state readingNarrow = false
+  state count = 0
+  state revision = 0
+  state batch = 32
+  state running = false
+  state draft = ""
+  state echo = ""
+  state replying = ""
+  state draftTooLong = false
+  resource history = history(count, revision, batch, echo, 0, true) as shape History
+  derive wide = viewport.width >= 900
+  state fixtureEnabled = false
+  mutation wave as shape Wave
+  mutation fixture as shape Control
+  derive waveId = match wave { case some(value) => value.id, case none => 0 }
+  derive waveCount = match wave { case some(value) => value.count, case none => 0 }
+  derive waveMessage = match wave { case some(value) => value.message, case none => "Desktop fixture not attached" }
+  derive fixtureMessage = match fixture { case some(value) => value.message, case none => "" }
+  derive active = waveId > 0 and not pending(wave)
+  resource r0 = completion(waveId, 0, waveCount, active) as shape Reply
+  resource r1 = completion(waveId, 1, waveCount, active) as shape Reply
+  resource r2 = completion(waveId, 2, waveCount, active) as shape Reply
+  resource r3 = completion(waveId, 3, waveCount, active) as shape Reply
+  resource r4 = completion(waveId, 4, waveCount, active) as shape Reply
+  resource r5 = completion(waveId, 5, waveCount, active) as shape Reply
+  resource r6 = completion(waveId, 6, waveCount, active) as shape Reply
+  resource r7 = completion(waveId, 7, waveCount, active) as shape Reply
+  resource r8 = completion(waveId, 8, waveCount, active) as shape Reply
+  resource r9 = completion(waveId, 9, waveCount, active) as shape Reply
+  resource r10 = completion(waveId, 10, waveCount, active) as shape Reply
+  resource r11 = completion(waveId, 11, waveCount, active) as shape Reply
+  resource r12 = completion(waveId, 12, waveCount, active) as shape Reply
+  resource r13 = completion(waveId, 13, waveCount, active) as shape Reply
+  resource r14 = completion(waveId, 14, waveCount, active) as shape Reply
+  resource r15 = completion(waveId, 15, waveCount, active) as shape Reply
+  resource r16 = completion(waveId, 16, waveCount, active) as shape Reply
+  resource r17 = completion(waveId, 17, waveCount, active) as shape Reply
+  resource r18 = completion(waveId, 18, waveCount, active) as shape Reply
+  resource r19 = completion(waveId, 19, waveCount, active) as shape Reply
+  resource r20 = completion(waveId, 20, waveCount, active) as shape Reply
+  resource r21 = completion(waveId, 21, waveCount, active) as shape Reply
+  resource r22 = completion(waveId, 22, waveCount, active) as shape Reply
+  resource r23 = completion(waveId, 23, waveCount, active) as shape Reply
+  resource r24 = completion(waveId, 24, waveCount, active) as shape Reply
+  resource r25 = completion(waveId, 25, waveCount, active) as shape Reply
+  resource r26 = completion(waveId, 26, waveCount, active) as shape Reply
+  resource r27 = completion(waveId, 27, waveCount, active) as shape Reply
+  resource r28 = completion(waveId, 28, waveCount, active) as shape Reply
+  resource r29 = completion(waveId, 29, waveCount, active) as shape Reply
+  resource r30 = completion(waveId, 30, waveCount, active) as shape Reply
+  resource r31 = completion(waveId, 31, waveCount, active) as shape Reply
+  resource r32 = completion(waveId, 32, waveCount, active) as shape Reply
+  resource r33 = completion(waveId, 33, waveCount, active) as shape Reply
+  resource r34 = completion(waveId, 34, waveCount, active) as shape Reply
+  resource r35 = completion(waveId, 35, waveCount, active) as shape Reply
+  resource r36 = completion(waveId, 36, waveCount, active) as shape Reply
+  resource r37 = completion(waveId, 37, waveCount, active) as shape Reply
+  resource r38 = completion(waveId, 38, waveCount, active) as shape Reply
+  resource r39 = completion(waveId, 39, waveCount, active) as shape Reply
+  resource r40 = completion(waveId, 40, waveCount, active) as shape Reply
+  resource r41 = completion(waveId, 41, waveCount, active) as shape Reply
+  resource r42 = completion(waveId, 42, waveCount, active) as shape Reply
+  resource r43 = completion(waveId, 43, waveCount, active) as shape Reply
+  resource r44 = completion(waveId, 44, waveCount, active) as shape Reply
+  resource r45 = completion(waveId, 45, waveCount, active) as shape Reply
+  resource r46 = completion(waveId, 46, waveCount, active) as shape Reply
+  resource r47 = completion(waveId, 47, waveCount, active) as shape Reply
+  resource r48 = completion(waveId, 48, waveCount, active) as shape Reply
+  resource r49 = completion(waveId, 49, waveCount, active) as shape Reply
+  resource r50 = completion(waveId, 50, waveCount, active) as shape Reply
+  resource r51 = completion(waveId, 51, waveCount, active) as shape Reply
+  resource r52 = completion(waveId, 52, waveCount, active) as shape Reply
+  resource r53 = completion(waveId, 53, waveCount, active) as shape Reply
+  resource r54 = completion(waveId, 54, waveCount, active) as shape Reply
+  resource r55 = completion(waveId, 55, waveCount, active) as shape Reply
+  resource r56 = completion(waveId, 56, waveCount, active) as shape Reply
+  resource r57 = completion(waveId, 57, waveCount, active) as shape Reply
+  resource r58 = completion(waveId, 58, waveCount, active) as shape Reply
+  resource r59 = completion(waveId, 59, waveCount, active) as shape Reply
+  resource r60 = completion(waveId, 60, waveCount, active) as shape Reply
+  resource r61 = completion(waveId, 61, waveCount, active) as shape Reply
+  resource r62 = completion(waveId, 62, waveCount, active) as shape Reply
+  resource r63 = completion(waveId, 63, waveCount, active) as shape Reply
+  resource r64 = completion(waveId, 64, waveCount, active) as shape Reply
+  resource r65 = completion(waveId, 65, waveCount, active) as shape Reply
+  resource r66 = completion(waveId, 66, waveCount, active) as shape Reply
+  resource r67 = completion(waveId, 67, waveCount, active) as shape Reply
+  resource r68 = completion(waveId, 68, waveCount, active) as shape Reply
+  resource r69 = completion(waveId, 69, waveCount, active) as shape Reply
+  resource r70 = completion(waveId, 70, waveCount, active) as shape Reply
+  resource r71 = completion(waveId, 71, waveCount, active) as shape Reply
+  resource r72 = completion(waveId, 72, waveCount, active) as shape Reply
+  resource r73 = completion(waveId, 73, waveCount, active) as shape Reply
+  resource r74 = completion(waveId, 74, waveCount, active) as shape Reply
+  resource r75 = completion(waveId, 75, waveCount, active) as shape Reply
+  resource r76 = completion(waveId, 76, waveCount, active) as shape Reply
+  resource r77 = completion(waveId, 77, waveCount, active) as shape Reply
+  resource r78 = completion(waveId, 78, waveCount, active) as shape Reply
+  resource r79 = completion(waveId, 79, waveCount, active) as shape Reply
+  resource r80 = completion(waveId, 80, waveCount, active) as shape Reply
+  resource r81 = completion(waveId, 81, waveCount, active) as shape Reply
+  resource r82 = completion(waveId, 82, waveCount, active) as shape Reply
+  resource r83 = completion(waveId, 83, waveCount, active) as shape Reply
+  resource r84 = completion(waveId, 84, waveCount, active) as shape Reply
+  resource r85 = completion(waveId, 85, waveCount, active) as shape Reply
+  resource r86 = completion(waveId, 86, waveCount, active) as shape Reply
+  resource r87 = completion(waveId, 87, waveCount, active) as shape Reply
+  resource r88 = completion(waveId, 88, waveCount, active) as shape Reply
+  resource r89 = completion(waveId, 89, waveCount, active) as shape Reply
+  resource r90 = completion(waveId, 90, waveCount, active) as shape Reply
+  resource r91 = completion(waveId, 91, waveCount, active) as shape Reply
+  resource r92 = completion(waveId, 92, waveCount, active) as shape Reply
+  resource r93 = completion(waveId, 93, waveCount, active) as shape Reply
+  resource r94 = completion(waveId, 94, waveCount, active) as shape Reply
+  resource r95 = completion(waveId, 95, waveCount, active) as shape Reply
+  resource r96 = completion(waveId, 96, waveCount, active) as shape Reply
+  resource r97 = completion(waveId, 97, waveCount, active) as shape Reply
+  resource r98 = completion(waveId, 98, waveCount, active) as shape Reply
+  resource r99 = completion(waveId, 99, waveCount, active) as shape Reply
+  resource r100 = completion(waveId, 100, waveCount, active) as shape Reply
+  resource r101 = completion(waveId, 101, waveCount, active) as shape Reply
+  resource r102 = completion(waveId, 102, waveCount, active) as shape Reply
+  resource r103 = completion(waveId, 103, waveCount, active) as shape Reply
+  resource r104 = completion(waveId, 104, waveCount, active) as shape Reply
+  resource r105 = completion(waveId, 105, waveCount, active) as shape Reply
+  resource r106 = completion(waveId, 106, waveCount, active) as shape Reply
+  resource r107 = completion(waveId, 107, waveCount, active) as shape Reply
+  resource r108 = completion(waveId, 108, waveCount, active) as shape Reply
+  resource r109 = completion(waveId, 109, waveCount, active) as shape Reply
+  resource r110 = completion(waveId, 110, waveCount, active) as shape Reply
+  resource r111 = completion(waveId, 111, waveCount, active) as shape Reply
+  resource r112 = completion(waveId, 112, waveCount, active) as shape Reply
+  resource r113 = completion(waveId, 113, waveCount, active) as shape Reply
+  resource r114 = completion(waveId, 114, waveCount, active) as shape Reply
+  resource r115 = completion(waveId, 115, waveCount, active) as shape Reply
+  resource r116 = completion(waveId, 116, waveCount, active) as shape Reply
+  resource r117 = completion(waveId, 117, waveCount, active) as shape Reply
+  resource r118 = completion(waveId, 118, waveCount, active) as shape Reply
+  resource r119 = completion(waveId, 119, waveCount, active) as shape Reply
+  resource r120 = completion(waveId, 120, waveCount, active) as shape Reply
+  resource r121 = completion(waveId, 121, waveCount, active) as shape Reply
+  resource r122 = completion(waveId, 122, waveCount, active) as shape Reply
+  resource r123 = completion(waveId, 123, waveCount, active) as shape Reply
+  resource r124 = completion(waveId, 124, waveCount, active) as shape Reply
+  resource r125 = completion(waveId, 125, waveCount, active) as shape Reply
+  resource r126 = completion(waveId, 126, waveCount, active) as shape Reply
+  resource r127 = completion(waveId, 127, waveCount, active) as shape Reply
+  derive pending0 = (pending(r0) ? 1 : 0) + (pending(r1) ? 1 : 0) + (pending(r2) ? 1 : 0) + (pending(r3) ? 1 : 0) + (pending(r4) ? 1 : 0) + (pending(r5) ? 1 : 0) + (pending(r6) ? 1 : 0) + (pending(r7) ? 1 : 0) + (pending(r8) ? 1 : 0) + (pending(r9) ? 1 : 0) + (pending(r10) ? 1 : 0) + (pending(r11) ? 1 : 0) + (pending(r12) ? 1 : 0) + (pending(r13) ? 1 : 0) + (pending(r14) ? 1 : 0) + (pending(r15) ? 1 : 0)
+  derive pending1 = (pending(r16) ? 1 : 0) + (pending(r17) ? 1 : 0) + (pending(r18) ? 1 : 0) + (pending(r19) ? 1 : 0) + (pending(r20) ? 1 : 0) + (pending(r21) ? 1 : 0) + (pending(r22) ? 1 : 0) + (pending(r23) ? 1 : 0) + (pending(r24) ? 1 : 0) + (pending(r25) ? 1 : 0) + (pending(r26) ? 1 : 0) + (pending(r27) ? 1 : 0) + (pending(r28) ? 1 : 0) + (pending(r29) ? 1 : 0) + (pending(r30) ? 1 : 0) + (pending(r31) ? 1 : 0)
+  derive pending2 = (pending(r32) ? 1 : 0) + (pending(r33) ? 1 : 0) + (pending(r34) ? 1 : 0) + (pending(r35) ? 1 : 0) + (pending(r36) ? 1 : 0) + (pending(r37) ? 1 : 0) + (pending(r38) ? 1 : 0) + (pending(r39) ? 1 : 0) + (pending(r40) ? 1 : 0) + (pending(r41) ? 1 : 0) + (pending(r42) ? 1 : 0) + (pending(r43) ? 1 : 0) + (pending(r44) ? 1 : 0) + (pending(r45) ? 1 : 0) + (pending(r46) ? 1 : 0) + (pending(r47) ? 1 : 0)
+  derive pending3 = (pending(r48) ? 1 : 0) + (pending(r49) ? 1 : 0) + (pending(r50) ? 1 : 0) + (pending(r51) ? 1 : 0) + (pending(r52) ? 1 : 0) + (pending(r53) ? 1 : 0) + (pending(r54) ? 1 : 0) + (pending(r55) ? 1 : 0) + (pending(r56) ? 1 : 0) + (pending(r57) ? 1 : 0) + (pending(r58) ? 1 : 0) + (pending(r59) ? 1 : 0) + (pending(r60) ? 1 : 0) + (pending(r61) ? 1 : 0) + (pending(r62) ? 1 : 0) + (pending(r63) ? 1 : 0)
+  derive pending4 = (pending(r64) ? 1 : 0) + (pending(r65) ? 1 : 0) + (pending(r66) ? 1 : 0) + (pending(r67) ? 1 : 0) + (pending(r68) ? 1 : 0) + (pending(r69) ? 1 : 0) + (pending(r70) ? 1 : 0) + (pending(r71) ? 1 : 0) + (pending(r72) ? 1 : 0) + (pending(r73) ? 1 : 0) + (pending(r74) ? 1 : 0) + (pending(r75) ? 1 : 0) + (pending(r76) ? 1 : 0) + (pending(r77) ? 1 : 0) + (pending(r78) ? 1 : 0) + (pending(r79) ? 1 : 0)
+  derive pending5 = (pending(r80) ? 1 : 0) + (pending(r81) ? 1 : 0) + (pending(r82) ? 1 : 0) + (pending(r83) ? 1 : 0) + (pending(r84) ? 1 : 0) + (pending(r85) ? 1 : 0) + (pending(r86) ? 1 : 0) + (pending(r87) ? 1 : 0) + (pending(r88) ? 1 : 0) + (pending(r89) ? 1 : 0) + (pending(r90) ? 1 : 0) + (pending(r91) ? 1 : 0) + (pending(r92) ? 1 : 0) + (pending(r93) ? 1 : 0) + (pending(r94) ? 1 : 0) + (pending(r95) ? 1 : 0)
+  derive pending6 = (pending(r96) ? 1 : 0) + (pending(r97) ? 1 : 0) + (pending(r98) ? 1 : 0) + (pending(r99) ? 1 : 0) + (pending(r100) ? 1 : 0) + (pending(r101) ? 1 : 0) + (pending(r102) ? 1 : 0) + (pending(r103) ? 1 : 0) + (pending(r104) ? 1 : 0) + (pending(r105) ? 1 : 0) + (pending(r106) ? 1 : 0) + (pending(r107) ? 1 : 0) + (pending(r108) ? 1 : 0) + (pending(r109) ? 1 : 0) + (pending(r110) ? 1 : 0) + (pending(r111) ? 1 : 0)
+  derive pending7 = (pending(r112) ? 1 : 0) + (pending(r113) ? 1 : 0) + (pending(r114) ? 1 : 0) + (pending(r115) ? 1 : 0) + (pending(r116) ? 1 : 0) + (pending(r117) ? 1 : 0) + (pending(r118) ? 1 : 0) + (pending(r119) ? 1 : 0) + (pending(r120) ? 1 : 0) + (pending(r121) ? 1 : 0) + (pending(r122) ? 1 : 0) + (pending(r123) ? 1 : 0) + (pending(r124) ? 1 : 0) + (pending(r125) ? 1 : 0) + (pending(r126) ? 1 : 0) + (pending(r127) ? 1 : 0)
+  derive pendingCount = pending0 + pending1 + pending2 + pending3 + pending4 + pending5 + pending6 + pending7
+  derive valid0 = (active and 0 < waveCount and r0.wave == waveId and r0.ok ? 1 : 0) + (active and 1 < waveCount and r1.wave == waveId and r1.ok ? 1 : 0) + (active and 2 < waveCount and r2.wave == waveId and r2.ok ? 1 : 0) + (active and 3 < waveCount and r3.wave == waveId and r3.ok ? 1 : 0) + (active and 4 < waveCount and r4.wave == waveId and r4.ok ? 1 : 0) + (active and 5 < waveCount and r5.wave == waveId and r5.ok ? 1 : 0) + (active and 6 < waveCount and r6.wave == waveId and r6.ok ? 1 : 0) + (active and 7 < waveCount and r7.wave == waveId and r7.ok ? 1 : 0) + (active and 8 < waveCount and r8.wave == waveId and r8.ok ? 1 : 0) + (active and 9 < waveCount and r9.wave == waveId and r9.ok ? 1 : 0) + (active and 10 < waveCount and r10.wave == waveId and r10.ok ? 1 : 0) + (active and 11 < waveCount and r11.wave == waveId and r11.ok ? 1 : 0) + (active and 12 < waveCount and r12.wave == waveId and r12.ok ? 1 : 0) + (active and 13 < waveCount and r13.wave == waveId and r13.ok ? 1 : 0) + (active and 14 < waveCount and r14.wave == waveId and r14.ok ? 1 : 0) + (active and 15 < waveCount and r15.wave == waveId and r15.ok ? 1 : 0)
+  derive valid1 = (active and 16 < waveCount and r16.wave == waveId and r16.ok ? 1 : 0) + (active and 17 < waveCount and r17.wave == waveId and r17.ok ? 1 : 0) + (active and 18 < waveCount and r18.wave == waveId and r18.ok ? 1 : 0) + (active and 19 < waveCount and r19.wave == waveId and r19.ok ? 1 : 0) + (active and 20 < waveCount and r20.wave == waveId and r20.ok ? 1 : 0) + (active and 21 < waveCount and r21.wave == waveId and r21.ok ? 1 : 0) + (active and 22 < waveCount and r22.wave == waveId and r22.ok ? 1 : 0) + (active and 23 < waveCount and r23.wave == waveId and r23.ok ? 1 : 0) + (active and 24 < waveCount and r24.wave == waveId and r24.ok ? 1 : 0) + (active and 25 < waveCount and r25.wave == waveId and r25.ok ? 1 : 0) + (active and 26 < waveCount and r26.wave == waveId and r26.ok ? 1 : 0) + (active and 27 < waveCount and r27.wave == waveId and r27.ok ? 1 : 0) + (active and 28 < waveCount and r28.wave == waveId and r28.ok ? 1 : 0) + (active and 29 < waveCount and r29.wave == waveId and r29.ok ? 1 : 0) + (active and 30 < waveCount and r30.wave == waveId and r30.ok ? 1 : 0) + (active and 31 < waveCount and r31.wave == waveId and r31.ok ? 1 : 0)
+  derive valid2 = (active and 32 < waveCount and r32.wave == waveId and r32.ok ? 1 : 0) + (active and 33 < waveCount and r33.wave == waveId and r33.ok ? 1 : 0) + (active and 34 < waveCount and r34.wave == waveId and r34.ok ? 1 : 0) + (active and 35 < waveCount and r35.wave == waveId and r35.ok ? 1 : 0) + (active and 36 < waveCount and r36.wave == waveId and r36.ok ? 1 : 0) + (active and 37 < waveCount and r37.wave == waveId and r37.ok ? 1 : 0) + (active and 38 < waveCount and r38.wave == waveId and r38.ok ? 1 : 0) + (active and 39 < waveCount and r39.wave == waveId and r39.ok ? 1 : 0) + (active and 40 < waveCount and r40.wave == waveId and r40.ok ? 1 : 0) + (active and 41 < waveCount and r41.wave == waveId and r41.ok ? 1 : 0) + (active and 42 < waveCount and r42.wave == waveId and r42.ok ? 1 : 0) + (active and 43 < waveCount and r43.wave == waveId and r43.ok ? 1 : 0) + (active and 44 < waveCount and r44.wave == waveId and r44.ok ? 1 : 0) + (active and 45 < waveCount and r45.wave == waveId and r45.ok ? 1 : 0) + (active and 46 < waveCount and r46.wave == waveId and r46.ok ? 1 : 0) + (active and 47 < waveCount and r47.wave == waveId and r47.ok ? 1 : 0)
+  derive valid3 = (active and 48 < waveCount and r48.wave == waveId and r48.ok ? 1 : 0) + (active and 49 < waveCount and r49.wave == waveId and r49.ok ? 1 : 0) + (active and 50 < waveCount and r50.wave == waveId and r50.ok ? 1 : 0) + (active and 51 < waveCount and r51.wave == waveId and r51.ok ? 1 : 0) + (active and 52 < waveCount and r52.wave == waveId and r52.ok ? 1 : 0) + (active and 53 < waveCount and r53.wave == waveId and r53.ok ? 1 : 0) + (active and 54 < waveCount and r54.wave == waveId and r54.ok ? 1 : 0) + (active and 55 < waveCount and r55.wave == waveId and r55.ok ? 1 : 0) + (active and 56 < waveCount and r56.wave == waveId and r56.ok ? 1 : 0) + (active and 57 < waveCount and r57.wave == waveId and r57.ok ? 1 : 0) + (active and 58 < waveCount and r58.wave == waveId and r58.ok ? 1 : 0) + (active and 59 < waveCount and r59.wave == waveId and r59.ok ? 1 : 0) + (active and 60 < waveCount and r60.wave == waveId and r60.ok ? 1 : 0) + (active and 61 < waveCount and r61.wave == waveId and r61.ok ? 1 : 0) + (active and 62 < waveCount and r62.wave == waveId and r62.ok ? 1 : 0) + (active and 63 < waveCount and r63.wave == waveId and r63.ok ? 1 : 0)
+  derive valid4 = (active and 64 < waveCount and r64.wave == waveId and r64.ok ? 1 : 0) + (active and 65 < waveCount and r65.wave == waveId and r65.ok ? 1 : 0) + (active and 66 < waveCount and r66.wave == waveId and r66.ok ? 1 : 0) + (active and 67 < waveCount and r67.wave == waveId and r67.ok ? 1 : 0) + (active and 68 < waveCount and r68.wave == waveId and r68.ok ? 1 : 0) + (active and 69 < waveCount and r69.wave == waveId and r69.ok ? 1 : 0) + (active and 70 < waveCount and r70.wave == waveId and r70.ok ? 1 : 0) + (active and 71 < waveCount and r71.wave == waveId and r71.ok ? 1 : 0) + (active and 72 < waveCount and r72.wave == waveId and r72.ok ? 1 : 0) + (active and 73 < waveCount and r73.wave == waveId and r73.ok ? 1 : 0) + (active and 74 < waveCount and r74.wave == waveId and r74.ok ? 1 : 0) + (active and 75 < waveCount and r75.wave == waveId and r75.ok ? 1 : 0) + (active and 76 < waveCount and r76.wave == waveId and r76.ok ? 1 : 0) + (active and 77 < waveCount and r77.wave == waveId and r77.ok ? 1 : 0) + (active and 78 < waveCount and r78.wave == waveId and r78.ok ? 1 : 0) + (active and 79 < waveCount and r79.wave == waveId and r79.ok ? 1 : 0)
+  derive valid5 = (active and 80 < waveCount and r80.wave == waveId and r80.ok ? 1 : 0) + (active and 81 < waveCount and r81.wave == waveId and r81.ok ? 1 : 0) + (active and 82 < waveCount and r82.wave == waveId and r82.ok ? 1 : 0) + (active and 83 < waveCount and r83.wave == waveId and r83.ok ? 1 : 0) + (active and 84 < waveCount and r84.wave == waveId and r84.ok ? 1 : 0) + (active and 85 < waveCount and r85.wave == waveId and r85.ok ? 1 : 0) + (active and 86 < waveCount and r86.wave == waveId and r86.ok ? 1 : 0) + (active and 87 < waveCount and r87.wave == waveId and r87.ok ? 1 : 0) + (active and 88 < waveCount and r88.wave == waveId and r88.ok ? 1 : 0) + (active and 89 < waveCount and r89.wave == waveId and r89.ok ? 1 : 0) + (active and 90 < waveCount and r90.wave == waveId and r90.ok ? 1 : 0) + (active and 91 < waveCount and r91.wave == waveId and r91.ok ? 1 : 0) + (active and 92 < waveCount and r92.wave == waveId and r92.ok ? 1 : 0) + (active and 93 < waveCount and r93.wave == waveId and r93.ok ? 1 : 0) + (active and 94 < waveCount and r94.wave == waveId and r94.ok ? 1 : 0) + (active and 95 < waveCount and r95.wave == waveId and r95.ok ? 1 : 0)
+  derive valid6 = (active and 96 < waveCount and r96.wave == waveId and r96.ok ? 1 : 0) + (active and 97 < waveCount and r97.wave == waveId and r97.ok ? 1 : 0) + (active and 98 < waveCount and r98.wave == waveId and r98.ok ? 1 : 0) + (active and 99 < waveCount and r99.wave == waveId and r99.ok ? 1 : 0) + (active and 100 < waveCount and r100.wave == waveId and r100.ok ? 1 : 0) + (active and 101 < waveCount and r101.wave == waveId and r101.ok ? 1 : 0) + (active and 102 < waveCount and r102.wave == waveId and r102.ok ? 1 : 0) + (active and 103 < waveCount and r103.wave == waveId and r103.ok ? 1 : 0) + (active and 104 < waveCount and r104.wave == waveId and r104.ok ? 1 : 0) + (active and 105 < waveCount and r105.wave == waveId and r105.ok ? 1 : 0) + (active and 106 < waveCount and r106.wave == waveId and r106.ok ? 1 : 0) + (active and 107 < waveCount and r107.wave == waveId and r107.ok ? 1 : 0) + (active and 108 < waveCount and r108.wave == waveId and r108.ok ? 1 : 0) + (active and 109 < waveCount and r109.wave == waveId and r109.ok ? 1 : 0) + (active and 110 < waveCount and r110.wave == waveId and r110.ok ? 1 : 0) + (active and 111 < waveCount and r111.wave == waveId and r111.ok ? 1 : 0)
+  derive valid7 = (active and 112 < waveCount and r112.wave == waveId and r112.ok ? 1 : 0) + (active and 113 < waveCount and r113.wave == waveId and r113.ok ? 1 : 0) + (active and 114 < waveCount and r114.wave == waveId and r114.ok ? 1 : 0) + (active and 115 < waveCount and r115.wave == waveId and r115.ok ? 1 : 0) + (active and 116 < waveCount and r116.wave == waveId and r116.ok ? 1 : 0) + (active and 117 < waveCount and r117.wave == waveId and r117.ok ? 1 : 0) + (active and 118 < waveCount and r118.wave == waveId and r118.ok ? 1 : 0) + (active and 119 < waveCount and r119.wave == waveId and r119.ok ? 1 : 0) + (active and 120 < waveCount and r120.wave == waveId and r120.ok ? 1 : 0) + (active and 121 < waveCount and r121.wave == waveId and r121.ok ? 1 : 0) + (active and 122 < waveCount and r122.wave == waveId and r122.ok ? 1 : 0) + (active and 123 < waveCount and r123.wave == waveId and r123.ok ? 1 : 0) + (active and 124 < waveCount and r124.wave == waveId and r124.ok ? 1 : 0) + (active and 125 < waveCount and r125.wave == waveId and r125.ok ? 1 : 0) + (active and 126 < waveCount and r126.wave == waveId and r126.ok ? 1 : 0) + (active and 127 < waveCount and r127.wave == waveId and r127.ok ? 1 : 0)
+  derive validCount = valid0 + valid1 + valid2 + valid3 + valid4 + valid5 + valid6 + valid7
+  derive failed0 = (active and 0 < waveCount and r0.wave == waveId and not r0.ok ? 1 : 0) + (active and 1 < waveCount and r1.wave == waveId and not r1.ok ? 1 : 0) + (active and 2 < waveCount and r2.wave == waveId and not r2.ok ? 1 : 0) + (active and 3 < waveCount and r3.wave == waveId and not r3.ok ? 1 : 0) + (active and 4 < waveCount and r4.wave == waveId and not r4.ok ? 1 : 0) + (active and 5 < waveCount and r5.wave == waveId and not r5.ok ? 1 : 0) + (active and 6 < waveCount and r6.wave == waveId and not r6.ok ? 1 : 0) + (active and 7 < waveCount and r7.wave == waveId and not r7.ok ? 1 : 0) + (active and 8 < waveCount and r8.wave == waveId and not r8.ok ? 1 : 0) + (active and 9 < waveCount and r9.wave == waveId and not r9.ok ? 1 : 0) + (active and 10 < waveCount and r10.wave == waveId and not r10.ok ? 1 : 0) + (active and 11 < waveCount and r11.wave == waveId and not r11.ok ? 1 : 0) + (active and 12 < waveCount and r12.wave == waveId and not r12.ok ? 1 : 0) + (active and 13 < waveCount and r13.wave == waveId and not r13.ok ? 1 : 0) + (active and 14 < waveCount and r14.wave == waveId and not r14.ok ? 1 : 0) + (active and 15 < waveCount and r15.wave == waveId and not r15.ok ? 1 : 0)
+  derive failed1 = (active and 16 < waveCount and r16.wave == waveId and not r16.ok ? 1 : 0) + (active and 17 < waveCount and r17.wave == waveId and not r17.ok ? 1 : 0) + (active and 18 < waveCount and r18.wave == waveId and not r18.ok ? 1 : 0) + (active and 19 < waveCount and r19.wave == waveId and not r19.ok ? 1 : 0) + (active and 20 < waveCount and r20.wave == waveId and not r20.ok ? 1 : 0) + (active and 21 < waveCount and r21.wave == waveId and not r21.ok ? 1 : 0) + (active and 22 < waveCount and r22.wave == waveId and not r22.ok ? 1 : 0) + (active and 23 < waveCount and r23.wave == waveId and not r23.ok ? 1 : 0) + (active and 24 < waveCount and r24.wave == waveId and not r24.ok ? 1 : 0) + (active and 25 < waveCount and r25.wave == waveId and not r25.ok ? 1 : 0) + (active and 26 < waveCount and r26.wave == waveId and not r26.ok ? 1 : 0) + (active and 27 < waveCount and r27.wave == waveId and not r27.ok ? 1 : 0) + (active and 28 < waveCount and r28.wave == waveId and not r28.ok ? 1 : 0) + (active and 29 < waveCount and r29.wave == waveId and not r29.ok ? 1 : 0) + (active and 30 < waveCount and r30.wave == waveId and not r30.ok ? 1 : 0) + (active and 31 < waveCount and r31.wave == waveId and not r31.ok ? 1 : 0)
+  derive failed2 = (active and 32 < waveCount and r32.wave == waveId and not r32.ok ? 1 : 0) + (active and 33 < waveCount and r33.wave == waveId and not r33.ok ? 1 : 0) + (active and 34 < waveCount and r34.wave == waveId and not r34.ok ? 1 : 0) + (active and 35 < waveCount and r35.wave == waveId and not r35.ok ? 1 : 0) + (active and 36 < waveCount and r36.wave == waveId and not r36.ok ? 1 : 0) + (active and 37 < waveCount and r37.wave == waveId and not r37.ok ? 1 : 0) + (active and 38 < waveCount and r38.wave == waveId and not r38.ok ? 1 : 0) + (active and 39 < waveCount and r39.wave == waveId and not r39.ok ? 1 : 0) + (active and 40 < waveCount and r40.wave == waveId and not r40.ok ? 1 : 0) + (active and 41 < waveCount and r41.wave == waveId and not r41.ok ? 1 : 0) + (active and 42 < waveCount and r42.wave == waveId and not r42.ok ? 1 : 0) + (active and 43 < waveCount and r43.wave == waveId and not r43.ok ? 1 : 0) + (active and 44 < waveCount and r44.wave == waveId and not r44.ok ? 1 : 0) + (active and 45 < waveCount and r45.wave == waveId and not r45.ok ? 1 : 0) + (active and 46 < waveCount and r46.wave == waveId and not r46.ok ? 1 : 0) + (active and 47 < waveCount and r47.wave == waveId and not r47.ok ? 1 : 0)
+  derive failed3 = (active and 48 < waveCount and r48.wave == waveId and not r48.ok ? 1 : 0) + (active and 49 < waveCount and r49.wave == waveId and not r49.ok ? 1 : 0) + (active and 50 < waveCount and r50.wave == waveId and not r50.ok ? 1 : 0) + (active and 51 < waveCount and r51.wave == waveId and not r51.ok ? 1 : 0) + (active and 52 < waveCount and r52.wave == waveId and not r52.ok ? 1 : 0) + (active and 53 < waveCount and r53.wave == waveId and not r53.ok ? 1 : 0) + (active and 54 < waveCount and r54.wave == waveId and not r54.ok ? 1 : 0) + (active and 55 < waveCount and r55.wave == waveId and not r55.ok ? 1 : 0) + (active and 56 < waveCount and r56.wave == waveId and not r56.ok ? 1 : 0) + (active and 57 < waveCount and r57.wave == waveId and not r57.ok ? 1 : 0) + (active and 58 < waveCount and r58.wave == waveId and not r58.ok ? 1 : 0) + (active and 59 < waveCount and r59.wave == waveId and not r59.ok ? 1 : 0) + (active and 60 < waveCount and r60.wave == waveId and not r60.ok ? 1 : 0) + (active and 61 < waveCount and r61.wave == waveId and not r61.ok ? 1 : 0) + (active and 62 < waveCount and r62.wave == waveId and not r62.ok ? 1 : 0) + (active and 63 < waveCount and r63.wave == waveId and not r63.ok ? 1 : 0)
+  derive failed4 = (active and 64 < waveCount and r64.wave == waveId and not r64.ok ? 1 : 0) + (active and 65 < waveCount and r65.wave == waveId and not r65.ok ? 1 : 0) + (active and 66 < waveCount and r66.wave == waveId and not r66.ok ? 1 : 0) + (active and 67 < waveCount and r67.wave == waveId and not r67.ok ? 1 : 0) + (active and 68 < waveCount and r68.wave == waveId and not r68.ok ? 1 : 0) + (active and 69 < waveCount and r69.wave == waveId and not r69.ok ? 1 : 0) + (active and 70 < waveCount and r70.wave == waveId and not r70.ok ? 1 : 0) + (active and 71 < waveCount and r71.wave == waveId and not r71.ok ? 1 : 0) + (active and 72 < waveCount and r72.wave == waveId and not r72.ok ? 1 : 0) + (active and 73 < waveCount and r73.wave == waveId and not r73.ok ? 1 : 0) + (active and 74 < waveCount and r74.wave == waveId and not r74.ok ? 1 : 0) + (active and 75 < waveCount and r75.wave == waveId and not r75.ok ? 1 : 0) + (active and 76 < waveCount and r76.wave == waveId and not r76.ok ? 1 : 0) + (active and 77 < waveCount and r77.wave == waveId and not r77.ok ? 1 : 0) + (active and 78 < waveCount and r78.wave == waveId and not r78.ok ? 1 : 0) + (active and 79 < waveCount and r79.wave == waveId and not r79.ok ? 1 : 0)
+  derive failed5 = (active and 80 < waveCount and r80.wave == waveId and not r80.ok ? 1 : 0) + (active and 81 < waveCount and r81.wave == waveId and not r81.ok ? 1 : 0) + (active and 82 < waveCount and r82.wave == waveId and not r82.ok ? 1 : 0) + (active and 83 < waveCount and r83.wave == waveId and not r83.ok ? 1 : 0) + (active and 84 < waveCount and r84.wave == waveId and not r84.ok ? 1 : 0) + (active and 85 < waveCount and r85.wave == waveId and not r85.ok ? 1 : 0) + (active and 86 < waveCount and r86.wave == waveId and not r86.ok ? 1 : 0) + (active and 87 < waveCount and r87.wave == waveId and not r87.ok ? 1 : 0) + (active and 88 < waveCount and r88.wave == waveId and not r88.ok ? 1 : 0) + (active and 89 < waveCount and r89.wave == waveId and not r89.ok ? 1 : 0) + (active and 90 < waveCount and r90.wave == waveId and not r90.ok ? 1 : 0) + (active and 91 < waveCount and r91.wave == waveId and not r91.ok ? 1 : 0) + (active and 92 < waveCount and r92.wave == waveId and not r92.ok ? 1 : 0) + (active and 93 < waveCount and r93.wave == waveId and not r93.ok ? 1 : 0) + (active and 94 < waveCount and r94.wave == waveId and not r94.ok ? 1 : 0) + (active and 95 < waveCount and r95.wave == waveId and not r95.ok ? 1 : 0)
+  derive failed6 = (active and 96 < waveCount and r96.wave == waveId and not r96.ok ? 1 : 0) + (active and 97 < waveCount and r97.wave == waveId and not r97.ok ? 1 : 0) + (active and 98 < waveCount and r98.wave == waveId and not r98.ok ? 1 : 0) + (active and 99 < waveCount and r99.wave == waveId and not r99.ok ? 1 : 0) + (active and 100 < waveCount and r100.wave == waveId and not r100.ok ? 1 : 0) + (active and 101 < waveCount and r101.wave == waveId and not r101.ok ? 1 : 0) + (active and 102 < waveCount and r102.wave == waveId and not r102.ok ? 1 : 0) + (active and 103 < waveCount and r103.wave == waveId and not r103.ok ? 1 : 0) + (active and 104 < waveCount and r104.wave == waveId and not r104.ok ? 1 : 0) + (active and 105 < waveCount and r105.wave == waveId and not r105.ok ? 1 : 0) + (active and 106 < waveCount and r106.wave == waveId and not r106.ok ? 1 : 0) + (active and 107 < waveCount and r107.wave == waveId and not r107.ok ? 1 : 0) + (active and 108 < waveCount and r108.wave == waveId and not r108.ok ? 1 : 0) + (active and 109 < waveCount and r109.wave == waveId and not r109.ok ? 1 : 0) + (active and 110 < waveCount and r110.wave == waveId and not r110.ok ? 1 : 0) + (active and 111 < waveCount and r111.wave == waveId and not r111.ok ? 1 : 0)
+  derive failed7 = (active and 112 < waveCount and r112.wave == waveId and not r112.ok ? 1 : 0) + (active and 113 < waveCount and r113.wave == waveId and not r113.ok ? 1 : 0) + (active and 114 < waveCount and r114.wave == waveId and not r114.ok ? 1 : 0) + (active and 115 < waveCount and r115.wave == waveId and not r115.ok ? 1 : 0) + (active and 116 < waveCount and r116.wave == waveId and not r116.ok ? 1 : 0) + (active and 117 < waveCount and r117.wave == waveId and not r117.ok ? 1 : 0) + (active and 118 < waveCount and r118.wave == waveId and not r118.ok ? 1 : 0) + (active and 119 < waveCount and r119.wave == waveId and not r119.ok ? 1 : 0) + (active and 120 < waveCount and r120.wave == waveId and not r120.ok ? 1 : 0) + (active and 121 < waveCount and r121.wave == waveId and not r121.ok ? 1 : 0) + (active and 122 < waveCount and r122.wave == waveId and not r122.ok ? 1 : 0) + (active and 123 < waveCount and r123.wave == waveId and not r123.ok ? 1 : 0) + (active and 124 < waveCount and r124.wave == waveId and not r124.ok ? 1 : 0) + (active and 125 < waveCount and r125.wave == waveId and not r125.ok ? 1 : 0) + (active and 126 < waveCount and r126.wave == waveId and not r126.ok ? 1 : 0) + (active and 127 < waveCount and r127.wave == waveId and not r127.ok ? 1 : 0)
+  derive failedCount = failed0 + failed1 + failed2 + failed3 + failed4 + failed5 + failed6 + failed7
+
+
+  action showPane(value: string) writes pane, crewSheet
+    if value == "rundown" or value == "runbook" or value == "crew"
+      pane = value
+      crewSheet = false
+  action toggleInspector writes inspector
+    inspector = not inspector
+  action toggleSheet writes crewSheet
+    crewSheet = not crewSheet
+  action snapSheet(height: number, velocity: number) writes sheetPx
+    sheetPx = (height + velocity * 0.15 < 270 ? 180 : (height + velocity * 0.15 < 500 ? 360 : 640))
+  action chooseSheet(value: number) writes sheetPx
+    if value == 180 or value == 360 or value == 640
+      sheetPx = value
+  action toggleReading writes readingNarrow
+    readingNarrow = not readingNarrow
+  action chooseBook(value: number) writes bookBytes
+    if value == 0 or value == 1048576 or value == 4194304
+      bookBytes = value
+  action chooseLoad(value: number) writes count, revision, running
+    if value == 0 or value == 100 or value == 1000 or value == 10000 or value == 100000
+      count = value
+      revision = 0
+      running = false
+  action chooseBatch(value: number) writes batch, revision, running
+    if value == 1 or value == 8 or value == 32
+      batch = value
+      revision = 0
+      running = false
+  action startSelected writes revision, running
+    if count > 0
+      revision = 0
+      running = true
+  action startLive writes count, batch, revision, running, wave
+    count = 10000
+    batch = 32
+    revision = 0
+    running = true
+    if fixtureEnabled and pendingCount == 0 and not pending(wave)
+      send wave = openWave(128, 0)
+  action pause writes running
+    running = false
+  action tick writes revision, running
+    if running
+      running = revision < 119
+      revision = min(120, revision + 1)
+  action editDraft(value) writes draft, draftTooLong
+    if length(value) <= 512
+      draft = value
+      draftTooLong = false
+    else
+      draftTooLong = true
+  action sendDraft writes echo, draft, replying
+    if not isEmpty(draft)
+      echo = draft
+      draft = ""
+      replying = ""
+  action replyTo(id: string) writes replying
+    replying = id
+  action clearReply writes replying
+    replying = ""
+  action command(op: string, id: string, n: number) writes changed
+    send changed = galleryAction(op, id, n)
+  action dropRundown(item: string, before: option<string>) writes changed
+    send changed = galleryReorder(item, before, gallery.revision)
+  action resetScene writes changed, count, batch, revision, running, draft, echo, replying, draftTooLong, pane, crewSheet, sheetPx, bookBytes, readingNarrow
+    send changed = galleryAction("reset", "", 0)
+    count = 0
+    batch = 32
+    revision = 0
+    running = false
+    draft = ""
+    echo = ""
+    replying = ""
+    draftTooLong = false
+    pane = "rundown"
+    crewSheet = false
+    sheetPx = 360
+    bookBytes = 0
+    readingNarrow = false
+  action attachFixture writes fixtureEnabled
+    fixtureEnabled = true
+  action startJobs writes wave
+    if fixtureEnabled and pendingCount == 0 and not pending(wave)
+      send wave = openWave(128, 0)
+  action releaseJobs writes fixture
+    if waveId > 0
+      send fixture = releaseWave(waveId)
+
+  task liveProducer mount
+    every(250, tick)
+
+  view
+    provide theme = theme
+      main testId="exact-live" width="100%" height="100%" min-height=0 display="flex" flex-direction="column" overflow="hidden" box-sizing="border-box" viewport-fit="cover" interactive-widget="resizes-content" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color=theme.page color=theme.ink
+        column flex-shrink=0 padding=16 gap=12 border-bottom-width=1 border-color=theme.edge
+          row align-items="center" gap=10
+            text "exact / live" font-size=22 font-weight=700 letter-spacing=-0.8 color=theme.accent
+            when wide
+              text "FIELD NOTES  /  001" font-size=10 letter-spacing=1 color=theme.muted flex=1
+            else
+              box flex=1
+            when running
+              button press=pause testId="pause-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.wash
+                text "Pause" font-size=12 color=theme.accent
+            else
+              button press=startLive testId="start-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.accent
+                text "Go live" font-size=12 color=theme.page
+            button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.card
+              text "•••" color=theme.ink
+          row align-items="center" gap=6
+            PaneButton(name="rundown", label="Rundown", selected=pane, choose=showPane)
+            PaneButton(name="runbook", label="Runbook", selected=pane, choose=showPane)
+            when not wide
+              PaneButton(name="crew", label="Crew", selected=pane, choose=showPane)
+            when wide
+              text (count == 0 ? "A six-scene launch" : `${history.materialized} supplied · ${history.changed} changed`) flex=1 font-size=11 color=theme.muted text-align="right"
+        when inspector
+          scroll max-height=230 flex-shrink=0 background-color=theme.wash testId="workload-controls"
+            column padding=14 gap=10
+              text "Explicit workload · not a frame-rate meter" font-size=14 font-weight=600
+              row gap=6 flex-wrap="wrap"
+                LoadButton(n=0, label="Curated", selected=count, choose=chooseLoad)
+                LoadButton(n=100, label="100 messages", selected=count, choose=chooseLoad)
+                LoadButton(n=1000, label="1,000 messages", selected=count, choose=chooseLoad)
+                LoadButton(n=10000, label="10,000 messages", selected=count, choose=chooseLoad)
+                LoadButton(n=100000, label="100,000 messages", selected=count, choose=chooseLoad)
+                LoadButton(n=1, label="Change 1", selected=batch, choose=chooseBatch)
+                LoadButton(n=8, label="Change 8", selected=batch, choose=chooseBatch)
+                LoadButton(n=32, label="Change 32", selected=batch, choose=chooseBatch)
+                button press=startSelected disabled=(count == 0 or running) testId="start-selected" padding=8 border-width=0 border-radius=6 background-color=theme.card
+                  text "Run selected load" font-size=12 color=theme.accent
+              text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=11 color=theme.muted
+              row gap=6 flex-wrap="wrap"
+                LoadButton(n=0, label="Curated runbook", selected=bookBytes, choose=chooseBook)
+                LoadButton(n=1048576, label="1MiB paragraph", selected=bookBytes, choose=chooseBook)
+                LoadButton(n=4194304, label="4MiB paragraph", selected=bookBytes, choose=chooseBook)
+              text "Large runbooks retain the full source. Ordinary rich-text layout can block or exhaust memory, especially on phone. No cold-region guarantee here." font-size=11 color=theme.muted
+              row gap=6 flex-wrap="wrap"
+                button press=command("load", "", 100) testId="rundown-100" padding=8 border-width=0 border-radius=6
+                  text "100 studies" font-size=12
+                button press=command("load", "", 1000) testId="rundown-1000" padding=8 border-width=0 border-radius=6
+                  text "1,000 studies" font-size=12
+                button press=command("load", "", 25000) testId="rundown-25000" padding=8 border-width=0 border-radius=6
+                  text "25,000 studies" font-size=12
+                button press=resetScene testId="reset-scene" padding=8 border-width=0 border-radius=6
+                  text "Reset scene" font-size=12
+              row gap=6 flex-wrap="wrap"
+                button press=attachFixture disabled=fixtureEnabled testId="attach-fixture" padding=8 border-width=0 border-radius=6
+                  text "Attach desktop fixture" font-size=12
+                button press=startJobs disabled=(not fixtureEnabled or pendingCount > 0 or pending(wave)) testId="start-jobs" padding=8 border-width=0 border-radius=6
+                  text "Request 128 jobs" font-size=12
+                button press=releaseJobs disabled=(waveId == 0 or pending(fixture)) testId="release-jobs" padding=8 border-width=0 border-radius=6
+                  text "Release held jobs" font-size=12
+              text "Fixture uses desktop loopback; not phone networking. Pause stops future transcript ticks; existing requests continue. Reset scene retains the current job wave." font-size=11 color=theme.muted
+        box position="relative" flex=1 min-height=0 width="100%" overflow="hidden"
+          when wide
+            row width="100%" height="100%" min-height=0 gap=0 testId="desktop-workspace"
+              column flex=1 min-width=0 min-height=0 height="100%"
+                when pane == "runbook"
+                  RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
+                else
+                  RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
+              column width=360 height="100%" min-height=0 flex-shrink=0 border-left-width=1 border-color=theme.edge
+                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+          else
+            column width="100%" height="100%" min-height=0 testId="phone-workspace"
+              when pane == "crew"
+                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+              else
+                when pane == "runbook"
+                  RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
+                else
+                  RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
+                button press=toggleSheet testId="open-crew-sheet" height=44 flex-shrink=0 border-width=0 background-color=theme.wash
+                  text "Open crew notes ↑" font-size=13 color=theme.accent
+            when crewSheet and pane != "crew"
+              column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
+                row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
+                  box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
+                    text "──  Crew notes" font-size=13 color=theme.muted
+                  button press=chooseSheet(180) min-height=44 padding=8 border-width=0 testId="crew-sheet-peek"
+                    text "Peek" font-size=11
+                  button press=chooseSheet(360) min-height=44 padding=8 border-width=0 testId="crew-sheet-read"
+                    text "Read" font-size=11
+                  button press=chooseSheet(640) min-height=44 padding=8 border-width=0 testId="crew-sheet-full"
+                    text "Full" font-size=11
+                  button press=toggleSheet min-height=44 padding=8 border-width=0 testId="close-crew-sheet"
+                    text "Close" font-size=11
+                CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
+        column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
+          text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=11 color=theme.muted
+          when fixtureMessage != ""
+            text fixtureMessage testId="fixture-status" font-size=10 color=theme.muted
+
+component PaneButton
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    selected: string
+    choose: action
+  view
+    button press=choose(name) testId=`pane-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` min-height=44 padding=10 border-width=0 border-radius=7 background-color=(selected == name ? theme.wash : theme.page)
+      text label font-size=13 font-weight=600 color=(selected == name ? theme.accent : theme.muted)
+
+component LoadButton
+  inject
+    theme: Theme
+  props
+    n: number
+    label: string
+    selected: number
+    choose: action
+  view
+    button press=choose(n) padding=8 min-height=44 border-width=0 border-radius=6 background-color=(selected == n ? theme.accent : theme.card)
+      text label font-size=12 color=(selected == n ? theme.card : theme.ink)
+
+component RundownPanel
+  inject
+    theme: Theme
+  props
+    gallery: GalleryState
+    rows: list<Photo>
+    command: action
+    reorder: action
+  view
+    when gallery.viewerOpen
+      each viewer in gallery.viewer key=viewer.viewerToken
+        Viewer(viewer=viewer, gallery=gallery, command=command)
+    else
+      column flex=1 min-height=0 width="100%" testId="rundown"
+        column flex-shrink=0 padding=20 gap=8
+          text "OUTSIDE, TOGETHER" font-size=10 letter-spacing=2 color=theme.accent
+          text "A little room to wander." font-size=30 font-weight=600 letter-spacing=-0.7 color=theme.ink
+          text `${gallery.total} photographic scenes · one launch sequence` font-size=12 color=theme.muted
+          when gallery.reordering
+            row gap=6 flex-wrap="wrap" align-items="center" testId="manual-move"
+              text gallery.previewLabel font-size=12 color=theme.accent flex=1 min-width=180
+              ActionButton(id="move-earlier", label="Earlier", op="earlier", target="", n=gallery.dragToken, shortcut="", command=command)
+              ActionButton(id="move-later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="", command=command)
+              ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="", command=command)
+              ActionButton(id="cancel-move", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
+        list id="rundown-arrange" reorderdrop=reorder virtualized=true testId="rundown-list" flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain"
+          each photo in rows key=photo.id
+            column padding-left=16 padding-right=16 padding-top=6 padding-bottom=6 width="100%" box-sizing="border-box" gap=6
+              button press=command("open", photo.id, 0) testId=`open-${photo.id}` width="100%" height=190 border-width=0 padding=0 border-radius=10 overflow="hidden" aria-label=`Open ${photo.title}`
+                image photo.asset aria-label=photo.alt width="100%" height="100%" object-fit="cover"
+              ArrangeCard(photo=photo, gallery=gallery, command=command)
+        when gallery.notice != ""
+          text gallery.notice testId="rundown-notice" flex-shrink=0 padding=10 font-size=11 color=theme.muted
+
+component CrewPanel
+  inject
+    theme: Theme
+  props
+    history: History
+    draft: string
+    replying: string
+    tooLong: bool
+    edit: action
+    post: action
+    reply: action
+    cancel: action
+    stress: bool
+  view
+    column width="100%" height="100%" flex=1 min-height=0 background-color=theme.card testId="crew-panel"
+      column padding=16 gap=4 flex-shrink=0
+        row align-items="center" gap=8
+          text "Crew notes" font-size=18 font-weight=600 color=theme.ink flex=1
+          text (stress ? "SYNTHETIC LIVE" : "LOCAL SCENE") font-size=9 letter-spacing=1 color=theme.accent
+        text (stress ? `${history.materialized} supplied · revision ${history.revision}` : "Maya, Jules, Ari, Noor & you") font-size=11 color=theme.muted
+      list virtualized=true scrollFollowEnd=true testId="crew-transcript" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color=theme.page
+        each m in history.rows key=m.id
+          column width="100%" box-sizing="border-box" padding-left=12 padding-right=12 padding-top=7 padding-bottom=7
+            button swiperight=reply(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+              column testId=`message-${m.id}` width="100%" align-items=(m.outgoing ? "flex-end" : "flex-start") gap=5
+                text m.sender font-size=11 font-weight=600 color=theme.muted
+                column max-width="95%" padding=11 gap=6 box-sizing="border-box" border-radius=10 background-color=(m.outgoing ? theme.wash : theme.card)
+                  text m.body font-size=14 line-height=1.45 white-space="pre-wrap" color=theme.ink
+                  text m.meta font-size=10 color=theme.muted
+            button press=reply(m.id) retainFocus=true align-self="flex-end" padding=5 border-width=0 background-color="#00000000" aria-label=`Reply to ${m.sender}`
+              text "Reply" font-size=10 color=theme.accent
+      column padding=12 gap=6 width="100%" box-sizing="border-box" flex-shrink=0
+        when replying != ""
+          row align-items="center" gap=8
+            text `Replying to ${replying}` font-size=11 color=theme.muted flex=1
+            button press=cancel padding=6 border-width=0
+              text "Cancel" font-size=11
+        row gap=8 align-items="center"
+          input value=draft change=edit testId="crew-input" aria-label="Write a local crew note" placeholder="Leave a note for this scene…" flex=1 min-width=0 min-height=44 padding=10 border-width=1 border-color=theme.edge border-radius=8 background-color=theme.page color=theme.ink font-size=14
+          button press=post testId="send-note" padding=10 min-height=44 border-width=0 border-radius=8 background-color=theme.accent
+            text "Post" font-size=12 color=theme.card
+        text "Device-local · latest note retained" font-size=10 color=theme.muted
+        when tooLong
+          text "Keep the note within512 characters. Your previous draft is retained." testId="draft-error" font-size=11 color=theme.accent
+
+component RunbookPanel
+  inject
+    theme: Theme
+  props
+    book: Runbook
+    busy: bool
+    requested: number
+    narrow: bool
+    toggle: action
+  view
+    column flex=1 min-height=0 width="100%" testId="runbook-panel"
+      row padding=16 gap=10 align-items="center" flex-shrink=0
+        column flex=1 gap=4
+          text "THE RUNBOOK" font-size=10 letter-spacing=1 color=theme.accent
+          text "Make the handoff feel effortless." font-size=16 font-weight=600
+        button press=toggle testId="reading-width" padding=8 min-height=44 border-width=0 border-radius=7 background-color=theme.wash
+          text (narrow ? "Roomy" : "Focused") font-size=12 color=theme.accent
+      when busy
+        column padding=20 gap=8 testId="runbook-pending"
+          text "Preparing the full document…" font-size=18 font-weight=600
+          text `${requested} requested bytes` font-size=12 color=theme.muted
+      else
+        scroll flex=1 min-height=0 width="100%" overflow-x="hidden" testId="runbook-scroll"
+          column padding=20 width="100%" max-width=(narrow ? 480 : 760) box-sizing="border-box" align-self="center" gap=8
+            each block in book.blocks key=block.id
+              Blocks(block=block)
+            text `${book.sourceBytes} actual UTF-8 source bytes` font-size=10 color=theme.muted padding-top=20 padding-bottom=20
+
+component Viewer
+  inject
+    theme: Theme
+  props
+    viewer: ViewerState
+    gallery: GalleryState
+    command: action
+  state panX = 0
+  state panY = 0
+  state zoom = 1
+  state boxWidth = 0
+  state boxHeight = 0
+  state portWidth = 0
+  state portHeight = 0
+  derive geometryReady = boxWidth > 0 and boxHeight > 0 and portWidth > 0 and portHeight > 0
+  derive fit = photoFit(boxWidth, boxHeight, viewer.naturalWidth, viewer.naturalHeight)
+
+  action chooseZoom(value: number) writes zoom, panX, panY
+    if value == 1 or value == 2
+      zoom = value
+      panX = geometryReady ? photoClamp(panX, viewer.naturalWidth, fit, value, portWidth) : 0
+      panY = geometryReady ? photoClamp(panY, viewer.naturalHeight, fit, value, portHeight) : 0
+
+  action resetPhoto writes zoom, panX, panY
+    zoom = 1
+    panX = 0
+    panY = 0
+
+  action photoGeometry(bw: number, bh: number, pw: number, ph: number) writes boxWidth, boxHeight, portWidth, portHeight, panX, panY
+    if bw != boxWidth or bh != boxHeight or pw != portWidth or ph != portHeight
+      boxWidth = bw
+      boxHeight = bh
+      portWidth = pw
+      portHeight = ph
+      if bw > 0 and bh > 0 and pw > 0 and ph > 0
+        panX = photoClamp(panX, viewer.naturalWidth, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, pw)
+        panY = photoClamp(panY, viewer.naturalHeight, photoFit(bw, bh, viewer.naturalWidth, viewer.naturalHeight), zoom, ph)
+      else
+        panX = 0
+        panY = 0
+
+  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes panX, panY
+    panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, zoom, portWidth) : 0
+    panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, zoom, portHeight) : 0
+
+  view
+    scroll flex=1 min-height=0 testId="viewer-scroll" overflow-x="hidden"
+      column padding=20 gap=14 align-items="center"
+        row width="100%" gap=8 align-items="center" flex-wrap="wrap"
+          ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=viewer.viewerToken, shortcut="Escape", command=command)
+          text `${viewer.photo.rank} / ${gallery.total}` font-size=12 color=theme.muted flex=1
+          button press=command("previous", "", viewer.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Previous" font-size=12 color=theme.ink
+          button press=command("next", "", viewer.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Next" font-size=12 color=theme.ink
+        row width="100%" gap=8 align-items="center" flex-wrap="wrap"
+          button press=chooseZoom(1) testId="viewer-zoom-fit" aria-label=`Fit${zoom == 1 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 1 ? theme.wash : theme.card)
+            text "Fit" font-size=12 color=theme.ink
+          button press=chooseZoom(2) testId="viewer-zoom-detail" aria-label=`2×${zoom == 2 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 2 ? theme.wash : theme.card)
+            text "2×" font-size=12 color=theme.ink
+          button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
+            text "Center and fit" font-size=12 color=theme.ink
+        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
+          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
+            image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
+            box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
+        column width="100%" max-width=740 gap=7
+          row gap=10 align-items="center"
+            text viewer.photo.title font-size=28 font-weight=600 color=theme.ink flex=1
+            ActionButton(id="delete-photo", label="Remove study", op="delete", target=viewer.photo.id, n=0, shortcut="", command=command)
+          text viewer.photo.subtitle font-size=12 color=theme.muted
+          text viewer.photo.notes font-size=15 line-height=1.5 color=theme.ink
+          text "Generated photographic illustration · bundled locally" font-size=10 color=theme.muted
+
+
+component ArrangeCard
+  inject
+    theme: Theme
+  props
+    photo: Photo
+    gallery: GalleryState
+    command: action
+  view
+    row testId=`card-${photo.id}` gap=14 padding=12 border-width=1 border-style="solid" border-color=(gallery.liftedId == photo.id ? theme.accent : theme.edge) border-radius=10 background-color=theme.card align-items="flex-start" flex-wrap="wrap"
+      column flex=1 min-width=180 gap=6
+        text `${photo.rank}. ${photo.title}` font-size=18 font-weight=600 color=theme.ink
+        text photo.notes font-size=13 line-height=1.4 color=theme.muted
+        text photo.subtitle font-size=10 color=theme.muted
+      row gap=6 flex-wrap="wrap"
+        box reorderFor="rundown-arrange" disabled=gallery.reordering touch-action="none" testId=`arrange-grip-${photo.id}` aria-label=`Drag ${photo.title} to reorder` min-width=44 min-height=44 padding=8 box-sizing="border-box" border-radius=6 background-color=theme.wash
+          text "⋮⋮" font-size=18 color=theme.accent
+        when gallery.reordering and gallery.liftedId != photo.id
+          ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
+        else
+          ActionButton(id=`lift-${photo.id}`, label="Pick up", op="lift", target=photo.id, n=0, shortcut="", command=command)
+        ActionButton(id=`delete-${photo.id}`, label="Remove", op="delete", target=photo.id, n=0, shortcut="", command=command)
+
+
+component ActionButton
+  inject
+    theme: Theme
+  props
+    id: string
+    label: string
+    op: string
+    target: string
+    n: number
+    shortcut: string
+    command: action
+  view
+    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut min-height=44 padding=8 border-width=0 border-radius=6 background-color=theme.wash
+      text label font-size=12 color=theme.accent
+
+
+component Blocks
+  inject
+    theme: Theme
+  props
+    block: Block
+  view
+    when block.kind == "heading"
+      column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
+        text aria-level=block.depth color=theme.ink line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+    else
+      when block.kind == "paragraph"
+        view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+          text color=theme.ink line-height=1.625
+            Runs(runs=block.runs, size=16, weight=400)
+      else
+        when block.kind == "item"
+          row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
+            text block.marker font-size=16 line-height=1.625 color=theme.muted width=26
+            text flex=1 color=theme.ink line-height=1.625
+              Runs(runs=block.runs, size=16, weight=400)
+        else
+          when block.kind == "code"
+            // `pre-wrap` and not a horizontal scroll: a code block inside a
+            // reading column that scrolls sideways is a code block nobody
+            // reads the end of.
+            view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
+              view background-color=theme.wash border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+          else
+            when block.kind == "quote"
+              row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+                view width=3 background-color=theme.accent border-radius=2
+                view flex=1 padding-left=16
+                  text color=theme.muted line-height=1.625
+                    Runs(runs=block.runs, size=16, weight=400)
+            else
+              when block.kind == "rule"
+                view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+              else
+                when block.kind == "table-row"
+                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId=`block-${block.id}`
+                    each c in block.cells key=c.id
+                      view flex=1 padding=8
+                        when block.header
+                          text color=theme.ink line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=700)
+                        else
+                          text color=theme.ink line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=400)
+                else
+                  when block.kind == "image"
+                    column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
+                      image block.href width="100%" object-fit="contain" aria-label=block.text
+                      when block.text != ""
+                        text block.text font-size=12 color=theme.muted
+                  else
+                    // Raw HTML: shown, never interpreted.
+                    view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
+                      text block.text font-family="ui-monospace" font-size=12 color=theme.muted
+
+// The styled spans of one paragraph, as the inline `text` children the
+// kernel measures as one paragraph and CoreText paints as one typeset run.
+//
+// Every run carries its own size, weight, height and colour: a style row
+// belongs to the node it is on and does not cascade into the inline nodes
+// below it, so a heading whose runs said nothing would draw at 16 px. The
+// paragraph's type comes in as props and each run departs from it — bolder
+// where the source said `**`, monospaced and warm where it said a backtick.
+// `font-family` is literal-only in Contract v1, so that is the one branch.
+component Runs
+  inject
+    theme: Theme
+  props
+    runs: list<Run>
+    size: number
+    weight: number
+  view
+    each r in runs key=r.id
+      when r.mono
+        text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant color=theme.accent href=r.href
+      else
+        text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant href=r.href

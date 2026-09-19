@@ -4,6 +4,68 @@ import Foundation
 import CoreText
 import CExact
 
+/// Same metric-only key for owned geometry and a synchronous borrowed request.
+/// Hashes select candidates only; matches performs exact field/UTF8 equality.
+/// No borrowed buffer, request, or pointer is retained in the identity index.
+enum TextMetricKey {
+    private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
+                               _ lineHeight: CGFloat?, _ spacing: CGFloat, _ h: inout Hasher) {
+        h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
+        h.combine(lineHeight); h.combine(spacing)
+    }
+    private static func fields(_ r: Run, _ h: inout Hasher) {
+        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, &h)
+    }
+    private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
+        fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
+               r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing), &h)
+    }
+    static func hash(_ spec: Spec) -> Int {
+        var h = Hasher()
+        h.combine(spec.runs.count)
+        for r in spec.runs {
+            var text = r.text
+            text.withUTF8 { h.combine(bytes: UnsafeRawBufferPointer($0)) }
+            fields(r, &h)
+        }
+        h.combine(spec.strut != nil)
+        if let strut = spec.strut { fields(strut, &h) }
+        h.combine(spec.align); h.combine(spec.lineClamp); h.combine(spec.overflowWrap)
+        return h.finalize()
+    }
+    static func hash(_ request: ExactMeasureRequest) -> Int {
+        var h = Hasher()
+        h.combine(request.count)
+        for r in UnsafeBufferPointer(start: request.runs, count: request.count) {
+            h.combine(bytes: UnsafeRawBufferPointer(start: r.text, count: r.len))
+            fields(r, &h)
+        }
+        h.combine(true) // The callback always constructs a strut, even for empty text.
+        fields(request.strut, &h)
+        h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
+        return h.finalize()
+    }
+    private static func equalFields(_ raw: ExactTextRun, _ owned: Run) -> Bool {
+        CGFloat(raw.font_size) == owned.size && Int(raw.font_weight) == owned.weight
+            && Int(raw.font_family) == owned.family && (raw.italic != 0) == owned.italic
+            && (raw.has_line_height != 0 ? CGFloat(raw.line_height) : nil) == owned.lineHeight
+            && CGFloat(raw.letter_spacing) == owned.letterSpacing
+    }
+    static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
+        guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
+              Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
+              let strut = geometry.strut, equalFields(request.strut, strut) else { return false }
+        let runs = UnsafeBufferPointer(start: request.runs, count: request.count)
+        for i in runs.indices {
+            guard equalFields(runs[i], geometry.runs[i]) else { return false }
+            var text = geometry.runs[i].text
+            let equal = text.withUTF8 { $0.elementsEqual(UnsafeBufferPointer(start: runs[i].text, count: runs[i].len)) }
+            guard equal else { return false }
+        }
+        return true
+    }
+}
+
 /// A namespace is retained by its identities, so restoring a checkpoint cannot
 /// alias a candidate catalog, including after allocator address reuse.
 final class TextCatalogIdentity {}
@@ -232,7 +294,12 @@ struct TextResidency {
     }
     mutating func identity(_ spec: Spec) -> TextIdentity {
         maintain()
-        let geometry = spec.geometry, hash = geometry.hashValue
+        return identityAfterBorrowedMiss(spec)
+    }
+    /// Completes the same identity admission after borrowedIdentity already ran
+    /// maintenance. Malformed UTF8 must be hashed again after replacement decoding.
+    mutating func identityAfterBorrowedMiss(_ spec: Spec) -> TextIdentity {
+        let geometry = spec.geometry, hash = TextMetricKey.hash(geometry)
         for token in identities[hash] ?? [] {
             maintenanceVisits &+= 1
             if let value = identityEntries[token]?.weak.value, value.geometry == geometry {
@@ -249,6 +316,20 @@ struct TextResidency {
         identities[hash, default: []].insert(key)
         while identityEntries.count > Self.maxIdentities, let oldest = firstIdentity { removeIdentity(oldest) }
         return value
+    }
+    /// Metric-cache lookup before String/Run/Spec construction. On a miss the
+    /// caller decodes normally and completes admission without a second sweep.
+    mutating func borrowedIdentity(_ request: ExactMeasureRequest) -> TextIdentity? {
+        maintain()
+        let hash = TextMetricKey.hash(request)
+        for token in identities[hash] ?? [] {
+            maintenanceVisits &+= 1
+            if let value = identityEntries[token]?.weak.value, TextMetricKey.matches(request, value.geometry) {
+                touchIdentity(token)
+                return value
+            }
+        }
+        return nil
     }
     private mutating func touchIdentity(_ token: TextIdentityToken) {
         guard lastIdentity !== token, let e = identityEntries[token] else { return }

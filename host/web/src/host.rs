@@ -23,6 +23,8 @@ use exact_runner::{
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
+#[path = "reorder_drag.rs"]
+mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
 
@@ -86,6 +88,7 @@ pub struct Host<D: DataSource> {
     springs: Springs,
     height_drags: height_drag::HeightDrags,
     transform_drags: transform_drag::TransformDrags,
+    reorder_drags: reorder_drag::ReorderDrags,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -179,6 +182,7 @@ impl<D: DataSource> Host<D> {
             springs: Springs::new(),
             height_drags: height_drag::HeightDrags::default(),
             transform_drags: transform_drag::TransformDrags::new()?,
+            reorder_drags: reorder_drag::ReorderDrags::new()?,
             now_ms: 0.0,
             font_names,
             font_catalog,
@@ -211,6 +215,7 @@ impl<D: DataSource> Host<D> {
         host.reconcile_height_drags(&mut batch);
         host.emit_height_drags(&mut batch);
         host.emit_transform_drags(&mut batch);
+        host.emit_reorder_drags(&mut batch);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
             batch.surface(s.view, &s.name, &s.values);
@@ -461,6 +466,7 @@ impl<D: DataSource> Host<D> {
                     self.mirror.remove(&id);
                     self.height_drags.remove(id);
                     self.transform_drags.remove(id);
+                    self.reorder_drags.remove(id);
                     batch.destroy(id);
                 }
             }
@@ -514,6 +520,7 @@ impl<D: DataSource> Host<D> {
         if !receipts.is_empty() {
             self.emit_height_drags(batch);
             self.emit_transform_drags(batch);
+            self.emit_reorder_drags(batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
@@ -819,6 +826,9 @@ impl<D: DataSource> Host<D> {
     fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
+        if node.props.str(PropId::ReorderFor).is_some() {
+            self.reorder_drags.track(id, key);
+        }
         if kinds.contains(&EventKind::Heightrelease) {
             self.height_drags.insert(id, key);
         }
@@ -857,6 +867,9 @@ impl<D: DataSource> Host<D> {
 
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
         let node = self.runner.kernel().node(id).expect("live");
+        if node.props.str(PropId::ReorderFor).is_some() {
+            self.reorder_drags.track(id, node.key);
+        }
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let css = host_css(&node, css);

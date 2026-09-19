@@ -14,6 +14,18 @@ use tiny_skia::{
     Stroke, Transform,
 };
 
+// One optional CPU coverage mask, never a source, picture or node owner.
+const CLIP_CACHE_BYTES: usize = 1024 * 1024;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ClipKey {
+    width: u32,
+    height: u32,
+    scale: u32,
+    shape: [u32; 8],
+    transform: [u32; 6],
+}
+
 /// The tiny-skia backend.
 #[derive(Default)]
 pub struct Raster {
@@ -24,6 +36,14 @@ pub struct Raster {
     clips: Vec<Rc<Mask>>,
     text_clips: Vec<Rect4>,
     layers: Vec<(Pixmap, f32)>,
+    first_clip_used: bool,
+    cached_clip: Option<(ClipKey, Rc<Mask>)>,
+    #[cfg(test)]
+    pub(crate) clip_allocations: std::cell::Cell<usize>,
+    #[cfg(test)]
+    pub(crate) clip_watch: Option<std::rc::Weak<Mask>>,
+    #[cfg(test)]
+    pub(crate) watched_owners_at_allocation: std::cell::Cell<usize>,
 }
 
 impl Raster {
@@ -34,6 +54,58 @@ impl Raster {
 
     fn device(&self, ts: Transform) -> Transform {
         Transform::from_scale(self.scale, self.scale).pre_concat(ts)
+    }
+
+    fn clip_key(&self, shape: &Shape, ts: Transform) -> Option<ClipKey> {
+        let bytes = (self.width as usize).checked_mul(self.height as usize)?;
+        let shape = [
+            shape.rect.0,
+            shape.rect.1,
+            shape.rect.2,
+            shape.rect.3,
+            shape.radii[0],
+            shape.radii[1],
+            shape.radii[2],
+            shape.radii[3],
+        ];
+        let transform = [ts.sx, ts.kx, ts.ky, ts.sy, ts.tx, ts.ty];
+        if bytes > CLIP_CACHE_BYTES
+            || !self.scale.is_finite()
+            || self.scale <= 0.0
+            || shape[2] <= 0.0
+            || shape[3] <= 0.0
+            || !shape.iter().chain(transform.iter()).all(|v| v.is_finite())
+            || !self.device(ts).is_finite()
+        {
+            return None;
+        }
+        Some(ClipKey {
+            width: self.width,
+            height: self.height,
+            scale: self.scale.to_bits(),
+            shape: shape.map(f32::to_bits),
+            transform: transform.map(f32::to_bits),
+        })
+    }
+
+    fn new_clip_mask(&self) -> Option<Mask> {
+        // Count this backend's actual Mask::new calls, not tiny-skia's
+        // internal intersection scratch or parent-mask clones.
+        #[cfg(test)]
+        {
+            self.clip_allocations.set(self.clip_allocations.get() + 1);
+            self.watched_owners_at_allocation.set(
+                self.clip_watch
+                    .as_ref()
+                    .map_or(0, std::rc::Weak::strong_count),
+            );
+        }
+        Mask::new(self.width, self.height)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clip_weak(&self) -> std::rc::Weak<Mask> {
+        self.clips.last().map(Rc::downgrade).unwrap_or_default()
     }
 
     // Conservative device bounds of the actual rounded path, including its
@@ -83,7 +155,7 @@ impl Raster {
             match self.clips.last() {
                 Some(c) => (**c).clone(),
                 None => {
-                    let mut m = Mask::new(self.width, self.height)?;
+                    let mut m = self.new_clip_mask()?;
                     let first = rounded_rect(shapes.first()?)?;
                     m.fill_path(&first, FillRule::Winding, true, dev);
                     return Some(shapes[1..].iter().filter_map(rounded_rect).fold(
@@ -172,12 +244,18 @@ impl Backend for Raster {
         self.scale = scale;
         self.width = ((width * scale).round() as u32).max(1);
         self.height = ((height * scale).round() as u32).max(1);
-        let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
-        pixmap.fill(Color::WHITE);
-        self.target = Some(pixmap);
         self.clips.clear();
         self.text_clips.clear();
         self.layers.clear();
+        self.first_clip_used = false;
+        if self.cached_clip.as_ref().is_some_and(|(key, _)| {
+            key.width != self.width || key.height != self.height || key.scale != scale.to_bits()
+        }) {
+            self.cached_clip = None;
+        }
+        let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
+        pixmap.fill(Color::WHITE);
+        self.target = Some(pixmap);
     }
 
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform) {
@@ -263,14 +341,37 @@ impl Backend for Raster {
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
         let bounds = self.text_clip(shape, ts);
+        let first = self.clips.is_empty() && !self.first_clip_used;
+        let key = if first {
+            // Even an uncacheable first request consumes this frame's slot.
+            self.first_clip_used = true;
+            let key = self.clip_key(shape, ts);
+            if let Some((old, mask)) = self.cached_clip.as_ref() {
+                if Some(*old) == key {
+                    self.clips.push(mask.clone());
+                    self.text_clips.push(bounds);
+                    return;
+                }
+            }
+            // No history: retire the old backing before any replacement or
+            // refused/fallback allocation. Active parents are absent here.
+            self.cached_clip = None;
+            key
+        } else {
+            None
+        };
         match self.mask_with(&[*shape], ts) {
             Some(m) => {
-                self.clips.push(Rc::new(m));
+                let mask = Rc::new(m);
+                if let Some(key) = key {
+                    self.cached_clip = Some((key, mask.clone()));
+                }
+                self.clips.push(mask);
                 self.text_clips.push(bounds);
             }
             None => {
                 // Nothing can show inside an empty box; an empty mask says so.
-                if let Some(m) = Mask::new(self.width, self.height) {
+                if let Some(m) = self.new_clip_mask() {
                     self.clips.push(Rc::new(m));
                     self.text_clips.push((0.0, 0.0, 0.0, 0.0));
                 }

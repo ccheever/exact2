@@ -415,6 +415,13 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            19 => {
+                let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
+                else {
+                    return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -475,6 +482,14 @@ impl<D: DataSource> Bridge<D> {
     /// Fixed 48-byte LE motion request: version/op/view/property u32,
     /// opaque serial u64, then x/y/clock-ms f64. Serials never cross as f64.
     pub fn motion(&mut self, len: usize) -> u32 {
+        if self.input.get(..4) == Some(&3u32.to_le_bytes()) {
+            let out = match (self.host.as_mut(), self.input.get(..len)) {
+                (Some(host), Some(bytes)) => host.reorder_motion(bytes),
+                (None, _) => exact_runner::agent::error("not booted"),
+                _ => exact_runner::agent::error("malformed reorder input"),
+            };
+            return self.emit(out);
+        }
         if len == 120 {
             let out = match (self.host.as_mut(), self.input.get(..len)) {
                 (Some(host), Some(bytes)) => host.transform_motion(bytes),

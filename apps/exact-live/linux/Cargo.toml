@@ -1,0 +1,25 @@
+# The Exact Live app on Linux: one executable with the runner, the kernel, the
+# data crate, the baked plan (written by build.rs, never committed), and the
+# host's painter.
+[package]
+name = "exact-live-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Exact Live on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "exact-live-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-live-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+
+[build-dependencies]
+exact-live-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }

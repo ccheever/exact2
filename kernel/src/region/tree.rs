@@ -1,4 +1,4 @@
-use super::{RegionFrame, REGION_NODES};
+use super::{RegionFrame, RegionGeometry, RegionOffset, OWNER, REGION_NODES};
 use crate::{
     arena::NodeArena, layout::LayoutTree, style::taffy_style, Frame, LayoutError, NodeType, Offer,
     TextMeasurer,
@@ -141,12 +141,14 @@ impl Derived {
         root: u32,
         cut: Option<u32>,
         branch: Option<u32>,
-    ) -> Result<Vec<RegionFrame>, LayoutError> {
+    ) -> Result<RegionGeometry, LayoutError> {
         let mut frames = Vec::with_capacity(self.slots.len());
-        let mut stack = vec![(root, 0., 0.)];
-        while let Some((s, x, y)) = stack.pop() {
+        let mut offsets = Vec::with_capacity(self.slots.len());
+        let mut stack = vec![(root, 0., 0., OWNER)];
+        while let Some((s, x, y, parent)) = stack.pop() {
             let l = self.tree.layout(self.nodes[&s]);
-            let frame = if arena.is_inline_run(s) {
+            let inline = arena.is_inline_run(s);
+            let frame = if inline {
                 Frame::default()
             } else {
                 Frame {
@@ -169,22 +171,42 @@ impl Derived {
             {
                 return Err(LayoutError::ContentRegion("nonfinite candidate geometry"));
             }
-            frames.push(RegionFrame {
-                node: arena.key(s),
-                frame,
-                content: (l.content_size.width, l.content_size.height),
-            });
+            // The constrained owner supplies only the external origin/size.
+            // Omit it from publication, keeping direct-child parent=OWNER.
+            let next_parent = if s == root {
+                if frame.x != 0. || frame.y != 0. || inline {
+                    return Err(LayoutError::ContentRegion("nonzero derived owner origin"));
+                }
+                OWNER
+            } else {
+                if frames.len() == REGION_NODES {
+                    return Err(LayoutError::ContentRegion("mounted node limit"));
+                }
+                let ordinal = frames.len() as u32;
+                frames.push(RegionFrame {
+                    node: arena.key(s),
+                    frame,
+                    content: (l.content_size.width, l.content_size.height),
+                });
+                offsets.push(RegionOffset {
+                    parent,
+                    x: l.location.x,
+                    y: l.location.y,
+                    inline,
+                });
+                ordinal
+            };
             if Some(s) == cut {
                 if let Some(b) = branch {
-                    stack.push((b, frame.x, frame.y))
+                    stack.push((b, frame.x, frame.y, next_parent))
                 }
             } else {
                 for &c in arena.children(s).iter().rev() {
-                    stack.push((c, frame.x, frame.y))
+                    stack.push((c, frame.x, frame.y, next_parent))
                 }
             }
         }
-        Ok(frames)
+        Ok(RegionGeometry { frames, offsets })
     }
 }
 

@@ -3,6 +3,47 @@ use super::*;
 use exact_motion::{HoldEnd, HoldStart, HoldToken, Value};
 
 impl<D: DataSource> Host<D> {
+    /// A distinct acknowledged picture cannot inherit an old contact's hold.
+    /// Only its exact held/returning Translate token may snap to the current target;
+    /// this never ends a replacement hold/curve or advances either clock.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn snap_retained_motion(&mut self, token: HoldToken) -> Result<bool, String> {
+        if token.property() != Property::Translate
+            || !(self.has_hold(token) || self.engine.owns_return(token))
+        {
+            return Ok(false);
+        }
+        let Some(value) = self.engine.target(token.node(), Property::Translate) else {
+            return Ok(false);
+        };
+        self.engine
+            .remove_property(token.node(), Property::Translate);
+        self.engine
+            .observe(exact_motion::Change {
+                node: token.node(),
+                property: Property::Translate,
+                value,
+                velocity: None,
+            })
+            .map_err(|e| format!("retained hold snap: {e:?}"))?;
+        self.present();
+        Ok(true)
+    }
+    pub(crate) fn dispatch_retained_held(
+        &mut self,
+        token: HoldToken,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        now_ms: f64,
+    ) -> Result<bool, String> {
+        if token.property() != Property::Translate
+            || token.node() != motion_node(key)
+            || !self.has_hold(token)
+        {
+            return Ok(false);
+        }
+        self.dispatch_retained(key, binding, exact_plan::EventKind::Swiperight, now_ms)
+    }
     /// Sample at recognition, in milliseconds. Unknown/inert nodes do not adopt slots.
     pub fn hold_begin(
         &mut self,

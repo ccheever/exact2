@@ -1,9 +1,122 @@
 //! Typed host events and their action dispatch; no host clock or gesture ownership.
 
 use super::{DataSource, Runner, RunnerError};
-use exact_kernel::{CommitReceipt, ViewId};
-use exact_plan::{EventKind, Value};
+use exact_kernel::{CommitReceipt, NodeKey, ViewId};
+use exact_plan::bytes::Reader;
+use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKind, Value};
 use std::fmt::Write as _;
+use std::rc::Rc;
+
+const BINDING_ARGS: usize = 8;
+const BINDING_STRING: usize = 1024;
+const BINDING_STRING_TOTAL: usize = 4096;
+
+/// A bounded retained Press/Swiperight binding. Contains no frame, tree, plan,
+/// resource or History owner. A fresh Runner (including reload) invalidates it.
+#[derive(Debug, Clone)]
+pub struct ActionBinding {
+    origin: Rc<()>,
+    key: NodeKey,
+    node: NodesId,
+    handler: HandlersId,
+    event: EventKind,
+    action: ActionsId,
+    args: Vec<BindingScalar>,
+}
+
+impl ActionBinding {
+    /// Retained scalar UTF-8 payload bytes, for aggregate host picture budgets.
+    /// Walks at most eight scalars without allocation or exposing their values;
+    /// excludes scalar metadata, allocator overhead and the transient capture.
+    pub fn retained_utf8_bytes(&self) -> usize {
+        self.args
+            .iter()
+            .map(|arg| match arg {
+                BindingScalar::String(value) => value.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+}
+
+/// Refusal before an action, clock or host effect. Generic dispatch is unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionBindingRefusal {
+    /// No matching live node/handler, a different Runner, or changed arguments.
+    Stale,
+    /// The event, expression or action needs context outside this narrow grammar.
+    Unsupported,
+    /// A finite capture or code bound was exceeded.
+    Limit,
+    /// An earlier failed update invalidated this Runner.
+    Poisoned,
+}
+
+/// Retained qualification can refuse without dispatch; a qualified ordinary
+/// action can still fail with the same Runner error as generic dispatch.
+#[derive(Debug)]
+pub enum ActionBindingError {
+    /// No action was dispatched.
+    Refused(ActionBindingRefusal),
+    /// The qualified action used ordinary Runner dispatch and failed there.
+    Dispatch(RunnerError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BindingScalar {
+    Unit,
+    Bool(bool),
+    Number(u64),
+    String(String),
+}
+
+impl BindingScalar {
+    fn capture(value: &Value, string_bytes: &mut usize) -> Result<Self, ActionBindingRefusal> {
+        Ok(match value {
+            Value::Unit => Self::Unit,
+            Value::Bool(b) => Self::Bool(*b),
+            Value::Number(n) if n.is_finite() => Self::Number(n.to_bits()),
+            Value::Str(s) => return Self::string(s, string_bytes),
+            _ => return Err(ActionBindingRefusal::Unsupported),
+        })
+    }
+
+    fn string(s: &str, string_bytes: &mut usize) -> Result<Self, ActionBindingRefusal> {
+        // Both limits precede the copy; never retain the parent Record.
+        let total = string_bytes
+            .checked_add(s.len())
+            .ok_or(ActionBindingRefusal::Limit)?;
+        if s.len() > BINDING_STRING || total > BINDING_STRING_TOTAL {
+            return Err(ActionBindingRefusal::Limit);
+        }
+        *string_bytes = total;
+        Ok(Self::String(s.to_string()))
+    }
+
+    fn kind(&self) -> TypeKind {
+        match self {
+            Self::Unit => TypeKind::Unit,
+            Self::Bool(_) => TypeKind::Bool,
+            Self::Number(_) => TypeKind::Number,
+            Self::String(_) => TypeKind::String,
+        }
+    }
+}
+
+fn binding_read<T>(value: Result<T, exact_plan::PlanError>) -> Result<T, ActionBindingRefusal> {
+    value.map_err(|_| ActionBindingRefusal::Unsupported)
+}
+
+fn binding_op(reader: &mut Reader<'_>) -> Result<Opcode, ActionBindingRefusal> {
+    Opcode::from_wire(binding_read(reader.u8())?).ok_or(ActionBindingRefusal::Unsupported)
+}
+
+fn scalar_kind(kind: TypeKind) -> bool {
+    matches!(
+        kind,
+        TypeKind::Unit | TypeKind::Bool | TypeKind::Number | TypeKind::String
+    )
+}
 
 /// A host event aimed at a view.
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +313,274 @@ fn valid_height_release(height: f64, velocity: f64) -> bool {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Capture a retained Press/Swiperight target at its painted publication.
+    /// Admits only scalar literal/direct field projections and closed root-store
+    /// actions. Tree lookup retains its existing mounted-tree traversal cost;
+    /// accepted captures own at most eight scalars and 4096 UTF-8 string bytes.
+    pub fn capture_action_binding(
+        &self,
+        key: NodeKey,
+        event: EventKind,
+    ) -> Result<ActionBinding, ActionBindingRefusal> {
+        use ActionBindingRefusal::{Limit, Poisoned, Stale, Unsupported};
+        if self.poisoned {
+            return Err(Poisoned);
+        }
+        if !matches!(event, EventKind::Press | EventKind::Swiperight) {
+            return Err(Unsupported);
+        }
+        let view = self.kernel.node_by_key(key).ok_or(Stale)?.id;
+        let (node, frames) = self.tree.as_ref().and_then(|t| t.find(view)).ok_or(Stale)?;
+        if frames.len() > 32 {
+            return Err(Limit);
+        }
+        let handler = self
+            .plan
+            .node(node)
+            .handlers
+            .iter()
+            .find(|h| self.plan.handler(*h).event == event)
+            .ok_or(Stale)?;
+        let row = self.plan.handler(handler);
+        if row.args.len as usize > BINDING_ARGS {
+            return Err(Limit);
+        }
+        let mut string_bytes = 0;
+        let mut args = Vec::with_capacity(row.args.len as usize);
+        for arg in row.args.iter() {
+            args.push(self.binding_projection(
+                self.plan.arg(arg).expr,
+                &frames,
+                &mut string_bytes,
+            )?);
+        }
+        self.binding_action(row.action, &args)?;
+        Ok(ActionBinding {
+            origin: self.action_binding_origin.clone(),
+            key,
+            node,
+            handler,
+            event,
+            action: row.action,
+            args,
+        })
+    }
+
+    /// Revalidate BEFORE the host advances time or performs an action. This is
+    /// not a host clock/geometry/eligibility certificate. Dispatch checks again,
+    /// so intervening host work cannot turn a stale binding into a current one.
+    pub fn validate_action_binding(
+        &self,
+        binding: &ActionBinding,
+        event: EventKind,
+    ) -> Result<(), ActionBindingRefusal> {
+        if !Rc::ptr_eq(&binding.origin, &self.action_binding_origin) || binding.event != event {
+            return Err(ActionBindingRefusal::Stale);
+        }
+        let current = self.capture_action_binding(binding.key, event)?;
+        if current.node != binding.node
+            || current.handler != binding.handler
+            || current.action != binding.action
+            || current.args != binding.args
+        {
+            return Err(ActionBindingRefusal::Stale);
+        }
+        Ok(())
+    }
+
+    /// Deliver a qualified retained event through ordinary dispatch. Refusals
+    /// do not journal an action or touch state/effects/time. Hosts still own
+    /// presented coordinates, live eligibility, and pre-clock qualification.
+    pub fn dispatch_bound(
+        &mut self,
+        binding: &ActionBinding,
+        event: Event,
+    ) -> Result<CommitReceipt, ActionBindingError> {
+        let kind = match event {
+            Event::Press => EventKind::Press,
+            Event::Swiperight => EventKind::Swiperight,
+            _ => {
+                return Err(ActionBindingError::Refused(
+                    ActionBindingRefusal::Unsupported,
+                ))
+            }
+        };
+        self.validate_action_binding(binding, kind)
+            .map_err(ActionBindingError::Refused)?;
+        let view = self
+            .kernel
+            .node_by_key(binding.key)
+            .ok_or(ActionBindingError::Refused(ActionBindingRefusal::Stale))?
+            .id;
+        self.dispatch(view, event)
+            .map_err(ActionBindingError::Dispatch)
+    }
+
+    fn binding_projection(
+        &self,
+        code: Code,
+        frames: &[super::Frame],
+        string_bytes: &mut usize,
+    ) -> Result<BindingScalar, ActionBindingRefusal> {
+        use ActionBindingRefusal::{Limit, Unsupported};
+        if code.len > 128 {
+            return Err(Limit);
+        }
+        let mut r = Reader::new(self.plan.code(code));
+        let op = binding_op(&mut r)?;
+        let mut value = match op {
+            Opcode::Number => Value::Number(binding_read(r.f64())?),
+            Opcode::Bool => Value::Bool(binding_read(r.u8())? != 0),
+            Opcode::Unit => Value::Unit,
+            Opcode::Str => {
+                let id = exact_plan::StrId(binding_read(r.u32())?);
+                if binding_op(&mut r)? != Opcode::Return || !r.is_empty() {
+                    return Err(Unsupported);
+                }
+                return BindingScalar::string(self.plan.str(id), string_bytes);
+            }
+            Opcode::LoadSlot => {
+                let id = binding_read(r.u32())?;
+                let row = self.plan.slots.get(id as usize).ok_or(Unsupported)?;
+                match row.owner {
+                    Some(owner) => super::Frame::row_of(frames, owner.0)
+                        .and_then(|slots| slots.borrow().get(&id).cloned())
+                        .ok_or(Unsupported)?,
+                    None => self.slots.get(id as usize).cloned().ok_or(Unsupported)?,
+                }
+            }
+            Opcode::LoadItem | Opcode::LoadBound => {
+                let depth = binding_read(r.u16())? as usize;
+                let frame = frames
+                    .len()
+                    .checked_sub(depth + 1)
+                    .and_then(|i| frames.get(i))
+                    .ok_or(Unsupported)?;
+                (if op == Opcode::LoadItem {
+                    &frame.item
+                } else {
+                    &frame.bound
+                })
+                .clone()
+                .ok_or(Unsupported)?
+            }
+            _ => return Err(Unsupported),
+        };
+        let mut fields = 0;
+        loop {
+            match binding_op(&mut r)? {
+                Opcode::Return if r.is_empty() => {
+                    return BindingScalar::capture(&value, string_bytes)
+                }
+                Opcode::Field => {
+                    fields += 1;
+                    if fields > 8 {
+                        return Err(Limit);
+                    }
+                    let index = binding_read(r.u16())? as usize;
+                    let Value::Record(record) = &value else {
+                        return Err(Unsupported);
+                    };
+                    value = record.get(index).cloned().ok_or(Unsupported)?;
+                }
+                _ => return Err(Unsupported),
+            }
+        }
+    }
+
+    fn binding_action(
+        &self,
+        id: ActionsId,
+        args: &[BindingScalar],
+    ) -> Result<(), ActionBindingRefusal> {
+        use ActionBindingRefusal::{Limit, Unsupported};
+        let action = self.plan.action(id);
+        if action.body.len > 1024
+            || action.params.len as usize > BINDING_ARGS
+            || action.writes.len > 8
+        {
+            return Err(Limit);
+        }
+        if action.params.len as usize != args.len() {
+            return Err(Unsupported);
+        }
+        for (param, arg) in action.params.iter().zip(args) {
+            if self.plan.type_(self.plan.param(param).ty).kind != arg.kind() {
+                return Err(Unsupported);
+            }
+        }
+        let writes: Vec<_> = action
+            .writes
+            .iter()
+            .map(|w| self.plan.write(w).slot)
+            .collect();
+        for id in &writes {
+            let slot = self.plan.slot(*id);
+            if slot.owner.is_some() || !scalar_kind(self.plan.type_(slot.ty).kind) {
+                return Err(Unsupported);
+            }
+        }
+        let mut r = Reader::new(self.plan.code(action.body));
+        let mut stack = Vec::with_capacity(BINDING_ARGS);
+        let (mut instructions, mut stores, mut literal_bytes) = (0, 0, 0usize);
+        while !r.is_empty() {
+            instructions += 1;
+            if instructions > 128 {
+                return Err(Limit);
+            }
+            let kind = match binding_op(&mut r)? {
+                Opcode::Number => {
+                    if !binding_read(r.f64())?.is_finite() {
+                        return Err(Unsupported);
+                    }
+                    Some(TypeKind::Number)
+                }
+                Opcode::Bool => {
+                    binding_read(r.u8())?;
+                    Some(TypeKind::Bool)
+                }
+                Opcode::Unit => Some(TypeKind::Unit),
+                Opcode::Str => {
+                    let s = self.plan.str(exact_plan::StrId(binding_read(r.u32())?));
+                    literal_bytes += s.len();
+                    if s.len() > BINDING_STRING || literal_bytes > BINDING_STRING_TOTAL {
+                        return Err(Limit);
+                    }
+                    Some(TypeKind::String)
+                }
+                Opcode::LoadParam => Some(
+                    args.get(binding_read(r.u16())? as usize)
+                        .ok_or(Unsupported)?
+                        .kind(),
+                ),
+                Opcode::StoreSlot => {
+                    let id = exact_plan::SlotsId(binding_read(r.u32())?);
+                    stores += 1;
+                    if stores > 8 {
+                        return Err(Limit);
+                    }
+                    if !writes.contains(&id) {
+                        return Err(Unsupported);
+                    }
+                    let kind = self.plan.type_(self.plan.slot(id).ty).kind;
+                    if stack.pop() != Some(kind) {
+                        return Err(Unsupported);
+                    }
+                    None
+                }
+                Opcode::Return if r.is_empty() && stack.len() <= 1 => return Ok(()),
+                _ => return Err(Unsupported),
+            };
+            if let Some(kind) = kind {
+                if stack.len() == BINDING_ARGS {
+                    return Err(Limit);
+                }
+                stack.push(kind);
+            }
+        }
+        Err(Unsupported)
+    }
+
     /// Runner-only collection events use the same action transaction and journal
     /// as host events. They have no payload or authored arguments.
     pub(super) fn dispatch_edge(
@@ -378,5 +759,255 @@ impl<D: DataSource> Runner<D> {
             self.plan.str(self.plan.action(handler.action).name)
         );
         self.run_action(handler.action, args, &frames)
+    }
+}
+
+#[cfg(test)]
+mod retained_binding_tests {
+    use super::*;
+    use exact_kernel::{Kernel, NodeType};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, SlotsId, Stdlib, TypesId};
+
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, super::super::DataError> {
+            panic!("unexpected query {source}")
+        }
+    }
+
+    fn fixture(
+        build: impl FnOnce(&mut PlanBuilder, SlotsId) -> (Vec<(TypesId, Code)>, Asm),
+    ) -> Runner<NoData> {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let empty = b.constant(&Value::str(""));
+        let output = b.slot("out", string, empty);
+        let (arguments, action) = build(&mut b, output);
+        let names: Vec<_> = (0..arguments.len()).map(|i| format!("arg{i}")).collect();
+        let params: Vec<_> = arguments
+            .iter()
+            .zip(&names)
+            .map(|((ty, _), name)| (name.as_str(), *ty))
+            .collect();
+        let code = b.code(action);
+        let action = b.action("set", &params, &[output], code);
+        let args: Vec<_> = arguments.iter().map(|(_, code)| *code).collect();
+        b.node(
+            NodeType::Pressable as u8,
+            None,
+            None,
+            0,
+            &[],
+            &[(EventKind::Press, action, &args)],
+            None,
+        );
+        Runner::boot(
+            b.finish().unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    }
+
+    fn capture(r: &Runner<NoData>) -> Result<ActionBinding, ActionBindingRefusal> {
+        let key = r.kernel.arena().key_of(r.kernel.roots()[0]).unwrap();
+        r.capture_action_binding(key, EventKind::Press)
+    }
+
+    fn literals(count: usize, len: usize) -> Runner<NoData> {
+        fixture(|b, out| {
+            let ty = b.primitive(TypeKind::String);
+            let args = (0..count)
+                .map(|_| (ty, b.constant(&Value::str(&"x".repeat(len)))))
+                .collect();
+            let mut action = Asm::new();
+            action.load_param(0).store_slot(out);
+            (args, action)
+        })
+    }
+
+    #[test]
+    fn argument_count_and_aggregate_string_boundaries() {
+        assert!(capture(&literals(8, 0)).is_ok());
+        assert!(matches!(
+            capture(&literals(9, 0)),
+            Err(ActionBindingRefusal::Limit)
+        ));
+        assert!(capture(&literals(4, 1024)).is_ok());
+        assert!(matches!(
+            capture(&literals(5, 1024)),
+            Err(ActionBindingRefusal::Limit)
+        ));
+        assert!(matches!(
+            capture(&literals(1, 1025)),
+            Err(ActionBindingRefusal::Limit)
+        ));
+    }
+
+    #[test]
+    fn direct_nested_fields_stop_at_eight_without_copying_parent_records() {
+        for depth in [8, 9] {
+            let mut r = fixture(|b, out| {
+                let string = b.primitive(TypeKind::String);
+                let mut ty = string;
+                let mut initial = Asm::new();
+                initial.str(b.str("projected"));
+                for i in 0..depth {
+                    ty = b.record(&format!("Depth{i}"), &[("value", ty)]);
+                    initial.record(ty);
+                }
+                let initial = b.code(initial);
+                let root = b.slot("nested", ty, initial);
+                let mut arg = Asm::new();
+                arg.load_slot(root);
+                for _ in 0..depth {
+                    arg.field(0);
+                }
+                let mut action = Asm::new();
+                action.load_param(0).store_slot(out);
+                (vec![(string, b.code(arg))], action)
+            });
+            if depth == 8 {
+                let binding = capture(&r).unwrap();
+                r.dispatch_bound(&binding, Event::Press).unwrap();
+                assert_eq!(r.slot("out"), Some(&Value::str("projected")));
+            } else {
+                assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
+            }
+        }
+    }
+
+    #[test]
+    fn rich_projection_refuses_and_captured_scalar_does_not_pin_parent() {
+        let mut n = 0;
+        for rich in [Value::NONE, Value::list(vec![]), Value::record(vec![])] {
+            assert_eq!(
+                BindingScalar::capture(&rich, &mut n),
+                Err(ActionBindingRefusal::Unsupported)
+            );
+        }
+        let text: Rc<str> = Rc::from("retained-id");
+        let parent = Value::record(vec![
+            Value::Str(text.clone()),
+            Value::list(vec![Value::Unit; 1024]),
+        ]);
+        let Value::Record(fields) = &parent else {
+            unreachable!()
+        };
+        let before = Rc::strong_count(&text);
+        let scalar = BindingScalar::capture(&fields[0], &mut n).unwrap();
+        assert_eq!(Rc::strong_count(&text), before);
+        drop(parent);
+        assert_eq!(Rc::strong_count(&text), 1);
+        assert_eq!(scalar, BindingScalar::String("retained-id".into()));
+        assert_ne!(
+            BindingScalar::capture(&Value::Number(0.0), &mut n),
+            BindingScalar::capture(&Value::Number(-0.0), &mut n)
+        );
+        assert!(BindingScalar::capture(&Value::Number(f64::NAN), &mut n).is_err());
+    }
+
+    #[test]
+    fn projection_calls_and_rich_values_are_not_evaluated_by_capture() {
+        for call in [false, true] {
+            let r = fixture(|b, _| {
+                let ty = b.primitive(TypeKind::Number);
+                let ty = if call { ty } else { b.list(ty) };
+                let mut arg = Asm::new();
+                if call {
+                    arg.call(Stdlib::Now);
+                } else {
+                    arg.number(1.0).list(1);
+                }
+                (vec![(ty, b.code(arg))], Asm::new())
+            });
+            let before = r.journal().count();
+            assert!(matches!(
+                capture(&r),
+                Err(ActionBindingRefusal::Unsupported)
+            ));
+            assert_eq!(r.journal().count(), before);
+            assert_eq!(r.now_ms(), 0.0);
+        }
+    }
+
+    #[test]
+    fn direct_root_projection_tracks_current_scalar_and_poison_refuses() {
+        let mut r = fixture(|b, out| {
+            let ty = b.primitive(TypeKind::String);
+            let mut arg = Asm::new();
+            arg.load_slot(out);
+            let mut action = Asm::new();
+            action.load_param(0).store_slot(out);
+            (vec![(ty, b.code(arg))], action)
+        });
+        let binding = capture(&r).unwrap();
+        r.act("set", vec![Value::str("changed")]).unwrap();
+        assert_eq!(
+            r.validate_action_binding(&binding, EventKind::Press),
+            Err(ActionBindingRefusal::Stale)
+        );
+        r.poisoned = true;
+        assert!(matches!(capture(&r), Err(ActionBindingRefusal::Poisoned)));
+    }
+
+    #[test]
+    fn action_ambient_reads_commands_and_control_flow_refuse() {
+        for mode in 0..4 {
+            let r = fixture(|b, out| {
+                let mut action = Asm::new();
+                match mode {
+                    0 => {
+                        action.load_slot(out).store_slot(out);
+                    }
+                    1 => {
+                        action.call(Stdlib::Now).simple(Opcode::Pop);
+                    }
+                    2 => {
+                        let end = action.label();
+                        action.jump(end).place(end);
+                    }
+                    _ => {
+                        let name = b.str("effect");
+                        action.command(name, 0);
+                    }
+                }
+                (vec![], action)
+            });
+            assert!(matches!(
+                capture(&r),
+                Err(ActionBindingRefusal::Unsupported)
+            ));
+            assert_eq!(r.slot("out"), Some(&Value::str("")));
+        }
+    }
+
+    #[test]
+    fn action_actual_store_and_stack_limits_are_finite() {
+        for stores in [8, 9] {
+            let r = fixture(|b, out| {
+                let mut action = Asm::new();
+                let s = b.str("x");
+                for _ in 0..stores {
+                    action.str(s).store_slot(out);
+                }
+                (vec![], action)
+            });
+            if stores == 8 {
+                assert!(capture(&r).is_ok());
+            } else {
+                assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
+            }
+        }
+        let r = fixture(|_, _| {
+            let mut action = Asm::new();
+            for _ in 0..9 {
+                action.simple(Opcode::Unit);
+            }
+            (vec![], action)
+        });
+        assert!(matches!(capture(&r), Err(ActionBindingRefusal::Limit)));
     }
 }

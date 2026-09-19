@@ -10,6 +10,74 @@ import os
 /// or a press — ends the editing, as a click on a page's blank ground blurs
 /// the field (LLP 1008 §9).
 final class PageScrollView: NSScrollView {
+    private struct DocumentFit {
+        let document: ObjectIdentifier
+        let documentFrame: NSRect
+        let clipSize: NSSize
+        let frameSize: NSSize
+        let style: NSScroller.Style
+        let border: NSBorderType
+        let vertical: Bool
+        let horizontal: Bool
+        let autohides: Bool
+    }
+    private var documentFit: DocumentFit?
+    private var prefittingDocument = false
+    var permitsDocumentPrefit: (() -> Bool)?
+
+    func invalidateDocumentFit() { documentFit = nil }
+
+    /// Only a completed root fit may certify axes for the next outer shrink.
+    func acceptDocumentFit() {
+        guard !prefittingDocument, let document = documentView,
+              document.frame.origin == .zero, document.bounds.size == document.frame.size else { return }
+        documentFit = DocumentFit(document: ObjectIdentifier(document), documentFrame: document.frame,
+            clipSize: contentView.bounds.size, frameSize: frame.size, style: scrollerStyle,
+            border: borderType, vertical: hasVerticalScroller, horizontal: hasHorizontalScroller,
+            autohides: autohidesScrollers)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        if newSize != frame.size, !prefittingDocument {
+            prefittingDocument = true
+            prefitDocument(for: newSize)
+            super.setFrameSize(newSize)
+            prefittingDocument = false
+        } else {
+            super.setFrameSize(newSize)
+        }
+    }
+
+    /// An old fitting document must not manufacture gutters during tiling.
+    /// Keep overflowing axes and authored root frames untouched; ordinary layout
+    /// can still introduce real overflow and its necessary viewport correction.
+    private func prefitDocument(for newSize: NSSize) {
+        let accepted = documentFit
+        documentFit = nil
+        guard permitsDocumentPrefit?() == true, let fit = accepted, let document = documentView,
+              ObjectIdentifier(document) == fit.document, document.frame == fit.documentFrame,
+              document.bounds.size == document.frame.size, frame.size == fit.frameSize,
+              bounds.size == frame.size, contentView.bounds.size == fit.clipSize,
+              scrollerStyle == fit.style, borderType == fit.border,
+              hasVerticalScroller == fit.vertical, hasHorizontalScroller == fit.horizontal,
+              autohidesScrollers == fit.autohides, !automaticallyAdjustsContentInsets,
+              contentInsets.top == 0, contentInsets.left == 0,
+              contentInsets.bottom == 0, contentInsets.right == 0,
+              newSize.width.isFinite, newSize.height.isFinite,
+              newSize.width > 0, newSize.height > 0 else { return }
+        let width = fit.clipSize.width + newSize.width - fit.frameSize.width
+        let height = fit.clipSize.height + newSize.height - fit.frameSize.height
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else { return }
+        var size = document.frame.size
+        if size.width <= fit.clipSize.width, newSize.width < fit.frameSize.width {
+            size.width = min(size.width, width)
+        }
+        if size.height <= fit.clipSize.height, newSize.height < fit.frameSize.height {
+            size.height = min(size.height, height)
+        }
+        if size != document.frame.size { document.setFrameSize(size) }
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(nil)
         super.mouseDown(with: event)
@@ -93,6 +161,10 @@ final class Presenter {
     var insets = NSEdgeInsetsZero
 
     init() {
+        viewport.permitsDocumentPrefit = { [weak self] in
+            guard let self else { return false }
+            return !self.applying && !self.resetting
+        }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -369,6 +441,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        viewport.invalidateDocumentFit()
         session?.regions.reset()
         session?.rasters.reset()
         mouseSwipe.cancel()
@@ -400,6 +473,7 @@ final class Presenter {
 
     /// Size the document to its roots, never smaller than the viewport.
     func fitDocument() {
+        viewport.invalidateDocumentFit()
         var size = viewport.contentSize
         for r in root.subviews {
             size.width = max(size.width, r.frame.maxX)
@@ -409,6 +483,7 @@ final class Presenter {
         // The document just changed size; whether the page can scroll — and
         // so whether it may bounce — changed with it.
         viewport.syncElasticity()
+        viewport.acceptDocumentFit()
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
@@ -560,6 +635,7 @@ final class Presenter {
     func apply(_ batch: Batch) {
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
+        viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
         toolbar.prepare()
         for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }

@@ -66,6 +66,32 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// The caller has preflighted source/structural/wire bounds. Allocate the
+    /// staging vector before encoding; appending moves complete ops only.
+    pub(crate) fn staging(ops: usize) -> Result<Self, String> {
+        let mut out = Self::new();
+        out.ops
+            .try_reserve_exact(ops)
+            .map_err(|_| "native diff allocation")?;
+        Ok(out)
+    }
+    pub(crate) fn append_checked(&mut self, other: Self, max: usize) -> Result<(), String> {
+        let mut bytes = 0usize;
+        for op in &other.ops {
+            bytes = bytes
+                .checked_add(op.len())
+                .and_then(|n| n.checked_add(1))
+                .ok_or("native diff byte overflow")?;
+        }
+        if bytes > max {
+            return Err("native encoded diff capacity".into());
+        }
+        self.ops
+            .try_reserve_exact(other.ops.len())
+            .map_err(|_| "native append allocation")?;
+        self.ops.extend(other.ops);
+        Ok(())
+    }
     pub(crate) fn region(&mut self, json: &str) {
         self.ops.push(json.into());
     }
@@ -269,7 +295,12 @@ impl Batch {
     /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.
     pub fn finish(self, timers: bool, motion: bool, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
-        s.push_str(&self.ops.join(","));
+        for (i, op) in self.ops.iter().enumerate() {
+            if i != 0 {
+                s.push(',');
+            }
+            s.push_str(op);
+        }
         let _ = write!(
             s,
             "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
@@ -303,6 +334,75 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
                 value_json(item, out);
             }
             out.push(']');
+        }
+    }
+}
+
+#[cfg(test)]
+mod finish_bytes_tests {
+    use super::*;
+
+    // Exact pre-change finish writer. Compare bytes, not parsed JSON equivalence.
+    fn old_finish(
+        batch: &Batch,
+        timers: bool,
+        motion: bool,
+        clock_ms: f64,
+        error: Option<&str>,
+    ) -> String {
+        let mut s = String::from("{\"ops\":[");
+        s.push_str(&batch.ops.join(","));
+        let _ = write!(
+            s,
+            "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+        );
+        match error {
+            Some(e) => quote(e, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+        s
+    }
+    #[test]
+    fn native_publication_ordinary_finish_matches_original_join_bytes() {
+        for count in [0, 1, 12] {
+            for timers in [false, true] {
+                for motion in [false, true] {
+                    for clock in [0., -0., 123.25] {
+                        for error in [None, Some("refused α\n\"\\\u{0001}")] {
+                            let mut batch = Batch::new();
+                            batch.create(
+                                1,
+                                "view",
+                                &[("text", "α 👩‍🚀 e\u{301}\n\"\\\u{0001}".into())],
+                                "{}",
+                                &["press"],
+                            );
+                            batch.props(1, &[("title", "updated".into())], &["text"]);
+                            batch.style(1, "{\"opacity\":0.5}");
+                            batch.children(1, &[2, 3]);
+                            batch.frame(1, -0., 0.1, 200., 400.);
+                            batch.content(1, 200., 800.);
+                            batch.present(1, "translate", -0., 0.125);
+                            batch.surface(
+                                1,
+                                "ordinary",
+                                &[exact_plan::Value::Str("日本語".into())],
+                            );
+                            batch.command("focus", &[exact_plan::Value::Number(1.)]);
+                            batch.destroy(3);
+                            batch.roots(&[1]);
+                            batch.collections("[]");
+                            batch.ops.truncate(count);
+                            let expected = old_finish(&batch, timers, motion, clock, error);
+                            assert_eq!(
+                                batch.finish(timers, motion, clock, error).as_bytes(),
+                                expected.as_bytes()
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }

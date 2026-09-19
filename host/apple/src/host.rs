@@ -69,7 +69,7 @@ impl std::fmt::Display for HostError {
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
+pub(crate) struct Mirror {
     props: BTreeMap<String, String>,
     style: String,
     children: Vec<ViewId>,
@@ -209,6 +209,43 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
+        Self::boot_stored_after_decode_mode(
+            plan_bytes,
+            data,
+            measurer,
+            width,
+            height,
+            carried,
+            snapshot,
+            secrets,
+            compat,
+            delivery,
+            candidate_delivery,
+            launch,
+            region,
+            None,
+            prepare,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn boot_stored_after_decode_mode(
+        plan_bytes: &[u8],
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        secrets: Option<Secrets>,
+        compat: Option<&str>,
+        delivery: Option<&'static crate::delivery::Hooks>,
+        candidate_delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+        native: Option<crate::content_region::NativeProjectionLimits>,
+        prepare: impl FnOnce(&Plan),
+    ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
             exact_runner::delivery::refuse_analysis(json)
                 .map_err(|why| HostError::Delivery(why.into()))?;
@@ -246,10 +283,18 @@ impl<D: DataSource> Host<D> {
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
-        let content_region = region
+        let mut content_region = region
             .map(|r| crate::content_region::RegionState::new(runner.kernel_mut(), r))
             .transpose()
             .map_err(HostError::Layout)?;
+        if let Some(limits) = native {
+            content_region
+                .as_mut()
+                .ok_or_else(|| HostError::Layout("native registration missing".into()))?
+                .native = Some(
+                crate::content_region::NativeProjection::new(limits).map_err(HostError::Layout)?,
+            );
+        }
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
@@ -278,6 +323,7 @@ impl<D: DataSource> Host<D> {
             delivery,
         };
         let mut batch = Batch::new();
+        host.native_prepare_candidate().map_err(HostError::Layout)?;
         let order = host.preorder();
         for id in &order {
             host.create(*id, &mut batch);
@@ -803,13 +849,17 @@ impl<D: DataSource> Host<D> {
         error: Option<String>,
         mut batch: Batch,
     ) -> String {
+        self.native_retire_removed_owner(&mut batch);
+        self.native_note_receipts(receipts);
         for t in receipts {
             let r = &t.receipt;
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
-                    self.mirror.remove(&id);
+                    if !self.native_selected_id(id) {
+                        self.mirror.remove(&id);
+                        batch.destroy(id);
+                    }
                     self.transform_drags.remove(id);
-                    batch.destroy(id);
                 }
             }
             for key in &r.created {
@@ -911,8 +961,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.height_projection = sample;
-        self.emit_layout(batch);
-        Ok(())
+        self.emit_layout(batch)
     }
 
     /// Lay the roots out and publish nothing: the frames a list's settle pass
@@ -935,8 +984,11 @@ impl<D: DataSource> Host<D> {
 
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
-    fn emit_layout(&mut self, batch: &mut Batch) {
+    fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
         for id in self.preorder() {
+            if self.native_protected_id(id) {
+                continue;
+            }
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {
                 continue;
@@ -975,11 +1027,16 @@ impl<D: DataSource> Host<D> {
         }
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
-        let collections = self.runner.collections_json();
+        let collections = if self.native_mode() {
+            self.native_collections_json()?
+        } else {
+            self.runner.collections_json()
+        };
         if collections != self.collections_json {
             batch.collections(&collections);
             self.collections_json = collections;
         }
+        Ok(())
     }
 
     /// Every presentation value the engine changed, as `present` ops. At
@@ -1002,6 +1059,9 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
+            if self.native_protected_id(view) && !self.native_current() {
+                continue;
+            }
             let (x, y) = match p.property {
                 Property::Translate => (p.value.x, p.value.y),
                 _ => (p.value.x, 0.0),
@@ -1026,6 +1086,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn create(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.native_protected_id(id) {
+            if let Some(node) = self.runner.kernel().node(id) {
+                self.keys.insert(node.key, id);
+            }
+            return;
+        }
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
         let kind = kind_for(&node);
@@ -1036,8 +1102,7 @@ impl<D: DataSource> Host<D> {
             .runner
             .handlers_of(id)
             .into_iter()
-            .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
-            .map(|e| e.name())
+            .filter_map(handler_name)
             .collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
@@ -1065,6 +1130,9 @@ impl<D: DataSource> Host<D> {
     }
 
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.native_protected_id(id) {
+            return;
+        }
         let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
         let env = self.runner.kernel().env();
@@ -1092,7 +1160,15 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
-        let children = self.runner.kernel().node(id).expect("live").children();
+        if self.native_protected_id(id) {
+            return;
+        }
+        let mut children = self.runner.kernel().node(id).expect("live").children();
+        if self.native_mode() {
+            children.retain(|child| {
+                !self.native_protected_id(*child) || self.native_selected_id(*child)
+            });
+        }
         let m = self.mirror.entry(id).or_default();
         if children != m.children {
             batch.children(id, &children);
@@ -1199,6 +1275,13 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         }
     }
     out
+}
+
+fn handler_name(e: EventKind) -> Option<&'static str> {
+    match e {
+        EventKind::Reachstart | EventKind::Reachend => None,
+        _ => Some(e.name()),
+    }
 }
 
 #[cfg(test)]

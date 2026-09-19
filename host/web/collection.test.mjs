@@ -30,7 +30,7 @@ beforeAll(async () => {
     return result.result.value;
   };
   await call('Page.navigate', { url: `http://127.0.0.1:${server.port}` });
-  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.applyCollectionFeedback = module.applyCollectionFeedback; globalThis.createMotion = module.motionController; })`);
+  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.applyCollectionFeedback = module.applyCollectionFeedback; globalThis.createMotion = module.motionController; globalThis.createArrange = module.arrangeController; })`);
   await evaluate(`(${setup})()`);
 });
 afterAll(async () => {
@@ -40,21 +40,22 @@ afterAll(async () => {
 });
 function setup() {
   globalThis.fixture = (options = {}) => {
-    globalThis.f?.controller.dispose();
+    globalThis.f?.controller?.dispose();
+    globalThis.f?.motion?.reset();
     const root = document.getElementById('root');
     root.innerHTML = `<div id="port" style="height:180px;width:320px;overflow:auto;border:3px solid;padding:0"><div style="height:50px"></div><div data-view="1" style="padding:10px 12px;overflow-anchor:auto"><div data-view="2" style="height:40px;display:flow-root"><input data-view="3"></div><div data-view="4" style="height:60px;display:flow-root"><button data-view="5">row</button></div><div style="height:1800px"></div></div></div>`;
     const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
-    const frames = new Map(), reports = [];
+    const frames = new Map(), reports = [], wires = [];
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(32, true), height: d.getFloat64(40, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), rows: [] };
       for (let n = 0; n < d.getUint32(64, true); n++) read.rows.push({ view: d.getUint32(68 + n * 20, true), epoch: String(d.getBigUint64(72 + n * 20, true)), height: d.getFloat64(80 + n * 20, true) });
-      reports.push(read); return globalThis.f.onReport?.(read);
+      wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...options });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, top: 0, height: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, top: 1840, height: 60, epoch: '2' }], correction: null, ...extra });
     const flush = () => { const pending = [...frames.values()]; frames.clear(); for (const fn of pending) fn(); };
-    globalThis.f = { root, views, controller, snapshot, reports, frames, flush, port: document.getElementById('port') };
+    globalThis.f = { root, views, controller, snapshot, reports, wires, frames, flush, port: document.getElementById('port') };
     return f;
   };
 }
@@ -80,6 +81,240 @@ test('actual nested scrollport, content padding, mounted rows, and coalesced scr
   expect(result.last.rows.map(row => row.height)).toEqual([40, 60]);
   expect(result.last.rows[0].epoch).toBe('9007199254740993');
   expect(result.anchor).toBe('none');
+});
+// Count native DOM reads without substituting rectangles or layout results.
+function collectionReads(f) {
+  const elements = [f.views.get(1), f.port, f.views.get(2), f.views.get(4)], counts = [0,0,0,0];
+  elements.forEach((el,i) => { const read=el.getBoundingClientRect.bind(el);
+    el.getBoundingClientRect=()=>{counts[i]++;return read();}; });
+  return { counts, clear:()=>counts.fill(0) };
+}
+test('observer baseline: commit to feedback to real observer reads each row once before delivery', async () => {
+  const result=await evaluate(`(async () => {
+    const NativeObserver=ResizeObserver, deliveries=[];
+    globalThis.ResizeObserver=class extends NativeObserver {
+      constructor(callback){super(entries=>{deliveries.push(entries.map(e=>e.target.dataset.view??'port'));callback(entries);});}
+    };
+    let f,reads,commit;
+    try {
+      f=fixture();reads=(${collectionReads})(f);
+      f.views.get(2).style.height='40.5px';f.views.get(4).style.height='60.25px';
+      f.controller.commit([f.snapshot('7')]);commit=[...reads.counts];
+    } finally { globalThis.ResizeObserver=NativeObserver; }
+    f.port.scrollTop=110;f.views.get(3).focus({preventScroll:true});
+    f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    f.flush();const feedback=[...reads.counts], wire=f.wires.at(-1);
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const observed=[...reads.counts], queued=f.frames.size;f.flush();
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    return {commit,feedback,observed,deliveries,queued,pending:f.frames.size,reports:f.reports.length,wire,width:f.port.clientWidth};
+  })()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+  expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
+  expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
+  expect([result.reports,result.queued,result.pending]).toEqual([1,0,0]);
+  console.log('observer baseline commit/feedback/observer',JSON.stringify(result));
+  expect(result.commit).toEqual([1,1,0,0]);
+  expect(result.feedback.slice(2)).toEqual([1,1]);
+  expect(result.observed.slice(2)).toEqual([2,2]);
+});
+test('observer baseline: real own notifications cannot extend two dependent passes, later external rows wake', async () => {
+  const result=await evaluate(`(async () => {
+    const f=fixture();let revision=1;
+    f.onReport=()=>{f.views.get(2).style.height=(40+revision)+'.5px';f.controller.commit([f.snapshot(String(++revision))]);};
+    f.controller.commit([f.snapshot()]);
+    for(let i=0;i<6;i++){f.flush();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}
+    const own={reports:f.reports.length,pending:f.frames.size,heights:f.reports.map(r=>r.rows[0].height)};
+    f.onReport=null;f.views.get(2).style.height='97.25px';
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {own,last,externalReports:n,pending:f.frames.size,idle:f.reports.length===n};
+  })()`);
+  expect(result.own).toEqual({reports:2,pending:0,heights:[40,41.5]});
+  expect(result.last.rows[0].height).toBe(97.25);
+  expect(result.externalReports).toBe(3);expect(result.pending).toBe(0);expect(result.idle).toBe(true);
+});
+test('observer baseline: observer before queued feedback does not replenish an own commit budget', async () => {
+  const result=await evaluate(`(() => {
+    const NativeObserver=ResizeObserver;let notify;
+    globalThis.ResizeObserver=class {constructor(fn){notify=fn;}observe(){}unobserve(){}disconnect(){}};
+    let f;try{f=fixture();f.controller.commit([f.snapshot()]);}finally{globalThis.ResizeObserver=NativeObserver;}
+    let revision=1;f.onReport=()=>{f.views.get(2).style.height=(40+revision)+'.25px';f.controller.commit([f.snapshot(String(++revision))]);};
+    for(let i=0;i<8;i++){notify([{target:f.views.get(2)},{target:f.views.get(4)}]);f.flush();}
+    const own={reports:f.reports.length,pending:f.frames.size,heights:f.reports.map(r=>r.rows[0].height)};
+    f.onReport=null;f.port.style.height='220px';notify([{target:f.port}]);
+    const beforeFrame={reports:f.reports.length,height:f.reports.at(-1).height};f.flush();
+    return {own,beforeFrame,pending:f.frames.size};
+  })()`);
+  expect(result.own).toEqual({reports:2,pending:0,heights:[40,41.25]});
+  expect(result.beforeFrame).toEqual({reports:3,height:220});expect(result.pending).toBe(0);
+});
+test('observer baseline: external growth coalesced after final own commit survives real observer delivery', async () => {
+  const result=await evaluate(`(async () => {
+    const NativeObserver=ResizeObserver,events=[];let f;
+    globalThis.ResizeObserver=class extends NativeObserver {
+      constructor(callback){super(entries=>{events.push({kind:'observer',reports:f.reports.length,
+        rows:entries.filter(e=>e.target.dataset.view==='2').map(e=>e.target.getBoundingClientRect().height)});callback(entries);});}
+    };
+    // Fix both containing boxes: only the row can expose the external growth.
+    try {f=fixture();f.views.get(1).style.height='1900px';f.controller.commit([f.snapshot()]);}
+    finally{globalThis.ResizeObserver=NativeObserver;}
+    let revision=1;
+    f.onReport=()=>{
+      const row=f.views.get(2);events.push({kind:'report',height:f.reports.at(-1).rows[0].height});
+      row.style.height=(40+revision)+'.5px';f.controller.commit([f.snapshot(String(++revision))]);
+      events.push({kind:'own-commit',height:row.getBoundingClientRect().height});
+    };
+    f.flush();f.flush();const exhausted={reports:f.reports.length,pending:f.frames.size};
+    // A separate mutation in the same task, before native ResizeObserver delivery.
+    f.onReport=null;f.views.get(2).style.height='97.25px';events.push({kind:'external'});
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),wire=f.wires.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {events,exhausted,last,wire,reports:f.reports.length,idle:f.reports.length===n,pending:f.frames.size};
+  })()`);
+  expect(result.exhausted).toEqual({reports:2,pending:0});
+  expect(result.events.slice(0,5)).toEqual([{kind:'report',height:40},{kind:'own-commit',height:41.5},
+    {kind:'report',height:41.5},{kind:'own-commit',height:42.5},{kind:'external'}]);
+  expect(result.events.slice(5).some(e=>e.kind==='observer'&&e.reports===2&&e.rows.includes(97.25))).toBe(true);
+  expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740993',height:97.25});
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'3',scroll_sequence:result.last.sequence,
+    scroll_top:result.last.top,port_width:result.last.width,port_height:180,row_width:result.last.rowWidth,
+    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',height:97.25},{view:4,epoch:'2',height:60}]})]);
+  expect([result.reports,result.idle,result.pending]).toEqual([3,true,0]);
+  console.log('observer baseline coalesced external growth',JSON.stringify(result));
+});
+test('observer baseline: unchanged feedback refreshes row width baseline and ignores retired Elements', async () => {
+  const result=await evaluate(`(() => {
+    const NativeObserver=ResizeObserver;let notify;
+    globalThis.ResizeObserver=class {constructor(fn){notify=fn;}observe(){}unobserve(){}disconnect(){}};
+    let f;try{f=fixture();f.controller.commit([f.snapshot()]);}finally{globalThis.ResizeObserver=NativeObserver;}
+    f.flush();const initial=f.wires[0];
+    f.views.get(2).style.width='50px';f.controller.commit([f.snapshot('2')]);f.flush();
+    notify([{target:f.views.get(2)}]);const unchanged={reports:f.reports.length,pending:f.frames.size};
+    const old=f.views.get(2),row=document.createElement('div');row.dataset.view='2';row.style.height='73.5px';old.replaceWith(row);f.views.set(2,row);
+    const next=f.snapshot('3');next.rows[0].epoch='9007199254740994';f.controller.commit([next]);f.flush();
+    notify([{target:old},{target:row}]);return {initial,unchanged,last:f.reports.at(-1),pending:f.frames.size,width:f.port.clientWidth};
+  })()`);
+  expect(result.unchanged).toEqual({reports:1,pending:0});
+  expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740994',height:73.5});
+  expect(result.last.revision).toBe('3');expect(result.pending).toBe(0);
+});
+test('observer baseline: hidden pending row resumes on an external show without a commit', async () => {
+  const result=await evaluate(`(async () => {
+    const f=fixture();f.views.get(2).style.display='none';f.controller.commit([f.snapshot()]);f.flush();
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const hidden=f.reports.length;f.views.get(2).style.display='flow-root';
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    const last=f.reports.at(-1),n=f.reports.length;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));f.flush();
+    return {hidden,last,idle:f.reports.length===n,pending:f.frames.size};
+  })()`);
+  expect(result.hidden).toBe(0);expect(result.last.rows[0].height).toBe(40);
+  expect(result.idle).toBe(true);expect(result.pending).toBe(0);
+});
+test('collection read reuse: correction-free commit reads only list and port baselines', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.controller.commit([f.snapshot()]);const commit=[...reads.counts];f.flush();
+    return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',scroll_top:0,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:null,interaction_view:null,
+    measurements:[{view:2,epoch:'9007199254740993',height:40},{view:4,epoch:'2',height:60}]})]);
+  expect(result.commit).toEqual([1,1,0,0]);
+});
+test('collection read reuse: one row sample preserves fractional wire, epochs and both pins', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.views.get(2).style.height='40.5px';f.views.get(4).style.height='60.25px';
+    f.controller.commit([f.snapshot('7')]);f.port.scrollTop=110;
+    f.views.get(3).focus({preventScroll:true});f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    reads.clear();let beforeReport;f.onReport=()=>{beforeReport=[...reads.counts];};f.flush();
+    return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
+  expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
+    port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+  expect(result.pending).toBe(0);
+  expect(result.beforeReport.slice(2)).toEqual([1,1]);
+});
+test('collection read reuse: eligible nested correction alone reads geometry, latest user scroll wins', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),reads=(${collectionReads})(f);
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence,s=f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:140}});
+    reads.clear();f.controller.commit([s]);const eligible={top:f.port.scrollTop,reads:[...reads.counts]};
+    reads.clear();f.controller.commit([s]);const repeated={top:f.port.scrollTop,reads:[...reads.counts]};
+    f.port.scrollTop=260;reads.clear();f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]);
+    return {eligible,repeated,newer:{top:f.port.scrollTop,reads:[...reads.counts]}};})()`);
+  expect(result.eligible).toEqual({top:200,reads:[2,2,0,0]});
+  expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
+  expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
+});
+test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
+    f.views.get(2).style.height='40.5px';f.onReport=()=>{widths.push(f.port.clientWidth);if(replaced)return;replaced=true;
+      const old=f.views.get(2),row=document.createElement('div');row.dataset.view='2';row.style.height='73.5px';old.replaceWith(row);f.views.set(2,row);
+      f.views.get(4).style.height='88.25px';f.port.style.width='240px';
+      const next=f.snapshot('2');next.rows[0].epoch='9007199254740994';f.controller.commit([next]);};
+    f.controller.commit([f.snapshot()]);f.flush();const first=f.reports.length,queued=f.frames.size;f.flush();f.flush();
+    return {first,queued,reports:f.reports,wires:f.wires,widths,pending:f.frames.size};})()`);
+  expect(result.first).toBe(1);expect(result.queued).toBe(1);expect(result.pending).toBe(0);
+  expect(result.reports.map(r=>[r.revision,r.sequence,r.rowWidth,r.rows])).toEqual([
+    ['1','0',result.widths[0]-24,[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60}]],
+    ['2','1',result.widths[1]-24,[{view:2,epoch:'9007199254740994',height:73.5},{view:4,epoch:'2',height:88.25}]],
+  ]);
+  for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
+    revision:r.revision,scroll_sequence:r.sequence,scroll_top:0,port_width:r.width,port_height:180,
+    row_width:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows})]);
+});
+test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.style.cssText='font:16px monospace;line-height:20.25px';row.textContent='word '.repeat(41);
+    f.controller.commit([f.snapshot()]);f.flush();const first=row.getBoundingClientRect().height,firstWidth=f.port.clientWidth;
+    f.port.style.width='180px';f.controller.commit([f.snapshot('2')]);f.flush();const second=row.getBoundingClientRect().height,secondWidth=f.port.clientWidth;
+    return {first,second,firstWidth,secondWidth,reports:f.reports,pending:f.frames.size};})()`);
+  expect(result.second).toBeGreaterThan(result.first);
+  expect(result.reports.map(r=>r.rows[0].height)).toEqual([result.first,result.second]);
+  expect(result.reports.map(r=>[r.sequence,r.rowWidth])).toEqual([['0',result.firstWidth-24],['1',result.secondWidth-24]]);
+  expect(Number.isInteger(result.first/20.25)).toBe(true);expect(Number.isInteger(result.second/20.25)).toBe(true);
+  expect([result.first,result.second].some(n=>n%1!==0)).toBe(true);expect(result.pending).toBe(0);
+});
+test('collection read reuse: zero-height attached rows measure, hidden and detached rows never guess', async () => {
+  const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.replaceChildren();row.style.height='0px';
+    f.controller.commit([f.snapshot()]);f.flush();const zero=f.reports.at(-1).rows[0].height;
+    f.views.get(4).style.display='none';f.controller.commit([f.snapshot('2')]);f.flush();const hidden=f.reports.length;
+    f.views.get(4).style.display='';row.remove();f.controller.commit([f.snapshot('3')]);f.flush();const detached=f.reports.length;
+    f.views.get(1).prepend(row);row.style.height='12.75px';f.controller.commit([f.snapshot('4')]);f.flush();
+    return {zero,hidden,detached,last:f.reports.at(-1),count:f.reports.length,pending:f.frames.size};})()`);
+  expect(result.zero).toBe(0);expect(result.hidden).toBe(1);expect(result.detached).toBe(1);
+  expect(result.last.revision).toBe('4');expect(result.last.rows[0].height).toBe(12.75);
+  expect(result.count).toBe(2);expect(result.pending).toBe(0);
+});
+test('integer DOM end retains fractional measured extent in actual collection feedback', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture();
+    f.root.innerHTML='<div data-view="1" style="height:519px;width:320px;overflow:auto;padding:0;border:0"><div data-view="2" style="height:335080px"></div><div data-view="4" style="height:297.078125px"></div></div>';
+    f.views.clear();
+    for(const el of f.root.querySelectorAll('[data-view]'))f.views.set(+el.dataset.view,el);
+    const port=f.views.get(1);
+    f.controller.commit([f.snapshot('1',{totalExtent:335377.078125,count:2,
+      rows:[{view:2,root:2,index:0,top:0,height:335080,epoch:'1'},
+        {view:4,root:4,index:1,top:335080,height:297.078125,epoch:'1'}]})]);
+    port.scrollTop=10000000;
+    port.dispatchEvent(new Event('scroll'));f.flush();
+    const facts=f.reports.at(-1), measured=facts.rows.reduce((n,r)=>n+r.height,0);
+    return {top:port.scrollTop,height:port.clientHeight,extent:port.scrollHeight,
+      remaining:port.scrollHeight-port.clientHeight-port.scrollTop,facts,measured,
+      fractionalRemaining:measured-facts.height-facts.top};
+  })()`);
+  expect(result.top).toBe(334858);
+  expect(result.height).toBe(519);
+  expect(result.extent).toBe(335377);
+  expect(result.remaining).toBe(0);
+  expect(result.facts.top).toBe(result.top);
+  expect(result.facts.height).toBe(result.height);
+  expect(result.measured).toBe(335377.078125);
+  expect(result.fractionalRemaining).toBe(0.078125);
+  console.log('DOM integer-end facts', JSON.stringify(result));
 });
 test('correction consumes once, never overwrites a newer DOM scroll even before its event', async () => {
   const result = await evaluate(`(() => { const f=fixture(); f.controller.commit([f.snapshot()]); f.port.scrollTop=160; f.port.dispatchEvent(new Event('scroll')); f.flush(); const seq=f.reports.at(-1).sequence; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:140}})]); const corrected=f.port.scrollTop; f.port.scrollTop=260; f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]); const newer=f.port.scrollTop; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:0}})]); return {corrected,newer,old:f.port.scrollTop}; })()`);
@@ -628,4 +863,248 @@ test('physical primary mouse pan captures outside the photo and commits once',as
   await evaluate('f.advance(20)');await mouse('mouseReleased',rect.right+30,rect.y+20,0);
   const result=await evaluate(`({actions:f.actions,held:f.held.size,captured:f.handle.hasPointerCapture(1),final:f.calls.find(c=>c.op==='transform-action')?.values})`);
   expect(result.actions).toBe(1);expect(result.held).toBe(0);expect(result.captured).toBe(false);expect(result.final[0]).toBeGreaterThan(250);expect(result.final[2]).toBe(1);
+});
+
+test('Arrange source reservation survives pointerup while focus plus source remain the only two pins', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture(); f.controller.commit([f.snapshot()]);
+    f.views.get(3).focus({preventScroll:true});
+    f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    f.flush(); const before=f.reports.at(-1);
+    const lease=f.controller.retainInteraction(f.views.get(5),7);
+    f.root.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7}));
+    f.flush(); const terminal=f.reports.at(-1);
+    f.controller.releaseRetainedInteraction(lease); f.flush(); const ended=f.reports.at(-1);
+    return {before:[before.focus,before.interaction],terminal:[terminal.focus,terminal.interaction],
+      ended:[ended.focus,ended.interaction],pending:f.frames.size};
+  })()`);
+  expect(result).toEqual({before:[3,5],terminal:[3,5],ended:[3,0],pending:0});
+});
+test('Arrange old completion cannot release replacement reservation with a reused pointer id', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture(); f.controller.commit([f.snapshot()]);
+    const down=id=>f.views.get(id).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
+    down(5); f.flush(); const old=f.controller.retainInteraction(f.views.get(5),7);
+    f.controller.releaseRetainedInteraction(old); f.flush();
+    down(3); f.flush(); const replacement=f.controller.retainInteraction(f.views.get(3),7);
+    f.controller.releaseRetainedInteraction(old); f.flush(); const stale=f.reports.at(-1).interaction;
+    f.controller.releaseRetainedInteraction(replacement); f.flush();
+    return {stale,ended:f.reports.at(-1).interaction,pending:f.frames.size};
+  })()`);
+  expect(result).toEqual({stale:3,ended:0,pending:0});
+});
+test('Arrange terminal reservation survives grip replacement until explicit finish', async () => {
+  const result = await evaluate(`(() => {
+    const f=fixture(); f.controller.commit([f.snapshot()]);
+    const old=f.views.get(5),wrapper=f.views.get(4);
+    old.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));f.flush();
+    const lease=f.controller.retainInteraction(old,7);
+    // Common has entered no-action Terminal and retains this source KEY. The
+    // authored grip/root can disappear while its flow wrapper still survives.
+    old.remove();f.views.delete(5);
+    const replacement=document.createElement('button');replacement.dataset.view='6';replacement.textContent='new grip';
+    wrapper.append(replacement);f.views.set(6,replacement);
+    f.controller.commit([f.snapshot('2',{rows:[
+      {view:2,root:3,index:0,top:0,height:40,epoch:'9007199254740993'},
+      {view:4,root:6,index:99,top:1840,height:60,epoch:'3'}]})]);
+    f.root.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:7}));f.flush();
+    const terminal=f.reports.at(-1).interaction;
+    f.controller.releaseRetainedInteraction(lease);f.flush();
+    return {terminal,ended:f.reports.at(-1).interaction,wrapperLive:wrapper.isConnected,pending:f.frames.size};
+  })()`);
+  expect(result).toEqual({terminal:5,ended:0,wrapperLive:true,pending:0});
+});
+
+// Real DOM mapping, C0 rebasing and stacking; Common authority is tested in Rust.
+test('Arrange mapping uses signed list origin inside a bordered nested port', async()=>{
+  const r=await evaluate(`(() => {const f=fixture();f.controller.commit([f.snapshot()]);f.flush();
+    const y=f.port.getBoundingClientRect().top+f.port.clientTop+20;
+    const m=f.controller.reorderMapping(1,y);
+    return {y:m.contentY,expected:y-(f.views.get(1).getBoundingClientRect().top+10)};})()`);
+  expect(r.y).toBe(r.expected);
+  expect(r.y).toBe(-40);
+});
+test('Arrange terminal rebases actual wrapper pixels before release and preserves source elevation hit',async()=>{
+  const r=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,a=f.views.get(2),b=f.views.get(4),list=f.views.get(1);
+    a.style.background='red';b.style.background='blue';
+    const ha=m.begin(2,'translate'),hb=m.begin(4,'translate');m.move(ha,[0,50]);m.move(hb,[0,-30]);
+    const old=[a,b].map(el=>el.getBoundingClientRect().top);
+    m.raiseReorder(2,true);
+    const hit=a.contains(document.elementFromPoint(a.getBoundingClientRect().left+10,a.getBoundingClientRect().top+20));
+    list.insertBefore(b,a);
+    m.rebaseReorder([{view:2,token:ha.token,visual:[a.getBoundingClientRect().left,old[0]]},{view:4,token:hb.token,visual:[b.getBoundingClientRect().left,old[1]]}]);
+    const next=[a,b].map(el=>el.getBoundingClientRect().top);
+    m.style(2,'height:40px;background:green;translate:0px');
+    const elevated=getComputedStyle(a).zIndex;
+    m.raiseReorder(2,false);
+    return {old,next,hit,elevated,cleared:getComputedStyle(a).zIndex};})()`);
+  expect(r.next).toEqual(r.old);expect(r.hit).toBe(true);expect(r.elevated).toBe('2147483647');expect(r.cleared).toBe('auto');
+});
+function arrangeFixture(realFrames=false,clock=()=>performance.now()) {
+  const f=fixture({settled:()=>globalThis.f?.arrange?.commit(),...(realFrames?{requestFrame:fn=>requestAnimationFrame(fn),cancelFrame:id=>cancelAnimationFrame(id)}:{})}),calls=[],list=f.views.get(1),source=f.views.get(4),grip=f.views.get(5);
+  let terminal=false,token='0',revision=1;
+  const initial=[{view:2,key:'9007199254740993',rootKey:'9007199254740994',top:0,offset:0,hold:'0'},
+    {view:4,key:'9007199254740995',rootKey:'9007199254740996',top:40,offset:0,hold:'0'}];
+  const binding={id:5,runtime:'9007199254740999',handleKey:'9007199254740996',list:1,listKey:'9007199254740998',wrapper:4,
+    wrapperKey:'9007199254740995',rootKey:'9007199254740996',rowEpoch:'2'};
+  let motion,arrange;
+  const apply=batch=>{for(const op of batch?.ops??[]){
+    if(op.op==='style')motion.style(op.id,op.css);
+    if(op.op==='animate')motion.animate(op);
+    if(op.op==='swap'){list.insertBefore(source,f.views.get(2)); f.swapped=true;
+      f.controller.commit([f.snapshot(String(++revision),{rows:[{view:4,root:5,index:0,top:0,height:60,epoch:'2'},{view:2,root:3,index:1,top:60,height:40,epoch:'9007199254740993'}]})]);}
+  }motion.commit();arrange?.commit();};
+  const request=r=>{
+    calls.push(r);
+    const frame=initial.map(row=>({...row,hold:row.view===4?'99':terminal?'101':'0'}));
+    if(r.op==='reorder-begin'){if(f.requireGripPin&&f.reports.at(-1).interaction!==5)return {accepted:false};token='77';return {accepted:true,token,frame,batch:{ops:[]}};}
+    if(r.op==='reorder-preview')return {accepted:true,token,frame,certified:true,batch:{ops:[]}};
+    if(r.op==='reorder-terminal'||r.op==='reorder-cancel'){
+      terminal=true;f.beforeSwap=motion.captureReorder(frame);
+      return {accepted:true,token,terminal:true,frame:frame.map(row=>({...row,hold:row.view===4?'99':'101'})),batch:{ops:r.op==='reorder-terminal'?[{op:'swap'}]:[]}};
+    }
+    if(r.op==='reorder-rebase'){
+      f.afterRebase=motion.captureReorder(frame);
+      return {accepted:true,token,terminal:true,released:true,frame,batch:{ops:r.rows.map(row=>({op:'animate',id:row.view,property:'translate',values:[row.value,[0,0]],delay:0,duration:200}))}};
+    }
+    if(r.op==='reorder-finish'){f.finished=(f.finished??0)+1;return {accepted:true,batch:{ops:[]}};}
+    return {accepted:false};
+  };
+  motion=createMotion({views:f.views,now:clock,generation:()=>1,request,applyBatch:apply,inert:el=>el.closest('[inert]')});
+  arrange=createArrange({views:f.views,collections:f.controller,motion,request,applyBatch:apply,now:clock,generation:()=>1,inert:el=>el.closest('[inert]')});
+  f.controller.commit([f.snapshot()]);f.flush();arrange.binding(binding);
+  Object.assign(f,{arrange,motion,calls,source,grip,binding});return f;
+}
+test('Arrange real pointer catch, one drop, terminal C0 and retained pin until animation settlement',async()=>{
+  await evaluate(`(() => {const f=(${arrangeFixture})();f.source.style.background='blue';f.motion.animate({id:4,property:'translate',values:[[0,0],[0,30]],delay:0,duration:1000});
+    const a=f.source.getAnimations()[0];a.pause();a.currentTime=500;f.beforeCatch=f.source.getBoundingClientRect().top;})()`);
+  const at=await evaluate(`(()=>{const r=f.grip.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mousePressed',x:at.x,y:at.y,button:'left',clickCount:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.y-10,button:'left',buttons:1});
+  const caught=await evaluate(`({before:f.beforeCatch,after:f.source.getBoundingClientRect().top,begin:f.calls.filter(r=>r.op==='reorder-begin').length})`);
+  expect(caught.begin).toBe(1);expect(caught.after).toBe(caught.before);
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.y-30,button:'left',buttons:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseReleased',x:at.x,y:at.y-30,button:'left',clickCount:1});
+  const terminal=await evaluate(`(()=>{f.flush();for(const a of f.source.getAnimations())a.pause();return {
+    drops:f.calls.filter(r=>r.op==='reorder-terminal').length,rebases:f.calls.filter(r=>r.op==='reorder-rebase').length,
+    old:f.beforeSwap?.map(r=>r.visual),next:f.afterRebase?.map(r=>r.visual),pin:f.reports.at(-1).interaction,finished:f.finished??0,swapped:f.swapped};})()`);
+  expect(terminal.drops).toBe(1);expect(terminal.rebases).toBe(1);expect(terminal.next).toEqual(terminal.old);
+  expect(terminal.pin).toBe(5);expect(terminal.finished).toBe(0);expect(terminal.swapped).toBe(true);
+  const settled=await evaluate(`(async()=>{for(const el of [f.source,f.views.get(2)])for(const a of el.getAnimations())a.finish();await new Promise(r=>setTimeout(r,0));f.flush();return {finished:f.finished,pin:f.reports.at(-1).interaction,z:getComputedStyle(f.source).zIndex};})()`);
+  expect(settled).toEqual({finished:1,pin:0,z:'auto'});
+  await evaluate('f.arrange.reset()');
+});
+test('Arrange packet v3 preserves every u64 and every final wrapper sample',()=>{
+  const facts={op:'reorder-terminal',runtime:'18446744073709551615',handleKey:'9007199254740993',listKey:'9007199254740994',wrapperKey:'9007199254740995',rootKey:'9007199254740996',rowEpoch:'9007199254740997',token:'9007199254740998',revision:'9007199254740999',scrollSequence:'9007199254741000',scrollTop:1.25,portWidth:320,portHeight:200,rowWidth:300,totalExtent:1234.5,contentY:800,x:3,y:42,vx:-12,vy:99,now:150,rows:[{key:'9007199254740995',hold:'9007199254741001',value:[3,42]}]};
+  const bytes=motionBytes(facts),d=new DataView(bytes.buffer);
+  expect(bytes.length).toBe(208);expect(d.getUint32(0,true)).toBe(3);expect(d.getUint32(4,true)).toBe(17);
+  expect(d.getBigUint64(8,true)).toBe(18446744073709551615n);expect(d.getBigUint64(72,true)).toBe(9007199254741000n);
+  expect(d.getFloat64(128,true)).toBe(800);expect(d.getFloat64(168,true)).toBe(150);
+  expect(d.getBigUint64(184,true)).toBe(9007199254741001n);expect(d.getFloat64(200,true)).toBe(42);
+  expect(()=>motionBytes({...facts,handleKey:9007199254740992})).toThrow();
+  expect(()=>motionBytes({...facts,rows:Array(4097).fill(facts.rows[0])})).toThrow();
+});
+test('Arrange settle follows a retargeted return and paused virtual-clock completion without idle rAF',async()=>{
+  const r=await evaluate(`(async()=>{const f=(${motionFixture})();let ended=0;f.motion.animate({id:2,property:'translate',values:[[0,50],[0,0]],delay:0,duration:200});
+    f.motion.settleReorder(2,()=>ended++);f.motion.animate({id:2,property:'translate',values:[[0,30],[0,0]],delay:0,duration:1000});
+    const replacement=f.node.getAnimations()[0];replacement.pause();replacement.currentTime=500;await Promise.resolve();await Promise.resolve();
+    const middle={ended,settled:f.motion.reorderSettled(2)};replacement.currentTime=1000;
+    const virtual=f.motion.reorderSettled(2);replacement.finish();await new Promise(r=>setTimeout(r,0));return {middle,virtual,ended};})()`);
+  expect(r).toEqual({middle:{ended:0,settled:false},virtual:true,ended:1});
+});
+test('Arrange edge scroll reads actual movement and becomes idle at the clamp',async()=>{
+  await evaluate(`(async()=>{const f=(${arrangeFixture})(true);f.views.get(1).lastElementChild.style.height='120px';f.controller.commit([f.snapshot('2',{totalExtent:220,count:3})]);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()`);
+  const at=await evaluate(`(()=>{const r=f.grip.getBoundingClientRect(),p=f.port.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,bottom:p.y+f.port.clientTop+f.port.clientHeight-2};})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mousePressed',x:at.x,y:at.y,button:'left',clickCount:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.y+10,button:'left',buttons:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.bottom,button:'left',buttons:1});
+  const r=await evaluate(`(async()=>{for(let n=0;n<20;n++)await new Promise(requestAnimationFrame);const g=f.controller.reorderMapping(1,0);const a={top:f.port.scrollTop,max:Math.min(f.port.scrollHeight-f.port.clientHeight,f.port.scrollTop+g.totalExtent-g.portHeight-g.raw),calls:f.calls.length};for(let n=0;n<4;n++)await new Promise(requestAnimationFrame);return {a,b:{top:f.port.scrollTop,calls:f.calls.length},previews:f.calls.filter(r=>r.op==='reorder-preview').length,cancels:f.calls.filter(r=>r.op==='reorder-cancel').length};})()`);
+  if(r.a.top!==r.a.max) console.log(JSON.stringify({r,trace:await evaluate(`({calls:f.calls.map(r=>({op:r.op,raw:r.raw,contentY:r.contentY,y:r.y,sequence:r.scrollSequence})),reports:f.reports,css:[f.grip,f.source,f.views.get(1),f.port].map(el=>({tag:el.tagName,translate:getComputedStyle(el).translate,scale:getComputedStyle(el).scale,rect:el.getBoundingClientRect().toJSON()}))})`)}));
+  expect(r.a.top).toBe(r.a.max);expect(r.a.top).toBeGreaterThan(0);expect(r.b).toEqual({top:r.a.top,calls:r.a.calls});expect(r.previews).toBeGreaterThan(3);expect(r.cancels).toBe(0);
+  await protocol('Input.dispatchMouseEvent',{type:'mouseReleased',x:at.x,y:at.bottom,button:'left',clickCount:1});
+  await evaluate('f.arrange.reset()');
+});
+test('Arrange pointer-up during unaccepted geometry cancels once without losing terminal cleanup',async()=>{
+  await evaluate(`(() => {const f=(${arrangeFixture})();})()`);
+  const at=await evaluate(`(()=>{const r=f.grip.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mousePressed',x:at.x,y:at.y,button:'left',clickCount:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.y+10,button:'left',buttons:1});
+  // A real accepted feedback turn is not available for the final physical
+  // sample. Never use the previously certified gap or leave a contact alive.
+  await evaluate(`(()=>{f.savedMapping=f.controller.reorderMapping;f.controller.reorderMapping=()=>undefined;})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mouseReleased',x:at.x,y:at.y+25,button:'left',clickCount:1});
+  const r=await evaluate(`(async()=>{f.controller.reorderMapping=f.savedMapping;for(const el of [f.source,f.views.get(2)])for(const a of el.getAnimations())a.finish();await new Promise(r=>setTimeout(r,0));f.flush();return {cancel:f.calls.filter(r=>r.op==='reorder-cancel').length,drop:f.calls.filter(r=>r.op==='reorder-terminal').length,rebase:f.calls.filter(r=>r.op==='reorder-rebase').length,finish:f.finished??0,pin:f.reports.at(-1).interaction};})()`);
+  await evaluate('f.arrange.reset()');
+  expect(r).toEqual({cancel:1,drop:0,rebase:1,finish:1,pin:0});
+});
+test('Arrange destruction retires its binding listener and touch policy without waiting for reset',async()=>{
+  const r=await evaluate(`(()=>{const f=(${arrangeFixture})();f.arrange.reset();f.grip.style.touchAction='pan-y';f.arrange.binding(f.binding);
+    const attached=f.grip.style.touchAction;
+    // Destruction removes the binding before the element leaves the DOM.
+    let contacts=0;f.controller.reorderContact=()=>contacts++;
+    f.arrange.destroy(5);f.grip.dispatchEvent(new PointerEvent('pointerdown',{isPrimary:true,button:0,pointerId:7}));f.grip.remove();f.views.delete(5);
+    const retired=f.grip.style.touchAction;f.arrange.reset();return {attached,retired,contacts};})()`);
+  expect(r).toEqual({attached:'none',retired:'pan-y',contacts:0});
+});
+test('Arrange edge speed follows elapsed time across 60 and 120Hz, bounds stalls and resets idle time',async()=>{
+  const r=await evaluate(`(()=>{
+    const request=requestAnimationFrame,cancel=cancelAnimationFrame;
+    const run=hz=>{let time=0,serial=0;const frames=new Map();
+      window.requestAnimationFrame=fn=>{frames.set(++serial,fn);return serial;};window.cancelAnimationFrame=id=>frames.delete(id);
+      const f=(${arrangeFixture})(false,()=>time);f.grip.setPointerCapture=()=>{};f.grip.hasPointerCapture=()=>false;
+      const row=f.grip.getBoundingClientRect(),port=f.port.getBoundingClientRect(),x=row.x+10,y=row.y+row.height/2,bottom=port.y+f.port.clientTop+f.port.clientHeight-2;
+      const event=(target,type,at)=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,isPrimary:true,pointerId:7,button:0,buttons:1,clientX:x,clientY:at}));
+      event(f.grip,'pointerdown',y);event(document,'pointermove',y+10);event(document,'pointermove',bottom);
+      const tick=at=>{time=at;f.flush();const callbacks=[...frames.values()];frames.clear();for(const fn of callbacks)fn(at);f.flush();};
+      tick(0);const initial=f.port.scrollTop;for(let n=1;n<=hz;n++)tick(n*1000/hz);
+      const distance=f.port.scrollTop-initial,preStall=f.port.scrollTop;tick(11000);const stall=f.port.scrollTop-preStall;
+      event(document,'pointermove',port.y+f.port.clientTop+f.port.clientHeight/2);const idle=frames.size;
+      time=21000;event(document,'pointermove',bottom);const preResume=f.port.scrollTop;tick(21000);const resumed=f.port.scrollTop-preResume;
+      for(let n=1;n<=200;n++)tick(21000+n*1000/hz);const clamped={top:f.port.scrollTop,queued:frames.size};tick(99999);const still=f.port.scrollTop;
+      f.arrange.reset();return {distance,stall,idle,resumed,clamped,still};
+    };
+    try{return {hz60:run(60),hz120:run(120)};}finally{window.requestAnimationFrame=request;window.cancelAnimationFrame=cancel;}
+  })()`);
+  expect(r.hz60.distance).toBe(720);expect(r.hz120.distance).toBe(720);
+  for(const arm of [r.hz60,r.hz120]){
+    expect(arm.stall).toBeLessThanOrEqual(24);expect(arm.idle).toBe(0);expect(arm.resumed).toBe(0);
+    expect(arm.clamped.queued).toBe(0);expect(arm.still).toBe(arm.clamped.top);
+  }
+});
+test('Arrange nested grip label pins the authored handle before Common admission',async()=>{
+  await evaluate(`(()=>{const f=(${arrangeFixture})();f.requireGripPin=true;const label=document.createElement('span');label.dataset.view='6';label.textContent='nested label';f.grip.replaceChildren(label);f.views.set(6,label);})()`);
+  const at=await evaluate(`(()=>{const r=f.views.get(6).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mousePressed',x:at.x,y:at.y,button:'left',clickCount:1});
+  await protocol('Input.dispatchMouseEvent',{type:'mouseMoved',x:at.x,y:at.y+10,button:'left',buttons:1});
+  const r=await evaluate(`(()=>{f.flush();return {pin:f.reports.at(-1).interaction,source:getComputedStyle(f.source).zIndex,begin:f.calls.filter(r=>r.op==='reorder-begin').length};})()`);
+  await protocol('Input.dispatchMouseEvent',{type:'mouseReleased',x:at.x,y:at.y+10,button:'left',clickCount:1});
+  await evaluate('f.arrange.reset()');
+  expect(r).toEqual({pin:5,source:'2147483647',begin:1});
+});
+test('Arrange same-row handoff never reports null or steals focus, and rejects stale or different-row transfers',async()=>{
+  const r=await evaluate(`(()=>{const f=fixture();f.controller.commit([f.snapshot()]);f.views.get(3).focus();f.flush();
+    f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));f.flush();
+    const old=f.controller.retainInteraction(f.views.get(5),7),start=f.reports.length;
+    const refused=f.controller.transferRetainedInteraction(old,f.views.get(3),8);
+    const wrapper=f.controller.transferRetainedInteraction(old,f.views.get(4),8);
+    const stale=f.controller.releaseRetainedInteraction(old);
+    const grip=f.controller.transferRetainedInteraction(wrapper,f.views.get(5),8);
+    const handoff=f.reports.slice(start).map(r=>({focus:r.focus,interaction:r.interaction}));
+    f.controller.releaseRetainedInteraction(grip);f.flush();return {refused:refused===null,stale,handoff,ended:f.reports.at(-1).interaction};})()`);
+  expect(r).toEqual({refused:true,stale:false,handoff:[{focus:3,interaction:4},{focus:3,interaction:5}],ended:0});
+});
+for(const abort of ['pointerup','pointercancel','horizontal'])test(`Arrange returning source keeps its original owner through pre-recognition ${abort}`,async()=>{
+  await evaluate(`(()=>{const f=(${arrangeFixture})();})()`);
+  const point=()=>evaluate(`(()=>{const r=f.grip.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  const mouse=(type,p)=>protocol('Input.dispatchMouseEvent',{type,...p,button:'left',...(type==='mouseMoved'?{buttons:1}:{clickCount:1})});
+  const p=await point();await mouse('mousePressed',p);await mouse('mouseMoved',{x:p.x,y:p.y-10});await mouse('mouseMoved',{x:p.x,y:p.y-30});await mouse('mouseReleased',{x:p.x,y:p.y-30});
+  await evaluate('for(const a of f.source.getAnimations()){a.pause();a.currentTime=50;}');
+  const again=await point();await mouse('mousePressed',again);
+  if(abort==='horizontal')await mouse('mouseMoved',{x:again.x+20,y:again.y});
+  if(abort==='pointercancel')await evaluate("document.dispatchEvent(new PointerEvent('pointercancel',{pointerId:1,bubbles:true}))");
+  await mouse('mouseReleased',again);
+  const held=await evaluate(`(()=>{f.flush();return {finished:f.finished??0,begins:f.calls.filter(r=>r.op==='reorder-begin').length,pin:f.reports.at(-1).interaction};})()`);
+  const settled=await evaluate(`(async()=>{for(const el of [f.source,f.views.get(2)])for(const a of el.getAnimations())a.finish();await new Promise(r=>setTimeout(r,0));f.flush();return {finished:f.finished??0,pin:f.reports.at(-1).interaction};})()`);
+  await evaluate('f.arrange.reset()');
+  expect(held).toEqual({finished:0,begins:1,pin:5});expect(settled).toEqual({finished:1,pin:0});
 });

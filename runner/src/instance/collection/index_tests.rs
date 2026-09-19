@@ -457,6 +457,40 @@ fn end_follow_accepts_native_document_rounding() {
 }
 
 #[test]
+fn end_follow_accepts_integer_dom_scroll_height_rounding() {
+    // The real DOM controller fixture supplies these facts: measured wrappers
+    // total 335377.078125, scrollHeight 335377, clientHeight 519, scrollTop
+    // 334858. The user has reached the actual DOM end, not an estimated tail.
+    let mut index = index(&[335_080.0, 297.078_125]);
+    let viewport = 519.0;
+    let dom_bottom = 334_858.0;
+    assert_eq!(index.max_offset(viewport) - dom_bottom, 0.078_125);
+    let anchor = index.capture_anchor(dom_bottom, viewport, true).unwrap();
+    let reader = index
+        .capture_anchor(index.max_offset(viewport) - 0.500_001, viewport, true)
+        .unwrap();
+    let disabled = index.capture_anchor(dom_bottom, viewport, false).unwrap();
+    assert!(
+        anchor.follows_end,
+        "integer DOM end must follow appended content"
+    );
+    assert!(
+        !reader.follows_end,
+        "reader farther than half a pixel stays anchored"
+    );
+    assert!(!disabled.follows_end);
+    index.replace_keys(keys(3)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+    assert_eq!(
+        index.restore_anchor(&disabled, viewport).unwrap(),
+        dom_bottom
+    );
+}
+
+#[test]
 fn end_follow_accepts_browser_integer_scroll_range_rounding() {
     // Observed in Messages stress: CSS rows sum to a fractional extent, while
     // Chrome clamps an authored scrollTop to its integer scroll range.
@@ -471,7 +505,8 @@ fn end_follow_accepts_browser_integer_scroll_range_rounding() {
 }
 
 #[test]
-fn end_follow_rounding_tolerance_never_exceeds_half_a_pixel() {
+fn end_follow_rounding_tolerance_is_half_a_logical_pixel_on_every_host() {
+    // The .5 boundary is inclusive at small, medium and large extents alike.
     for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {
         let mut index = index(&[height]);
         let maximum = index.max_offset(viewport);
@@ -481,6 +516,12 @@ fn end_follow_rounding_tolerance_never_exceeds_half_a_pixel() {
         let reading = index.capture_anchor(outside, viewport, true).unwrap();
         assert!(following.follows_end, "height={height}");
         assert!(!reading.follows_end, "height={height}");
+        assert!(
+            !index
+                .capture_anchor(boundary, viewport, false)
+                .unwrap()
+                .follows_end
+        );
         assert!(
             !index
                 .capture_anchor(maximum, 0.0, true)
@@ -672,4 +713,85 @@ fn source_excluded_gap_certifies_zero_run_even_for_upper_half_of_source() {
     i.invalidate_row("k2").unwrap();
     assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), None);
     assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), None);
+}
+
+#[test]
+fn identical_order_preserves_index_allocations_generations_and_measurements() {
+    for n in [0, 3, 25_000] {
+        let heights: Vec<_> = (0..n).map(|i| if i % 3 == 0 { 0. } else { 12.5 }).collect();
+        let mut index = index(&heights);
+        if n > 0 {
+            index.invalidate_row("k1").unwrap();
+        }
+        let order = Rc::clone(&index.order);
+        let rows = index.rows.clone();
+        let positions = index.positions.clone();
+        let row_allocation = index.rows.as_ptr();
+        let tree_allocation = index.tree.sums.as_ptr();
+        let measured_allocation = index.tree.measured.as_ptr();
+        let sums = index.tree.sums.clone();
+        let measured = index.tree.measured.clone();
+        let generation = index.next_generation;
+        let epoch = index.epoch;
+        let rebuilds = index.rebuilds;
+        index.tree.visits.set(17);
+        for _ in 0..3 {
+            index.replace_keys(keys(n)).unwrap();
+            assert_eq!(
+                index.rebuilds, rebuilds,
+                "identical order rebuilt the index"
+            );
+            assert!(Rc::ptr_eq(&index.order, &order));
+            assert_eq!(index.rows.as_ptr(), row_allocation);
+            assert_eq!(index.tree.sums.as_ptr(), tree_allocation);
+            assert_eq!(index.tree.measured.as_ptr(), measured_allocation);
+            assert_eq!(index.rows, rows);
+            assert_eq!(index.positions, positions);
+            assert_eq!(index.tree.sums, sums);
+            assert_eq!(index.tree.measured, measured);
+            assert_eq!(index.next_generation, generation);
+            assert_eq!(index.epoch, epoch);
+            assert_eq!(index.tree.visits.get(), 17);
+        }
+        if n > 0 {
+            assert!(index.is_measured("k0"));
+            assert!(!index.is_measured("k1"));
+            assert!(index.is_measured("k2"));
+        }
+    }
+}
+
+#[test]
+fn identical_order_fastpath_does_not_mask_reorder_insert_delete_or_duplicate() {
+    let mut index = index(&[10., 20., 30.]);
+    let old = index.measurement_token("k1").unwrap();
+    let rebuilds = index.rebuilds;
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert_eq!(index.measurement_token("k1"), Some(old));
+    assert_eq!(index.height(2), Some(20.));
+    let order = Rc::clone(&index.order);
+    let generation = index.next_generation;
+    let rows = index.rows.clone();
+    let sums = index.tree.sums.clone();
+    assert_eq!(
+        index.replace_keys(vec!["k2".into(), "k0".into(), "k2".into()]),
+        Err(IndexError::DuplicateKey("k2".into()))
+    );
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(index.next_generation, generation);
+    assert_eq!(index.rows, rows);
+    assert_eq!(index.tree.sums, sums);
+    index.replace_keys(vec!["k2".into(), "k0".into()]).unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 2);
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 3);
+    assert_ne!(index.measurement_token("k1"), Some(old));
+    assert!(!index.set_measured_height("k1", old, 90.).unwrap());
+    assert_eq!(index.height(2), Some(10.));
 }

@@ -66,6 +66,34 @@ fn string_list(items: &[&str], out: &mut String) {
 }
 
 impl Batch {
+    pub(crate) fn reorder_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<exact_runner::ReorderBinding>,
+        kernel: &exact_kernel::Kernel,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let keys = binding.map(|b| [b.list, b.wrapper, b.root]);
+        let id = |i: usize| {
+            keys.and_then(|k| kernel.node_by_key(k[i]))
+                .map_or("null".into(), |n| n.id.to_string())
+        };
+        let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
+        self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
+    }
+    pub(crate) fn reorder_state(
+        &mut self,
+        runtime: u64,
+        token: u64,
+        terminal: bool,
+        released: bool,
+        frame: &str,
+    ) {
+        self.ops.push(format!("{{\"op\":\"reorder-state\",\"runtime\":\"{runtime}\",\"token\":\"{token}\",\"terminal\":{terminal},\"released\":{released},\"frame\":{frame}}}"));
+    }
+
     /// Geometry committed, even if its subsequent edge action refused.
     pub(crate) fn accept_collection(&mut self) {
         self.collection_accepted = true;

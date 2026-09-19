@@ -28,6 +28,19 @@ fn media_properties_events_and_rejections() {
     assert!(first.contains("\"controls\":\"false\""), "{first}");
     let key = host.runner().kernel().find_by_test_id("video")[0];
     let id = host.runner().kernel().node_by_key(key).unwrap().id;
+    // Media and binary reorder dispatch occupy distinct web ABI kinds.
+    let mut bridge = exact_web::abi::Bridge::new();
+    bridge.boot(&plan.encode(), caltrain_data::Caltrain, 320., 200., "/");
+    let payload = b"timeupdate\n12.5";
+    bridge.input_write(payload);
+    let n = bridge.dispatch(id, 18, payload.len(), 100.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("12.5"), "{out}");
+    bridge.input_write(payload);
+    let n = bridge.dispatch(id, 19, payload.len(), 100.);
+    assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
+        .unwrap()
+        .contains("invalid reorder event"));
     let event = Event::media_payload("timeupdate\n12.5").unwrap();
     let batch = host.dispatch(id, event);
     assert!(batch.contains("12.5"), "{batch}");

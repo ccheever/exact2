@@ -10,6 +10,22 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// Bound borrowed traversal and count all collections/rows before copying
+    /// numeric host snapshots. No keys, records or action frames are captured.
+    pub fn collections_bounded(
+        &self,
+        max_collections: usize,
+        max_rows: usize,
+        max_traversal: usize,
+        max_json_bytes: usize,
+    ) -> Result<Vec<CollectionSnapshot>, &'static str> {
+        match &self.tree {
+            Some(tree) => {
+                tree.collections_bounded(max_collections, max_rows, max_traversal, max_json_bytes)
+            }
+            None => Ok(Vec::new()),
+        }
+    }
     /// Compact numeric metadata for existing JSON batch envelopes, without serde.
     pub fn collections_json(&self) -> String {
         crate::instance::collection::snapshots_json(&self.collections())

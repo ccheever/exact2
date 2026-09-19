@@ -20,6 +20,7 @@
 //! added to the existing cold-paragraph budget. Catalog replacement drops all.
 use super::{Paragraph, Run, ShapedSource, Spec};
 use exact_kernel::{ParagraphStamp, TextMetrics};
+use std::borrow::Cow;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
@@ -39,7 +40,7 @@ pub struct HandoffResidency {
     pub identities: usize,
     /// Count limit, not a byte limit or a bound on all live paragraph owners.
     pub identity_limit: usize,
-    /// Unique backing allocations in this transient set.
+    /// Distinct paragraph wrappers; their numeric backings may be shared.
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique backings.
     pub owned_capacity_bytes: usize,
@@ -88,13 +89,15 @@ pub struct Residency {
 }
 
 /// Accepted painter storage outside the current catalog's paragraph index.
-/// Shared Rc backings are counted once; this excludes keys, fonts, private cosmic
-/// caches, allocator overhead and other engines/callers. This is not total RSS.
+/// Source, layout and ink backings are each counted once, excluding backings
+/// already in the current catalog. Wrapper counts stay separate from bytes.
+/// This excludes keys, fonts, private cosmic caches, Arc headers, allocator
+/// overhead and other engines/callers. This is not total RSS.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RetiringResidency {
     /// Accepted generational node owners outside the current catalog.
     pub owners: usize,
-    /// Unique paragraph backings shared by those owners.
+    /// Distinct paragraph wrappers shared by those owners.
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique paragraph backings.
     pub owned_capacity_bytes: usize,
@@ -108,6 +111,52 @@ impl From<Option<f32>> for Width {
     fn from(width: Option<f32>) -> Self {
         Self(width.map(f32::to_bits))
     }
+}
+
+// Numeric payloads can be shared by distinct exact-request Paragraph wrappers.
+// These short-lived sets count accessible vector capacities, not Arc headers,
+// allocator reservations, font caches, or RSS. Never retain payloads/history.
+#[derive(Default)]
+struct Payloads {
+    sources: HashSet<*const super::shaping::ShapeData>,
+    lines: HashSet<*const Vec<Vec<cosmic_text::LayoutLine>>>,
+    baselines: HashSet<*const Vec<f32>>,
+    indexes: HashSet<*const super::ink::Index>,
+}
+impl Payloads {
+    fn source(&mut self, source: &ShapedSource) -> usize {
+        if self.sources.insert(Arc::as_ptr(&source.data)) {
+            source.accessible_capacity_bytes
+        } else {
+            0
+        }
+    }
+    fn width(&mut self, p: &Paragraph) -> usize {
+        let mut bytes = 0;
+        let baselines = p.baselines.capacity() * size_of::<f32>();
+        if self.lines.insert(Arc::as_ptr(&p.layouts)) {
+            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes - baselines;
+        }
+        if self.baselines.insert(Arc::as_ptr(&p.baselines)) {
+            bytes += baselines;
+        }
+        if let Some(index) = &p.ink.borrow().index {
+            if self.indexes.insert(&**index as *const _) {
+                bytes += index.bytes();
+            }
+        }
+        bytes
+    }
+    fn paragraph(&mut self, p: &Paragraph) -> usize {
+        self.source(&p.source) + self.width(p)
+    }
+}
+
+#[cfg(test)]
+thread_local! { static TRIM_SORTS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) }; }
+#[cfg(test)]
+pub(super) fn trim_sort_calls() -> (usize, usize) {
+    TRIM_SORTS.with(std::cell::Cell::get)
 }
 
 struct Snapshot {
@@ -180,13 +229,28 @@ impl Default for Cache {
 impl Cache {
     /// The catalog owns these specs; shortcut handles never retain them.
     pub fn spec(&self, key: (u64, u64)) -> Option<Arc<Spec>> {
+        #[cfg(test)]
+        super::identified_tests::spec_looked_up();
         self.identities
             .get(&key.0)?
             .iter()
             .find(|e| e.id == key.1)
             .map(|e| e.spec.clone())
     }
-    pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
+    pub fn identified(&mut self, stamp: &ParagraphStamp) -> Option<((u64, u64), Arc<Spec>)> {
+        let i = self
+            .bindings
+            .iter()
+            .position(|(old, _)| old.same_metrics(stamp))?;
+        let (_, key) = self.bindings.remove(i);
+        let spec = self.spec(key)?; // Evicted identities are misses, never unchecked handles.
+        self.clock += 1;
+        self.entry(key).used = self.clock;
+        self.bindings.push((stamp.clone(), key));
+        Some((key, spec))
+    }
+    #[cfg(test)]
+    pub fn identified_reference(&mut self, stamp: &ParagraphStamp) -> Option<(u64, u64)> {
         let i = self
             .bindings
             .iter()
@@ -260,14 +324,11 @@ impl Cache {
             ..HandoffResidency::default()
         };
         let mut unique = HashSet::new();
-        let mut sources = HashSet::new();
+        let mut payloads = Payloads::default();
         for h in &self.handoffs {
             if unique.insert(Rc::as_ptr(&h.paragraph)) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += h.paragraph.layout_capacity_bytes();
-                if sources.insert(Arc::as_ptr(&h.paragraph.source.data)) {
-                    result.owned_capacity_bytes += h.paragraph.source.accessible_capacity_bytes;
-                }
+                result.owned_capacity_bytes += payloads.paragraph(&h.paragraph);
                 result.private_text_bytes_estimate += h.paragraph.private_text_bytes_estimate;
             }
         }
@@ -277,12 +338,18 @@ impl Cache {
     }
 
     pub fn identity(&mut self, spec: &Spec) -> (u64, u64) {
-        let hash = fingerprint(spec);
+        self.identity_input(Cow::Borrowed(spec))
+    }
+    pub fn identity_owned(&mut self, spec: Spec) -> (u64, u64) {
+        self.identity_input(Cow::Owned(spec))
+    }
+    fn identity_input(&mut self, spec: Cow<'_, Spec>) -> (u64, u64) {
+        let hash = fingerprint(&spec);
         self.clock += 1;
         if let Some(entry) = self
             .identities
             .get_mut(&hash)
-            .and_then(|bucket| bucket.iter_mut().find(|e| equal(&e.spec, spec)))
+            .and_then(|bucket| bucket.iter_mut().find(|e| equal(&e.spec, &spec)))
         {
             entry.used = self.clock;
             return (hash, entry.id);
@@ -291,7 +358,19 @@ impl Cache {
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
-            spec: Arc::new(spec.clone()),
+            // Moving spare capacity would change key_bytes and cold eviction.
+            // Only a new canonical-capacity identity can bypass the old clone.
+            spec: Arc::new(match spec {
+                Cow::Owned(spec)
+                    if spec.runs.capacity() == spec.runs.len()
+                        && std::iter::once(&spec.strut)
+                            .chain(&spec.runs)
+                            .all(|r| r.text.capacity() == r.text.len()) =>
+                {
+                    spec
+                }
+                other => other.as_ref().clone(),
+            }),
             source: None,
             widths: HashMap::new(),
             intrinsic: [None; 2],
@@ -361,12 +440,28 @@ impl Cache {
             cold_target_bytes: self.target,
             ..Residency::default()
         };
+        let mut payloads = Payloads::default();
+        let mut cold = Payloads::default();
+        // A cold wrapper sharing a pinned payload cannot claim those bytes as
+        // exclusively cold. Seed only identities, without owning anything.
+        for entry in self.identities.values().flatten() {
+            if entry.pinned() {
+                if let Some(source) = &entry.source {
+                    cold.source(source);
+                }
+            }
+            for slot in entry.widths.values().filter(|s| s.pinned()) {
+                if let Some(p) = slot.weak.upgrade() {
+                    cold.width(&p);
+                }
+            }
+        }
         for entry in self.identities.values().flatten() {
             result.identities += 1;
             result.key_capacity_bytes += entry.key_bytes();
-            let source_bytes = entry.source_bytes();
-            result.owned_capacity_bytes += source_bytes;
+            result.owned_capacity_bytes += entry.source.as_ref().map_or(0, |s| payloads.source(s));
             if !entry.pinned() {
+                let source_bytes = entry.source.as_ref().map_or(0, |s| cold.source(s));
                 result.cold_owned_capacity_bytes += source_bytes;
                 result.cold_policy_bytes += entry.key_bytes() + source_bytes;
             }
@@ -376,7 +471,7 @@ impl Cache {
                 let Some(paragraph) = slot.weak.upgrade() else {
                     continue;
                 };
-                let owned = paragraph.layout_capacity_bytes();
+                let owned = payloads.width(&paragraph);
                 result.paragraphs += 1;
                 result.owned_capacity_bytes += owned;
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
@@ -384,8 +479,9 @@ impl Cache {
                     result.pinned_paragraphs += 1;
                 } else {
                     result.cold_paragraphs += 1;
-                    result.cold_owned_capacity_bytes += owned;
-                    result.cold_policy_bytes += owned + paragraph.private_text_bytes_estimate;
+                    let cold_bytes = cold.width(&paragraph);
+                    result.cold_owned_capacity_bytes += cold_bytes;
+                    result.cold_policy_bytes += cold_bytes + paragraph.private_text_bytes_estimate;
                 }
             }
         }
@@ -411,7 +507,17 @@ impl Cache {
             .flat_map(|e| e.widths.values().map(|s| s.weak.as_ptr()))
             .collect();
         let mut seen = HashSet::new();
-        let mut sources = HashSet::new();
+        let mut payloads = Payloads::default();
+        for entry in self.identities.values().flatten() {
+            if let Some(source) = &entry.source {
+                payloads.source(source);
+            }
+            for slot in entry.widths.values() {
+                if let Some(p) = slot.weak.upgrade() {
+                    payloads.width(&p);
+                }
+            }
+        }
         let mut result = RetiringResidency::default();
         for paragraph in accepted {
             let pointer = Rc::as_ptr(paragraph);
@@ -421,10 +527,7 @@ impl Cache {
             result.owners += 1;
             if seen.insert(pointer) {
                 result.paragraphs += 1;
-                result.owned_capacity_bytes += paragraph.layout_capacity_bytes();
-                if sources.insert(Arc::as_ptr(&paragraph.source.data)) {
-                    result.owned_capacity_bytes += paragraph.source.accessible_capacity_bytes;
-                }
+                result.owned_capacity_bytes += payloads.paragraph(paragraph);
                 result.private_text_bytes_estimate += paragraph.private_text_bytes_estimate;
             }
         }
@@ -446,6 +549,72 @@ impl Cache {
         self.prune_bindings();
     }
     pub fn trim(&mut self, keep: Option<u64>) {
+        let mut cold = Vec::new();
+        let mut bytes = 0;
+        let mut cold_keys = Vec::new();
+        for (hash, bucket) in &mut self.identities {
+            for entry in bucket {
+                entry
+                    .widths
+                    .retain(|_, value| value.weak.strong_count() != 0);
+                if !entry.pinned() {
+                    bytes += entry.key_bytes() + entry.source_bytes();
+                    if Some(entry.id) != keep {
+                        cold_keys.push((entry.used, *hash, entry.id));
+                    }
+                }
+                for (width, slot) in &entry.widths {
+                    if !slot.pinned() {
+                        if let Some(p) = &slot.cold {
+                            let cost = p.layout_capacity_bytes() + p.private_text_bytes_estimate;
+                            bytes += cost;
+                            cold.push((slot.used, *hash, entry.id, *width, cost));
+                        }
+                    }
+                }
+            }
+        }
+        if bytes > self.target {
+            #[cfg(test)]
+            TRIM_SORTS.with(|n| {
+                let (a, b) = n.get();
+                n.set((a + 1, b));
+            });
+            cold.sort_unstable_by_key(|v| v.0);
+        }
+        for (_, hash, id, width, cost) in cold {
+            if bytes <= self.target {
+                break;
+            }
+            self.entry((hash, id)).widths.remove(&width);
+            bytes -= cost;
+        }
+        let mut count = cold_keys.len() + usize::from(keep.is_some());
+        if count > COLD_IDENTITIES || bytes > self.target {
+            #[cfg(test)]
+            TRIM_SORTS.with(|n| {
+                let (a, b) = n.get();
+                n.set((a, b + 1));
+            });
+            cold_keys.sort_unstable();
+        }
+        for (_, hash, id) in cold_keys {
+            if count <= COLD_IDENTITIES && bytes <= self.target {
+                break;
+            }
+            let bucket = self.identities.get_mut(&hash).unwrap();
+            let pos = bucket.iter().position(|e| e.id == id).unwrap();
+            let old = bucket.remove(pos);
+            bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
+            count -= 1;
+            if bucket.is_empty() {
+                self.identities.remove(&hash);
+            }
+        }
+        self.prune_bindings();
+    }
+    #[cfg(test)]
+    pub fn trim_reference(&mut self, keep: Option<u64>) {
         let mut cold = Vec::new();
         let mut bytes = 0;
         let mut cold_keys = Vec::new();
@@ -495,6 +664,88 @@ impl Cache {
             }
         }
         self.prune_bindings();
+    }
+    // Test-only inspection/setup never clones a Paragraph owner into a twin.
+    #[cfg(test)]
+    pub fn trim_test_target(&mut self, bytes: usize) {
+        self.target = bytes;
+    }
+    #[cfg(test)]
+    pub fn trim_test_tie_keys(&mut self) {
+        for entry in self.identities.values_mut().flatten() {
+            entry.used = 1;
+        }
+    }
+    #[cfg(test)]
+    pub fn trim_test_dead_width(&mut self, key: (u64, u64)) {
+        self.entry(key).widths.insert(
+            Width::from(Some(-1.)),
+            Snapshot {
+                weak: Weak::new(),
+                cold: None,
+                used: 0,
+            },
+        );
+    }
+    #[cfg(test)]
+    pub fn trim_test_state(&self) -> String {
+        let mut entries = Vec::new();
+        for (hash, bucket) in &self.identities {
+            for entry in bucket {
+                let mut widths = Vec::new();
+                for (width, slot) in &entry.widths {
+                    let pins = (slot.pinned(), slot.weak.strong_count(), slot.cold.is_some());
+                    let metrics = slot.weak.upgrade().map(|p| {
+                        (
+                            [
+                                p.width.to_bits(),
+                                p.height.to_bits(),
+                                p.first_baseline.to_bits(),
+                            ],
+                            p.baselines.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                            p.layout_capacity_bytes(),
+                            p.private_text_bytes_estimate,
+                        )
+                    });
+                    widths.push(format!(
+                        "{:?}:{:?}:{:?}",
+                        (width.0, slot.used),
+                        pins,
+                        metrics
+                    ));
+                }
+                widths.sort();
+                let intrinsic = entry.intrinsic.map(|m| m.map(|m| format!("{m:?}")));
+                entries.push(format!(
+                    "{:?}:{:?}:{:?}",
+                    (
+                        *hash,
+                        entry.id,
+                        entry.used,
+                        entry.key_bytes(),
+                        entry.source_bytes(),
+                        entry.pinned()
+                    ),
+                    widths,
+                    intrinsic
+                ));
+            }
+        }
+        entries.sort();
+        format!(
+            "{:?}:{:?}:{:?}:{:?}:{:?}",
+            (self.serial, self.clock, self.target),
+            entries,
+            self.bindings
+                .iter()
+                .map(|(_, key)| *key)
+                .collect::<Vec<_>>(),
+            self.handoffs
+                .iter()
+                .map(|h| (h.identity, h.width.0))
+                .collect::<Vec<_>>(),
+            self.residency()
+        )
     }
     #[cfg(test)]
     pub fn binding_count(&self) -> usize {
@@ -568,7 +819,7 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     let mut bytes = paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
         + vector(&paragraph.layouts);
-    for layouts in &paragraph.layouts {
+    for layouts in paragraph.layouts.iter() {
         bytes += vector(layouts);
         for line in layouts {
             bytes += vector(&line.glyphs) + vector(&line.decorations);

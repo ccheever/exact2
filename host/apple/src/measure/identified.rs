@@ -106,3 +106,7 @@ impl Memo {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "offers_tests.rs"]
+mod offers_tests;
