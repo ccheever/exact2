@@ -158,6 +158,11 @@ extension NodeView {
     /// this view for pixels. `draw` replaces it when the view paints itself.
     func presentTextRaster() {
         guard let layer, let surface = textRaster else { return }
+        // updateLayer can revisit an image already installed by an urgent
+        // paint or worker completion. Inspect the real layer so replacement,
+        // selection/capture drawing, and external property changes still heal.
+        if layer.contents as? IOSurface === surface,
+           layer.contentsScale == textRasterScale, layer.contentsGravity == .resize { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.contentsScale = textRasterScale

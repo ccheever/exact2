@@ -34,6 +34,42 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(node.textRaster === replacement)
     }
 
+    func testRasterPublicationSkipsUnchangedLayerAndRepairsActualState() throws {
+        let presenter = Presenter()
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        let surface = try XCTUnwrap(IOSurface(properties: [.width: 20, .height: 20, .bytesPerElement: 4]))
+        node.textRaster = surface
+        node.textRasterScale = 2
+        node.wantsLayer = true
+        let layer = RasterPublicationLayer()
+        node.layer = layer
+        layer.contentsWrites = 0
+        node.presentTextRaster()
+        XCTAssertEqual(layer.contentsWrites, 1)
+        node.presentTextRaster()
+        XCTAssertEqual(layer.contentsWrites, 1, "accepted pixels need no second layer write")
+        XCTAssertTrue(layer.contents as? IOSurface === surface)
+        // Native drawing for selection/capture can replace or clear contents.
+        layer.contents = nil
+        node.presentTextRaster()
+        XCTAssertTrue(layer.contents as? IOSurface === surface)
+        let restored = layer.contentsWrites
+        node.presentTextRaster()
+        XCTAssertEqual(layer.contentsWrites, restored)
+        layer.contentsScale = 1
+        node.presentTextRaster()
+        XCTAssertEqual(layer.contentsScale, 2)
+        layer.contentsGravity = .center
+        node.presentTextRaster()
+        XCTAssertEqual(layer.contentsGravity, .resize)
+        let replacement = RasterPublicationLayer()
+        node.layer = replacement
+        node.presentTextRaster()
+        XCTAssertTrue(replacement.contents as? IOSurface === surface)
+        XCTAssertEqual(replacement.contentsScale, 2)
+        XCTAssertEqual(replacement.contentsGravity, .resize)
+    }
+
     func testFractionalInlineMetricsReuseKernelMeasuredBreaks() throws {
         _ = NSApplication.shared
         let presenter = Presenter()
@@ -92,6 +128,13 @@ final class TextMetricsTests: XCTestCase {
                 }
             }
         }
+    }
+}
+private final class RasterPublicationLayer: CALayer {
+    var contentsWrites = 0
+    override var contents: Any? {
+        get { super.contents }
+        set { contentsWrites += 1; super.contents = newValue }
     }
 }
 #endif
