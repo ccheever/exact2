@@ -7043,3 +7043,52 @@ and port5941 is free. No retry, extra cell or rebuild ran. Runtime binding is
 `451ac84c`; copied raw manifests `8be64926` / `1d3a208d` cover46 files /48,762,292B.
 Lead reconstruction and full-state/pixel comparisons are under
 `target/ink-placement-integration/` (`82d8071a`, `7119a34d`, `ec15f6f8`).
+
+### 8.129 Reversed Linux cached-placement pair: command-free Paint benefit repeats, 2026-09-19
+
+Two fresh cells run B→A with the same binaries, observers, full10,000/32 workload,
+fixed viewport and limits as §8.128. Both pass once, with no rebuild, retry or
+third cell. Tables retain semantic A→B order. Independent stderr reconstruction
+matches6251/5668 events and closes all199/195 picture→submit→ACK chains.
+
+| Cohort | A→B Paint count | A→B median | A→B maximum |
+| --- | ---: | ---: | ---: |
+| Idle | 12→12 | 2.672→2.546ms | 3.181→2.997ms |
+| Loaded | 20→19 | 2.577→2.849ms | 7.029→3.970ms |
+| Recovery | 12→12 | 2.553→2.504ms | 2.938→2.623ms |
+| Separate command-free interval | 8→8 | 5.890→3.905ms | 7.587→4.771ms |
+
+The command-free Paint reduction repeats in both run orders. Loaded per-call
+medians change direction; this is not a consistent loaded latency gain. Loaded
+progress again advances8→16 in both cells with different paint interleavings.
+Here Paint totals fall62.147→54.697ms, but observer union rises115.093→132.580ms
+and FrameBuild totals rise177.978→188.025ms. Loaded whole totals rise218.874→
+231.532ms; maxima fall20.166→15.330ms while misses rise15→19. Counts and tails
+remain separate from aggregate work.
+
+Silent prefixes each advance0→8 without commands or drain credit. Paint totals
+fall48.391→31.927ms, FrameBuild109.940→101.077ms and whole141.670→135.105ms,
+but all eight producer turns still exceed8.333ms. Whole maxima are21.804→18.127ms.
+Loaded Tick medians rise2.128→2.338ms; silent Tick medians rise2.489→2.869ms,
+consistent in direction with the first pair. Tick includes settlement and native
+commit work, not just the data query. The next diagnostic separates those stages
+before choosing an optimization; no query-validation shortcut is justified.
+
+Across the three input phases, FrameBuild totals are410.947→400.284ms and whole
+totals488.840→479.791ms, with702 versus462 turns and39 misses each. Observer
+union totals284.355→286.603ms remain material. These two orders establish the
+observed command-free Paint result, not isolated rasterizer CPU savings, overall
+responsiveness, observer-free costs or physical120Hz.
+
+All72 semantic handlers are inside their fixed prefixes, with36 actual signed
+40-unit wheels. Initial/final full History9 values match all10,000 rows at0/16;
+all four2,359,296B RGB buffers, final boxes and scroll match across arms and the
+first pair. Whole snapshots still differ in clock/state metadata. Final frames
+199/195 close cleanly through6251/5668. All12 recorded PIDs/eight groups retire,
+port5941 is free, and native SIGTERM is intentional after acceptance.
+
+Reverse binding `e6acb355` preserves the first archive. Copied raw manifests
+`87b12651` / `0f8e1919` verify46 files /52,316,027B. Independent lead reconstructions
+`f28d8a4f` / `c8cbf470` and cohort proof `8265a352` are under
+`target/ink-placement-integration/`. No new source or policy change accompanies
+this comparison.
