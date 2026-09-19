@@ -514,3 +514,11 @@ The fixed I3 consumer runs with
 `bun game/prove.mjs game/verification/lanterns --hosts linux,web`. Its first pins
 are published only after both hosts agree. The trial harness under
 `game/bench/trials` is opt-in and is outside default checks.
+
+
+The GPU acceptance command is
+`cargo test --manifest-path game/Cargo.toml -p exact-game-render restoring_fox_uploads_zero_asset_bytes_after_ready -- --nocapture`.
+It is unignored and requires a real adapter. Initial Fox uploads must be nonzero;
+repeated restores on retained residency must upload zero mesh/texture bytes.
+Changed content and a replacement device must upload again. A machine without
+an adapter fails this test and cannot certify GPU residency or rendering.

@@ -54,7 +54,8 @@ has not yet been certified.
 8. Typed scenes and adapted Lanterns: adapted; Linux verified, first web baseline pending.
 9. DX host transactions and handoff: adapted; local fixtures/headless proofs verified; Apple matrix pending.
 10. I3 fixed evidence and opt-in trials: adapted and headless-verified; first shared fixed-consumer baseline awaits web.
-11. Named real-GPU Fox acceptance, final documentation/matrix: pending.
+11. Named real-GPU Fox acceptance: adapted and unignored; adapter creation fails
+    on this box, so the residency criterion remains unverified. Final matrix below.
 
 The T6 production backend, embedded GLB renderer, old Beacons conversion,
 duplicate EXPHYS implementation and Lanterns-only repin command stay behind.
@@ -493,3 +494,197 @@ five platform/environment failures (four missing `xcrun`, Caltrain Chromium time
 two actual-wasm conditional skips. Root build/test/clippy remain blocked by the
 missing lean Hermes producer; root fmt, caps and boot pass. No new unexplained
 red or weakened assertion. Cubes remains the recorded browser-only benchmark.
+
+## Increment 11 — strict residency acceptance and final handoff
+
+`restoring_fox_uploads_zero_asset_bytes_after_ready` is now an ordinary, unignored
+test over G's baked Fox and actual GPU residency. Existing residency tests moved
+unchanged to `surface_residency.rs` to preserve the source cap. The new test first
+requires a real adapter, refuses ready/save while the final texture is missing,
+and requires positive initial mesh and texture uploads. It warms actual animation,
+then checks absolute upload counters and complete saves through three repeated
+Carry/Open pairs and eight ticks in each paranoid mode. The pose must actually
+change. Same-name changed texture/model contents must upload; identical redelivery
+must not. Device replacement must rebuild residency and reach real ready. There is
+no skipped branch, recording backend, counter reset allowance or upload subtraction.
+Work is fixed: six restores, sixteen continued ticks and bounded fixture assets.
+
+Explicit invocation compiles and fails (0 passed, 1 failed, 0 ignored) at adapter
+creation: `No suitable graphics adapter found`; Vulkan drivers/libraries could
+not be loaded, and noop/Metal/DX12/GL/WebGPU support is not compiled into that
+native fixture. The residency assertions never execute here. This is an exact
+unverified acceptance, not a claimed fix demonstrated by this box. The incoming
+known-defect evidence remains at
+`360921d386f212965cbc28229f21c93d280a753a:game/render/src/surface_ready.rs:338`;
+the production replacement is G residency, not its T6 instrumentation.
+
+Primitive artifact measurement used the unchanged
+`bun game/bench/size.mjs land-final --app beacons`. Production wasm build succeeded;
+`wasm-opt` is unavailable and the report then refuses missing Twiggy. The resulting
+unoptimized GPU module is 2,306,840 bytes / 510,282 gzip, SHA256
+`97650b8eb201f2a05a2f02499ba0a873ff48d62453cde748cda37d03bf70f1f2`.
+Preopt module: 4,842,394 bytes. `WebAssembly.compile` validates the module. A scratch
+function-name audit demangles all 8,017 entries (2,501 exact-game entries) with the
+installed Rust demangler: no GLTF runtime, image decoder, animation execution,
+model/sprite pipelines, Sprite type or T6 backend names. Primitive particle
+pipelines and model type drop glue remain. This limited static audit is neither
+byte attribution nor real GPU boot evidence; no comparison to G's optimized size
+is valid. No optimizer or analysis dependency was added.
+
+Affected core crates (kernel, plan, runner, Linux/web hosts, motion, GPU and all
+Contract compiler layers): 535 passed, three failed at native GPU registry load,
+one ignored. Their clippy checks pass. The two actual production wasm host/glue
+transaction fixtures also pass via that Rust suite; the ordinary Bun sweep's
+conditional skips do not hide missing execution of those two cases. The native
+GPU failures are `retiring_each_releases_textures_and_zero_frame_releases_a_capture`,
+`replacement_lost_during_preparation_refuses_then_retries`, and
+`recovery_of_a_healthy_device_does_not_prepare_again`: registry load returns 1
+instead of 0 without a device. Other adapter-optional tests returning `ok` here
+are not certified GPU executions.
+
+README remains current API/commands/constraints; this diary contains landing
+evidence. The as-built LLP states the combined contracts and R14 decode ordering.
+QUEUE now distinguishes cleared headless failures from unverified Apple focus,
+real-GPU residency, first baselines, I3 blend coverage and measured physics tails.
+
+Final broad gate: 51 commands completed. Game workspace: **691 pass / 15 fail /
+24 ignored**. Nine ordinary app workspaces: **43 pass / 3 fail / 1 ignored**;
+fixed app: **2 pass**, including the full three-mode invariant test. All Rust
+failures are the named GPU cases below. Game workspace and all ten app workspaces
+pass clippy `-D warnings` and fmt. Affected core: **535 pass / 3 fail / 1 ignored**,
+clippy passed; its two actual-wasm Bun transaction fixtures passed as well.
+Game Bun: **132 pass / 1 skip / 0 fail**. Web fixtures: **140 pass / 2 conditional
+skips / 5 fail**. Four failures invoke unavailable `xcrun`: Mac/IOS clears
+zero-sized and display-none captures, and Mac/IOS hidden placement box is zero.
+The fifth, `Caltrain web frame-only stack remains a plain column`, still times
+out after 60 seconds with fleet Chromium; its underlying cause is unresolved.
+The two conditional cases did execute successfully through the Rust wasm runner.
+
+Root build/test/clippy all stop in the existing TypeScript bakes: "TypeScript
+bake requires the lean Hermes executor on this producer" (Messages, Fieldnotes,
+Update Lab). Root fmt, caps and boot pass. Boot graph: two reachable JavaScript
+modules, one wasm reference, 88,500 JS bytes and a 3,298-byte page; this source
+graph is not real GPU startup evidence. Caps scanned 730 sources, with generated
+and vendor exclusions, all within the declared budgets. No added unsafe code
+exists outside game storage. The seven established games pass **28 Linux proof
+executions**, normal plus all three paranoid modes, preserving every world and
+current save pin. The four first-baseline commands for live/fixed Lanterns
+intentionally refuse Linux-only publication, because web has not agreed.
+
+The final direct collectors then completed **six additional Linux runs**: live
+Lanterns and fixed I3 each in continuous, Save and FreshGame. Every assertion
+passed, every recorded child exited, and G's `agreePins` accepted identical complete
+inventories. Live inventory: three tick keys and two saves; fixed inventory:
+1,210 tick keys and 1,210 full-save keys per mode (3,630 comparisons across modes).
+Collector status remains `PROOF UNVERIFIED` because neither first shared baseline
+exists. Only scratch candidates were written; both committed pin objects stay empty.
+This distinction is intentional and no assertion or publication guard was relaxed.
+
+No browser rendering success is claimed: the single attempted production
+Beacons/SwiftShader proof obtained no WebGPU adapter and failed on host exceptions.
+Cubes' inherited proof is Chrome-only, ignores a Linux argument and has no pins;
+the browser attempt is unverified. The primitive size command builds successfully
+but cannot finish its optimized/attributed report without Binaryen and Twiggy.
+The trial preparation's baseline direct-crate route and unsupported pixels are
+recorded in increment 10; its expected absent-feature failures are negative
+controls, not successful change trials.
+
+## Receiving-host work — exact remaining matrix
+
+Use Bun 1.4.2, the captured app locks and `EXACT_UPDATE_TRUST=development`. Record
+an actual obtained adapter; tests with no-adapter early returns are insufficient.
+
+1. On a native GPU host, rerun
+   `cargo test --manifest-path game/Cargo.toml --workspace --no-fail-fast`,
+   `bun game/app/shells.mjs --test`, and the fixed app's `.shells` workspace tests.
+   In particular run
+   `cargo test --manifest-path game/Cargo.toml -p exact-game-render restoring_fox_uploads_zero_asset_bytes_after_ready -- --nocapture`
+   **without `--ignored`**, then
+   `cargo test --manifest-path game/Cargo.toml -p exact-game-render surface_lifecycle -- --ignored --nocapture`.
+   Rerun `cargo test -p exact-gpu --no-fail-fast` for the three native registry
+   failures. Inspect actual rendered pixels, not just the tests' exit code.
+2. With production Chrome/WebGPU, run
+   `bun game/prove.mjs <game> --repin --hosts linux,web` for each of
+   `asset-fixture`, `beacons`, `greybox`, `particles-fixture`, `placement-fixture`,
+   `skinned-fixture`, `sprites-fixture`. All world pins and the seven v7 save pins
+   must equal this branch; only host/provenance fields should need publication.
+   This executes all three modes on both hosts. For the first baselines run
+   `bun game/prove.mjs lanterns --hosts linux,web` and
+   `bun game/prove.mjs game/verification/lanterns --hosts linux,web`, without
+   `--repin`. Require complete inventories and full-save equality at all 1,210
+   fixed observations. Run `bun game/bench/cubes/proof.mjs web` separately; that
+   existing benchmark has no Linux proof or pins file.
+3. On macOS and iOS simulator, run
+   `bun game/prove.mjs <game> --hosts macos,ios --compare-saves` for those seven,
+   live Lanterns and `game/verification/lanterns` after their baselines exist.
+   Run `swift test --package-path host/apple`, `bun scripts/smoke.mjs host`, and
+   `bun scripts/smoke.mjs host-ios` with their built embedding fixtures. Exercise
+   play/restart/save/load after HUD commit, restore with held controls, editor
+   focus, multiple canvases, complete/partial/failed detach ACK, late model
+   textures and actual presentation after device recovery. Recheck Beacons'
+   previously reported victory-control logical focus assertion. Simulator input
+   does not establish physical-touch timing; no device-phone result is claimed.
+4. On browser and Apple, compare geometric layout with intended sampled visibility
+   in perspective/orthographic/integer-scale scenes: parents, sprites,
+   transparency/depth, mirrored and skinned geometry, affine sockets, missing
+   assets and stale/unavailable poses. Run the placement/sprites/skinned proofs
+   above and inspect pixels. Geometric samples are not exact raster visibility.
+5. On browser and Apple, capture an actually live Lanterns won/lost instance before
+   any restore, including held input and fractional clock phase. Replay prefix
+   zero and the complete stream, continue, and check the first controlled seek.
+   Exercise malformed capture, wrong artifact, early live phase and partial/failed
+   ownership ACK. Headless regression tests passed, but live scheduling is owed.
+6. On real WebGPU, lose the device during asset delivery and during staged authored
+   reload/publication; test commit and rollback. Check rebuilt Fox pixels, child
+   placement, controls, requested/loaded identity and real ready transitions.
+   Exercise explicit plan+world Carry while the predecessor's assets are loading.
+7. In the warm producer with lean Hermes, Binaryen and Twiggy, rerun the root five
+   checks and `bun test ./host/web/tests` (with Chrome and `xcrun` available), plus
+   `bun game/bench/size.mjs land-final --app beacons`. Confirm optimized size and
+   attributed primitive isolation, then actually launch primitive Beacons and a
+   starter app. The local size command's missing tools and Caltrain's 60s Chromium
+   placement timeout remain red until this succeeds.
+
+The trial harness is opt-in, not a receiving-host blocking gate. Its prepare-only
+controls disclosed one unchanged baseline direct-crate route failure and six
+unsupported rendering cases. Full agent trials were intentionally not dispatched.
+Historical trial findings make no speedup claim. I3 still lacks the simultaneous
+apex/moving-crate/active-blend case, and EXPHYS deferred-bit negative-control debt
+is retained. Those are stated coverage debts, not assertions removed to get green.
+
+
+## Named red Rust tests on this box
+
+All failures below require a GPU. Game/app failures report no suitable adapter;
+the three core tests fail their initial native registry-load success assertion.
+No assertion was removed or weakened, and the strict Fox case is unignored.
+
+Game workspace:
+
+- `models::retirement_regressions::pending_names_count_retired_bytes_and_compaction_keeps_hero_handles`
+- `placed::tests::captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them`
+- `quad_tests::equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale`
+- `quad_tests::particle_storage_and_pipelines_prepare_only_with_emitters`
+- `quad_tests::invalid_quads_are_journaled_without_refusing_valid_neighbors`
+- `quad_tests::retired_sprite_waits_for_redelivery_and_reuses_identical_texture`
+- `quad_tests::same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch`
+- `renderer::packing_tests::oversized_retired_arenas_pack_without_reuploading_live_meshes`
+- `skinning::normal_tests::skinned_normal_is_inverse_transpose_under_scaled_rotated_joints`
+- `skinning::tests::displayed_affine_matches_gpu_with_animated_translation_scale_and_rotated_child`
+- `surface::residency_tests::identical_redelivery_survives_entry_and_post_acceptance_budget_compaction`
+- `surface::residency_tests::restoring_fox_uploads_zero_asset_bytes_after_ready`
+- `surface::tests::placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers`
+- `surface::tests::world_surface_retires_and_readds_a_real_placed_child`
+- `affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly`
+
+App workspaces:
+
+- `first_presented_fox_matches_current_pose_in_fox_rectangle`
+- `rendered_atlas_and_mid_fall_restore`
+- `primitive_particles_render_and_do_not_pick`
+
+Affected core:
+
+- `native::placement_abi_tests::retiring_each_releases_textures_and_zero_frame_releases_a_capture`
+- `native::placement_abi_tests::replacement_lost_during_preparation_refuses_then_retries`
+- `native::placement_abi_tests::recovery_of_a_healthy_device_does_not_prepare_again`

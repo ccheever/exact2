@@ -567,13 +567,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   the shared host's launch delay before treating these wall times as engine cost.
   `/tmp/exact-game-goal-render-math/probe-final.sample.txt` captures the probe.
 
-- Sibling `next/t4` live capture checkpoint: reproduce there with a live
-  `screenshot run.world world save`, reopen `--world run.world`, then continue;
-  the seekable control passes but the reported live replay refuses checkpoint
-  validation because the capture hashes before save-time catch-up. Lane/game's
-  save does not catch up or mutate tick/hash; PX1's 144 Hz live / 60 Hz physics
-  regression passes all modes and byte-identical resumed continuation. Keep the
-  correction in the sibling capture path (catch up before recording its hash).
+- Live capture host matrix after LAND: the actual won/lost live-terminal instance,
+  held input and fractional clock now pass EXCAP v2 CPU replay in all three modes.
+  Repeat browser and Apple live scheduling, prefix-zero/full replay and the first
+  controlled restore seek on real hosts; CPU capture success is not device pacing
+  evidence. See `game/diaries/005-land-game-next.md`.
 
 - Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus passes Beacons but uses a per-element policy that differs from HTML page autofocus; Apple processes autofocus once and fails that assertion. Express victory focus through an explicit focus/dialog intent across hosts, keeping page autofocus aligned with HTML (https://html.spec.whatwg.org/multipage/interaction.html#the-autofocus-attribute).
 
@@ -600,9 +598,13 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   children do not participate in mesh depth.
 
 
-- Shared-tree test expectations found by H1: `game/engine/tests/agent.rs` and Greybox's native `agent_snapshots_and_pick` still compare JSON spellings (`0` versus `0.0`); the game workspace run fails four assertions across three targets, reproduced on retry. The macOS Beacons proof also fails victory-control logical focus while its other assertions and web/Linux proofs pass. Reconcile these with S4/R6 before claiming a clean suite; H1 did not change their expectations.
+- H1's headless agent/Greybox failures are cleared in LAND with their assertions
+  retained. The macOS Beacons victory-control logical focus assertion remains a
+  receiving-host check; it cannot be certified by Linux or mocked DOM fixtures.
 
-- Game driver: consider an opt-in `world().moveTo` only after action bindings and collision boxes can identify a blocker without assuming WASD or a particular motor; E7 deliberately leaves this optional helper out.
+- Generalize the opt-in `world().moveTo` helper beyond its documented WASD motor.
+  LAND retains its 160-burst/1,760-tick bound, global positions and blocker/clear-side
+  diagnostics; non-WASD games still need their own action-aware route.
 
 - Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.
 
@@ -624,3 +626,19 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - E9: `Placed::named_child("sign")` remains blocked on scope approval for child metadata delivery. Measured seam: `Placed` saves a `u16` ordinal; `Surface::child` receives only index/texture/frame, and the renderer has no Contract name. The change needs one saved selector plus identifier delivery through web, Apple C/Swift and Linux, then renderer resolution to its existing compact index and reorder/restore tests. These host/GPU/placed files are outside E9's enumerated engine scope and overlap D5; no ordinal disguised as a stable-name API was added.
 
 - `contract fmt` / `contract symbols` / `build --json` (LLP 1035.005 D1/D2, landed in 99be0e97 by the codex loop): an independent read-only review (sol, xhigh; `llp/reviews/1035.005-contract-authoring-ergonomics.sol.md`) says KEEP WITH FIXES — symbols omit `testId`/tests, provide↔inject and surface names (a `surface=world(...)` head can resolve to a `fn world`); `build --json` gives every related span the primary file after imports merge; trivia is a global line list, not attached by position (`else // why` moves the comment into the branch; the corpus test clears `file.trivia` before comparing); a nonfinite number literal prints `inf` and reparses as an identifier; arity diagnostics skip injected actions; `symbols` has its own import loader that drifts from the compiler's; `fmt` refuses files with `contract` blocks the parser accepts; the diff helper drops EOF-newline-only changes. No `fmt --check` runs in the tree. The review's size note: half the lines if trivia were kept structurally and the compiler's resolution were exposed.
+
+
+- LAND GPU acceptance: `restoring_fox_uploads_zero_asset_bytes_after_ready` is
+  unignored and refuses to pass without a real adapter. Execute it on a GPU host
+  (no `--ignored`); verify animated repeated Carry/Open/Save/FreshGame, pending final
+  texture, changed-content and replacement-device controls. This supersedes the
+  predecessor's T6 restore-upload exemption, not its acceptance requirement.
+- LAND first baselines: live Lanterns and `game/verification/lanterns` pass all
+  three Linux modes but intentionally retain empty pins until Linux/web agree via
+  `game/prove.mjs`. Fixed I3 has 1,210 tick/save observations per mode, no active
+  blend case, and its moving crate is supplementary rather than simultaneous at
+  apex. Add the combined active-blend/moving-crate difficult moment when warranted.
+- Static-physics edit tails remain: the LAND 1,000-static-teleport workload takes
+  3.817 s (median 3,807 µs per edit) despite cheap ordinary cached queries. Preserve
+  canonical traversal/hit ordering and the still-owed deferred-bit negative control
+  while investigating this measured path; do not call it an O(1) terrain edit.
