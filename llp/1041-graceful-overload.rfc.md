@@ -6810,3 +6810,36 @@ Evidence is `exact2-apple-measure-request/target/measure-request-source-v1/` and
 `target/measure-request-integration/`. This proves a removed allocation with no
 additional retained payload, not native callback frequency, whole-frame savings
 or120Hz. Swift/CoreText, full native builds and runtime timing were not rerun.
+
+### 8.124 Reuse one unchanged CPU clip mask, 2026-09-19
+
+The Linux CPU rasterizer retains one immutable mask for the first parentless
+clip in a frame. Reuse requires exact shape, transform, device dimensions and
+scale bits. A changed key drops the old backing before allocating its replacement.
+An invalid or oversized first clip uses the existing rendering path and consumes
+the slot; later root clips, images and nested masks do not replace it. Nested
+operations copy before mutation, and a frame without clips has no active mask.
+
+Retained mask payload is capped at 1 MiB, or 786,432 bytes at 1024 by 768.
+Scalar keys, reference-counting and allocator overhead are additional, as are
+existing temporary masks and layers. No source, node or picture is retained.
+This trades bounded retention for avoided repeated mask construction; it does
+not impose a total renderer-memory or RSS bound.
+
+The same 21 tests run against both arms. The old implementation passes all 14
+existing controls and fails the seven new allocation/ownership assertions.
+In the scrolling-text probe, both complete pixel comparisons pass before the
+old path reports two mask allocations instead of one. The candidate passes all
+21 tests, including independent full-RGBA, nested/pop, fractional/rotated,
+changed-key, invalid/oversized, no-clip and last-owner controls. Strict Linux
+all-target Clippy and scoped formatting pass without a correction or retry.
+The exact tested two-file snapshot is integrated; the intervening MAIN change
+only affected Apple measurement and documentation, so no duplicate CPU run is
+claimed. Caps and boot pass after integration.
+
+Source and raw checks are in
+`exact2-linux-clip-mask/target/clip-mask-validation/`, source manifest
+`a9b85387`, with the integration receipt in `target/clip-mask-integration/`.
+All recorded check processes retire. These are Mac-hosted CPU checks. Saved
+Linux Messages frames establish repeated clip inputs but not their cost; no
+fresh application timing, actual Linux comparison or 120Hz gain is claimed.

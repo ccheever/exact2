@@ -469,3 +469,364 @@ fn fractional_phase_edges_reflection_and_skew_match_full_pixels() {
         }
     }
 }
+
+mod clip_masks {
+    use super::{engine, full, palette, spec, View};
+    use crate::paint::{Backend, Shape};
+    use crate::raster::{rounded_rect, Raster};
+    use std::rc::Weak;
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Transform};
+
+    const COLOR: [u8; 4] = [37, 91, 121, 210];
+
+    fn root() -> Shape {
+        Shape {
+            rect: (10.125, 7.25, 275.5, 110.5),
+            radii: [5.5, 4.25, 3.5, 2.75],
+        }
+    }
+
+    // Independent, uncached full-device mask and full-RGBA output. No Raster
+    // mask constructor, clip stack, bounds selection or cache is consulted.
+    fn oracle(size: (f32, f32), scale: f32, shape: Option<&Shape>, ts: Transform) -> Pixmap {
+        let width = ((size.0 * scale).round() as u32).max(1);
+        let height = ((size.1 * scale).round() as u32).max(1);
+        let mask = shape.map(|shape| {
+            let mut mask = Mask::new(width, height).unwrap();
+            if let Some(path) = rounded_rect(shape) {
+                mask.fill_path(
+                    &path,
+                    FillRule::Winding,
+                    true,
+                    Transform::from_scale(scale, scale).pre_concat(ts),
+                );
+            }
+            mask
+        });
+        let mut result = Pixmap::new(width, height).unwrap();
+        result.fill(Color::WHITE);
+        let mut paint = Paint::default();
+        paint.set_color(Color::from_rgba8(COLOR[0], COLOR[1], COLOR[2], COLOR[3]));
+        paint.anti_alias = true;
+        result.fill_path(
+            &PathBuilder::from_rect(Rect::from_xywh(0.0, 0.0, size.0, size.1).unwrap()),
+            &paint,
+            FillRule::Winding,
+            Transform::from_scale(scale, scale),
+            mask.as_ref(),
+        );
+        result
+    }
+
+    fn frame(
+        raster: &mut Raster,
+        size: (f32, f32),
+        scale: f32,
+        shape: &Shape,
+        ts: Transform,
+    ) -> (Pixmap, Weak<Mask>) {
+        raster.begin(size.0, size.1, scale);
+        raster.push_clip(shape, ts);
+        let owner = raster.clip_weak();
+        raster.fill(
+            &Shape::rect((0.0, 0.0, size.0, size.1)),
+            COLOR,
+            Transform::identity(),
+        );
+        raster.pop_clip();
+        (raster.finish().unwrap(), owner)
+    }
+
+    #[test]
+    fn clip_mask_reuses_actual_allocation_across_scrolled_text_frames() {
+        let mut engine = engine();
+        let p = engine.layout(&spec(&"nested scrollport line\n".repeat(160)), Some(230.0));
+        let mut raster = Raster::new();
+        let shape = root();
+        let ts = Transform::from_rotate(2.0);
+        let mut owners = Vec::new();
+        let mut pictures = Vec::new();
+        for y in [-377.625, -417.625] {
+            let view = View::at(y, 1.0);
+            let mut mask = Mask::new(320, 128).unwrap();
+            mask.fill_path(&rounded_rect(&shape).unwrap(), FillRule::Winding, true, ts);
+            let expected = full(&mut engine, &p, &palette(), view, Some(&mask));
+            raster.begin(320.0, 128.0, 1.0);
+            raster.push_clip(&shape, ts);
+            owners.push(raster.clip_weak());
+            raster.text(
+                &mut engine,
+                &p,
+                &palette(),
+                view.origin,
+                Transform::identity(),
+            );
+            raster.pop_clip();
+            let actual = raster.finish().unwrap();
+            assert_eq!(actual.data(), expected.data());
+            pictures.push(actual);
+        }
+        assert_ne!(
+            pictures[0].data(),
+            pictures[1].data(),
+            "real scroll changes ink"
+        );
+        assert_eq!(raster.clip_allocations.get(), 1, "old path allocates twice");
+        assert!(owners[0].ptr_eq(&owners[1]));
+        assert_eq!(
+            owners[0].strong_count(),
+            1,
+            "only the cache retains the mask"
+        );
+        drop(raster);
+        assert!(owners.iter().all(|owner| owner.upgrade().is_none()));
+    }
+
+    #[test]
+    fn clip_mask_every_key_class_rebuilds_and_equal_key_reuses_exact_pixels() {
+        let base = root();
+        let mut moved = base;
+        moved.rect.0 += 0.125;
+        let mut rounded = base;
+        rounded.radii[3] += 0.25;
+        let cases = [
+            ((320.0, 128.0), 1.0, base, Transform::identity()),
+            ((320.0, 128.0), 1.0, moved, Transform::identity()),
+            ((320.0, 128.0), 1.0, rounded, Transform::identity()),
+            (
+                (320.0, 128.0),
+                1.0,
+                base,
+                Transform::from_translate(0.25, -0.5),
+            ),
+            ((320.0, 128.0), 1.0, base, Transform::from_rotate(2.0)),
+            (
+                (320.0, 128.0),
+                1.0,
+                base,
+                Transform::from_row(1.0, 0.125, 0.25, 1.0, 0.0, 0.0),
+            ),
+            ((321.0, 128.0), 1.0, base, Transform::identity()),
+            ((321.0, 129.0), 1.0, base, Transform::identity()),
+            ((320.0, 128.0), 1.25, base, Transform::identity()),
+            ((320.0, 128.0), 1.0, base, Transform::identity()),
+            // Same device dimensions and effective transform as the first
+            // case: the explicit scale still belongs to the exact key.
+            ((160.0, 64.0), 2.0, base, Transform::from_scale(0.5, 0.5)),
+        ];
+        let mut raster = Raster::new();
+        for (i, (size, scale, shape, ts)) in cases.into_iter().enumerate() {
+            let expected = oracle(size, scale, Some(&shape), ts);
+            let (first, owner) = frame(&mut raster, size, scale, &shape, ts);
+            let (second, again) = frame(&mut raster, size, scale, &shape, ts);
+            assert_eq!(first.data(), expected.data(), "key case {i}");
+            assert_eq!(second.data(), expected.data(), "warm key case {i}");
+            assert_eq!(raster.clip_allocations.get(), i + 1, "key case {i}");
+            assert!(owner.ptr_eq(&again));
+        }
+    }
+
+    #[test]
+    fn clip_mask_nested_and_later_parentless_do_not_mutate_or_replace_first() {
+        let mut engine = engine();
+        let p = engine.layout(&spec(&"nested scrollport line\n".repeat(160)), Some(230.0));
+        let parent = root();
+        let child = Shape::new((18.375, 49.25, 210.5, 9.25), [2.5; 4]);
+        let ts = Transform::from_rotate(2.0);
+        let view = View::at(-377.625, 1.0);
+        let mut raster = Raster::new();
+        raster.begin(320.0, 128.0, 1.0);
+        raster.push_clip(&parent, ts);
+        let first = raster.clip_weak();
+        let first_bytes = first.upgrade().unwrap().data().to_vec();
+        raster.push_clip(&child, ts);
+        let nested = raster.clip_weak();
+        let mut mask = Mask::new(320, 128).unwrap();
+        mask.fill_path(&rounded_rect(&parent).unwrap(), FillRule::Winding, true, ts);
+        mask.intersect_path(&rounded_rect(&child).unwrap(), FillRule::Winding, true, ts);
+        let expected = full(&mut engine, &p, &palette(), view, Some(&mask));
+        raster.text(
+            &mut engine,
+            &p,
+            &palette(),
+            view.origin,
+            Transform::identity(),
+        );
+        raster.pop_clip();
+        assert!(nested.upgrade().is_none());
+        assert_eq!(raster.clip_weak().upgrade().unwrap().data(), first_bytes);
+        raster.pop_clip();
+        assert_eq!(raster.finish().unwrap().data(), expected.data());
+
+        raster.begin(320.0, 128.0, 1.0);
+        raster.push_clip(&parent, ts);
+        assert!(first.ptr_eq(&raster.clip_weak()));
+        raster.pop_clip();
+        raster.push_clip(&child, ts);
+        let later = raster.clip_weak();
+        raster.fill(
+            &Shape::rect((0.0, 0.0, 320.0, 128.0)),
+            COLOR,
+            Transform::identity(),
+        );
+        raster.pop_clip();
+        assert_eq!(
+            raster.finish().unwrap().data(),
+            oracle((320.0, 128.0), 1.0, Some(&child), ts).data()
+        );
+        assert!(
+            later.upgrade().is_none(),
+            "second parentless mask is not retained"
+        );
+        assert_eq!(first.upgrade().unwrap().data(), first_bytes);
+        let (_, again) = frame(&mut raster, (320.0, 128.0), 1.0, &parent, ts);
+        assert!(first.ptr_eq(&again));
+        assert_eq!(
+            raster.clip_allocations.get(),
+            2,
+            "one root plus one later root"
+        );
+    }
+
+    #[test]
+    fn clip_mask_replacement_drops_old_before_allocating_and_keeps_no_history() {
+        let mut raster = Raster::new();
+        let a = root();
+        let b = Shape::rect((22.5, 17.25, 120.0, 80.0));
+        let (_, old) = frame(&mut raster, (320.0, 128.0), 1.0, &a, Transform::identity());
+        assert_eq!(old.strong_count(), 1);
+        raster.clip_watch = Some(old.clone());
+        let (picture, current) = frame(&mut raster, (320.0, 128.0), 1.0, &b, Transform::identity());
+        assert_eq!(raster.watched_owners_at_allocation.get(), 0);
+        assert!(old.upgrade().is_none());
+        assert_eq!(
+            picture.data(),
+            oracle((320.0, 128.0), 1.0, Some(&b), Transform::identity()).data()
+        );
+        let (_, rebuilt) = frame(&mut raster, (320.0, 128.0), 1.0, &a, Transform::identity());
+        assert_eq!(raster.clip_allocations.get(), 3);
+        assert!(!old.ptr_eq(&rebuilt));
+        assert!(current.upgrade().is_none());
+        assert_eq!(rebuilt.strong_count(), 1);
+        drop(raster);
+        assert!(rebuilt.upgrade().is_none());
+    }
+
+    #[test]
+    fn clip_mask_nonfinite_or_empty_first_consumes_slot_without_retaining_refusal() {
+        let bad = [
+            (Shape::rect((0.0, 0.0, 0.0, 10.0)), Transform::identity()),
+            (
+                Shape::rect((f32::NAN, 0.0, 10.0, 10.0)),
+                Transform::identity(),
+            ),
+            (
+                root(),
+                Transform::from_row(1.0, 0.0, 0.0, 1.0, f32::NAN, 0.0),
+            ),
+        ];
+        for (shape, ts) in bad {
+            let mut raster = Raster::new();
+            let (_, old) = frame(
+                &mut raster,
+                (320.0, 128.0),
+                1.0,
+                &root(),
+                Transform::identity(),
+            );
+            raster.clip_watch = Some(old.clone());
+            let (actual, refused) = frame(&mut raster, (320.0, 128.0), 1.0, &shape, ts);
+            assert_eq!(
+                actual.data(),
+                oracle((320.0, 128.0), 1.0, Some(&shape), ts).data()
+            );
+            assert_eq!(raster.watched_owners_at_allocation.get(), 0);
+            assert!(old.upgrade().is_none());
+            assert!(
+                refused.upgrade().is_none(),
+                "fallback mask has no cache owner"
+            );
+            raster.begin(320.0, 128.0, 1.0);
+            raster.push_clip(&shape, ts);
+            let refused_again = raster.clip_weak();
+            raster.pop_clip();
+            raster.push_clip(&root(), Transform::identity());
+            let later = raster.clip_weak();
+            raster.fill(
+                &Shape::rect((0.0, 0.0, 320.0, 128.0)),
+                COLOR,
+                Transform::identity(),
+            );
+            raster.pop_clip();
+            assert_eq!(
+                raster.finish().unwrap().data(),
+                oracle((320.0, 128.0), 1.0, Some(&root()), Transform::identity()).data()
+            );
+            assert!(refused_again.upgrade().is_none());
+            assert!(
+                later.upgrade().is_none(),
+                "no promotion of a later valid root"
+            );
+            let (_, next) = frame(
+                &mut raster,
+                (320.0, 128.0),
+                1.0,
+                &root(),
+                Transform::identity(),
+            );
+            assert_eq!(next.strong_count(), 1);
+        }
+    }
+
+    #[test]
+    fn clip_mask_payload_boundary_and_oversize_drop_all_cache_owners() {
+        let mut raster = Raster::new();
+        let shape = Shape::new((10.25, 8.5, 990.0, 990.0), [4.5; 4]);
+        let ts = Transform::identity();
+        let (_, exact) = frame(&mut raster, (1024.0, 1024.0), 1.0, &shape, ts);
+        assert_eq!(exact.strong_count(), 1, "boundary mask has one cache owner");
+        assert_eq!(exact.upgrade().unwrap().data().len(), 1_048_576);
+        raster.clip_watch = Some(exact.clone());
+        let (actual, oversize) = frame(&mut raster, (1025.0, 1024.0), 1.0, &shape, ts);
+        assert_eq!(
+            actual.data(),
+            oracle((1025.0, 1024.0), 1.0, Some(&shape), ts).data()
+        );
+        assert_eq!(raster.watched_owners_at_allocation.get(), 0);
+        assert!(exact.upgrade().is_none());
+        assert!(
+            oversize.upgrade().is_none(),
+            "oversize is drawn but never retained"
+        );
+        let (_, again) = frame(&mut raster, (1025.0, 1024.0), 1.0, &shape, ts);
+        assert!(again.upgrade().is_none());
+        assert_eq!(raster.clip_allocations.get(), 3);
+    }
+
+    #[test]
+    fn clip_mask_no_clip_frame_clears_active_mask_and_drop_releases_cache() {
+        let mut raster = Raster::new();
+        let (_, owner) = frame(
+            &mut raster,
+            (320.0, 128.0),
+            1.0,
+            &root(),
+            Transform::identity(),
+        );
+        raster.begin(320.0, 128.0, 1.0);
+        assert!(raster.clip_weak().upgrade().is_none());
+        raster.fill(
+            &Shape::rect((0.0, 0.0, 320.0, 128.0)),
+            COLOR,
+            Transform::identity(),
+        );
+        assert_eq!(
+            raster.finish().unwrap().data(),
+            oracle((320.0, 128.0), 1.0, None, Transform::identity()).data()
+        );
+        assert_eq!(raster.clip_allocations.get(), 1);
+        assert_eq!(owner.strong_count(), 1, "inactive immutable cache only");
+        drop(raster);
+        assert!(owner.upgrade().is_none());
+    }
+}
