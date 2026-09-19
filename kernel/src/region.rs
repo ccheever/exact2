@@ -10,7 +10,8 @@ mod state;
 mod tree;
 use crate::text::{Paragraph, TextRun, TextStyle};
 use crate::{
-    Frame, LayoutReceipt, NodeKey, Offer, ParagraphStamp, TextMeasureRequest, TextMetrics,
+    Frame, LayoutError, LayoutReceipt, NodeKey, Offer, ParagraphStamp, TextMeasureRequest,
+    TextMetrics,
 };
 pub(crate) use state::RegionState;
 use std::{any::Any, rc::Rc, sync::Arc};
@@ -152,22 +153,115 @@ impl RegionArtifact {
         self.payload.downcast_ref()
     }
 }
-/// A frame in region-local coordinates, kept even after a key is destroyed.
+/// Immutable frame facts, kept even after a key is destroyed. `frames()` returns
+/// origin-zero coordinates; `projected_frames(origin)` returns world coordinates
+/// accumulated parent-first at that origin. Neither changes keys or extents.
 #[derive(Clone, Debug)]
 pub struct RegionFrame {
     /// Original generation; never resurrects arena membership or action routing.
     pub node: NodeKey,
-    /// Local border box, before applying the current shell origin.
+    /// Border box in the coordinate space selected by the producing accessor.
     pub frame: Frame,
     /// Local scrollable content extent from the same pass.
     pub content: (f32, f32),
+}
+
+// A bounded coordinate witness, not retained layout-engine state. Parent is an
+// earlier paint-order ordinal, or OWNER for a direct child of the omitted owner.
+const OWNER: u32 = u32::MAX;
+#[derive(Clone, Copy)]
+pub(crate) struct RegionOffset {
+    parent: u32,
+    x: f32,
+    y: f32,
+    inline: bool,
+}
+impl RegionOffset {
+    fn project(self, local: Frame, parent: Frame) -> Result<Frame, LayoutError> {
+        let frame = if self.inline {
+            Frame::default()
+        } else {
+            Frame {
+                x: parent.x + self.x,
+                y: parent.y + self.y,
+                ..local
+            }
+        };
+        if !frame.x.is_finite() || !frame.y.is_finite() {
+            return Err(LayoutError::ContentRegion("projection overflow"));
+        }
+        Ok(frame)
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct RegionGeometry {
+    frames: Vec<RegionFrame>,
+    offsets: Vec<RegionOffset>,
+}
+impl RegionGeometry {
+    fn validate(&self, origin: Frame) -> Result<(), LayoutError> {
+        if !origin.x.is_finite() || !origin.y.is_finite() {
+            return Err(LayoutError::ContentRegion("projection overflow"));
+        }
+        if self.frames.len() > REGION_NODES || self.frames.len() != self.offsets.len() {
+            return Err(LayoutError::ContentRegion("invalid projection geometry"));
+        }
+        Ok(())
+    }
+
+    fn project(&self, origin: Frame) -> Result<Vec<RegionFrame>, LayoutError> {
+        self.validate(origin)?;
+        let mut projected: Vec<RegionFrame> = Vec::with_capacity(self.frames.len());
+        for (local, offset) in self.frames.iter().zip(&self.offsets) {
+            let parent = if offset.parent == OWNER {
+                origin
+            } else {
+                projected
+                    .get(offset.parent as usize)
+                    .ok_or(LayoutError::ContentRegion("invalid projection parent"))?
+                    .frame
+            };
+            projected.push(RegionFrame {
+                node: local.node,
+                frame: offset.project(local.frame, parent)?,
+                content: local.content,
+            });
+        }
+        Ok(projected)
+    }
+
+    fn frame(&self, node: NodeKey, origin: Frame) -> Option<Frame> {
+        self.validate(origin).ok()?;
+        let mut index = self.frames.iter().position(|f| f.node == node)?;
+        let mut chain = Vec::new();
+        loop {
+            chain.push(index);
+            let parent = self.offsets[index].parent;
+            if parent == OWNER {
+                break;
+            }
+            // Strictly decreasing ordinals bound the walk and refuse cycles.
+            if parent as usize >= index {
+                return None;
+            }
+            index = parent as usize;
+        }
+        let mut frame = origin;
+        for index in chain.into_iter().rev() {
+            frame = self.offsets[index]
+                .project(self.frames[index].frame, frame)
+                .ok()?;
+        }
+        Some(frame)
+    }
 }
 /// Immutable accepted geometry plus the exact pinned artifacts that produced it.
 #[derive(Clone)]
 pub struct RegionPublication {
     ticket: RegionTicket,
     inputs: RegionInputs,
-    frames: Vec<RegionFrame>,
+    geometry: RegionGeometry,
     artifacts: Vec<RegionArtifact>,
     paints: Vec<(NodeKey, usize)>,
 }
@@ -181,9 +275,12 @@ impl RegionPublication {
     pub fn inputs(&self) -> RegionInputs {
         self.inputs
     }
-    /// Local frames in paint order.
+    /// Origin-zero flattened frames in paint order. Adding a nonzero origin to
+    /// these flattened coordinates is not bit-equivalent to ordinary layout's
+    /// parent-first f32 accumulation. Use `projected_frames` or `frame` for that
+    /// projection; these local coordinates remain immutable source geometry.
     pub fn frames(&self) -> &[RegionFrame] {
-        &self.frames
+        &self.geometry.frames
     }
     /// Retained exact-offer paragraph artifacts.
     pub fn artifacts(&self) -> &[RegionArtifact] {
@@ -197,13 +294,22 @@ impl RegionPublication {
             .find(|(k, _)| *k == node)
             .map(|(_, i)| &self.artifacts[*i])
     }
-    /// Project the accepted local frame without squeezing its original width.
+    /// Project all accepted frames in paint order with ordinary layout's exact
+    /// parent-first f32 additions. Only origin.x/y are used; old widths/heights
+    /// and content extents remain unchanged. Inline runs remain zero frames.
+    ///
+    /// One bounded O(W) pass, no arena reads or mutation. All results are checked
+    /// before returning; an invalid/nonfinite projection returns an error, not
+    /// a partial array. Native consumers must not translate a cached projection
+    /// from a different origin and call it this projection.
+    pub fn projected_frames(&self, origin: Frame) -> Result<Vec<RegionFrame>, LayoutError> {
+        self.geometry.project(origin)
+    }
+    /// The same parent-first projection for one key, without squeezing its
+    /// original dimensions. A bounded key scan plus ancestor walk; unknown keys
+    /// or nonfinite/overflowing projections return None. No live arena lookup.
     pub fn frame(&self, node: NodeKey, origin: Frame) -> Option<Frame> {
-        self.frames.iter().find(|f| f.node == node).map(|f| Frame {
-            x: origin.x + f.frame.x,
-            y: origin.y + f.frame.y,
-            ..f.frame
-        })
+        self.geometry.frame(node, origin)
     }
 }
 /// Explicit selection: no implicit live-content paint fallback while Pending.

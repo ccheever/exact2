@@ -285,17 +285,16 @@ impl RegionState {
             if let Some(request) = latch.missing {
                 self.pending = Some(request);
             } else {
-                let mut frames = candidate.frames(
+                let geometry = candidate.frames(
                     arena,
                     b.owner.index,
                     Some(b.owner.index),
                     Some(b.content.index),
                 )?;
-                frames.retain(|f| f.node != b.owner);
                 next_accepted = Some(Rc::new(RegionPublication {
                     ticket: ticket.clone(),
                     inputs,
-                    frames,
+                    geometry,
                     artifacts: self.ready.clone(),
                     paints,
                 }));
@@ -303,7 +302,7 @@ impl RegionState {
         }
         let selected = next_accepted.as_ref().or(self.accepted.as_ref());
         let current = selected.is_some_and(|p| p.ticket == ticket && p.inputs == inputs);
-        let pending_frames = if selected.is_none() {
+        let pending_geometry = if selected.is_none() {
             let mut pending = Derived::build(
                 arena,
                 b.owner.index,
@@ -313,41 +312,29 @@ impl RegionState {
             )?;
             pending.constrain_owner(arena, b.owner.index, origin);
             pending.compute(arena, measurer, offer)?;
-            let mut frames = pending.frames(
+            pending.frames(
                 arena,
                 b.owner.index,
                 Some(b.owner.index),
                 Some(b.pending.index),
-            )?;
-            frames.retain(|f| f.node != b.owner);
-            frames
+            )?
         } else {
-            Vec::new()
+            RegionGeometry::default()
         };
-        // Validate the projection too: finite local coordinates plus a finite
-        // origin can still overflow. No arena publication or accepted swap until
-        // *all* selected frames, placeholder metrics and candidate work succeed.
+        // One parent-first projection for the entire selected branch. Finite
+        // local coordinates can overflow with this origin. Validate every
+        // intermediate/result before *any* arena publication or accepted swap.
         let frames = selected
-            .map(|p| p.frames.as_slice())
-            .unwrap_or(&pending_frames);
-        for f in frames {
-            if !(origin.x + f.frame.x).is_finite() || !(origin.y + f.frame.y).is_finite() {
-                return Err(LayoutError::ContentRegion("projection overflow"));
-            }
-        }
+            .map(|p| &p.geometry)
+            .unwrap_or(&pending_geometry)
+            .project(origin)?;
         let selection = match selected {
             Some(p) => RegionSelection::Accepted(p.clone()),
             None => RegionSelection::Pending(b.pending),
         };
         let mut changed = Vec::new();
-        publish(arena, &shell_frames, Frame::default(), true, &mut changed);
-        publish(
-            arena,
-            frames,
-            origin,
-            current || selected.is_none(),
-            &mut changed,
-        );
+        publish(arena, &shell_frames, true, &mut changed);
+        publish(arena, &frames, current || selected.is_none(), &mut changed);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
             self.ready.clear();
@@ -633,7 +620,6 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
 fn publish(
     arena: &mut NodeArena,
     frames: &[RegionFrame],
-    origin: Frame,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -644,11 +630,7 @@ fn publish(
         let frame = if arena.is_inline_run(s) {
             Frame::default()
         } else {
-            Frame {
-                x: origin.x + f.frame.x,
-                y: origin.y + f.frame.y,
-                ..f.frame
-            }
+            f.frame
         };
         let moved = !arena.frame(s).bits_eq(frame) || arena.flags(s).has(NodeFlags::CREATED);
         arena.set_frame(s, frame);

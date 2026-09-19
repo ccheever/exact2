@@ -6290,3 +6290,75 @@ The28-file archive is `exact2-messages-region-consumer/target/messages-region-co
 manifest17b0f588. Neither128 nor512 is justified by this inventory, and1,024 is
 not a selected shipping policy. Native capacity, exact projection, interactive
 publication and progress under sustained updates remain unfinished.
+
+### 8.111 Parent-first region projection, 2026-09-18
+
+A default64 regression isolates the coordinate failure without repeating the
+full replay. One paragraph under two0.1-point offsets at origin213.6 produces
+213.8 (`0x4355cccd`) with flattened-local translation, versus ordinary layout's
+213.80002 (`0x4355ccce`). The original assertion fails on that difference.
+
+Accepted region geometry now retains bounded parent ordinals and local offsets.
+`projected_frames(origin)` accumulates the same parent-first f32 additions as
+ordinary layout, validating the entire result before shell/content publication
+or accepted-artifact replacement. Single-key lookup follows the same arithmetic.
+Retained A keeps its original dimensions; pending placeholders, inline zero
+frames and overflow refusal remain qualified. `frames()` still means immutable
+origin-zero geometry, not an exactly translatable world-coordinate array.
+
+The three production paths add coordinate metadata, not retained layout-engine
+state. Estimated metadata is16B/frame and a temporary projected array32B/frame,
+bounded by the unchanged4,096-node ceiling. Single-key lookup also uses a bounded
+ancestor vector. These are representation costs, not allocation or speed results.
+The64-offer and16MiB source ceilings remain unchanged.
+
+All40 kernel region tests and24 Messages reuse tests pass, including six exact-bit
+projection controls; strict two-package all-target Clippy and scoped formatting
+pass. MAIN repeats the64 scoped tests and Clippy on the exact six integrated
+source/test files. The owner preserves an initial stale shared-library compile
+failure; byte-identical entry mtime refresh forced the actual candidate rebuild,
+without changing code or assertions. The54-file validation freeze is
+`exact2-messages-region-consumer/target/messages-region-consumer-prep/geometry-projection-v1/validation-freeze-v1/`,
+manifestf89fa212, production patch4891179d. The original full-replay failure is
+unchanged and was not rerun.
+
+Apple's cached local frame wire and Linux's translated picture commands still
+need origin-qualified mapping and rendering checks. Kernel geometry correctness
+does not establish those adapters, full Messages worker publication, capacity
+policy, native performance or120Hz.
+
+### 8.112 Shipped no-op timer: native progress and setup refusal, 2026-09-18
+
+One separate actual Linux build/run applies the shipped no-op-timer change to
+the preserved738 source plus unchanged observation overlay and readers. The
+ARM64 ELF is40abccdb;9addbd18 identifies its product record, not the binary.
+This is not another command in the stopped three-attempt reader campaign or a
+matched timing comparison.
+
+The run reaches and captures the100-row endpoint, including real wheel/back/clamp
+checks, then loads the full10,000-row resource. Snapshot4048 contains every
+sequential key,2,342,860 body UTF8 bytes and the unchanged seven-argument/nine-field
+schema. Batch32 is selected, but revision/changed remain0 because updating phases
+never start. First full picture132 retains scroll16211.400390625; after320 total
+setup batches, picture396 reaches50451.3984375 without a final-tail witness.
+
+The unchanged20s setup allowance reserves1s before another offer. At19.021440572s,
+37,115 spans/12,590 events/6,332,199B, that time cushion refuses another wheel
+batch. Recorder capacities and the60s watchdog were not exhausted. The whole
+run remains **FAILED / setup NOTESTABLISHED**: no full10k-tail admission, measured
+phases, silent2s proof or final fence. The saved image is only the100-row checkpoint.
+
+Independent stderr parsing exactly reproduces12,590 journal records and396
+ordered picture/submit/ready/installed-ACK chains. All75 paused timers preserve
+state apart from clock:68 clean→clean and7 already-dirty→dirty, with no clean→dirty
+transition. The previous paused-anchor refusal does not recur. This supports the
+observed no-op behavior, not a general timing or frame-rate gain.
+
+The37-file runtime freeze is `target/messages-linux-vkms-noop-timer-runtime-v1/`,
+manifest6c1e1528/reporte7d26c51. Recorded cleanup retires all7 owned PIDs/four groups
+and clears the port; the native process receives owned SIGTERM and exits−15.
+No retry or reader/capacity retuning follows. The observer lacks List identity,
+index extent, feedback sequence and correction disposition, so an end-follow
+correction being lost to acknowledged-picture clamping is only a source hypothesis.
+A small existing presenter fixture is the next discriminator; the failed native
+evidence is not relabeled.
