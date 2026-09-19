@@ -322,7 +322,7 @@ impl ListWindow {
             style(u, self.content, &[("height", Value::Number(extent))])?;
             self.extent = extent;
         }
-        self.render(u, active, region, frames, true)
+        self.render(u, active, region, frames, true, false)
     }
 
     fn render(
@@ -332,13 +332,18 @@ impl ListWindow {
         region: RegionsId,
         frames: &[Frame],
         refresh: bool,
+        defer_retirement: bool,
     ) -> Result<(), InstanceError> {
         let count = self.items.len();
         let start = self.heights.locate((self.top - self.port).max(0.0));
         let bottom = (self.top + 2.0 * self.port).max(0.0);
         let last = self.heights.locate(bottom);
         let end = last + usize::from(self.heights.offset(last) < bottom);
-        let mut wanted: Vec<usize> = (start.min(count)..end.min(count)).collect();
+        let mut wanted: Vec<usize> = if self.port > 0.0 {
+            (start.min(count)..end.min(count)).collect()
+        } else {
+            Vec::new()
+        };
         wanted.extend(
             self.pins
                 .iter()
@@ -346,13 +351,14 @@ impl ListWindow {
         );
         wanted.sort_unstable();
         wanted.dedup();
-        // A row that has left the window costs nothing mounted, and retiring it
-        // costs a relayout. So a report that needs no new row changes nothing:
-        // the next pass that mounts one retires what is past the window then.
+        // During ordinary scrolling, retiring a row costs a relayout. A report
+        // that needs no new row leaves retirement to the next mounting pass.
         // What lingers is bounded by the rows between two such passes, O(W).
         // (Nearly half of a reader's window changes only retired rows, each at
         // the price of mounting one — LLP 1044 F7.)
         if !refresh
+            && defer_retirement
+            && !wanted.is_empty()
             && wanted
                 .iter()
                 .all(|index| self.rendered.binary_search(index).is_ok())
@@ -540,6 +546,12 @@ impl Tree {
                             .window
                             .as_mut()
                             .ok_or(InstanceError::List("not a windowed list"))?;
+                        // LLP 1010 §6: a released pin or changed viewport must
+                        // release rows now, even when no new row is needed.
+                        let defer_retirement = geometry.height > 0.0
+                            && window.port == geometry.height
+                            && window.origin == geometry.origin;
+                        let old_pins = window.pins.clone();
                         window.top = (geometry.top - geometry.origin).max(0.0);
                         window.port = geometry.height;
                         window.origin = geometry.origin;
@@ -564,7 +576,15 @@ impl Tree {
                                 }
                             }
                         }
-                        window.render(u, &mut region.active, region.region, frames, false)?;
+                        let defer_retirement = defer_retirement && old_pins == window.pins;
+                        window.render(
+                            u,
+                            &mut region.active,
+                            region.region,
+                            frames,
+                            false,
+                            defer_retirement,
+                        )?;
                         return Ok(true);
                     }
                     Child::Node(n) => {

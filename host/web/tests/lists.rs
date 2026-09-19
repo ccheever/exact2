@@ -317,23 +317,33 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
     )
     .unwrap();
     assert!(r.kernel().live_count() > before);
-    r.list_viewport(
-        list,
-        exact_runner::ListViewport {
-            top: 0.0,
-            height: 0.0,
-            width: 390.0,
-            origin: 0.0,
-            pins: [0, 0],
-            rows: &[],
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        r.kernel().live_count(),
-        2,
-        "hidden scrollport retains no unpinned rows"
-    );
+    let expanded = r.kernel().live_count();
+    for (top, height, origin) in [(4812.0, 120.0, 12.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)] {
+        r.list_viewport(
+            list,
+            exact_runner::ListViewport {
+                top,
+                height,
+                width: 390.0,
+                origin,
+                pins: [0, 0],
+                rows: &[],
+            },
+        )
+        .unwrap();
+        if height == 0.0 {
+            assert_eq!(
+                r.kernel().live_count(),
+                2,
+                "hidden scrollport at {top} retains no unpinned rows"
+            );
+        } else {
+            assert!(
+                r.kernel().live_count() < expanded,
+                "shrinking retires rows without mounting any"
+            );
+        }
+    }
 }
 
 #[test]
