@@ -13,19 +13,8 @@ private final class SymbolClip: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-// DIAG (temporary, not for commit): switches for bisecting render-server stalls.
-enum Diag { static func on(_ name: String) -> Bool { ExactEnv.environment["EXACT_DIAG_" + name] != nil } }
-
 final class FlippedView: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        if Diag.on("FLATTEN") { wantsLayer = true; canDrawSubviewsIntoLayer = true }
-    }
-    required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
-    override func prepareContent(in rect: NSRect) {
-        super.prepareContent(in: Diag.on("NOOVERDRAW") ? visibleRect : rect)
-    }
 }
 
 /// A material paints, but never supplies a new hit target or focus owner.
@@ -204,7 +193,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var textParent: NodeView?
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
-    /// The paragraph's text as a worker-painted sublayer (TextRasterMac.swift).
+    /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
     var textRasterKey: TextRasterKey?
@@ -541,7 +530,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        wantsLayer = kind != "text" && !Diag.on("FLATTEN")
+        wantsLayer = kind != "text"
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
@@ -983,7 +972,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     private(set) var hasBoxPaint = false
     override var wantsUpdateLayer: Bool {
         if kind == "text" { return rastersText }
-        if Diag.on("NODRAW"), kind != "image", kind != "canvas", kind != "iframe" { return true }
         return !hasBoxPaint && !Capture.capturing && kind != "image"
             && kind != "canvas" && kind != "iframe"
     }
@@ -1015,7 +1003,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         clipPath = ClipPath.path(s["clip_path"])
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
-        if kind != "text" || superview != nil { wantsLayer = !Diag.on("FLATTEN") }
+        if kind != "text" || superview != nil { wantsLayer = true }
         layer?.mask = ClipPath.mask(clipPath)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1066,8 +1054,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
         let scrollbarWidth = s["scrollbar_width"] as? String ?? "auto"
-        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none" && !Diag.on("NOSCROLLERS")
-        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none" && !Diag.on("NOSCROLLERS")
+        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
+        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         clipsToBounds = ox == "hidden" || oy == "hidden"
@@ -1088,7 +1076,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func prepareToMount() {
         guard kind == "text" else { return }
-        wantsLayer = !Diag.on("FLATTEN")
+        wantsLayer = true
         layer?.mask = ClipPath.mask(clipPath)
         layer?.zPosition = number("z_index")
         applyTransform()

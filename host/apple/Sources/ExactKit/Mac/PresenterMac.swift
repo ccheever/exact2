@@ -94,8 +94,8 @@ final class Presenter {
 
     init() {
         viewport.documentView = root
-        viewport.hasVerticalScroller = !Diag.on("NOSCROLLERS")
-        viewport.hasHorizontalScroller = !Diag.on("NOSCROLLERS")
+        viewport.hasVerticalScroller = true
+        viewport.hasHorizontalScroller = true
         viewport.autohidesScrollers = true
         viewport.scrollerStyle = .overlay
         viewport.automaticallyAdjustsContentInsets = false
@@ -174,7 +174,7 @@ final class Presenter {
         for (_, node) in rasters {
             guard rasterBudget > 0 else { rastersDeferred = true; break }
             rasterBudget -= 1
-            textRasters.ensure(node, urgent: false)
+            if !textRasters.ensure(node, urgent: false) { rastersDeferred = true }
         }
         for node in textViewportIndex!.candidates(reach: Self.textBandSlack) where node.needsTextRaster && !node.rastersText {
             let want = textBand(node, reach: Self.textBandSlack)
@@ -217,22 +217,8 @@ final class Presenter {
 
     /// A scroll container moved. Nothing here may take long: AppKit is inside
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
-    private var diagFirstScroll: CFTimeInterval = 0
-    private var diagFrozen: Bool {
-        guard Diag.on("FREEZE") else { return false }
-        if diagFirstScroll == 0 { diagFirstScroll = CACurrentMediaTime() }
-        return CACurrentMediaTime() - diagFirstScroll > 1.0
-    }
     func scrolled() {
         guard !applying else { return }
-        if diagFrozen { listSyncPending = false; textPending = false; stopPump(); return }
-        if let us = ExactEnv.environment["EXACT_DIAG_DELAY"].flatMap(UInt32.init) { usleep(us) }
-        if let us = ExactEnv.environment["EXACT_DIAG_SPIN"].flatMap(Double.init) {
-            let until = CACurrentMediaTime() + us / 1_000_000
-            var x = 0.0
-            while CACurrentMediaTime() < until { x += 1 }
-            _ = x
-        }
         let post = Self.signposts.beginInterval("scrolled")
         defer { Self.signposts.endInterval("scrolled", post) }
         // Most ticks move inside the band the mounted rows already cover: then

@@ -102,7 +102,6 @@ let size = NSSize(width: windowDimension("width", fallback: 420), height: window
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
 // Present the reading surface at its final size as soon as it is ready.
 window.animationBehavior = .none
-if ExactEnv.environment["EXACT_DIAG_LIGHT"] != nil { NSApp.appearance = NSAppearance(named: .aqua) }
 ExactEnv.stamp("NSWindow")
 window.title = ExactEnv.appName
 if !agentMode && !smoke && !windowConfig.isEmpty {

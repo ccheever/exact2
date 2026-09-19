@@ -4,8 +4,8 @@
 // scrolling into view is painted in strips: a backing buffer, a display-list
 // replay and a texture upload per paragraph per frame, on the main thread, in
 // the frame that has to move — half of what that thread did during a scroll.
-// Here a paragraph's text is drawn once, whole, on a worker, into an image a
-// sublayer shows. The main thread mounts the row; the pixels arrive behind it,
+// Here a paragraph's text is drawn once, whole, on a worker, into a surface the
+// view's layer shows. The main thread mounts the row; the pixels arrive behind it,
 // while the row is still a screen away. Scrolling mounted text is compositing.
 //
 // `NodeView.draw` still paints text for everything this declines: a
@@ -45,25 +45,32 @@ final class TextRasterizer {
 
     private let queue = DispatchQueue(label: "exact.text-raster", qos: .userInitiated, attributes: .concurrent)
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    // A slice limits admission rate, not outstanding work. Keep no backlog:
+    // the next pump tries the still-nearby paragraphs again when a worker is
+    // free, so navigation and resize cannot queue obsolete document pixels.
+    private var active = 0
+    private static let maxConcurrent = 2
 
     /// Make sure `node` shows a current raster. `urgent` means it is on
     /// screen now: painted here rather than shown blank for a frame.
-    func ensure(_ node: NodeView, urgent: Bool) {
+    @discardableResult
+    func ensure(_ node: NodeView, urgent: Bool) -> Bool {
         guard node.rastersText, let engine = node.text else {
             node.dropTextRaster()
-            return
+            return true
         }
         let spec = node.paragraphSpec()
         let scale = node.window?.backingScaleFactor ?? 2
         let key = TextRasterKey(spec: spec, size: node.bounds.size, box: node.contentBox(), scale: scale)
-        if node.textRasterKey == key, node.textRasterReady || !urgent { return }
+        if node.textRasterKey == key, node.textRasterReady || !urgent { return true }
+        guard urgent || active < Self.maxConcurrent else { return false }
         // The breaks the kernel measured at this width, when they are still
         // resident: the worker typesets its own lines, so the painted
         // paragraph need not exist on this thread until something reads it.
         guard let (ranges, baselines) = engine.measuredBreaks(spec, width: key.box.width)
                 ?? node.paragraphLayout().map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else {
             node.dropTextRaster()
-            return
+            return true
         }
         node.textRasterKey = key
         node.textRasterReady = false
@@ -73,12 +80,17 @@ final class TextRasterizer {
                       box: key.box, size: key.size, scale: scale)
         if urgent {
             node.showTextRaster(Self.render(job), for: key)
-            return
+            return true
         }
-        queue.async {
+        active += 1
+        queue.async { [weak self, weak node] in
             let image = Self.render(job)
-            DispatchQueue.main.async { [weak node] in node?.showTextRaster(image, for: key) }
+            DispatchQueue.main.async { [weak self, weak node] in
+                self?.active -= 1
+                node?.showTextRaster(image, for: key)
+            }
         }
+        return true
     }
 
     /// The same paint `TextEngine.draw` makes — a y-down context, one
@@ -117,10 +129,10 @@ final class TextRasterizer {
 }
 
 extension NodeView {
-    /// Whether this paragraph's text is a rasterized sublayer rather than
+    /// Whether this paragraph's text is a rasterized surface rather than
     /// something `draw` paints. Asked by AppKit through `wantsUpdateLayer`.
     var rastersText: Bool {
-        guard !Diag.on("FLATTEN"), kind == "text", isParagraph, !hasBoxPaint, !Capture.capturing, window != nil,
+        guard kind == "text", isParagraph, !hasBoxPaint, !Capture.capturing, window != nil,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }
