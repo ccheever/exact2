@@ -8,7 +8,7 @@ fn literal_opt_in_and_ordinary_each_compile() {
     for list in [
         "list virtualized=true height=200",
         "list virtualized=false height=200",
-        "scroll",
+        "scroll height=200",
         "column",
     ] {
         contract::compile(&source(list, ROW)).unwrap();
