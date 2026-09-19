@@ -5773,3 +5773,88 @@ and pending-layout failures remain sealed. This measurement campaign is stopped
 after three attempts: no fourth retry, forced scrollbar policy, wider admission
 or replacement timing is selected. The controlled metadata constructor savings
 in8.92 remain valid; full-app savings and physical120Hz remain unproved.
+
+### 8.98 Current Mac Messages baseline exposes remaining resize costs, 2026-09-18
+
+One fresh8d9858c build uses the unchanged default Reusable factory and current
+seven-argument/History9 data contract. Earlier630 native products have six
+arguments/History5 and cannot supply a current comparison. Only the three
+Session/Agent/main observers are ported; current collection dataReady, common-mode
+timer and cleanup stay intact. The94.364s optimized build and one15.896s cell
+exit0. The actual receipt, generated factory and plan match the current app.
+
+The full10,000-row, actual32-change workload remains unbounded at the data seam:
+boundedfalse/cursorNone, windowed display, no eager or smaller-answer substitute.
+All36 offers receive acknowledgments inside the three AppKit edges, with18
+typing inputs and18 alternating measured40-unit wheel movements. Each phase has
+18 complete resize chains strictly inside its edge. Current-tail admission
+allows the loaded offset to change by324.8; it does not restore an obsolete
+absolute scroll offset. Full outside-edge History checks retain all rows, keys,
+UTF8 bodyBytes, revised suffix and cursor metadata. Loaded state progresses8→19.
+
+Resize whole-wall medians are8.663/8.796/9.851ms in idle/load/recovery, with
+maxima15.400/13.872/12.181ms. Respectively9/18,12/18 and13/18 exceed1000/120ms:
+34 of54 total. The Runtime.resize+decode medians are5.654/5.687/6.230ms and
+separate Swift apply medians2.582/2.832/3.390ms. These include synchronous Swift
+measurement callbacks and other native work, not isolated Rust or CoreText CPU.
+There is no current C96 or Bridge-split observation to assign finer causes.
+
+The seven strictly-inside loaded timer chains have a4.942ms whole median and
+7.994ms maximum, but that subset is insufficient to claim the budget is met.
+The broader loaded state bracket has11 chains, two above8.333ms and a9.511ms
+maximum. Eight command-free producer chains over2001.664ms advance revision0→8;
+four exceed8.333ms, with13.462ms whole and9.588ms core maxima. Loaded typing ACK
+reaches23.334ms, and recovery wheel ACK15.995ms. No revision count substitutes
+for linked callback counts, and these small samples are not robust tail bounds.
+
+Primary records have no omissions. Passive tracking omissions retain mode
+NOTESTABLISHED despite positive samples. The instrumented cell establishes
+resize/input endpoints and autonomous progress, not an old-versus-new gain or
+physical120Hz on the known60Hz display. All seven recorded PIDs and five groups
+retire, including four owned poster releases. The187-file runtime archive is
+under `target/messages-current-native-execution-v1/`, separate from its immutable
+build and source seals. Next source investigation targets work repeated during
+distinct-width resize; no new threading or layout policy is selected here.
+
+### 8.99 Full browser paragraph fails the fixed offer schedule, 2026-09-18
+
+One unmodified8d9858c Web build and one ordinary headed Chrome cell exercise the
+full1MiB paragraph. Historical browser1MiB evidence used many small blocks;
+unsplit browser evidence was only16KiB. The default synchronous MarkdownStress
+factory and small bake stay unchanged. Actual controls select paragraph, wide
+column and1MiB; the initial complete DOM paragraph is1,048,499 UTF8 bytes with
+the canonical digest, within1,048,531 source bytes and two supplied blocks.
+Revision stays0 and reparsing is paused. The actual reading column changes
+1185↔1105px in all three fixed2s windows; no truncation or splitting is used.
+
+The cell exits1 and remains FAILED/functional NOT_ESTABLISHED. Its fixed72 offers
+include58 sent requests and14 capacity skips, distributed5/5/4 across windows;
+four outstanding requests trigger the unchanged cap. No late-offer skips,
+page errors or observer drops occur. All19 sent typing requests eventually echo,
+but only16 input handlers begin within the fixed windows; three arrive after
+their endpoints. Successful partial delivery does not satisfy72-offer acceptance.
+
+Independent reconstruction counts24/23/24 fully-contained frame-callback gaps,
+with maxima349.9/333.4/350.1ms. Request ACK maxima are610.470/611.087/602.809ms.
+Conservative clock brackets place the slowest sent typing request's DOM capture
+roughly264/265/256ms later in each window, separately from fast capture-to-echo
+handling. Wrapped Wasm interval unions are only1.4/1.5/1.4ms per window; their
+coverage within each contained gap over50ms is at most0.501ms. This locates much
+of the delay outside those exports, without identifying browser layout, paint,
+compositor, transport or CPU causation. No Chrome task trace or EST1 is collected.
+
+Cold1MiB selection takes469.804ms to ACK and471.971ms to DOM readiness. A37.4ms
+document dispatch and468ms boot longtask have different, overlapping boundaries;
+they do not isolate parsing or prove input responsiveness during cold work.
+The final full-text digest is unavailable: after offer assessment fails, the
+catch path replaces the computed full snapshot with a metadata-only snapshot.
+The initial digest and final two-block/revision metadata remain, but no retained
+before/after text equality or end-to-end PASS is claimed. The original failure
+and raw records remain unchanged; no retry, wider cap or smaller workload follows.
+
+The15-file runtime archive is under
+`target/web-giant-markdown-8d9858c/cell-v1/`. All three recorded PIDs, the owned
+group and private listener retire. Callback timing on the known60Hz carrier is
+not physical presentation or120Hz proof. Next work is source-only pricing of
+failure-proof evidence retention and a bounded observation of the missing
+browser work, before selecting a production optimization.
