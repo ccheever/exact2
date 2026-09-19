@@ -6750,3 +6750,31 @@ These are Mac-hosted CPU/model tests with a real worker and small row fixture,
 not an actual Linux display run, full10,000-message worker activation, latency
 improvement or physical120Hz proof. Native SplitFacts capacity and ACK progress
 remain a separate unintegrated candidate.
+
+### 8.122 Native SplitFacts full-viewport adapter remains deferred, 2026-09-19
+
+The proposed Linux adapter adds explicit pre-first-paint SplitFacts activation,
+known retained native-capacity admission and progress when a matching display
+acknowledgement releases an old generation. It remains private and unintegrated.
+The final allowed test round compiles and runs five tests: one passes and four
+fail at the full-workload admission assertion, with seven mounted tail rows where
+33 are required. The tests do not reach their132-final-owner, ordinary-geometry,
+pixel-refusal or parked-generation ACK assertions. This is neither a smaller
+accepted workload nor proof that the native capacity policy is insufficient;
+the cause of the fixture's row-count mismatch is unproved.
+
+Fifteen earlier native-budget, payload-lifetime and measurement-purpose tests
+pass. An old-API baseline separately reproduces the unwanted measurement index
+construction. Those results do not establish the missing full-viewport behavior.
+The first candidate attempt had test compilation errors; the next full-workload
+attempt was stopped by a forbidden unsafe poll in the fixture. The final
+fixture-only correction uses the existing safe test wait and real completion
+drain. It does not prove OS readiness or an actual Linux display path.
+
+Execution stops after correction round three: no fourth fix, reduced row count,
+cap increase, native activation or integration. Final command exit101 has no
+watchdog action; all ten recorded PIDs and its process group are absent. Evidence
+is `exact2-linux-split-facts-native/target/split-facts-native-validation/cpu03/`;
+the source-v4 seal and both earlier attempts remain preserved. The kernel profile
+in§8.120 and verified retained gestures in§8.121 remain separate verified changes
+on the feature branch. No native-memory, latency or120Hz result follows here.
