@@ -72,6 +72,14 @@ three workloads. Shared-element presentation and the bounded geometry/motion
 work those consumers need are admitted; a generic gesture arena, second
 application-state graph and speculative parallel layout remain out.
 
+**Expanded (Charlie, 2026-09-17: one impressive demo on iPhone, macOS and web):**
+Exact Live combines crew chat, photos, a runbook and background jobs in one
+authored workspace, using existing hosts and data seams. Unblocks showing the
+interaction and performance work together in a coherent application. Take:
+additional standalone showcase apps wait behind this composition; existing full
+stress workloads and controls remain intact. No new UI framework, general job
+scheduler or cross-device synchronization service is implied.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

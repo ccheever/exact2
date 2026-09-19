@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes } from "./navigation.js";
+import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController } from "./navigation.js";
 // Native independent HTTP carries a response ceiling; enforce it during browser reads too.
 async function boundedHttpBody(response, limit) {
   if (limit == null) return new Uint8Array(await response.arrayBuffer());
@@ -15,7 +15,7 @@ async function boundedHttpBody(response, limit) {
 }
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
-const collections = collectionController({ root, views, report(bytes) {
+const collections = collectionController({ root, views, settled:()=>arrange.commit(), report(bytes) {
   if (!wasm) return false;
   const ptr = wasm.exact_in(bytes.length);
   new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
@@ -33,6 +33,11 @@ const motion = motionController({views, now:()=>now(), generation:()=>incarnatio
     return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
   }
 });
+const arrange = arrangeController({views, collections, motion, now:()=>now(), generation:()=>incarnation,
+  inert:inertAncestor, applyBatch, ready:()=>inputReady, request(facts) {
+    if(!wasm)return {accepted:false};const bytes=motionBytes(facts),ptr=wasm.exact_in(bytes.length);
+    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
+  }});
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageFrames = new Set(); // iframes whose node handles `message`
@@ -635,6 +640,8 @@ function apply(batch) {
       case "retire-motion": { motion.retire(op.id, op.property, op.token, op.runtime); break; }
       case "height-drag": { motion.heightBinding(op); break; }
       case "transform-drag": { motion.transformBinding(op); break; }
+      case "reorder-drag": { arrange.binding(op); break; }
+      case "reorder-state": { arrange.state(op); break; }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
@@ -742,6 +749,7 @@ function apply(batch) {
         break;
       }
       case "destroy": {
+        arrange.destroy(op.id);
         motion.destroy(op.id);
         const el = views.get(op.id); if (el) { retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
@@ -807,13 +815,13 @@ function apply(batch) {
 // says (`batch.clock`: an advance a timer refused stops early).
 function applyBatch(batch) {
   const timers = apply(batch);
-  motion.commit();
+  motion.commit(); arrange.commit();
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
     register(agentClock);
     if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
-    seek(agentClock);
+    seek(agentClock);arrange.commit();
   }
   return { timers, batch };
 }
@@ -1292,7 +1300,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact.pendingSurfaces = [];
   if (ticker) clearInterval(ticker);
   ticker = null;
-  motion.reset();
+  arrange.reset(); motion.reset();
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();

@@ -92,20 +92,44 @@ unsupported transforms refuses the trial. Read-only source/link metadata is
 retained, but general selection and link activation are not implemented here.
 
 Mac-hosted Rust tests exercise full 1MiB/4MiB cold publication with zero giant UI
-measurement calls. An actual Linux 1MiB run on the captured ac86627 sources
-published without another input, matched the independent reference pixels and
-accepted continued typing, but the complete cell failed because reported scroll
-stayed zero after wheel input. A later CPU regression proves replayed scroll
-metadata could stay stale even while state and pixels moved; that old trace alone
-does not establish immobile pixels. The repair also keeps interaction limits tied
-to the successfully painted document until replacement painting succeeds. Four
-behavioral regressions and all 283 Linux-package tests pass on macOS (one existing
-GPU ignore); the fixed native Linux replay remains separate. The earlier 4MiB
-candidate refused port setup before launch. Full display
-acceptance, 4MiB worker memory, continuous resize and latency remain unproved;
-LLP1041 §8.22 records the exact partial evidence and failures. The display loop
-watches completion readiness; the stdio agent only pumps on commands. Neither
-the worker queues nor their source/index limits imply a total-memory or 120Hz claim.
+measurement calls. The fixed actual Linux 1MiB trial on captured d6b3431 sources
+passes: autonomous publication without another input, exact independent-reference
+content pixels, continued typing and wheel scrolling 0→40px. An overlapping
+472,320-byte RGB strip moves by exactly 40px; newly exposed content is outside
+that comparison. UI giant shape/index counters remain zero. This instrumented
+CPU/VKMS run is functional evidence, not physical-display or latency evidence.
+
+The earlier d6 4MiB candidate aborts before publication at the 2.5GiB address-space
+cap; that failure remains recorded in LLP1041 §8.27. With shared width layouts
+on captured ef12f06 sources, both 1MiB and 4MiB trials now complete under the same
+cap. Two distinct measurement requests reuse one worker layout and ink index.
+The complete 4,194,149-byte paragraph publishes without another input, accepts
+further typing and scrolls 40px. Accepted content pixels match the fresh
+independent reference; the overlapping scroll strip matches exactly too.
+
+The 4MiB run samples VmPeak at 2,303,612KiB and RSS/HWM at 1,384,404KiB.
+These are observations from this fixture, not a general memory bound or an
+isolated allocation-site measurement. The source, fonts and cap were not reduced.
+Continuous resize, repeated latency measurements and physical120Hz remain
+outstanding. LLP1041 §8.29 records the native sharing replay and its limits.
+
+A later retained-document reflow trial also passes at both 1MiB and 4MiB:
+the authored content column changes from 600 to 984px inside a fixed 1024×768
+display. It combines the frozen ef12f06 sharing path with glyph compaction and
+the span-reservation removal. The old layout remains interactive while the new
+width computes; publication needs no additional input. Both accepted viewport
+crops and both 40px scroll-overlap strips match fresh independent references.
+At 4MiB, sampled VmPeak is 2,411,644KiB and RSS/HWM is 1,774,156KiB, leaving
+209,796KiB below the unchanged address-space cap in this one fixture. Earlier
+novel-width crashes remain recorded. This proves the bounded content-reflow
+case, not a general memory bound, continuous window resize or 120Hz; §8.41
+records the exact composite, full-source checks and preserved failures.
+
+Earlier failed scroll-metadata and prelaunch port cells remain unchanged in §8.22.
+The scroll repair keeps limits tied to the successfully painted document; the old
+zero metadata did not prove immobile pixels. The display loop watches completion
+readiness; the stdio agent only pumps on commands. Neither worker queue bounds nor
+source/index limits imply a total-memory or 120Hz claim.
 
 ### Explicit AppKit cold-paragraph trial
 
@@ -136,6 +160,14 @@ State polls can pump the agent boundary, and screenshots use the native view
 cache. WindowServer capture was refused; synthetic phased-wheel/real-trackpad,
 autonomous progress, continuous-resize latency and physical 120Hz remain unproved.
 Exact revision-qualified evidence is recorded in LLP1041 §8.23.
+
+The worker now reuses a live CoreText layout when another request has the same
+captured source object, source ID, generation and definite width. Each answer
+still has a fresh request identity. Lookup uses the existing 64-entry live table;
+retired widths are not kept as a history. Scoped production-worker tests reduce
+three constructions to one and retain pixel, hit, selection and retirement
+checks: 16 methods/20,885 assertions pass under strict Swift 6. This repair has
+not yet been measured in the full-host giant-paragraph workload; see §8.31.
 
 ## Reproduce
 

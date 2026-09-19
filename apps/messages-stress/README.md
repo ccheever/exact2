@@ -27,6 +27,26 @@ host/web/dev.mjs --app messages-stress --port 8771 --loopback` instead.
 The ordinary native wrapper is available with
 `bun host/apple/build.mjs messages-stress-apple --run` (or `--ios --run`).
 
+All three runtime entries default to `ReusableMessagesStress`. The app-local
+build selector `EXACT_MESSAGES_SOURCE=reuse|stateless` selects that source or
+the original stateless control; unset means `reuse`. Empty, unknown and
+non-Unicode values fail before Contract compilation or bake. For example:
+
+```sh
+EXACT_MESSAGES_SOURCE=stateless EXACT_WEB_DIST=target/messages-control bun host/web/build.mjs messages-stress-web
+EXACT_MESSAGES_SOURCE=reuse EXACT_WEB_DIST=target/messages-reuse bun host/web/build.mjs messages-stress-web
+```
+
+Cargo tracks this selector, and Web dev includes the same generated factory as
+its Wasm. Set the selector when building or starting the dev command; changing
+the environment of an already built executable does not change its source.
+When switching modes for Web dev, first rebuild its Wasm with the same selector
+and output directory; the existing dev launcher can reuse a previously built dist.
+The embedded default-page bake and compatibility grants always use the
+stateless source. Both runtime choices produce identical canonical values for
+the same request; the selector does not change the Contract, cardinalities,
+batches or producer cadence.
+
 ## What to try
 
 1. Type in the composer and check the exact live text below it. `stress-input`
@@ -56,6 +76,12 @@ The ordinary native wrapper is available with
 7. Local echo puts the draft in the transcript and clears the composer. Only
    one local echo is retained; the next replaces it. Nothing is sent anywhere.
 
+For the full **10,000-record / 32-change** stress control, select 10,000,
+Virtualized transcript and batch 32, leaving Bounded virtualized off. Build
+with `EXACT_MESSAGES_SOURCE=stateless` for the reconstructing source control.
+Both source choices still supply all 10,000 records in this mode; bounded-window
+results are a different workload and do not replace its historical evidence.
+
 Drafts are limited to 512 Unicode scalar values. Oversized edits are refused
 and the previous draft remains. Histories only accept the four presets,
 revision is 0..120, batch is 1/8/32, and page offsets are checked before any
@@ -76,14 +102,36 @@ keys stay stable across streaming revisions and history sizes.
 - UTF-8 body bytes: a sum of returned message bodies, not heap/RSS, record
   metadata, DOM cost, or decoded images. There are no image attachments.
 
-The source reconstructs its supplied list synchronously on each revision.
-Eager data and UI are O(N); full-history virtualization bounds UI lifetime, not
-record generation or key validation after a changed list. Bounded virtualization
+Both sources answer synchronously. The stateless control reconstructs its
+supplied list on each revision; the default reuses immutable rows for manual
+pages and full-history requests as described below. Cursor-selected windows use
+the canonical bounded generator in both sources. Eager data and UI are O(N);
+full-history virtualization bounds UI lifetime, not the supplied list or its
+positional scan. Bounded virtualization
 also bounds generation and key validation to K = 200 (+ one tail echo), independent
 of history size. There is no worker placement or
 preemption of that synchronous work in this fixture. Typing alone
 only changes the draft and its live echo, not the history resource arguments.
 No FPS, frame deadline or physical presentation result is asserted by this UI.
+
+The default `ReusableMessagesStress` keeps one latest immutable result across
+manual, full-history and bounded modes. Repeated identical arguments reuse that
+result; invalid requests leave it intact, and switching modes retains no visited
+window history. For manual/full-history requests it reuses unchanged row records:
+a 10,000-row update changing 32 bodies retains the other 9,968 records.
+It uses the original generator for a temporary 100-row tail page, copies O(N)
+row handles, and still incurs fresh-answer validation and positional scanning.
+The Runner reuses keys for unchanged immutable records: the tested 10,000-row,
+32-change update evaluates 32 keys, while the stateless control evaluates all
+10,000. `MessagesStress` remains exported for explicit pathological comparisons
+and all embedded bakes. Exact Live already uses row reuse independently of this
+stress app's selector.
+
+Three native comparison pairs observed lower loaded advance/decode medians
+with row reuse. Timer tails still exceed 8.33 ms, resize and input results are
+mixed, and the repeat pairs have different timed revision cohorts. See
+[LLP 1041 §8.42](../../llp/1041-graceful-overload.rfc.md#842-two-alternating-native-messages-repeat-pairs-2026-09-17)
+for the measurements and limits; they do not establish physical 120 Hz.
 
 The existing `history` source accepts an optional `option<string>` cursor as its
 seventh argument. Omitted/`none` preserves the six-argument manual/eager controls;
@@ -91,8 +139,10 @@ seventh argument. Omitted/`none` preserves the six-argument manual/eager control
 100 rows before that position (never before the first row) and returns up to 200
 rows. Near the tail the window is shorter; its start is not pulled back from the
 tail. A position at/past the end resolves to the last row, and malformed cursors
-are refused. Answers append `earlier`, `later`, `hasEarlier`, `hasLater` to
-the existing statistics. Extending this source keeps one resource active and
+are refused. Both sources return nine-field answers, appending `earlier`, `later`,
+`hasEarlier`, `hasLater` to the existing statistics even for six-argument calls;
+manual/full-history answers use empty cursors and false edge flags. Extending
+this source keeps one resource active and
 avoids generating an unused second history. `reachstart`/`reachend` move the cursor
 only when the corresponding flag is true. Latest also issues a scroll offset
 request, since changing a cursor alone does not move an existing scrollport.
@@ -126,6 +176,20 @@ Virtual-clock assertions are correctness checks, not performance evidence.
 `data/tests/windowed.rs` also covers the actual 10,000-record Contract's
 bounded mounted rows, an active offscreen row retained until release, exact
 typing, reply identity and the preserved eager/manual controls.
+`data/tests/reuse.rs` compares complete canonical values and bytes with the
+stateless source, checks immutable sharing and last-owner release, and runs the
+real Contract through typing, width changes and ticks. Its merge regressions
+also cover explicit `none`, bounded cursors, nine-field canonical answers,
+invalid-request preservation and mode-change lifetimes. The original reuse
+checkpoint had 26 passing data tests and one ignored opt-in timing test, with
+strict all-targets Clippy passing. The original source produces nine behavioral failures in the
+13-test reuse suite, retained under `target/messages-row-reuse-validation/`.
+`data/tests/factory.rs` checks strict build selection; `web/tests/factory.rs`
+checks actual generated factories and full 10,000-row/32-change canonical
+values and sharing in both modes, including the factory consumed by Web dev.
+Historical comparisons below retain their original factories and dates; this
+activation does not establish a whole-frame or physical 120 Hz result.
+
 `data/tests/bounded.rs` drives the same compiled/baked Contract at 1,000, 10,000
 and 100,000 rows: complete feedback-only traversal in both directions, every
 shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior

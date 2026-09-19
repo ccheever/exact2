@@ -1,0 +1,4 @@
+# Exact Live public job service: two origins keep control requests independent.
+# Both request URLs and net.fetch grants are compiled from these same inputs.
+DATA=https://exact-live-jobs-data.tuft.host
+CONTROL=https://exact-live-jobs-control.tuft.host

@@ -44,6 +44,9 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Paint a frame and publish its pixels, hits and native source together.
     pub fn frame(&mut self) -> Pixmap {
+        // The display carrier stages the paint's owners/boxes and publishes
+        // them only on the matching flip. Headless/agent frames stay immediate.
+        let deferred = self.display.submitting();
         if let Some(error) = self.poll_content_region() {
             self.host.log(error);
         }
@@ -56,6 +59,7 @@ impl<D: DataSource> Presenter<D> {
         } else {
             BTreeMap::new()
         };
+        let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -63,7 +67,7 @@ impl<D: DataSource> Presenter<D> {
             hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
-            scroll: &self.scroll,
+            scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
             page: self.page,
             images: &self.images.bitmaps,
             focus: self.focus,
@@ -71,8 +75,36 @@ impl<D: DataSource> Presenter<D> {
         };
         let region = host.content_region();
         let feedback_before = region.is_some_and(|r| r.publication_painted());
-        let paint = |brush: &mut Painter| match region {
-            Some(region) => brush.paint_region(&scene, self.viewport, region, &collection_limits),
+        // Capture only at a successful current CPU picture, before display_frame
+        // restores A. Retained replay never obtains new B handlers/arguments.
+        let mut handlers = None;
+        let mut capture = |key, kind| {
+            let node = host.kernel().node_by_key(key)?;
+            let handlers = handlers.get_or_insert_with(|| host.runner().handlers());
+            handlers
+                .get(&node.id)
+                .filter(|events| events.contains(&kind))?;
+            Some(host.runner().capture_action_binding(key, kind))
+        };
+        let eligible = |key| host.retained_action_eligible(key);
+        let motion = |key, picture: &std::rc::Rc<()>| {
+            self.retained_motion
+                .as_ref()
+                .is_some_and(|permit| permit.allows(host, key, picture))
+        };
+        let mut actions = crate::paint::RegionActions {
+            capture: &mut capture,
+            eligible: &eligible,
+            motion: &motion,
+        };
+        let mut paint = |brush: &mut Painter| match region {
+            Some(region) => brush.paint_region(
+                &scene,
+                self.viewport,
+                region,
+                &collection_limits,
+                &mut actions,
+            ),
             None => brush.paint(&scene, self.viewport),
         };
         let mut painted = paint(&mut self.brush);
@@ -87,7 +119,7 @@ impl<D: DataSource> Presenter<D> {
         self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => {
-                if region.is_some() {
+                if region.is_some() && !deferred {
                     // One bounded-to-viewport retained surface, separate from
                     // glyph/font/image ledgers. No copy on ordinary opt-out.
                     self.last_region_frame = Some(pixmap.clone());
@@ -122,7 +154,7 @@ impl<D: DataSource> Presenter<D> {
             }
         };
         self.boxes = boxes;
-        if self.last_frame_succeeded {
+        if self.last_frame_succeeded && !deferred {
             if let Some(region) = self.host.content_region() {
                 // Replay clamps against the selected picture BEFORE drawing.
                 // Publish precisely those offsets only after backend success;
@@ -139,7 +171,8 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         }
-        if !feedback_before
+        if !deferred
+            && !feedback_before
             && self.last_frame_succeeded
             && self
                 .host

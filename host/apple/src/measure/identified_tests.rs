@@ -143,7 +143,11 @@ fn both_axis_offers_are_exact_and_intrinsic_kinds_are_distinct() {
     );
     assert_eq!(state.borrow().calls, 5);
     m.measure_identified(&stamp, &request(&runs, pairs[0].0, pairs[0].1));
-    assert_eq!(state.borrow().calls, 6, "fifth offer evicts oldest of four");
+    assert_eq!(
+        state.borrow().calls,
+        5,
+        "fifth offer retains oldest with eight slots"
+    );
 }
 
 #[test]

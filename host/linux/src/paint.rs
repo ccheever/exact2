@@ -30,6 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod region;
+pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,6 +116,113 @@ impl Shape {
             ),
             self.radii.map(|r| (r - by).max(0.0)),
         )
+    }
+}
+
+// Frozen numeric/style operands. Capture resolves environment and appearance
+// once; geometry is evaluated at the published frame with ordinary f32 order.
+struct BoxPaint {
+    radii: [f32; 4],
+    widths: [f32; 4],
+    colors: [[u8; 4]; 4],
+    background: [u8; 4],
+    padding: [f32; 4],
+    uniform: bool,
+}
+struct BoxGeometry {
+    outer: Shape,
+    content: Rect4,
+}
+fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
+    (
+        frame.x - offset.0,
+        frame.y - offset.1,
+        frame.width,
+        frame.height,
+    )
+}
+impl BoxPaint {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+        let s = node.style;
+        let widths = s.border_widths();
+        let current = node
+            .computed_style(StyleMask::of(StyleId::TextColor))
+            .text_color;
+        let colors = s.border_colors(current);
+        // Compare authored color values before resolving, as ordinary paint did.
+        let uniform =
+            widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
+        let env = kernel.env();
+        let pad = |d: Dimension| match d.resolve(&env) {
+            Dimension::Points(p) => p,
+            Dimension::Percent(p) => w * p / 100.0,
+            Dimension::Auto | Dimension::Env(..) => 0.0,
+        };
+        Self {
+            radii: [
+                s.border_radius_top_left,
+                s.border_radius_top_right,
+                s.border_radius_bottom_right,
+                s.border_radius_bottom_left,
+            ],
+            widths,
+            colors: colors.map(|c| rgba(c.resolve(dark))),
+            background: rgba(s.background_color.resolve(dark)),
+            padding: [
+                pad(s.padding_top),
+                pad(s.padding_right),
+                pad(s.padding_bottom),
+                pad(s.padding_left),
+            ],
+            uniform,
+        }
+    }
+    fn geometry(&self, rect: Rect4) -> BoxGeometry {
+        let (x, y, w, h) = rect;
+        let widths = self.widths;
+        let pad = self.padding;
+        BoxGeometry {
+            outer: Shape::new(rect, self.radii),
+            content: (
+                x + widths[3] + pad[3],
+                y + widths[0] + pad[0],
+                (w - widths[3] - widths[1] - pad[3] - pad[1]).max(0.0),
+                (h - widths[0] - widths[2] - pad[0] - pad[2]).max(0.0),
+            ),
+        }
+    }
+    fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
+        self.emit(geometry, |shape, color, stroke| match stroke {
+            Some(width) => backend.stroke(&shape, width, color, ts),
+            None => backend.fill(&shape, color, ts),
+        });
+    }
+    fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4], Option<f32>)) {
+        let outer = geometry.outer;
+        let (x, y, w, h) = outer.rect;
+        if self.background[3] > 0 && w > 0.0 && h > 0.0 {
+            emit(outer, self.background, None);
+        }
+        let widths = self.widths;
+        let colors = self.colors;
+        if widths.iter().any(|b| *b > 0.0) {
+            if self.uniform && outer.rounded() && colors[0][3] > 0 {
+                let bw = widths[0];
+                emit(outer.inset(bw / 2.0), colors[0], Some(bw));
+            } else {
+                let sides = [
+                    (x, y, w, widths[0]),
+                    (x + w - widths[1], y, widths[1], h),
+                    (x, y + h - widths[2], w, widths[2]),
+                    (x, y, widths[3], h),
+                ];
+                for (i, side) in sides.iter().enumerate() {
+                    if widths[i] > 0.0 && colors[i][3] > 0 && side.2 > 0.0 && side.3 > 0.0 {
+                        emit(Shape::rect(*side), colors[i], None);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -223,6 +331,8 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    // One generational source, lifted only inside its existing List clip.
+    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -230,20 +340,43 @@ pub struct Painter {
     region_frame: Option<region::Published>,
 }
 
+// O(painted owners) references and numeric publication metadata, not copied
+// glyphs/commands or a new render graph. The display retains acknowledged A
+// here while one submitted B owns its corresponding leases.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) struct Presentation {
+    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    picture: Option<Rc<region::Picture>>,
+    frame: Option<region::Published>,
+}
+
 struct Walk<'a, 'b> {
     scene: &'b Scene<'a>,
     boxes: Vec<PaintedBox>,
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     skip: Option<exact_kernel::NodeKey>,
-    // Record traversal alone supplies native exact paragraphs. The normal
-    // shell path and ordinary opt-out remain unchanged.
-    region: Option<&'b exact_kernel::RegionPublication>,
-    capture: Option<&'b region::Capture>,
     replay: Option<&'b region::Replay<'b>>,
-    region_error: Option<&'static str>,
 }
 
 impl Painter {
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn presentation(&self) -> Presentation {
+        Presentation {
+            text: self.accepted_text.clone(),
+            picture: self.region_picture.clone(),
+            frame: self.region_frame.as_ref().map(|f| region::Published {
+                incarnation: f.incarnation.clone(),
+                selection: f.selection.clone(),
+            }),
+        }
+    }
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
+        std::mem::swap(&mut self.accepted_text, &mut state.text);
+        std::mem::swap(&mut self.region_picture, &mut state.picture);
+        std::mem::swap(&mut self.region_frame, &mut state.frame);
+        state
+    }
     /// A painter over a backend.
     pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
         Painter {
@@ -252,6 +385,7 @@ impl Painter {
             dark: false,
             backend,
             accepted_text: BTreeMap::new(),
+            arrange_lift: None,
             region_picture: None,
             region_frame: None,
         }
@@ -289,12 +423,13 @@ impl Painter {
 
     /// Paint exactly the registered selected branch. An accepted publication
     /// requires its native snapshot; live candidate text is never a fallback.
-    pub fn paint_region(
+    pub(crate) fn paint_region(
         &mut self,
         scene: &Scene<'_>,
         viewport: (f32, f32),
         region: &crate::content_region::ContentRegionState,
         collection_limits: &BTreeMap<ViewId, f32>,
+        actions: &mut RegionActions<'_>,
     ) -> Result<Frame, String> {
         region.validate_scale(self.scale)?;
         self.validate_region_presentation(scene, region)?;
@@ -321,8 +456,16 @@ impl Painter {
             exact_kernel::RegionSelection::Accepted(publication) => {
                 let picture = if receipt.current {
                     // A flat native paint/hit snapshot, never an app/layout
-                    // graph. No UTF-8 copy or cold text lookup is permitted.
-                    region::Picture::capture(self, scene, region, publication, collection_limits)?
+                    // graph. Only bounded action scalars are copied; paragraph
+                    // UTF-8 and cold text lookup remain outside this path.
+                    region::Picture::capture(
+                        self,
+                        scene,
+                        region,
+                        publication,
+                        collection_limits,
+                        actions,
+                    )?
                 } else {
                     self.region_picture
                         .as_ref()
@@ -330,12 +473,17 @@ impl Painter {
                         .cloned()
                         .ok_or("retained content has no matching native picture")?
                 };
-                let replay = region::Replay {
-                    picture: &picture,
-                    origin: receipt.origin,
-                    content: region.binding().content,
+                // Validate source, project once, and preflight every prepared
+                // text query before backend.begin or any shell/content emission.
+                let replay = region::Replay::prepare(
+                    &picture,
+                    scene,
+                    receipt.origin,
+                    region.binding().content,
                     viewport,
-                };
+                    self.scale,
+                    actions,
+                )?;
                 let frame = self.paint_selected(
                     scene,
                     viewport,
@@ -365,10 +513,7 @@ impl Painter {
             boxes: Vec::new(),
             text: BTreeMap::new(),
             skip,
-            region: None,
-            capture: None,
             replay,
-            region_error: None,
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -376,10 +521,7 @@ impl Painter {
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
-        let finished = self.backend.finish().and_then(|p| match walk.region_error {
-            Some(error) => Err(error.into()),
-            None => Ok(p),
-        });
+        let finished = self.backend.finish();
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
         if finished.is_ok() {
@@ -404,9 +546,6 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
-        if walk.region_error.is_some() {
-            return;
-        }
         if let Some(replay) = walk.replay.filter(|r| {
             walk.scene
                 .kernel
@@ -430,7 +569,7 @@ impl Painter {
             return;
         }
         let f = node.frame;
-        let (x, y, w, h) = (f.x - offset.0, f.y - offset.1, f.width, f.height);
+        let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
         let ts = if p.moves() {
             let (cx, cy) = (x + w / 2.0, y + h / 2.0);
@@ -453,9 +592,6 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        if let Some(capture) = walk.capture {
-            capture.hit(node.key, *walk.boxes.last().unwrap());
-        }
         let opacity = p.opacity.clamp(0.0, 1.0);
         if opacity <= 0.0 {
             return;
@@ -478,75 +614,12 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2);
+        let geometry = paint.geometry(rect);
+        paint.paint(self.backend.as_mut(), &geometry, ts);
+        let outer = geometry.outer;
+        let content = geometry.content;
         let s = node.style;
-        let (x, y, w, h) = rect;
-        let outer = Shape::new(
-            rect,
-            [
-                s.border_radius_top_left,
-                s.border_radius_top_right,
-                s.border_radius_bottom_right,
-                s.border_radius_bottom_left,
-            ],
-        );
-        if s.background_color.resolve(self.dark).a() > 0 && w > 0.0 && h > 0.0 {
-            self.backend
-                .fill(&outer, rgba(s.background_color.resolve(self.dark)), ts);
-        }
-        // Borders: a uniform border with a radius is a stroke inset by half
-        // its width; anything else is four side rectangles (as the Apple
-        // presenter draws them).
-        let widths = s.border_widths();
-        let current = node
-            .computed_style(StyleMask::of(StyleId::TextColor))
-            .text_color;
-        let colors = s.border_colors(current);
-        if widths.iter().any(|b| *b > 0.0) {
-            let uniform =
-                widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
-            if uniform && outer.rounded() && colors[0].resolve(self.dark).a() > 0 {
-                let bw = widths[0];
-                self.backend.stroke(
-                    &outer.inset(bw / 2.0),
-                    bw,
-                    rgba(colors[0].resolve(self.dark)),
-                    ts,
-                );
-            } else {
-                let sides = [
-                    (x, y, w, widths[0]),
-                    (x + w - widths[1], y, widths[1], h),
-                    (x, y + h - widths[2], w, widths[2]),
-                    (x, y, widths[3], h),
-                ];
-                for (i, side) in sides.iter().enumerate() {
-                    if widths[i] > 0.0
-                        && colors[i].resolve(self.dark).a() > 0
-                        && side.2 > 0.0
-                        && side.3 > 0.0
-                    {
-                        self.backend.fill(
-                            &Shape::rect(*side),
-                            rgba(colors[i].resolve(self.dark)),
-                            ts,
-                        );
-                    }
-                }
-            }
-        }
-        // The content box: inside the borders and the padding.
-        let env = walk.scene.kernel.env();
-        let pad = |d: Dimension| match d.resolve(&env) {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => w * p / 100.0,
-            Dimension::Auto | Dimension::Env(..) => 0.0,
-        };
-        let content = (
-            x + widths[3] + pad(s.padding_left),
-            y + widths[0] + pad(s.padding_top),
-            (w - widths[3] - widths[1] - pad(s.padding_left) - pad(s.padding_right)).max(0.0),
-            (h - widths[0] - widths[2] - pad(s.padding_top) - pad(s.padding_bottom)).max(0.0),
-        );
         match node.node_type {
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
@@ -557,57 +630,38 @@ impl Painter {
                 }
             }
             NodeType::Text => {
-                if let Some(publication) = walk.region {
-                    if let Some(artifact) = publication.paint_artifact(node.key) {
-                        if let Some(native) =
-                            artifact.payload::<crate::content_region::NativeText>()
-                        {
-                            if let Some(paragraph) = native.paragraph() {
-                                walk.text.insert(node.key, paragraph.clone());
-                                self.backend.text(
-                                    &mut self.text.borrow_mut(),
-                                    paragraph,
-                                    &native.palette(self.dark),
-                                    (content.0, content.1),
-                                    ts,
-                                );
-                            }
-                        }
-                    }
+                // The kernel measures a Text subtree as one paragraph. Inline
+                // descendants deliberately have zero frames, not paint boxes.
+                let build = || {
+                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
+                    spec.runs = node
+                        .text_runs()
+                        .iter()
+                        .map(|run| Run::from_style(run.text, run.style))
+                        .collect();
+                    spec
+                };
+                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
+                    self.text
+                        .borrow_mut()
+                        .paragraph_identified(&stamp, Some(content.2), build)
                 } else {
-                    // The kernel measures a Text subtree as one paragraph. Inline
-                    // descendants deliberately have zero frames, not paint boxes.
-                    let build = || {
-                        let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                        spec.runs = node
-                            .text_runs()
-                            .iter()
-                            .map(|run| Run::from_style(run.text, run.style))
-                            .collect();
-                        spec
-                    };
-                    let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                        self.text
-                            .borrow_mut()
-                            .paragraph_identified(&stamp, Some(content.2), build)
-                    } else {
-                        let spec = build();
-                        (!spec.is_empty())
-                            .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
-                    };
-                    if let Some(paragraph) = paragraph {
-                        let mut palette = Vec::new();
-                        text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                        walk.text.insert(node.key, paragraph.clone());
-                        let mut engine = self.text.borrow_mut();
-                        self.backend.text(
-                            &mut engine,
-                            &paragraph,
-                            &palette,
-                            (content.0, content.1),
-                            ts,
-                        );
-                    }
+                    let spec = build();
+                    (!spec.is_empty())
+                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
+                };
+                if let Some(paragraph) = paragraph {
+                    let mut palette = Vec::new();
+                    text_palette(walk.scene.kernel, node, self.dark, &mut palette);
+                    walk.text.insert(node.key, paragraph.clone());
+                    let mut engine = self.text.borrow_mut();
+                    self.backend.text(
+                        &mut engine,
+                        &paragraph,
+                        &palette,
+                        (content.0, content.1),
+                        ts,
+                    );
                 }
             }
             NodeType::TextInput => {
@@ -692,22 +746,21 @@ impl Painter {
                 .get(&node.id)
                 .copied()
                 .unwrap_or((0.0, 0.0));
-            if let Some(capture) = walk.capture {
-                capture.scroll(node.key, (sx, sy));
-                offset
-            } else {
-                (offset.0 + sx, offset.1 + sy)
-            }
+            (offset.0 + sx, offset.1 + sy)
         } else {
             offset
         };
-        for child in node.children() {
+        let lift = self
+            .arrange_lift
+            .filter(|(list, _)| *list == node.key)
+            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
+            .filter(|source| source.parent == Some(node.id))
+            .map(|source| source.id);
+        for child in node.children().into_iter().filter(|id| Some(*id) != lift) {
             self.node(walk, child, ts, child_offset, child_rect);
         }
-        if scrolls {
-            if let Some(capture) = walk.capture {
-                capture.end_scroll();
-            }
+        if let Some(child) = lift {
+            self.node(walk, child, ts, child_offset, child_rect);
         }
         if clips {
             self.backend.pop_clip();

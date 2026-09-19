@@ -218,11 +218,14 @@ recognition are preserved in `target/photo-apple-validation/final/`. The viewer
 was outside a collection, so this drive exercises no active collection pin.
 UIKit remains uncompiled; a supplemental runtime probe was compiled but not run.
 None of these runs proves physical FPS.
-Continuous reorder still needs shared host hooks. Its `galleryAction` preview
-and token-checked Place/Cancel endpoints remain the manual controls. Physical
-preview belongs to the common collection mechanism; only its final logical
-outcome reaches the synchronous `galleryReorder` terminal. The adapter must not
-compose manual before/Place calls or send per-pointer app data.
+The Web adapter now provides primary-pointer reorder, spring-aside preview,
+edge scrolling and interrupted return/regrab through the shared collection
+mechanism. The Linux adapter has matching Presenter/CPU coverage; its actual
+Linux display drive and the Apple adapter remain follow-up work. The `galleryAction`
+preview and token-checked Place/Cancel endpoints remain the manual controls;
+only the final logical pointer outcome reaches synchronous `galleryReorder`.
+There are no per-pointer app-data requests. Shared obligations and remaining
+cross-host work include:
 
 1. Continuous begin/update/end/cancel delivery, with one current interaction token,
    cancellation on navigation/deletion, and no per-sample durable order commits.
@@ -291,7 +294,37 @@ are preserved with the raw logs in `target/gallery-arrange-validation/` in the
 private `exact2-gallery-arrange` tree. These tests synthesize typed terminals;
 physical recognition, final geometry certification, preview/pin lifetime, edge
 scrolling and C0 presentation rebasing still require common/host evidence.
-No physical reorder, native run, frame or timing result is claimed here.
+Those app tests alone make no physical reorder, native, frame or timing claim.
+
+The integrated Web adapter separately passes **119 Rust tests** (three existing
+opt-in ignores), **61 real-DOM tests / 206 assertions**, strict Clippy and a Wasm
+check. DOM fixtures mock Rust replies. The broader v4 real-Wasm/CDP gallery drive
+uses 25,000 logical records with at most nine mounted rows and passes 17 checks,
+including positional continuity, edge clamp, removal and pin cleanup. Final v5
+actual-Wasm replays pass eight recognized-regrab checks and nine checks each for
+tap and horizontal abort before recognition. A returning offscreen source keeps
+its original terminal/pin owner until a replacement drag crosses the threshold;
+aborted contact no longer prematurely unmounts it. Native parity, complete 25k
+edge traversals, physical-frame timing and 120Hz remain unproved. Exact sources,
+raw behavioral failures, historical broader drives and final narrow replays are
+under `target/arrange-web-validation/`; LLP1041 §8.25 records their boundaries.
+
+The integrated Linux adapter passes **301 package tests** on macOS, with one
+existing native-GPU ignore, plus strict all-targets Clippy. Eighteen Arrange
+tests exercise real Contract/Runner/Engine/Presenter behavior, CPU paint and hit
+ordering, source pin retention, positional rebasing, edge compensation and
+stale delivery. A harmless authored scroll handler now preserves an owned edge
+drag; deletion and width reflow still cancel it. The four merged painted-region
+scroll regressions remain green. These results do not establish actual Linux
+display/stdio delivery, GPU ordering, physical input or frame performance.
+Sources, meaningful failures and integration checks are under
+`target/arrange-linux-validation/`; LLP1041 §8.26 records the scope.
+
+A separate coherent actual-Linux 100-row stdio replay retains a drag through
+typing and performs one exact reorder with nine same-clock position comparisons.
+The whole driver remains failed: its later recatch targets a grip above the List
+clip. Cancel/resize and 25k/display acceptance remain unproved; the earlier stale
+build failure and this partial result are preserved separately in LLP1041 §8.26.
 
 The photo app slice passes **41 scoped Rust tests** against the frozen common
 binding/parser overlay: 18 model/resource, seven photo, eight retained runtime

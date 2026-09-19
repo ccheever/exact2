@@ -434,6 +434,10 @@ final class TextEngine {
     /// widths alive; a new width retires obsolete cache ownership before work.
     func paragraph(_ spec: Spec, width: CGFloat) -> Paragraph {
         let identity = residency.identity(spec)
+        return paragraph(spec, identity: identity, width: width)
+    }
+
+    private func paragraph(_ spec: Spec, identity: TextIdentity, width: CGFloat) -> Paragraph {
         let key = TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: width)
         if let p = residency.paragraph(key) { return p }
         // Preserve matching measured line breaks while replacing their black
@@ -457,7 +461,7 @@ final class TextEngine {
 
     private func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
         let spec = shape.spec, typesetter = shape.typesetter
-        let length = spec.runs.reduce(0) { $0 + ($1.text as NSString).length }
+        let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) {
             let f = font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
@@ -466,6 +470,16 @@ final class TextEngine {
             return (f.ascender + half, -f.descender + f.leading + half)
         }
         let minimum = strut.map(extents) ?? (0, 0)
+        func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
+            // Reuse only this layout's exact strut metrics. Font keys preserve
+            // signed zero; nonfinite inputs keep their original computation.
+            guard let strut, let height = run.lineHeight, let strutHeight = strut.lineHeight,
+                  run.size.isFinite, strut.size.isFinite, height.isFinite, strutHeight.isFinite,
+                  Double(run.size).bitPattern == Double(strut.size).bitPattern,
+                  run.weight == strut.weight, run.family == strut.family, run.italic == strut.italic,
+                  Double(height).bitPattern == Double(strutHeight).bitPattern else { return extents(run) }
+            return minimum
+        }
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -534,7 +548,7 @@ final class TextEngine {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = extents(authored)
+                        let (a, b) = authoredExtents(authored)
                         include(a, b, explicit: true)
                     } else {
                         includesNormal = true
@@ -666,6 +680,25 @@ final class TextEngine {
     /// paints.
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        let lookupStarted = CACurrentMediaTime()
+        let knownIdentity = residency.borrowedIdentity(request)
+        let intrinsic = request.width < 0
+        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
+        if let identity = knownIdentity {
+            if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+                measureHits += 1
+                measureSeconds += CACurrentMediaTime() - lookupStarted
+                return metrics
+            }
+            if !intrinsic, let p = residency.geometry(identity, width: CGFloat(request.width)) {
+                measureHits += 1
+                measureSeconds += CACurrentMediaTime() - lookupStarted
+                return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+            }
+        }
+        // Preserve measureSeconds as cache/layout work, excluding Run/Spec
+        // decoding: a fallback adds its failed borrowed lookup interval below.
+        let lookupSeconds = CACurrentMediaTime() - lookupStarted
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing))
         }
@@ -673,17 +706,15 @@ final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
         let started = CACurrentMediaTime()
-        let identity = residency.identity(spec)
-        let intrinsic = request.width < 0
-        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
-        if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+        let identity = knownIdentity ?? residency.identityAfterBorrowedMiss(spec)
+        if intrinsic, knownIdentity == nil, let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1
-            measureSeconds += CACurrentMediaTime() - started
+            measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
             return metrics
         }
         let width: CGFloat = request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : intrinsic ? .infinity : CGFloat(request.width)
         let p: Paragraph
-        if let cached = residency.geometry(identity, width: width) { measureHits += 1; p = cached }
+        if (intrinsic || knownIdentity == nil), let cached = residency.geometry(identity, width: width) { measureHits += 1; p = cached }
         else if intrinsic {
             // Intrinsic probes publish only scalar metrics. Their full CTLines
             // leave this scope; shaped source remains subject to the same budget.
@@ -692,10 +723,10 @@ final class TextEngine {
             let shape = shape(key.shape, identity: identity)
             residency.prepare(estimatedBytes: identity.utf16Count * 64)
             p = layout(shape, width: width)
-        } else { p = paragraph(spec, width: width) }
+        } else { p = paragraph(spec, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
-        measureSeconds += CACurrentMediaTime() - started
+        measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
         return metrics
     }
 

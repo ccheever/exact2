@@ -1,6 +1,6 @@
 //! Subject/key dependencies only. Row-body changes never trigger an all-N key pass.
 use super::super::{Env, Frame};
-use exact_plan::{bytes::Reader, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
+use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
 use std::{collections::BTreeSet, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,14 +15,34 @@ enum Input {
 #[derive(Debug)]
 pub(super) struct KeyMemo {
     inputs: Vec<Input>,
-    saved: Option<Vec<Value>>,
+    saved: Option<Snapshot>,
+}
+#[derive(Debug)]
+struct Scope {
+    item: Option<Value>,
+    bound: Option<Value>,
+    region: Option<u32>,
+    has_row: bool,
+}
+#[derive(Debug)]
+struct Snapshot {
+    inputs: Vec<Value>,
+    frames: Vec<Scope>,
 }
 impl KeyMemo {
     pub(super) fn new(plan: &Plan, region: RegionsId) -> Option<Self> {
-        let mut inputs = BTreeSet::new();
         let row = plan.region(region);
-        for code in [row.subject, row.key] {
-            let mut reader = Reader::new(plan.code(code));
+        Self::for_codes(plan, &[row.subject, row.key])
+    }
+    /// The subject's fresh outer allocation says nothing about key inputs.
+    /// The current item's identity is checked separately, at its old position.
+    pub(super) fn key_only(plan: &Plan, region: RegionsId) -> Option<Self> {
+        Self::for_codes(plan, &[plan.region(region).key])
+    }
+    fn for_codes(plan: &Plan, codes: &[Code]) -> Option<Self> {
+        let mut inputs = BTreeSet::new();
+        for code in codes {
+            let mut reader = Reader::new(plan.code(*code));
             while !reader.is_empty() {
                 let op = Opcode::from_wire(reader.u8().ok()?)?;
                 let mut first = 0;
@@ -67,7 +87,40 @@ impl KeyMemo {
                     | Opcode::Command
                     | Opcode::Send
                     | Opcode::Refresh => return None,
-                    _ => None,
+                    Opcode::Number
+                    | Opcode::Bool
+                    | Opcode::Str
+                    | Opcode::None
+                    | Opcode::Unit
+                    | Opcode::Some
+                    | Opcode::LoadItem
+                    | Opcode::LoadBound
+                    | Opcode::Field
+                    | Opcode::Record
+                    | Opcode::List
+                    | Opcode::Add
+                    | Opcode::Sub
+                    | Opcode::Mul
+                    | Opcode::Div
+                    | Opcode::Rem
+                    | Opcode::Neg
+                    | Opcode::Eq
+                    | Opcode::Ne
+                    | Opcode::Lt
+                    | Opcode::Le
+                    | Opcode::Gt
+                    | Opcode::Ge
+                    | Opcode::Not
+                    | Opcode::Concat
+                    | Opcode::Jump
+                    | Opcode::JumpIfFalse
+                    | Opcode::JumpIfNone
+                    | Opcode::Unwrap
+                    | Opcode::Pop
+                    | Opcode::BindLocal
+                    | Opcode::LoadLocal
+                    | Opcode::DropLocal
+                    | Opcode::Return => None,
                 };
                 if let Some(input) = input {
                     inputs.insert(input);
@@ -79,8 +132,8 @@ impl KeyMemo {
             saved: None,
         })
     }
-    fn values(&self, env: &Env<'_>, frames: &[Frame]) -> Option<Vec<Value>> {
-        let mut out = Vec::with_capacity(self.inputs.len() + frames.len() * 2);
+    fn values(&self, env: &Env<'_>, frames: &[Frame]) -> Option<Snapshot> {
+        let mut out = Vec::with_capacity(self.inputs.len());
         for input in &self.inputs {
             out.push(match *input {
                 Input::Slot(i) => match env.plan.slots.get(i as usize)?.owner {
@@ -94,25 +147,45 @@ impl KeyMemo {
                 Input::Clock => Value::Number(env.now_ms),
             });
         }
-        for frame in frames {
-            out.extend([
-                frame.item.clone().unwrap_or(Value::Unit),
-                frame.bound.clone().unwrap_or(Value::Unit),
-            ]);
-        }
-        Some(out)
+        Some(Snapshot {
+            inputs: out,
+            frames: frames
+                .iter()
+                .map(|frame| Scope {
+                    item: frame.item.clone(),
+                    bound: frame.bound.clone(),
+                    region: frame.region,
+                    has_row: frame.row.is_some(),
+                })
+                .collect(),
+        })
     }
     pub(super) fn unchanged(&self, env: &Env<'_>, frames: &[Frame]) -> bool {
         let (Some(old), Some(now)) = (&self.saved, self.values(env, frames)) else {
             return false;
         };
-        old.len() == now.len() && old.iter().zip(&now).all(|(a, b)| same(a, b))
+        old.inputs.len() == now.inputs.len()
+            && old.inputs.iter().zip(&now.inputs).all(|(a, b)| same(a, b))
+            && old.frames.len() == now.frames.len()
+            && old.frames.iter().zip(&now.frames).all(|(a, b)| {
+                a.region == b.region
+                    && a.has_row == b.has_row
+                    && same_optional(&a.item, &b.item)
+                    && same_optional(&a.bound, &b.bound)
+            })
     }
     pub(super) fn remember(&mut self, env: &Env<'_>, frames: &[Frame]) {
         self.saved = self.values(env, frames);
     }
 }
-fn same(a: &Value, b: &Value) -> bool {
+fn same_optional(a: &Option<Value>, b: &Option<Value>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => same(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+pub(super) fn same(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
         (Value::Bool(a), Value::Bool(b)) => a == b,

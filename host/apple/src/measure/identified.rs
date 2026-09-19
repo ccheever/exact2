@@ -5,7 +5,7 @@ use exact_kernel::{AxisOffer, NodeKey, ParagraphStamp, TextMetrics};
 use std::collections::{HashMap, VecDeque};
 
 const OWNERS: usize = 256;
-const OFFERS: usize = 4;
+const OFFERS: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Axis {
@@ -104,3 +104,7 @@ impl Memo {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "offers_tests.rs"]
+mod offers_tests;

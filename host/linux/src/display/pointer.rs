@@ -11,6 +11,16 @@ pub(super) fn dispatch<D: DataSource>(
     event: InputEvent,
     now_ms: f64,
 ) -> Result<(), String> {
+    if !matches!(event, InputEvent::Key(_) | InputEvent::Cancel)
+        && !p.display_input_mapping(viewport, scale)
+    {
+        // An uncertified physical release must end capture without executing
+        // a drop. Refusing its coordinates must not strand a hold or item pin.
+        if matches!(event, InputEvent::Button(false)) {
+            p.pointer_cancel(now_ms)?;
+        }
+        return Err("pointer mapping does not match the acknowledged surface".into());
+    }
     match event {
         InputEvent::Motion(dx, dy) => {
             pointer.0 = (pointer.0 + dx / scale).clamp(0., viewport.0 - 1.);
@@ -121,6 +131,143 @@ mod tests {
             .unwrap();
             assert_eq!(count(&p), if cancel.is_some() { "0" } else { "1" });
             assert_eq!(p.collection_interaction(), None);
+        }
+    }
+
+    #[test]
+    fn viewport_pointer_mapping_requires_the_acknowledged_extent_not_live_c() {
+        let mut p = fixture();
+        let a = p.display_frame().unwrap();
+        assert!(p.display_complete(&a));
+        assert!(p.resize(300., 300.).is_none());
+        let b = p.display_frame().unwrap();
+        let b_pixels = b.pixels.data().to_vec();
+        assert!(p.resize(800., 1000.).is_none());
+        let mut at = (20., 40.);
+        let absolute = InputEvent::Absolute(Some(0.25), Some(0.5));
+        assert!(dispatch(&mut p, &mut at, (800., 1000.), 1., absolute, 1.).is_err());
+        assert_eq!(at, (20., 40.), "refusal must not reinterpret a pointer");
+        dispatch(&mut p, &mut at, (400., 500.), 1., absolute, 1.).unwrap();
+        assert_eq!(at, (100., 250.));
+        assert_eq!(b.pixels.data(), b_pixels);
+        assert!(p.display_complete(&b));
+        // No C paint between ACK and input. B's mapping is now authoritative.
+        assert!(dispatch(&mut p, &mut at, (400., 500.), 1., absolute, 2.).is_err());
+        assert_eq!(at, (100., 250.));
+        dispatch(&mut p, &mut at, (300., 300.), 1., absolute, 2.).unwrap();
+        assert_eq!(at, (75., 150.));
+        assert!(p.dirty());
+        assert_eq!(b.pixels.data(), b_pixels);
+    }
+
+    #[test]
+    fn viewport_pointer_scale_or_missing_origin_witness_refuses_but_keys_cancel_continue() {
+        let mut p = fixture();
+        let a = p.display_frame().unwrap();
+        assert!(p.display_complete(&a));
+        let mut at = (20., 40.);
+        for (extent, scale) in [((400., 500.), 2.), ((800., 1000.), 1.)] {
+            assert!(dispatch(
+                &mut p,
+                &mut at,
+                extent,
+                scale,
+                InputEvent::Motion(8., 4.),
+                1.
+            )
+            .is_err());
+            assert_eq!(at, (20., 40.));
+            dispatch(
+                &mut p,
+                &mut at,
+                extent,
+                scale,
+                InputEvent::Key(Key::Char('x')),
+                1.,
+            )
+            .unwrap();
+            dispatch(&mut p, &mut at, extent, scale, InputEvent::Cancel, 1.).unwrap();
+        }
+        let b = p.display_frame().unwrap();
+        p.reload(
+            &contract::compile("component App\n  view\n    text \"new\"\n")
+                .unwrap()
+                .encode(),
+            NoData,
+        )
+        .unwrap();
+        assert!(dispatch(
+            &mut p,
+            &mut at,
+            (400., 500.),
+            1.,
+            InputEvent::Button(true),
+            2.
+        )
+        .is_err());
+        assert!(p.display_complete(&b)); // Old runtime's buffer released only.
+        assert!(dispatch(
+            &mut p,
+            &mut at,
+            (400., 500.),
+            1.,
+            InputEvent::Motion(1., 1.),
+            3.
+        )
+        .is_err());
+        assert_eq!(at, (20., 40.));
+        mismatched_physical_release_cancels_existing_hold_without_drop();
+    }
+
+    fn mismatched_physical_release_cancels_existing_hold_without_drop() {
+        for (extent, scale) in [((800., 1000.), 1.), ((400., 500.), 2.)] {
+            let mut p = fixture();
+            let a = p.display_frame().unwrap();
+            assert!(p.display_complete(&a));
+            assert!(p.resize(300., 300.).is_none());
+            let b = p.display_frame().unwrap();
+            let b_pixels = b.pixels.data().to_vec();
+            assert!(p.resize(800., 1000.).is_none());
+            let mut at = (20., 40.);
+            for (time, event) in [
+                (1., InputEvent::Button(true)),
+                (10., InputEvent::Motion(20., 0.)),
+                (20., InputEvent::Motion(70., 0.)),
+            ] {
+                dispatch(&mut p, &mut at, (400., 500.), 1., event, time).unwrap();
+            }
+            assert!(
+                p.collection_interaction().is_some(),
+                "recognized hold pins its item"
+            );
+            assert!(p.contact_position().is_some());
+            let certified_position = at;
+            assert!(dispatch(
+                &mut p,
+                &mut at,
+                extent,
+                scale,
+                InputEvent::Button(false),
+                30.
+            )
+            .is_err());
+            assert_eq!(
+                at, certified_position,
+                "refusal never guesses new coordinates"
+            );
+            assert_eq!(
+                count(&p),
+                "0",
+                "cancellation must not execute a successful swipe"
+            );
+            assert!(p.contact_position().is_none());
+            assert!(
+                p.collection_interaction().is_none(),
+                "physical UP must release its pin"
+            );
+            assert_eq!(b.pixels.data(), b_pixels);
+            assert!(p.display_frame().is_none());
+            assert!(p.display_complete(&b));
         }
     }
     #[test]

@@ -3,7 +3,7 @@ use super::catalog_recipe::Recipe;
 pub(crate) use super::catalog_recipe::{CaptureCost, CatalogSnapshot};
 use super::*;
 use exact_kernel::{Offer, RegionTextRequest};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, Weak};
 
 #[cfg(test)]
 pub(super) mod work {
@@ -82,6 +82,14 @@ pub(super) struct Source {
     stamp: ParagraphStamp,
     spec: Arc<Spec>,
     pub(super) shape: OnceLock<(Arc<shaping::ShapeData>, usize)>,
+    // One payload-free, replaceable weak slot; no request/job/catalog ownership.
+    // Heights remain part of request admission, but this backend does not use
+    // them to wrap definite-width text. Never use this key for publication.
+    definite: Mutex<Option<Definite>>,
+}
+struct Definite {
+    key: (u32, u32),
+    payload: Weak<Layout>,
 }
 #[derive(Clone)]
 pub(crate) struct PreparedSource(pub(super) Arc<Source>);
@@ -108,10 +116,11 @@ impl PreparedText {
         &self.source
     }
 }
-struct Layout {
-    index: ink::Index,
-    lines: Vec<Vec<cosmic_text::LayoutLine>>,
-    baselines: Vec<f32>,
+pub(super) struct Layout {
+    pub(super) index: ink::Index,
+    lines: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
+    baselines: Arc<Vec<f32>>,
+    metrics: TextMetrics,
     capacity: usize,
     #[cfg(test)]
     lifetime: Arc<()>,
@@ -119,7 +128,7 @@ struct Layout {
 pub(crate) struct CompletedText {
     input: PreparedText,
     metrics: TextMetrics,
-    layout: Option<Layout>,
+    layout: Option<Arc<Layout>>,
     #[cfg(test)]
     pub(super) probe: std::sync::Weak<()>,
     #[cfg(test)]
@@ -244,6 +253,7 @@ pub(crate) fn prepare(
                 Spec::from_request(r)
             })),
             shape: OnceLock::new(),
+            definite: Mutex::new(None),
         })),
     };
     Ok(PreparedText {
@@ -279,6 +289,37 @@ impl FontWorker {
             return Err(TransferError::CatalogMismatch);
         }
         let source = &input.source.0;
+        let key = match input.request.offer().width {
+            AxisOffer::Definite(width) => Some((width.to_bits(), input.paint.scale_bits)),
+            _ => None,
+        };
+        // Only lookup/upgrade under the lock. The strong result leaves the
+        // scope before construction, return, or destruction can run.
+        let hit = key.and_then(|key| {
+            let slot = source.definite.lock().unwrap();
+            slot.as_ref()
+                .filter(|old| old.key == key)
+                .and_then(|old| old.payload.upgrade())
+        });
+        if let Some(layout) = hit {
+            #[cfg(test)]
+            let probe = Arc::downgrade(&layout.lifetime);
+            #[cfg(test)]
+            let ink_probe = Arc::downgrade(&layout.index.lifetime);
+            #[cfg(test)]
+            {
+                self.last_layout = probe.clone();
+            }
+            return Ok(CompletedText {
+                metrics: layout.metrics,
+                input,
+                layout: Some(layout),
+                #[cfg(test)]
+                probe,
+                #[cfg(test)]
+                ink_probe,
+            });
+        }
         let (data, bytes) = source.shape.get_or_init(|| {
             #[cfg(test)]
             work::add(|n| n.shapes += 1);
@@ -329,17 +370,27 @@ impl FontWorker {
                 self.index_limit,
             );
             let index = index.ok_or(TransferError::InkIndexRefused)?;
-            Some(Layout {
+            Some(Arc::new(Layout {
                 index,
+                metrics,
                 lines: p.layouts,
                 baselines: p.baselines,
                 capacity: p.resident_capacity_bytes,
                 #[cfg(test)]
                 lifetime: p.layout_lifetime,
-            })
+            }))
         } else {
             None
         };
+        if let (Some(key), Some(layout)) = (key, &layout) {
+            // Failed index preparation and intrinsic answers never seed a hit.
+            // Retire even the old weak control block outside the lock.
+            let old = source.definite.lock().unwrap().replace(Definite {
+                key,
+                payload: Arc::downgrade(layout),
+            });
+            drop(old);
+        }
         #[cfg(test)]
         let ink_probe = layout
             .as_ref()
@@ -388,17 +439,17 @@ pub(crate) fn adopt(
                 data.clone(),
                 *bytes,
             )),
-            layouts: l.lines,
-            baselines: l.baselines,
+            layouts: l.lines.clone(),
+            baselines: l.baselines.clone(),
             #[cfg(test)]
-            layout_lifetime: l.lifetime,
+            layout_lifetime: l.lifetime.clone(),
             width: metrics.width,
             height: metrics.height,
             first_baseline: metrics.first_baseline.unwrap_or(0.),
             ink: RefCell::new(ink::Cache::from_index(
                 &raster.catalog.borrow().ink_catalog,
                 input.paint.scale(),
-                l.index,
+                l.clone(),
             )),
             resident_capacity_bytes: l.capacity,
             private_text_bytes_estimate: 0,

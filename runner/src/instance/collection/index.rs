@@ -117,6 +117,9 @@ impl HeightIndex {
     /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
     /// Deleted and later reinserted keys always receive new measurement generations.
     pub(crate) fn replace_keys(&mut self, keys: Vec<String>) -> Result<(), IndexError> {
+        if self.order.as_ref() == keys.as_slice() {
+            return Ok(());
+        }
         let mut positions = BTreeMap::new();
         let mut rows = Vec::with_capacity(keys.len());
         let mut generation = self.next_generation;
@@ -291,8 +294,9 @@ impl HeightIndex {
         let row = self.tree.find(offset, false);
         let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         // Browser scroll ranges round fractional CSS extents to whole pixels;
-        // native document geometry also rounds through f32. Accept at most
-        // half a logical pixel/point, even for a small resident window.
+        // native document geometry also rounds through f32. Admit up to half a
+        // logical pixel/point on every host, independent of extent (including
+        // small resident windows); never follow a reader beyond that tolerance.
         let tolerance = 0.5;
         Ok(Anchor {
             order: Rc::clone(&self.order),

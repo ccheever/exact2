@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "arrange.rs"]
+mod arrange;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "height.rs"]
@@ -519,15 +521,87 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    // Current eligibility only DENIES an old picture's target. It never finds
+    // a replacement handler or supplies coordinates/arguments from the live tree.
+    pub(crate) fn retained_action_eligible(&self, key: NodeKey) -> bool {
+        let Some(node) = self.kernel().node_by_key(key) else {
+            return false;
+        };
+        let mut at = Some(node.id);
+        while let Some(id) = at {
+            let Some(node) = self.kernel().node(id) else {
+                return false;
+            };
+            let visibility = self.route_visibility(id);
+            if visibility.0
+                || visibility.1
+                || node.style.display == exact_kernel::Display::None
+                || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
+                || node.props.str(exact_kernel::PropId::Commandfor).is_some()
+            {
+                return false;
+            }
+            at = node.parent;
+        }
+        true
+    }
+
+    pub(crate) fn dispatch_retained(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        now_ms: f64,
+    ) -> Result<bool, String> {
+        let event = match kind {
+            exact_plan::EventKind::Press => Event::Press,
+            exact_plan::EventKind::Swiperight => Event::Swiperight,
+            _ => return Ok(false),
+        };
+        // BEFORE host clock/focus/commit. Runner repeats its opaque binding check
+        // at dispatch; a refusal takes neither the sample nor an ordinary action.
+        if !now_ms.is_finite()
+            || now_ms < self.now_ms
+            || !self.retained_action_eligible(key)
+            || self.runner.validate_action_binding(binding, kind).is_err()
+        {
+            return Ok(false);
+        }
+        let result = self.runner.dispatch_bound(binding, event);
+        if matches!(
+            result,
+            Err(exact_runner::runner::ActionBindingError::Refused(_))
+        ) {
+            return Ok(false);
+        }
+        self.now_ms = now_ms;
+        let error = match result {
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        };
+        error.map_or(Ok(true), Err)
+    }
+
     /// Move the clock: every timer due fires at its own due time (LLP 1012
     /// §2). The clock lands where the runner says — a timer's refusal stops
     /// it at that timer's due time and is the error; the commits before it
     /// are shown.
     pub fn advance(&mut self, now_ms: f64) -> Option<String> {
+        self.advance_effects(now_ms).0
+    }
+
+    /// Timer-loop demand, without skipping any runner, layout or effect work.
+    pub(crate) fn advance_effects(&mut self, now_ms: f64) -> (Option<String>, bool) {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
         let error = a.error.map(|e| format!("{e:?}"));
-        self.commit(&a.receipts, error)
+        self.commit_effects(&a.receipts, error)
     }
 
     /// An image loaded: its intrinsic size in points (`None` when it failed
@@ -577,8 +651,22 @@ impl<D: DataSource> Host<D> {
     }
 
     fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
+        self.commit_effects(receipts, error).0
+    }
+
+    fn commit_effects(
+        &mut self,
+        receipts: &[Timed],
+        error: Option<String>,
+    ) -> (Option<String>, bool) {
+        // Region publication can change without changing its shell geometry.
+        let mut paint = error.is_some() || self.content_region.is_some();
         for t in receipts {
             let r = &t.receipt;
+            paint |= r.layout_invalidated
+                || !r.created.is_empty()
+                || !r.destroyed.is_empty()
+                || !r.touched.is_empty();
             for key in &r.destroyed {
                 self.forget_height_handle(*key);
                 self.forget_transform_handle(*key);
@@ -596,7 +684,7 @@ impl<D: DataSource> Host<D> {
             self.discover_height_handles();
             self.discover_transform_handles();
         }
-        self.project_navigation();
+        paint |= self.project_navigation();
         self.reconcile_height_bindings();
         self.reconcile_transform_bindings();
         // Motion observes each commit before projected layout: targets are in place
@@ -618,30 +706,36 @@ impl<D: DataSource> Host<D> {
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);
+                paint = true;
             }
         }
         self.retire_height_binding();
         self.retire_transform_binding();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        let layout_error = if receipts.is_empty() {
-            self.layout_motion().err()
+        let layout = if receipts.is_empty() {
+            self.layout_motion()
         } else {
-            self.layout().err()
+            self.layout()
         };
-        self.present();
-        error.or(layout_error)
+        paint |= layout.as_ref().copied().unwrap_or(true);
+        // Consume the final sample even when the seek has made motion quiescent.
+        paint |= self.present();
+        (error.or(layout.err()), paint)
     }
 
     // @ref LLP 1038 D6/D7/D11 — no batch consumer on this host. Keep the
     // last coalesced op for inspection; navigation's agent section stays unavailable.
-    fn project_navigation(&mut self) {
+    fn project_navigation(&mut self) -> bool {
+        let mut changed = false;
         if let Some(change) = self.runner.take_router_change() {
             self.router_op = Some(change);
+            changed = true;
         }
         for line in self.navigation.sync(self.runner.kernel(), &self.preorder()) {
             self.runner.log(line);
         }
+        changed
     }
 
     /// The last router op; this host has no foreign batch consumer.
@@ -656,7 +750,8 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Every presentation value the engine changed, kept by node.
-    fn present(&mut self) {
+    fn present(&mut self) -> bool {
+        let mut changed = false;
         for p in self.engine.frame() {
             let key = NodeKey {
                 index: p.node as u32,
@@ -677,7 +772,9 @@ impl<D: DataSource> Host<D> {
                 Property::Opacity => entry.opacity = p.value.x as f32,
                 Property::Height => unreachable!("height is projected through layout"),
             }
+            changed = true;
         }
+        changed
     }
 
     /// Every live node in preorder.

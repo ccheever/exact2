@@ -3,6 +3,7 @@ use super::{catalog::Catalog, Paragraph};
 use cosmic_text::{CacheKey, SubpixelBin};
 use std::mem::size_of;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use tiny_skia::Transform;
 
 pub(super) const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -82,15 +83,15 @@ impl Bounds {
 pub(super) struct Cache {
     catalog: Weak<()>,
     scale: u32,
-    pub index: Option<Index>,
+    pub index: Option<IndexOwner>,
 }
 impl Cache {
-    /// Attach numeric worker output to this UI catalog; no Weak crosses threads.
-    pub fn from_index(catalog: &Rc<()>, scale: f32, index: Index) -> Self {
+    /// Attach numeric worker output; the UI catalog Weak stays local.
+    pub fn from_index(catalog: &Rc<()>, scale: f32, layout: Arc<super::transfer::Layout>) -> Self {
         Self {
             catalog: Rc::downgrade(catalog),
             scale: scale.to_bits(),
-            index: Some(index),
+            index: Some(IndexOwner::Prepared(layout)),
         }
     }
 
@@ -98,12 +99,34 @@ impl Cache {
         self.scale == scale.to_bits() && self.catalog.ptr_eq(&Rc::downgrade(catalog))
     }
     pub fn reset(&mut self, catalog: &Rc<()>, scale: f32) {
-        self.index = None; // Old arrays die before the new scale allocates.
+        self.index = None; // Release this owner before allocation; siblings may pin it.
         self.catalog = Rc::downgrade(catalog);
         self.scale = scale.to_bits();
     }
     pub fn bytes(&self) -> usize {
-        self.index.as_ref().map_or(0, Index::bytes)
+        self.index.as_ref().map_or(0, |index| index.bytes())
+    }
+}
+
+// The UI cache owns its prepared backing, not merely cloned arrays. This is
+// what keeps the source's weak slot usable after CompletedText is consumed.
+// Reset affects only this cache; sibling numeric indices remain immutable.
+pub(super) enum IndexOwner {
+    Local(Index),
+    Prepared(Arc<super::transfer::Layout>),
+}
+impl From<Index> for IndexOwner {
+    fn from(index: Index) -> Self {
+        Self::Local(index)
+    }
+}
+impl std::ops::Deref for IndexOwner {
+    type Target = Index;
+    fn deref(&self) -> &Index {
+        match self {
+            Self::Local(index) => index,
+            Self::Prepared(layout) => &layout.index,
+        }
     }
 }
 
@@ -353,10 +376,21 @@ fn envelope(engine: &mut Catalog, mut key: CacheKey) -> Bounds {
         key.x_bin = bin;
         #[cfg(test)]
         count(|n| n.raster_phases += 1);
-        // Uncached: extra phases must not become retained pixel backings.
-        // A missing image is exactly the existing CPU renderer's no-ink case.
-        if let Some(image) = engine.swash.get_image_uncached(&mut engine.fonts, key) {
-            let p = image.placement;
+        // Reuse only existing exact-key placement; do not retain extra phases.
+        // A cached None is no ink, distinct from an absent cache entry.
+        let placement = if let Some(image) = engine.swash.image_cache.get(&key) {
+            #[cfg(test)]
+            count(|n| n.cached_placements += 1);
+            image.as_ref().map(|image| image.placement)
+        } else {
+            #[cfg(test)]
+            count(|n| n.uncached_calls += 1);
+            engine
+                .swash
+                .get_image_uncached(&mut engine.fonts, key)
+                .map(|image| image.placement)
+        };
+        if let Some(p) = placement {
             if p.width != 0 && p.height != 0 {
                 result = result.union(Bounds {
                     x0: f64::from(p.left),
@@ -376,10 +410,12 @@ pub(super) struct BuildWork {
     pub attempts: usize,
     pub glyphs: usize,
     pub raster_phases: usize,
+    pub uncached_calls: usize,
+    pub cached_placements: usize,
 }
 #[cfg(test)]
 thread_local! { static BUILD_WORK: std::cell::Cell<BuildWork> = const {
-    std::cell::Cell::new(BuildWork { attempts: 0, glyphs: 0, raster_phases: 0 })
+    std::cell::Cell::new(BuildWork { attempts: 0, glyphs: 0, raster_phases: 0, uncached_calls: 0, cached_placements: 0 })
 }; }
 #[cfg(test)]
 pub(super) fn build_work() -> BuildWork {
@@ -392,6 +428,144 @@ fn count(f: impl FnOnce(&mut BuildWork)) {
         f(&mut value);
         c.set(value);
     });
+}
+
+// Test-only pre-shortcut formula; source-v1 preserves its exact extraction.
+#[cfg(test)]
+impl Index {
+    pub(super) fn uncached_oracle(
+        engine: &mut Catalog,
+        p: &Paragraph,
+        scale: f32,
+        limit: usize,
+    ) -> Option<Self> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+        let (leaves, nodes) = storage(p.baselines.len(), limit)?;
+        let mut result = Self {
+            #[cfg(test)]
+            lifetime: std::sync::Arc::new(()),
+            spans: Vec::new(),
+            lines: Vec::new(),
+            leaves,
+            max_input: 0.0,
+        };
+        result.spans.try_reserve_exact(nodes).ok()?;
+        result.lines.try_reserve_exact(p.baselines.len()).ok()?;
+        if result.bytes() > limit {
+            return None;
+        }
+        result.spans.resize(nodes, Bounds::EMPTY);
+        // Bounded build scratch; no image/font ownership survives an envelope.
+        let mut envelopes: Vec<(CacheKey, Bounds)> = Vec::new();
+        envelopes.try_reserve_exact(ENVELOPES).ok()?;
+        for (source, line) in p.layouts.iter().enumerate() {
+            for (wrapped, layout) in line.iter().enumerate() {
+                let n = result.lines.len();
+                let baseline = *p.baselines.get(n)?;
+                result.lines.push(Line { source, wrapped });
+                let mut span = Bounds::EMPTY;
+                for glyph in &layout.glyphs {
+                    let x = glyph.x + glyph.x_offset * glyph.font_size;
+                    let y = glyph.y - glyph.y_offset * glyph.font_size;
+                    if !x.is_finite() || !y.is_finite() || !baseline.is_finite() {
+                        span = Bounds::ALL;
+                        continue;
+                    }
+                    result.max_input = result
+                        .max_input
+                        .max(f64::from(x).abs())
+                        .max(f64::from(y).abs())
+                        .max(f64::from(baseline).abs());
+                    let mut key = glyph.physical((0.0, 0.0), scale).cache_key;
+                    key.x_bin = SubpixelBin::Zero;
+                    key.y_bin = SubpixelBin::Zero;
+                    let envelope = match envelopes.binary_search_by_key(&key, |(k, _)| *k) {
+                        Ok(i) => envelopes[i].1,
+                        Err(_) => {
+                            let bound = uncached_envelope_oracle(engine, key);
+                            if envelopes.len() == ENVELOPES {
+                                envelopes.clear();
+                            }
+                            let i = envelopes
+                                .binary_search_by_key(&key, |(k, _)| *k)
+                                .unwrap_err();
+                            envelopes.insert(i, (key, bound));
+                            bound
+                        }
+                    };
+                    span = span.union(envelope.translated(
+                        f64::from(x) * f64::from(scale),
+                        (f64::from(baseline) + f64::from(y)) * f64::from(scale),
+                    ));
+                }
+                result.spans[leaves + n] = span;
+            }
+        }
+        if result.lines.len() != p.baselines.len() {
+            return None;
+        }
+        for i in (1..leaves).rev() {
+            result.spans[i] = result.spans[2 * i].union(result.spans[2 * i + 1]);
+        }
+        Some(result)
+    }
+
+    pub(super) fn assert_same_numeric(&self, other: &Self) {
+        assert_eq!(self.leaves, other.leaves);
+        assert_eq!(self.max_input.to_bits(), other.max_input.to_bits());
+        assert_eq!(self.bytes(), other.bytes());
+        let bits = |b: &Bounds| [b.x0, b.y0, b.x1, b.y1].map(f64::to_bits);
+        assert_eq!(
+            self.spans.iter().map(bits).collect::<Vec<_>>(),
+            other.spans.iter().map(bits).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            self.lines
+                .iter()
+                .map(|l| (l.source, l.wrapped))
+                .collect::<Vec<_>>(),
+            other
+                .lines
+                .iter()
+                .map(|l| (l.source, l.wrapped))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+#[cfg(test)]
+fn uncached_envelope_oracle(engine: &mut Catalog, mut key: CacheKey) -> Bounds {
+    if !f32::from_bits(key.font_size_bits).is_finite() {
+        return Bounds::ALL;
+    }
+    let mut result = Bounds::EMPTY;
+    // LayoutGlyph::physical truncates the Y coordinate before CacheKey::new:
+    // every finite CPU placement has y_bin=Zero. X has four phases, independent
+    // of scroll origin. Tiny-skia applies transforms after this raster choice.
+    // The oracle separately asserts this dependency contract for +/- fractions.
+    for bin in [
+        SubpixelBin::Zero,
+        SubpixelBin::One,
+        SubpixelBin::Two,
+        SubpixelBin::Three,
+    ] {
+        key.x_bin = bin;
+        // Uncached: extra phases must not become retained pixel backings.
+        // A missing image is exactly the existing CPU renderer's no-ink case.
+        if let Some(image) = engine.swash.get_image_uncached(&mut engine.fonts, key) {
+            let p = image.placement;
+            if p.width != 0 && p.height != 0 {
+                result = result.union(Bounds {
+                    x0: f64::from(p.left),
+                    y0: -f64::from(p.top),
+                    x1: f64::from(p.left) + f64::from(p.width),
+                    y1: -f64::from(p.top) + f64::from(p.height),
+                });
+            }
+        }
+    }
+    result
 }
 
 #[cfg(test)]

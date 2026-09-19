@@ -9,6 +9,54 @@ pub(super) fn shape_line_calls() -> usize {
     SHAPE_LINES.with(std::cell::Cell::get)
 }
 
+#[cfg(test)]
+thread_local! { static WIDTH_FONT_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+pub(super) fn width_font_lookups() -> usize {
+    WIDTH_FONT_LOOKUPS.with(std::cell::Cell::get)
+}
+
+// One width-pass slot, never retained by a shape, paragraph or catalog.
+// Unscaled scalars only: glyph size/metadata and all CSS arithmetic stay below.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RawFontMetrics {
+    pub(super) units_per_em: u16,
+    pub(super) ascent: f32,
+    pub(super) descent: f32,
+    pub(super) leading: f32,
+}
+#[derive(Default)]
+pub(super) struct LastFontMetrics {
+    last: Option<((fontdb::ID, Weight), Option<RawFontMetrics>)>,
+}
+impl LastFontMetrics {
+    pub(super) fn get(
+        &mut self,
+        fonts: &mut FontSystem,
+        id: fontdb::ID,
+        weight: Weight,
+    ) -> Option<RawFontMetrics> {
+        if let Some((key, metrics)) = self.last {
+            if key == (id, weight) {
+                return metrics;
+            }
+        }
+        #[cfg(test)]
+        WIDTH_FONT_LOOKUPS.with(|n| n.set(n.get() + 1));
+        let metrics = fonts.get_font(id, weight).map(|font| {
+            let m = font.metrics();
+            RawFontMetrics {
+                units_per_em: m.units_per_em,
+                ascent: m.ascent,
+                descent: m.descent,
+                leading: m.leading,
+            }
+        });
+        self.last = Some(((id, weight), metrics));
+        metrics
+    }
+}
+
 struct Line {
     text: String,
     shape: ShapeLine,
@@ -168,7 +216,7 @@ impl ShapedSource {
         } else {
             Ellipsize::None
         };
-        let layouts = {
+        let mut layouts: Vec<Vec<LayoutLine>> = {
             let mut scratch = ShapeBuffer::default();
             self.data
                 .lines
@@ -190,15 +238,170 @@ impl ShapedSource {
                 })
                 .collect()
         }; // Request scratch dies before publication, never accumulates by width.
+           // Ordinary paragraphs avoid shrinking allocations for small savings.
+           // This is an optimization threshold, not admission or a memory limit.
+        let spare = layouts.iter().flatten().fold(0usize, |bytes, line| {
+            bytes.saturating_add(
+                (line.glyphs.capacity() - line.glyphs.len())
+                    .saturating_mul(std::mem::size_of::<cosmic_text::LayoutGlyph>()),
+            )
+        });
+        if spare >= 64 * 1024 {
+            for line in layouts.iter_mut().flatten() {
+                if line.glyphs.capacity() > line.glyphs.len() {
+                    // These vectors are still private. Preserve every glyph
+                    // and the public Vec/slice API before Arc/index creation.
+                    // A moving shrink may need old + one new line allocation;
+                    // an unwrapped giant line is not bounded by the viewport.
+                    // Tight capacity does not guarantee allocator/AS release.
+                    line.glyphs = std::mem::take(&mut line.glyphs)
+                        .into_boxed_slice()
+                        .into_vec();
+                }
+            }
+        }
         let mut paragraph = Paragraph {
             source: self.clone(),
-            layouts,
+            layouts: Arc::new(layouts),
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
             width: 0.,
             height: 0.,
             first_baseline: 0.,
-            baselines: Vec::new(),
+            baselines: Arc::new(Vec::new()),
+            ink: RefCell::new(ink::Cache::default()),
+            resident_capacity_bytes: 0,
+            private_text_bytes_estimate: 0,
+        };
+        let mut catalog = self.catalog.borrow_mut();
+        let strut = self.data.strut;
+        let run_metrics = &self.data.run_metrics;
+        let mut w = 0.0f32;
+        let mut h = 0.0f32;
+        let mut baselines = Vec::new();
+        let mut explicit = false;
+        let mut last_font_metrics = LastFontMetrics::default();
+        for run in paragraph.layout_runs() {
+            w = w.max(run.line_w);
+            let (mut above, mut below) = strut;
+            let mut above_explicit = spec.strut.line_height.is_some();
+            let mut below_explicit = above_explicit;
+            for glyph in run.glyphs {
+                if let Some(m) =
+                    last_font_metrics.get(&mut catalog.fonts, glyph.font_id, glyph.font_weight)
+                {
+                    let scale = glyph.font_size / m.units_per_em as f32;
+                    // Explicit lengths size the authored inline box; only
+                    // normal expands to the actual fallback glyph font.
+                    let (ascent, descent, leading) =
+                        if spec.runs[glyph.metadata].line_height.is_some() {
+                            run_metrics[glyph.metadata]
+                        } else {
+                            (m.ascent * scale, m.descent.abs() * scale, m.leading * scale)
+                        };
+                    let height = spec.runs[glyph.metadata]
+                        .line_height
+                        .unwrap_or(ascent + descent + leading);
+                    let half = (height - ascent - descent - leading) / 2.0;
+                    let run_explicit = spec.runs[glyph.metadata].line_height.is_some();
+                    let (a, b) = (ascent + half, descent + leading + half);
+                    if a > above {
+                        above = a;
+                        above_explicit = run_explicit;
+                    } else if a == above {
+                        above_explicit &= run_explicit;
+                    }
+                    if b > below {
+                        below = b;
+                        below_explicit = run_explicit;
+                    } else if b == below {
+                        below_explicit &= run_explicit;
+                    }
+                }
+            }
+            explicit |= above_explicit || below_explicit;
+            baselines.push(h + above);
+            h += above + below;
+        }
+        paragraph.width = w.ceil();
+        paragraph.height = if explicit { h } else { h.ceil() };
+        paragraph.first_baseline = baselines.first().copied().unwrap_or(0.);
+        paragraph.baselines = Arc::new(baselines);
+        paragraph.resident_capacity_bytes = cache::capacities(&paragraph);
+        paragraph
+    }
+    #[cfg(test)]
+    pub(super) fn layout_reference(
+        self: &Rc<Self>,
+        width: Option<f32>,
+        wrap: Option<Wrap>,
+    ) -> Paragraph {
+        let spec = &self.spec;
+        let wrap = wrap.unwrap_or(
+            if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
+                Wrap::Word
+            } else {
+                Wrap::WordOrGlyph
+            },
+        );
+        let ellipsize = if spec.line_clamp > 0 {
+            Ellipsize::End(EllipsizeHeightLimit::Lines(spec.line_clamp as usize))
+        } else {
+            Ellipsize::None
+        };
+        let mut layouts: Vec<Vec<LayoutLine>> = {
+            let mut scratch = ShapeBuffer::default();
+            self.data
+                .lines
+                .iter()
+                .map(|line| {
+                    let mut output = Vec::new();
+                    line.shape.layout_to_buffer(
+                        &mut scratch,
+                        self.data.metrics.font_size,
+                        width.map(|w| w.max(0.)),
+                        wrap,
+                        ellipsize,
+                        line.align,
+                        &mut output,
+                        None,
+                        Hinting::Disabled,
+                    );
+                    output
+                })
+                .collect()
+        }; // Request scratch dies before publication, never accumulates by width.
+           // Ordinary paragraphs avoid shrinking allocations for small savings.
+           // This is an optimization threshold, not admission or a memory limit.
+        let spare = layouts.iter().flatten().fold(0usize, |bytes, line| {
+            bytes.saturating_add(
+                (line.glyphs.capacity() - line.glyphs.len())
+                    .saturating_mul(std::mem::size_of::<cosmic_text::LayoutGlyph>()),
+            )
+        });
+        if spare >= 64 * 1024 {
+            for line in layouts.iter_mut().flatten() {
+                if line.glyphs.capacity() > line.glyphs.len() {
+                    // These vectors are still private. Preserve every glyph
+                    // and the public Vec/slice API before Arc/index creation.
+                    // A moving shrink may need old + one new line allocation;
+                    // an unwrapped giant line is not bounded by the viewport.
+                    // Tight capacity does not guarantee allocator/AS release.
+                    line.glyphs = std::mem::take(&mut line.glyphs)
+                        .into_boxed_slice()
+                        .into_vec();
+                }
+            }
+        }
+        let mut paragraph = Paragraph {
+            source: self.clone(),
+            layouts: Arc::new(layouts),
+            #[cfg(test)]
+            layout_lifetime: Arc::new(()),
+            width: 0.,
+            height: 0.,
+            first_baseline: 0.,
+            baselines: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,
@@ -254,7 +457,7 @@ impl ShapedSource {
         paragraph.width = w.ceil();
         paragraph.height = if explicit { h } else { h.ceil() };
         paragraph.first_baseline = baselines.first().copied().unwrap_or(0.);
-        paragraph.baselines = baselines;
+        paragraph.baselines = Arc::new(baselines);
         paragraph.resident_capacity_bytes = cache::capacities(&paragraph);
         paragraph
     }

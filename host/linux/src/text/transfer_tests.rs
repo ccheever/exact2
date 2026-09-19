@@ -253,7 +253,7 @@ fn intrinsic_probe_arrays_die_and_final_paint_keeps_definite_layout() {
     )
     .unwrap();
     let mut source = None;
-    let mut ready = Vec::new();
+    let mut ready: Vec<Rc<AdoptedText>> = Vec::new();
     let mut intrinsic = 0;
     let mut definite = 0;
     // Actual kernel offer discovery, not handcrafted request ordinals.
@@ -276,7 +276,15 @@ fn intrinsic_probe_arrays_die_and_final_paint_keeps_definite_layout() {
             definite += 1;
             assert!(output.layout_capacity_bytes() > 0);
             assert!(output.ink_capacity_bytes() > 0);
-            assert_eq!(ink_work.attempts, 1);
+            let reused = ready.iter().any(|a| {
+                a.paragraph().is_some_and(|p| {
+                    std::sync::Weak::ptr_eq(&output.probe, &Arc::downgrade(&p.layout_lifetime))
+                })
+            });
+            assert_eq!(ink_work.attempts, usize::from(!reused));
+            if reused {
+                assert_eq!(ink_work, ink::BuildWork::default());
+            }
             assert!(output.ink_probe.upgrade().is_some());
             assert!(output.probe.upgrade().is_some());
         } else {
@@ -579,7 +587,7 @@ fn two_widths_share_shape_and_release_source_after_last_owner() {
 }
 
 #[test]
-fn rejected_result_releases_its_layout_without_changing_accepted_owner() {
+fn rejected_result_releases_only_its_owner_without_changing_accepted_sibling() {
     let engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (_k, q) = request(recipe.catalog_label(), 200.);
@@ -587,6 +595,8 @@ fn rejected_result_releases_its_layout_without_changing_accepted_owner() {
     let mut worker = FontWorker::new(recipe.clone()).unwrap();
     let accepted = adopt(worker.execute(input.clone()).unwrap(), &input, &raster).unwrap();
     let signature = glyphs(accepted.paragraph().unwrap());
+    let accepted_life = Arc::downgrade(&accepted.paragraph().unwrap().layout_lifetime);
+    let owners = accepted_life.strong_count();
     let stale = worker.execute(input.clone()).unwrap();
     let stale_layout = stale.probe.clone();
     let new_expected = prepare(
@@ -602,8 +612,18 @@ fn rejected_result_releases_its_layout_without_changing_accepted_owner() {
         Err(TransferError::StaleResult)
     ));
     assert_eq!(before, work::read(), "refusal happens before UI work");
-    assert!(stale_layout.upgrade().is_none());
+    assert!(std::sync::Weak::ptr_eq(&stale_layout, &accepted_life));
+    assert_eq!(
+        stale_layout.strong_count(),
+        owners,
+        "rejected sibling retained no owner"
+    );
     assert_eq!(glyphs(accepted.paragraph().unwrap()), signature);
+    drop(accepted);
+    assert!(
+        stale_layout.upgrade().is_none(),
+        "weak slot kept rejected storage alive"
+    );
 }
 
 #[test]

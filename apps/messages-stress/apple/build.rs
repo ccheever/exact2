@@ -3,7 +3,11 @@
 
 use contract::DataSource;
 
+#[path = "../factory.rs"]
+mod factory;
+
 fn main() {
+    let source_factory = factory::Source::selected();
     println!("cargo:rerun-if-changed=../app.contract");
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
@@ -39,12 +43,9 @@ fn main() {
         out_dir.join("entry.rs"),
         format!(
             "{}\n{host}::host!(AppData, PLAN, COMPAT);\n",
-            contract::rust_entry(
-                "messages_stress_data::MessagesStress",
-                "messages_stress_data::MessagesStress",
-                compat.inputs["rustMode"].as_str().unwrap()
-            )
-            .unwrap()
+            source_factory
+                .entry(compat.inputs["rustMode"].as_str().unwrap())
+                .unwrap()
         ),
     )
     .unwrap();

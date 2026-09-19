@@ -1,0 +1,21 @@
+[package]
+name = "exact-live-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Exact Live example on Apple platforms: the host's C exports over its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_live_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+exact-live-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-live-data = { path = "../data" }
