@@ -639,16 +639,15 @@ fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory 
     core.call(&serde_json::json!({"op":"open", "path":path,
         "origin":"http://127.0.0.1:4400", "viewer":"dev:alice"}))
         .unwrap();
-    let stored = core
-        .call(&serde_json::json!({"op":"query", "name":"records",
-        "viewer":"dev:alice", "args":{"c":null}, "now":0}))
-        .unwrap();
-    let template = stored["ok"]["data"]
-        .as_array()
-        .unwrap()
+    // An unacquired device holds intents, not server facts. Seed from the
+    // app's durable outbox and admit this batch just as an offline edit does.
+    let queued = core.call(&serde_json::json!({"op":"queued"})).unwrap();
+    let queued = queued["ok"].as_array().unwrap();
+    let template = queued
         .iter()
-        .find(|row| row["payload"]["kind"] == "message" && row["payload"]["conversation"] == "maya")
-        .unwrap()["payload"]
+        .flat_map(|entry| entry["args"]["payloads"].as_array().unwrap())
+        .find(|payload| payload["kind"] == "message" && payload["conversation"] == "maya")
+        .unwrap()
         .clone();
     let payloads: Vec<_> = entries
         .iter()
@@ -676,17 +675,31 @@ fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory 
         .iter()
         .map(|key| format!("dev:alice:{}", key.replace('%', "%25").replace(':', "%3A")))
         .collect();
+    let counter = core
+        .call(&serde_json::json!({"op":"meta", "key":"exact:counter"}))
+        .unwrap()["ok"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    let seq = counter + 1;
     let result = core
-        .call(&serde_json::json!({"op":"predict", "name":"putRecords",
-        "viewer":"dev:alice", "now":0, "newIds":[], "entropy":1,
-        "args":{
-            "recordIds":record_ids,
-            "keys":keys,
-            "payloads":payloads
+        .call(&serde_json::json!({"op":"admit", "entry":{
+            "id":format!("window-fixture:{label}"), "seq":seq, "op":"putRecords",
+            "viewer":"dev:alice", "now":0, "new_ids":[], "predicted":[], "predictable":true,
+            "args":{
+                "recordIds":record_ids,
+                "keys":keys,
+                "payloads":payloads
+            }
         }}))
         .unwrap();
-    assert!(result.get("denied").is_none(), "{result}");
+    assert!(result.get("ok").is_some(), "{result}");
     assert!(result["ok"].get("denied").is_none(), "{result}");
+    let saved = core
+        .call(&serde_json::json!({"op":"set_meta", "key":"exact:counter", "value":seq.to_string()}))
+        .unwrap();
+    assert!(saved.get("ok").is_some(), "{saved}");
     drop(core);
     root
 }

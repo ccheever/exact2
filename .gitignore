@@ -12,4 +12,6 @@ host/apple/.build/
 # Messages schema bytecode is compiled at bake, never committed.
 apps/messages/snapback/backend.ts
 apps/messages/snapback/generated/
+apps/messages/assets/snapback4-device.wasm
+apps/messages/assets/snapback4-LICENSE.txt
 apps/messages/.snapback/

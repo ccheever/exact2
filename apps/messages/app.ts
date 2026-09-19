@@ -1,5 +1,6 @@
 import type { Answer, Sources, Result } from './app.contract.d.ts';
 import { MessagesReplica, nativeCore, grants as replicaGrants, type Records } from './snapback-client';
+import { loadBrowserDevice } from './snapback-core';
 export const appId = 'com.exact.messages';
 export const grants = replicaGrants;
 type Message = Result<'conversation'>['messages'][number];
@@ -459,6 +460,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
     }
     return replica;
   };
+  const run=async()=>{
   // Network awaits never hold the local action queue. Only applying a received
   // page and replacing the model enter the same short gate as local edits.
   if(source==='syncMessages')return local(ready).then(async client=>{if(!client)return changed();const previous=client.status();await client.sync(Number(args[0]),local,restore);if(previous!==client.status())revision++;return changed();});
@@ -480,4 +482,8 @@ export const answer: Answer = (source,args,store,storage,native) => {
     }
     return value;
   });
+  };
+  // Loading an optional artifact is network work too: finish it before taking
+  // the local edit queue, so simultaneous first reads each retain a live ticket.
+  return core===undefined?loadBrowserDevice().then(run):run();
 };

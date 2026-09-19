@@ -17,13 +17,13 @@
 //! clients combine it with a durable submission counter for offline write IDs.
 //! `close` releases the current partition. All other requests and their
 //! `{ok:...}` / `{denied:...}` envelopes are the device's Rust JSON dispatcher:
-//! `state`, `adopt`, `apply`, `query`, `predict`, `withdraw`, `enqueue`, `queued`,
-//! `next_submission`, `dequeue`, `meta`, `set_meta`, and `clear_rows`. Queries and
-//! predictions must name the opened viewer. Host configuration and authority
+//! `state`, `sync_state`, `adopt`, `apply`, `observe_store`, `query`, `predict`,
+//! `admit`, `settle`, `begin_send`, and the outbox/metadata operations. Queries,
+//! predictions and admitted writes must name the opened viewer. Host configuration and authority
 //! failures return `Err`; query/prediction refusals remain cards inside `ok`.
-//! The embedder must keep one writer per partition path: submission allocation,
-//! prediction, and enqueue are separate upstream operations. This adapter adds
-//! no database layer or process lock; it does not make those operations atomic.
+//! The embedder must keep one writer per partition path. `admit` atomically keeps
+//! a write and its available prediction; lower-level outbox operations remain
+//! separate. This adapter adds no database layer or process lock.
 //!
 //! The [`DataSource`] implementation exposes source `snapback4` with exactly one
 //! JSON string argument and a JSON string answer. Its readiness is deferred until
@@ -127,7 +127,10 @@ impl Module {
                 if op == "set_meta" && text(request, "key")? == PARTITION {
                     return Err("Snapback4 partition identity is immutable".into());
                 }
-                Ok(ffi::call(&mut partition.device, request))
+                if op == "admit" && request["entry"]["viewer"].as_str() != Some(&partition.viewer) {
+                    return Err("Snapback4 viewer differs from the opened partition".into());
+                }
+                Ok(ffi::call(&mut partition.device, request.clone()))
             }
         }
     }

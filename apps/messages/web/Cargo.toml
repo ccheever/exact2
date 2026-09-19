@@ -15,6 +15,6 @@ exact-web = { path = "../../../host/web" }
 exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]
-snapback4-lang = { path = "../../../../snapback-sb4/snapback4/crates/snapback4-lang" }
+snapback4-lang.workspace = true
 serde_json = "1.0"
 exact-js-bake = { path = "../../../js/bake" }

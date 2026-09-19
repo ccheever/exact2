@@ -143,7 +143,6 @@ function writeIn(text) {
   new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
   return bytes.length;
 }
-
 // A deployed page owns one immutable local namespace. Absolute app asset
 // paths (including Caltrain's /deck) need the same binding as relative ones;
 // ordinary network/data URLs retain their authored meaning.
@@ -173,7 +172,6 @@ function assetNamespace(cards) {
   return assets;
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
-
 // DOM scrollTop/scrollLeft writes apply after this batch's new children and styles exist.
 // An unchanged binding never overrides a user's scroll position.
 const pendingScrolls = new Map();
@@ -697,10 +695,11 @@ function apply(batch) {
       }
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
-        const { ticket, method, url, headers, body, cache } = op;
-        const requestIncarnation = incarnation;
+        const { ticket, method, url, headers, body, cache } = op, requestIncarnation = incarnation;
         const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
-        if (!scopeValid || !granted(url) || !granted(url,op.scope)) {
+        // Plain bundled-asset GETs use the immutable app namespace.
+        const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
+        if (!scopeValid || !asset && (!granted(url) || !granted(url,op.scope))) {
           deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
           break;
         }
@@ -714,9 +713,9 @@ function apply(batch) {
         }
         const controller = new AbortController();
         controllers.add(controller);
-        const init = { method, headers, redirect: op.scope == null ? "follow" : "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
+        const init = { method, headers, redirect: asset || op.scope != null ? "error" : "follow", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
-        const p = fetch(url, init)
+        const p = fetch(asset ? localAssetURL(url) : url, init)
           .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
           .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", enc.encode(String(e?.message ?? e))));
         inflight.add(p);

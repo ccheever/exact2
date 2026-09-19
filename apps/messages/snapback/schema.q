@@ -5,7 +5,7 @@ use personas alice, bob
 
 table records:
   principal: principal
-  key: text <=1024
+  key: text <=442
   payload: json <=65536
   unique byPrincipalKey: principal, key
   by byPrincipal: principal, id
@@ -21,7 +21,7 @@ query records(c: cursor ?):
 
 -- Related model records are one write, on the server and in device prediction.
 -- Primitive lists use the language's existing slice loops; all lists have one length.
-mutation putRecords(recordIds: [records] <=512, keys: [text <=1024] <=512, payloads: [json <=65536] <=512):
+mutation putRecords(recordIds: [records] <=512, keys: [text <=442] <=512, payloads: [json <=65536] <=512):
   require count(recordIds) = count(keys) and count(keys) = count(payloads) else INVALID_BATCH
   for position in range(0, 512):
     for recordId in slice(recordIds, position, position + 1):
@@ -30,7 +30,7 @@ mutation putRecords(recordIds: [records] <=512, keys: [text <=1024] <=512, paylo
           upsert records[recordId] { principal: viewer, key, payload }
   return null
 
-mutation seedRecords(recordIds: [records] <=512, keys: [text <=1024] <=512, payloads: [json <=65536] <=512):
+mutation seedRecords(recordIds: [records] <=512, keys: [text <=442] <=512, payloads: [json <=65536] <=512):
   require count(recordIds) = count(keys) and count(keys) = count(payloads) else INVALID_BATCH
   for position in range(0, 512):
     for recordId in slice(recordIds, position, position + 1):

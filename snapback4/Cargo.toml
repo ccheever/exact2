@@ -11,8 +11,8 @@ exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 ibex2 = { path = "../../ibex/crates/ibex2", default-features = false }
 serde_json = "1"
-snapback4-device = { path = "../../snapback-sb4/snapback4/crates/snapback4-device" }
+snapback4-device.workspace = true
 
 [dev-dependencies]
-snapback4-core = { path = "../../snapback-sb4/snapback4/crates/snapback4-core" }
-snapback4-lang = { path = "../../snapback-sb4/snapback4/crates/snapback4-lang" }
+snapback4-core.workspace = true
+snapback4-lang.workspace = true

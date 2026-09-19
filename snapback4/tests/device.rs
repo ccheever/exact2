@@ -210,7 +210,15 @@ fn native_partition_predicts_keeps_outbox_reopens_and_applies_server_confirmatio
     let mut newer = backend;
     newer.generation += 1;
     call(&mut module, open(Some(&newer)));
-    assert!(inbox(&mut module).as_array().unwrap().is_empty());
+    assert_eq!(
+        call(&mut module, json!({"op":"sync_state"}))["acquired"],
+        false
+    );
+    assert!(call(
+        &mut module,
+        json!({"op":"query", "name":"inbox", "viewer":VIEWER})
+    )["denied"]
+        .is_object());
     assert_eq!(call(&mut module, json!({"op":"state"}))["watermark"], 0);
 }
 
@@ -273,6 +281,9 @@ fn partition_owner_is_immutable_and_checked_before_adopting_another_backend() {
     assert!(module.call(&open(None)).is_err());
     assert!(module
         .call(&json!({"op":"query","name":"inbox","viewer":"dev:bob"}))
+        .is_err());
+    assert!(module
+        .call(&json!({"op":"admit","entry":{"viewer":"dev:bob"}}))
         .is_err());
     assert!(module
         .call(&json!({"op":"set_meta","key":"exact2:partition","value":"different"}))

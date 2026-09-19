@@ -955,8 +955,12 @@ the instance; replacement copies the factory and constructs a fresh one.
 HTTP still leaves as ordinary `fetch` requests. Messages uses this door for
 `exact-snapback4`, which reuses Ibex's grants/path authority and Snapback's
 own device/interpreter. Both native SQLite users share the same rusqlite
-version and linked SQLite library. The browser uses the upstream TypeScript
-replica over Exact's existing SQLite capability.
+version and linked SQLite library. The browser uses the matching published
+Snapback4 0.2.30 Rust/Wasm device
+over Exact's existing SQLite capability. Bake emits the separate asset; the
+post-pixel data request loads it from the app's immutable asset namespace.
+Only headerless, bodyless GETs of plain `/assets/…` paths use this local
+read; external URLs still require the source and host network grants.
 
 ### D9 — ibex, in three: the standard library, the engine build, the runtime layer
 
