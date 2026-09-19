@@ -1,0 +1,9 @@
+[project]
+title = AgentProbe
+[bootstrap]
+main_collection = /main/main.collectionc
+[display]
+width = 160
+height = 60
+[sound]
+use_thread = 0

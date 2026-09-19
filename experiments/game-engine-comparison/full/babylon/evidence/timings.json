@@ -1,0 +1,25 @@
+{
+  "fleet": "ccheever@100.65.137.99 (expose-builder-pixel)",
+  "runtime": "Bun 1.3.14",
+  "setup": {
+    "initialPinnedDependenciesSeconds": 1.48,
+    "matchingBabylonLoaderSeconds": 0.55,
+    "totalMeasuredSeconds": 2.03,
+    "note": "Reused the provisioned Chromium and existing Bun package cache; no browser download."
+  },
+  "implementation": {
+    "startedAt": "2026-09-18T04:54:05Z",
+    "finalOwnRouteProofAt": "2026-09-18T05:14:08Z",
+    "elapsedSeconds": 1203,
+    "note": "Wall time from lane directory creation to the final green all-twelve route; dependency command time is reported separately above."
+  },
+  "verification": {
+    "productionBuildSeconds": 2.12,
+    "bun1312FrozenInstallSeconds": 2.64,
+    "bun1312ProductionBuildSeconds": 1.16,
+    "selfTestSeconds": 6.73,
+    "fullRouteSeconds": 19.85,
+    "independentAcceptanceCasesPassed": "10/10",
+    "productionDistMiB": 13
+  }
+}

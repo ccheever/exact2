@@ -157,6 +157,8 @@ pub enum Event {
     Swiperight,
     /// A changed scroll position, in CSS pixels (left, top).
     Scroll(f64, f64),
+    /// A standard media event. Numeric payloads are seconds.
+    Media(EventKind, String),
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
     /// An authored sheet handle released: logical height and signed pixels/second.
@@ -197,6 +199,21 @@ pub enum Event {
 }
 
 impl Event {
+    /// Decode a media event carried as name and payload through host kind 19.
+    pub fn media_payload(payload: &str) -> Option<Self> {
+        let (name, value) = payload.split_once('\n')?;
+        let kind = EventKind::from_name(name)?;
+        if (kind as u8) < EventKind::Loadedmetadata as u8 {
+            return None;
+        }
+        if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)
+            && !value.parse::<f64>().ok()?.is_finite()
+        {
+            return None;
+        }
+        Some(Self::Media(kind, value.into()))
+    }
+
     /// Decode exactly four comma-separated geometry dimensions. Hosts validate
     /// binding identity/mapping before delivery; zero suspends physical admission.
     pub fn transform_geometry_payload(payload: &str) -> Option<Self> {
@@ -624,6 +641,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Dblclick => "dblclick",
                 Event::Swiperight => "swiperight",
                 Event::Scroll(_, _) => "scroll",
+                Event::Media(kind, _) => kind.name(),
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -664,6 +682,16 @@ impl<D: DataSource> Runner<D> {
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
+            Event::Media(kind, value) => {
+                let payload = match kind {
+                    EventKind::Timeupdate | EventKind::Durationchange => {
+                        Some(Value::Number(value.parse().unwrap_or(0.0)))
+                    }
+                    EventKind::Error => Some(Value::str(value)),
+                    _ => None,
+                };
+                (*kind, payload, kind.name())
+            }
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),
             Event::TransformGeometry { .. } => {

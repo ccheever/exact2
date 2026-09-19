@@ -1,5 +1,5 @@
 //! The development producer retains compiler processes, never unchecked app results.
-use super::{bake_in, compile_bytecode, Baked, Scratch, Tools};
+use super::{bake_in, compile_bytecode, Baked, Scratch, Seed, Tools};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -40,14 +40,18 @@ impl Producer {
             compiler,
         })
     }
-    /// Capture and validate a fresh generation. A refusal never returns stale output.
-    pub fn bake(&mut self, app: &Path) -> Result<Baked, String> {
+    /// Capture and validate a fresh generation. A refusal never returns stale
+    /// output. `seed` supplies the Rust-owned first-frame values this
+    /// producer cannot compute (LLP 1027.002 §5 step 0).
+    pub fn bake(&mut self, app: &Path, seed: Option<&Seed>) -> Result<Baked, String> {
         bake_in(
             app,
             &self.tools,
             &self.stage.0,
             &mut self.previous,
             self.compiler.as_mut(),
+            None,
+            seed,
         )
     }
 }

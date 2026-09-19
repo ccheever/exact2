@@ -24,6 +24,12 @@ impl DataSource for Source {
         if source == "rustExecutor" {
             return Ok(Value::record(vec![Value::str("Fixture")]));
         }
+        if source == "rustConstants" {
+            return Ok(Value::record(vec![
+                Value::str(&self.revision),
+                Value::Number(f64::from(self.value)),
+            ]));
+        }
         Ok(Value::record(vec![
             Value::str(&self.revision),
             args.first().cloned().unwrap_or(Value::Number(0.0)),

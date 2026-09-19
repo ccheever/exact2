@@ -65,6 +65,8 @@ copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 copyFileSync(resolve(root, 'host/web/navigation.js'), resolve(stage, 'navigation.js'));
+copyFileSync(resolve(root, 'host/web/media-glue.js'), resolve(stage, 'media-glue.js'));
+copyFileSync(resolve(root, 'host/web/list-selection.js'), resolve(stage, 'list-selection.js'));
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -97,6 +99,7 @@ if (typeof exports.exact_module_artifact === 'function') {
   }
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
   copyFileSync(resolve(root, 'host/web/module-glue.js'), resolve(stage, 'module-glue.js'));
+  copyFileSync(resolve(root, 'host/web/module-worker.js'), resolve(stage, 'module-worker.js'));
   copyFileSync(resolve(root, 'js/src/prelude.js'), resolve(stage, 'module-prelude.js'));
 
 }

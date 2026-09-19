@@ -25,6 +25,9 @@ extension NodeView {
         for child in children {
             child.removeFromSuperview()
             child.textParent = self
+            #if os(macOS)
+            child.wantsLayer = false
+            #endif
         }
         invalidateText()
     }

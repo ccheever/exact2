@@ -1,0 +1,24 @@
+[
+  {
+    "file": "godot.zip",
+    "seconds": 1.5466166101396084,
+    "url": "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+  },
+  {
+    "file": "love.AppImage",
+    "seconds": 0.6155772060155869,
+    "url": "https://github.com/love2d/love/releases/download/11.5/love-11.5-x86_64.AppImage"
+  },
+  {
+    "file": "bob.jar",
+    "seconds": 11.231528794392943,
+    "url": "https://github.com/defold/defold/releases/download/1.13.1/bob.jar"
+  },
+  {
+    "file": "pygame",
+    "seconds": 1.576407691463828,
+    "code": 0,
+    "stdout": "Collecting pygame==2.6.1\n  Downloading pygame-2.6.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (12 kB)\nDownloading pygame-2.6.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (14.0 MB)\n   \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 14.0/14.0 MB 79.2 MB/s eta 0:00:00\nInstalling collected packages: pygame\nSuccessfully installed pygame-2.6.1\n",
+    "stderr": ""
+  }
+]

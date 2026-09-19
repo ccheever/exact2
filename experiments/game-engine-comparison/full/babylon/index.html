@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Lanterns — Last Light · Babylon.js</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <canvas id="world" aria-label="Lanterns 3D game"></canvas>
+    <div id="loading" class="screen"><div class="card"><div class="eyebrow">BABYLON.JS + HAVOK</div><h1>Lighting the island…</h1><p>Preparing the fox and physics world.</p></div></div>
+    <header id="hud" hidden>
+      <div class="brand">LAST LIGHT</div>
+      <div class="hud-stat"><span>Lanterns</span><strong id="count">0 / 12</strong></div>
+      <div class="hud-stat"><span>Dusk in</span><strong id="time">3:00</strong></div>
+      <button id="sound" class="icon" aria-label="Toggle sound">Sound on</button>
+      <button id="pause" class="icon">Pause</button>
+    </header>
+    <div id="toast" role="status"></div>
+    <div id="sign-copy">Push the crate beside the high ledge. Jump onto it, then jump again to reach the last lantern.</div>
+    <main id="title" class="screen" hidden>
+      <div class="card hero">
+        <div class="eyebrow">A THREE-MINUTE ISLAND</div>
+        <h1>Lanterns<br /><i>Last Light</i></h1>
+        <p>Guide the fox across the dusk island. Light all twelve lanterns before night falls.</p>
+        <button id="start" class="primary">Begin the run</button>
+        <button id="resume" class="secondary" hidden>Resume saved game</button>
+        <div class="controls"><b>WASD / arrows</b> move <b>Space</b> jump <b>E</b> light lantern</div>
+      </div>
+    </main>
+    <section id="modal" class="screen" hidden>
+      <div class="card">
+        <div id="modal-kicker" class="eyebrow"></div>
+        <h2 id="modal-title"></h2>
+        <p id="modal-copy"></p>
+        <button id="modal-main" class="primary"></button>
+        <button id="save" class="secondary">Save game</button>
+        <button id="restart" class="text-button">Restart from dusk</button>
+      </div>
+    </section>
+    <div id="touch" hidden>
+      <div class="dpad">
+        <button data-input="up" aria-label="Move forward">▲</button>
+        <button data-input="left" aria-label="Move left">◀</button>
+        <button data-input="down" aria-label="Move backward">▼</button>
+        <button data-input="right" aria-label="Move right">▶</button>
+      </div>
+      <div class="actions"><button data-input="jump">JUMP</button><button data-input="act">LIGHT</button></div>
+    </div>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>

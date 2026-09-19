@@ -421,47 +421,51 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     let f = Fixture::new();
     let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
     f.write("__exact_build.tsbuildinfo", "{}");
-    assert!(producer.bake(&f.0).err().unwrap().contains("reserved"));
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("reserved"));
     std::fs::remove_file(f.0.join("__exact_build.tsbuildinfo")).unwrap();
-    let first = producer.bake(&f.0).unwrap();
+    let first = producer.bake(&f.0, None).unwrap();
     let standalone = f.bake();
     assert_eq!(first.script, standalone.script);
     assert_eq!(first.bytecode, standalone.bytecode);
     assert_eq!(first.plan, standalone.plan);
     assert_eq!(first.receipt, standalone.receipt);
-    assert_eq!(first.receipt, producer.bake(&f.0).unwrap().receipt);
+    assert_eq!(first.receipt, producer.bake(&f.0, None).unwrap().receipt);
 
     f.write("app.ts", &format!("import './app.js';\n{SOURCE}"));
     assert_eq!(
-        producer.bake(&f.0).unwrap().receipt,
+        producer.bake(&f.0, None).unwrap().receipt,
         f.bake().receipt,
         "previous generated JavaScript is not a captured source"
     );
     f.write("app.ts", SOURCE);
 
     f.write("logic.ts", "export const prefix = 'new: ';\n");
-    assert_ne!(first.receipt, producer.bake(&f.0).unwrap().receipt);
+    assert_ne!(first.receipt, producer.bake(&f.0, None).unwrap().receipt);
     f.write("logic.ts", "export const prefix: string = 42;\n");
-    let diagnostics = producer.bake(&f.0).err().unwrap();
+    let diagnostics = producer.bake(&f.0, None).err().unwrap();
     assert!(diagnostics.contains("TS2322"));
     assert!(
         !diagnostics.contains("lib.webworker.d.ts"),
         "the error is not the --listFiles inventory: {diagnostics}"
     );
     assert!(
-        producer.bake(&f.0).is_err(),
+        producer.bake(&f.0, None).is_err(),
         "unchanged invalid input is never cached as success"
     );
     std::fs::remove_file(f.0.join("logic.ts")).unwrap();
     assert!(
-        producer.bake(&f.0).is_err(),
+        producer.bake(&f.0, None).is_err(),
         "removed imports invalidate resolution"
     );
     f.write("logic.ts", "export { prefix } from './added';\n");
-    assert!(producer.bake(&f.0).is_err());
+    assert!(producer.bake(&f.0, None).is_err());
     f.write("added.ts", "export const prefix = 'added: ';\n");
     assert!(
-        producer.bake(&f.0).is_ok(),
+        producer.bake(&f.0, None).is_ok(),
         "new imports recover without a restart"
     );
 
@@ -470,33 +474,33 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
         &CONTRACT.replace("as shape string", "as shape number"),
     );
     assert!(
-        producer.bake(&f.0).is_err(),
+        producer.bake(&f.0, None).is_err(),
         "generated declarations participate in checking"
     );
     f.write("app.contract", CONTRACT);
-    assert!(producer.bake(&f.0).is_ok());
+    assert!(producer.bake(&f.0, None).is_ok());
 
     f.write("logic.ts", "export const prefix = 'typed: ';\ndeclare global { interface Array<T> { length: string; } }\n");
     assert!(
-        producer.bake(&f.0).is_err(),
+        producer.bake(&f.0, None).is_err(),
         "global/library conflicts remain checked"
     );
     f.write("logic.ts", "export const prefix = 'final: ';\n");
-    let final_bake = producer.bake(&f.0).unwrap();
+    let final_bake = producer.bake(&f.0, None).unwrap();
     assert_eq!(final_bake.receipt, f.bake().receipt);
 
     // Capture must reconcile directories as well as bytes, including a
     // source-shaped directory changing into a source file and back again.
     std::fs::create_dir(f.0.join("shape.ts")).unwrap();
     f.write("shape.ts/inner.ts", "export const value = 1;");
-    producer.bake(&f.0).unwrap();
+    producer.bake(&f.0, None).unwrap();
     std::fs::remove_dir_all(f.0.join("shape.ts")).unwrap();
     f.write("shape.ts", "export const value = 2;");
-    producer.bake(&f.0).unwrap();
+    producer.bake(&f.0, None).unwrap();
     std::fs::remove_file(f.0.join("shape.ts")).unwrap();
     std::fs::create_dir(f.0.join("shape.ts")).unwrap();
     f.write("shape.ts/inner.ts", "export const value = 3;");
-    producer.bake(&f.0).unwrap();
+    producer.bake(&f.0, None).unwrap();
 
     let outside = Fixture::new();
     f.write(
@@ -507,7 +511,7 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
         ),
     );
     assert!(
-        producer.bake(&f.0).is_err(),
+        producer.bake(&f.0, None).is_err(),
         "absolute imports cannot escape the captured app"
     );
     outside.write("types.d.ts", "export interface External { value: string }");
@@ -520,14 +524,17 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     );
     assert!(
         producer
-            .bake(&f.0)
+            .bake(&f.0, None)
             .err()
             .unwrap()
             .contains("outside captured app"),
         "type-only imports cannot influence a captured app either"
     );
     f.write("logic.ts", "export const prefix = 'final: ';\n");
-    assert_eq!(final_bake.receipt, producer.bake(&f.0).unwrap().receipt);
+    assert_eq!(
+        final_bake.receipt,
+        producer.bake(&f.0, None).unwrap().receipt
+    );
 }
 
 #[test]
@@ -542,7 +549,7 @@ fn resident_producer_honors_compiler_overrides() {
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
     assert!(producer
-        .bake(&f.0)
+        .bake(&f.0, None)
         .err()
         .unwrap()
         .contains("/usr/bin/false refused"));
@@ -569,23 +576,23 @@ fn resident_compilation_refusals_are_drained_before_the_next_request() {
     })
     .unwrap();
     assert!(producer
-        .bake(&f.0)
+        .bake(&f.0, None)
         .err()
         .unwrap()
         .contains("hermes-wrapper refused"));
     f.write("hermes-wrapper", &launch);
-    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
     f.write("logic.ts", "export const prefix: string = 42;");
     f.write("hermes-wrapper", "#!/bin/sh\nexit 1\n");
-    let error = producer.bake(&f.0).err().unwrap();
+    let error = producer.bake(&f.0, None).err().unwrap();
     assert!(
         error.contains("TS2322") && error.contains("hermes-wrapper refused"),
         "{error}"
     );
     f.write("hermes-wrapper", &launch);
-    assert!(producer.bake(&f.0).err().unwrap().contains("TS2322"));
+    assert!(producer.bake(&f.0, None).err().unwrap().contains("TS2322"));
     f.write("logic.ts", "export const prefix = 'recovered: ';");
-    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }
 
 #[test]
@@ -597,13 +604,13 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
     let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
     let accepted = "export const prefix = 'web: '; export async function request(url: URL, init: RequestInit): Promise<string> { const response: Response = await fetch(url, init); const headers: Headers = response.headers; return headers.get('content-type') ?? await response.text(); }";
     f.write("logic.ts", accepted);
-    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
     f.write(
         "logic.ts",
         &format!("{accepted} type UI = Document | HTMLElement | Window;"),
     );
     for error in [
-        producer.bake(&f.0).err().unwrap(),
+        producer.bake(&f.0, None).err().unwrap(),
         bake(&f.0, &Tools::default()).err().unwrap(),
     ] {
         for name in ["Document", "HTMLElement", "Window"] {
@@ -618,7 +625,7 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
         &accepted.replace("Promise<string>", "Promise<number>"),
     );
     for error in [
-        producer.bake(&f.0).err().unwrap(),
+        producer.bake(&f.0, None).err().unwrap(),
         bake(&f.0, &Tools::default()).err().unwrap(),
     ] {
         assert!(
@@ -627,5 +634,5 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
         );
     }
     f.write("logic.ts", accepted);
-    assert_eq!(producer.bake(&f.0).unwrap().receipt, f.bake().receipt);
+    assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }

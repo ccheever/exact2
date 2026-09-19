@@ -476,6 +476,7 @@ impl Collection {
         }
         let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner)?;
         Ok(Row {
+            wrapper: None,
             key: self.keys[position].clone(),
             frame,
             roots,

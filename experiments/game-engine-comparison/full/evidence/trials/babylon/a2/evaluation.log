@@ -1,0 +1,11 @@
+PASS title, level and imported asset
+PASS actual keyboard movement and active animation
+PASS fixed movement, jump gravity and landing
+PASS pause freezes clock and body
+PASS solid wall collision
+PASS dynamic crate push and ledge collision
+PASS save survives reload with world and clock restored
+PASS complete lantern route and task-specific victory
+PASS night falls and restart works
+PASS one batch equals many fixed ticks
+babylon: 10/10 cases; 0 browser errors

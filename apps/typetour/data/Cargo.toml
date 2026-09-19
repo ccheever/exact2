@@ -1,0 +1,17 @@
+# Type Tour's data source: empty. Every screen is authored in the Contract,
+# so the seam (LLP 1004 D4) answers nothing and the first frame queries nothing.
+[package]
+name = "typetour-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Type Tour's data source: nothing to answer"
+publish = false
+
+[lib]
+name = "typetour_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

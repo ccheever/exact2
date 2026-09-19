@@ -1,0 +1,60 @@
+{
+  "engine": "babylon",
+  "task": "b",
+  "replicate": 1,
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "dispatch": 1789709091.0695348,
+  "agent": {
+    "pid": 1909041,
+    "started": 1789709091.0697997,
+    "finished": 1789709311.4449093,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "build": {
+    "pid": 1918831,
+    "started": 1789709311.445188,
+    "finished": 1789709313.664913,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "server": {
+    "pid": 1919081,
+    "port": 34351,
+    "root": "/tmp/exact-full-games-20260917/trials/babylon/b1/game/dist"
+  },
+  "evaluation": {
+    "pid": 1919091,
+    "started": 1789709314.0534227,
+    "finished": 1789709334.8657184,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "sourceHashes": {
+    "BRIEF.md": "9ad25b1f01ed99cfa9ff678621fa9a10104f8a03bea6a47f6efec036a489b564",
+    "README.md": "e250d67deb4e06774d6825891c9c7a82d01962dd3f428efb1aa08c4a1a0a083c",
+    "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+    "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+    "build-assets.mjs": "39803d3ceabfad906d777c23519a17e66915cc4e4c9454e0c36907690f4fd684",
+    "bun.lock": "30410d6bc9d7fe4c58ca3f563bca433d9bb4bd4cc635db9caed58c51c096c1d3",
+    "evidence/full-route.json": "9c54e98cbf5e5d3736d9b9aaa220388548d10940d3a33875df4e9d1bd4c8fe15",
+    "evidence/gameplay.png": "bfbe1f8a33cd71ca52f82e3b6d263cd0c5db883efdee5b4271512fa1a914fb04",
+    "evidence/paused.png": "76cbe5eecbff752c998e531fb5ce7e00c9c651a5840b3a7afa0af56d8621f88d",
+    "evidence/return-home.png": "9f3c43b0ae7a1f05d1d688435550eeb99be503ee5f90e86500f9b01c7744502b",
+    "evidence/self-test.json": "d88f52f17f4cc46a8644c4418f175a9fc6249df5a3b5c66766fd81bed821b0e0",
+    "evidence/title.png": "94736ae11b2f168f2080b0391049ce62e4b97bbdff8aee7cae6aaab9f88e6d76",
+    "evidence/won.png": "f9b37547cbb4a02b7d3746439af3a005ceccea763ae9a2b64d4988ec0493353a",
+    "full-route.mjs": "60e00009fbfddcb2d5021c9fb4bba08c8a15aebe0fce6aee9defc4e648b210db",
+    "index.html": "2862f1d6bb8294359a2e5729dcccc87743fed8caf0a21d6898673f8d5dd9e373",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23",
+    "package.json": "298bb82a2d328206e2e4db2fa401da99ab5d583d62e8b196e8f689986254600f",
+    "rolldown.config.mjs": "58aa1487b679ae3165f746f4b956f10aebf797dff592b573b73904328218bf72",
+    "server.mjs": "3aaea783b21a0d97e2ec80ce91ed55b6eddf19c61fdc5348ee1069e2acc9ec51",
+    "src/main.js": "920fdc3c1f1fb1e9f280e8e3e049c0aedeee4a0e5fe1b89811969aaf9c004206",
+    "src/world.js": "8a30d6b739dcc689f67cd942e2b934357fdc27400a939ebef8a30d57c58b08c1",
+    "style.css": "364fdea5b1cba6a149d078dbd611712b66de843f560b70adfc5ef65ff73ffffe",
+    "test.mjs": "8071cb15e8e99931de998a9f42b41fa7f292f80281604f5ab3f6597b76bc1315"
+  },
+  "finished": 1789709334.9420354
+}

@@ -166,10 +166,10 @@ fn unannotated_http_and_native_writes_remain_in_one_fifo() {
         let writes: Sender<_> = writes.clone();
         core.run(
             job(ticket, Request::continuation(ticket)),
-            Some(Box::new(move || {
+            Some(Work::Now(Box::new(move || {
                 writes.send(ticket).unwrap();
                 Outcome::Storage(vec![ticket as u8])
-            })),
+            }))),
         )
         .unwrap();
     }
@@ -326,11 +326,11 @@ fn retirement_aborts_held_http_discards_queued_effects_and_stops_wakes() {
     let check = executed.clone();
     core.run(
         job(2, Request::continuation(2)),
-        Some(Box::new(move || {
+        Some(Work::Now(Box::new(move || {
             let _guard = guard;
             check.store(true, Ordering::SeqCst);
             Outcome::Storage(vec![])
-        })),
+        }))),
     )
     .unwrap();
     let state = core.shared.clone();
@@ -456,8 +456,33 @@ fn response_ceiling_and_missing_continuations_fail_without_poisoning_the_lane() 
     assert_eq!(fixture.state.lock().unwrap().2.len(), 1);
     core.run(
         job(4, Request::continuation(2)),
-        Some(Box::new(|| Outcome::Storage(vec![42]))),
+        Some(Work::Now(Box::new(|| Outcome::Storage(vec![42])))),
     )
     .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].1, Outcome::Storage(vec![42]));
+}
+
+#[test]
+fn deferred_owner_releases_io_worker_but_keeps_admission_until_consumed() {
+    let (core, _, woke) = setup();
+    let (send, receive) = channel();
+    core.run(
+        job(1, Request::continuation(1)),
+        Some(Work::Later(Box::new(move |reply| {
+            send.send(reply).unwrap()
+        }))),
+    )
+    .unwrap();
+    let reply = receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    core.run(job(2, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 2);
+    assert_eq!(core.shared.state.lock().unwrap().counts[0], 1);
+    assert!(!core.ordered_idle());
+    reply.send(Outcome::Storage(vec![7]));
+    assert_eq!(
+        collect(&core, &woke, 1),
+        vec![(1, Outcome::Storage(vec![7]))]
+    );
+    assert!(core.ordered_idle());
 }

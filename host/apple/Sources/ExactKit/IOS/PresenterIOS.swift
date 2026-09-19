@@ -247,6 +247,8 @@ final class Presenter {
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
+        listGeometry.removeAll()
+        listViews.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -351,6 +353,48 @@ final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
+    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32) -> Void)?
+    var interacting: UInt32 = 0
+    private var listGeometry: [UInt32: [Double]] = [:]
+    private var listViews: [UInt32: NodeView] = [:]
+    private var listSyncDepth = 0
+    private var listSyncQueued = false
+
+    /// Fill and measure the row window before paint. Unusual documents with
+    /// many zero-height rows continue next turn instead of recursing forever.
+    func syncLists() {
+        guard !applying else { return }
+        guard listSyncDepth < 8 else {
+            if !listSyncQueued {
+                listSyncQueued = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.listSyncQueued = false
+                    self.syncLists()
+                }
+            }
+            return
+        }
+        listSyncDepth += 1
+        defer { listSyncDepth -= 1 }
+        listGeometry = listGeometry.filter { views[$0.key] != nil }
+        for list in Array(listViews.values) {
+            guard views[list.id] === list, let scroll = list.scroll,
+                  let content = list.container.subviews.first as? NodeView else { continue }
+            let focus = editing?.isDescendant(of: list) == true ? editing!.id : 0
+            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
+            let top = Double(scroll.contentOffset.y)
+            let height = Double(scroll.bounds.height)
+            let width = Double(content.frame.width)
+            let origin = Double(content.frame.minY)
+            let rows = content.container.subviews.compactMap { $0 as? NodeView }
+            let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
+                + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
+            if listGeometry[list.id] == stamp { continue }
+            listGeometry[list.id] = stamp
+            onList?(list.id, top, height, width, origin, focus, interaction)
+        }
+    }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -411,6 +455,7 @@ final class Presenter {
                 let q = waiting
                 waiting = []
                 for (id, f) in q where id.map({ views[$0] != nil }) ?? true { f() }
+                syncLists()
                 flushPendingFocus()
             }
         }
@@ -462,6 +507,7 @@ final class Presenter {
                 v.applyStyle(op["style"] as? [String: Any] ?? [:])
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
+                if v.kind == "list" { listViews[id] = v }
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "style":
@@ -492,6 +538,7 @@ final class Presenter {
                 heightBindings.removeValue(forKey: id)
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
+                listViews.removeValue(forKey: id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":

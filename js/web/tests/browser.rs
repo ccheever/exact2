@@ -40,7 +40,7 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-const routes = {'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js'};
+const routes = {'/module-glue.js':'host/web/module-glue.js','/module-worker.js':'host/web/module-worker.js','/module-prelude.js':'js/src/prelude.js'};
 routes['/startup/glue.js']='host/web/glue.js';
 routes['/startup/navigation.js']=routes['/navigation.js']='host/web/navigation.js';
 const hostPage=readFileSync('host/web/index.html','utf8');
@@ -215,6 +215,31 @@ try {
     if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
     if((await ask('logout')).writes[0][1]!==null)throw new Error('forget');
     castle.dispose();
+    // A worker placement (LLP 1027.002 D2): the same module, prepared on a
+    // dedicated Worker; the turn's snapshot arrives at dispatch, its writes
+    // and reads come back in the reply, and disposal terminates the Worker.
+    const workerIdentity={...identity,placement:'worker'};
+    const placed=await prepare(await payload(source.replace("return 'ok';","if(source==='where')return typeof WorkerGlobalScope==='undefined'?'page':'worker';return 'ok';")),workerIdentity);
+    if(placed.placement!=='worker'||placed.frame!==null)throw new Error('worker placement prepared an iframe');
+    const started=call({op:'answer',id:placed.id,source:'where',args:[],store:[],grants:['token']});
+    if(!started.continuation)throw new Error('worker answer was not a turn');
+    if(call({op:'dispatch',id:placed.id,token:started.continuation,store:[['token','old']],grants:['token']}).ok!==true)throw new Error('dispatch refused');
+    const where=await run(started.continuation);
+    if(where.value!=='worker')throw new Error(`module ran on the ${JSON.stringify(where)}`);
+    const turn=call({op:'answer',id:placed.id,source:'write',args:[],store:[['token','stale']],grants:['token']});
+    call({op:'dispatch',id:placed.id,token:turn.continuation,store:[['token','committed']],grants:['token']});
+    const wrote=await run(turn.continuation);
+    if(wrote.value!=='committed'||wrote.reads[0]!=='token'||wrote.writes[0][1]!=='next')throw new Error(`worker turn read the answer-time store: ${JSON.stringify(wrote)}`);
+    const guarded=await checkpoint(call({op:'answer',id:placed.id,source:'alias',args:[],store:[],grants:[]}));
+    if(!guarded.message?.includes('pass time or a random seed'))throw new Error('worker realm lost the ambient guards');
+    const discarded=call({op:'answer',id:placed.id,source:'write',args:[],store:[],grants:['token']});
+    call({op:'discard',id:placed.id,token:discarded.continuation});
+    let gone=false;try{await run(discarded.continuation);}catch{gone=true;}
+    if(!gone)throw new Error('discarded turn still ran');
+    const late=call({op:'answer',id:placed.id,source:'async',args:[],store:[],grants:[]});
+    placed.dispose();
+    let terminated=false;try{await run(late.continuation);}catch{terminated=true;}
+    if(!terminated||!call({op:'answer',id:placed.id,source:'where',args:[]}).error)throw new Error('disposed worker realm is callable');
     const NativeWorker=globalThis.Worker;
     let workersCreated=0, workersTerminated=0;
     globalThis.Worker=class extends NativeWorker {
@@ -245,6 +270,21 @@ try {
     for(let i=0;i<paired.length;i++)if(paired[i].request?.url!=='https://example.test/'+['b','c'][i])throw new Error('interleaved storage request attribution');
     const replies=await Promise.all(['c','b'].map(value=>invoke(storage,'work',['fetch',value],[],['session'],response(value))));
     for(let i=0;i<replies.length;i++)if(replies[i].value?.text!==['c:c','b:b'][i]||replies[i].writes[0]?.[1]!==['c','b'][i])throw new Error('interleaved storage result attribution');
+    const onWorker=await prepare(await payload(fixtures.storage,storageIdentity),{...storageIdentity,placement:'worker'});
+    const workerInvoke=async(source,args,store=[],grants=[],outcome)=>{
+      const started=call({id:onWorker.id,op:outcome?'resume':'answer',source,args,store:[],grants,outcome});
+      if(!started.continuation)throw new Error('worker storage answer was not a turn');
+      call({op:'dispatch',id:onWorker.id,token:started.continuation,store,grants});
+      return await checkpoint(await run(started.continuation));
+    };
+    const fromWorker=await workerInvoke('work',['read',''],[],['session']);
+    if(fromWorker.value?.text!=='hello'||fromWorker.externalRead!==true)throw new Error(`worker storage read: ${JSON.stringify(fromWorker)}`);
+    if((await workerInvoke('work',['list',''],[],['session'])).value?.text!=='remember')throw new Error('worker SQLite read');
+    const workerFetch=await workerInvoke('work',['fetch','w'],[],['session']);
+    if(workerFetch.request?.url!=='https://example.test/w')throw new Error(`worker fetch yields to the page: ${JSON.stringify(workerFetch)}`);
+    const workerResumed=await workerInvoke('work',['fetch','w'],[],['session'],response('reply'));
+    if(workerResumed.value?.text!=='w:reply'||workerResumed.writes[0]?.[1]!=='w')throw new Error(`worker fetch resume: ${JSON.stringify(workerResumed)}`);
+    onWorker.dispose();
     const workerCount=workersCreated;
     const replacement=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     storage.dispose();storage=replacement;

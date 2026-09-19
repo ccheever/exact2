@@ -7,7 +7,14 @@ shape Probe
 shape Executor
   label: string
 
+shape Constants
+  label: string
+  multiplier: number
+
 component UpdateLab
+  // Only Rust answers this: its first frame bakes through the Rust source,
+  // with no TypeScript placeholder (LLP 1027.002 §5 step 0).
+  resource rustConstants = rustConstants() as shape Constants
   state counter = 1
   state note = "Keep this note through a reload"
   state live = true
@@ -86,6 +93,7 @@ component UpdateLab
             text `Executor: ${executor.label}` testId="rust-executor" font-size=12 color="#63718a"
           case none
             text "Executor: waiting" testId="rust-executor" font-size=12 color="#63718a"
+        text `Baked through Rust: ${rustConstants.label} × ${rustConstants.multiplier}` testId="rust-constants" font-size=12 color="#63718a"
         when not live
           button press=runRust testId="run-rust" padding=12 background-color="#f6eade" border-radius=8
             text "Run Rust" color="#8c4d29" font-weight=600

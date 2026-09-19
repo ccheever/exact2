@@ -1,0 +1,1 @@
+2026-09-18T05:23:00.861791Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to read /tmp/exact-full-games-20260917/trials/babylon/a1/game/evidence/lantern-13-failure.png: invalid utf-8 sequence of 1 bytes from index 0

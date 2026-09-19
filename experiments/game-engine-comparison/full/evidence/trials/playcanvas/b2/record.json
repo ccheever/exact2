@@ -1,0 +1,50 @@
+{
+  "engine": "playcanvas",
+  "task": "b",
+  "replicate": 2,
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "dispatch": 1789709613.6034737,
+  "agent": {
+    "pid": 604965,
+    "started": 1789709613.6037047,
+    "finished": 1789710179.7914445,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "build": {
+    "pid": 613776,
+    "started": 1789710179.7916324,
+    "finished": 1789710180.3066597,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "server": {
+    "pid": 613822,
+    "port": 38907,
+    "root": "/tmp/exact-full-games-20260917/trials/playcanvas/b2/game/dist"
+  },
+  "evaluation": {
+    "pid": 613832,
+    "started": 1789710180.38899,
+    "finished": 1789710189.990682,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "sourceHashes": {
+    "BRIEF.md": "9ad25b1f01ed99cfa9ff678621fa9a10104f8a03bea6a47f6efec036a489b564",
+    "README.md": "d38fdf60ac3fd918712c3bbef428a0e3f8b3dc0a01ad0d1f6a311116ca312804",
+    "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+    "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+    "bun.lock": "773cef471e2b134d99f416e108cfe51420c68de175efa6803f48e90af7b9db5a",
+    "index.html": "680d93eed2d693052cb0ff1cba46414860d89bfad2aa19007635a1ff33dffdbf",
+    "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23",
+    "main.js": "ef840f6ee2826ed6529071824b10b3faf09083e6851e998bab7f13d03419b936",
+    "package.json": "031f844305436855075a74f889bed891d5a6af00a892660b262a1091f4971c7d",
+    "src/audio.js": "2b2b86e76ff5a4465504985ebe2f172f5e014b082364e727706eeea988e6d110",
+    "src/main.js": "34507308e1dab004d5ca38f43c00d6de6677721143687ddf1351bfec16f4c784",
+    "styles.css": "3f1ccb65b4356cc118da17adef9a2105bd92c33f3b60db5bdb7f15cb8da30bac",
+    "tests/return-home-proof.mjs": "0beca59998494f0f997ab446aafe1b24876af8853a9958c808174012ca460c71"
+  },
+  "finished": 1789710190.0086336
+}

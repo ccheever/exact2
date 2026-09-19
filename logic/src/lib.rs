@@ -240,8 +240,28 @@ impl<D: DataSource> DataSource for Swappable<D> {
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         self.embedded.as_mut()?.continuation(token)
     }
-    fn continuation_token(&mut self, token: u64) -> Option<u64> {
-        self.embedded.as_mut()?.continuation_token(token)
+    fn placement(&self) -> exact_runner::Placement {
+        self.embedded
+            .as_ref()
+            .map(DataSource::placement)
+            .unwrap_or_default()
+    }
+    fn dispatch(&mut self, token: u64, store: &Store) -> exact_runner::Dispatch {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.dispatch(token, store),
+            None => exact_runner::Dispatch::Missing,
+        }
+    }
+    fn release(&mut self, store: &Store) -> Vec<(u64, exact_runner::Dispatch)> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.release(store),
+            None => Vec::new(),
+        }
+    }
+    fn discard(&mut self, token: u64) {
+        if let Some(embedded) = self.embedded.as_mut() {
+            embedded.discard(token);
+        }
     }
     fn bind(&mut self, plan: &Plan) {
         if let Some(embedded) = &mut self.embedded {

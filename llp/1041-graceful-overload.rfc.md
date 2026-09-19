@@ -7685,3 +7685,65 @@ are absent. Integration takes four exact files from
 source `20f1c173`, full patch `e7fb9ba3`, production-only patch `8c8b570c`.
 This proves one fewer validated-Spec search/clone/drop on the warm path,
 not the number of such hits in§8.139 or a native timing/120Hz improvement.
+
+
+### 8.141 Direct glyph blit: exact pixels, broad candidate not selected, 2026-09-19
+
+A private Linux CPU text experiment replaces each eligible glyph's generic
+`draw_pixmap` setup with a direct premultiplied SourceOver blit. Eligibility
+requires the exact identity transform, bounded integer placement and matching
+mask dimensions; other cases use the existing renderer. The implementation
+retains tiny-skia0.12's f32 load, mask, blend and ties-to-even store order.
+It adds no glyph cache, allocation, retained owner or workload reduction.
+
+Tests first run the original generic draw through a counted wrapper. Six
+controls pass and the ordinary Painter test fails on32 generic glyph calls
+for both cold and warm paints, versus the expected zero. The first candidate
+removes those calls and passes the real text scene, but fails a cropped-edge
+pixel comparison. That failure is retained. Matching the existing scanner's
+`Rect::round` and padded source-edge behavior fixes the mismatch without a
+pixel tolerance or mask exclusion. A later test-only Clippy correction is
+also preserved. The final candidate passes35 ink tests and nine paint
+integration tests:44 distinct tests,86 passing candidate executions including
+repeats. Strict all-targets package Clippy and scoped formatting pass. These
+are CPU tests on the Mac, not an actual Linux display or physical frame test.
+
+A separate optimized rejection probe copies the complete production helper
+byte for byte (`c64c3b22`). Both implementations run in one executable against
+the repository-pinned tiny-skia dependencies, using Rust1.97 on
+`aarch64-apple-darwin`, opt-level3, thin LTO and one codegen unit. It compares
+patterned premultiplied glyphs on a1024x768 destination with signed/cropped
+placements, overlapping draws and no/full/partial masks. Each case retains
+eight alternating-order samples of1,024 draws. Allocations precede timing;
+all96 paired final RGBA buffers match exactly.
+
+| Glyph size | No mask ratio | Full mask ratio | Partial mask ratio |
+|---|---:|---:|---:|
+|8x16|0.791|0.705|0.755|
+|16x24|1.004|0.975|0.990|
+|32x48|1.211|1.124|1.141|
+|96x96|1.280|1.172|1.165|
+
+Ratios are candidate/reference median elapsed time within each synthetic
+case; above1 is slower. Every retained32x48 and96x96 candidate sample is
+slower than its paired reference. Thus removing generic pipeline setup does
+not justify this unconditional eligible-glyph replacement: scalar blend work
+can outweigh that saving. The production candidate is **not integrated**.
+No size threshold is tuned to these samples, and no full-app/native gain,
+individual glyph distribution, observer-free performance or120Hz result is
+claimed. Actual cached font glyphs may have a different coverage distribution;
+these patterned images are a rejection probe, not a Messages benchmark.
+
+The lead probe preserves two setup refusals before any compilation or timing:
+the system Python lacks `tomllib`, and an unconstrained offline lock resolution
+selects a cached dependency newer than the repository pin. The executed attempt
+seeds the exact repository lock, resolves offline, checks every registry
+version/checksum, then builds locked. One optimized build and one probe exit0;
+all recorded processes/groups are absent. No native application is launched.
+
+Correctness sources/raw logs remain under
+`exact2-linux-owned-text-spec/target/glyph-blit-validation`; the complete probe,
+raw timings, selected dependency proof and release are under MAIN
+`target/glyph-blit-performance-probe`, including `mac-result-v2`,
+`mac-summary.json`, `source-binding.json` and `mac-release.json`.
+The earlier native captures and merged production remain unchanged.

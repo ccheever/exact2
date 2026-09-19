@@ -842,7 +842,7 @@ impl StyleProps {
         };
         // Replaced pixels have ink overflow, never scrollable overflow (CSS
         // Overflow §2.1). This also identifies images for grid intrinsic sizing.
-        s.item_is_replaced = node_type == NodeType::Image;
+        s.item_is_replaced = node_type.is_replaced();
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,
@@ -977,8 +977,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // Height stays auto — as tall as its content, the page a viewport scrolls.
     // A replaced element keeps its intrinsic ratio unless a row sets one:
     // CSS sizes an `<img>` with one dimension given from the other by ratio.
-    if arena.node_type(slot) == NodeType::Image && !arena.style(slot).mask.has(StyleId::AspectRatio)
-    {
+    if arena.node_type(slot).is_replaced() && !arena.style(slot).mask.has(StyleId::AspectRatio) {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);

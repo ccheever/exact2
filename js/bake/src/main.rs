@@ -60,7 +60,13 @@ fn serve(app: &Path) -> ExitCode {
             let destination = request["out"]
                 .as_str()
                 .ok_or("request requires an out directory")?;
-            let baked = producer.bake(app)?;
+            // The previous generation's plan and the last Cargo bake's
+            // receipt seed the Rust-owned resources (LLP 1027.002 §5 step 0).
+            let seed = exact_js_bake::Seed::read(
+                request["previous"].as_str().map(Path::new),
+                request["receipt"].as_str().map(Path::new),
+            )?;
+            let baked = producer.bake(app, seed.as_ref())?;
             baked.write_new(Path::new(destination))?;
             serde_json::from_str::<serde_json::Value>(&baked.receipt).map_err(|e| e.to_string())
         });

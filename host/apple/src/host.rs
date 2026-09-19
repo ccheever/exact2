@@ -457,9 +457,15 @@ impl<D: DataSource> Host<D> {
         source.activate()
     }
 
-    /// Transfer a source-owned operation to the native executor.
-    pub fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
-        self.runner.data().continuation(token)
+    /// The work behind a continuation, dispatched on this thread after the
+    /// commit that handed it out (LLP 1027.002 D3).
+    pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
+        self.runner.dispatch_work(token)
+    }
+
+    /// Work a source held at dispatch that the last commit released.
+    pub fn release_work(&mut self) -> Vec<(u64, exact_runner::Dispatch)> {
+        self.runner.release_work()
     }
 
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
@@ -674,6 +680,49 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let error = self.layout(&mut batch).err();
         self.finish(batch, error)
+    }
+
+    /// Native list geometry; row heights come from the same kernel layout
+    /// that supplied the presenter's frames, never a second text measurer.
+    pub fn list_viewport(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+    ) -> String {
+        let kernel = self.runner.kernel();
+        let rows: Vec<_> = kernel
+            .node(view)
+            .and_then(|list| list.children().first().copied())
+            .and_then(|content| kernel.node(content))
+            .map(|content| {
+                content
+                    .children()
+                    .into_iter()
+                    .filter_map(|id| kernel.node(id).map(|row| (id, row.frame.height as f64)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let geometry = exact_runner::ListViewport {
+            rows: &rows,
+            ..geometry
+        };
+        match self.runner.list_viewport(view, geometry) {
+            Ok(receipt)
+                if receipt.created.is_empty()
+                    && receipt.destroyed.is_empty()
+                    && receipt.touched.is_empty() =>
+            {
+                self.finish(Batch::new(), None)
+            }
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        }
     }
 
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
@@ -1094,6 +1143,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Toggle => "toggle",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        NodeType::Video => "video",
     }
 }
 
@@ -1140,27 +1190,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
 }
 
 fn handler_name(e: EventKind) -> Option<&'static str> {
-    Some(match e {
-        EventKind::Press => "press",
-        EventKind::Change => "change",
-        EventKind::Hover => "hover",
-        EventKind::Focus => "focus",
-        EventKind::Blur => "blur",
-        EventKind::Key => "key",
-        EventKind::Submit => "submit",
-        EventKind::Load => "load",
-        EventKind::Message => "message",
-        EventKind::Contextmenu => "contextmenu",
-        EventKind::Dblclick => "dblclick",
-        EventKind::Swiperight => "swiperight",
-        EventKind::Scroll => "scroll",
-        EventKind::Navigate => "navigate",
-        EventKind::Heightrelease => "heightrelease",
-        EventKind::Transformgeometry => "transformgeometry",
-        EventKind::Transformrelease => "transformrelease",
-        EventKind::Reorderdrop => "reorderdrop",
-        EventKind::Reachstart | EventKind::Reachend => return None,
-    })
+    (!matches!(e, EventKind::Reachstart | EventKind::Reachend)).then(|| e.name())
 }
 
 #[cfg(test)]

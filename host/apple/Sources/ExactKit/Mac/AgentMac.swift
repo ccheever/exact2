@@ -402,8 +402,14 @@ extension Agent {
         guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
               let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
         else { return ["error": "no mouse event"] }
+        // NSTextView and AVKit controls may track synchronously inside mouseDown.
+        // Put this click's release in the queue before entering that loop.
+        NSApp.postEvent(up, atStart: true)
         win.sendEvent(down)
-        win.sendEvent(up)
+        if let pending = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: false), pending === up {
+            _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
+            win.sendEvent(up)
+        }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
 

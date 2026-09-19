@@ -78,6 +78,26 @@ impl<D: DataSource> Runner<D> {
     /// every derive that reads it sees the new value in the same
     /// pass.
     pub(super) fn settle(&mut self, boot: bool) -> Result<(), RunnerError> {
+        let mut effects = Vec::new();
+        let result = self.settle_pass(boot, &mut effects);
+        if result.is_err() {
+            // A refused pass hands nothing out: the `Later` answers it
+            // collected are dropped, and their sources forget the calls
+            // (LLP 1027.002 D3, the cleanup of rolled-back calls).
+            for effect in effects {
+                if let RequestEffect::Later { request, .. } = effect {
+                    self.discard_request(&request);
+                }
+            }
+        }
+        result
+    }
+
+    fn settle_pass(
+        &mut self,
+        boot: bool,
+        effects: &mut Vec<RequestEffect>,
+    ) -> Result<(), RunnerError> {
         // LLP 1016: what an action asked to re-request, the requests this
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
@@ -85,7 +105,7 @@ impl<D: DataSource> Runner<D> {
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
-        let mut effects = vec![RequestEffect::None; states.len()];
+        *effects = vec![RequestEffect::None; states.len()];
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -242,7 +262,13 @@ impl<D: DataSource> Runner<D> {
                             // not the build's: bake gives it no compiled value
                             // (LLP 1018 D4).
                             let reads_before = self.store.reads();
-                            effects[i] = RequestEffect::None;
+                            // Asked again in a later pass: an earlier
+                            // `Later` answer was never handed out.
+                            if let RequestEffect::Later { request, .. } =
+                                std::mem::replace(&mut effects[i], RequestEffect::None)
+                            {
+                                self.discard_request(&request);
+                            }
                             pending_res[i] = self.pending_res[i];
                             let answer = self.query(i, &args)?;
                             force.retain(|forced| *forced != i);
@@ -341,7 +367,7 @@ impl<D: DataSource> Runner<D> {
                     self.forget(Target::Resource(i));
                 }
             }
-            for (i, effect) in effects.into_iter().enumerate() {
+            for (i, effect) in std::mem::take(effects).into_iter().enumerate() {
                 if let RequestEffect::Later {
                     args,
                     request,

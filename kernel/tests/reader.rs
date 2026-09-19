@@ -81,3 +81,44 @@ fn intrinsic_probe_is_remeasured_at_the_definite_content_width() {
         "unchanged layout must retain its measurement cache"
     );
 }
+
+#[test]
+fn matching_paragraph_offers_do_not_cross_the_measurer_twice() {
+    use exact_kernel::{
+        AxisOffer, Kernel, Op, PropId, TextMeasureRequest, TextMeasurer, TextMetrics,
+    };
+    use std::{cell::RefCell, rc::Rc};
+    type Calls = Rc<RefCell<Vec<(AxisOffer, AxisOffer)>>>;
+    struct Tracked(Calls);
+    impl TextMeasurer for Tracked {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            if request.runs[0].text.starts_with("watched ") {
+                self.0.borrow_mut().push((request.width, request.height));
+            }
+            reader::measurer().measure(request)
+        }
+    }
+    let calls = Calls::default();
+    let mut kernel = Kernel::new(Box::new(Tracked(calls.clone())));
+    let mut ops = reader::initial(false, true, true);
+    ops.push(Op::SetProp {
+        id: 205,
+        prop: PropId::Text,
+        value: format!("watched {}", reader::LONG_TEXT.repeat(6)).into(),
+    });
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(720.0, 800.0))
+        .unwrap();
+    let calls = calls.borrow();
+    assert!(
+        calls.len() > 1,
+        "the fixture must exercise different offers"
+    );
+    for (i, offer) in calls.iter().enumerate() {
+        assert!(
+            !calls[..i].contains(offer),
+            "duplicate measurement: {calls:?}"
+        );
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "engine": "playcanvas",
+  "attempt": "a1",
+  "started": 1789709786.0396917,
+  "evaluatorSha256": "861cfe2ce67586a21da35c9af38388b1fa61dbbd4861bc060703f5ecae527f5c",
+  "server": {
+    "pid": 607853,
+    "port": 39761,
+    "root": "/tmp/exact-full-games-20260917/trials/playcanvas/a1/game/dist"
+  },
+  "pid": 607863,
+  "exitCode": 0,
+  "finished": 1789709794.7598445
+}

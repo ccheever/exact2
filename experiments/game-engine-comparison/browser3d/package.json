@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@babylonjs/core": "9.27.0",
+    "playcanvas": "2.22.2",
+    "playwright": "1.63.0",
+    "three": "0.186.0"
+  }
+}

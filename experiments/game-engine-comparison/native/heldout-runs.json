@@ -1,0 +1,122 @@
+[
+  {
+    "engine": "godot",
+    "repeat": 0,
+    "seconds": 0.17678330838680267,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":4,\"engine\":\"Godot\",\"negative_held\":true,\"restored\":true,\"x\":160.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 1,
+    "seconds": 0.15919677168130875,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":4,\"engine\":\"Godot\",\"negative_held\":true,\"restored\":true,\"x\":160.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 2,
+    "seconds": 0.15925580449402332,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":4,\"engine\":\"Godot\",\"negative_held\":true,\"restored\":true,\"x\":160.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 3,
+    "seconds": 0.15903750993311405,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":4,\"engine\":\"Godot\",\"negative_held\":true,\"restored\":true,\"x\":160.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 4,
+    "seconds": 0.15763043239712715,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":4,\"engine\":\"Godot\",\"negative_held\":true,\"restored\":true,\"x\":160.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 0,
+    "seconds": 0.13093779236078262,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"x\": 160, \"collected\": 4, \"negative_held\": true, \"restored\": true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 1,
+    "seconds": 0.12914670631289482,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"x\": 160, \"collected\": 4, \"negative_held\": true, \"restored\": true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 2,
+    "seconds": 0.1269744597375393,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"x\": 160, \"collected\": 4, \"negative_held\": true, \"restored\": true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 3,
+    "seconds": 0.13198336958885193,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"x\": 160, \"collected\": 4, \"negative_held\": true, \"restored\": true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 4,
+    "seconds": 0.12572657130658627,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"x\": 160, \"collected\": 4, \"negative_held\": true, \"restored\": true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 0,
+    "seconds": 0.02184719778597355,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"x\":159.99993896,\"collected\":4,\"negative_held\":true,\"restored\":true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 1,
+    "seconds": 0.021823976188898087,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"x\":159.99993896,\"collected\":4,\"negative_held\":true,\"restored\":true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 2,
+    "seconds": 0.020323939621448517,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"x\":159.99993896,\"collected\":4,\"negative_held\":true,\"restored\":true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 3,
+    "seconds": 0.02155417576432228,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"x\":159.99993896,\"collected\":4,\"negative_held\":true,\"restored\":true}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 4,
+    "seconds": 0.020238207653164864,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"x\":159.99993896,\"collected\":4,\"negative_held\":true,\"restored\":true}\n",
+    "stderr": ""
+  }
+]

@@ -1,0 +1,263 @@
+{
+  "run": "game-dx-20260918",
+  "base": "ba1bf2aba107eeb85ff429ef42ae7f455186eae2",
+  "source": "/Users/ccheever/projects/exact2-wt-lanterns",
+  "mode": "local",
+  "reason": "Preserve prior dirty Lanterns implementation and unrelated main changes; no remote publication authorized for that closure",
+  "review": {
+    "candidate": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+    "model": "gpt-6-astra",
+    "effort": "xhigh",
+    "session": 29448,
+    "thread": "01a0b40c-edc8-77b3-961a-a6d0b03dbbb9",
+    "status": "no material finding remains",
+    "report": "/tmp/exact-game-dx/review-delta-final.md",
+    "reviewed": true,
+    "scope": "immutable source-only review; execution evidence separate"
+  },
+  "worktrees": [
+    {
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx",
+      "branch": "llp-ship/game-dx-20260918/integration"
+    },
+    {
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-capture",
+      "branch": "llp-ship/game-dx-20260918/capture"
+    },
+    {
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-reload",
+      "branch": "llp-ship/game-dx-20260918/reload"
+    },
+    {
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-scene",
+      "branch": "llp-ship/game-dx-20260918/scene"
+    },
+    {
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-native",
+      "branch": "llp-ship/game-dx-20260918/native"
+    }
+  ],
+  "externalEffects": [],
+  "snapshot": "1176d78755544fbde3a4fabc7fd9548ae25953af",
+  "implementationModel": "gpt-6-astra",
+  "reasoningEffort": "xhigh",
+  "sessions": {
+    "capture": "/root/game_dx_capture",
+    "scenePid": 92748,
+    "reloadPid": 92749,
+    "cliToolSession": 90204,
+    "fleetWarmToolSession": 47556
+  },
+  "verification": [
+    "game workspace focused engine/capture/scene tests",
+    "web reload failure and browser tests",
+    "existing Lanterns proof",
+    "cargo build --workspace",
+    "cargo test --workspace",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo fmt --all -- --check",
+    "bun scripts/caps.mjs",
+    "bun scripts/boot.mjs"
+  ],
+  "refCheck": "No ref-check tool found; validate changed LLP links directly",
+  "milestones": {
+    "A ownership and clocks": "implemented and locally verified; remaining RFC acceptance limits documented",
+    "B1 capture bundle": "implemented and locally verified; remaining RFC acceptance limits documented",
+    "B2 bounded recording/replay": "implemented and locally verified; remaining RFC acceptance limits documented",
+    "C reload": "implemented and locally verified; remaining RFC acceptance limits documented",
+    "D scenes": "implemented and locally verified; remaining RFC acceptance limits documented"
+  },
+  "fleet": {
+    "host": "ccheever@100.84.186.119",
+    "checkout": "/tmp/exact2-lanterns-checks-8429",
+    "baselineEngineTests": "pass after dependency preflight",
+    "sourceDependencies": "/tmp/exact-game-dx-dependencies (ibex2,ibex2-sqlite source snapshots)",
+    "log": "/tmp/exact-game-dx-warm.log"
+  },
+  "native_driver": {
+    "worktree": "/Users/ccheever/projects/exact2-wt-game-dx-native",
+    "pidFile": "/tmp/exact-game-dx/native-driver.pid",
+    "session": 11531,
+    "model": "gpt-6-astra",
+    "reasoning": "xhigh",
+    "owned": [
+      "scripts/agent.mjs",
+      "focused existing driver tests"
+    ]
+  },
+  "frozen_browser_commit": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+  "fleet_integrated_session": 32778,
+  "integration_checkpoint": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+  "native_host_commit": "7b34fc58",
+  "native_driver_commit": "67213077",
+  "browser_evidence": "/tmp/exact-game-dx/browser-summary.json",
+  "fleet_final_logic": {
+    "passed": 210,
+    "failed": 0,
+    "ignored": 2,
+    "source": "67bcf039",
+    "log": "nothing:/tmp/exact-game-dx-integrated-fleet-logic.log",
+    "full_generated_host_suite": "descoped after three setup attempts; offline baker dependency-cache mismatch"
+  },
+  "native_macos_build": {
+    "session": 73253,
+    "log": "/tmp/exact-game-dx/integration-macos-build3.log",
+    "scope": "separate ad-hoc signed build, no phone",
+    "status": "passed",
+    "evidence": "/tmp/exact-game-dx/macos-evidence-visible/report.json",
+    "checks": "14 passed on separate visible owned Mac process; phone untouched"
+  },
+  "root_suite_checkpoint": {
+    "build": "passed",
+    "clippy": "passed",
+    "fmt": "passed",
+    "caps": "passed",
+    "boot": "passed",
+    "test": "aggregate had one Keychain and two Messages timing failures, all passed isolated reruns; final suite pending"
+  },
+  "review_repairs": [
+    {
+      "task": "capture allocation bounds",
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-scene",
+      "branch": "llp-ship/game-dx-20260918/capture-bounds",
+      "base": "7bda842",
+      "model": "gpt-6-astra",
+      "effort": "xhigh",
+      "commit": "ac161641d67ca7f0dcfd5c0385955cbaae68cf86",
+      "integrated": "99aa34db",
+      "followup_session": 70278,
+      "followup": "nested checkpoint decode limits",
+      "followup_commit": "682becc20c6ee877f008726fcae58aa75f7885d2",
+      "integrated_followup": "3c2ff568",
+      "tests": "61 focused passed; lint/fmt/caps pass"
+    },
+    {
+      "task": "publication validation and generation recovery",
+      "path": "/Users/ccheever/projects/exact2-wt-game-dx-reload",
+      "branch": "llp-ship/game-dx-20260918/publication",
+      "base": "7bda842",
+      "model": "gpt-6-astra",
+      "effort": "xhigh",
+      "commit": "7da312055471deadae15824105f29eb8e4b5b7a8",
+      "integrated": "545a90a9",
+      "followup_session": 58833,
+      "followup": "GPU-only publication validation",
+      "followup_commit": "faef00ca",
+      "integrated_followup": "e9b45dc7",
+      "tests": "23 Rust +49 standaloneJS pass; two actualBridge JS cases run throughCargo; fmt/caps pass"
+    }
+  ],
+  "render_fixture_repair": {
+    "path": "/Users/ccheever/projects/exact2-wt-game-dx-native",
+    "branch": "llp-ship/game-dx-20260918/render-fixtures",
+    "base": "7bda842",
+    "model": "gpt-6-astra",
+    "effort": "xhigh",
+    "commit": "25b97283d9ce88b5c4e5239e5ccfcae713f7f353",
+    "integrated": "13a3f8b3",
+    "tests": "45 passed; 2 existing ignored performance diagnostics; clippy passed"
+  },
+  "scene_import_repair": {
+    "agent": "/root/game_dx_capture",
+    "worktree": "/Users/ccheever/projects/exact2-wt-game-dx",
+    "scope": [
+      "game/scene/src/lib.rs",
+      "existing scene tests"
+    ],
+    "dependency": "public shared decoder budget from capture follow-up",
+    "status": "committed;15scene+10consumer tests pass,clippy/fmt/caps pass",
+    "commit": "503358f"
+  },
+  "final_browser": {
+    "source": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+    "status": "passed",
+    "evidence": "/tmp/exact-game-dx/browser-reviewed-final/report.json",
+    "cases": 2,
+    "failures": 0,
+    "routeMs": 47835.55,
+    "publicationSceneMs": 50859.78,
+    "worldHash": "0x542a71e50746ec38",
+    "captureRecords": 69,
+    "captureTicks": [
+      1696,
+      1815
+    ],
+    "scenePaintSamplesMs": [
+      106,
+      113
+    ],
+    "uiPaintSamplesMs": [
+      117,
+      124
+    ],
+    "scope": "real Chrome Apple Metal WebGPU, CDP keys and Contract controls; no phone",
+    "cleanup": "owned recorded processes cleaned, tracked source restored exactly"
+  },
+  "final_gates": {
+    "source": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+    "status": "passed",
+    "summary": "/tmp/exact-game-dx/final-checks.status",
+    "checks": {
+      "caps": 0,
+      "source-diff": 0,
+      "root-test": 0,
+      "root-fmt": 0,
+      "boot": 0,
+      "game-test": 0,
+      "source-sha": 0,
+      "game-clippy": 0,
+      "root-clippy": 0,
+      "game-fmt": 0,
+      "game-build": 0,
+      "js": 0,
+      "root-build": 0
+    },
+    "rustTotals": {
+      "root": {
+        "passed": 801,
+        "failed": 0,
+        "ignored": 1
+      },
+      "game": {
+        "passed": 355,
+        "failed": 0,
+        "ignored": 8
+      }
+    },
+    "trackedMutation": false,
+    "headUnchanged": true
+  },
+  "fleet_final_candidate": {
+    "source": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+    "host": "ccheever@100.84.186.119",
+    "status": "test startup refused; not verified",
+    "exit": 101,
+    "reason": "offline index cannot resolve locked web-sys0.3.104; same already-exhausted cache/setup issue as prior full-host attempts; no further repair attempted",
+    "log": "nothing:/tmp/exact-game-dx-final-logic.log",
+    "prior_evidence": "210 tests passed at67bcf039; separate from final candidate"
+  },
+  "delivery": {
+    "mode": "local",
+    "status": "complete",
+    "sha": "af179e2be977c1bf96fc88a66c10f5f06b0fee26",
+    "branch": "llp-ship/game-dx-20260918/integration",
+    "worktree": "/Users/ccheever/projects/exact2-wt-game-dx",
+    "verified": true,
+    "reviewed": true,
+    "remoteEffects": [],
+    "main": "untouched; pre-existing dirty changes and unpushed history preserved",
+    "limitations": [
+      "world-only captures; no whole Contract UI/external-result replay",
+      "native game code rebuild/relaunch; no native code hot swap",
+      "physical-phone capture/handoff proof not part of this run",
+      "scene paint samples106/113ms exceed100ms target; notp50",
+      "final Linux fleet rerun did not start due offline web-sys0.3.104 cache mismatch; earlier210tests passed on67bcf039"
+    ]
+  },
+  "cleanup": {
+    "browser": "owned recorded test processes exited; tracked temporary edits restored",
+    "macos": "own visible test appPID14237 cleaned earlier; user Mac/phone apps untouched",
+    "worktrees": "retained for local delivery/recovery and warm caches; no stash, reset or branch deletion",
+    "externalEffects": []
+  }
+}

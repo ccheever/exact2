@@ -30,6 +30,33 @@ sits on that list carries the trade it would take.
   rows, then shared runner/web windowing, Apple/Linux, raster budget and Messages
   acceptance. Memory and construction cost trigger it now; further Messages
   decorative artwork/material/timing polish waits. The baseline does not complete windowing.
+- **Game-engine comparison remaining gaps** (2026-09-17; LLP 1041.003 §7): full Lanterns games and fleet trials landed. Babylon/PlayCanvas qualify; eight external edit passes include one PlayCanvas repair-budget violation. Godot proves human win/loss but its sequential large-step adapter fails; Three.js/Cannon collision remains broken after the separately authorized extra sleep/reset round.
+  Next: repair those two specific baselines before their withheld trials; measure target GPU/phone and native exports, complete adapter/setup cost, and actual vendor automation routes. Actively track Babylon + PlayCanvas; retain Godot/native and Three/renderer controls.
+  Retained fixtures include a held-out change and negative controls; their repeated execution is not repeated agent success. Diagnostic only, no blocking check; LLP 1041.000 §6a remains the full-game bar.
+
+- **List memory** (2026-09-18, Codex; LLP 1010 §6): fixed and measured-height
+  runner/web windows and Apple geometry are implemented; Markdown now uses them,
+  with logical selection/copy on Mac and web. Finish workspace validation after
+  the macOS executable-startup block, Linux geometry, the full native interaction
+  sweep, raster budget and Messages acceptance. Memory and construction cost trigger it now; further Messages
+  decorative artwork/material/timing polish waits. The fixed-height web slice does not complete the native/consumer sweep.
+
+- **Markdown performance comparison** (2026-09-18): repeat matched first-content
+  and scrolling-hitch trials across real documents; measure process memory.
+  Exact-offer measurement reuse halves callback traffic but has only a modest
+  CPU benefit; verify its scrolling traces against Legend and profile what remains.
+
+- **Apple text: cache the line-break boundaries per spec** (2026-09-18; LLP 1043 F7):
+  under `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over
+  the whole paragraph at every width (25–31 µs on a 79–120 µs snapshot, probe only);
+  the boundaries depend on the text alone. Keep them beside `typesetters`; confirm in
+  the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
+
+- **Text around shapes** (2026-09-18; LLP 1043.000, Draft RFC, not in `current/` — the set is full):
+  `wrap-flow` / `shape-outside` exclusions a paragraph flows around on both sides, per frame; kernel
+  resolves them after layout, a shared `exact-textflow` crate walks lines, Apple can start on CoreText
+  (a screenful at 1.1 ms a frame, measured). Ruled 2026-09-18 (§6): CSS names, always linked, Taffy to upstream 0.14 for
+  auto-height (stage 0, its own lane), `every(16, …)`; Claude builds stage 1 (definite-height flow, kernel + Apple) in `lane/textflow`.
 
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
@@ -139,9 +166,11 @@ sits on that list carries the trade it would take.
    iOS selection and link gestures; iOS/web file-opening adapters; heading anchors,
    tables, and syntax highlighting. macOS drag selection across paragraphs and copy
    now use CoreText's existing lines. Keyboard selection extension and bidi selection
-   geometry still need dedicated fixtures. The long-document pass brings scrolling
-   to ~8 ms, but narrow-width full reflow remains ~28 ms on LLP 0566; lazy block
-   measurement with stable scroll anchoring is the next performance candidate.
+   geometry still need dedicated fixtures. Variable-height windowing and scroll
+   anchoring now run; repeated external startup and scrolling comparisons against
+   Legend remain the performance bar (see `apps/markdown/README.md`). At a 420-point
+   window width, the open folder pane leaves the text cramped and clips header
+   controls; the reader needs a compact layout at that width.
    During verification the macOS timer-step smoke once read width 50 at t=1250
    instead of 75, then passed on repeat; investigate the intermittent clock fixture.
 5. **View transitions** (LLP 1013, Draft RFC) — behind the webview/deck lane by
@@ -490,7 +519,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Fieldnotes aggregate library size: the app admits 1,000 notes of up to 20,000 UTF-16 units each, but `library` reads every body in one SQLite result. Real Chrome with 1,000 emoji notes at the per-note limit returns `query result exceeds 16 MiB limit` and cannot open the notebook. Paginate/search in SQLite and load full bodies only for the selected note so allowed stored data remains readable; preserve ordering, filtering, IDs and draft guards. Backup now uses one size-bounded SQLite statement in both languages, preserves one read snapshot and returns the existing 4 MiB backup notice. A generic worker would not repair this result-size failure (LLP 1027.001).
 
-- Mixed resource first-frame bake (LLP 1027.001 D3): `build_mixed` now records actual per-source grants and the union host ceiling, but still bakes initial resource values through the TypeScript module. Support an exclusively Rust-owned resource without a duplicated TS bake placeholder by routing the explicitly declared owners during bake; preserve the no-app-code-before-first-pixel rule and paired replacement. Fieldnotes backup and Update Lab currently prove mixed mutations, not this resource path.
+- Worker placement follow-ups (LLP 1027.002, landed 2026-09-14): drive the placed Fieldnotes on an iOS simulator through the shared Apple host; a macOS frame-gap instrument (a display link's callback cadence in `state`) so §5 step 5 is judged on the device, not only in Chrome; a forgotten ticket's held call still takes its turn (D5 says it may be removed before it starts) — tell the composer when the runner forgets; Rust on a web Worker waits behind a consumer (the NOT-DOING take); the development producer refreshes a Rust-owned resource's first-frame value only at a Cargo bake, and refuses a Rust source shared by several resources until then.
 
 - Rust replacement latency follow-up (2026-09-14, LLP 1029.000): native image preparation now runs off the UI thread and the bake helper stays resident. Six Rust edit/restore cycles reached web, macOS, simulator and iPhone with carried state; three distinct new libraries took 2.6–4.6 s save-to-observed, with macOS probe round trips ≤48 ms. First executable launches can still wait on macOS assessment (including the filesystem helper at dev-server startup). Measure the remaining compiler/producer overhead toward the subsecond warm-edit target; the 20-edit timing and 50-replacement retention probes remain owed. Evidence: `target/update-lab-distinct-repeat-result.json`, `target/update-lab-baker-reuse-check.log`. Later normal-app preparation took 17.6 s behind a ~31 s load. Isolated real-library loads reproduced 70.7 s ad-hoc and 39.1 s development-signed inside `dlopen`, versus <1 ms write/sync in the ad-hoc case. Gatekeeper assessment and concurrent 30 s `syspolicyd` QUIC timeouts are recorded in `target/native-bottleneck-security.log`; loader stage diagnostics now separate queue/write/sync/load. Signing alone is not a fix. The opt-in stateless `tiered` executor now runs the new Wasm while native mapping proceeds, then promotes without a second reload (LLP §4.1); this leaves the OS loading cause and producer timing as follow-ups. A fresh Rust save in the Launch Services app then published in 2.93 s but spent 103.9 s in `dlopen`; the main thread stayed in its event loop. Restore preparation reused the mapping in 19.8 ms, with a separate 36.2 s producer/publication delay still to attribute. The tiered live proof subsequently passed with state/TS retained: 25 ms candidate preparation on two saves, plus 36 ms preparation while a normal-app native load took 54.3 s. Web/simulator/iPhone save-and-restore also passed; the earlier JS-engine-not-loaded diagnostic did not recur in the native traces (`target/update-lab-tiered-result.json`, `target/update-lab-tiered-cross-host-result.json`). Cold helper launches and shared Cargo locks still made initial builds take minutes; this is separate from tiered activation.
 
@@ -520,3 +549,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - Public UI coverage (LLP 1035.006): select the first settings slice (labels, buttons, switches, checkboxes, radio groups, and text entry), choose each platform's disposition, then implement and hand-check the concrete examples. The ordered catalog distinguishes accepted support from reviewed deferrals; drafting it does not admit every excluded capability.
 
 - Tooling follow-up (2026-09-19): `bun scripts/caps.test.mjs` still passes 59/61 after the Snapback 0.2.30 recovery. The absent-root watcher misses deletion (`created=true, deleted=false, recreated=true`), and diagnostic source/output isolation and failure cleanup fails. These match the saved 2026-09-17 findings; Apple packaging checks pass.
+- Video (LLP 1042): verify PiP/AirPlay on physical devices; complete the designed track/controller and app audio-session ownership APIs before promising captions, background playback or DRM. Linux carries an explicitly unavailable video box.
+
+
+- Hermes incremental rebuild inputs (2026-09-19): `js/build.rs` captures macOS/Linux engine archives in OUT_DIR but only watches iOS archives; replacing the external compiler/VM can leave a warm native build stale. Add upgrade invalidation together with `scripts/app.mjs` receipt identity support for external SDK inputs; simply adding external rerun-if-changed paths currently makes bake receipt capture refuse them. Until then, clean exact-js when provisioning a new compiler/engine.
+
+- Linux baseline failures found during dependency verification (2026-09-19): `exact-gpu` references Apple-only `SurfaceTargetUnsafe::CoreAnimationLayer` on Linux; Hermes ICU `DateTimeFormat.formatToParts` returns timestamp text (same with old 6badada and new e3371863); Ibex loader-case fixture expects a case-insensitive filesystem. Repair separately from the dependency upgrade; current Linux full-workspace checks are not green.

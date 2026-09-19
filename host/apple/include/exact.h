@@ -181,7 +181,8 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
- * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8).
+ * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8),
+ * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds).
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
@@ -202,6 +203,17 @@ uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* Actual list scrollport and focused/interacting descendants (zero if absent).
+   Row heights use the kernel frames already delivered to the presenter. */
+uint32_t exact_list(ExactRuntime rt, uint32_t view, double top, double height,
+                    double width, double origin, uint32_t focus, uint32_t interaction);
+/* Opaque row key in the input buffer; UINT32_MAX means absent. */
+uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
+/* Two concatenated UTF-8 keys in input; empty first key selects all text.
+   Returns raw UTF-8 bytes, not a batch. Positions use UTF-16 offsets. */
+uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
+                        uint32_t len, uint32_t first_paragraph, uint32_t first_offset,
+                        uint32_t last_paragraph, uint32_t last_offset);
 /* The safe-area insets (points) under viewport-fit=cover — what
  * env(safe-area-inset-*) resolves to; zero when the layout viewport is the
  * safe area itself. A change re-sends the style of every node that reads

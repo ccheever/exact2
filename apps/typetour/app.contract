@@ -1,0 +1,462 @@
+// Type Tour: a handful of phone-OS screens set entirely in two faces from
+// the Expose type program, to feel them in context on a real phone —
+// Exciting Lilt (the display face: one Bold, 17px and up) for the moments
+// the system speaks loudest, and Exposure Sans Original 03 (the text face:
+// four weights and an italic) for everything else. Nothing here is a real
+// app. The screens are authored, the taps move between them, and the
+// "data" is the words on the screen. A lock screen, a home screen, Settings
+// with a Display & Text Size page that scales the text, and Messages with
+// six conversations. Tapping the time on the home screen locks the phone.
+//
+// Both families are declared here and bound to these bytes (exact2 LLP
+// 1019 D3): the file's own name table is never consulted, so a machine
+// with an older Exposure Sans installed still renders this exact build.
+
+font "Exposure Sans"
+  400 = "assets/ExposureSansOriginal03-Regular.ttf"
+  400 italic = "assets/ExposureSansOriginal03-Italic.ttf"
+  500 = "assets/ExposureSansOriginal03-Medium.ttf"
+  600 = "assets/ExposureSansOriginal03-Semibold.ttf"
+  700 = "assets/ExposureSansOriginal03-Bold.ttf"
+
+font "Exciting Lilt"
+  700 = "assets/ExcitingLilt-Bold.ttf"
+
+component TypeTour
+  state screen = "lock"
+  state thread = ""
+  state draft = ""
+  state scale = 1
+  state airplane = false
+  state wifi = true
+  state bluetooth = true
+
+  action go(target: string) writes screen, thread
+    screen = target
+    thread = ""
+  action unlock writes screen
+    screen = "home"
+  action lock writes screen, thread
+    screen = "lock"
+    thread = ""
+  action openThread(id: string) writes screen, thread
+    screen = "messages"
+    thread = id
+  action closeThread writes thread, draft
+    thread = ""
+    draft = ""
+  action write(value) writes draft
+    draft = value
+  action sendDraft writes draft
+    draft = ""
+  action setScale(value: number) writes scale
+    scale = value
+  action toggleAirplane writes airplane
+    airplane = not airplane
+  action toggleWifi writes wifi
+    wifi = not wifi
+  action toggleBluetooth writes bluetooth
+    bluetooth = not bluetooth
+
+  view
+    main testId="typetour" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" font-family="Exposure Sans" font-size=17 color="light-dark(#000000, #ffffff)" background-color="light-dark(#f2f2f7, #000000)"
+
+      // ---------------------------------------------------------------- lock
+      when screen == "lock"
+        column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" background-color="#0c0c0e" color="#ffffff" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
+          button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=28 padding-bottom=8
+            text "Sunday, September 14" font-size=22 font-weight=500 color="#ffffffd9"
+            text "9:41" font-family="Exciting Lilt" font-weight=700 font-size=112 line-height="120px" letter-spacing=-3 color="#ffffff"
+          column flex=1 min-height=0 padding-left=16 padding-right=16 padding-top=18 gap=10
+            Notification(id="nico", glyph="M", title="Nico", body="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", time="now", press=openThread("nico"))
+            Notification(id="crew", glyph="M", title="Type Crew", body="James: I still think the g needs a smaller ear", time="12m ago", press=openThread("crew"))
+            Notification(id="calendar", glyph="14", title="Type review", body="Today at 2:00 PM · Studio, second floor", time="1h ago", press=unlock)
+            Notification(id="expose", glyph="E", title="Expose", body="Software update ready. Expose 1.0 will install tonight while the phone charges.", time="3h ago", press=go("settings"))
+          row justify-content="space-between" align-items="center" padding-left=44 padding-right=44 padding-bottom=6
+            button press=unlock testId="lock-flashlight" aria-label="Flashlight" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" align-items="center" justify-content="center"
+              box width=10 height=24 border-radius=3 background-color="#ffffff"
+            button press=unlock testId="lock-camera" aria-label="Camera" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" align-items="center" justify-content="center"
+              column width=24 height=18 border-radius=4 background-color="#ffffff" align-items="center" justify-content="center"
+                box width=9 height=9 border-radius=5 background-color="#0c0c0e"
+          button press=unlock testId="lock-unlock" width="100%" display="flex" flex-direction="column" align-items="center" gap=14 padding-top=10 padding-bottom=8
+            text "Swipe up to unlock" font-size=15 font-weight=500 color="#ffffffb3"
+            box width=134 height=5 border-radius=3 background-color="#ffffff"
+
+      // ---------------------------------------------------------------- home
+      when screen == "home"
+        column testId="home-screen" flex=1 min-height=0 box-sizing="border-box" background-color="#141416" color="#ffffff" padding-top="env(safe-area-inset-top)"
+          scroll flex=1 min-height=0
+            column padding-left=20 padding-right=20 padding-top=14 gap=24
+              button press=lock testId="home-lock" width="100%" display="flex" flex-direction="row" justify-content="space-between" align-items="center"
+                text "9:41" font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff"
+                text "Tap the time to lock" font-size=12 font-weight=500 color="#ffffff8c"
+              row gap=16
+                column flex=1 height=158 border-radius=22 background-color="#ffffff" padding=16 box-sizing="border-box" justify-content="space-between" color="#0c0c0e"
+                  column
+                    text "SUNDAY" font-size=12 font-weight=600 letter-spacing=1 color="#6e6e73"
+                    text "14" font-family="Exciting Lilt" font-weight=700 font-size=52 line-height="54px"
+                  column gap=1
+                    text "Type review" font-size=13 font-weight=600
+                    text "2:00 – 3:00 PM · Studio" font-size=12 color="#6e6e73"
+                column flex=1 height=158 border-radius=22 background-color="#2c2c2e" padding=16 box-sizing="border-box" justify-content="space-between"
+                  column
+                    text "Palo Alto" font-size=15 font-weight=600
+                    text "68°" font-family="Exciting Lilt" font-weight=700 font-size=52 line-height="54px"
+                  column gap=1
+                    text "Partly cloudy" font-size=13 font-weight=500
+                    text "H:74°  L:55°" font-size=12 color="#ffffff99"
+              column gap=18
+                row justify-content="space-between"
+                  AppIcon(id="calendar", label="Calendar", glyph="14", tint="#ffffff", ink="#ff453a", press=go("home"))
+                  AppIcon(id="weather", label="Weather", glyph="68", tint="#4aa3ff", ink="#ffffff", press=go("home"))
+                  AppIcon(id="clock", label="Clock", glyph="9", tint="#1c1c1e", ink="#ffffff", press=go("home"))
+                  AppIcon(id="notes", label="Notes", glyph="N", tint="#ffd60a", ink="#1c1c1e", press=go("home"))
+                row justify-content="space-between"
+                  AppIcon(id="photos", label="Photos", glyph="P", tint="#ffffff", ink="#ff9f0a", press=go("home"))
+                  AppIcon(id="camera", label="Camera", glyph="C", tint="#3a3a3c", ink="#ffffff", press=go("home"))
+                  AppIcon(id="maps", label="Maps", glyph="M", tint="#30d158", ink="#ffffff", press=go("home"))
+                  AppIcon(id="files", label="Files", glyph="F", tint="#5e5ce6", ink="#ffffff", press=go("home"))
+                row justify-content="space-between"
+                  AppIcon(id="mail", label="Mail", glyph="@", tint="#1e6fe8", ink="#ffffff", press=go("home"))
+                  AppIcon(id="health", label="Health", glyph="H", tint="#ffffff", ink="#ff375f", press=go("home"))
+                  AppIcon(id="wallet", label="Wallet", glyph="W", tint="#1c1c1e", ink="#ffffff", press=go("home"))
+                  AppIcon(id="calculator", label="Calculator", glyph="=", tint="#ff9f0a", ink="#1c1c1e", press=go("home"))
+                row justify-content="space-between"
+                  AppIcon(id="books", label="Books", glyph="B", tint="#ff9f0a", ink="#ffffff", press=go("home"))
+                  AppIcon(id="reminders", label="Reminders", glyph="R", tint="#ffffff", ink="#1c1c1e", press=go("home"))
+                  AppIcon(id="translate", label="Translate", glyph="T", tint="#0a84ff", ink="#ffffff", press=go("home"))
+                  AppIcon(id="typetour", label="Type Tour", glyph="Aa", tint="#ffffff", ink="#0c0c0e", press=go("display"))
+              row justify-content="center" gap=8 padding-top=4
+                box width=7 height=7 border-radius=4 background-color="#ffffff"
+                box width=7 height=7 border-radius=4 background-color="#ffffff59"
+                box width=7 height=7 border-radius=4 background-color="#ffffff59"
+          row margin-left=16 margin-right=16 margin-bottom=8 padding=12 border-radius=32 background-color="#ffffff1f" justify-content="space-around" flex-shrink=0
+            DockIcon(id="phone", glyph="P", tint="#30d158", ink="#ffffff", press=go("home"))
+            DockIcon(id="browser", glyph="B", tint="#0a84ff", ink="#ffffff", press=go("home"))
+            DockIcon(id="messages", glyph="M", tint="#34c759", ink="#ffffff", press=go("messages"))
+            DockIcon(id="settings", glyph="S", tint="#8e8e93", ink="#ffffff", press=go("settings"))
+          HomeBar(tone="#ffffff", press=go("home"))
+
+      // ------------------------------------------------------------ settings
+      when screen == "settings"
+        column testId="settings-screen" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
+          scroll flex=1 min-height=0
+            column padding-left=16 padding-right=16 padding-bottom=24
+              text "Settings" font-family="Exciting Lilt" font-weight=700 font-size=34 line-height="41px" margin-top=10 margin-bottom=12
+              row height=36 border-radius=10 background-color="light-dark(#e3e3e8, #1c1c1e)" align-items="center" padding-left=10 gap=8
+                box width=12 height=12 border-radius=6 border-style="solid" border-width=2 border-color="light-dark(#8e8e93, #98989d)"
+                text "Search" font-size=17 color="light-dark(#8e8e93, #98989d)"
+              button press=go("settings") testId="settings-profile" width="100%" margin-top=22 display="flex" flex-direction="row" align-items="center" gap=14 padding=12 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)"
+                column width=58 height=58 border-radius=29 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
+                  text "CC" font-family="Exciting Lilt" font-weight=700 font-size=24 color="#ffffff"
+                column flex=1 min-width=0 gap=2
+                  text "Charlie Cheever" font-size=(20 * scale) font-weight=500 line-clamp=1
+                  text "Expose Account, devices, and more" font-size=(13 * scale) color="light-dark(#6e6e73, #98989d)" line-clamp=1
+                text "›" font-size=22 color="light-dark(#c4c4c6, #5a5a5e)"
+              column margin-top=22 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
+                ToggleRow(id="airplane", glyph="A", title="Airplane Mode", on=airplane, last=false, scale=scale, press=toggleAirplane)
+                SettingsRow(id="wifi", glyph="W", title="Wi-Fi", value=(wifi ? "Expose Lab" : "Off"), last=false, scale=scale, to="settings", press=go)
+                ToggleRow(id="bluetooth", glyph="B", title="Bluetooth", on=bluetooth, last=false, scale=scale, press=toggleBluetooth)
+                SettingsRow(id="cellular", glyph="C", title="Cellular", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="hotspot", glyph="H", title="Personal Hotspot", value="Off", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="battery", glyph="94", title="Battery", value="94%", last=true, scale=scale, to="settings", press=go)
+              column margin-top=22 border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
+                SettingsRow(id="general", glyph="G", title="General", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="accessibility", glyph="Ac", title="Accessibility", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="display", glyph="Aa", title="Display & Text Size", value="", last=false, scale=scale, to="display", press=go)
+                SettingsRow(id="homescreen", glyph="Hs", title="Home Screen & App Library", value="", last=false, scale=scale, to="home", press=go)
+                SettingsRow(id="notifications", glyph="N", title="Notifications", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="sounds", glyph="S", title="Sounds & Haptics", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="focus", glyph="F", title="Focus", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="screentime", glyph="St", title="Screen Time", value="", last=false, scale=scale, to="settings", press=go)
+                SettingsRow(id="privacy", glyph="P", title="Privacy & Security", value="", last=true, scale=scale, to="settings", press=go)
+              text "APPS" font-size=13 color="light-dark(#6e6e73, #98989d)" margin-top=26 margin-bottom=6 margin-left=16
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
+                SettingsRow(id="app-messages", glyph="M", title="Messages", value="6 chats", last=false, scale=scale, to="messages", press=go)
+                SettingsRow(id="app-typetour", glyph="Aa", title="Type Tour", value="Specimen", last=false, scale=scale, to="display", press=go)
+                SettingsRow(id="app-lock", glyph="L", title="Lock Screen", value="", last=true, scale=scale, to="lock", press=go)
+              column align-items="center" gap=4 margin-top=28
+                text "Expose 1.0 (26A1)" font-size=13 color="light-dark(#8e8e93, #98989d)"
+                text "Set in Exposure Sans Original 03 and Exciting Lilt v4" font-size=13 font-style="italic" color="light-dark(#8e8e93, #98989d)" text-align="center"
+          HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
+
+      // ------------------------------------------------- display & text size
+      when screen == "display"
+        column testId="display-screen" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
+          row height=44 align-items="center" padding-left=8 padding-right=8 flex-shrink=0
+            button press=go("settings") testId="back-settings" width=88 height=44 display="flex" flex-direction="row" align-items="center" gap=2
+              text "‹" font-size=32 line-height="32px" font-weight=400 color="light-dark(#000000, #ffffff)"
+              text "Settings" font-size=17 color="light-dark(#000000, #ffffff)"
+            text "Display & Text Size" flex=1 text-align="center" font-family="Exciting Lilt" font-weight=700 font-size=17 line-clamp=1
+            box width=88
+          scroll flex=1 min-height=0
+            column padding=16 gap=22 padding-bottom=32
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=14
+                text "TEXT SIZE" font-size=13 color="light-dark(#6e6e73, #98989d)"
+                row justify-content="space-between" align-items="flex-end"
+                  ScaleButton(id="xs", size=13, value=0.85, current=scale, press=setScale)
+                  ScaleButton(id="s", size=15, value=0.92, current=scale, press=setScale)
+                  ScaleButton(id="m", size=17, value=1, current=scale, press=setScale)
+                  ScaleButton(id="l", size=20, value=1.12, current=scale, press=setScale)
+                  ScaleButton(id="xl", size=24, value=1.25, current=scale, press=setScale)
+                text "Changes the text in Messages and the Settings list. Titles stay put: Lilt is drawn for 17 px and above and does not scale with body text." font-size=13 color="light-dark(#6e6e73, #98989d)"
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=12
+                text "EXPOSURE SANS ORIGINAL 03" font-size=13 color="light-dark(#6e6e73, #98989d)"
+                text "The quick brown fox jumps over the lazy dog, and the five boxing wizards jump quickly." font-size=(17 * scale) line-height=1.35
+                text "An italic that keeps the same width, so a run of emphasis never reflows the line." font-size=(17 * scale) font-style="italic" line-height=1.35
+                column gap=4 margin-top=4
+                  text "Regular 400 — Settings, previews, body text" font-size=(17 * scale) font-weight=400
+                  text "Medium 500 — labels under icons, dates" font-size=(17 * scale) font-weight=500
+                  text "Semibold 600 — names, buttons, section titles" font-size=(17 * scale) font-weight=600
+                  text "Bold 700 — the rare emphasis inside a paragraph" font-size=(17 * scale) font-weight=700
+                text "0123456789 · 9:41 · 68° · $12.40 · 3,844 pairs" font-size=(17 * scale) color="light-dark(#3a3a3c, #d1d1d6)"
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=12
+                text "EXCITING LILT" font-size=13 color="light-dark(#6e6e73, #98989d)"
+                text "Sphinx of black quartz, judge my vow" font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="34px"
+                text "0123456789 9:41 68° 14" font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="34px"
+                text "Lilt is the display face: one Bold weight, rationed to titles, clocks, and the few alerts that deserve attention. It never sets a paragraph." font-size=(15 * scale) line-height=1.35 color="light-dark(#3a3a3c, #d1d1d6)"
+                column gap=6 margin-top=4
+                  text "Expose 17" font-family="Exciting Lilt" font-weight=700 font-size=17
+                  text "Expose 20" font-family="Exciting Lilt" font-weight=700 font-size=20
+                  text "Expose 24" font-family="Exciting Lilt" font-weight=700 font-size=24
+                  text "Expose 34" font-family="Exciting Lilt" font-weight=700 font-size=34
+                  text "Expose 48" font-family="Exciting Lilt" font-weight=700 font-size=48 line-height="52px"
+                  text "Expose 72" font-family="Exciting Lilt" font-weight=700 font-size=72 line-height="76px"
+              column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=10
+                text "TOGETHER" font-size=13 color="light-dark(#6e6e73, #98989d)"
+                text "Update ready" font-family="Exciting Lilt" font-weight=700 font-size=22 line-height="26px"
+                text "Expose 1.0 will install tonight while the phone charges. Your apps and messages stay where they are." font-size=(15 * scale) line-height=1.35 color="light-dark(#3a3a3c, #d1d1d6)"
+                row gap=10 margin-top=6
+                  button press=go("settings") testId="specimen-later" flex=1 height=44 border-radius=22 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" align-items="center" justify-content="center"
+                    text "Later" font-size=17 font-weight=600 color="light-dark(#000000, #ffffff)"
+                  button press=go("settings") testId="specimen-install" flex=1 height=44 border-radius=22 background-color="light-dark(#1c1c1e, #e5e5ea)" display="flex" align-items="center" justify-content="center"
+                    text "Install" font-size=17 font-weight=600 color="light-dark(#ffffff, #000000)"
+          HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
+
+      // ------------------------------------------------------------ messages
+      when screen == "messages"
+        when thread == ""
+          column testId="messages-list" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#ffffff, #000000)"
+            row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
+              button press=go("home") testId="messages-edit" height=44 display="flex" align-items="center"
+                text "Edit" font-size=17 color="light-dark(#000000, #ffffff)"
+              button press=go("home") testId="messages-compose" aria-label="New message" width=36 height=36 border-radius=18 background-color="light-dark(#f2f2f7, #1c1c1e)" display="flex" align-items="center" justify-content="center"
+                text "+" font-family="Exciting Lilt" font-weight=700 font-size=22 color="light-dark(#000000, #ffffff)"
+            scroll flex=1 min-height=0
+              column padding-bottom=16
+                text "Messages" font-family="Exciting Lilt" font-weight=700 font-size=34 line-height="41px" padding-left=16 padding-right=16 padding-top=4 padding-bottom=10
+                row margin-left=16 margin-right=16 margin-bottom=8 height=36 border-radius=10 background-color="light-dark(#e3e3e8, #1c1c1e)" align-items="center" padding-left=10 gap=8
+                  box width=12 height=12 border-radius=6 border-style="solid" border-width=2 border-color="light-dark(#8e8e93, #98989d)"
+                  text "Search" font-size=17 color="light-dark(#8e8e93, #98989d)"
+                Conversation(id="nico", initials="N", name="Nico", preview="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", time="9:12 AM", unread=true, scale=scale, press=openThread)
+                Conversation(id="crew", initials="TC", name="Type Crew", preview="James: I still think the g needs a smaller ear", time="8:47 AM", unread=true, scale=scale, press=openThread)
+                Conversation(id="mom", initials="M", name="Mom", preview="Call me when you land 🩵", time="Yesterday", unread=false, scale=scale, press=openThread)
+                Conversation(id="james", initials="J", name="James", preview="Sent you the kerning diff. Mostly pairs with T and Y, nothing structural.", time="Yesterday", unread=false, scale=scale, press=openThread)
+                Conversation(id="builds", initials="Ex", name="Expose Builds", preview="N-Silver rung 11 audio probe: attended run passed. 3 of 3 sine sweeps audible on the speaker.", time="Saturday", unread=false, scale=scale, press=openThread)
+                Conversation(id="ortega", initials="O", name="Dr. Ortega's Office", preview="Reminder: your appointment is Tuesday at 10:30 AM. Reply C to confirm.", time="Friday", unread=false, scale=scale, press=openThread)
+            HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
+        else
+          column testId="thread-screen" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#ffffff, #000000)"
+            row height=64 align-items="center" padding-left=8 padding-right=8 flex-shrink=0 border-bottom-style="solid" border-bottom-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
+              button press=closeThread testId="thread-back" width=72 height=44 display="flex" flex-direction="row" align-items="center" gap=6
+                text "‹" font-size=32 line-height="32px" color="light-dark(#000000, #ffffff)"
+                column width=22 height=22 border-radius=11 background-color="light-dark(#1c1c1e, #e5e5ea)" align-items="center" justify-content="center"
+                  text "2" font-size=12 font-weight=600 color="light-dark(#ffffff, #000000)"
+              column flex=1 align-items="center" gap=3
+                column width=36 height=36 border-radius=18 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center"
+                  text (thread == "nico" ? "N" : thread == "crew" ? "TC" : thread == "mom" ? "M" : thread == "james" ? "J" : thread == "builds" ? "Ex" : "O") font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff"
+                text (thread == "nico" ? "Nico" : thread == "crew" ? "Type Crew" : thread == "mom" ? "Mom" : thread == "james" ? "James" : thread == "builds" ? "Expose Builds" : "Dr. Ortega's Office") font-size=11 font-weight=500 line-clamp=1
+              box width=72
+            scroll flex=1 min-height=0
+              column padding=16 gap=6
+                text (thread == "ortega" ? "Friday 4:02 PM" : thread == "builds" ? "Saturday 11:20 PM" : thread == "mom" or thread == "james" ? "Yesterday 6:15 PM" : "Today 8:31 AM") font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="center" padding-bottom=10
+                when thread == "nico"
+                  Bubble(body="Got the v4 Lilt build onto the Pink phone", out=false, scale=scale)
+                  Bubble(body="The flare on the t reads at 17 px now. It was mush in v3.", out=false, scale=scale)
+                  Bubble(body="That was the whole point of the terminal pass", out=true, scale=scale)
+                  Bubble(body="How does the two-storey a feel next to Exposure Sans in the same line?", out=true, scale=scale)
+                  Bubble(body="Honestly better than I expected. The x-heights sit close enough that a Lilt title over an Exposure paragraph doesn't jump.", out=false, scale=scale)
+                  Bubble(body="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", out=false, scale=scale)
+                  Bubble(body="Building now. Give me twenty minutes.", out=true, scale=scale)
+                  text "Delivered" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
+                when thread == "crew"
+                  Sender(name="James")
+                  Bubble(body="New Exposure Sans 03 italics are in the branch", out=false, scale=scale)
+                  Sender(name="Nico")
+                  Bubble(body="The italic a is the best glyph in the family, fight me", out=false, scale=scale)
+                  Sender(name="James")
+                  Bubble(body="I still think the g needs a smaller ear", out=false, scale=scale)
+                  Bubble(body="Ship the ear as is. We tune it after we see it on the lock screen.", out=true, scale=scale)
+                  text "Delivered" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
+                when thread == "mom"
+                  Bubble(body="Did you eat?", out=false, scale=scale)
+                  Bubble(body="Yes 😄 pasta", out=true, scale=scale)
+                  Bubble(body="Good. Call me when you land 🩵", out=false, scale=scale)
+                when thread == "james"
+                  Bubble(body="Sent you the kerning diff", out=false, scale=scale)
+                  Bubble(body="Mostly pairs with T and Y, nothing structural.", out=false, scale=scale)
+                  Bubble(body="Merging. Thanks!", out=true, scale=scale)
+                  text "Read 6:20 PM" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
+                when thread == "builds"
+                  Bubble(body="N-Silver rung 11 audio probe: attended run passed. 3 of 3 sine sweeps audible on the speaker.", out=false, scale=scale)
+                  Bubble(body="Next: Maple playback root staging for Lavender.", out=false, scale=scale)
+                when thread == "ortega"
+                  Bubble(body="Reminder: your appointment is Tuesday at 10:30 AM. Reply C to confirm.", out=false, scale=scale)
+                  Bubble(body="C", out=true, scale=scale)
+                  Bubble(body="Thank you! Your appointment is confirmed.", out=false, scale=scale)
+            row align-items="center" gap=10 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 flex-shrink=0 border-top-style="solid" border-top-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
+              button press=go("messages") testId="composer-add" aria-label="Add attachment" width=34 height=34 border-radius=17 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                text "+" font-family="Exciting Lilt" font-weight=700 font-size=20 color="light-dark(#000000, #ffffff)"
+              row flex=1 min-width=0 height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #48484a)" align-items="center" padding-left=14 padding-right=4 gap=6
+                input id="composer" testId="composer" value=draft change=write submit=sendDraft placeholder="Message" aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#000000, #ffffff)"
+                when draft != ""
+                  button press=sendDraft testId="send" aria-label="Send" width=28 height=28 border-radius=14 background-color="#0a84ff" display="flex" align-items="center" justify-content="center"
+                    text "↑" font-size=16 font-weight=700 color="#ffffff"
+            HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
+
+// A lock-screen notification: the app's mark, who, what, and when.
+component Notification
+  props
+    id: string
+    glyph: string
+    title: string
+    body: string
+    time: string
+    press: action
+  view
+    button press=press testId=`notification-${id}` width="100%" display="flex" flex-direction="row" gap=12 padding=14 box-sizing="border-box" border-radius=22 background-color="#ffffff2e" align-items="flex-start"
+      column width=38 height=38 border-radius=9 background-color="#ffffff" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="Exciting Lilt" font-weight=700 font-size=20 color="#0c0c0e"
+      column flex=1 min-width=0 gap=2
+        row justify-content="space-between" align-items="baseline" gap=8
+          text title font-size=15 font-weight=600 color="#ffffff" flex=1 min-width=0 line-clamp=1
+          text time font-size=13 color="#ffffff99" flex-shrink=0
+        text body font-size=15 color="#ffffffe6" line-clamp=3 line-height=1.3
+
+// A home-screen icon: a tinted tile with a Lilt mark, and a label.
+component AppIcon
+  props
+    id: string
+    label: string
+    glyph: string
+    tint: string
+    ink: string
+    press: action
+  view
+    button press=press testId=`app-${id}` aria-label=label width=76 display="flex" flex-direction="column" align-items="center" gap=6
+      column width=62 height=62 border-radius=15 background-color=tint align-items="center" justify-content="center"
+        text glyph font-family="Exciting Lilt" font-weight=700 font-size=30 color=ink
+      text label font-size=12 font-weight=500 color="#ffffff" line-clamp=1
+
+// The same tile in the dock, without a label.
+component DockIcon
+  props
+    id: string
+    glyph: string
+    tint: string
+    ink: string
+    press: action
+  view
+    button press=press testId=`dock-${id}` aria-label=id width=62 height=62 border-radius=15 background-color=tint display="flex" align-items="center" justify-content="center"
+      text glyph font-family="Exciting Lilt" font-weight=700 font-size=30 color=ink
+
+// The home indicator: tapping it goes home, as the gesture would.
+component HomeBar
+  props
+    tone: string
+    press: action
+  view
+    button press=press testId="home-bar" aria-label="Home" width="100%" height="calc(env(safe-area-inset-bottom) + 12px)" min-height=30 display="flex" flex-direction="column" align-items="center" justify-content="flex-end" padding-bottom=8 box-sizing="border-box" flex-shrink=0
+      box width=134 height=5 border-radius=3 background-color=tone
+
+// A Settings row: a grey mark, a title, an optional value, a chevron.
+component SettingsRow
+  props
+    id: string
+    glyph: string
+    title: string
+    value: string
+    last: bool
+    scale: number
+    to: string
+    press: action
+  view
+    button press=press(to) testId=`row-${id}` width="100%" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 min-height=44
+      column width=29 height=29 border-radius=7 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff"
+      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="light-dark(#c6c6c8, #38383a)"
+        text title font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#000000, #ffffff)"
+        text value font-size=(17 * scale) color="light-dark(#8e8e93, #98989d)" flex-shrink=0
+        text "›" font-size=22 line-height="22px" color="light-dark(#c4c4c6, #5a5a5e)" flex-shrink=0
+
+// A Settings row whose right side is a switch.
+component ToggleRow
+  props
+    id: string
+    glyph: string
+    title: string
+    on: bool
+    last: bool
+    scale: number
+    press: action
+  view
+    button press=press testId=`toggle-${id}` aria-label=title aria-checked=on width="100%" display="flex" flex-direction="row" align-items="center" gap=12 padding-left=16 min-height=44
+      column width=29 height=29 border-radius=7 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
+        text glyph font-family="Exciting Lilt" font-weight=700 font-size=17 color="#ffffff"
+      row flex=1 min-width=0 align-self="stretch" align-items="center" gap=8 padding-right=16 padding-top=7 padding-bottom=7 border-bottom-style="solid" border-bottom-width=(last ? 0 : 0.5) border-color="light-dark(#c6c6c8, #38383a)"
+        text title font-size=(17 * scale) flex=1 min-width=0 color="light-dark(#000000, #ffffff)"
+        row width=51 height=31 border-radius=16 padding=2 box-sizing="border-box" flex-shrink=0 align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1c1c1e, #e5e5ea)" : "light-dark(#e9e9eb, #39393d)")
+          box width=27 height=27 border-radius=14 background-color=(on ? "light-dark(#ffffff, #000000)" : "#ffffff")
+
+// One of the text-size choices: an A at the size it stands for.
+component ScaleButton
+  props
+    id: string
+    size: number
+    value: number
+    current: number
+    press: action
+  view
+    button press=press(value) testId=`scale-${id}` aria-label=`Text size ${id}` width=52 height=48 border-radius=10 display="flex" align-items="flex-end" justify-content="center" padding-bottom=6 box-sizing="border-box" background-color=(current == value ? "light-dark(#e9e9eb, #2c2c2e)" : "#00000000")
+      text "A" font-size=size font-weight=(current == value ? 700 : 400) color="light-dark(#000000, #ffffff)"
+
+// An inbox row: initials in Lilt, the name in Semibold, a two-line preview.
+component Conversation
+  props
+    id: string
+    initials: string
+    name: string
+    preview: string
+    time: string
+    unread: bool
+    scale: number
+    press: action
+  view
+    button press=press(id) testId=`conversation-${id}` aria-label=`${name}, ${preview}` width="100%" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=10
+      box width=8 height=8 border-radius=4 background-color=(unread ? "light-dark(#1c1c1e, #e5e5ea)" : "#00000000") flex-shrink=0
+      column width=48 height=48 border-radius=24 background-color="light-dark(#3a3a3c, #636366)" align-items="center" justify-content="center" flex-shrink=0
+        text initials font-family="Exciting Lilt" font-weight=700 font-size=20 color="#ffffff"
+      column flex=1 min-width=0 padding-top=10 padding-bottom=10 padding-right=14 margin-left=4 gap=2 border-bottom-style="solid" border-bottom-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
+        row justify-content="space-between" align-items="baseline" gap=8
+          text name font-size=(17 * scale) font-weight=600 flex=1 min-width=0 line-clamp=1
+          text time font-size=(14 * scale) color="light-dark(#8e8e93, #98989d)" flex-shrink=0
+          text "›" font-size=20 line-height="20px" color="light-dark(#c4c4c6, #5a5a5e)" flex-shrink=0
+        text preview font-size=(15 * scale) color="light-dark(#8e8e93, #98989d)" line-clamp=2 line-height=1.3
+
+// A message bubble.
+component Bubble
+  props
+    body: string
+    out: bool
+    scale: number
+  view
+    row width="100%" justify-content=(out ? "flex-end" : "flex-start")
+      column max-width="78%" padding-top=8 padding-bottom=8 padding-left=14 padding-right=14 border-radius=20 background-color=(out ? "#0a84ff" : "light-dark(#e9e9eb, #26252a)")
+        text body font-size=(17 * scale) line-height=1.3 color=(out ? "#ffffff" : "light-dark(#000000, #ffffff)")
+
+// Who sent the next bubble, in a group.
+component Sender
+  props
+    name: string
+  view
+    text name font-size=12 color="light-dark(#8e8e93, #98989d)" padding-left=14 margin-top=6

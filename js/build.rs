@@ -8,7 +8,7 @@
 //! builds under `target/hermes-ios` (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6).
 //! All linked engine archives are captured in OUT_DIR for the bake receipt.
 //! Without the target archives — a Linux checkout before
-//! `./scripts/build-hermes-linux.sh`, or a checkout without `../ibex` — this
+//! `./scripts/build-hermes-linux.sh --vanilla --release --intl`, or a checkout without `../ibex` — this
 //! crate still builds, as a stub whose `Module::load` refuses by name, so
 //! `cargo build --workspace` is green everywhere and the executor is honest
 //! about where it can run. `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and
@@ -58,7 +58,7 @@ fn main() {
     let ios = env::var_os("EXACT_HERMES_IOS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| manifest.join("../target/hermes-ios"));
-    let linux = ibex.join("linux");
+    let linux = ibex.join("linux-vanilla");
     let (headers, static_dir, engine_lib_name, extra_libs) = if target_os == "ios" {
         let static_dir = ios
             .join(
@@ -86,12 +86,7 @@ fn main() {
         let static_dir = env::var("HERMES_LIB_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| linux.join("lib"));
-        let engine_lib_name = if static_dir.join("libhermesvmlean_a.a").is_file() {
-            "hermesvmlean_a"
-        } else {
-            "hermesvm_a"
-        }
-        .to_string();
+        let engine_lib_name = "hermesvmlean_a".to_string();
         (
             headers,
             static_dir.clone(),
@@ -125,7 +120,7 @@ fn main() {
         || !engine_archive.is_file()
     {
         println!(
-            "cargo:warning=exact-js: no Hermes for {target_os} at {} — the executor is a stub that refuses to load (EXACT_HERMES_DIR supplies headers/macOS; EXACT_HERMES_IOS_DIR supplies iOS builds; Linux: ./scripts/build-hermes-linux.sh in ibex, or HERMES_LIB_DIR; see LLP 1027 D6)",
+            "cargo:warning=exact-js: no Hermes for {target_os} at {} — the executor is a stub that refuses to load (EXACT_HERMES_DIR supplies headers/macOS; EXACT_HERMES_IOS_DIR supplies iOS builds; Linux: ./scripts/build-hermes-linux.sh --vanilla --release --intl in ibex, or HERMES_LIB_DIR; see LLP 1027 D6)",
             static_dir.display()
         );
         return;
@@ -196,7 +191,7 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             if cfg!(target_os = "linux") {
-                ibex.join(format!("tools/hermes/hermesc-linux-{arch}"))
+                ibex.join(format!("tools/hermes-vanilla/hermesc-linux-{arch}"))
             } else {
                 ibex.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}"))
             }

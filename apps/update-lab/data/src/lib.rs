@@ -5,8 +5,13 @@ mod probe;
 mod tests;
 
 pub use exact_data::Mixed as Lab;
+pub use exact_data::Placed;
 use exact_plan::Value;
+pub use exact_runner::Placement;
 use exact_runner::{DataError, DataSource};
+
+/// The source names the Rust half owns: the composer's list and the bake's.
+pub const RUST_SOURCES: &[&str] = &["rustProbe", "rustExecutor", "rustConstants"];
 
 /// The independently compiled Rust experiment. Its implementation stays in probe.rs.
 #[derive(Default)]
@@ -16,6 +21,12 @@ impl DataSource for Probe {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
             "rustProbe" => probe::probe(args),
+            // A resource only Rust owns: its first-frame value bakes through
+            // Rust, with no TypeScript placeholder (LLP 1027.002 §5 step 0).
+            "rustConstants" => Ok(Value::record(vec![
+                Value::str(probe::VERSION),
+                Value::Number(probe::MULTIPLIER),
+            ])),
             "rustExecutor" => Ok(Value::record(vec![Value::str(
                 if cfg!(target_arch = "wasm32") {
                     "Wasm"
@@ -41,13 +52,8 @@ pub fn compose<J: DataSource, R: DataSource>(
     rust_updates: bool,
     retain_rust: fn(&R) -> Result<R, DataError>,
 ) -> Lab<J, R> {
-    let mixed = Lab::new(
-        javascript,
-        rust,
-        &["typescriptProbe"],
-        &["rustProbe", "rustExecutor"],
-    )
-    .expect("Update Lab executors share an identity and distinct sources");
+    let mixed = Lab::new(javascript, rust, &["typescriptProbe"], RUST_SOURCES)
+        .expect("Update Lab executors share an identity and distinct sources");
     if rust_updates {
         mixed
     } else {

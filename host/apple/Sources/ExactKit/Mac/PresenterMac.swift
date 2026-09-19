@@ -137,6 +137,7 @@ final class Presenter {
     lazy var mouseTransformDrag = MouseTransformDrag(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
+    private var textViewportIndex: TextViewportIndex?
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var navigation = NavigationHost(presenter: self)
@@ -183,14 +184,36 @@ final class Presenter {
     }
 
     func refreshVisibleText() {
+        // Bounds notifications can arrive while a batch is still changing the
+        // hierarchy. Query its final geometry once the outermost batch ends.
+        guard !applying else { return }
+        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
         var next: [UInt32: NSRect] = [:]
-        for node in selection.paragraphs {
+        for node in textViewportIndex!.candidates() {
             let rect = textVisibleRect(node)
             guard !rect.isEmpty else { continue }
             next[node.id] = rect
-            if visibleText[node.id] != rect { node.setNeedsDisplay(rect) }
+            for exposed in Self.exposedTextRects(rect, after: visibleText[node.id]) {
+                node.setNeedsDisplay(exposed)
+            }
         }
         visibleText = next
+    }
+
+    /// Scrolling exposes strips of an existing backing store. Repainting the
+    /// overlapping area redraws every visible glyph on every scroll tick.
+    /// Content/style changes still invalidate through the node's normal path.
+    static func exposedTextRects(_ rect: NSRect, after previous: NSRect?) -> [NSRect] {
+        guard !rect.isEmpty else { return [] }
+        guard let previous else { return [rect] }
+        let overlap = rect.intersection(previous)
+        guard !overlap.isEmpty else { return [rect] }
+        return [
+            NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: overlap.minY - rect.minY),
+            NSRect(x: rect.minX, y: overlap.maxY, width: rect.width, height: rect.maxY - overlap.maxY),
+            NSRect(x: rect.minX, y: overlap.minY, width: overlap.minX - rect.minX, height: overlap.height),
+            NSRect(x: overlap.maxX, y: overlap.minY, width: rect.maxX - overlap.maxX, height: overlap.height),
+        ].filter { !$0.isEmpty }
     }
 
     /// The viewport's size in points: what the kernel lays out under.
@@ -231,6 +254,9 @@ final class Presenter {
         transformGeometry.reset()
         selection.structureChanged()
         visibleText.removeAll()
+        textViewportIndex = nil
+        listGeometry.removeAll()
+        listViews.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -286,6 +312,54 @@ final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
+    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32) -> Void)?
+    var onListIndex: ((UInt32, String) -> Int?)?
+    var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
+    var interacting: UInt32 = 0
+    private var listGeometry: [UInt32: [Double]] = [:]
+    private var listViews: [UInt32: NodeView] = [:]
+    private var listSyncDepth = 0
+    private var listSyncQueued = false
+
+    /// Fill and measure the row window before paint. Unusual documents with
+    /// many zero-height rows continue next turn instead of recursing forever.
+    func syncLists() {
+        guard !applying else { return }
+        guard listSyncDepth < 8 else {
+            if !listSyncQueued {
+                listSyncQueued = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.listSyncQueued = false
+                    self.syncLists()
+                }
+            }
+            return
+        }
+        listSyncDepth += 1
+        defer { listSyncDepth -= 1 }
+        listGeometry = listGeometry.filter { views[$0.key] != nil }
+        for list in Array(listViews.values) {
+            guard views[list.id] === list, let scroll = list.scroll,
+                  let content = list.container.subviews.first as? NodeView else { continue }
+            var responder = root.window?.firstResponder as? NSView
+            if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
+            while responder != nil && !(responder is NodeView) { responder = responder?.superview }
+            let focused = responder as? NodeView
+            let focus = focused?.isDescendant(of: list) == true ? focused!.id : 0
+            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
+            let top = Double(scroll.contentView.bounds.minY)
+            let height = Double(scroll.contentSize.height)
+            let width = Double(content.frame.width)
+            let origin = Double(content.frame.minY)
+            let rows = content.container.subviews.compactMap { $0 as? NodeView }
+            let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
+                + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
+            if listGeometry[list.id] == stamp { continue }
+            listGeometry[list.id] = stamp
+            onList?(list.id, top, height, width, origin, focus, interaction)
+        }
+    }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -363,8 +437,11 @@ final class Presenter {
                 waiting = []
                 geometry?()
                 for (id, f) in q where views[id] != nil { f() }
+                syncLists()
+                refreshVisibleText()
             }
         }
+        if !batch.ops.isEmpty { textViewportIndex = nil }
         let structureChanged = batch.ops.contains { ["children", "roots", "destroy", "create", "style"].contains($0["op"] as? String ?? "") }
         if structureChanged { selection.structureChanged() }
         for op in batch.ops {
@@ -401,6 +478,7 @@ final class Presenter {
                 v.applyStyle(op["style"] as? [String: Any] ?? [:])
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
+                if v.kind == "list" { listViews[id] = v }
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "style":
@@ -413,8 +491,10 @@ final class Presenter {
                 let container = parent.container
                 for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
                 for (i, child) in want.enumerated() {
-                    if child.kind == "text" { child.wantsLayer = true }
-                    if child.superview !== container { container.addSubview(child) }
+                    if child.superview !== container {
+                        child.prepareToMount()
+                        container.addSubview(child)
+                    }
                     if container.subviews.firstIndex(of: child) != i {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
@@ -436,10 +516,14 @@ final class Presenter {
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
+                listViews.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) {
+                    r.prepareToMount()
+                    root.addSubview(r)
+                }
             case "frame":
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
@@ -491,7 +575,6 @@ final class Presenter {
         toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
-        refreshVisibleText()
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
     }
 
@@ -614,6 +697,71 @@ enum Capture {
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep
+    }
+}
+
+/// Paragraph geometry in each scroll document's own coordinates. A scroll
+/// changes the query rectangle, never the index. Layout/structure changes
+/// discard it. Selection and copy keep their complete document order.
+/// @ref LLP 1033 (long documents), LLP 1010 (native scrolling)
+struct TextViewportIndex {
+    private struct Entry {
+        let node: NodeView
+        let rect: NSRect
+        var bottom: CGFloat
+    }
+    private struct Group {
+        let document: NSView
+        var entries: [Entry]
+    }
+    private var groups: [Group] = []
+
+    init(_ paragraphs: [NodeView]) {
+        var positions: [ObjectIdentifier: Int] = [:]
+        for node in paragraphs {
+            guard let document = node.enclosingScrollView?.documentView else { continue }
+            let key = ObjectIdentifier(document)
+            let index: Int
+            if let found = positions[key] { index = found }
+            else {
+                index = groups.count
+                positions[key] = index
+                groups.append(Group(document: document, entries: []))
+            }
+            let rect = node.convert(node.bounds, to: document)
+            groups[index].entries.append(Entry(node: node, rect: rect, bottom: rect.maxY))
+        }
+        for i in groups.indices {
+            groups[i].entries.sort { $0.rect.minY < $1.rect.minY }
+            var bottom = -CGFloat.infinity
+            for j in groups[i].entries.indices {
+                bottom = max(bottom, groups[i].entries[j].rect.maxY)
+                groups[i].entries[j].bottom = bottom
+            }
+        }
+    }
+
+    func candidates() -> [NodeView] {
+        var result: [NodeView] = []
+        for group in groups {
+            let visible = group.document.visibleRect
+            guard !visible.isEmpty else { continue }
+            // Prefix maxima include tall/overlapping paragraphs that start
+            // before the viewport. Binary-searching only minY loses them.
+            var lo = 0, hi = group.entries.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if group.entries[mid].bottom <= visible.minY { lo = mid + 1 }
+                else { hi = mid }
+            }
+            var index = lo
+            while index < group.entries.count && group.entries[index].rect.minY < visible.maxY {
+                let entry = group.entries[index]
+                if entry.rect.intersects(visible) { result.append(entry.node) }
+                index += 1
+            }
+        }
+        return result
     }
 }
 

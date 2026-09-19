@@ -166,6 +166,13 @@ bakes with an empty store. It writes `app.plan`, `app.js`, `app.hbc`, generated
 types, and an `app.module.json` pairing receipt into a **new** directory; it
 never overwrites an existing generation. npm dependencies are not captured yet.
 `EXACT_TSC`, `EXACT_ROLLDOWN`, and `EXACT_HERMESC` override producer tools.
+A module's placement (LLP 1027.002) is the manifest's: `typescript.placement`
+and `rust.placement` are `main` (the default) or `worker`, overridable per
+platform under `platforms.<platform>.placement`; `EXACT_TYPESCRIPT_PLACEMENT`
+and `EXACT_RUST_PLACEMENT` override a bake for a measurement. A change is a new
+compatibility id, never an update. `build_mixed_with` bakes a mixed app through
+its own composer, so a resource only Rust owns needs no TypeScript placeholder;
+the development producer keeps such a resource's last Cargo-baked value.
 
 Native module clients can supply a `Module` factory to `exact_apple::host!`
 (the sixth argument) and apply an `ExactGeneration` containing an `ExactModule`
@@ -212,6 +219,13 @@ drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
 replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
 25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
 plus store, errors, binary responses, interleaving and disposal cases.
+
+Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
+--vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
+archive from `ibex/linux-vanilla` and compiles with the matching
+`ibex/tools/hermes-vanilla/hermesc-linux-<arch>`. After replacing an engine or
+compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
+build cannot reuse captured archives or bytecode from the previous installation.
 
 iOS uses lean bytecode-only Hermes archives, not the compiler-containing
 framework. Provision matching device/simulator builds under `target/hermes-ios`

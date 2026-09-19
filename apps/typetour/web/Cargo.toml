@@ -1,0 +1,21 @@
+[package]
+name = "typetour-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Type Tour on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "typetour_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+typetour-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+typetour-data = { path = "../data" }

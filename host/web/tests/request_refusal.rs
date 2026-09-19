@@ -24,9 +24,9 @@ impl DataSource for Direct {
     ) -> Result<Answer, DataError> {
         Ok(Answer::Later(self.request.clone()))
     }
-    fn continuation_token(&mut self, _: u64) -> Option<u64> {
+    fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
         self.converted.fetch_add(1, Ordering::SeqCst);
-        None // Erasing the token must never disguise invalid work as HTTP.
+        exact_runner::Dispatch::Missing // Erasing the token must never disguise invalid work as HTTP.
     }
     fn parse(
         &mut self,

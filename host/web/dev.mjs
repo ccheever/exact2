@@ -35,7 +35,7 @@ import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -373,7 +373,9 @@ function startModuleCompiler() {
     const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
     moduleStage = stage;
     active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation') };
-    child.stdin.write(JSON.stringify({ id: active.id, out: active.output }) + '\n');
+    // The served plan and receipt seed what the producer cannot compute: a
+    // resource only Rust owns keeps its last Cargo-baked first-frame value.
+    child.stdin.write(JSON.stringify({ id: active.id, out: active.output, previous: resolve(dist, 'app.plan'), receipt: resolve(dist, 'app.module.json') }) + '\n');
   };
   manualTypescript = () => { moduleRun++; moduleSaved = Date.now(); produce(); };
   child.stderr.on('data', chunk => {  errors = (errors + chunk).slice(-65536); });
@@ -874,8 +876,7 @@ const server = createServer(async (req, res) => {
       ? developmentInstallPage(body.toString(), localInstallToken)
       : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
     if (INSTALL_FILES.includes(found.route)) body = installNetworkPage(body.toString(), {host,port});
-    res.writeHead(200, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
-    res.end(req.method === 'HEAD' ? undefined : body);
+    sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });

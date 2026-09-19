@@ -699,9 +699,10 @@ archives are copied into `OUT_DIR`, so normal bake receipts inventory the
 actual linked engine inputs. Missing target archives produce a named refusing
 stub, not an apparent working executor. Rust-only clients still link no VM.
 
-Provisioning used pristine Hermes commit
-`6badada762121682b5481b6124e6c3a991ae6046`, matching the sibling ibex vanilla
-headers/compiler receipt. Do not substitute the full iOS framework (it embeds
+Provisioning uses pristine Hermes commit
+`e3371863eec2a20fad0ff46d8670a88c5c844bd7` (updated 2026-09-19), matching the
+sibling ibex vanilla headers/compiler receipt. This stable-branch update includes
+SerialExecutor finalizer race and shutdown deadlock fixes (#2162). Do not substitute the full iOS framework (it embeds
 a compiler). For each platform, configure the source with CMake/Ninja:
 
 ```sh

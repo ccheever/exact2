@@ -201,6 +201,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Natural extent from the kernel, before the CSS client-size minimum.
     var content = CGSize.zero
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
+    var video: VideoView?
     var web: NSView?
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
@@ -500,6 +501,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         imageSource = nil
         clearSymbol()
         image = nil
+        video?.invalidate(); video = nil
         presenter?.session?.webviews.destroy(id: id)
         web = nil
         presenter = nil
@@ -530,6 +532,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
+        if kind == "video" { video = VideoView(owner: self) }
         if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
             w.frame = bounds
             w.autoresizingMask = [.width, .height]
@@ -629,7 +632,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
-        repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
+        presenter?.syncLists(); repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
     }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
@@ -751,11 +754,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        let night = dark ?? drawsDark
         switch style[key] {
         case let c as [Double] where c.count == 4: return c
         case let pair as [[Double]] where pair.count == 2:
-            let half = night ? pair[1] : pair[0]
+            let half = (dark ?? drawsDark) ? pair[1] : pair[0]
             return half.count == 4 ? half : nil
         default: return nil
         }
@@ -942,14 +944,37 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
         updateMaterial()
+        video?.update()
         needsDisplay = true
     }
 
+    // Empty container layers carry geometry and children, with no bitmap.
+    private var hasBoxPaint = false
+    override var wantsUpdateLayer: Bool {
+        !hasBoxPaint && !Capture.capturing && kind != "text" && kind != "image"
+            && kind != "canvas" && kind != "iframe"
+    }
+    override func updateLayer() {
+        layer?.contents = nil
+        repaintThrough()
+        if presenter?.views[id] === self { firstDraw() }
+    }
+
     func applyStyle(_ s: [String: Any]) {
+        defer { video?.update() }
         style = s
+        let uniformBorder = number("border_width")
+        hasBoxPaint = s["background_color"] != nil
+            || number("border_width_top", uniformBorder) > 0
+            || number("border_width_right", uniformBorder) > 0
+            || number("border_width_bottom", uniformBorder) > 0
+            || number("border_width_left", uniformBorder) > 0
+        layerContentsRedrawPolicy = wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
         updateSymbol()
         clipPath = ClipPath.path(s["clip_path"])
-        wantsLayer = true
+        // Inline text is unmounted run data. Its containing paragraph owns
+        // the backing store; create this node's layer only when it mounts.
+        if kind != "text" || superview != nil { wantsLayer = true }
         layer?.mask = ClipPath.mask(clipPath)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1020,6 +1045,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    func prepareToMount() {
+        guard kind == "text" else { return }
+        wantsLayer = true
+        layer?.mask = ClipPath.mask(clipPath)
+        layer?.zPosition = number("z_index")
+        applyTransform()
+    }
+
     func fitScroll() {
         guard let document = scroll?.documentView else { return }
         let size = CGSize(width: max(content.width, bounds.width), height: max(content.height, bounds.height))
@@ -1045,6 +1078,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
+        video?.layout()
         layoutTextArea()
         layoutSymbol()
     }
@@ -1152,6 +1186,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.mouseTransformDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
+        presenter?.interacting = id
+        presenter?.syncLists()
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
             window?.makeFirstResponder(self)
             presenter?.selection.begin(self, event: event)
@@ -1187,6 +1223,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
+        defer {
+            presenter?.interacting = 0
+            presenter?.syncLists()
+        }
         if event.clickCount == 2 {
             var next: NSView? = self
             while let view = next {

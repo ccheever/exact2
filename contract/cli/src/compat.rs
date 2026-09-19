@@ -101,6 +101,50 @@ impl Manifest {
         }
     }
 
+    /// Where a language's module runs on `platform` (LLP 1027.002 D1, §6):
+    /// `typescript.placement` or `rust.placement`, overridden by
+    /// `platforms.<platform>.placement`; `main` unless declared. The
+    /// environment (`EXACT_TYPESCRIPT_PLACEMENT`, `EXACT_RUST_PLACEMENT`)
+    /// overrides a bake for a measurement. The compatibility id carries the
+    /// result, so a changed placement is a rebuild, never an update.
+    pub fn placement(&self, language: &str, platform: &str) -> Result<&'static str, String> {
+        let variable = match language {
+            "typescript" => "EXACT_TYPESCRIPT_PLACEMENT",
+            "rust" => "EXACT_RUST_PLACEMENT",
+            other => return Err(format!("unknown placement language: {other}")),
+        };
+        let name = |value: &serde_json::Value, at: &str| -> Result<&'static str, String> {
+            match value.as_str() {
+                Some("main") => Ok("main"),
+                Some("worker") => Ok("worker"),
+                _ => Err(format!("{at} must be \"main\" or \"worker\"")),
+            }
+        };
+        let section = self.json.get(language);
+        if language == "typescript" {
+            if let Some(section) = section {
+                validate_placement_policy(section)?;
+            }
+        }
+        let mut placement = "main";
+        if let Some(value) = section.and_then(|s| s.get("placement")) {
+            placement = name(value, &format!("{language}.placement"))?;
+        }
+        if let Some(value) = section
+            .and_then(|s| s.get("platforms"))
+            .and_then(|p| p.get(platform))
+            .and_then(|p| p.get("placement"))
+        {
+            placement = name(value, &format!("{language}.platforms.{platform}.placement"))?;
+        }
+        match std::env::var(variable) {
+            Ok(value) => placement = name(&serde_json::Value::String(value), variable)?,
+            Err(std::env::VarError::NotPresent) => {}
+            Err(_) => return Err(format!("{variable} is not UTF-8")),
+        }
+        Ok(placement)
+    }
+
     /// `app.json` in `app_dir`, or the derived defaults: `com.exact.<name>`
     /// and the directory's name capitalized.
     pub fn read(app_dir: &Path) -> Result<Manifest, String> {
@@ -284,6 +328,14 @@ fn validate_rust_policy(value: &serde_json::Value, depth: u8) -> Result<(), Stri
                             validate_rust_policy(policy, 1)?;
                         }
                     }
+                    "placement" if depth >= 1 => {
+                        if !value
+                            .as_str()
+                            .is_some_and(|p| matches!(p, "main" | "worker"))
+                        {
+                            return Err("rust.placement must be \"main\" or \"worker\"".into());
+                        }
+                    }
                     "module" if depth == 2 => {
                         let module = value.as_object().ok_or("rust.module must be an object")?;
                         if module.len() != 1
@@ -312,6 +364,51 @@ fn validate_rust_policy(value: &serde_json::Value, depth: u8) -> Result<(), Stri
                 .into(),
         ),
     }
+}
+
+/// `typescript`: `{ placement?, platforms?: { <platform>: { placement? } } }`
+/// (LLP 1027.002 §6), nothing else.
+fn validate_placement_policy(value: &serde_json::Value) -> Result<(), String> {
+    let object = value.as_object().ok_or("typescript must be an object")?;
+    let placement = |v: &serde_json::Value, at: &str| -> Result<(), String> {
+        if v.as_str().is_some_and(|p| matches!(p, "main" | "worker")) {
+            Ok(())
+        } else {
+            Err(format!("{at} must be \"main\" or \"worker\""))
+        }
+    };
+    for (key, value) in object {
+        match key.as_str() {
+            "placement" => placement(value, "typescript.placement")?,
+            "platforms" => {
+                let platforms = value
+                    .as_object()
+                    .ok_or("typescript.platforms must be an object")?;
+                for (platform, policy) in platforms {
+                    if !matches!(
+                        platform.as_str(),
+                        "web" | "ios" | "macos" | "linux" | "android" | "windows"
+                    ) {
+                        return Err(format!("unknown placement platform: {platform}"));
+                    }
+                    let policy = policy.as_object().ok_or_else(|| {
+                        format!("typescript.platforms.{platform} must be an object")
+                    })?;
+                    for (key, value) in policy {
+                        match key.as_str() {
+                            "placement" => placement(
+                                value,
+                                &format!("typescript.platforms.{platform}.placement"),
+                            )?,
+                            other => return Err(format!("invalid typescript policy key: {other}")),
+                        }
+                    }
+                }
+            }
+            other => return Err(format!("invalid typescript policy key: {other}")),
+        }
+    }
+    Ok(())
 }
 
 /// The id and the inputs it digests.
@@ -393,6 +490,8 @@ pub fn compatibility_id_sources(
     // External apps call this same entrypoint from their own build scripts.
     if std::env::var_os("OUT_DIR").is_some() {
         println!("cargo:rerun-if-env-changed=EXACT_UPDATE_TRUST");
+        println!("cargo:rerun-if-env-changed=EXACT_TYPESCRIPT_PLACEMENT");
+        println!("cargo:rerun-if-env-changed=EXACT_RUST_PLACEMENT");
     }
     let trust = match std::env::var("EXACT_UPDATE_TRUST") {
         Ok(value) => value,
@@ -578,6 +677,10 @@ fn compatibility_with_trust(
         "rustAbi": if rust_mode == "off" { Value::Null } else { json!(2) },
         "rustTarget": rust_target,
         "rustModule": rust_module,
+        // Where each language's module runs (LLP 1027.002 §6): a host
+        // without the executor refuses the build; a change is a new cohort.
+        "typescriptPlacement": manifest.placement("typescript", platform)?,
+        "rustPlacement": manifest.placement("rust", platform)?,
         "dataCrate": data_crate(app_dir)?,
         // Each shader's reflected interface digest (LLP 1030 D8) — entry
         // points, bindings, layouts, inputs, outputs, overrides, never the
@@ -992,6 +1095,8 @@ mod tests {
             "rustAbi",
             "rustTarget",
             "rustModule",
+            "typescriptPlacement",
+            "rustPlacement",
             "dataCrate",
             "gpuSurfaces",
             "nativeModules",
