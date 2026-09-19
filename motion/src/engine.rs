@@ -81,7 +81,7 @@ pub struct SpringFrames {
 }
 
 /// The motion state of every node the host has told it about.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Engine {
     now: f64,
     transitions: BTreeMap<u64, Transitions>,

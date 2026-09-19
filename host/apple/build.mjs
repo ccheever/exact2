@@ -532,10 +532,7 @@ function main(args) {
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
-  const triple = ios ? (device ? 'arm64-apple-ios17.0' : iosTriple) : macTriple;
   const product = products[0];
-  // swift build does not see the Rust archive change; drop the executables so
-  // they relink against the archive cargo just built (a relink is ~0.4 s).
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
@@ -559,6 +556,15 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
+  const swiftBinResult = runApple('swift', [...swiftArgs, '--product', product, '--show-bin-path'], { cwd: pkg, env });
+  const swiftBinPaths = (swiftBinResult.stdout ?? '').trim().split(/\r?\n/).filter(Boolean);
+  const swiftBinDir = swiftBinPaths.length === 1 ? resolve(swiftBinPaths[0]) : null;
+  if (!swiftBinDir || swiftBinPaths[0] !== swiftBinDir || !swiftBinDir.startsWith(`${resolve(swiftBuildRoot)}/`)) {
+    throw new Error('swift build --show-bin-path did not return one absolute path below its scratch directory');
+  }
+  // swift build does not see the Rust archive change; drop the executables so
+  // they relink against the archive cargo just built (a relink is ~0.4 s).
+  for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);

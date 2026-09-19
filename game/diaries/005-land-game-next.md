@@ -327,3 +327,58 @@ checks add a dotted app/surface collision control (JSON tuple key) and allow
 opaque non-game surfaces to acknowledge synchronous restore; 57 web production
 fixture tests and 37 Linux host tests pass, Linux clippy passes. Apple remains
 source-reviewed, not SDK-verified. No incoming assertion was weakened/deleted.
+
+DX joins N's staged runner/motion clone and publication validation with G's
+named bindings, child modes, checkpoint observers and device recovery. Bound
+restoration finishes declared asset delivery before publication; Continue uses
+Carry and selected Restore uses Open. Engine reload diagnostics now include
+argument field names, so reordered named values and explicit `{}` never depend
+on object enumeration. Shared staging bounds: 256 canvases, 16 asset rounds,
+256 deliveries / 256 MiB bytes (64 MiB each), 16 publication rounds / 32 MiB text /
+65,536 operations. After a draw, real readiness refusal retains the old module.
+
+The incoming GPU swap destroyed old instances before attaching all new canvases.
+Old instances now survive reversible canvas/listener installation, and all
+attachment failures restore maps, original canvases and held controls. Child
+placement frames are supplied privately before candidate draw; CSS ownership
+transfers only with the committed instance. Repeated device loss stays in G's
+recovery path. Actual WebGPU child pixels and browser attachment behavior still
+require the owner-host sweep; deterministic DOM doubles are not that evidence.
+
+Native ownership is acknowledged per session. Complete detach ACK now releases
+G's proof process ownership; partial/no ACK releases nothing. Original named
+controls, raw contacts and keyboard aliases are cancelled at handoff. The real
+stdio fixture remains alive beyond the old force-kill deadline after natural
+parent exit; ordinary and missing-ACK cleanup still end their isolated launch.
+Apple SessionOwnership/CanvasInputFocus tests are carried but SDK-unverified.
+
+First DX JS run found missing G lifecycle fields in incoming doubles, a duplicate
+checkpoint observer and a misplaced shebang from extracting the driver's world
+helpers. One repair round fixed these; assertions stayed intact. The observer
+count remains exactly two for a non-input surface across repeated swaps. With
+installed Chromium configured, 176 focused JS tests pass / two wasm-dependent
+fixtures skip; the latter execute through the Rust web fixture runner. Additional
+shared-budget/readiness tests are included in the full increment gate.
+
+DX gate completed: 689 game passes / 14 no-adapter failures / 23 ignored; 43 app
+passes / 3 no-adapter failures / 1 ignored. Game and all nine app clippy/fmt pass.
+All 28 established-game Linux executions pass with unchanged pins. Lanterns'
+three independently recorded Linux inventories agree again, including complete
+save bytes; initial Linux/web baseline is still unavailable. Game Bun: 131 pass /
+1 skip. Final web fixture sweep: 138 pass / 5 platform failures / 2 conditional
+skips. Those two production runner/glue transaction cases execute through Rust;
+selected runner/web/motion tests: 143 pass / 1 ignored, selected clippy passes.
+Root fmt/caps/boot pass; root build/test/clippy remain blocked by lean Hermes.
+The four missing-xcrun tests and Caltrain 60s placement timeout remain unchanged.
+
+Full verification caught two duplicate web property arms, removed in one repair
+round, and a successful Each-mode replacement retaining the old CSS transform
+until the next frame. Candidate placements now apply at commitment; the original
+placement assertion passes unchanged. The real runner/glue fixture also retains
+its assertion that publication occurs after the host commits. Reversible canvas
+attachment precedes commitment; unexpected later presenter failures are reported
+as committed (`retained:false`) and retire the predecessor. Its incoming GPU
+doubles now acknowledge G's deferred restore lifecycle. Each failure cleared in
+one repair round. Three child-mode tests and the complete-session-roster ACK
+negative controls pass. Apple product-resolution fixture: 1 pass; no Swift toolchain
+is installed. No GPU, Apple SDK or browser-rendering success is inferred here.

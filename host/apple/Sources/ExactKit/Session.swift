@@ -26,9 +26,12 @@ public enum ExactEnv {
     /// socket, for observing a gesture's native motion. The default freezes
     /// them, which the smoke depends on.
     public static let agentTiming = environment["EXACT_AGENT_TIMING"] ?? "agent"
-    /// Whether the agent's world is settled between calls: native animation
-    /// applies at once. False under `platform` timing.
-    public static let agentFreezes = agentMode && agentTiming != "platform"
+    static let development: Bool = {
+        let compat = GpuModule.bakedCompatibility
+        let inputs = compat["inputs"] as? [String: Any] ?? [:]
+        let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any] ?? [:]
+        return inputs["trust"] as? String == "development" || gpu["trust"] as? String == "development"
+    }()
     public static let smoke = environment["EXACT_SMOKE"] == "1"
     /// Baked host metadata: a bundle normally; the existing product sidecar in bare development builds.
     nonisolated(unsafe) public static let appMetadata: [String: Any] = {
@@ -334,7 +337,66 @@ public final class ExactSession {
     var clockTimer: Timer?
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
-    public var clock: Double?
+    public var clock: Double? {
+        didSet {
+            if clock == nil, let oldValue { liveOffset = oldValue - wallTime() }
+            updateClockTimer()
+            frames.run(frames.motion || canvases.wantsFrames)
+            updateControlNotice()
+        }
+    }
+    var wallTime: () -> Double = ExactEnv.wall
+    private var liveOffset = 0.0
+    private var hasTimers = false
+    var freezesAnimations: Bool { clock != nil && ExactEnv.agentTiming != "platform" }
+    #if os(iOS)
+    private var controlNotice: UILabel?
+    #else
+    private var controlNotice: NSTextField?
+    #endif
+    var ownership: [String: Any] {
+        ["owner": clock == nil ? "human" : "agent", "clock": clock == nil ? "live" : "controlled",
+         "scope": "session", "launchMode": ExactEnv.agentMode ? "agent" : "player"]
+    }
+
+    /// One epoch for events, display-link targets and timers after a handoff.
+    func time(atWall wall: Double) -> Double { clock ?? wall + liveOffset }
+
+    private func updateClockTimer() {
+        if clock != nil || !hasTimers || state == .destroyed {
+            clockTimer?.invalidate(); clockTimer = nil
+        } else if clockTimer == nil {
+            clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                guard let self, clock == nil else { return }
+                apply(runtime.advance(now: now()))
+            }
+        }
+    }
+
+    /// Development launches only; this label is outside the Contract tree.
+    func updateControlNotice() {
+        guard ExactEnv.development, clock != nil, state != .destroyed else {
+            controlNotice?.removeFromSuperview(); controlNotice = nil; return
+        }
+        guard controlNotice == nil else { return }
+        #if os(iOS)
+        let notice = UILabel()
+        notice.text = "Agent controls this session · clock paused"
+        notice.font = .systemFont(ofSize: 12, weight: .semibold)
+        notice.textColor = .white; notice.backgroundColor = .black
+        notice.isUserInteractionEnabled = false
+        #else
+        let notice = NSTextField(labelWithString: "Agent controls this session · clock paused")
+        notice.font = .systemFont(ofSize: 12, weight: .semibold)
+        notice.textColor = .white; notice.backgroundColor = .black; notice.drawsBackground = true
+        #endif
+        let viewport = presenter.viewport
+        viewport.addSubview(notice)
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([notice.topAnchor.constraint(equalTo: viewport.topAnchor, constant: 8),
+            notice.centerXAnchor.constraint(equalTo: viewport.centerXAnchor)])
+        controlNotice = notice
+    }
     /// The view presenting this session, while one is mounted (D1).
     weak var view: ExactView?
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
@@ -390,7 +452,7 @@ public final class ExactSession {
     }
 
     /// The app's clock: what events, timers, motion, and canvases see.
-    public func now() -> Double { clock ?? ExactEnv.wall() }
+    public func now() -> Double { time(atWall: wallTime()) }
 
     private func wire() {
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
@@ -568,12 +630,9 @@ public final class ExactSession {
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
-        if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
-            clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                apply(runtime.advance(now: now()))
-            }
-        }
+        hasTimers = batch.timers
+        updateClockTimer()
+        updateControlNotice()
         if outermost {
             while !pendingSurfaceRecords.isEmpty {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
@@ -713,6 +772,7 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
+        updateControlNotice()
         generation += 1
         clockTimer?.invalidate()
         clockTimer = nil
@@ -763,7 +823,7 @@ final class Frames: NSObject {
         #endif
         s.canvases.lifecycle.frame()
         // Motion keeps its existing sampling clock; canvas frames target presentation.
-        let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
+        let frameNow = s.time(atWall: (link.targetTimestamp - ExactEnv.t0) * 1000)
         // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
         // can remain the nominal base interval. The target interval is actual;
         // canvases quantizes it and republishes this session’s stable class before rendering.

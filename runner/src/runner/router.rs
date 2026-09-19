@@ -27,6 +27,7 @@ pub struct RouterChange {
 
 /// The checked table and shape metadata shared by the runner's VM evaluations.
 /// Constructed by boot from the plan; no additional declaration authority.
+#[derive(Clone)]
 pub struct RouterContext {
     slot: SlotsId,
     router_ty: TypesId,

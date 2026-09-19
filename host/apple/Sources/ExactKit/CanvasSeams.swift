@@ -236,6 +236,14 @@ extension Canvases {
         return e
     }
 
+    /// Declare launch ownership before a checkpoint restores intentional held input.
+    func initializeOwnership(_ m: GpuModule, _ e: Entry) {
+        guard !e.ownershipInitialized, let s = session, let ask = m.agent else { return }
+        e.ownershipInitialized = true
+        guard s.clock != nil, let bytes = try? JSONSerialization.data(withJSONObject: ["op": "clock", "owner": "agent", "now": s.now()]) else { return }
+        _ = bytes.withUnsafeBytes { ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count) }
+    }
+
     func restoreWorld(_ m: GpuModule, _ e: Entry) {
         guard !e.restoreAttempted, let bytes = worldInput.bytes else { return }
         e.restoreAttempted = true
@@ -470,7 +478,7 @@ extension Canvases {
             lifecycle.gesture()
         }
         var value = event
-        value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now()
+        value["at"] = timestamp.map { s.time(atWall: ($0 - ExactEnv.t0) * 1000) } ?? s.now()
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
         let result = data.withUnsafeBytes { send(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
         if result != 0 { fputs("exact gpu: \(m.error())\n", stderr) }
@@ -486,7 +494,7 @@ extension Canvases {
         request["width"] = max(1, size.width)
         request["height"] = max(1, size.height)
         request["scale"] = e.view.canvasScale
-        if let now = s.clock { request["now"] = now }
+        if request["op"] as? String == "clock" { request["now"] = s.now() }
         guard let data = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         let length = data.withUnsafeBytes { ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
         let answer = m.output(length)
@@ -507,6 +515,25 @@ extension Canvases {
             value["world"] = world
         }
         return value
+    }
+
+    /// Existing worlds retain their owner while unmounted too. Handoff must
+    /// reach those instances before an embedder later attaches their views.
+    func handoff(owner: String) -> [[String: Any]] {
+        guard let s = session, let m = module, let ask = m.agent,
+              let data = try? JSONSerialization.data(withJSONObject: ["op": "clock", "owner": owner, "now": s.now()]) else { return [] }
+        var results: [[String: Any]] = []
+        for view in entries.keys.sorted() {
+            guard let e = entries[view], e.id != 0, s.presenter.views[view] === e.view else { continue }
+            let length = data.withUnsafeBytes { ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+            let bytes = m.output(length)
+            if let bytes, var answer = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] {
+                answer["canvas"] = view; results.append(answer)
+            } else if e.wantsInput {
+                results.append(["canvas": view, "error": "input surface did not acknowledge ownership"])
+            }
+        }
+        return results
     }
 
     func worlds(_ request: [String: Any]) -> [[String: Any]] {

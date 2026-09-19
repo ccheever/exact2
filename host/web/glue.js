@@ -76,7 +76,7 @@ function moduleCall(op, ptr, len) {
 }
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const t0 = performance.now();
+let t0 = performance.now();
 // Agent mode (`?agent=1`, LLP 1012): the driver owns the clock. Time is the
 // last `clock` operation's value — events carry it, no ticker runs, and the
 // browser's animations are seeked to it, never played.
@@ -835,7 +835,7 @@ function apply(batch) {
         // time inside one advance): what the ops before it started belongs
         // to the clock so far; the animations are then seeked to this
         // instant before the next ops see them (LLP 1012; LLP 1002 D3).
-        if (agentMode) { register(agentClock); agentClock = Math.max(agentClock, op.ms); seek(agentClock); }
+        if (agentClock !== null) { register(agentClock); agentClock = Math.max(agentClock, op.ms); seek(agentClock); }
         break;
       }
       }
@@ -875,8 +875,8 @@ function apply(batch) {
 // between operations. A refused timer advance stops early at `batch.clock`.
 function applyBatch(batch) {
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
-  const timers = apply(batch);
-  if (agentMode) {
+  const timers = apply(batch); hasTimers = timers;
+  if (agentClock !== null) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
     register(agentClock);
@@ -972,30 +972,15 @@ function deferFulfill(...args) {
   queueMicrotask(() => safelyFulfill(...args));
 }
 
-// The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
-// `settle` go to the wasm (`exact_agent`); `layout` reads the browser's
-// boxes — the only layout the web host has; `clock` moves both clocks to
-// one instant: the runner's (`exact_advance`, each timer at its own time)
-// and every animation the browser holds (`Animation.currentTime`, LLP 1002
-// D3), and the GPU module's picture. `tap`, `type`, and `screenshot` are
-// the driver's, over CDP: real input, real pixels.
 function ask(request) {
   const n = writeIn(JSON.stringify(request));
   return JSON.parse(readOut(wasm.exact_agent(n)));
 }
 
-// A line for the runner's journal (LLP 1012 §3): what the page refused, and why.
 function log(line) {
   if (wasm) wasm.exact_log(writeIn(line));
 }
 
-// `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
-// for one node (`node`, answered in the wasm), then what the page knows —
-// the box in the viewport and relative to its parent, the scroll and clip
-// chains above it, whether it is hidden, inert, in the viewport or clipped
-// away, the element that carries it — and the browser's own computed value
-// of every inherited row: the oracle printed beside the kernel's answer.
-// Spaces the page cannot observe (a window, a screen) are absent.
 const INHERITED_CSS = {
   text_color: "color", font_family: "font-family", font_size: "font-size", font_weight: "font-weight",
   font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
@@ -1006,8 +991,6 @@ function nodeDetail(id) {
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
   const node = ask({ op: "node", id });
   if (node.error) return node;
-  // The kernel's layout never runs on the web (LLP 1007 §9): its frames are
-  // not observations here, so they are absent rather than zeros.
   delete node.frame;
   delete node.absolute;
   delete node.content;
@@ -1050,7 +1033,6 @@ function nodeDetail(id) {
   return node;
 }
 
-// A same-origin guest joins `tree` as a compact, bounded outline. Access to
 // a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
 function guestOutline(frame) {
   let doc;
@@ -1113,7 +1095,6 @@ function guestTap(frame, request) {
   target ||= document.elementFromPoint(x, y) || document.body;
   if (!target) return { guest: true, error: "guest tap found no target" };
   // Script input is intentionally untrusted (@ref LLP 1020 D4;
-  // exact1 20260806-webview-frame-guest-click-delivery).
   target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
   target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
   target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
@@ -1132,7 +1113,6 @@ function guestType(frame, request) {
   catch { return { guest: true, error: "guest type has an invalid selector" }; }
   target ||= editable || document.querySelector("input,textarea,[contenteditable]");
   if (!target) return { guest: true, error: "guest type found no target" };
-  // These are the Apple guest script's event shapes, including focus and
   // isTrusted:false (@ref LLP 1020 D4).
   target.focus();
   if (request.key != null) {
@@ -1160,8 +1140,6 @@ function seek(to) {
     else { a.pause(); a.currentTime = t; }
   }
 }
-// When the last thing in flight ends: the springs' engine knows its own
-// (`settle`), the browser's animations report theirs, never before now.
 function settleCandidate() {
   let to = agentClock;
   const s = ask({ op: "settle" }).settle;
@@ -1206,13 +1184,10 @@ function agentReply(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        st.navigation = navigation.observation(root);
+        st.navigation = navigation.observation(root); st.control = globalThis.exact.ownership();
         return st;
       }
       case "layout": {
-        // Every view in the document (attached, whether or not it lies in
-        // the viewport), by id, in the viewport's space with every scroll
-        // offset and transform folded in, to two decimals.
         const r2 = (x) => Math.round(x * 100) / 100;
         const nodes = [];
         for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
@@ -1258,7 +1233,7 @@ function agentReply(request) {
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
-        return clock(request).then(tagged);
+        return mutate(() => clock(request)).then(tagged);
       case "tree":
         return tree();
       case "tags":
@@ -1270,10 +1245,6 @@ function agentReply(request) {
     return { error: String(e) };
   }
 }
-// Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
-// 1035.002 D3), read after the operation; a reply's own `clock` (where a
-// `clock` call landed) is kept, and an error is left alone. The driver
-// tags the input replies it delivers through CDP the same way.
 function tagged(reply) {
   if (!reply || reply.error != null) return reply;
   const tags = ask({ op: "tags" });
@@ -1282,13 +1253,30 @@ function tagged(reply) {
   return reply;
 }
 
-// To `to`, or to `settle`: a fixed point — advance to when the last thing
-// in flight ends, and if the timers crossed on the way started more, again
-// (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
-// is waited for first: its reply commits, and may start motion or ask for
-// more, before the fixed point is measured. The clock lands where the
-// runner says; a timer's refusal is the error. A promise: the driver awaits it.
 async function clock(request) {
+  if (request.owner !== undefined) {
+    if (!["human","agent"].includes(request.owner)) return {error:"clock owner must be human or agent"};
+    if (request.to !== undefined || request.ticks !== undefined || request.settle) return {error:"handoff and time advancement are separate clock requests"};
+    await settleGpu();
+    const owner = request.owner, before = agentClock === null ? "human" : "agent", at = now();
+    if (owner === before) return {clock:at,control:globalThis.exact.ownership(),changed:false,...globalThis.exact.gpu?.ownershipReport?.(owner)};
+    const handoff = globalThis.exact.gpu?.handoff(owner, at) ?? {world:[]};
+    if (handoff.error) return handoff;
+    if (ticker) clearInterval(ticker); ticker = null;
+    if (owner === "agent") {
+      agentClock = at; globalThis.exact.now = now;
+      for (const animation of document.getAnimations()) starts.set(animation, at - (Number(animation.currentTime) || 0));
+      register(at); seek(at);
+    } else {
+      t0 = performance.now() - at; agentClock = null; delete globalThis.exact.now;
+      for (const animation of document.getAnimations()) if (animation.playState === "paused") animation.play();
+      if (hasTimers) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
+    }
+    globalThis.exact.gpu?.resumeClock(owner === "agent");
+    globalThis.exact.ownershipChanged?.(globalThis.exact.ownership());
+    return {clock:at,control:globalThis.exact.ownership(),changed:true,...handoff};
+  }
+  if (agentClock === null) return {error:"clock is live; request clock owner agent before advancing time"};
   const settle = !!request.settle;
   const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
   let world = {};
@@ -1311,21 +1299,17 @@ async function clock(request) {
   }
 }
 
-let ticker = null;
+let ticker = null, hasTimers = false;
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   applyBatch(batch); setInputReady(true); root.dataset.moduleReady = 'true';
 }
 
-// Boot the app — from the plan baked into the wasm, or from `bytes` (the
-// dev loop's restart carrying compatible state, LLP 1007 §6).
 let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
 function boot(...args) { return mutate(() => bootNow(...args)); }
 async function bootNow(bytes, assets = devAssets, current = () => true, module = null) {
   const t = performance.now(), request = ++bootAttempt;
-  // Decode and load private font faces while the live page keeps running.
-  // Carry state only at the synchronous host acceptance point below.
   const bakedLength = bytes ? 0 : wasm.exact_plan();
   const plan = bytes ?? new Uint8Array(memory.buffer, wasm.exact_out(), bakedLength).slice();
   let ptr = wasm.exact_in(plan.length);
@@ -1336,7 +1320,12 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (!current() || request !== bootAttempt) return null;
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
-  let len;
+  let len, stagedGpu = null;
+  const transaction = Boolean(bytes && globalThis.exact.gpu?.participates());
+  const beforeSlots = transaction ? ask({op:"state"}).slots : null;
+  if (transaction && (!wasm.exact_stage_surface_record || !wasm.exact_begin_boot || !wasm.exact_begin_boot())) throw new Error("canvas reload requires a transactional host and settled resources; rebuild or retry after settlement");
+  let batch;
+  try {
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
@@ -1353,19 +1342,22 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
   }
-  const batch = JSON.parse(readOut(len));
+  batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
+  shaderCommit?.();
+  if (transaction) stagedGpu = globalThis.exact.gpu.stagePlan(batch, beforeSlots, ask({op:"state"}).slots, assets);
+  } catch (error) {
+    stagedGpu?.abort(); shaderCommit?.rollback?.();
+    if (transaction) wasm.exact_finish_boot(0);
+    throw error;
+  }
+  if (transaction) wasm.exact_finish_boot(1);
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
   devAssets = assets;
-  shaderCommit?.();
-  // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
   globalThis.exact.generation = incarnation;
-  // A queued surface belongs to the plan that named it. The GPU device may
-  // finish loading across a reload; no old surface request may join the new
-  // plan even when view ids are reused.
   globalThis.exact.pendingSurfaces = [];
   if (ticker) clearInterval(ticker);
   ticker = null;
@@ -1383,28 +1375,24 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   inflight.clear();
   root.replaceChildren();
   commitFonts(preparedFonts);
-  const timers = applyBatch(batch).timers; globalThis.exact?.gpu?.finishRestart();
+  const timers = applyBatch(batch).timers; globalThis.exact?.gpu?.finishRestart(); stagedGpu?.commit();
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
-  if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
+  if (timers && agentClock === null) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
 }
 
-// `agent` and `now` exist only in agent mode: a normal page has no agent
-// surface and no clock but the browser's.
 let ready;
-globalThis.exact = { mutate,
-  // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
+globalThis.exact = { mutate, clockNow:now,
+  control: owner => mutate(() => clock({owner})),
+  ownership: () => ({host:"web",owner:agentClock === null ? "human" : "agent",clock:agentClock === null ? "live" : "controlled",inputSource:"unavailable: browser and CDP share DOM delivery"}),
   navigate: (location) => {
     const nav = root.firstElementChild;
     if (!inputReady || !nav?.hasAttribute("navigationBack")) return { ops: [], error: "no navigation root" };
     const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
     applyBatch(batch); return batch;
   },
-  // A dev-plan event can arrive while the wasm is still fetching. Queue it
-  // behind the initial boot instead of acknowledging a reload that did not
-  // happen.
   reload: async (bytes) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes); },
   reloadGeneration: async (bytes, cards, current, module = null, rust = null) => {
     await ready;
@@ -1434,12 +1422,16 @@ globalThis.exact = { mutate,
   },
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
+  stageSurfaceRecord: (name, json) => JSON.parse(readOut(wasm.exact_stage_surface_record(writeIn(`${name}\0${json}`)))),
+  stageCurrent() {
+    if (!wasm.exact_begin_surface_boot) throw new Error("GPU reload requires a transactional host; rebuild/relaunch required");
+    const batch = JSON.parse(readOut(wasm.exact_begin_surface_boot()));
+    if (batch.error) throw new Error(batch.error);
+    return {batch, commit:()=>wasm.exact_finish_boot(1), abort:()=>wasm.exact_finish_boot(0), present:()=>applyBatch(batch)};
+  },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
-// The GPU module, on demand: a script element after a rendering opportunity
-// (two animation-frame callbacks), never an eager import, and only when a
-// canvas is on the page.
 let gpuLoading = null;
 function loadGpuIfNeeded() {
   if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
@@ -1454,7 +1446,6 @@ async function main() {
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
-  // Restore granted secrets before the baked frame (LLP 1018 D6).
   if (!agentMode) {
     const kept = [];
     try {
@@ -1466,7 +1457,6 @@ async function main() {
     if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
   }
   await boot(null);
-  // Nested rAF gives the baked DOM a rendering opportunity before activation.
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
     root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);

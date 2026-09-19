@@ -1,4 +1,4 @@
-import {assetDelivery} from '../gpu-assets.js';
+import {assetDelivery, assetName} from '../gpu-assets.js';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -6,14 +6,18 @@ import { readFileSync } from 'node:fs';
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
 export async function fixture(options = {}) {
-  const views = new Map(), records = [], diagnostics = [], observers = [];
+  const views = new Map(), records = [], stagedRecords = [], diagnostics = [];
   let next = 0, hud = null, expectedView = null;
   const checkpointMessages = [], storage = options.storage ?? new Map();
   const changed = new Map(), events = [], order = [], restored = new Set();
+  const frames = new Map(), observers = new Set(); let frameId=0;
+  class Observer { constructor(callback) { this.callback = callback; } observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve(), frame;
   const window = new EventTarget();
-  const document = { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
-  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
+  const document = { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
+  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
+    stageCurrent: options.stageCurrent ?? (()=>({batch:{ops:[]},commit(){order.push('host commit');},abort(){order.push('host abort');},present(){}})),
+    stageSurfaceRecord(name, json) { stagedRecords.push([name, json]); return options.stageSurfaceRecord?.(name, json) ?? {ops:[]}; },
     writeIn: text => text, wasm: { exact_surface_record(text) {
       records.push(text);
       return { ops: [() => {
@@ -28,14 +32,15 @@ export async function fixture(options = {}) {
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id, bytes, mode) { order.push(`restore mode ${mode}`); if (options.refuse?.(id)) return false; if (!options.deferredRestore) restored.add(id); return true; },
     gpu_error: () => options.error ?? "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
-    gpu_agent: id => JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? [],controlContacts:options.controlContacts ?? []}}, lines:[], from:0, next:0}),
+    gpu_agent: (id, text) => JSON.parse(text).reload ? JSON.stringify({reload:{values:options.values ?? [],names:options.names ?? [],setupIndices:[]}}) : JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? [],controlContacts:options.controlContacts ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
     gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
+    ...options.gpu,
   };
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
-  const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('// Agent batches register', glue.indexOf('function apply(batch)')));
+  const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('function applyBatch(batch)', glue.indexOf('function apply(batch)')));
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
     const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false;
@@ -43,13 +48,27 @@ export async function fixture(options = {}) {
     const viewFor = (_, id) => views.get(id);
     ${operationSource}; return apply;
   `)(exact, views, {exact});
-  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
+  const applyBatch = new Function('globalThis', 'apply', `let agentClock = null, hasTimers = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
     gpu_destroy() { order.push("next destroy"); }, ...options.nextGpu};
+  const lifecycleDouble = module => {
+    const restore = module.gpu_restore, agent = module.gpu_agent;
+    return {...module, gpu_restore(id, bytes, mode) {
+      const ok = restore(id, bytes, mode);
+      if (ok && !options.deferredRestore) restored.add(id);
+      return ok;
+    }, gpu_agent(id, json) {
+      const text = agent(id, json); if (!text) return text;
+      const reply = JSON.parse(text);
+      if (reply.world && reply.world.restored === undefined) reply.world.restored = restored.has(id);
+      if (reply.reload) { reply.reload.values ??= []; reply.reload.names ??= []; }
+      return JSON.stringify(reply);
+    }};
+  };
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
-    .replace('import { assetDelivery } from "./gpu-assets.js";', '')
+    .replace('import { assetDelivery, assetName } from "./gpu-assets.js";', '')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
@@ -63,7 +82,7 @@ export async function fixture(options = {}) {
     getBoundingClientRect() { return {width:10,height:10}; }
     cloneNode() { order.push('clone'); return new Element(this.kind); }
     remove() { order.push('remove clone'); this.isConnected = false; }
-    replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
+    replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; if (this.parent) { this.parent.canvas = el; el.parent = this.parent; } }
     getAttribute(name) { return this.attributes?.[name] ?? null; }
     removeAttribute(name) { delete this.attributes?.[name]; }
     setAttribute(name,value) { (this.attributes ??= {})[name] = String(value); }
@@ -81,16 +100,16 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage',
+    'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage',
     source + `;exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
-    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)});
-  function create(id, name = 'world') {
-    const el = new Element("host"); el.canvas = new Element();
-    views.set(id, el); exact.gpu.surface(id, name, []); return el;
+  )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)});
+  function create(id, name = 'world', values = []) {
+    const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
+    views.set(id, el); exact.gpu.surface(id, name, values); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, mutation: () => observers.forEach(fn => fn()),
+  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, stagedRecords, observers, mutation: () => [...observers].forEach(o => o.callback([])),
+    paint(at = performance.now()) { const callbacks=[...frames.values()]; frames.clear(); for(const cb of callbacks) cb(at); },
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
@@ -191,7 +210,9 @@ test('bootstrap restores pending bytes before staging its first render', async (
   let restored = false;
   const f = await fixture({loadFail:true, nextGpu:{
     gpu_restore(){restored=true;return true;},
-    gpu_agent:()=>JSON.stringify({world:{restored}}),
+    gpu_agent:(_id, request)=>JSON.stringify(JSON.parse(request).op === "clock"
+      ? {reload:{rebased:true, releasedInput:true, values:[], setupIndices:[]}}
+      : {world:{restored}}),
     gpu_render(){assert.ok(restored, 'render preceded pending restore');return 0;},
   }});
   f.exact.worldCarry = new Uint8Array([7]); f.create(1);
@@ -518,4 +539,27 @@ test('checkpoint tokens scope bytes, retain them on refusal, and acknowledge def
   const collision = await fixture({app:'fixture',storage:f.storage});
   const dotted = collision.create(1,'app.world'); dotted.setAttribute('surface-load',1); collision.exact.checkpoint(1,'load');
   await Promise.resolve(); assert.equal(collision.checkpointMessages.at(-1)[1],'surface-load:error','app/surface separators cannot collide');
+});
+
+test('live resize and reload redraw at the last paced frame time', async () => {
+  const renders = [], rebases = [];
+  const f = await fixture({gpu: {
+    gpu_dirty: () => true,
+    gpu_render: (id, w, h, scale, at) => { renders.push(at); return 0; },
+    gpu_agent: (id, text) => {
+      const q = JSON.parse(text);
+      if (q.reload) { rebases.push(q.now); return '{"reload":{}}'; }
+      return '{"world":{"restored":true}}';
+    },
+  }});
+  delete f.exact.now;
+  f.create(1); await f.exact.gpu.settled();
+  f.paint(10);
+  for (const observer of f.observers) observer.callback([]);
+  await f.exact.gpu.swap(1);
+  assert.ok(renders.length >= 3);
+  assert.ok(renders.every(at => at === 10));
+  assert.deepEqual(rebases, [10, 10]);
+  f.paint(11);
+  assert.equal(renders.at(-1), 11);
 });

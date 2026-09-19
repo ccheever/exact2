@@ -83,6 +83,7 @@ final class GpuModule {
     var period: PeriodFn?
 
     typealias SeekableFn = @convention(c) (Bool) -> Void
+    var seekable: SeekableFn?
     typealias PeriodFn = @convention(c) (Double) -> Void
 
     let wantsInput: WantsFn?
@@ -230,7 +231,7 @@ final class GpuModule {
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)
         module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
         module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
-        sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
+        module.seekable = sym("gpu_seekable", SeekableFn.self)
         return .success(module)
     }
 

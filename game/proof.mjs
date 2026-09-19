@@ -297,7 +297,21 @@ export async function proof(meta, script) {
   // on this Mac; an optional web descendant audit is bounded and never delays
   // headless gameplay verification.
   const children = [], recorded = new Map();
-  const onProcess = child => { children.push(child); recorded.set(child.pid, 'carrier'); };
+  const released = new Set(), parents = new Map();
+  const onProcess = child => {
+    children.push(child); recorded.set(child.pid, 'carrier');
+    return () => {
+      // Called only after the complete native detach ACK, including all sessions.
+      released.add(child.pid);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const [pid,parent] of parents) if (released.has(parent) && !released.has(pid)) { released.add(pid); changed = true; }
+      }
+      for (const pid of released) recorded.delete(pid);
+      const index = children.indexOf(child); if (index >= 0) children.splice(index, 1);
+      say(`CARRIER detached after acknowledgement: ${child.pid}`);
+    };
+  };
   let auditUnavailable = false, inventoryPending;
   const inventory = () => new Promise(resolve => {
     const child = spawn('ps', ['-axo', 'pid=,ppid=,stat=,lstart=,comm='], {stdio:['ignore','pipe','ignore']});
@@ -319,7 +333,8 @@ export async function proof(meta, script) {
       const owned = new Set([process.pid, ...children.map(child => child.pid)]);
       for (let changed = true; changed;) {
         changed = false;
-        for (const row of rows ?? []) if (owned.has(row.parent) && !owned.has(row.pid)) {
+        for (const row of rows ?? []) if (owned.has(row.parent) && !owned.has(row.pid) && !released.has(row.pid)) {
+          parents.set(row.pid, row.parent);
           owned.add(row.pid); recorded.set(row.pid, row.stamp); changed = true;
         }
       }

@@ -43,6 +43,7 @@ final class Canvases {
         var wants = false
         var wantsInput = false
         var logCursor = 0
+        var ownershipInitialized = false
         var restoreAttempted = false
         var controls: [Int: SurfaceControl] = [:]
         var recoveryRedelivery = false
@@ -352,6 +353,7 @@ final class Canvases {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return
         }
+        initializeOwnership(m, e)
         restoreWorld(m, e)
         refreshChildren(m, e)
         messages(e)
@@ -376,6 +378,8 @@ final class Canvases {
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard let bitmap = Bitmap.blank(width: w, height: h), let data = bitmap.bytes else { return nil }
         let at = frameNow ?? session?.now() ?? 0
+        m.seekable?(session?.clock != nil)
+        defer { m.seekable?(false) }
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data.assumingMemoryBound(to: UInt8.self), w * h * 4)
         defer { messages(e) }
         e.readAt = at
@@ -459,7 +463,9 @@ final class Canvases {
             // of a surface, its pipelines compiling, honestly takes that long.
             let scale = Float(metal.layer.contentsScale)
             let t0 = CACurrentMediaTime()
+            m.seekable?(session?.clock != nil)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            m.seekable?(false)
             windowRenders += 1
             windowRenderSeconds += CACurrentMediaTime() - t0
             if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }

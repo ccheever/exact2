@@ -175,7 +175,7 @@ final class Presenter {
         // agent's wheel scrolls at once: its world is settled between calls,
         // and UIKit hit-tests a scroll view at its presentation offset while
         // the keyboard's spring is still settling — a tap there would miss.
-        if ExactEnv.agentFreezes || duration <= 0 { change(); return }
+        if (session?.freezesAnimations == true) || duration <= 0 { change(); return }
         UIView.animate(withDuration: duration, delay: 0, options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState], animations: change)
     }
 

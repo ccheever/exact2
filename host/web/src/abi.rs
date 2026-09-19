@@ -21,6 +21,9 @@ use std::cell::RefCell;
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
+    retained_host: Option<Host<D>>,
+    boot_transaction: bool,
+    surface_transaction: bool,
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
     /// in through `exact_store` before boot and taken by the next boot.
     snapshot: Vec<(String, String)>,
@@ -37,6 +40,9 @@ impl<D: DataSource> Bridge<D> {
     pub const fn new() -> Bridge<D> {
         Bridge {
             host: None,
+            retained_host: None,
+            boot_transaction: false,
+            surface_transaction: false,
             snapshot: Vec::new(),
             compat: None,
             input: Vec::new(),
@@ -162,6 +168,11 @@ impl<D: DataSource> Bridge<D> {
                 "module replacement waits for in-flight requests to settle; retry the update",
             ));
         }
+        if self.boot_transaction {
+            return self.emit(exact_runner::agent::error(
+                "module-backed canvas staging is unsupported; restart required",
+            ));
+        }
         let [plan, receipt, module] = lengths;
         if plan
             .checked_add(receipt)
@@ -225,12 +236,81 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// Keep the old runner until the web presenter accepts all participating canvases.
+    /// The host calls begin/finish in one synchronous turn, with no live ingress.
+    pub fn begin_boot(&mut self) -> bool {
+        if self.boot_transaction
+            || self
+                .host
+                .as_ref()
+                .is_some_and(|host| host.runner().has_pending())
+        {
+            return false;
+        }
+        self.boot_transaction = true;
+        true
+    }
+    /// Commit the prepared runner, or restore its predecessor after staging failed.
+    pub fn finish_boot(&mut self, commit: bool) {
+        if commit && self.surface_transaction {
+            if let (Some(host), Some(previous)) = (&mut self.host, &mut self.retained_host) {
+                std::mem::swap(host.runner_mut().data(), previous.runner_mut().data());
+            }
+        }
+        if !commit {
+            if let Some(host) = self.retained_host.take() {
+                self.host = Some(host);
+            }
+        }
+        self.retained_host = None;
+        self.boot_transaction = false;
+        self.surface_transaction = false;
+    }
+
+    /// Stage GPU publications against an isolated copy of the CURRENT host.
+    /// begin_boot alone reserves a transaction; it does not create this copy.
+    pub fn begin_surface_boot(&mut self, data: D) -> u32 {
+        if !self.begin_boot() {
+            return self.emit(exact_runner::agent::error(
+                "surface staging requires a settled host with no active transaction",
+            ));
+        }
+        let candidate = self
+            .host
+            .as_ref()
+            .ok_or("surface staging requires a booted host")
+            .and_then(|host| host.fork_surface_records(data));
+        match candidate {
+            Ok((host, batch)) => {
+                self.retained_host = self.host.replace(host);
+                self.surface_transaction = true;
+                self.emit(batch)
+            }
+            Err(error) => {
+                self.finish_boot(false);
+                self.emit(exact_runner::agent::error(error))
+            }
+        }
+    }
+
     /// Boot from the input buffer's first `len` bytes — the dev loop's
     /// restart from a freshly compiled plan. Build the candidate beside the
     /// live host: only a successful boot replaces it, while a refusal leaves
     /// the old runner available to its page and in-flight work.
     pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
+        if self.boot_transaction && self.retained_host.is_some() {
+            return self.emit(exact_runner::agent::error(
+                "a candidate boot is already staged",
+            ));
+        }
         let plan = self.input[..len.min(self.input.len())].to_vec();
+        if self.boot_transaction {
+            match exact_plan::Plan::decode(&plan) {
+                Ok(candidate) if candidate.resources.iter().all(|row| matches!(candidate.str(row.source), "exactSurface" | "exactViewport" | "exactDelivery")) && candidate.mutations.is_empty() => {},
+                Ok(_) => return self.emit(exact_runner::agent::error("canvas staging cannot execute external resources or mutations; restart required")),
+                Err(error) => return self.emit(exact_runner::agent::error(&format!("invalid candidate plan: {error:?}"))),
+            }
+        }
         let carried = self.host.as_ref().map(Host::carry);
         match Host::boot_delivered(
             &plan,
@@ -242,7 +322,10 @@ impl<D: DataSource> Bridge<D> {
             launch,
         ) {
             Ok((host, batch)) => {
-                self.host = Some(host);
+                let previous = self.host.replace(host);
+                if self.boot_transaction {
+                    self.retained_host = previous;
+                }
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -347,6 +430,17 @@ impl<D: DataSource> Bridge<D> {
             |host| host.surface_record(name, json),
         );
         self.emit(out)
+    }
+
+    /// Publish into the candidate only; the presenter holds every resulting op
+    /// until its bindings validate and finish_boot commits the whole session.
+    pub fn stage_surface_record(&mut self, len: usize) -> u32 {
+        if !self.boot_transaction || self.retained_host.is_none() {
+            return self.emit(exact_runner::agent::error(
+                "surface staging requires a candidate boot",
+            ));
+        }
+        self.surface_record(len)
     }
 
     /// Re-answer viewport resources and return the resulting batch.
@@ -484,6 +578,22 @@ macro_rules! host {
             })
         }
 
+        /// Synchronous presenter transaction (LLP 1041.006 slice C).
+        #[no_mangle]
+        pub extern "C" fn exact_begin_boot() -> u32 {
+            EXACT_BRIDGE.with(|b| u32::from(b.borrow_mut().begin_boot()))
+        }
+        /// Copy current UI state for synchronous GPU publication staging.
+        #[no_mangle]
+        pub extern "C" fn exact_begin_surface_boot() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().begin_surface_boot(($new)()))
+        }
+        /// Commit or roll back the synchronous presenter transaction.
+        #[no_mangle]
+        pub extern "C" fn exact_finish_boot(commit: u32) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().finish_boot(commit != 0))
+        }
+
         /// Metadata for the optional browser module loader.
         #[no_mangle]
         pub extern "C" fn exact_logic() -> u32 {
@@ -538,6 +648,12 @@ macro_rules! host {
                 };
                 bridge.surface_record(len as usize)
             })
+        }
+
+        /// Validate candidate publications without presenting their batches.
+        #[no_mangle]
+        pub extern "C" fn exact_stage_surface_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().stage_surface_record(len as usize))
         }
 
         /// The viewport changed; returns the batch length.

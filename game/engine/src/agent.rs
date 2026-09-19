@@ -436,8 +436,9 @@ impl<G: Game> Sim<G> {
             "clock" => {
                 if q.reload {
                     let values = self.args.values().iter().map(|v| crate::values::value_json(v, false)).collect::<Vec<_>>().join(",");
+                    let names = G::Args::FIELDS.iter().map(|(name, _)| quote(name)).collect::<Vec<_>>().join(",");
                     let setup = G::Args::FIELDS.iter().enumerate().filter(|(_, (_, kind))| *kind == crate::ArgumentKind::Setup).map(|(i, _)| i.to_string()).collect::<Vec<_>>().join(",");
-                    return Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"reload\":{{\"rebased\":true,\"releasedInput\":{},\"values\":[{values}],\"setupIndices\":[{setup}]}},\"ownership\":{}}}", w.hash(), q.release_input, self.ownership_json()));
+                    return Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"reload\":{{\"rebased\":true,\"releasedInput\":{},\"values\":[{values}],\"names\":[{names}],\"setupIndices\":[{setup}]}},\"ownership\":{}}}", w.hash(), q.release_input, self.ownership_json()));
                 }
                 let quiescent = self.quiescent();
                 let deadline = if quiescent { String::new() } else { format!(",\"settleAt\":{}", crate::data::text::Float(self.settle_at(q.settle))) };

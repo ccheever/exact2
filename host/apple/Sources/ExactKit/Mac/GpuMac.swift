@@ -50,6 +50,7 @@ final class Canvases {
         var wants = false
         var wantsInput = false
         var logCursor = 0
+        var ownershipInitialized = false
         var restoreAttempted = false
         var controls: [Int: SurfaceControl] = [:]
         var recoveryRedelivery = false
@@ -330,6 +331,7 @@ final class Canvases {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return
         }
+        initializeOwnership(m, e)
         restoreWorld(m, e)
         refreshChildren(m, e)
         messages(e)
@@ -348,6 +350,8 @@ final class Canvases {
         else { return nil }
         rep.size = metal.bounds.size
         let at = frameNow ?? session?.now() ?? 0
+        m.seekable?(session?.clock != nil)
+        defer { m.seekable?(false) }
         let r = m.readback(e.id, Float(metal.bounds.width), Float(metal.bounds.height), Float(scale), at, data, w * h * 4)
         defer { messages(e) }
         e.readAt = at
@@ -436,7 +440,9 @@ final class Canvases {
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
+            m.seekable?(session?.clock != nil)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+            m.seekable?(false)
             if CACurrentMediaTime() - wall > 0.2 {
                 e.starvedUntil = CACurrentMediaTime() + 1.0
                 if ExactEnv.agentMode { FileHandle.standardError.write(Data("exact gpu: canvas \(e.view.id) waited \(Int((CACurrentMediaTime() - wall) * 1000)) ms for a drawable; not presenting for a second\n".utf8)) }

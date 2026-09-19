@@ -4,7 +4,7 @@
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
 import { pacer } from "./pace.js";
-import { assetDelivery } from "./gpu-assets.js";
+import { assetDelivery, assetName } from "./gpu-assets.js";
 let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
@@ -16,6 +16,13 @@ const publishers = new Map(); // name -> first live entry
 const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
+let planStage = null;
+let swapRequest = 0;
+const reload = { host: "web", capability: "transactional-game-replacement", phase: "idle", intent: null,
+  loaded: null, requested: null, lastSuccessfulSwap: null, restoreOutcome: null, attempts: 0, failures: 0, stale: 0, buildRequests:0, buildFailures:0, successes:0,
+  native: { ui: "restart-with-carry", game: "rebuild-relaunch", liveGameReplacement: false },
+  firstFrameMeaning: "rendering opportunity after GPU submission; not GPU completion or scanout" };
+const diagnostics = () => structuredClone(reload);
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
@@ -89,7 +96,7 @@ function size(el) {
 // exact.now() follows each batch `at` marker while surface commits are applied.
 // The surfaces' clock: the page's in agent mode (LLP 1012: the driver owns
 // time, and a picture is a function of it), else the frame's.
-const clockFor = (frameNow) => exact.now?.() ?? frameNow;
+const clockFor = (frameNow) => exact.clockNow?.() ?? exact.now?.() ?? frameNow;
 
 let hidden = document.hidden;
 function lifecycle(code) {
@@ -106,7 +113,7 @@ window.addEventListener("pageshow", event => lifecycle(event.persisted || !docum
 // A homography maps child-local points to canvas points. CSS adds the child's
 // kernel offset after its transform, so subtract that offset in homogeneous space.
 function childFrames(entry) {
-  const children = [...entry.host.children].filter(el => !el.hasAttribute("data-surface"));
+  const children = [...(entry.host.children ?? [])].filter(el => !el.hasAttribute("data-surface"));
   return children.map(el => ({el, frame:[el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight]}));
 }
 function restoreChild(row) {
@@ -274,8 +281,31 @@ function frame(now) {
 
 function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
 
+// Reload values follow the engine's field declaration order. Named bindings keep
+// their own shape (including {}); property enumeration never defines ABI order.
+function reloadValues(entry, report) {
+  if (Array.isArray(entry.values)) return report.values;
+  if (!Array.isArray(report.names) || report.names.length !== report.values.length) throw new Error(`surface ${entry.name}: reload field names unavailable; rebuild required`);
+  return Object.fromEntries(Object.keys(entry.values).map(name => {
+    const index = report.names.indexOf(name);
+    if (index < 0) throw new Error(`surface ${entry.name}: reload field ${name} unavailable`);
+    return [name, report.values[index]];
+  }));
+}
+function bindingValues(entry, values) {
+  const requested = structuredClone(values);
+  const changed = key => JSON.stringify(values[key]) !== JSON.stringify(entry.requestedValues?.[key]);
+  const keys = entry.setupKeys ?? [];
+  if (!keys.some(changed)) {
+    const rows = Object.keys(values).map(key => [key, changed(key) ? values[key] : entry.values[key]]);
+    values = Array.isArray(values) ? rows.map(([,value]) => value) : Object.fromEntries(rows);
+  }
+  entry.requestedValues = requested;
+  return entry.values = values;
+}
+
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
-function create(entry, module, carry) {
+function create(entry, module, carry, mode = 1) {
   const { w, h, s } = size(entry.host);
   entry.el.width = Math.max(1, Math.round(w * s));
   entry.el.height = Math.max(1, Math.round(h * s));
@@ -283,23 +313,32 @@ function create(entry, module, carry) {
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
   module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
+  entry.stateful = Boolean(JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world);
+  if (!entry.stateful) entry.stateful = module.gpu_carry(entry.id) !== undefined;
+  if (exact.now && entry.stateful) {
+    const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent",now:exact.now()})) || "null");
+    entry.ownership = owner?.ownership ?? {unavailable:"module does not acknowledge clock owner"};
+  }
   if (carry !== undefined) {
     entry.carry = carry;
-    if (module.gpu_restore(entry.id, worldSize(carry), 1)) {
+    if (module.gpu_restore(entry.id, worldSize(carry), mode)) {
       entry.pendingRestore = {bytes:carry};
       finishRestore(entry, module);
     }
     else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error().replace(/^restore refused: /, "")}`;
   }
 }
-function attach(entry) {
-  entry.observer = new ResizeObserver(() => { if (entry.id) render(entry, frameAt ?? performance.now()); });
+function attach(entry, staging = false) {
+  if (!staging && entry.stagedPublication !== undefined) {
+    if (publishers.get(entry.name) === entry) surfaceRecord(entry.name, entry.stagedPublication);
+    delete entry.stagedPublication;
+  }
+  entry.observer = new ResizeObserver(() => { if (live(entry.view) === entry) render(entry, frameAt ?? performance.now()); });
   entry.observer.observe(entry.el);
   watchCheckpoints(entry);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
-  reportRestore(entry);
-  messages(entry); schedule();
+  if (!staging) { reportRestore(entry); messages(entry); schedule(); }
 }
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
@@ -433,6 +472,7 @@ function watchCheckpoints(entry) {
 }
 function listen(entry) {
   const el = entry.host, listeners = [];
+  const contacts = new Set();
   const previous = { touchAction: entry.el.style.touchAction, tabindex: el.getAttribute("tabindex") };
   entry.el.style.touchAction = "none";
   el.dataset.gpuInput = "";
@@ -487,10 +527,12 @@ function listen(entry) {
       event.preventDefault(); return;
     }
     if (!fallsThrough(event)) return;
-    if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
+    if (phase === "down") { contacts.add(event.pointerId); if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
+    if (phase === "up" || phase === "cancel") contacts.delete(event.pointerId);
     send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
+    if (contacts.delete(event.pointerId)) send(event, {t:"pointer", phase:"cancel", id:event.pointerId, ...point(event), buttons:0});
     const button = controls.get(event.pointerId);
     if (button) { controls.delete(event.pointerId); sendControl(event, button, "cancel", event.pointerId); }
   });
@@ -519,11 +561,17 @@ function listen(entry) {
   };
   entry.resampleHeld();
   const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+  entry.releaseInput = () => {
+    if (live(entry.view) === entry) entry.resampleHeld();
+    const captured = [...contacts].map(id => [el, id]).concat([...controls].map(([id, owner]) => [owner.node, id]));
+    contacts.clear(); held.clear(); controls.clear(); controlKeys.clear();
+    for (const [node,id] of captured) try { node?.releasePointerCapture(id); } catch {}
+  };
   const blur = event => {
     entry.resampleHeld();
     for (const [id, owner] of controls) sendControl(event, owner, "cancel", id);
     for (const [code, owner] of controlKeys) sendControl(event, owner, "cancel", code === "Space" ? 4294967294 : 4294967293);
-    held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" });
+    entry.releaseInput(); send(event, { t: "blur" });
   };
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
@@ -584,14 +632,21 @@ function agent(view, request) {
   const entry = live(view);
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
-  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s }));
+  const reply = gpu.gpu_agent(entry.id, JSON.stringify({
+    ...request,
+    ...(exact.now && request.op === "clock" && request.ticks === undefined && request.now === undefined ? { now: exact.now() } : {}),
+    ...(["state","tree","logs"].includes(request.op) ? {} : {width:w,height:h,scale:s}),
+  }));
   messages(entry);
   schedule();
   if (!reply) return null;
   try {
     const value = JSON.parse(reply);
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("world reply must be an object");
-    if (request.op === "state" && value.world && entry.restoreError) value.world.restoreError = entry.restoreError;
+    if (request.op === "state" && value.world) {
+      value.world.host = { platform: "web", input: "browser-events", provenance:"unavailable: browser and CDP share DOM delivery", clock: exact.now ? "controlled" : "live", owner: exact.now ? "agent" : "human", reload: diagnostics() };
+      if (entry.restoreError) value.world.restoreError = entry.restoreError;
+    }
     return value;
   } catch (error) { console.error(`exact gpu: view ${view}:`, error); return null; }
 }
@@ -624,6 +679,43 @@ function worlds(request) {
 
 exact.gpu = {
   deviceLost() { if (recoveringDevice) lossDuringRecovery = true; else queueMicrotask(() => recoverDevice()); },
+  diagnostics,
+  participates: () => [...surfaces.values()].some(entry => entry.stateful),
+  canvasIds: () => [...surfaces.keys()],
+  requested(artifact) { swapRequest++; reload.requested = structuredClone(artifact); reload.phase = "building"; reload.buildRequests++; },
+  buildFailed(error) { swapRequest++; reload.phase = "failed"; reload.error = String(error); reload.buildFailures++; },
+  stagePlan,
+  ownershipReport(owner) {
+    const world=[];
+    for (const entry of surfaces.values()) if (entry.id && entry.stateful) {
+      const state = JSON.parse(gpu.gpu_agent(entry.id, '{"op":"state"}') || 'null')?.world;
+      if (state?.ownership?.owner !== owner) return {error:`surface ${entry.name}: clock owner is ${state?.ownership?.owner ?? "unavailable"}; host expected ${owner}`};
+      world.push({canvas:entry.view,tick:state.tick,hash:state.hash,ownership:state.ownership});
+    }
+    return {world};
+  },
+  handoff(owner, at) {
+    const entries = [...surfaces.values()].filter(entry=>entry.id && entry.stateful), world=[];
+    for (const entry of entries) {
+      const state = JSON.parse(gpu.gpu_agent(entry.id, '{"op":"state"}') || 'null');
+      if (!state?.world?.ownership) return {error:`surface ${entry.name}: input/clock handoff unsupported; rebuild the game module`};
+    }
+    for (const entry of entries) {
+      const result = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"clock",owner,reload:true,now:at,releaseInput:false})) || 'null');
+      if (result?.error || result?.ownership?.owner !== owner || !result?.reload) return {error:`surface ${entry.name}: handoff refused`,world};
+      entry.releaseInput?.();
+      if (result.reload.values) entry.values = reloadValues(entry, result.reload);
+      world.push({canvas:entry.view,tick:result.tick,hash:result.hash,ownership:result.ownership,releasedInput:true});
+    }
+    return {world,releasedInput:true};
+  },
+  resumeClock(controlled) {
+    if (!loaded) return;
+    gpu.gpu_seekable(controlled);
+    if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+    for (const entry of surfaces.values()) entry.wants = true;
+    schedule();
+  },
   drainRecords,
   agent,
   settled,
@@ -641,6 +733,8 @@ exact.gpu = {
       messages(entry); schedule();
       return ok ? tagged({phase:request.phase, delivery:"recognized"}) : {error:gpu.gpu_error()};
     }
+    if (request.op === "clock" && request.owner !== undefined) return exact.control(request.owner).then(tagged);
+    if (request.op === "clock" && !exact.now) return {error:"world time is live; request clock owner agent before stepping"};
     if (request.op === "focus") {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
       entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });
@@ -658,7 +752,7 @@ exact.gpu = {
       for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
       return tagged({ data: btoa(encoded), bytes: bytes.length, hash: state?.world?.hash, tick: state?.tick });
     }
-    if (!["layout", "state", "tree"].includes(request.op)) return { error: `world does not answer ${request.op}` };
+    if (!["layout", "state", "tree", "clock"].includes(request.op)) return { error: `world does not answer ${request.op}` };
     if (request.op === "layout" && request.entity === undefined) {
       const r = entry.host.getBoundingClientRect();
       request = { ...request, x: request.x - r.left, y: request.y - r.top };
@@ -677,6 +771,7 @@ exact.gpu = {
       if (summary?.world) node.world = summary.world;
     }
     if (request.op === "state") {
+      reply.reload = diagnostics();
       const world = worlds({ op: "state" });
       if (world.length) reply.world = world;
     }
@@ -711,13 +806,20 @@ exact.gpu = {
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+      const staged = planStage?.get(view);
+      if (staged) {
+        el.replaceWith(staged.el);
+        Object.assign(entry, staged, { view, host });
+        planStage.delete(view);
+      }
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
       planCarries.delete(name);
       if (!publishers.has(name)) publishers.set(name, entry);
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
-      ensure(entry); return; }
-    entry.values = values;
+      if (staged) attach(entry); else ensure(entry);
+      return; }
+    values = bindingValues(entry, values);
     if (entry.id) {
       const id = entry.id, at = exact.now?.();
       const bind = () => {
@@ -743,18 +845,32 @@ exact.gpu = {
   // duplicate instances are ambiguous and are deliberately left fresh.
   reset(carry = false) {
     planCarries = new Map();
-    if (carry) for (const entry of surfaces.values()) if (entry.id) {
+    if (carry && !planStage) for (const entry of surfaces.values()) if (entry.id) {
       if ([...surfaces.values()].filter(e => e.name === entry.name).length !== 1) continue;
       try {
         const bytes = gpu.gpu_carry(entry.id);
         if (bytes !== undefined) planCarries.set(entry.name, { name: entry.name, bytes });
       } catch (error) { restoreJournal.push({canvas:entry.view,error:`carry refused: ${error}`}); }
     }
+    if (planStage) publishers.clear();
     for (const view of [...surfaces.keys()]) this.destroy(view);
   },
-  finishRestart() { planCarries.clear(); },
-  // Dev only; callers serialize versions. Agent pages never receive automatic swaps.
-  swap(version) { return exact.mutate(() => swap(version)); },
+  finishRestart() {
+    planCarries.clear();
+    if (planStage) { for (const entry of planStage.values()) if (entry.id) gpu.gpu_destroy(entry.id); planStage = null; }
+  },
+  // Invalidate at request time, before waiting for the shared plan mutation queue.
+  swap(version, options = {}) {
+    const request = ++swapRequest, current = () => request === swapRequest && (options.current?.() ?? true);
+    const intent = options.intent ?? "continue";
+    if (!["continue", "restart", "restore"].includes(intent)) return Promise.reject(new Error(`unknown reload intent: ${intent}`));
+    reload.requested = structuredClone(options.artifact ?? { version }); reload.intent = intent;
+    reload.phase = "queued"; reload.attempts++; delete reload.error;
+    // Freeze caller-owned bytes/values before an async build can yield.
+    const checkpoints = options.checkpoints && new Map([...options.checkpoints].map(([id, bytes]) => [id, worldSize(bytes).slice()]));
+    const values = options.values && structuredClone(options.values);
+    return exact.mutate(() => swap(version, { ...options, intent, checkpoints, values, current }));
+  },
   /// A shader's text (LLP 1030 D8) — the dev loop's edit, or the first
   /// registration: validated, its interface checked against the module's;
   /// every surface renders again through the new pipeline. False, with the
@@ -772,10 +888,13 @@ exact.gpu = {
     const module = gpu, rows = shaderRows(assets, module);
     for (const [name, text] of rows) if (!await module.gpu_shader_check(name, text)) throw new Error(module.gpu_error());
     if (module !== gpu) throw new Error("GPU changed during shader preparation");
-    return () => {
+    const previous = await loadShaders(module);
+    const commit = () => {
       if (module !== gpu) throw new Error("GPU changed before shader commit");
       replaceShaders(rows, module);
     };
+    commit.rollback = () => replaceShaders(previous, module);
+    return commit;
   },
   placementHidden(el) {
     for (const entry of surfaces.values()) for (const row of entry.children ?? [])
@@ -818,70 +937,301 @@ async function loadShaders(module) {
 // Only development uses function-scoped bindgen glue: no immortal module-map
 // entry owns a candidate's Wasm memory. Production remains the static ES module.
 async function loadModule(version) {
+  if (exact.loadGpuModule) return exact.loadGpuModule(version);
   if (!version) {
     const module = await import("./gpu.js");
     await module.default({ module_or_path: new URL("./gpu_bg.wasm", import.meta.url) });
     return module;
   }
-  const response = await fetch(new URL(`./gpu.js?g=${version}`, import.meta.url));
-  if (!response.ok) throw new Error(`GPU loader HTTP ${response.status}`);
-  const module = new Function(`${await response.text()}; return wasm_bindgen;`)();
-  await module({ module_or_path: new URL(`./gpu_bg.wasm?g=${version}`, import.meta.url) });
-  return module;
+  throw new Error("verified development GPU loader unavailable; rebuild/relaunch required");
 }
-async function swap(version) {
+// All calls below the capture boundary are synchronous. No live input, clock,
+// DOM publication, save observer or audio executor can interleave with staging.
+function validateStage(entry, module, at, releaseInput = true, assets = exact.devAssets, budget = {assets:0, bytes:0, publications:0, ops:0}) {
+  // Candidate declarations (including texture dependencies) must finish before
+  // restore/rebase/publication validation. Verified development bytes are already
+  // resident, so no asynchronous input can cross the capture-to-cutover boundary.
+  for (let round = 0; ; round++) {
+    const names = JSON.parse(module.gpu_assets(entry.id));
+    if (!names.length) break;
+    if (round === 16) throw new Error(`surface ${entry.name}: candidate assets exceeded 16 delivery rounds`);
+    for (const name of names) {
+      if (++budget.assets > 256) throw new Error(`surface ${entry.name}: candidate exceeds 256 asset deliveries`);
+      if (!assetName(name)) throw new Error(`surface ${entry.name}: invalid asset name ${name}`);
+      const bytes = assets instanceof Map ? assets.get(`assets/${name}`)?.bytes : undefined;
+      if (!bytes) throw new Error(`surface ${entry.name}: candidate asset ${name} is unavailable`);
+      if (bytes.length > 64 * 1024 * 1024) throw new Error(`surface ${entry.name}: asset ${name} exceeds 64 MiB limit`);
+      budget.bytes += bytes.length;
+      if (budget.bytes > WORLD_LIMIT) throw new Error(`surface ${entry.name}: candidate assets exceed 256 MiB shared budget`);
+      if (!module.gpu_asset(entry.id, name, bytes)) throw new Error(`surface ${entry.name}: asset ${name}: ${module.gpu_error()}`);
+    }
+  }
+  finishRestore(entry, module);
+  if (entry.restoreError) throw new Error(entry.restoreError);
+  if (entry.pendingRestore) throw new Error(`surface ${entry.name}: restore remains pending after asset delivery`);
+  const {w,h,s} = size(entry.host);
+  const state = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({ op:"state" })) || "null");
+  if (state?.error) throw new Error(`surface ${entry.name}: validation: ${state.error}`);
+  const failed = state?.world?.assets?.find(asset => asset.state === "Failed");
+  if (failed) throw new Error(`surface ${entry.name}: asset ${failed.name}: ${failed.reason ?? "preparation failed"}`);
+  if (state?.world?.loading?.length) throw new Error(`surface ${entry.name}: assets still pending: ${state.world.loading.join(", ")}`);
+  if (state?.world && releaseInput) {
+    const reply = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({ op:"clock", reload:true, now:at, releaseInput:true })) || "null");
+    if (!reply?.reload) throw new Error(`surface ${entry.name}: reload input/clock handoff unsupported; rebuild the game module`);
+    if (reply.error) throw new Error(`surface ${entry.name}: reload: ${reply.error}`);
+    const values = reloadValues(entry, reply.reload);
+    const setup = reply.reload.setupIndices ?? [];
+    entry.setupKeys = Array.isArray(values) ? setup.map(String) : setup.map(i => reply.reload.names[i]);
+    entry.reloadReport = { rebased:reply.reload.rebased, releasedInput:reply.reload.releasedInput,
+      authored:state.world.reload ?? null,
+      resetFields:Object.keys(values).filter(key => !entry.setupKeys.includes(key) && JSON.stringify(values[key]) !== JSON.stringify(entry.requestedValues?.[key])),
+      constructionMeaning:"Continue decodes saved state, then merges current authored values; Restart starts fresh" };
+    entry.values = values;
+    delete entry.restoredCarry;
+  } else if (!state?.world && module.gpu_carry(entry.id) !== undefined) {
+    throw new Error(`surface ${entry.name}: stateful executor has no safe staging contract`);
+  }
+  supplyChildren(entry, module, true);
+  if (module.gpu_render(entry.id, w, h, s, at) >= 2) throw new Error(`surface ${entry.name}: render: ${module.gpu_error()}`);
+  const after = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
+  if (after?.ready === false) throw new Error(`surface ${entry.name}: candidate not ready: ${JSON.stringify(after.readyReasons)}`);
+  const publication = module.gpu_published(entry.id);
+  if (publication !== undefined) {
+    budget.publications += publication.length;
+    if (budget.publications > 32 * 1024 * 1024) throw new Error("candidate publications exceed 32 MiB shared text limit");
+    const value = JSON.parse(publication);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`surface ${entry.name}: invalid publication`);
+    entry.stagedPublication = publication;
+  }
+  // Candidate messages are irreversible app inputs. Discard them, including
+  // audio-triggering messages; the committed world republishes its HUD record.
+  const messages = module.gpu_messages(entry.id);
+  if (messages !== undefined && !Array.isArray(JSON.parse(messages))) throw new Error(`surface ${entry.name}: invalid messages`);
+}
+function candidateEntry(old, values = old.values) {
+  return { ...old, controls:new Map(), controlKeys:new Map(), heldKeys:new Set(), children:undefined,
+    pendingRestore:undefined, restoreReported:undefined, resampleHeld:undefined, releaseInput:undefined, values, requestedValues:structuredClone(values), el: old.el.cloneNode(false), id:0, observer:null, checkpointObserver:null, unlisten:null,
+    restoreError:undefined, attemptedCarry:undefined, firstFrameMs:undefined, firstFrameSubmittedMs:undefined,
+    restoredCarry:false, wants:true, logCursor:0 };
+}
+function disposeStage(module, entries, unload = false) {
+  for (const entry of entries) if (entry.id) { module.gpu_destroy(entry.id); entry.id = 0; }
+  if (unload) module.gpu_unload?.();
+}
+function rebaseStage(module, entries) {
+  const at = clockFor(frameAt ?? performance.now());
+  for (const entry of entries) if (entry.reloadReport) {
+    const reply = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",reload:true,now:at,releaseInput:false})) || "null");
+    if (!reply?.reload || reply.error) throw new Error(`surface ${entry.name}: final clock rebase refused`);
+  }
+}
+function validatePublications(batch, staged, module, at, mount = true, assets = exact.devAssets, budget = {assets:0, bytes:0, publications:0, ops:0}) {
+  const published = new Map(), ops = [...batch.ops];
+  for (let round = 0; round < 16; round++) {
+    const bindings = new Map();
+    for (const entry of staged.values()) {
+      const json = entry.stagedPublication;
+      delete entry.stagedPublication;
+      if (json === undefined || published.get(entry.name) === json) continue;
+      const result = exact.stageSurfaceRecord(entry.name, json);
+      if (result.error) throw new Error(`surface ${entry.name}: publication: ${result.error}`);
+      published.set(entry.name, json);
+      if (result.ops.some(op => ["store", "command", "storage", "request"].includes(op.op))) throw new Error("candidate publication has irreversible effects; restart required");
+      for (const op of result.ops) {
+        if (op.op === "destroy" && staged.has(op.id)) throw new Error("candidate publication removed a staged canvas; restart required");
+        if (op.op === "surface") {
+          if (staged.get(op.id)?.name !== op.name) throw new Error("candidate publication changed the canvas roster; restart required");
+          bindings.set(op.id, op.values);
+        }
+      }
+      budget.ops += result.ops.length;
+      if (budget.ops > 65536) throw new Error("candidate publications exceed 65536 shared operations");
+      ops.push(...result.ops);
+      batch.timers = result.timers ?? batch.timers;
+      batch.clock = result.clock ?? batch.clock;
+    }
+    // Apply the complete round's bindings together: one world's HUD can bind
+    // another world, and later publications can refine that same binding.
+    for (const [id, values] of bindings) {
+      const entry = staged.get(id);
+      if (JSON.stringify(values) === JSON.stringify(entry.requestedValues)) continue;
+      if (!module.gpu_bind_at(entry.id, JSON.stringify(bindingValues(entry, values)), at)) throw new Error(`surface ${entry.name}: publication bind: ${module.gpu_error()}`);
+      validateStage(entry, module, at, false, assets, budget);
+    }
+    if (![...staged.values()].some(entry => entry.stagedPublication !== undefined)) {
+      // Present only the final bindings; intermediate ones were already applied
+      // privately. The HUD deltas join the initial boot in one outer batch.
+      batch.ops = ops.filter(op => op.op !== "surface");
+      if (mount) for (const entry of staged.values()) batch.ops.push({op:"surface",id:entry.view,name:entry.name,values:entry.requestedValues ?? entry.values});
+      return;
+    }
+  }
+  throw new Error("candidate publications and bindings did not settle after 16 rounds");
+}
+function successfulSwap(start, artifact, entries, intent, extra = {}) {
+  const committed = performance.now();
+  reload.successes++; reload.phase = "committed"; reload.loaded = structuredClone(artifact); delete reload.error;
+  reload.restoreOutcome = { status: intent === "restart" ? "fresh" : "restored", canvases: entries.map(e => ({canvas:e.view,name:e.name,...e.reloadReport})) };
+  const success = { artifact: structuredClone(artifact), intent, committedAt:Date.now(),
+    timing:{ ...extra, prepareToCommitMs:committed-start, firstUsableFrameMs:null,
+      editToCommitMs:extra.detectedAt ? Date.now()-extra.detectedAt : null, buildCompleteToCommitMs:extra.buildCompleteAt ? Date.now()-extra.buildCompleteAt : null } };
+  reload.lastSuccessfulSwap = success;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (reload.lastSuccessfulSwap !== success) return;
+    if (entries.some(entry=>live(entry.view)!==entry)) { success.timing.firstFrameUnavailable = "participating canvas retired before rendering opportunity"; return; }
+    success.timing.firstUsableFrameMs = performance.now()-start;
+    success.timing.editToFirstUsableFrameMs = extra.detectedAt ? Date.now()-extra.detectedAt : null;
+    if (reload.phase === "committed") reload.phase = "usable";
+    exact.gpu.onUsable?.(structuredClone(success));
+  }));
+}
+// A candidate Contract boot has not touched the DOM. Names only identify a
+// world when unique on BOTH sides; duplicates never silently lose their carry.
+function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devAssets) {
+  if (!loaded) throw new Error("GPU is not ready for a transactional plan restart");
+  if (batch.ops.some(op => ["store", "command", "storage"].includes(op.op))) throw new Error("candidate plan has irreversible effects; restart required");
+  const rows = batch.ops.filter(op => op.op === "surface"), staged = new Map(), start = performance.now();
+  const old = [...surfaces.values()], at = clockFor(frameAt ?? start);
+  if (old.length > 256 || rows.length > 256) throw new Error("candidate exceeds 256 canvas limit");
+  const budget = {assets:0, bytes:0, publications:0, ops:batch.ops.length};
+  reload.requested = { ...reload.loaded, plan:exact.devPlanArtifact ?? null }; reload.intent = "continue"; reload.phase = "staging"; reload.attempts++;
+  gpu.gpu_seekable(true);
+  try {
+    for (const row of rows) {
+      const matches = old.filter(e => e.name === row.name);
+      if (matches.length > 1 || rows.filter(r => r.name === row.name).length > 1) throw new Error(`surface ${row.name}: ambiguous duplicate identity; restart required`);
+      const previous = matches[0];
+      const entry = previous ? candidateEntry(previous, row.values) : {
+        view:row.id, name:row.name, values:row.values, requestedValues:structuredClone(row.values), el:document.createElement("canvas"),
+        host:{getBoundingClientRect:()=>({width:1,height:1})}, id:0, wants:true, logCursor:0,
+      };
+      entry.view = row.id; staged.set(row.id, entry);
+      create(entry, gpu, previous?.id ? gpu.gpu_carry(previous.id) : undefined);
+      validateStage(entry, gpu, at, true, assets, budget);
+    }
+    for (const entry of old) if (entry.id && gpu.gpu_carry(entry.id) !== undefined && !rows.some(row => row.name === entry.name)) {
+      throw new Error(`surface ${entry.name}: participating world removed; explicit restart required`);
+    }
+    validatePublications(batch, staged, gpu, at, true, assets, budget);
+    rebaseStage(gpu, staged.values());
+  } catch (error) { disposeStage(gpu, staged.values()); reload.phase = "failed"; reload.error = String(error); reload.failures++; reload.restoreOutcome = {status:"refused",retained:true,reason:String(error)}; throw error; }
+  finally { gpu.gpu_seekable(Boolean(exact.now)); }
+  planStage = staged;
+  return {
+    abort() { disposeStage(gpu, staged.values()); planStage = null; },
+    commit() {
+      successfulSwap(start, { ...reload.loaded, plan:exact.devPlanArtifact ?? null }, [...surfaces.values()], "continue");
+      reload.restoreOutcome.ui = {scope:"named root slots; row-local state omitted",resetFields:[...new Set([...Object.keys(beforeSlots),...Object.keys(afterSlots)])]
+        .filter(name=>JSON.stringify(beforeSlots[name])!==JSON.stringify(afterSlots[name]))
+        .map(name=>({name,outcome:!(name in beforeSlots)?"initialized":!(name in afterSlots)?"removed":"reset"}))};
+    },
+  };
+}
+async function swap(version, options) {
+  const { intent, current } = options;
   await ready;
   await recoveringDevice;
-  if (loaded && version === exact.gpu.version) return { ms: 0, errors: [] };
-  const start = performance.now(), next = await loadModule(version), staged = [];
-  const carrier = { worldCarry: exact.worldCarry };
+  if (!current()) return {ms:0,errors:[],stale:true};
+  const start = performance.now(), staged = [];
+  let next, hostStage, hostCommitted = false;
+  const oldModule = gpu, detached = new Set();
+  const assertCurrent = () => { if (!current()) throw Object.assign(new Error("obsolete reload candidate"), {stale:true}); };
   try {
+    reload.phase = "loading";
+    next = await loadModule(version);
+    assertCurrent();
+    for (const name of ["load","unload","create","destroy","bind_at","restore","carry","render","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
     await next.gpu_load();
-    if (exact.now) next.gpu_seekable(true);
+    assertCurrent();
+    // The game Presentation trait discards audio under this flag. No physical
+    // input, durable checkpoint observer or app message ingress is attached.
+    next.gpu_seekable(true);
     if (sentPeriod) next.gpu_period(sentPeriod);
     const rows = await loadShaders(next);
     for (const [name, text] of rows) if (!await next.gpu_shader_check(name, text)) throw new Error(next.gpu_error());
+    assertCurrent();
     replaceShaders(rows, next);
-    // A canvas context belongs to one device. Stage on detached replacement
-    // canvases; the old canvases and their worlds remain untouched until commit.
-    // No await from carry through cutover; input cannot arrive between them.
+    await recoveringDevice;
+    assertCurrent();
+    if (gpu !== oldModule) throw new Error("GPU changed during candidate preparation; retry");
+    reload.phase = "staging";
+    const at = clockFor(frameAt ?? performance.now());
+    if (surfaces.size > 256) throw new Error("candidate exceeds 256 canvas limit");
+    const budget = {assets:0, bytes:0, publications:0, ops:0};
+    const carrier = {worldCarry:exact.worldCarry};
     for (const old of surfaces.values()) {
-      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, checkpointObserver: null, unlisten: null };
-      delete entry.restoreError; delete entry.attemptedCarry;
-      delete entry.pendingRestore; delete entry.restoreReported;
+      const entry = candidateEntry(old, options.values?.get(old.view) ?? old.requestedValues ?? old.values);
       staged.push([old, entry]);
-      const carry = old.id ? gpu.gpu_carry(old.id) : old.carry;
-      create(entry, next, carry);
-      restorePending(entry, next, carrier);
-      const {w,h,s} = size(old.host);
-      supplyChildren(entry, next, true);
-      if (next.gpu_render(entry.id, w, h, s, clockFor(frameAt ?? performance.now())) === 2) throw new Error(`surface ${entry.name}: render: ${next.gpu_error()}`);
+      let carry;
+      if (intent === "continue") carry = old.id ? gpu.gpu_carry(old.id) : old.carry;
+      if (intent === "restore") {
+        carry = options.checkpoints?.get(old.view);
+        if (carry === undefined) throw new Error(`surface ${old.name}: selected checkpoint missing`);
+      }
+      create(entry, next, carry, intent === "restore" ? 0 : 1);
+      if (intent === "continue" && carry === undefined) restorePending(entry, next, carrier);
+      validateStage(entry, next, at, true, exact.devAssets, budget);
     }
+    if (staged.some(([,entry])=>entry.stateful || entry.stagedPublication !== undefined)) {
+      if (new Set(staged.map(([,entry])=>entry.name)).size !== staged.length) throw new Error("ambiguous duplicate surface identity; restart required");
+      hostStage = exact.stageCurrent();
+      validatePublications(hostStage.batch, new Map(staged.map(([,entry])=>[entry.view,entry])), next, at, false, exact.devAssets, budget);
+    }
+    assertCurrent();
+    rebaseStage(next, staged.map(([,entry])=>entry));
+    reload.phase = "ready";
+    // Listener/DOM installation can fail. Keep every old executor alive until
+    // all canvases have attached and the staged host has accepted publication.
+    if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
+    gpu = next;
+    for (const [old, entry] of staged) {
+      detached.add(old);
+      installCanvas(old, entry);
+      if (publishers.get(old.name) === old) publishers.set(old.name, entry);
+      surfaces.set(entry.view, entry);
+      attach(entry, true);
+    }
+    const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
+    try { hostStage?.commit(); hostCommitted = true; hostStage?.present(); }
+    finally { exact.applyDepth = depth; }
+    loaded = true; exact.gpu.version = version;
+    next.gpu_seekable(Boolean(exact.now));
+    for (const [old, entry] of staged) {
+      // Transferred child styles still belong to the same Contract nodes.
+      for (const row of old.children ?? []) if (!entry.children?.some(next => next.el === row.el)) restoreChild(row);
+      for (const row of entry.children ?? []) row.original ??= old.children?.find(old => old.el === row.el)?.original;
+      placeChildren(entry);
+      old.releaseInput?.();
+      if (old.id) { oldModule.gpu_destroy(old.id); old.id = 0; }
+      delete entry.stagedPublication;
+      if (entry.pendingRestore?.carrier === carrier) entry.pendingRestore.carrier = exact;
+      messages(entry); assets(entry);
+    }
+    oldModule?.gpu_unload();
+    if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
+    drainRecords(); schedule();
+    successfulSwap(start, exact.gpuArtifacts?.get(version) ?? options.artifact ?? {version}, staged.map(([,e])=>e), intent, options.timing);
+    return { ms:performance.now()-start, errors:[], ...diagnostics() };
   } catch (error) {
-    for (const [,entry] of staged) if (entry.id) next.gpu_destroy(entry.id);
-    next.gpu_unload(); exact.devError?.(String(error)); throw error;
+    if (!hostCommitted) {
+      hostStage?.abort(); gpu = oldModule;
+      for (const [old, entry] of [...staged].reverse()) {
+        entry.observer?.disconnect(); entry.checkpointObserver?.disconnect(); entry.unlisten?.();
+        if (detached.has(old)) {
+          entry.el.replaceWith(old.el); surfaces.set(old.view, old);
+          if (publishers.get(old.name) === entry) publishers.set(old.name, old);
+          if (old.host === old.el) exact.views.set(old.view, old.el);
+          old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.(); attach(old);
+        }
+      }
+    }
+    if (hostCommitted) { disposeStage(oldModule, staged.map(([old])=>old), true); schedule(); }
+    if (next && next !== gpu) disposeStage(next, staged.map(([,e])=>e), true);
+    if (error.stale) { reload.stale++; return {ms:performance.now()-start,errors:[],stale:true}; }
+    if (current()) { reload.phase = "failed"; reload.error = String(error); reload.failures++;
+      reload.restoreOutcome = {status:"refused", reason:String(error), retained:!hostCommitted}; exact.devError?.(String(error)); }
+    throw error;
   }
-  if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
-  const oldModule = gpu;
-  for (const [old, entry] of staged) {
-    installCanvas(old, entry);
-    if (publishers.get(old.name) === old) publishers.set(old.name, entry);
-    surfaces.set(entry.view, entry);
-    if (old.id) oldModule.gpu_destroy(old.id);
-  }
-  oldModule?.gpu_unload(); gpu = next; loaded = true;
-  for (const [old, entry] of staged) {
-    for (const row of old.children ?? []) if (!entry.children?.some(next => next.el === row.el)) restoreChild(row);
-    placeChildren(entry);
-  }
-  for (const [, entry] of staged) if (entry.pendingRestore?.carrier === carrier) entry.pendingRestore.carrier = exact;
-  exact.gpu.version = version;
-  if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
-  const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
-  try { for (const [,entry] of staged) attach(entry); }
-  finally { exact.applyDepth = depth; drainRecords(); }
-  const errors = staged.flatMap(([,e]) => e.restoreError ? [e.restoreError] : []);
-  return { ms: performance.now() - start, errors };
 }
 const t0 = performance.now();
 try {
@@ -891,6 +1241,7 @@ try {
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));
   exact.gpu.version = version;
+  reload.loaded = exact.gpuArtifacts?.get(version) ?? { version, identity:"unavailable: static host did not provide artifact receipt" };
   loaded = true;
 } catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);

@@ -474,3 +474,27 @@ and surface name. Save replies `surface-save:saved`; Open restore replies
 corresponding `:error`. Other canvases cannot overwrite that surface's checkpoint.
 Web uses localStorage; Apple/Linux use app data (`EXACT_SURFACE_STORE` for isolated
 proofs). The common carrier limit is 256 MiB; filesystem writes replace atomically.
+
+Development web reload stages the candidate module, declared assets, decoded
+worlds and all published HUD records before replacing live canvases. Continue
+uses Carry and the three-way authored merge; Restart uses requested arguments;
+Restore uses Open for the complete selected checkpoint set. Named argument
+objects retain field names and explicit `{}` through reload. `state.reload`
+reports requested/loaded artifact identities, refusal, timing and the last
+successful replacement. First usable frame means a rendering opportunity after
+submission, not GPU completion or scanout. Native game code still requires a
+rebuild/relaunch; native UI can restart with carry.
+
+A reload admits at most 256 canvases, 16 asset-delivery rounds, 256 asset deliveries
+and 256 MiB of asset bytes shared across candidates (64 MiB per asset). Publications
+have 16 settling rounds, a shared 32 MiB text limit and 65,536 operations. A refused
+candidate keeps the live executors; device recovery and authored reload serialize.
+The original control bindings survive failed canvas attachment.
+
+`session.clock({owner:'human'})` releases physical input and resumes live time;
+`owner:'agent'` takes controlled time. Observing state does not acquire ownership.
+On macOS/iOS simulator, `await session.detach()` requires a complete native
+acknowledgement before closing the transport and releasing the proof's process
+ownership. Ordinary `close()` cleans up its isolated launch. Linux and physical
+phone carriers refuse detach. `session.world(name).source(entity)` returns typed
+scene provenance or an explicit unavailable result.

@@ -87,6 +87,12 @@ final class ScrollView: UIScrollView {
 }
 
 final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    /// UIKit resigns the old responder synchronously inside the new one's
+    /// `becomeFirstResponder`. Keep raw canvas contacts when that handoff is
+    /// between descendants of the same canvas; a direct resignation has no
+    /// incoming owner and still blurs. The scope is restored even when UIKit
+    /// refuses the new responder, and nests correctly if focus is re-entered.
+    private static weak var incomingCanvasOwner: NodeView?
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
@@ -284,13 +290,17 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (kind == "button" || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
+        let previousOwner = NodeView.incomingCanvasOwner
+        NodeView.incomingCanvasOwner = inputCanvas
+        defer { NodeView.incomingCanvasOwner = previousOwner }
         let ok = super.becomeFirstResponder()
         if ok, handlers.contains("focus") { presenter?.focus(id) }
         return ok
     }
     override func resignFirstResponder() -> Bool {
+        let oldOwner = inputCanvas
         let ok = super.resignFirstResponder()
-        if ok { inputCanvas?.canvasInput?.blur() }
+        if ok, oldOwner !== NodeView.incomingCanvasOwner { oldOwner?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -1279,7 +1289,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
         // newly focused field into view.
-        if let p = presenter, p.keyboardInset > 0 { if ExactEnv.agentFreezes { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
+        if let p = presenter, p.keyboardInset > 0 { if (p.session?.freezesAnimations == true) { p.reveal(self) } else { UIView.animate(withDuration: 0.25) { p.reveal(self) } } }
         if handlers.contains("focus") { presenter?.focus(id) }
     }
     func textFieldDidEndEditing(_ textField: UITextField) { if presenter?.editing === self { presenter?.editing = nil }; if handlers.contains("blur") { presenter?.blur(id) } }

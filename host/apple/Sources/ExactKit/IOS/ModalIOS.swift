@@ -259,7 +259,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         controller.loadViewIfNeeded()
         presenter.navigation.move(to: controller) { controller.view.addSubview(presenter.viewport) }
         controller.presentationController?.delegate = self
-        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer] in
+        owner.present(controller, animated: !(presenter.session?.freezesAnimations == true)) { [weak self, weak layer] in
             guard let self, let layer else { return }
             layer.presenting = false
             DispatchQueue.main.async { [weak self, weak layer] in
@@ -280,7 +280,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         presenter.flushPendingFocus()
     }
 
-    func closeTop(animated: Bool = !ExactEnv.agentFreezes, refit: Bool = true) {
+    func closeTop(animated requested: Bool? = nil, refit: Bool = true) {
+        let animated = requested ?? !(presenter.session?.freezesAnimations == true)
         guard let layer = layers.last else { return }
         closing = true
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }

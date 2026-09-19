@@ -45,7 +45,7 @@ pub enum Lowered {
 }
 
 /// The web host's spring evaluator: one engine, sampled at commits.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Springs {
     engine: Engine,
     /// Springs the page is playing: `(start, target)` per property, so a
