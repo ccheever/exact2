@@ -271,6 +271,28 @@ other operations continue on the fresh world. The capture replies with the byte 
 reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
 arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
 
+`layout world:entity` includes facing, signed horizontal bearing and mesh line of
+sight to an optional `to` target. Visibility samples eight corners, six face
+centres and the centre; it reports the hidden fraction and nearest four occluders.
+These are geometric rays, independent of texture alpha. Sprites use camera-facing
+bounds, sockets use current affine animation poses, and undeclared models need
+explicit bounds to block. Reads preserve saves, hashes and ticks. Missing global
+poses/facing are null; a transform-less mesh retains its identity screen rectangle.
+
+The derived visibility index admits at most 262,144 entity slots (including dead
+slots), with at most 1,000,000 entity/model-node visits to resolve current poses.
+Its median BVH builds in O(N log N), with O(N) retained memory. Each layout/route
+request shares a 1,000,000-visit ray/exclusion budget; cycles and excess work return
+an explicit error. Pose, socket, sprite, camera, asset and hierarchy edits invalidate
+geometry. Public optional layout/pick APIs return `None` on unavailable geometry.
+
+`Sim::move_to(entity, target: Vec3, tolerance, speed) -> Result<(), String>` and
+`world.moveTo(entity, [x,z], {tolerance, speed})` drive WASD toward **global** XZ
+coordinates. Each has at most 160 bursts of ten ticks plus one released tick and
+releases its key on clock refusal. A stall includes the nearest blocker and clear
+side rays, also available from `Sim::route_diagnostic(entity, from, to)`. These
+rays explain a failed route; they do not certify a swept-character path.
+
 Saves use **EXSIM v7**; v5/v6 are refused with recreate/inspect guidance and no
 migration. `restore(&[u8])` and `restore_bound(&[u8])` merge saved tick-zero Data,
 loaded runtime Data and the current authored initializer. Changed authored fields

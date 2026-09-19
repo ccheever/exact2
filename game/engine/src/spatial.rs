@@ -1,6 +1,9 @@
 //! CPU geometry shared by layout and pick. The renderer is not a source of truth.
 use crate::{math, Affine3A, Camera, Entity, Mesh, Vec2, Vec3, Visible, World};
 use glam::Mat4;
+pub(crate) mod index;
+mod poses;
+use index::Sight;
 
 pub(crate) struct View {
     pub pose: Affine3A,
@@ -9,20 +12,7 @@ pub(crate) struct View {
 }
 impl View {
     pub fn new(w: &World, size: Vec2) -> Option<Self> {
-        if size.min_element() <= 0.0 {
-            return None;
-        }
-        w.query::<&Camera>().iter().find_map(|(e, c)| {
-            c.valid()
-                .then(|| {
-                    w.global(e).map(|pose| Self {
-                        pose,
-                        camera: *c,
-                        size,
-                    })
-                })
-                .flatten()
-        })
+        view(w, size).ok().flatten()
     }
     fn projection(&self) -> Mat4 {
         self.camera.matrix(self.size)
@@ -97,11 +87,14 @@ impl View {
         });
         (
             !outside,
-            c.z >= 0.0,
+            corners.iter().all(|p| inv.transform_point3(*p).z >= 0.0),
             center.distance(self.pose.translation.into()),
             -c.z,
         )
     }
+}
+pub(crate) fn view(w: &World, size: Vec2) -> Result<Option<View>, String> {
+    Ok(w.sight.index(w)?.view(size))
 }
 pub(crate) fn extent(mesh: Option<&Mesh>) -> Vec3 {
     match mesh {
@@ -149,6 +142,14 @@ pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, V
         return ((hi - lo) * 0.5, (hi + lo) * 0.5);
     }
     (extent(mesh), center(mesh))
+}
+pub(crate) fn unbounded(w: &World, e: Entity, mesh: Option<&Mesh>) -> bool {
+    if w.get::<crate::asset::ModelBounds>(e)
+        .is_some_and(|b| !crate::asset::valid_bounds(&b.0))
+    {
+        return true;
+    }
+    matches!(mesh, Some(Mesh::Asset(name)) if w.model(name).is_none() && w.get::<crate::asset::ModelBounds>(e).is_none())
 }
 pub(crate) fn corners(pose: Affine3A, half: Vec3, center: Vec3) -> [Vec3; 8] {
     std::array::from_fn(|i| {
@@ -258,13 +259,14 @@ fn cylinder(o: Vec3, d: Vec3, radius: f32, height: f32) -> Option<f32> {
     hit
 }
 pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, Vec3)> {
+    let geometry = w.sight.index(w).ok()?;
     let (origin, direction) = view.ray(point);
     let mut hit = None;
     for (e, mesh) in w.query::<&Mesh>().iter() {
         if w.get::<Visible>(e).is_some_and(|v| !v.0) {
             continue;
         }
-        let Some(pose) = w.global(e) else {
+        let Some(pose) = geometry.pose(e) else {
             continue;
         };
         if pose.matrix3.determinant().abs() < 1e-12 {
@@ -302,7 +304,9 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
         if w.get::<Visible>(e).is_some_and(|v| !v.0) {
             continue;
         }
-        let pose = displayed_bounds_pose(w, e, Some(view));
+        let Some(pose) = geometry.pose(e) else {
+            continue;
+        };
         if pose.matrix3.determinant().abs() < 1e-12 {
             continue;
         }
@@ -332,6 +336,99 @@ pub(crate) fn pick(w: &World, view: &View, point: Vec2) -> Option<(Entity, f32, 
     }
 
     hit
+}
+
+fn shape_hit(mesh: &Mesh, o: Vec3, d: Vec3, half: Vec3, center: Vec3) -> Option<f32> {
+    if half.max_element() <= 0.0 {
+        return None;
+    }
+    match mesh {
+        Mesh::Cylinder { radius, height } => cylinder(o, d, *radius, *height),
+        Mesh::Sphere { radius } => sphere(o, d, Vec3::ZERO, *radius),
+        Mesh::Capsule { radius, height } => capsule(o, d, *radius, *height - 2.0 * radius),
+
+        _ => slab(o - center, d, half),
+    }
+}
+
+/// Eight corners, six face centres, and centre of the oriented bounds.
+pub(crate) fn occlusion(
+    sight: &mut Sight<'_>,
+    origin: Vec3,
+    corners: &[Vec3; 8],
+) -> Result<(f32, Vec<Entity>), String> {
+    let mut samples = [Vec3::ZERO; 15];
+    samples[..8].copy_from_slice(corners);
+    let mut n = 8;
+    for bit in [1, 2, 4] {
+        for side in [0, bit] {
+            samples[n] = (0..8)
+                .filter(|i| i & bit == side)
+                .map(|i| corners[i])
+                .sum::<Vec3>()
+                * 0.25;
+            n += 1;
+        }
+    }
+    samples[14] = (corners[0] + corners[7]) * 0.5;
+    let mut hidden = 0;
+    let mut nearest: [Option<(Entity, f32)>; 4] = [None; 4];
+    for sample in samples {
+        let mut blocked = false;
+        sight.segment(origin, sample, 2, |entity, distance| {
+            blocked = true;
+            let mut candidate = (entity, distance);
+            if let Some(i) = nearest
+                .iter()
+                .position(|v| v.is_some_and(|(e, _)| e == entity))
+            {
+                candidate.1 = candidate.1.min(nearest[i].unwrap().1);
+                for j in i..3 {
+                    nearest[j] = nearest[j + 1];
+                }
+                nearest[3] = None;
+            }
+            for slot in &mut nearest {
+                if slot.is_none_or(|(e, d)| distance_order(candidate.0, candidate.1, e, d).is_lt())
+                {
+                    let old = slot.replace(candidate);
+                    if let Some(old) = old {
+                        candidate = old;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            false // Collect nearest four across every hit; LOS instead stops at one.
+        })?;
+        hidden += usize::from(blocked);
+    }
+    Ok((
+        hidden as f32 / 15.0,
+        nearest.into_iter().flatten().map(|(e, _)| e).collect(),
+    ))
+}
+fn distance_order(a: Entity, x: f32, b: Entity, y: f32) -> std::cmp::Ordering {
+    distance_key(x)
+        .cmp(&distance_key(y))
+        .then_with(|| a.index().cmp(&b.index()))
+}
+
+fn distance_key(distance: f32) -> u64 {
+    (f64::from(distance) * 10_000.0).round() as u64
+}
+fn contains_origin(mesh: &Mesh, o: Vec3, half: Vec3, center: Vec3) -> bool {
+    match mesh {
+        Mesh::Sphere { radius } => o.length_squared() <= radius * radius,
+        Mesh::Capsule { radius, height } => {
+            let stem = (height * 0.5 - radius).max(0.0);
+            (o - Vec3::Y * o.y.clamp(-stem, stem)).length_squared() <= radius * radius
+        }
+        Mesh::Cylinder { radius, height } => {
+            o.x * o.x + o.z * o.z <= radius * radius && o.y.abs() <= height * 0.5
+        }
+        _ => (o - center).abs().cmple(half).all(),
+    }
 }
 
 /// Screen-space rectangle in CSS pixels for the simulation's current viewport.
@@ -372,37 +469,22 @@ pub struct PickHit {
 }
 pub(crate) struct Layout {
     pub pose: Affine3A,
-    pub corners: [Vec3; 8],
     pub screen: Option<[f32; 4]>,
-    pub visibility: Option<(bool, bool, f32, f32)>,
-    pub unbounded: bool,
-}
-fn displayed_bounds_pose(w: &World, entity: Entity, view: Option<&View>) -> Affine3A {
-    let pose = w.current_global(entity).unwrap_or(Affine3A::IDENTITY);
-    if w.has::<crate::Sprite>(entity) {
-        let (scale, _, position) = pose.to_scale_rotation_translation();
-        let rotation = view.map_or(crate::Quat::IDENTITY, |v| {
-            v.pose.to_scale_rotation_translation().1
-        });
-        Affine3A::from_scale_rotation_translation(scale.abs(), rotation, position)
-    } else {
-        pose
-    }
 }
 pub(crate) fn layout(world: &World, viewport: Vec2, entity: Entity) -> Layout {
-    let pose = displayed_bounds_pose(world, entity, View::new(world, viewport).as_ref());
+    let pose = world
+        .sight
+        .index(world)
+        .ok()
+        .and_then(|g| g.pose(entity))
+        .unwrap_or(Affine3A::IDENTITY);
     let mesh = world.get::<Mesh>(entity);
     let (half, center) = bounds(world, entity, mesh.as_deref());
     let corners = corners(pose, half, center);
     let view = View::new(world, viewport);
     Layout {
         pose,
-        corners,
         screen: view.as_ref().and_then(|v| v.screen(&corners)),
-        visibility: view
-            .as_ref()
-            .map(|v| v.visibility(&corners, pose.translation.into())),
-        unbounded: matches!(mesh.as_deref(), Some(Mesh::Asset(name)) if world.model(name).is_none() && world.get::<crate::asset::ModelBounds>(entity).is_none()),
     }
 }
 impl<G: crate::Game> crate::Sim<G> {
@@ -411,7 +493,11 @@ impl<G: crate::Game> crate::Sim<G> {
     pub fn layout(&self, target: impl crate::Target) -> Option<EntityLayout> {
         let entity = target.entity(&self.world)?;
         let viewport = self.inspection_viewport.unwrap_or(self.input.viewport);
-        let [x, y, w, h] = layout(&self.world, viewport, entity).screen?;
+        let geometry = layout(&self.world, viewport, entity);
+        if !geometry.pose.is_finite() {
+            return None;
+        }
+        let [x, y, w, h] = geometry.screen?;
         Some(EntityLayout {
             entity,
             screen: ScreenRect { x, y, w, h },

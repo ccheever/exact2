@@ -888,3 +888,21 @@ test('capture replay validates actual artifacts and never executes imported scri
     expect(opened).toBe(1);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+test('moveTo has a bounded stall, forwards layout evidence and releases input', async () => {
+  const calls=[], view=worldView({
+    layout:async () => ({entity:{world:{position:[0,.65,12]}}}),
+    state:async target => target.includes(':') ? {entity:{components:{Transform:{position:[0,.65,12]}}}} : {world:{hz:60}},
+    type:async (_,op) => calls.push(op.phase),
+    target:async () => ({id:1,entity:'player'}),
+    op:async request => {expect(request.op).toBe('layout');expect(request.toward).toEqual([4.8,1.3,8]);return {route:{blocker:{name:'sign-board',position:[3,1.55,10],bounds:{min:[1.75,1.1,9.93],max:[4.25,2,10.07]}},nearestClearSide:{side:'minX',position:[1.35,1.3,10.47]}}};},
+  },'world');
+  let ticks=0; view.ticks=async n => {ticks+=n;};
+  await expect(view.moveTo('player',[4.8,8])).rejects.toThrow('sign-board');
+  expect(ticks).toBeLessThanOrEqual(1760);expect(calls).toHaveLength(320);
+  expect(calls.at(-1)).toBe('up');
+  await expect(view.moveTo('player',[4.8,8],{tolerance:0})).rejects.toThrow('positive');
+  view.ticks=async () => { throw new Error('clock refused'); };
+  await expect(view.moveTo('player',[4.8,8])).rejects.toThrow('clock refused');
+  expect(calls).toHaveLength(322); expect(calls.at(-1)).toBe('up');
+});

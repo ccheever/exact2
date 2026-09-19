@@ -793,6 +793,33 @@ export function worldView(session, name) {
     tap: code => session.type(name, {key:code}),
     key_down: code => session.type(name, {key:code, phase:'down'}),
     key_up: code => session.type(name, {key:code, phase:'up'}),
+    async moveTo(entity, [x, z], {tolerance = 0.18, speed = 4.5} = {}) {
+      if (![x,z,tolerance,speed].every(Number.isFinite) || tolerance <= 0 || speed <= 0)
+        throw new Error('moveTo: finite target and positive finite tolerance/speed required');
+      const start = await this.global_position(entity);
+      if (!start) throw new Error('moveTo: position unavailable');
+      const {world} = await session.state(name, {world:true});
+      if (!Number.isSafeInteger(world?.hz) || world.hz < 1 || world.hz > 1000) throw new Error('moveTo: fixed-step clock unavailable');
+      const stride = speed / world.hz;
+      for (let burst = 0; burst < 160; burst++) {
+        const at = await this.global_position(entity);
+        if (!at) throw new Error("moveTo: position unavailable");
+        const dx = x-at[0], dz = z-at[2];
+        if (Math.hypot(dx,dz) <= tolerance) return;
+        const alongX = Math.abs(dx) >= Math.abs(dz), gap = alongX ? dx : dz;
+        const key = alongX ? (gap > 0 ? 'KeyD' : 'KeyA') : (gap > 0 ? 'KeyS' : 'KeyW');
+        const count = Math.max(1,Math.min(10,Math.floor(Math.max(stride,Math.abs(gap)-tolerance*0.45)/stride)));
+        await this.key_down(key);
+        try { await this.ticks(count); } finally { await this.key_up(key); }
+        await this.ticks(1);
+      }
+      let detail;
+      try {
+        const reply = await session.op({op:'layout', ...await session.target(`${name}:${entity}`), world:true, from:[start[0],start[1]+0.65,start[2]], toward:[x,start[1]+0.65,z]});
+        detail = reply.error ? `diagnostic unavailable: ${reply.error}` : JSON.stringify(reply.route ?? {unavailable:'layout route missing'});
+      } catch (error) { detail = `diagnostic unavailable: ${error.message}`; }
+      throw new Error(`route stalled toward ${x},${z} after 160 bursts: ${detail}`);
+    },
     async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
     async global_position(entity) {
       try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }

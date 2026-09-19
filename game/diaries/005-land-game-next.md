@@ -50,7 +50,7 @@ has not yet been certified.
 6. Three-way authored merge and EXSIM v7: adapted and headless-verified.
    Typed world decode and exact tick/time validation precede authored merging.
    R14 will move the decode ahead of setup as well.
-7. Geometric layout and movement diagnostics: pending.
+7. Geometric layout and movement diagnostics: adapted and headless-verified.
 8. Typed scenes and adapted Lanterns: pending.
 9. DX host transactions and handoff: pending.
 10. I3 fixed evidence and opt-in trials: pending.
@@ -232,3 +232,37 @@ serialized queued-delivery flags and a new format header. No value was hand-edit
 | sprites-fixture | `ca774847c5db059a2dd7991927ce9c38578c8d0ed45ef34e788b99bcfe4c5b41` | `bc16e30a2114d3b219aabd6ede719a818876bf26eb6183175c4486f721c9d314` |
 
 Authored gate completed: 654 game-workspace passes / 14 adapter failures / 23 ignored; 29 app-workspace passes / 3 adapter failures / 1 ignored. Full game and all eight app clippy/fmt pass. All 28 Linux normal/paranoid executions pass, Bun 117 pass / 1 skip, caps and boot pass. The opt-in 200k reload timing test passed separately. Report contents survive repeated Save/FreshGame rebuilds as well as ordinary Carry/Open; combined valid authored/runtime parent edges that create a cycle refuse atomically after typed decode.
+
+
+Geometric integration preserves G's orthographic/integer viewport, lossless world
+positions, billboard sprite point-picking, precomputed/Pose model bounds, socket
+fallback and transform-less identity screen rectangle. N's test expecting a fresh
+unpropagated child to have no pose was adapted to assert G's current parent pose.
+The original G precision and typed/wire screen assertions remain unchanged.
+The index caches current poses with iterative Parent/SocketFollow dependency
+resolution; valid sockets share animation's local joint matrix helper. This adds
+an explicit 1M entity/model-node pose-work bound and cycle refusal, followed by
+N's 262144-slot/1M shared ray-visit bounds. The entire agent layout and optional
+route share one ray budget. Mesh bounds take precedence when an entity also has a
+Sprite, as in G layout. Emitters remain cosmetic. Cache keys include Pose,
+SocketFollow, Sprite, Camera and the engine model/presentation stamps; mutable
+leases are checked on cache hits. In-place World.read discards the cache.
+
+The 200k mesh test now also registers SocketFollow, retaining its 99999-deep
+parent-chain success, <=400k-visit assertion, blocker deletion and dense refusal.
+Optimized test-profile measurements: cold sight 143.630242ms, warm median
+10.390022ms; full layout cold 130.887065ms, warm median 3.835598ms. The standalone
+sight measurement also includes G.global's 100k attachment-aware ancestor walk;
+the full layout uses the memoized geometry. Dense refusal cold/warm
+142.240479/33.695338ms at exactly 1M visits. No speedup claim.
+
+Focused geometry tests pass, including sprite size/camera changes, current socket
+Pose/offset/Parent edits, affine composition, warm-cache lease refusal, pose-work
+refusal and atomic cycle refusal. Rust and JS move helpers use global coordinates;
+tests retain the 1760-tick ceiling and require release on success/stall/clock
+refusal. Greybox's read-only layout snapshot was recorded from the actual reply;
+its existing projection/position values and all pins remain unchanged. The first
+Rust movement fixture used the opposite stick-Y convention; it now uses G's
+negative-Z forward convention. Bun proof tests pass 70/70 with installed Chromium.
+
+Geometry gate completed: 672 game-workspace passes / 14 adapter failures / 23 ignored; 29 app-workspace passes / 3 adapter failures / 1 ignored. Game and all eight app clippy/fmt pass; all 28 Linux normal/paranoid executions pass without moving a pin. Bun 118 pass / 1 skip, caps and boot pass. No non-hardware red was left by this increment.

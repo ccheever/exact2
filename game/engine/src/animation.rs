@@ -9,6 +9,7 @@ use crate::{
 };
 use glam::Mat4;
 mod sockets;
+pub(crate) use sockets::socket_local;
 use sockets::SocketCache;
 pub use sockets::{socket, socket_matrix, socket_node, socket_stale, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap};

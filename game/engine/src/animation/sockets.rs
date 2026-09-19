@@ -146,6 +146,16 @@ fn compose_socket(w: &World, e: Entity, joint: &str, remaining: usize) -> Result
     if remaining == 0 {
         return Err("socket follower cycle".into());
     }
+    let local = socket_local(w, e, joint)?;
+    let global = w.current_global_depth(e, remaining - 1).ok_or_else(|| {
+        format!(
+            "socket target `{}` has no Transform or has a follower cycle",
+            w.name(e).unwrap_or("unnamed")
+        )
+    })?;
+    Ok(Mat4::from(global) * local)
+}
+pub(crate) fn socket_local(w: &World, e: Entity, joint: &str) -> Result<Mat4, String> {
     let label = w.name(e).unwrap_or("unnamed");
     let pose = w.get::<Pose>(e);
     let node = socket_node(w, e, joint)?;
@@ -168,10 +178,7 @@ fn compose_socket(w: &World, e: Entity, joint: &str, remaining: usize) -> Result
         rest = bind_pose(model);
         &rest
     };
-    let global = w.current_global_depth(e, remaining - 1).ok_or_else(|| {
-        format!("socket target `{label}` has no Transform or has a follower cycle")
-    })?;
-    Ok(Mat4::from(global) * joint_matrix(model, local, node))
+    Ok(joint_matrix(model, local, node))
 }
 
 impl Component for SocketFollow {

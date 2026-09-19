@@ -576,7 +576,7 @@ impl crate::World {
     }
 }
 
-fn valid_bounds(b: &[f32; 6]) -> bool {
+pub(crate) fn valid_bounds(b: &[f32; 6]) -> bool {
     b.iter().all(|v| v.is_finite()) && (0..3).all(|i| b[i] <= b[i + 3])
 }
 impl TextureData {

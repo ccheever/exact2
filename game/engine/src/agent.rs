@@ -1,7 +1,7 @@
 use crate::values::quote;
 use crate::{
-    json, spatial, Args, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3,
-    Visible, World,
+    json, spatial, Args, Clock, Data, DataError, Entity, Game, Mesh, Parent, Reader, Sim, Vec2,
+    Vec3, Visible, World,
 };
 use std::collections::BTreeMap;
 
@@ -10,6 +10,9 @@ struct Request {
     op: String,
     entity: Option<String>,
     under: Option<String>,
+    to: Option<String>,
+    toward: Option<Vec3>,
+    from: Option<Vec3>,
     summary: bool,
     pose: bool,
     busy: bool,
@@ -56,6 +59,19 @@ impl Request {
                 "external" => q.external.read(&mut r)?,
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
+                "to" => q.to = Some(r.string()?),
+                "toward" | "from" => {
+                    let mut point = Vec3::ZERO;
+                    point.read(&mut r)?;
+                    if !point.is_finite() {
+                        return Err(DataError::new("route: finite endpoints required"));
+                    }
+                    if f == "toward" {
+                        q.toward = Some(point);
+                    } else {
+                        q.from = Some(point);
+                    }
+                }
                 "settle" => q.settle.read(&mut r)?,
                 "summary" => q.summary.read(&mut r)?,
                 "pose" => q.pose.read(&mut r)?,
@@ -392,11 +408,25 @@ impl<G: Game> Sim<G> {
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
-                self.layout_json(e, viewport)
+                let target = q.to.as_deref().map(|n| resolve(w, n)).transpose()?;
+                let mut sight = spatial::index::Sight::new(w, e, target, None)?;
+                let mut result = self.layout_json(e, viewport, target, &mut sight)?;
+                let toward = q.toward.or_else(|| target.and_then(|e| sight.pose(e).map(|p| p.translation.into())));
+                if let Some(toward) = toward {
+                    let from = q.from.or_else(|| sight.pose(e).map(|p| p.translation.into()));
+                    let route = match from {
+                        Some(from) => self.route_with_sight(&mut sight, from, toward)?,
+                        None => r#"{"unavailable":"subject global pose unavailable"}"#.into(),
+                    };
+                    result.pop();
+                    result.push_str(&format!(",\"route\":{route}}}"));
+                }
+                Ok(result)
             }
             "layout" => {
+                spatial::index::check_size(w)?;
                 let point = Vec2::new(q.x.ok_or("layout needs x")?,q.y.ok_or("layout needs y")?);
-                let view = spatial::View::new(w,viewport).ok_or("layout unavailable: needs an active camera and viewport; add `w.spawn_named(\"camera\", (Transform::at(0., 3., 8.), Camera::default()));` in setup; inspect `state world:*`")?;
+                let view = spatial::view(w,viewport)?.ok_or("layout unavailable: needs an active camera and viewport; add `w.spawn_named(\"camera\", (Transform::at(0., 3., 8.), Camera::default()));` in setup; inspect `state world:*`")?;
                 let hit = spatial::pick(w,&view,point).map(|(e,d,p)| Ok::<_,String>(format!("{{{},\"distance\":{},\"point\":{}}}", identity(w,e),encode(&d)?,encode(&p)?))).transpose()?.unwrap_or_else(||"null".into());
                 Ok(format!("{{\"tick\":{tick},\"hit\":{hit}}}"))
             }
@@ -425,11 +455,49 @@ impl<G: Game> Sim<G> {
     fn ownership_json(&self) -> String {
         format!("{{\"owner\":{},\"clock\":{},\"contamination\":{},\"inputSource\":{},\"handoff\":\"clock owner human/agent\"}}", quote(if self.agent_owned { "agent" } else { "human" }), quote(if self.agent_owned { "controlled" } else { "live" }), self.contamination, quote(if self.source_tagged { "attested" } else { "unavailable" }))
     }
-    fn layout_json(&self, e: Entity, viewport: Vec2) -> Result<String, String> {
+    fn layout_json(
+        &self,
+        e: Entity,
+        viewport: Vec2,
+        to: Option<Entity>,
+        sight: &mut spatial::index::Sight<'_>,
+    ) -> Result<String, String> {
         let w = &self.world;
-        let layout = spatial::layout(w, viewport, e);
-        let (scale, rotation, position) = layout.pose.to_scale_rotation_translation();
-        let corners = layout.corners;
+        spatial::index::check_size(w)?;
+        let Some(pose) = sight.pose(e).filter(|p| p.is_finite()) else {
+            let screen = spatial::layout(w, viewport, e)
+                .screen
+                .map(|[x, y, w, h]| {
+                    Ok::<_, String>(format!(
+                        "{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
+                        encode(&x)?,
+                        encode(&y)?,
+                        encode(&w)?,
+                        encode(&h)?
+                    ))
+                })
+                .transpose()?
+                .unwrap_or_else(|| "{\"unavailable\":true}".into());
+            return Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":null,\"bounds\":null,\"screen\":{screen},\"depth\":null,\"visible\":{{\"unavailable\":true,\"reason\":\"missing global pose\"}},\"facing\":{{\"forward\":null,\"towardCamera\":null,\"bearingTo\":null,\"distanceTo\":null,\"lineOfSight\":null}}}}}}", w.tick(), identity(w, e)));
+        };
+        let position: Vec3 = pose.translation.into();
+        let (scale, rotation) = if pose.matrix3.determinant().abs() < 1e-12 {
+            (
+                Vec3::new(
+                    pose.matrix3.x_axis.length(),
+                    pose.matrix3.y_axis.length(),
+                    pose.matrix3.z_axis.length(),
+                ),
+                "null".into(),
+            )
+        } else {
+            let (scale, rotation, _) = pose.to_scale_rotation_translation();
+            (scale, encode(&rotation)?)
+        };
+        let mesh = w.get::<Mesh>(e);
+        let unbounded = spatial::unbounded(w, e, mesh.as_deref());
+        let (half, center) = spatial::bounds(w, e, mesh.as_deref());
+        let corners = spatial::corners(pose, half, center);
         let lo = corners
             .iter()
             .copied()
@@ -438,52 +506,119 @@ impl<G: Game> Sim<G> {
             .iter()
             .copied()
             .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-        let (screen, depth, visible) =
-            if let Some((inside, behind, distance, depth)) = layout.visibility {
-                let screen = layout
-                    .screen
-                    .map(|[x, y, width, height]| {
-                        Ok::<_, String>(format!(
-                            "{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
-                            encode(&x)?,
-                            encode(&y)?,
-                            encode(&width)?,
-                            encode(&height)?
-                        ))
-                    })
-                    .transpose()?
-                    .unwrap_or_else(|| "{\"unavailable\":true}".into());
-                (
-                    screen,
-                    encode(&depth)?,
-                    format!(
-                        "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{}}}",
-                        inside && w.get::<Visible>(e).is_none_or(|v| v.0),
-                        encode(&distance)?
-                    ),
-                )
+        let forward = pose.transform_vector3(Vec3::NEG_Z).try_normalize();
+        let view = sight.view(viewport);
+        let toward = view.as_ref().and_then(|v| {
+            forward.map(|f| f.dot((Vec3::from(v.pose.translation) - position).normalize_or_zero()))
+        });
+        let mut facing = format!(
+            "\"forward\":{},\"towardCamera\":{}",
+            forward
+                .as_ref()
+                .map(encode)
+                .transpose()?
+                .unwrap_or_else(|| "null".into()),
+            toward
+                .map(|n| encode(&n))
+                .transpose()?
+                .unwrap_or_else(|| "null".into())
+        );
+        if let Some(to) = to {
+            if let Some(target) = sight.pose(to).filter(|p| p.is_finite()) {
+                let delta: Vec3 = Vec3::from(target.translation) - position;
+                let bearing = forward.map(|forward| {
+                    if (forward.x == 0.0 && forward.z == 0.0) || (delta.x == 0.0 && delta.z == 0.0)
+                    {
+                        0.0
+                    } else {
+                        let degrees = crate::math::atan2(
+                            forward.z * delta.x - forward.x * delta.z,
+                            forward.x * delta.x + forward.z * delta.z,
+                        )
+                        .to_degrees();
+                        let degrees = (degrees * 10000.0).round() / 10000.0;
+                        if degrees == -180.0 {
+                            180.0
+                        } else {
+                            degrees
+                        }
+                    }
+                });
+                let clear = !sight.segment(position, target.translation.into(), 1, |_, _| true)?;
+                facing.push_str(&format!(
+                    ",\"bearingTo\":{},\"distanceTo\":{},\"lineOfSight\":{clear}",
+                    bearing
+                        .as_ref()
+                        .map(encode)
+                        .transpose()?
+                        .unwrap_or_else(|| "null".into()),
+                    encode(&delta.length())?
+                ));
             } else {
-                (
-                    "{\"unavailable\":true}".into(),
-                    "null".into(),
-                    "{\"unavailable\":true}".into(),
-                )
+                facing.push_str(",\"bearingTo\":null,\"distanceTo\":null,\"lineOfSight\":null,\"reason\":\"target global pose unavailable\"");
+            }
+        }
+        let (screen, depth, visible) = if let Some(view) = view.filter(|_| !unbounded) {
+            let screen = view
+                .screen(&corners)
+                .map(|[x, y, width, height]| {
+                    Ok::<_, String>(format!(
+                        "{{\"x\":{},\"y\":{},\"w\":{},\"h\":{}}}",
+                        encode(&x)?,
+                        encode(&y)?,
+                        encode(&width)?,
+                        encode(&height)?
+                    ))
+                })
+                .transpose()?
+                .unwrap_or_else(|| "{\"unavailable\":true}".into());
+            let (inside, behind, distance, depth) = view.visibility(&corners, position);
+            let reason = if behind {
+                Some("behind camera")
+            } else if !inside {
+                Some("outside frustum")
+            } else if w.get::<Visible>(e).is_some_and(|v| !v.0) {
+                Some("hidden")
+            } else {
+                None
             };
-        let bounds = if layout.unbounded {
+            let (occluded, occluders) = if reason.is_none() {
+                let (fraction, names) =
+                    spatial::occlusion(sight, view.pose.translation.into(), &corners)?;
+                (Some(fraction), names)
+            } else {
+                (None, Vec::new())
+            };
+            let reason = reason.map_or(String::new(), |r| format!(",\"reason\":{}", quote(r)));
+            let names: Vec<_> = occluders
+                .into_iter()
+                .map(|e| {
+                    w.name(e)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("#{}", e.index()))
+                })
+                .collect();
+            (
+                screen,
+                encode(&depth)?,
+                format!(
+                    "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{},\"occluded\":{},\"occluders\":{}{reason}}}",
+                    inside && w.get::<Visible>(e).is_none_or(|v| v.0),
+                    encode(&distance)?, occluded.as_ref().map(encode).transpose()?.unwrap_or_else(|| "null".into()), encode(&names)?
+                ),
+            )
+        } else {
+            (
+                "{\"unavailable\":true}".into(),
+                "null".into(),
+                "{\"unavailable\":true}".into(),
+            )
+        };
+        let bounds = if unbounded {
             "null".into()
         } else {
             format!("{{\"min\":{},\"max\":{}}}", encode(&lo)?, encode(&hi)?)
         };
-        let global = if w.global_position(e).is_some() {
-            format!(
-                "{{\"position\":{},\"rotation\":{},\"scale\":{}}}",
-                json::to_string(&position).map_err(|e| e.to_string())?,
-                encode(&rotation)?,
-                encode(&scale)?
-            )
-        } else {
-            "null".into()
-        };
-        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{global},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible}}}}}", w.tick(),identity(w,e)))
+        Ok(format!("{{\"tick\":{},\"entity\":{{{},\"world\":{{\"position\":{},\"rotation\":{},\"scale\":{}}},\"bounds\":{bounds},\"screen\":{screen},\"depth\":{depth},\"visible\":{visible},\"facing\":{{{facing}}}}}}}", w.tick(),identity(w,e),json::to_string(&position).map_err(|e| e.to_string())?,rotation,encode(&scale)?))
     }
 }

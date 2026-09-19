@@ -1,6 +1,7 @@
 mod assets;
 mod capture_clock;
 mod checkpoint;
+mod route;
 use crate::data::limits::LoadBudget;
 use crate::{bin, Actions, Data, DataError, Event, Input, InputEvent, Value, Vec2, World};
 use crate::{Args, ArgumentKind, PointerPhase};
