@@ -129,7 +129,7 @@ final class Runtime {
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         let n = write(event + "\n" + payload)
-        return read(exact_dispatch(rt, view, 18, n, now))
+        return read(exact_dispatch(rt, view, 19, n, now))
     }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {

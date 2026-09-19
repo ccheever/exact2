@@ -7685,3 +7685,453 @@ are absent. Integration takes four exact files from
 source `20f1c173`, full patch `e7fb9ba3`, production-only patch `8c8b570c`.
 This proves one fewer validated-Spec search/clone/drop on the warm path,
 not the number of such hits in§8.139 or a native timing/120Hz improvement.
+
+
+### 8.141 Direct glyph blit: exact pixels, broad candidate not selected, 2026-09-19
+
+A private Linux CPU text experiment replaces each eligible glyph's generic
+`draw_pixmap` setup with a direct premultiplied SourceOver blit. Eligibility
+requires the exact identity transform, bounded integer placement and matching
+mask dimensions; other cases use the existing renderer. The implementation
+retains tiny-skia0.12's f32 load, mask, blend and ties-to-even store order.
+It adds no glyph cache, allocation, retained owner or workload reduction.
+
+Tests first run the original generic draw through a counted wrapper. Six
+controls pass and the ordinary Painter test fails on32 generic glyph calls
+for both cold and warm paints, versus the expected zero. The first candidate
+removes those calls and passes the real text scene, but fails a cropped-edge
+pixel comparison. That failure is retained. Matching the existing scanner's
+`Rect::round` and padded source-edge behavior fixes the mismatch without a
+pixel tolerance or mask exclusion. A later test-only Clippy correction is
+also preserved. The final candidate passes35 ink tests and nine paint
+integration tests:44 distinct tests,86 passing candidate executions including
+repeats. Strict all-targets package Clippy and scoped formatting pass. These
+are CPU tests on the Mac, not an actual Linux display or physical frame test.
+
+A separate optimized rejection probe copies the complete production helper
+byte for byte (`c64c3b22`). Both implementations run in one executable against
+the repository-pinned tiny-skia dependencies, using Rust1.97 on
+`aarch64-apple-darwin`, opt-level3, thin LTO and one codegen unit. It compares
+patterned premultiplied glyphs on a1024x768 destination with signed/cropped
+placements, overlapping draws and no/full/partial masks. Each case retains
+eight alternating-order samples of1,024 draws. Allocations precede timing;
+all96 paired final RGBA buffers match exactly.
+
+| Glyph size | No mask ratio | Full mask ratio | Partial mask ratio |
+|---|---:|---:|---:|
+|8x16|0.791|0.705|0.755|
+|16x24|1.004|0.975|0.990|
+|32x48|1.211|1.124|1.141|
+|96x96|1.280|1.172|1.165|
+
+Ratios are candidate/reference median elapsed time within each synthetic
+case; above1 is slower. Every retained32x48 and96x96 candidate sample is
+slower than its paired reference. Thus removing generic pipeline setup does
+not justify this unconditional eligible-glyph replacement: scalar blend work
+can outweigh that saving. The production candidate is **not integrated**.
+No size threshold is tuned to these samples, and no full-app/native gain,
+individual glyph distribution, observer-free performance or120Hz result is
+claimed. Actual cached font glyphs may have a different coverage distribution;
+these patterned images are a rejection probe, not a Messages benchmark.
+
+The lead probe preserves two setup refusals before any compilation or timing:
+the system Python lacks `tomllib`, and an unconstrained offline lock resolution
+selects a cached dependency newer than the repository pin. The executed attempt
+seeds the exact repository lock, resolves offline, checks every registry
+version/checksum, then builds locked. One optimized build and one probe exit0;
+all recorded processes/groups are absent. No native application is launched.
+
+Correctness sources/raw logs remain under
+`exact2-linux-owned-text-spec/target/glyph-blit-validation`; the complete probe,
+raw timings, selected dependency proof and release are under MAIN
+`target/glyph-blit-performance-probe`, including `mac-result-v2`,
+`mac-summary.json`, `source-binding.json` and `mac-release.json`.
+The earlier native captures and merged production remain unchanged.
+
+### 8.142 Merged text-cache bundle: fresh Linux pair, mixed whole-turn result, 2026-09-19
+
+One fresh optimized build evaluates the combined trim-sort, owned-Spec and
+validated warm-Spec changes. The candidate is Git`6be906af`, tree-identical to
+the then-merged`eb516d4`; subsequent`b232ec4` integration is **not measured**.
+The control reuses the immutable§8.139 treatment ELF`d3b3d438`, with a new
+runtime cell. Its old timings are not a control. The new ELF is`f7b8f75b`;
+one build exits0 in41.936s, with all five private Cargo artifacts non-fresh,
+exact source receipts and identical generated Reusable entry, plan, compat,
+fonts and external dependencies. The production differences are text/cache;
+four test-bearing files and the experiment document also differ physically.
+The shaping body and batched observer`17537a6f` remain byte-identical.
+
+Both fresh cells pass once, in control→candidate order, with the unchanged
+Linux VM/VKMS/RFB recipe:1024x768, full10,000 rows/32 updates, windowed=true,
+bounded=false, ordinary Reusable path and no Region worker. No resize is
+measured. Each retains36 in-window input handlers and18 exact±40 wheels.
+Initial/final complete History9 at revisions0/16 match across arms, including
+all10,000 five-field rows and UTF8 body-byte totals. All four2,359,296B RGB
+captures match exactly. Loaded prefixes contain20→19 fresh installed suffix
+pictures above entry revision8;17 in each arm are also current at ACK. Each
+silent2s prefix advances0→8 with no input. Final pictures192/195 close through
+journal sequences5450/5079; later dirty or unacknowledged work is not hidden.
+
+| Strict timer cohort, control→candidate | Loaded | Silent |
+|---|---:|---:|
+| Complete timers / callbacks in each arm |8 /656|8 /656|
+| Callback aggregate median, ms |1.367549→1.224611|1.701345→1.550135|
+| Callback aggregate sum, ms |11.348758→10.198171|12.749358→12.327219|
+| Whole enclosing-turn median, ms |12.000869→13.787021|15.769366→17.145767|
+| Whole enclosing-turn maximum, ms |15.448406→17.763831|18.735713→18.220834|
+| Whole enclosing-turn misses above8.333ms |5/8→7/8|8/8→8/8|
+
+Each callback median is over eight per-timer aggregates of82 calls, not656
+individual measurements. Loaded revisions8→16 match. Recovery has7→8 timer
+calls; idle/loaded/recovery whole-turn populations are212/130/49 versus
+243/55/153. Those different loop populations are not equal-work frame rates.
+A later reconstruction of the same parent/child spans finds a FrameBuild in
+only5/8 loaded timer turns for the control versus7/8 for the candidate; all8
+silent timer turns contain a frame in both arms. The loaded whole-turn medians
+therefore also mix different in-turn painting work. An absent frame in a timer
+turn does not mean eventual painting is missing: the installed-picture counts
+above remain unchanged. The control's three recovery drain events remain outside
+its fixed prefix.
+All-phase whole-turn maxima are13.578/15.448/13.016 versus
+14.974/17.764/12.174ms. The silent observer median is8.005→8.892ms and paint
+median3.836→3.953ms. Instrumentation remains inside whole-turn costs; its
+subtraction does not establish uninstrumented performance, and medians are
+not additive. This single ordered pair shows lower callback aggregates but
+**no consistent whole-turn gain**, no isolated attribution among the three
+changes, no CPU-only result and no physical120Hz claim.
+
+Both drivers/outer wrappers exit0; native SIGTERM follows completed
+observations. Saved release records show all12 owned PIDs/eight groups absent
+and port5941 free. No retry, new baseline build or acceptance change occurs.
+The source package's v1 archive-header provenance concern is preserved:
+extraction already normalized Git modes; v2 explicitly supplies
+`tar.umask=0022`, without a failed staging run or changed production bytes.
+Frozen build/runtime evidence is in the private ink-pair checkout under
+`target/messages-current-integrated-{build,control-runtime,candidate-runtime}-v1`;
+lead raw reconstruction and equality checks are in MAIN
+`target/integrated-text-cache-evaluation`. The earlier archives remain intact.
+
+
+### 8.143 Linux observer hashing costs a substantial part of a frame interval, 2026-09-19
+
+A separate optimized primitive probe measures the exact13-line RGB batching
+helper from observer`17537a6f`, using the unchanged§8.142 candidate's final
+1024x768 RGB capture. Its2,359,296 bytes have SHA-256`e080ceb8`; opaque RGBA
+reconstruction happens before sampling. Each of24 alternating-order pairs
+hashes both that contiguous RGB buffer and the reconstructed RGBA through the
+original extraction/helper. All48 results equal the saved full digest.
+Initialization, updates and finalization are timed; input construction, digest
+comparison and output formatting are outside the samples. No application or
+GUI runs, no workload is reduced and no production source changes.
+
+| Standalone wall time,24 samples each | Minimum | Median | Maximum |
+|---|---:|---:|---:|
+| Exact RGB extraction plus SHA-256, ms |3.927266|3.958974|4.172725|
+| Contiguous RGB SHA-256, ms |3.709098|3.726827|3.783265|
+
+The actual AArch64 Linux ELF`3d7092dd` is freshly compiled with the app's opt3,
+thin LTO, one codegen unit and panic-abort release settings, debug0 and no
+incremental compilation. Actual sha2`0.10.9` features are default/std, without
+asm; its captured dispatcher selects the software backend on AArch64 despite
+the VM detecting the SHA2 hardware feature. This identifies an available
+investigation, not a measured hardware-backend benefit. All10 dependency
+archives match the repository lock checksums and their actual extracted source
+members; compilation uses the existing offline cache, with no new dependency.
+
+The original prebuild wrapper incorrectly expected a vendor checksum file in
+Cargo's registry cache; v1 stops before any compilation or probe. V2 preserves
+that failure and checks the cached archives directly. Its single build exits0
+in1.556s and its single probe exits0, without retry or cleanup signals.
+The fixed120s/30s guards and disk floor remain intact; owned process/group
+absence and Cargo-lock release are recorded separately.
+
+The primitive's roughly4ms median supports reducing recorder overhead before
+another whole-application comparison. It is not a CPU profile, a full observer
+measurement, an application gain or a quantity to subtract from old timings.
+The existing silent timer turns contain observer medians8.005/8.892ms; nested
+journal work accounts for only0.013521/0.015771ms at the median. Sampling,
+geometry witnesses and other recorder work remain in the observer interval,
+and medians are not additive. No uninstrumented or physical120Hz result follows.
+The private ink-pair checkout retains`target/observer-rgb-cost-v1` and`-v2`;
+MAIN`target/observer-cost-investigation` holds the independent48-sample arithmetic
+and the existing-span reconstruction, including§8.142's5/8 versus7/8 loaded
+painting qualification. Earlier captures and timings remain unchanged.
+
+### 8.144 A standard SHA-256 backend reduces the standalone observer primitive, 2026-09-19
+
+A fresh optimized Linux probe keeps§8.143's exact RGB extraction helper and
+full1024x768 input. Twenty-four alternating-order pairs compare sha2`0.10.9`
+default/std with ring`0.17.14`'s standard SHA-256 Context in the same binary.
+All48 full digests equal the captured2,359,296-byte RGB digest`e080ceb8`.
+Nine untimed pixel-count boundary controls check cross-backend equality,
+alpha-only invariance and changed-RGB detection; mutation is inapplicable for
+the empty input. Initialization, updates and finalization are timed. Input
+construction, comparisons and digest formatting happen outside sampling.
+
+| Extraction plus SHA-256 wall time,24 samples each | Minimum | Median | Maximum |
+|---|---:|---:|---:|
+| sha2 default/std, ms |3.926808|3.946725|4.635561|
+| ring standard backend, ms |0.885213|0.893879|1.020129|
+
+The AArch64 ELF`a043595f` uses the app's opt3, thin-LTO, one-codegen-unit,
+panic-abort release profile, debug0 and no incremental compilation. Actual
+ring features are alloc/default/dev_urandom_fallback. The VM reports SHA2
+support, and the captured standard dispatcher selects hardware support at
+runtime with a fallback. This is not an instruction trace or CPU attribution.
+The27 pinned dependency archives come from the existing cache and match their
+checksums; no dependency version, custom compression, forced CPU target or
+sha2 asm feature is introduced.
+
+One optimized build exits0 in1.972s and one primitive run exits0, with no retry
+or cleanup signal. The120s/30s guards and disk floor are unchanged; saved
+cleanup proves all10 recorded PIDs/eight groups absent and the Cargo lock
+released. Private`target/observer-rgb-backend-v1` preserves report`6eaefc05`
+and execution manifest`aa087425`. MAIN`target/observer-cost-investigation/`
+holds independent all48-sample/control arithmetic in`backend-independent.json`
+(`4449a067`) and selected final identity checks.
+
+This supports using the cheaper standard backend for subsequent recording.
+It establishes neither a whole-observer nor application speedup, and its
+difference must not be subtracted from earlier app timings. The prospective
+common observer changes pixel hashing and lowercase digest formatting only;
+snapshot hashing, workload, acceptance and quotas remain unchanged. A fresh
+application comparison is still required. No physical120Hz claim follows.
+
+### 8.145 Kernel measurement cache: fewer callbacks, mixed first Linux pair, 2026-09-19
+
+Two fresh optimized products share f72c142, the lighter§8.144 pixel recorder,
+the current Reusable factory and identical generated entry/plan/compat and
+fonts. Only`kernel/src/layout.rs` differs: control removes the already merged
+four-offer measurement cache while retaining current Video and invalidation
+behavior; candidate is current production. Actual2,005 source paths/23 links
+and five private `fresh:false` artifacts are checked for each capture.
+Control ELF`cf532a9b` builds in45.171s; candidate`5276fbf7` in42.736s.
+This experiment changes no production defaults.
+
+The first build stops before compilation because the workspace lock records
+ureq3.4.2 while the unchanged external Ibex manifest requires exactly3.4.0.
+One isolated offline metadata resolution changes only that version/checksum.
+Both fresh build inputs use the same explicit correction and retain
+`--locked --offline`; MAIN's lock and the original failed root stay unchanged.
+
+Each actual Linux cell passes once with full10,000 rows/32 updates at1024x768,
+three fixed2s phases,36 in-window handlers and18 exact ±40 wheel movements.
+Full nine-field History values match between arms at revisions0 and16,
+including all10,000 rows and UTF-8 body-byte totals. Four full RGB captures
+are byte-identical. Loaded prefixes install21/20 fresh pictures at revisions
+9–16; both command-free2s prefixes advance0→8 with eight timers and no input.
+Independent raw stderr/journal joins close all200/205 picture chains and
+the final clean fences at4862/4779. Drain observations receive no phase credit.
+
+| Complete advancing-timer cohort | Control | Current cache |
+|---|---:|---:|
+| Loaded timers / callbacks |8 /656|8 /552|
+| Loaded callback-sum median, ms |1.431738|1.536442|
+| Loaded geometry median, ms |1.530610|1.634882|
+| Loaded whole-turn median / max, ms |9.324122 /10.594503|9.893604 /10.829878|
+| Loaded whole turns above8.333ms |5/8|8/8|
+| Silent timers / callbacks |8 /656|8 /552|
+| Silent callback-sum median, ms |1.611929|1.573923|
+| Silent whole-turn median / max, ms |11.157025 /12.087592|10.918295 /12.125175|
+| Silent whole turns above8.333ms |7/8|8/8|
+
+Each advancing timer makes82→69 callbacks, but fewer calls do not establish
+lower cost. Loaded callback sums total11.430726→11.826135ms; silent sums
+12.472895→12.945632ms. These are per-timer aggregates, not individual callback
+medians. Only6/8 control loaded timer turns paint, versus8/8 candidate turns;
+restricting to those gives whole medians10.037875→9.893604ms, still unequal
+cohorts. All eight silent turns paint in both arms, with whole totals
+86.599525→88.178489ms. Idle has8/7 complete timers and recovery8/8; both have
+zero text callbacks. Their whole-turn maxima remain below8.333ms.
+
+Silent Paint medians are4.282414→4.123496ms and observer medians
+2.290364→2.298344ms. Paint remains a substantial application cost; observer
+wall time still includes work beyond hashing. Neither this one fixed-order
+pair nor comparison with older, differently instrumented products proves a
+consistent speedup, CPU attribution, repeatable gain or physical120Hz.
+
+After the control's successful native run/copy/cleanup, a local finalization
+helper reads an obsolete report path and stops before candidate launch. The
+failure remains frozen. Reading the actual copied path independently passes
+the original digest/acceptance assertions and all raw joins. A two-literal
+local helper correction then permits the candidate's first run,186.033s
+after control termination. Neither native cell is retried, and no runtime
+reader, source, quota or port changes. Both driver/outer exits are0; native−15
+is deliberate post-observation cleanup. All12 runtime PIDs/eight groups are
+absent and5941 is free; auxiliary copy/check children are separately retired.
+
+The private ink-pair checkout retains`messages-kernel-cache-ring-*-build-v2`
+and`-runtime-v2`, control seal`a530df9a`, candidate seal`6ec9a38c`, and
+`kernel-cache-ring-pair-closure-v1` manifest`9dfd7617`. MAIN ignored
+`target/kernel-cache-ring-evaluation` holds independent build, functional,
+timer and painting-cohort reconstructions. Build sources match before/after;
+runtime checks2028 identities before launch, with no post-runtime source
+rehash claimed. Earlier failures, archives and timings remain intact.
+
+### 8.146 Linux CPU Paint: text and shape fills dominate the recorded span, 2026-09-19
+
+One fresh optimized diagnostic keeps§8.145's current kernel-cache product,
+f72 source, Reusable factory, ring pixel recorder, fonts and normalized lock.
+Only ignored observer code changes: eleven outer Raster method guards and a
+fixed scalar accumulator. No production rendering changes or new phase IDs.
+Each Paint26 parent carries counts and wall-time sums for begin, fill, stroke,
+image, text, clip push/pop, opacity push/pop, pointer and finish. Exact parent,
+input and frame-attempt identity, closed status, flags, count and elapsed bounds
+are checked. Missing, nested, overflowing or incomplete data refuses attribution.
+There are two clock reads and TLS bookkeeping per admitted method call; no
+per-glyph clocks, per-call allocations or retained rendering objects. Fixed
+recorder caps remain unchanged, and extra instrumentation cost is not zero or
+measured separately. Eight actual-recorder-core Rust checks and ten focused
+reader checks pass before the full build.
+
+The aarch64 ELF`3126cbc6` passes one optimized build and the original actual
+Linux workload once: full10,000 rows/32 updates at1024x768, three fixed2s input
+phases plus command-free2s. All36 handlers and18 exact ±40 wheel movements are
+inside their prefixes. Initial full History9 and three setup RGB buffers match
+the prior candidate. Final history naturally reaches17 rather than16: all
+10,000 rows and body-byte totals validate, the first9,968 rows remain exact,
+and the last32 preserve their other four fields. Final pixels close their own
+197/4744 picture/fence; they are not an equal-revision comparison with the old
+final image. No prior timing is paired with this instrumented diagnostic.
+
+Raw stderr equals the4,744-event journal. Independent reconstruction closes
+197 complete picture/Paint chains,1,099 turns and14,757 phase spans, with at
+most72 rows per turn and no missing/flagged Paint aggregates. Strict whole-turn
+containment selects12/19/12 Paints in idle/load/recovery. Loaded has seven
+complete timer turns, five containing Paint; timer4511 straddles the prefix
+boundary and is excluded. All eight silent timer turns contain Paint and
+advance0→8 without input or drain credit.
+
+| Silent cohort: eight Paints | Per-Paint aggregate median, ms | Sum, ms | Share of summed Paint |
+|---|---:|---:|---:|
+| Whole Paint |3.740035|28.276935|100%|
+| Text,392 calls |1.932441|14.459548|51.135%|
+| Fill,200 calls |1.520194|11.367376|40.200%|
+| Begin,8 calls |0.156188|1.175630|4.158%|
+| Unclassified remainder |0.144481|1.113424|3.938%|
+
+These medians describe each Paint's aggregate, not individual method calls;
+medians are not additive. Non-overlapping method sums are bounded by their
+own parent. Clip push totals0.007749ms and pop0.000500ms; pointer0.152332ms,
+finish0.000376ms. Stroke, image and opacity methods have zero calls in this
+cohort. Text includes ink-index construction/query, glyph-cache/raster work
+and drawing. Fill includes path construction and rasterization. Neither is
+isolated CPU, and the remainder is not a specific named algorithm. Across all
+19 strict loaded Paints, text/fill account for44.98%/45.39% of summed Paint.
+This supports investigating actual shape fills alongside text before selecting
+another generic glyph-blitter change; it does not establish a particular fill
+shape, cache policy or replacement rasterizer as the cause.
+
+Whole-turn misses remain. The eight silent timer turns have median9.266950ms,
+maximum12.887005ms and6/8 above8.333ms. The seven loaded timer turns have
+median9.250075ms, maximum10.109620ms and5/7 misses; only five paint. All-phase
+idle/load/recovery maxima are7.637528/10.109620/6.825983ms. This is one
+diagnostic, not repeated benefit, uninstrumented performance or physical120Hz.
+
+All2,006 actual source paths/23 links match before and after building; the
+three diagnostic source differences are explicit. Generated entry/plan/compat
+remain byte-identical to the current candidate. An initial local binding copy
+refuses a newly copied read-only destination; the owned destination-mode fix
+is preserved before any build. A later independent arithmetic script's exact
+wheel-input/ACK-input assumption fails because subsequent pointer packets can
+share the batch. Its corrected join uses the complete post-handler picture,
+forbids intervening key/wheel input, and still requires exact predecessor
+movement. Neither issue changes runtime acceptance or causes a native retry.
+Driver/outer exits are0; native−15 is intentional post-observation cleanup.
+Saved release`54798269` proves six runtime PIDs/four groups absent and5941 free.
+
+MAIN ignored`target/linux-paint-cost-source-v1` seal`67019dce` preserves source
+and pure checks;`target/paint-cost-evaluation` holds independent source, raw,
+aggregate, cohort and functional proofs. The private ink-pair checkout keeps
+`messages-paint-cost-build-v1` capture`5118f90e` and
+`messages-paint-cost-runtime-v1` capture`c0c085b4`. Historical archives remain
+unchanged. No new native SplitFacts reference is consumed or authorized.
+
+### 8.147 Fill-mask shortcut rejected; actual fill categories
+
+An isolated tiny-skia0.12 prototype first checks actual clip-mask bytes for
+full255 coverage before omitting the mask. The broad version changes rounded
+AA edge pixels: masked SourceOver and mask-free Source use different lowp
+rounding. This is an executed pixel mismatch, not only a source concern.
+The broad optimization is rejected without production integration.
+
+The third/final prototype round retains only opaque integer rectangles with
+identity device transform;1,440 full-buffer controls pass, with only15 positive
+optimized cases, plus4,000 randomized rounded fallback controls. Those4,000
+are not positive optimization coverage. Eight alternating synthetic pairs of
+32 full1024x768 all255-mask fills have median58.901→7.724ms on this Mac;
+rounded and partial-mask cases retain the original path. This isolated win
+has no demonstrated Messages eligibility, Linux or whole-app benefit. The
+narrow prototype also remains unselected. The first setup failure (cached
+LLVM22 bitcode sent to Apple's LLVM21 linker without rustc LTO) and subsequent
+actual AA mismatch are preserved; thin LTO fixed only the link setup.
+
+A separate diagnostic keeps the actual Linux full10,000/32 workload, current
+rendering and acceptance unchanged. The original outer Fill timer is divided
+into five exclusive geometry/clip categories. Original method indices stay;
+legacy Fill must be zero, and the version2 reader requires all16 fields.
+Integer geometry means opaque, identity-transform, finite positive exact integer
+endpoints/limited dimensions; it does not certify mask bytes or fast-path
+eligibility. Five extra count/time pairs cost20,480 fixed TLS bytes; category
+calculation lies before the method clock and remains in the parent remainder.
+Existing caps, two clocks per outer call and zero per-glyph records remain.
+12 Python and10 actual-recorder/scalar Rust checks pass before the build.
+
+The single optimized actual-Linux product`0c6e0ea4` builds in42.050s and
+passes the original workload once. Raw stderr equals4,779 journal events;
+1,138 turns/14,937 spans close196 full picture/Paint chains, maximum66 span
+rows/turn, no missing or flagged fill aggregates. All196 Paints contain
+833 unmasked rectangle,2,940 unmasked rounded and1,774 masked rounded calls;
+**zero masked rectangles of either geometry class**. Thus the only exact-pixel
+shortcut retained by the isolated prototype has no eligible calls in this run
+and is not integrated.
+
+All36 handlers and18 exact±40 wheels are inside the three fixed2s prefixes.
+Eight command-free timers advance0→8 without drain credit. Both full10,000-row
+History9 values (initial0/final17) and allfour2,359,296-byte RGB buffers equal
+§8.146's diagnostic exactly; compared with§8.145's older final16, only setup
+RGBs are an equal-revision comparison. The final picture196/fence4779 is
+complete. This functional agreement does not pair the two diagnostics' timing.
+
+| Silent eight Paints: fill category | Calls | Per-Paint aggregate median, ms | Sum, ms | Share of summed Fill |
+|---|---:|---:|---:|---:|
+| Masked rounded |48|0.955191|7.628028|63.647%|
+| Unmasked rectangle |32|0.435127|3.400098|28.370%|
+| Unmasked rounded |120|0.128481|0.956798|7.983%|
+| Masked rectangle, both classes |0|0|0|0%|
+
+Whole Fill median is1.506111ms; whole Paint median3.760954ms and maximum
+4.775770ms. Text aggregate median1.883362ms remains separate. Category medians
+are not additive and describe per-Paint aggregates, not individual shape calls.
+Six of eight loaded complete timer turns paint; their masked-rounded sum is
+6.201359ms,64.065% of summed Fill. One idle timer paints; recovery timers do not.
+Whole silent timer median9.803542ms/max12.382469ms and6/8 misses remain;
+loaded whole median9.368477ms/max11.983176ms also has6/8 misses. All-phase
+idle/load/recovery whole maxima are8.823996/11.983176/7.748492ms. No A/B gain,
+CPU attribution, observer-free cost or physical120Hz is established.
+
+The measured fill priority is now masked rounded geometry, not the synthetic
+integer-rectangle win. The next source-sized candidate is conservative rejection
+of fully clipped fills using the existing coverage bounds, preserving the exact
+masked AA path for every visible shape. The present data do not count how many
+rounded fills are fully clipped, and establish no culling benefit or cache policy.
+
+Source/binding/capture preserve2,006 source paths (including23 links), the Reusable factory,
+unchanged entry/plan/compat and exact fonts/external inputs. The first local
+launch setup omits creation of the caller-owned output directory and fails
+writing preflight/terminal metadata before transport/native Popen. Creating that
+exact directory permits the unchanged sealed command; there is one actual
+runtime attempt, no native retry or source correction. All driver/outer exits
+are0; native−15 is deliberate post-observation cleanup. Release`bc85f47e` proves
+six runtime PIDs/four groups absent and5941 free.
+
+The rejected prototype is frozen at MAIN`target/fill-mask-probe-v1`
+(`2238d45b`). Diagnostic source`target/linux-fill-category-source-v1`
+(`ed1b1445`) and build binding`target/messages-fill-category-ready-v1`
+(`9a22ddca`) remain separate. Private ink-pair
+`messages-fill-category-build-v1` capture`2b2aca04` and
+`messages-fill-category-runtime-v1` capture`7706a7dd` preserve actual products
+and raw evidence. MAIN`target/fill-category-evaluation` holds the independent
+reconstruction, full equality checks and category tables. No rendering
+optimization is shipped in this increment; the native SplitFacts reference
+budget remains exhausted at3/3.

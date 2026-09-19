@@ -33,6 +33,11 @@ const motion = motionController({views, now:()=>now(), generation:()=>incarnatio
     return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
   }
 });
+const arrange = arrangeController({views, collections, motion, now:()=>now(), generation:()=>incarnation,
+  inert:inertAncestor, applyBatch, ready:()=>inputReady, request(facts) {
+    if(!wasm)return {accepted:false};const bytes=motionBytes(facts),ptr=wasm.exact_in(bytes.length);
+    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
+  }});
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -40,13 +45,8 @@ function syncMedia(el, set = {}, clear = []) {
   Object.assign(el.exactMedia.props, set);
   for (const name of clear) delete el.exactMedia.props[name];
   mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
-  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 18, writeIn(payload), now())); }); }).catch(console.error);
+  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error);
 }
-const arrange = arrangeController({views, collections, motion, now:()=>now(), generation:()=>incarnation,
-  inert:inertAncestor, applyBatch, ready:()=>inputReady, request(facts) {
-    if(!wasm)return {accepted:false};const bytes=motionBytes(facts),ptr=wasm.exact_in(bytes.length);
-    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
-  }});
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageFrames = new Set(); // iframes whose node handles `message`
@@ -590,7 +590,6 @@ function viewFor(op, id) {
   return el;
 }
 function apply(batch) {
-  listSelection?.before();
   // The runner has already removed these views. A preceding children op can
   // detach a focused descendant (and synchronously blur it) before its destroy
   // op arrives. Retire dispatch first, while keeping the DOM lookup for cleanup.
@@ -600,6 +599,7 @@ function apply(batch) {
       if (el) retiredViews.add(el);
     }
   }
+  listSelection?.before();
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
@@ -773,7 +773,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); retiredViews.add(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -811,9 +811,9 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
+  if (collectionOp) collections.commit(collectionOp.items);
   listSelection?.after();
   syncLists();
-  if (collectionOp) collections.commit(collectionOp.items);
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const { args, selectText } of focusCommands) {
@@ -1308,9 +1308,9 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
+  collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); }
-  collections.reset();
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}

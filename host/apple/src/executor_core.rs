@@ -378,7 +378,9 @@ fn worker(
             bytes,
         } = job;
         let work = match work {
-            Some(OwnedWork::Later(hand)) if request.continuation.is_some() => {
+            Some(OwnedWork::Later(hand))
+                if request.continuation.is_some() && request.storage.is_none() =>
+            {
                 let owner = shared.clone();
                 let reply =
                     Reply::new(move |outcome| complete(&owner, lane, ticket, bytes, outcome));

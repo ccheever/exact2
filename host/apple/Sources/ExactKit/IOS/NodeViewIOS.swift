@@ -545,9 +545,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        presenter?.syncLists()
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
+        presenter?.syncLists()
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.

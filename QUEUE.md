@@ -35,6 +35,10 @@ sits on that list carries the trade it would take.
   native measurement/list settlement, measure already-running file switches,
   and validate partial blank/stale content during fast scrolling. Current
   identities, methods and limits are in `apps/markdown/README.md`.
+
+- **Internal event/property ID collisions** (Charlie, 2026-09-19): investigate assignment and cross-branch collision detection after navigation and video independently claimed host dispatch kind 14 (merged as navigation 14, media 19).
+  Audit the manually mirrored Rust/Swift/browser dispatch codes alongside generated kernel property IDs and plan event ordinals; determine how to keep assignments consistent and detect incompatible host/plan pairs without adding another declaration authority.
+
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
@@ -44,6 +48,17 @@ sits on that list carries the trade it would take.
   drive print success after closing sessions but leave Bun alive; find the
   remaining handle. Explicit exit after the smoke returns completes cleanly.
 
+- **Apple text: cache the line-break boundaries per spec** (2026-09-18; LLP 1043 F7):
+  under `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over
+  the whole paragraph at every width (25–31 µs on a 79–120 µs snapshot, probe only);
+  the boundaries depend on the text alone. Keep them beside `typesetters`; confirm in
+  the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
+
+- **Text around shapes** (2026-09-18; LLP 1043.000, Draft RFC, not in `current/` — the set is full):
+  `wrap-flow` / `shape-outside` exclusions a paragraph flows around on both sides, per frame; kernel
+  resolves them after layout, a shared `exact-textflow` crate walks lines, Apple can start on CoreText
+  (a screenful at 1.1 ms a frame, measured). Ruled 2026-09-18 (§6): CSS names, always linked, Taffy to upstream 0.14 for
+  auto-height (stage 0, its own lane), `every(16, …)`; Claude builds stage 1 (definite-height flow, kernel + Apple) in `lane/textflow`.
 
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
@@ -550,3 +565,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
   Full-workspace repair is stopped at the three-round rule; native reader
   verification continues separately. Evidence: `target/markdown-comparison/
   origin-integration/workspace-round3-*` in the original checkout.
+
+- Video (LLP 1042): verify PiP/AirPlay on physical devices; complete the designed track/controller and app audio-session ownership APIs before promising captions, background playback or DRM. Linux carries an explicitly unavailable video box.
+
+- Hermes incremental rebuild inputs (2026-09-19): `js/build.rs` captures macOS/Linux engine archives in OUT_DIR but only watches iOS archives; replacing the external compiler/VM can leave a warm native build stale. Add upgrade invalidation together with `scripts/app.mjs` receipt identity support for external SDK inputs; simply adding external rerun-if-changed paths currently makes bake receipt capture refuse them. Until then, clean exact-js when provisioning a new compiler/engine.
+
+- Linux baseline failures found during dependency verification (2026-09-19): `exact-gpu` references Apple-only `SurfaceTargetUnsafe::CoreAnimationLayer` on Linux; Hermes ICU `DateTimeFormat.formatToParts` returns timestamp text (same with old 6badada and new e3371863); Ibex loader-case fixture expects a case-insensitive filesystem. Repair separately from the dependency upgrade; current Linux full-workspace checks are not green.

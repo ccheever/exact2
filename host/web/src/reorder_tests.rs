@@ -325,7 +325,7 @@ fn disabled_handle_receipt_enters_no_action_terminal_and_can_cleanup() {
     assert_eq!(h.runner.slot("count"), Some(&DataValue::Number(0.)));
 }
 #[test]
-fn abi_kind19_uses_common_binary_codec_and_refuses_before_clock() {
+fn abi_kind18_uses_common_binary_codec_and_refuses_before_clock() {
     let mut bridge = crate::abi::Bridge::new();
     let n = bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
@@ -360,11 +360,11 @@ fn abi_kind19_uses_common_binary_codec_and_refuses_before_clock() {
     .reorder_drop_bytes()
     .unwrap();
     bridge.input_write(&bytes);
-    let n = bridge.dispatch(list, 19, bytes.len(), 100.);
+    let n = bridge.dispatch(list, 18, bytes.len(), 100.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("\"text\":\"1\""), "{out}");
     bridge.input_write(&[1, 2]);
-    let n = bridge.dispatch(list, 19, 2, f64::NAN);
+    let n = bridge.dispatch(list, 18, 2, f64::NAN);
     assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
         .unwrap()
         .contains("invalid reorder event"));

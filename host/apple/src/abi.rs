@@ -797,7 +797,7 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            18 => {
+            19 => {
                 let Some(event) = Event::media_payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
                 };

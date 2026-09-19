@@ -33,11 +33,11 @@ fn media_properties_events_and_rejections() {
     bridge.boot(&plan.encode(), caltrain_data::Caltrain, 320., 200., "/");
     let payload = b"timeupdate\n12.5";
     bridge.input_write(payload);
-    let n = bridge.dispatch(id, 18, payload.len(), 100.);
+    let n = bridge.dispatch(id, 19, payload.len(), 100.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("12.5"), "{out}");
     bridge.input_write(payload);
-    let n = bridge.dispatch(id, 19, payload.len(), 100.);
+    let n = bridge.dispatch(id, 18, payload.len(), 100.);
     assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
         .unwrap()
         .contains("invalid reorder event"));

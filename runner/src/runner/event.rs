@@ -199,7 +199,7 @@ pub enum Event {
 }
 
 impl Event {
-    /// Decode a media event carried as `name\npayload` through host kind 18.
+    /// Decode a media event carried as `name\npayload` through host kind 19.
     pub fn media_payload(payload: &str) -> Option<Self> {
         let (name, value) = payload.split_once('\n')?;
         let kind = EventKind::from_name(name)?;

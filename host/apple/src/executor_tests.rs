@@ -460,6 +460,27 @@ fn response_ceiling_and_missing_continuations_fail_without_poisoning_the_lane() 
     )
     .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].1, Outcome::Storage(vec![42]));
+
+    // Storage retains priority over a continuation even for an async handoff.
+    let mut storage = Request::continuation(3);
+    storage.storage = Some(vec![]);
+    let invoked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = invoked.clone();
+    core.run_owned(
+        job(5, storage),
+        Some(OwnedWork::Later(Box::new(move |_| {
+            observed.store(true, Ordering::SeqCst);
+        }))),
+    )
+    .unwrap();
+    assert!(matches!(
+        collect(&core, &woke, 1)[0].1,
+        Outcome::Failed {
+            kind: FailureKind::Unsupported,
+            ..
+        }
+    ));
+    assert!(!invoked.load(Ordering::SeqCst));
 }
 
 #[test]

@@ -409,13 +409,13 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            18 => {
+            19 => {
                 let Some(event) = Event::media_payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
                 };
                 event
             }
-            19 => {
+            18 => {
                 let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
                 else {
                     return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
