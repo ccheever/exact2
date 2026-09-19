@@ -418,7 +418,13 @@ public final class ExactSession {
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
         presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction in
+            #if canImport(AppKit)
+            let post = Presenter.signposts.beginInterval("exact_list")
+            #endif
             let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction)
+            #if canImport(AppKit)
+            Presenter.signposts.endInterval("exact_list", post)
+            #endif
             // Scrolling within the mounted window changes no native views.
             // Avoid running every presenter's batch-finalization pass for it.
             if !batch.ops.isEmpty || batch.error != nil { apply(batch) }

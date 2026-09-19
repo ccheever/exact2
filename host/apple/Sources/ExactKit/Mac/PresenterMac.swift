@@ -4,6 +4,7 @@
 // web views, and menus through it.
 #if os(macOS)
 import AppKit
+import os
 
 /// The viewport: a click that reached it — on no node that takes the focus
 /// or a press — ends the editing, as a click on a page's blank ground blurs
@@ -52,6 +53,9 @@ final class PageScrollView: NSScrollView {
 }
 
 final class Presenter {
+    /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
+    /// what the main thread spent on a list window, a batch, a text slice.
+    static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -103,7 +107,11 @@ final class Presenter {
             object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
     }
 
-    deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
+    deinit {
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        if let pumpObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), pumpObserver, .commonModes) }
+        pumpTimer?.invalidate()
+    }
 
     /// How far past its visible part a paragraph's text is painted, and how
     /// close to that painted edge the visible part may come before the band
@@ -204,6 +212,8 @@ final class Presenter {
     // MARK: The pump — list fill and text admission, a slice per frame
 
     private var pumpTimer: Timer?
+    private var pumpObserver: CFRunLoopObserver?
+    private var sliceDue = false
     private var listSyncPending = false
     private var textPending = false
 
@@ -211,6 +221,8 @@ final class Presenter {
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
         guard !applying else { return }
+        let post = Self.signposts.beginInterval("scrolled")
+        defer { Self.signposts.endInterval("scrolled", post) }
         if listsNeedRowsNow() { syncLists() } else { listSyncPending = true }
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
@@ -225,10 +237,24 @@ final class Presenter {
 
     private func startPump() {
         guard pumpTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.pump() }
+        // The timer only paces: a slice is due about once a frame. The slice
+        // itself runs from the run loop's before-waiting observer, after Core
+        // Animation's (order 2,000,000) has committed whatever this pass did —
+        // AppKit's scroll synchronization above all — so a slice never sits
+        // between a frame's work and its commit, and has the whole sleep ahead.
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.sliceDue = true }
         timer.tolerance = 0
         RunLoop.main.add(timer, forMode: .common)
         pumpTimer = timer
+        if pumpObserver == nil {
+            let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_000_001) { [weak self] _, _ in
+                guard let self, self.sliceDue else { return }
+                self.sliceDue = false
+                self.pump()
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            pumpObserver = observer
+        }
     }
 
     /// Everything the pump owes, now. The agent's wheel is synchronous — it
@@ -246,10 +272,16 @@ final class Presenter {
     private func pump() {
         if listSyncPending {
             listSyncPending = false
+            let post = Self.signposts.beginInterval("pump-list")
             syncLists()
+            Self.signposts.endInterval("pump-list", post)
             return
         }
-        if textPending { textPending = refreshVisibleText(limit: Self.textBandsPerSlice) }
+        if textPending {
+            let post = Self.signposts.beginInterval("pump-text")
+            textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
+            Self.signposts.endInterval("pump-text", post)
+        }
         if !listSyncPending && !textPending {
             pumpTimer?.invalidate()
             pumpTimer = nil
@@ -499,6 +531,8 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
+        defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         toolbar.prepare()
         for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
