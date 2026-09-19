@@ -6246,3 +6246,47 @@ full Messages candidate still refuses at64 with no partial publication. Native
 source/artifact capacity, coherent collection/decorations/actions and full
 worker publication remain unfinished; no app activation, native timing gain
 or120Hz result follows from this kernel increment.
+
+### 8.110 Complete Messages replay exposes capacity and coordinate gaps, 2026-09-18
+
+A separate CPU diagnostic temporarily raises only the private exact-offer
+ceiling to1,024, retaining the4,096-node and16MiB source limits. The actual
+full10k/batch32 Contract uses the same test envelope and all16 bootstrap rows,
+including sender, body, metadata and Reply text. Each candidate is discovered
+through the real first-missing-request API and exact Monospace answers, followed
+by all final paint offers. No ordinary layout supplies missing region metrics.
+An independent ordinary kernel supplies the comparison and feedback inputs;
+preceding completed-stage comparisons check the corresponding heights. This
+does not exercise native presented-picture feedback or payload memory.
+
+| Complete stage | Rows / paragraphs | New replies / accepted offers |
+| --- | --- | --- |
+| Bootstrap |16 /64|288 /288|
+| First tail feedback |33 /132|594 /594|
+| Settled tail |6 /24|0 /108|
+| Narrower width |6 /24|78 /108|
+| One batch32 step |6 /24|39 /108|
+| Feedback after that step |5 /20|0 /90|
+
+The first tail refinement naturally mounts33 rows; none are omitted to fit.
+Old A plus complete B reaches882 exact artifact slots/unique tuples, while
+deduplicated canonical source UTF8 peaks at12,711B. These are logical tuple and
+source counts with marker payloads, not native allocation sizes. The real step
+advances revision0→1 and changes32 data rows; six mounted body sources change,
+and one unchanged sender needs additional exact offers. Ten stages complete
+discovery with999 new replies and1,009 compute passes. Quiet completion says
+nothing about keeping up with a continuing4Hz producer.
+
+The strict comparison **fails**: ten bootstrap descendant Y coordinates differ
+in floating-point bits, for example499.8 versus499.80002. All later stages,
+widths/heights/X, extents and composer checks match. Different addition order
+between local projection and ordinary root-first flattening is a hypothesis,
+not a verified repair. The first failed assertion and the second diagnostic's
+aggregate failure are both retained; no tolerance or third run was introduced.
+All original private bytes/modes were restored, including the production64
+limit; a distinct diagnostic Cargo configuration isolates its artifacts.
+
+The28-file archive is `exact2-messages-region-consumer/target/messages-region-consumer-prep/replay-inventory-v1/`,
+manifest17b0f588. Neither128 nor512 is justified by this inventory, and1,024 is
+not a selected shipping policy. Native capacity, exact projection, interactive
+publication and progress under sustained updates remain unfinished.
