@@ -133,6 +133,8 @@ pub struct Sim<G: Game> {
     pub(crate) world: World,
     base: Vec<u8>,
     base_args: String,
+    // Provenance of this base, never serialized: Open can install an older build.
+    base_authored: bool,
     pub(crate) reload: crate::world::reload::Report,
     setup_pending: bool,
     asset_mesh_revision: u64,
@@ -299,6 +301,7 @@ impl<G: Game> Sim<G> {
         }
         args.check_scalars()?;
         G::validate(&args)?;
+        let base_authored = restored_world.is_none();
         let (world, base) = if let Some(world) = restored_world {
             (world, Vec::new())
         } else {
@@ -308,6 +311,7 @@ impl<G: Game> Sim<G> {
         };
         Ok(Self {
             base,
+            base_authored,
             base_args: crate::json::to_string(&args).map_err(|e| e.to_string())?,
             reload: Default::default(),
             setup_pending: !world.assets.ready(),
@@ -398,6 +402,7 @@ impl<G: Game> Sim<G> {
         }
         if let Some((mut world, base)) = restart {
             self.base = base;
+            self.base_authored = true;
             self.base_args = crate::json::to_string(&args).map_err(|e| e.to_string())?;
             self.reload = Default::default();
             self.capture_fail("construction binding restarted the world; start a new capture");

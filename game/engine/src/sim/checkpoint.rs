@@ -128,7 +128,8 @@ impl<G: Game> Sim<G> {
             self.world.assets.clone(),
             budget,
             carry,
-            Some((self.base.as_slice(), self.base_args.as_str())),
+            self.base_authored
+                .then_some((self.base.as_slice(), self.base_args.as_str())),
             Some(self.world.registered_scratch()),
         )?;
         next.defer_assets = self.defer_assets;
@@ -256,6 +257,7 @@ impl<G: Game> Sim<G> {
         }
         // Merge only after typed decode and any separate initializer construction.
         if carry {
+            next.base_authored = true;
             let authored = authored.or_else(|| {
                 fresh_base
                     .as_ref()
@@ -271,6 +273,13 @@ impl<G: Game> Sim<G> {
             next.world
                 .validate_hierarchy(&mut bin::Decoder::for_load(&[], budget))?;
         } else {
+            let saved_base_args = if s.base_args.is_empty() {
+                &s.args
+            } else {
+                &s.base_args
+            };
+            next.base_authored = authored
+                .is_some_and(|(base, base_args)| base == s.base && base_args == saved_base_args);
             next.base = s.base;
             next.base_args = if s.base_args.is_empty() {
                 s.args.clone()
@@ -318,6 +327,9 @@ mod reload_atomic_tests {
     struct Probe<const EDITED: bool>;
     impl<const EDITED: bool> Game for Probe<EDITED> {
         const ID: &'static str = "typed-then-authored";
+        fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+            w.register::<Transform>();
+        }
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.spawn_named(
@@ -370,6 +382,37 @@ mod reload_atomic_tests {
         );
         assert_eq!(restored.save().unwrap(), saved);
         assert_eq!(SETUPS.with(|n| n.get()), 0);
+    }
+    #[test]
+    fn carry_after_open_or_standalone_decode_uses_the_current_build_initializer() {
+        let old = Sim::<Probe<false>>::new(()).unwrap();
+        let saved = old.save().unwrap();
+        for standalone in [false, true] {
+            let mut target = if standalone {
+                Sim::<Probe<true>>::from_save(&saved).unwrap()
+            } else {
+                let mut target = Sim::<Probe<true>>::new(()).unwrap();
+                target.open_bound(&saved).unwrap();
+                target
+            };
+            assert_eq!(
+                target.save().unwrap(),
+                saved,
+                "Open must preserve old authored bytes"
+            );
+            target.restore_bound(&saved).unwrap();
+            assert_eq!(
+                target.world().require::<Transform>("probe").scale,
+                Vec3::splat(2.)
+            );
+            assert!(
+                !target.reload.json().contains("\"applied\":[]"),
+                "missing merge cannot pass"
+            );
+            let carried = target.save().unwrap();
+            target.restore_bound(&carried).unwrap();
+            assert_eq!(target.save().unwrap(), carried);
+        }
     }
     fn encode(saved: &Saved) -> Vec<u8> {
         let mut w = bin::Encoder::prefixed(b"EXSIM\0\x07");

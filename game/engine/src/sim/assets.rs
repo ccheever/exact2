@@ -178,6 +178,7 @@ impl<G: Game> Sim<G> {
                 .initializer()
                 .expect("deferred authored initializer exceeds its work bound");
             self.base_args = self.args_json.clone();
+            self.base_authored = true;
             self.reload = Default::default();
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
