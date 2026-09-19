@@ -595,7 +595,7 @@ public final class ExactSession {
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
-        if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
+        if batch.timers, clockTimer == nil, !ExactEnv.agentMode, ExactEnv.environment["EXACT_DIAG_NOCLOCK"] == nil {
             clockTimer = SessionClockTimer.schedule { [weak self] _ in
                 guard let self else { return }
                 apply(runtime.advance(now: now()))

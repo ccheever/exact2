@@ -7,13 +7,20 @@
 // (LLP 1031 D1), never a global.
 #if os(macOS)
 import AppKit
+import IOSurface
 
 private final class SymbolClip: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+// DIAG (temporary, not for commit): switches for bisecting render-server stalls.
+enum Diag { static func on(_ name: String) -> Bool { ExactEnv.environment["EXACT_DIAG_" + name] != nil } }
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: Diag.on("NOOVERDRAW") ? visibleRect : rect)
+    }
 }
 
 /// A material paints, but never supplies a new hit target or focus owner.
@@ -193,7 +200,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     /// The paragraph's text as a worker-painted sublayer (TextRasterMac.swift).
-    var textRaster: CALayer?
+    var textRaster: IOSurface?
+    var textRasterScale: CGFloat = 2
     var textRasterKey: TextRasterKey?
     var textRasterReady = false
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
@@ -970,17 +978,19 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     private(set) var hasBoxPaint = false
     override var wantsUpdateLayer: Bool {
         if kind == "text" { return rastersText }
+        if Diag.on("NODRAW"), kind != "image", kind != "canvas", kind != "iframe" { return true }
         return !hasBoxPaint && !Capture.capturing && kind != "image"
             && kind != "canvas" && kind != "iframe"
     }
     override func updateLayer() {
-        layer?.contents = nil
         if kind == "text" {
             // AppKit asks for its overdraw as well as for what is on screen.
             // Only what is on screen without pixels is painted here, rather
             // than shown blank; the rest is a worker's.
-            textRaster?.isHidden = false
             presenter?.textRasters.ensure(self, urgent: !visibleRect.isEmpty)
+            if textRaster != nil { presentTextRaster() } else { layer?.contents = nil }
+        } else {
+            layer?.contents = nil
         }
         repaintThrough()
         if presenter?.views[id] === self { firstDraw() }
@@ -1051,8 +1061,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
         let scrollbarWidth = s["scrollbar_width"] as? String ?? "auto"
-        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
-        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
+        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none" && !Diag.on("NOSCROLLERS")
+        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none" && !Diag.on("NOSCROLLERS")
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         clipsToBounds = ox == "hidden" || oy == "hidden"
@@ -1115,7 +1125,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
-        if textRaster != nil { hideTextRaster() }
         repaintThrough()
         if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
             // A canvas nested under a canvas painted through its surface: its

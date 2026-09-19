@@ -132,30 +132,28 @@ extension NodeView {
     var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil }
 
     func showTextRaster(_ image: IOSurface?, for key: TextRasterKey) {
-        guard textRasterKey == key, let image, let host = layer else { return }
-        let target: CALayer
-        if let existing = textRaster { target = existing } else {
-            target = CALayer()
-            // A row's pixels arrive; they do not fade in or slide.
-            target.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull(), "onOrderIn": NSNull(), "onOrderOut": NSNull()]
-            target.anchorPoint = .zero
-            target.contentsGravity = .resize
-            host.addSublayer(target)
-            textRaster = target
-        }
-        target.contentsScale = key.scale
-        target.bounds = CGRect(origin: .zero, size: key.size)
-        target.position = .zero
-        target.contents = image
-        target.isHidden = !rastersText
+        guard textRasterKey == key, let image else { return }
+        textRaster = image
+        textRasterScale = key.scale
         textRasterReady = true
+        if rastersText { presentTextRaster() }
     }
 
-    /// `draw` is painting this paragraph's text itself (a selection, a capture).
-    func hideTextRaster() { textRaster?.isHidden = true }
+    /// The surface is the view's own layer contents — no sublayer to commit,
+    /// composite or keep in step — while `updateLayer` is how AppKit asks
+    /// this view for pixels. `draw` replaces it when the view paints itself.
+    func presentTextRaster() {
+        guard let layer, let surface = textRaster else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.contentsScale = textRasterScale
+        layer.contentsGravity = .resize
+        layer.contents = surface
+        CATransaction.commit()
+    }
 
     func dropTextRaster() {
-        textRaster?.removeFromSuperlayer()
+        if textRaster != nil, wantsUpdateLayer { layer?.contents = nil }
         textRaster = nil
         textRasterKey = nil
         textRasterReady = false

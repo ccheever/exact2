@@ -424,8 +424,13 @@ impl ListWindow {
                             Value::Number(self.height)
                         },
                     ),
-                    ("overflow_x", Value::str("hidden")),
-                    ("overflow_y", Value::str("hidden")),
+                    // A fixed row clips what does not fit its declared height.
+                    // A measured row is as tall as its content, the list clips
+                    // the inline axis, and absolute positioning already makes
+                    // the wrapper a formatting context: a clip there is only a
+                    // clipping group per row for the compositor to carry.
+                    ("overflow_x", Value::str(if self.measured { "visible" } else { "hidden" })),
+                    ("overflow_y", Value::str(if self.measured { "visible" } else { "hidden" })),
                 ],
             )?;
             u.ops.push(Op::SetProp {
