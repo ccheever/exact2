@@ -50,26 +50,72 @@ The overnight `lane/markdown-smooth` work is preserved and integrated with
 `origin/main` at `f61ff1c4`; the lower-hitch goal remains unproven. LLP 1044 is
 the inherited investigation, not a new design authority. Retained work increases
 measurement memo capacity, settles measured rows within one native call, defers
-retirement-only passes, permits AppKit responsive scrolling, and schedules list
-fill and text preparation in display-link slices.
+retirement-only passes, and permits AppKit responsive scrolling.
 
-Independent source review found that a distant pinned row could conceal an
-unmounted gap from the new coverage fast path. Discontiguous mounted positions
-now force a viewport report; the native regression fixture scrolls into that gap.
-Offscreen text rasterization now admits at most two outstanding jobs without a
-backlog, retries deferred paragraphs, and does not retain retired NodeViews.
+Independent review found that a distant pinned row could conceal an unmounted
+gap from the coverage fast path. Discontiguous mounted positions now force a
+viewport report. Retirement deferral now requires unchanged viewport bounds and
+pins, so pin release and a hidden or resized viewport retire the appropriate rows.
+The native pinned-gap fixture and all ten web list tests pass. Offscreen text
+rasterization admits at most two outstanding jobs without a backlog, retries
+deferred paragraphs, and does not retain retired NodeViews. Integration also fixes
+completed worker-stage argument retention and a race in the Linux mailbox test.
 
-A fresh 120 Hz full-corpus baseline retained Exact's 25.00 and 0.00 hitch ms/s
-against Legend's 4.17, 2.50 and 5.83; the third Exact trace ended before input and
-was rejected. This is too variable and incomplete to establish superiority.
-A shared AppKit backing experiment was removed: its uncontested repeat measured
-4.17 in one completed run versus 2.50/1.67 with ordinary backing; another shared
-backing run failed the document-movement check. Earlier diagnostic runs overlapped
-window inspection and are explicitly unsuitable for performance claims.
-All raw runs, failures, binary hashes and observer notes remain under
-`target/markdown-comparison/smooth/resume-*`. The observer now rejects a trial
-if another application takes the foreground during input. No final comparison
-of the integrated, bounded candidate is claimed yet.
+The one-shot experiment (`3127234e`, now reverted) replaced display-link scheduling with
+coalesced one-shot callbacks, preserving the existing coverage thresholds and
+urgent synchronous fill. A generation invalidates callbacks after settlement;
+reentrant scheduling is coalesced until the active slice completes. Later slices
+yield for four milliseconds, which does not guarantee separate display frames.
+All 152 native tests passed, and an independent source review found no material
+issue. The corrected comparison below did not establish a performance advantage,
+so the existing display-link scheduler is retained. Final whole-workspace check
+results are recorded separately against the retained commit.
+
+Three alternatives were rejected. Shared AppKit backing did not improve its
+uncontested comparison. Delaying refills until a quarter of the overscan was used
+halved diagnostic list-fill calls (245 to 124 over ten seconds), but raised their
+p95 duration from 3.1 to 4.7 ms. Its three completed candidate trials measured
+5.00/5.00/14.17 hitch ms/s, versus baseline 4.17/6.67/4.17/11.67 and Legend
+3.33/3.33/0.00/1.67; one candidate launch failed before measurement. The delay
+was reverted. Separate signpost recordings are diagnostic and their nested
+intervals overlap; totals are not additive.
+
+**Observer correction:** endpoint screenshots exposed inactive reader windows in
+some runs that the original foreground check had accepted. This invalidates the
+apparent one-shot win and the earlier integrated comparison as decisive evidence.
+The audit and every raw trial remain in `smooth/resume-*/foreground-audit.json`.
+The interrupted confirmation is retained with its owned-process cancellation
+record. Its planned 60 Hz series never ran. No result is removed or retroactively
+selected into a favorable sample.
+
+The replacement observer directly queries Accessibility for the focused process
+once per second and after input, records every check, and rejects missing or
+mismatched coverage. A negative control deliberately activated a second owned
+app two seconds into scrolling; the observer rejected it on the next check.
+The fresh fixed comparison uses the same 2,242,305-byte corpus, 900×700 outer
+windows, ten seconds at 3,600 pixels/second, fresh processes in alternating order,
+and only the Hitches instrument. Eight pairs at 120 input events/second and four
+at 60 completed without rejected trials. These are input rates, not measured display FPS. No owned
+builds run during measurement; other activity on the shared machine is uncontrolled.
+The apps retain their own reading layouts. The corrected 120 Hz comparison
+completed all sixteen trials with valid direct-focus records and active endpoint
+windows: Exact median **6.25 hitch ms/s**, Legend **4.58**; longest hitches
+16.67 and 8.33 ms respectively. Exact runs were
+8.33/15.83/9.17/5.83/6.67/4.17/4.17/4.17, and Legend runs were
+5.00/21.67/4.17/3.33/4.17/4.17/7.50/5.00. These results fail the goal.
+At 60 Hz, Exact measured 22.50/22.50/20.00/23.33, median **22.50 ms/s**,
+versus Legend 44.17/36.67/40.83/13.33, median **38.75**; both longest hitches
+were 16.67 ms. The rate-dependent result does not establish the requested
+advantage. These measurements describe the reverted one-shot experiment, not
+the retained display-link build. Do not pool them with the invalidated series.
+
+WindowServer captures, rather than the agent's alternate paint path, verify
+reading at multiple widths and copying the corpus (2,153,496 characters). The
+one-shot candidate's separate rapid-scroll captures sampled 116 frames at each
+of normal and double speed without a 250-point inkless run. Endpoint pixels still
+changed during settling; these samples do not establish every-frame continuity.
+All binaries, probe hashes, traces, failures and screenshots remain under
+`target/markdown-comparison/smooth/resume-*`. Nothing has been pushed.
 
 ## Performance work in progress — 2026-09-18
 
