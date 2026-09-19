@@ -249,7 +249,6 @@ final class Presenter {
         transformGeometry.reset()
         listGeometry.removeAll()
         listViews.removeAll()
-        NodeView.imagesLoaded.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.

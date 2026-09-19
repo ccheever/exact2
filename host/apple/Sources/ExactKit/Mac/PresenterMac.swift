@@ -257,7 +257,6 @@ final class Presenter {
         textViewportIndex = nil
         listGeometry.removeAll()
         listViews.removeAll()
-        NodeView.imagesLoaded.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.

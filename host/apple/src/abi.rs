@@ -118,21 +118,6 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// Canonical location from the input URL, in the output buffer. @ref LLP 1038 D8
-    pub fn location_of(&mut self, len: usize) -> u32 {
-        let href = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
-        self.emit(exact_route::location_of(&href))
-    }
-
-    /// A pre-boot location; a live session receives dispatch kind 14 instead.
-    pub fn set_launch_location(&mut self, len: usize) {
-        if self.host.is_none() {
-            self.launch = Some(
-                String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned(),
-            );
-        }
-    }
-
     /// Explicit authored region, used by every subsequent fresh/candidate boot.
     pub fn set_content_region(
         &mut self,

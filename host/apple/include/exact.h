@@ -181,7 +181,8 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
- * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8).
+ * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8),
+ * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds).
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);

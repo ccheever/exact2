@@ -128,6 +128,8 @@ impl NodeInst {
             _ => 0.0,
         };
         let mut region = RegionInst {
+            memo: None,
+            body_memo: None,
             region: *region,
             active: Active::Rows { rows: Vec::new() },
             window: Some(Box::new(ListWindow {
