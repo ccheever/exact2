@@ -6508,3 +6508,46 @@ The projection adds one transient Vec bounded by the admitted4,096-node ceiling.
 Other capture/header/diff scans remain; the complete selection is not claimed
 linear or allocation-free. No Swift subtree consumer, app entry, public ABI,
 native performance result or120Hz claim is added.
+
+### 8.117 Preserve ordinary raw coordinates during Linux region painting, 2026-09-19
+
+Correct kernel frames alone did not make retained region pixels equal ordinary
+painting. The old region recorder constructed local geometry and translated it
+later. Text glyph placement occurs before that later transform, and shape/hit
+arithmetic also changes when translation is regrouped. A fresh-kernel CPU fixture
+has equal projected frames but55,145/54,813 differing RGBA bytes at initial/scroll
+checkpoints and50,578 when retained A moves while B's real worker is blocked.
+The earlier stale-kernel baseline remains separate.
+
+The painter now freezes immutable box/text/image operands and flat enter/leave
+order. Replay projects once, resolves geometry using the ordinary f32 operation
+order and validates source, finite geometry and prepared text queries before
+backend emission. Ordinary and region paths share the same box emitter and feed
+the same raw rectangle, text origin and parent transform to the backend. No
+Raster, font, text-cache or kernel policy changes are involved. A's source and
+image owners remain retained until its existing picture owners release them.
+
+Tests written before this change forward actual raw backend arguments and feed
+the same Paragraph to both placement paths. Old production fails all three tests;
+the integer control already has equal pixels but differs in raw/physical inputs.
+The candidate passes all five asserted scenes: integer initial/scroll, fractional
+initial/scroll and retained A moved with B pending. All twelve backend calls,
+complete400x600 CPU RGBA, hit/source/stamp geometry and same-Paragraph placement
+inputs/pixels match exactly. The post-B diagnostic still compares new short-source
+placement against a stale A oracle, printing60 glyph/12,745 byte differences;
+it is unasserted and is not a new-B pixel-parity result.
+
+Owner validation passes15 region tests including the three focused cases,9 paint
+tests, strict all-target Clippy and formatting. The formatted source is composed
+with the collection fix in§8.115 on MAIN:15 region,9 paint,40 display,14 collection
+and8 height tests pass,86 distinct in total, plus Clippy/fmt/caps/boot. Entry-byte
+refreshes force current kernel/Runner/Linux compilation. Owner freezee097fb1f is
+under `exact2-linux-region-projection/target/linux-region-projection-validation/`;
+MAIN receipt is `target/linux-region-paint-integration/`.
+
+Default64 offers,4,096 nodes and49,152 expanded paint operations remain unchanged.
+Replay preparation holds both projected and resolved O(window) arrays; this is
+not an allocation-free or memory-reduction result. Evidence is macOS execution
+of the Linux CPU painter at scale1, not Linux/VM/GPU presentation. Full interactive
+Messages capacity/action routing and native performance remain open; no120Hz
+claim follows from pixel parity.
