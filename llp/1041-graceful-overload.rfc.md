@@ -6900,3 +6900,57 @@ by the lead. Build captures are `9cd6ac05` / `1258b732`; source preparation
 is `target/clip-mask-integration/first-pair-selected-raw.json`. No native worker
 activation, general memory bound, quiet-observer estimate or physical120 proof
 is added.
+
+### 8.126 Linux Messages frame split: painting remains the next locus, 2026-09-19
+
+One fresh optimized diagnostic build and one full10,000/32 runtime cell at
+`69676b8` pass the unchanged ordinary Messages recipe. The existing four observer
+overlays gain only result-aware brackets around frame-entry collection refinement
+and each existing paint invocation, including the fallback. These use existing
+Refine/Paint phase IDs; the reader algorithms, workload, source semantics and
+limits stay unchanged. This is a cost discriminator, not an optimization or an
+old-product/new-product timing comparison.
+
+Independent raw reconstruction joins one successful Refine and Paint child to
+each of52 wholly enclosed FrameBuild parents:12 idle,20 loaded,12 recovery and
+eight in the separate command-free interval. Parent/attempt/input identities and
+ordering match. Observer intervals are unioned before subtraction; scene setup,
+witness construction and other frame work remain an unclassified remainder.
+
+| Cohort | Paint median / maximum | Tick median / maximum |
+| --- | ---: | ---: |
+| Idle | 2.584 /3.340ms | 0.149 /0.184ms |
+| Loaded | 2.885 /6.365ms | 2.298 /2.739ms |
+| Recovery | 2.817 /3.326ms | 0.111 /0.143ms |
+| Command-free producer interval | 5.268 /7.989ms | 2.830 /3.840ms |
+
+Frame-entry Refine medians are below0.0001ms, with a maximum0.0174ms;
+unclassified frame remainder medians are0.037–0.042ms. This does not measure
+refinement already performed inside commits or Tick. Painting explains nearly
+all of the frame residual in this sample, but includes traversal, text lookup,
+miss work, Raster and frame completion. No glyph, shaping or Raster-only cause
+is established. Tick and Paint distributions are separate; their medians must
+not be added as a measured end-to-end latency.
+
+Recorded observer work remains substantial: its per-frame median is6.746ms in
+load and7.229ms in the silent interval. Removing recorded intervals cannot undo
+observer scheduling or cache effects. Whole-turn maxima remain17.502ms loaded
+and21.419ms silent, with19 and8 budget misses respectively. This is neither
+observer-free timing nor CPU or physical120 evidence.
+
+All36 scheduled inputs complete inside their fixed prefixes, including18 actual
+signed40-unit wheels. The silent prefix has eight advancing timers and no late
+drain credit. Updated painted suffixes and the final current clean frame195 pass;
+final History has10,000 rows,32 changed, revision16. The raw journal has5236
+events and16,719 timing rows, maximum65 per turn, without recorder overflow.
+Native SIGTERM follows completed observations; the runtime coordinator exits0,
+all six recorded Mac/guest PIDs and four groups retire, and port5941 is free.
+No retry or second cell ran.
+
+The diagnostic remains outside production. Preparation `80257e2f`, compiled
+capture `d46a2668` and runtime binding `3370f2c7` identify the exact inputs.
+Raw manifest `affbacff` covers23 files /24,819,126B, verified by the lead, under
+`exact2-linux-messages-frame-split/target/messages-frame-split-runtime-v1/`.
+Independent reconstruction is `target/messages-linux-frame-split-lead/selected-raw.json`
+(`4d17c3f5`). These results select investigation within painting; they do not
+justify removing collection feedback, activating a worker, or claiming a gain.
