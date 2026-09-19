@@ -25,7 +25,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
@@ -80,9 +80,6 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${product}.app`),
     embed: resolve(namespace, 'embed') };
 }
-/** Explicit Swift scratch directory; no shared publication path. */
-const productPath = (product, triple, buildRoot) => resolve(buildRoot, triple.replace(/-ios[\d.]+/, '-ios'), 'release', product);
-
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
 export const appleBuildLock = (app, path = appleArtifacts(app).lock) => claimBuildOutput(app, path);
@@ -426,6 +423,7 @@ function main(args) {
   // are captured and packaged together under the selected app's owner.
   const loadName = 'libexact_gpu.dylib';
   const webLoadName = 'libexact_web.dylib';
+  const videoLoadName = 'libexact_video.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
@@ -510,14 +508,12 @@ function main(args) {
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
-  const triple = ios ? (device ? 'arm64-apple-ios17.0' : iosTriple) : macTriple;
   const product = products[0];
   // swift build does not see the Rust archive change; drop the executables so
   // they relink against the archive cargo just built (a relink is ~0.4 s).
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
-  for (const p of products) rmSync(productPath(p, triple, swiftBuildRoot), { force: true });
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
@@ -537,10 +533,17 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
+  // SwiftPM owns its output layout. Swift Build and the native build system
+  // use different directories; ask with the same destination arguments.
+  const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
+  if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
+  const swiftBinDir = located.stdout.trim();
+  if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
+  for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
-    copyFileSync(productPath(p, triple, swiftBuildRoot), executable);
+    copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
@@ -556,6 +559,9 @@ function main(args) {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
   }
   runApple('xcrun', webArgs);
+  const videoBuilt = resolve(webBuildDir, videoLoadName);
+  const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
+  runApple('xcrun', videoArgs);
   const t2 = Date.now();
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
@@ -586,6 +592,8 @@ function main(args) {
     const webDest = resolve(binDir, webLoadName);
     rmSync(webDest, { force: true });
     copyFileSync(webBuilt, webDest);
+    rmSync(resolve(binDir, videoLoadName), { force: true });
+    copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
     // The app's kept secrets live in the login keychain, whose ACL trusts the
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
@@ -624,12 +632,12 @@ function main(args) {
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
-      for (const file of ['ExactMac', webLoadName, ...(hasGpu ? [loadName] : [])]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      for (const file of ['ExactMac', webLoadName, videoLoadName, ...(hasGpu ? [loadName] : [])]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
-      for (const file of [webLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName, videoLoadName, ...(hasGpu ? [loadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -663,6 +671,7 @@ function main(args) {
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
+  copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   let ph, prof;
   const sha1 = device ? (() => {
     ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);

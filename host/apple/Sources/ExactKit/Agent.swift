@@ -110,9 +110,11 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            var sections = stateSections()
+            sections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             var reply = session.agent(json)
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
-               let sections = try? JSONSerialization.data(withJSONObject: stateSections()) {
+               let sections = try? JSONSerialization.data(withJSONObject: sections) {
                 reply.removeLast()
                 let tail = String(decoding: sections, as: UTF8.self)
                 reply += "," + tail.dropFirst()

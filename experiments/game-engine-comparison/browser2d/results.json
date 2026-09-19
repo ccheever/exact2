@@ -1,0 +1,480 @@
+{
+  "versions": {
+    "phaser": "4.2.1",
+    "kaplay": "3001.0.19",
+    "playwright": "1.63.0"
+  },
+  "renderer": "Headless Chromium; Phaser Canvas, KAPLAY WebGL SwiftShader",
+  "results": [
+    {
+      "engine": "phaser",
+      "runs": [
+        {
+          "startupMs": 237.57653900000003,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 5
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 4.399999618530273,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 241.07679900000005,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 5
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 3.3999996185302734,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 241.6909330000001,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 5
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 3.8000011444091797,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 235.80088,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 5
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 3.3000011444091797,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 235.9421749999999,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 5
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 5
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 3.3999996185302734,
+          "passed": true,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "engine": "kaplay",
+      "runs": [
+        {
+          "startupMs": 275.98508200000015,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 6
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 1,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 185.748607,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 6
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 0.7999992370605469,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 193.41464799999994,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 6
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 0.5,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 216.280123,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 6
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 0.8999996185302734,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 204.32122200000003,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "held": {
+            "x": 180,
+            "collected": 3,
+            "lanterns": 1,
+            "objects": 6
+          },
+          "moved": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 4,
+            "objects": 6
+          },
+          "restored": {
+            "x": 182,
+            "collected": 4,
+            "lanterns": 0,
+            "objects": 6
+          },
+          "saved": {
+            "x": 182,
+            "collected": 4,
+            "hidden": [
+              true,
+              true,
+              true,
+              true
+            ]
+          },
+          "executionMs": 0.7000007629394531,
+          "passed": true,
+          "errors": []
+        }
+      ]
+    }
+  ]
+}

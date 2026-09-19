@@ -1,12 +1,15 @@
-// The web host's glue: apply batches, forward events, tick the clock.
-//
-// @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
-// the app. The app is the wasm (runner + kernel + data crate + baked plan).
-// Nothing here runs per frame; layout and motion are the browser's.
-
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const animations = new Map(); // "view/property" -> Animation (a spring in flight)
+let mediaModule;
+function syncMedia(el, set = {}, clear = []) {
+  if (!(el instanceof HTMLVideoElement)) return;
+  el.exactMedia ??= { props: {}, handlers: [] };
+  Object.assign(el.exactMedia.props, set);
+  for (const name of clear) delete el.exactMedia.props[name];
+  mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
+  mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 14, writeIn(payload), now())); }); }).catch(console.error);
+}
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageFrames = new Set(); // iframes whose node handles `message`
@@ -35,9 +38,6 @@ async function loadRust() {
 }
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
-// Baked content is readable and scrollable before the data executor arrives.
-// `inert` would remove the entire tree from hit testing (including scrollers)
-// and accessibility. Gate actions and editing, not browser layout/navigation.
 function setInputReady(ready) {
   inputReady = ready;
   root.setAttribute("aria-busy", String(!ready));
@@ -67,9 +67,6 @@ function moduleCall(op, ptr, len) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
-// Agent mode (`?agent=1`, LLP 1012): the driver owns the clock. Time is the
-// last `clock` operation's value — events carry it, no ticker runs, and the
-// browser's animations are seeked to it, never played.
 const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
 const starts = new WeakMap(); // Animation -> the agent clock when it began
@@ -77,7 +74,6 @@ const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
 let installedFonts = [];
-
 function commitGuestOrigin(el) {
   const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
   const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
@@ -90,7 +86,6 @@ function commitGuestOrigin(el) {
   }
   iframeOrigins.set(el, { origin, opaque });
 }
-
 function guestMessageAuthorized(el, eventOrigin) {
   const committed = iframeOrigins.get(el);
   if (!committed) return false;
@@ -99,22 +94,16 @@ function guestMessageAuthorized(el, eventOrigin) {
   // application protocols and any replies belong to the app.
   return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
 }
-
 function readOut(len) {
   const ptr = wasm.exact_out();
   return decoder.decode(new Uint8Array(memory.buffer, ptr, len));
 }
-
 function writeIn(text) {
   const bytes = encoder.encode(text);
   const ptr = wasm.exact_in(bytes.length);
   new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
   return bytes.length;
 }
-
-// A deployed page owns one immutable local namespace. Absolute app asset
-// paths (including Caltrain's /deck) need the same binding as relative ones;
-// ordinary network/data URLs retain their authored meaning.
 function localAssetURL(source, assets = devAssets) {
   let url;
   try { url = new URL(source, document.baseURI); } catch { return source; }
@@ -133,7 +122,7 @@ function localAssetURL(source, assets = devAssets) {
 }
 function assetNamespace(cards) {
   const assets = new Map();
-  const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", gif: "image/gif", webp: "image/webp", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+  const types = { mp4: "video/mp4", webm: "video/webm", vtt: "text/vtt", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", gif: "image/gif", webp: "image/webp", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
   for (const [name, card] of cards) {
     const type = types[name.split(".").pop().toLowerCase()];
     assets.set(name, { ...card, objectURL: type ? URL.createObjectURL(new Blob([card.bytes], { type })) : null });
@@ -141,12 +130,55 @@ function assetNamespace(cards) {
   return assets;
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
-
-// DOM scrollTop/scrollLeft writes apply after this batch's new children and styles exist.
-// An unchanged binding never overrides a user's scroll position.
+const lists = new Map();
+let listSelection, listSelectionLoading;
+function loadListSelection() {
+  listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
+    .then(install => { listSelection = install({ root, lists,
+      index: (el, key) => wasm.exact_list_index(Number(el.dataset.view), writeIn(key)),
+      text: (el, a, b) => { const first = encoder.encode(a?.key ?? '').length, len = writeIn((a?.key ?? '') + (b?.key ?? '')); return readOut(wasm.exact_list_text(Number(el.dataset.view), first, len, a?.paragraph ?? 0, a?.offset ?? 0, b?.paragraph ?? 0, b?.offset ?? 0)); },
+    }); }).catch(console.error);
+}
+let listsQueued = false;
+function syncLists() {
+  if (listsQueued) return;
+  listsQueued = true;
+  queueMicrotask(() => {
+    listsQueued = false;
+    for (const [el, s] of lists) {
+      if (!el.isConnected || views.get(s.id) !== el) continue;
+      const content = el.firstElementChild;
+      const origin = content ? content.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop : 0;
+      const focus = el.contains(document.activeElement) ? Number(document.activeElement.closest('[data-view]')?.dataset.view ?? 0) : 0;
+      const rows = s.measured ? [...(content?.children ?? [])] : [];
+      for (const row of s.observed) if (!rows.includes(row)) s.observer.unobserve(row);
+      for (const row of rows) if (!s.observed.includes(row)) s.observer.observe(row);
+      s.observed = rows;
+      const measurements = rows.map(row => `${row.dataset.view},${row.getBoundingClientRect().height}`).join('\n');
+      const geometry = [el.scrollTop, el.clientHeight, content?.clientWidth ?? el.clientWidth, origin, focus, s.pointer];
+      const stamp = geometry.join(',') + ':' + measurements;
+      if (s.last === stamp) continue;
+      s.last = stamp;
+      send(wasm.exact_list(s.id, ...geometry, writeIn(measurements)));
+    }
+  });
+}
+function listView(el, id) {
+  const measured = el.hasAttribute('data-estimateditemheight');
+  if (!measured && !el.hasAttribute('data-itemheight')) return;
+  loadListSelection();
+  const observer = new ResizeObserver(syncLists);
+  const s = { id, observer, measured, observed: [], pointer: 0, last: null };
+  lists.set(el, s); observer.observe(el);
+  for (const name of ['scroll', 'focusin', 'focusout']) el.addEventListener(name, syncLists, { passive: true });
+  el.addEventListener('pointerdown', e => { s.pointer = Number(e.target.closest('[data-view]')?.dataset.view ?? 0); syncLists(); }, { passive: true });
+}
+for (const name of ['pointerup', 'pointercancel']) document.addEventListener(name, () => {
+  // Keep the source through the click following pointerup.
+  requestAnimationFrame(() => { for (const s of lists.values()) s.pointer = 0; syncLists(); });
+}, { passive: true });
+function forgetList(el) { lists.get(el)?.observer.disconnect(); lists.delete(el); }
 const pendingScrolls = new Map();
-// An explicit chat/log policy, not CSS overflow anchoring: keep the end
-// visible across resizing only while the reader is already there.
 const followedScrolls = new Map();
 function rememberScroll(s) {
   s.top = s.el.scrollTop; s.height = s.el.scrollHeight; s.port = s.el.clientHeight;
@@ -303,7 +335,6 @@ function positionContexts() {
 }
 addEventListener("resize", () => requestAnimationFrame(positionContexts));
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
-// LLP 1035.004: portable roles are images; their artwork and tint are host-owned.
 const symbolStyle = document.createElement("style");
 symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 document.head.append(symbolStyle);
@@ -332,8 +363,6 @@ function refreshSymbols() {
     el.style.setProperty("--exact-symbol-fit", fit);
   }
 }
-
-// A modal dialog escapes inert attributes above it; its own inert still applies.
 function inertAncestor(el) {
   for (let node = el; node; node = node.parentElement) {
     if (node.hasAttribute("inert")) return node;
@@ -341,8 +370,8 @@ function inertAncestor(el) {
   }
   return null;
 }
-
 function applyProps(el, set, clear) {
+  syncMedia(el, set, clear);
   let sandboxChanged = false;
   for (const name of clear || []) {
     if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
@@ -372,11 +401,11 @@ function applyProps(el, set, clear) {
       el.checked = value === "true";
     } else if (name === "inert") {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
-    } else if (name === "disabled" || name === "readonly") {
+    } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
-      el.setAttribute(name, (name === "src" || name === "href") ? localAssetURL(value) : value);
+      el.setAttribute(name, (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value);
     }
   }
   // Native range/date controls can edit on pointer/key defaults without
@@ -399,10 +428,6 @@ function applyProps(el, set, clear) {
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
-
-// @ref LLP 1020 D2 — one page listener routes a guest by source identity.
-// Strings cross unchanged; every other structured-clone value narrows to
-// JSON, and a value JSON cannot represent is not an event.
 function ensureMessageListener() {
   if (messageListening) return;
   messageListening = true;
@@ -424,13 +449,7 @@ function ensureMessageListener() {
     }
   });
 }
-
-// The viewport meta follows the first root's `viewport-fit` and
-// `interactive-widget` (LLP 1008 §9): `cover` lays the page out under a
-// phone's status bar and home indicator, and `env(safe-area-inset-*)` in the
-// CSS carry the insets; `resizes-content` shrinks the layout viewport to the
-// software keyboard (Chrome; Safari knows only the default, the visual
-// viewport). Safari re-reads the meta when its content changes.
+visualViewport?.addEventListener("resize", syncViewportFit);
 function syncViewportFit() {
   const first = root.firstElementChild;
   const cover = first?.getAttribute("viewportFit") === "cover";
@@ -438,12 +457,10 @@ function syncViewportFit() {
   const meta = document.querySelector('meta[name="viewport"]');
   const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
   if (meta && meta.content !== want) meta.content = want;
+  const vv = globalThis.visualViewport;
+  // Project resizes-content on Safari too; zoom must not resize the layout viewport.
+  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 ? `${Math.min(innerHeight, vv.height)}px` : "";
 }
-
-// The page's environment as the browser resolves it (LLP 1012 §1): the
-// safe-area insets read off a hidden element padded by `env()`, and the
-// software keyboard's height as the visual viewport reports it (zero on a
-// desktop, or when the page is not zoomed).
 let probe;
 function environment() {
   if (!probe) {
@@ -461,9 +478,9 @@ function environment() {
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
   };
 }
-
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  if (el.exactMedia) el.exactMedia.handlers = handlers;
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
   const on = (event, handle) => el.addEventListener(event, (e) => {
@@ -585,9 +602,6 @@ function attach(el, id, handlers) {
     }
   }
 }
-
-// App-declared ARIA shortcuts activate the same mounted buttons as a click.
-// Browsers may reserve a chord before it reaches the page (notably Meta+N).
 document.addEventListener("keydown", (event) => {
   if (event.isComposing || !wasm || !inputReady || event.defaultPrevented) return;
   const matches = (chord) => {
@@ -613,14 +627,13 @@ document.addEventListener("keydown", (event) => {
     return;
   }
 }, true);
-
 function viewFor(op, id) {
   const el = views.get(id);
   if (!el) console.error(`exact: ${op} names missing view ${id}`);
   return el;
 }
-
 function apply(batch) {
+  listSelection?.before();
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
   const focusCommands = [];
@@ -645,6 +658,7 @@ function apply(batch) {
         el.style.cssText = op.css;
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
+        listView(el, op.id);
         break;
       }
       case "props": {
@@ -795,7 +809,7 @@ function apply(batch) {
         else console.warn(`exact: unknown command ${op.name}`);
         break;
       }
-      case "destroy": { const el = views.get(op.id); if (el) { followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
+      case "destroy": { const el = views.get(op.id); if (el) { if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); } views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break; }
       case "roots": {
         const roots = [];
         for (const id of op.ids) {
@@ -843,6 +857,8 @@ function apply(batch) {
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
+  listSelection?.after();
+  syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
   for (const { args, selectText } of focusCommands) {
@@ -861,11 +877,6 @@ function apply(batch) {
   positionContexts();
   return batch.timers;
 }
-
-// Apply a batch; in agent mode, freeze what it started: every animation the
-// batch created is registered at the clock it began and seeked there, so
-// nothing plays between two operations. The clock lands where the runner
-// says (`batch.clock`: an advance a timer refused stops early).
 function applyBatch(batch) {
   const timers = apply(batch);
   if (agentMode) {
@@ -877,11 +888,9 @@ function applyBatch(batch) {
   }
   return { timers, batch };
 }
-
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
 }
-
 // LLP 1019 D5: FontFace loading is part of host boot. The DOM remains empty
 // until every local face loaded, or 100 ms elapsed. At the barrier, install
 // every face already ready unless its family has a failed sibling; faces that
@@ -919,7 +928,6 @@ function commitFonts(faces) {
   for (const face of faces) document.fonts.add(face);
   installedFonts = faces;
 }
-
 // LLP 1016: the app's grants (`net.fetch <url prefix>` lines, from the boot
 // batch), the fetches in flight (the agent's `settle` waits on them), and
 // the reply path into the wasm.
@@ -962,7 +970,6 @@ function deferFulfill(...args) {
   // commits cannot re-enter `apply` halfway through that batch.
   queueMicrotask(() => safelyFulfill(...args));
 }
-
 // The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
 // `settle` go to the wasm (`exact_agent`); `layout` reads the browser's
 // boxes — the only layout the web host has; `clock` moves both clocks to
@@ -974,12 +981,10 @@ function ask(request) {
   const n = writeIn(JSON.stringify(request));
   return JSON.parse(readOut(wasm.exact_agent(n)));
 }
-
 // A line for the runner's journal (LLP 1012 §3): what the page refused, and why.
 function log(line) {
   if (wasm) wasm.exact_log(writeIn(line));
 }
-
 // `layout <node>` (LLP 1035.002 D1): the runner's rows and their sources
 // for one node (`node`, answered in the wasm), then what the page knows —
 // the box in the viewport and relative to its parent, the scroll and clip
@@ -1040,7 +1045,6 @@ function nodeDetail(id) {
   node.observed = { clock: now(), wall: Date.now() };
   return node;
 }
-
 // A same-origin guest joins `tree` as a compact, bounded outline. Access to
 // a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
 function guestOutline(frame) {
@@ -1067,7 +1071,6 @@ function guestOutline(frame) {
   for (const child of doc.body?.children ?? []) visit(child, 0);
   return outline;
 }
-
 function tree() {
   const reply = ask({ op: "tree" });
   for (const node of reply.nodes ?? []) {
@@ -1080,7 +1083,6 @@ function tree() {
   }
   return reply;
 }
-
 function guestDocument(frame) {
   try {
     const document = frame.contentDocument;
@@ -1089,7 +1091,6 @@ function guestDocument(frame) {
     return { error: "guest is cross-origin" };
   }
 }
-
 function guestTap(frame, request) {
   const access = guestDocument(frame);
   if (access.error) return { guest: true, error: access.error };
@@ -1109,7 +1110,6 @@ function guestTap(frame, request) {
   target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
   return { tapped: request.id, guest: true };
 }
-
 function guestType(frame, request) {
   const access = guestDocument(frame);
   if (access.error) return { guest: true, error: access.error };
@@ -1137,7 +1137,6 @@ function guestType(frame, request) {
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
-
 function register(t) {
   for (const a of document.getAnimations()) if (!starts.has(a)) starts.set(a, t);
 }
@@ -1191,6 +1190,7 @@ function agent(request) {
         const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
         const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? idOf(active) : null;
+        st.media = [...views].filter(([, el]) => el instanceof HTMLVideoElement).map(([id, el]) => ({ id, state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: "HTMLVideoElement" } }));
         st.focus = { logical: active ? idOf(active) : null, editor, responder: active ? active.localName : null, pending: null };
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
@@ -1264,7 +1264,6 @@ function agent(request) {
     return { error: String(e) };
   }
 }
-
 // Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
 // 1035.002 D3), read after the operation; a reply's own `clock` (where a
 // `clock` call landed) is kept, and an error is left alone. The driver
@@ -1276,7 +1275,6 @@ function tagged(reply) {
   for (const key of Object.keys(tags)) if (reply[key] === undefined) reply[key] = tags[key];
   return reply;
 }
-
 // To `to`, or to `settle`: a fixed point — advance to when the last thing
 // in flight ends, and if the timers crossed on the way started more, again
 // (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
@@ -1300,14 +1298,12 @@ async function clock(request) {
     if (rounds >= 15) return { clock: agentClock, settled: false };
   }
 }
-
 let ticker = null;
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   applyBatch(batch); setInputReady(true); root.dataset.moduleReady = 'true';
 }
-
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
 // Returns the milliseconds from call to first frame in the DOM.
@@ -1357,6 +1353,8 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
+  for (const el of lists.keys()) forgetList(el);
+  for (const el of views.values()) if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); }
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
@@ -1373,7 +1371,6 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
 }
-
 // `agent` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
@@ -1412,7 +1409,6 @@ globalThis.exact = {
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
   ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
-
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
 // canvas is on the page.
@@ -1425,7 +1421,6 @@ function loadGpuIfNeeded() {
   s.src = new URL("./gpu-glue.js", import.meta.url).href;
   document.head.append(s);
 }
-
 async function main() {
   const url = new URL("./app.wasm", import.meta.url);
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall }, exact_rust: rustImports });
@@ -1470,10 +1465,8 @@ async function main() {
     });
   });
 }
-
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
-
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape" || event.defaultPrevented) return;
   // Making a covered editor inert can leave focus on the page body. That

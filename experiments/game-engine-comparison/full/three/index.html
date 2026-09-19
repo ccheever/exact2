@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#141222" />
+    <link rel="icon" href="data:," />
+    <title>Lanterns — Last Light</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="first-pixel" aria-hidden="true"></div>
+    <main id="game-shell">
+      <canvas id="game" aria-label="Lanterns 3D game"></canvas>
+      <div id="vignette"></div>
+      <section id="hud" class="hidden" aria-live="polite">
+        <div class="hud-card"><span class="hud-label">LANTERNS</span><strong id="count">0 / 12</strong></div>
+        <div class="hud-card time"><span class="hud-label">LAST LIGHT</span><strong id="time">3:00</strong></div>
+        <button id="pause" class="icon-button" aria-label="Pause game">Ⅱ</button>
+        <button id="sound" class="icon-button" aria-label="Toggle sound">♪</button>
+      </section>
+      <div id="toast" role="status"></div>
+      <section id="title" class="panel shown">
+        <div class="panel-inner title-card">
+          <span class="eyebrow">A THREE.JS ISLAND TALE</span>
+          <h1>LANTERNS</h1>
+          <p class="subtitle">Last Light</p>
+          <p>Guide the fox across the dusk island. Kindle all twelve lanterns before the sun slips away.</p>
+          <button id="start" class="primary">Begin the evening</button>
+          <button id="resume-save" class="secondary hidden">Resume saved game</button>
+          <div class="control-copy"><b>Move</b> WASD / arrows &nbsp; <b>Jump</b> Space &nbsp; <b>Light</b> E</div>
+        </div>
+      </section>
+      <section id="pause-panel" class="panel">
+        <div class="panel-inner"><span class="eyebrow">THE DUSK WAITS</span><h2>Paused</h2><button id="continue" class="primary">Continue</button><button id="save" class="secondary">Save game</button><button id="load" class="secondary">Load save</button><button id="quit" class="text-button">Return to title</button></div>
+      </section>
+      <section id="end-panel" class="panel">
+        <div class="panel-inner"><span id="end-eyebrow" class="eyebrow"></span><h2 id="end-title"></h2><p id="end-copy"></p><button id="restart" class="primary">Play again</button><button id="end-title-button" class="text-button">Return to title</button></div>
+      </section>
+      <div id="touch" aria-label="Touch controls">
+        <div class="dpad"><button data-control="up">▲</button><button data-control="left">◀</button><button data-control="down">▼</button><button data-control="right">▶</button></div>
+        <div class="actions"><button data-control="jump">JUMP</button><button data-control="act" class="act">LIGHT</button></div>
+      </div>
+      <div id="loading"><div class="flame"></div><span>Gathering the last light…</span></div>
+    </main>
+    <script type="module" src="__GAME_SCRIPT__"></script>
+  </body>
+</html>

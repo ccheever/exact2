@@ -162,7 +162,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 13] = [
+pub const HANDLERS: [&str; 27] = [
     "press",
     "change",
     "hover",
@@ -176,6 +176,20 @@ pub const HANDLERS: [&str; 13] = [
     "dblclick",
     "swiperight",
     "scroll",
+    "loadedmetadata",
+    "durationchange",
+    "timeupdate",
+    "play",
+    "playing",
+    "pause",
+    "ended",
+    "waiting",
+    "seeking",
+    "seeked",
+    "ratechange",
+    "volumechange",
+    "error",
+    "canplay",
 ];
 
 /// What a handler's event carries as its action's last argument: `change`
@@ -183,7 +197,8 @@ pub const HANDLERS: [&str; 13] = [
 /// `message` the iframe guest's string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
-        "change" | "key" | "message" => Some("string"),
+        "change" | "key" | "message" | "error" => Some("string"),
+        "timeupdate" | "durationchange" => Some("number"),
         "hover" => Some("bool"),
         _ => None,
     }

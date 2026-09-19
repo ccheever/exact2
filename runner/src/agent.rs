@@ -17,7 +17,7 @@
 use crate::instance::InstanceStep;
 use crate::runner::{DataSource, Runner};
 use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowValue, StyleId};
-use exact_plan::{BindingKind, EventKind, Plan, TypeKind, TypesId, Value};
+use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
@@ -107,24 +107,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
             if i > 0 {
                 s.push(',');
             }
-            quote(
-                match e {
-                    EventKind::Press => "press",
-                    EventKind::Change => "change",
-                    EventKind::Hover => "hover",
-                    EventKind::Focus => "focus",
-                    EventKind::Blur => "blur",
-                    EventKind::Key => "key",
-                    EventKind::Submit => "submit",
-                    EventKind::Load => "load",
-                    EventKind::Message => "message",
-                    EventKind::Contextmenu => "contextmenu",
-                    EventKind::Dblclick => "dblclick",
-                    EventKind::Swiperight => "swiperight",
-                    EventKind::Scroll => "scroll",
-                },
-                &mut s,
-            );
+            quote(e.name(), &mut s);
         }
         s.push_str("],\"children\":");
         ids(&node.children(), &mut s);

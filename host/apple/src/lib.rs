@@ -42,4 +42,5 @@ pub mod measure;
 pub mod store;
 pub mod style;
 
+pub use exact_runner::ListViewport;
 pub use host::{Host, HostError};

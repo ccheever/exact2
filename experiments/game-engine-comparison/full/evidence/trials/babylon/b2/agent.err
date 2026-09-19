@@ -1,0 +1,2 @@
+2026-09-18T05:30:00.700379Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /tmp/exact-full-games-20260917/trials/babylon/b2/game/README.md:
+# Lanterns — Last Light (Babylon.js)

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Lanterns — Last Light · PlayCanvas</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="Lanterns 3D game"></canvas>
+    <div id="loading" class="screen show"><div class="eyebrow">PLAYCANVAS</div><h1>Lighting the island…</h1></div>
+    <header id="hud" class="hidden">
+      <div class="brand"><span class="flame">◆</span> LAST LIGHT</div>
+      <div class="readout"><span id="count">0 / 12</span><small>LANTERNS</small></div>
+      <div class="readout"><span id="time">3:00</span><small>UNTIL NIGHT</small></div>
+      <button id="pause" class="icon" aria-label="Pause">Ⅱ</button>
+      <button id="sound" class="icon" aria-label="Toggle sound">♪</button>
+    </header>
+    <div id="title" class="screen hidden">
+      <div class="panel hero">
+        <div class="eyebrow">A PLAYCANVAS ISLAND</div>
+        <h1>Lanterns<br /><i>Last Light</i></h1>
+        <p>Dusk is falling. Guide the fox across the island and light all twelve lanterns before the last light fades.</p>
+        <button id="start" class="primary">Begin the run</button>
+        <button id="resume-save" class="secondary hidden">Resume saved run</button>
+        <div class="controls"><b>WASD / ARROWS</b> move <b>SPACE</b> jump <b>E</b> light</div>
+      </div>
+    </div>
+    <div id="pause-screen" class="screen hidden">
+      <div class="panel"><div class="eyebrow">THE SUN WAITS</div><h2>Paused</h2>
+        <button id="continue" class="primary">Continue</button><button id="save" class="secondary">Save run</button>
+        <button id="load" class="secondary">Load saved run</button><button id="quit" class="ghost">Return to title</button>
+        <p id="save-note" class="note"></p>
+      </div>
+    </div>
+    <div id="terminal" class="screen hidden"><div class="panel"><div id="terminal-kicker" class="eyebrow"></div><h2 id="terminal-title"></h2><p id="terminal-copy"></p><button id="restart" class="primary">Run again</button><button id="terminal-title-button" class="ghost">Title</button></div></div>
+    <div id="prompt" class="prompt hidden"><b>E</b><span>Light lantern</span></div>
+    <div id="sign-copy" class="sign-copy hidden">Push the crate beside the high ledge.<br />Jump onto it, then jump again.</div>
+    <div id="touch" class="touch hidden">
+      <div class="dpad"><button data-key="up">▲</button><button data-key="left">◀</button><button data-key="down">▼</button><button data-key="right">▶</button></div>
+      <div class="actions"><button data-key="jump">JUMP</button><button data-key="act">LIGHT</button></div>
+    </div>
+    <script src="./assets/ammo.wasm.js"></script>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>

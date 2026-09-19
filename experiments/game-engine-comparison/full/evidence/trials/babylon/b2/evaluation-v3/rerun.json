@@ -1,0 +1,14 @@
+{
+  "engine": "babylon",
+  "attempt": "b2",
+  "started": 1789709827.6507318,
+  "evaluatorSha256": "861cfe2ce67586a21da35c9af38388b1fa61dbbd4861bc060703f5ecae527f5c",
+  "server": {
+    "pid": 1946896,
+    "port": 38629,
+    "root": "/tmp/exact-full-games-20260917/trials/babylon/b2/game/dist"
+  },
+  "pid": 1946926,
+  "exitCode": 0,
+  "finished": 1789709848.7127652
+}

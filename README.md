@@ -213,6 +213,13 @@ replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
 25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
 plus store, errors, binary responses, interleaving and disposal cases.
 
+Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
+--vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
+archive from `ibex/linux-vanilla` and compiles with the matching
+`ibex/tools/hermes-vanilla/hermesc-linux-<arch>`. After replacing an engine or
+compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
+build cannot reuse captured archives or bytecode from the previous installation.
+
 iOS uses lean bytecode-only Hermes archives, not the compiler-containing
 framework. Provision matching device/simulator builds under `target/hermes-ios`
 (override with `EXACT_HERMES_IOS_DIR`); the recipe and archive layout are in

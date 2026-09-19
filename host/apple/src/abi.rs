@@ -668,6 +668,12 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            14 => {
+                let Some(event) = Event::media_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.to_string());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
@@ -708,6 +714,63 @@ impl<D: DataSource> Bridge<D> {
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
         self.emit(out)
+    }
+
+    /// Actual native list scrollport; measured rows are read from kernel layout.
+    pub fn list_viewport(&mut self, view: u32, geometry: exact_runner::ListViewport<'_>) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.list_viewport(view, geometry));
+        self.emit(out)
+    }
+
+    /// Resolve an opaque list key, or return the absent-index sentinel.
+    pub fn list_index(&self, view: u32, len: usize) -> u32 {
+        let key = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.host
+            .as_ref()
+            .and_then(|h| h.runner().list_index(view, &key))
+            .and_then(|i| u32::try_from(i).ok())
+            .unwrap_or(u32::MAX)
+    }
+
+    /// Logical text for all rows (empty keys), or two UTF-16 endpoints.
+    #[allow(clippy::too_many_arguments)]
+    pub fn list_text(
+        &mut self,
+        view: u32,
+        first_len: usize,
+        len: usize,
+        first_paragraph: usize,
+        first_offset: usize,
+        last_paragraph: usize,
+        last_offset: usize,
+    ) -> u32 {
+        let bytes = &self.input[..len.min(self.input.len())];
+        if first_len > bytes.len() {
+            return self.emit(String::new());
+        }
+        let first = String::from_utf8_lossy(&bytes[..first_len]);
+        let last = String::from_utf8_lossy(&bytes[first_len..]);
+        let range = (first_len != 0).then_some((
+            exact_runner::ListTextPosition {
+                key: &first,
+                paragraph: first_paragraph,
+                offset: first_offset,
+            },
+            exact_runner::ListTextPosition {
+                key: &last,
+                paragraph: last_paragraph,
+                offset: last_offset,
+            },
+        ));
+        let text = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().list_text(view, range).ok())
+            .unwrap_or_default();
+        self.emit(text)
     }
 
     /// The safe-area insets changed.
@@ -1134,6 +1197,27 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
+        }
+
+        /// Report an actual list scrollport and bounded interaction pins.
+        #[no_mangle]
+        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_viewport(view, $crate::ListViewport {
+                top, height, width, origin, pins: [focus, interaction], rows: &[],
+            }), |n| n)
+        }
+
+        /// Resolve a logical row key in the input buffer, or UINT32_MAX.
+        #[no_mangle]
+        pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
+        }
+
+        /// Copy logical text without materializing native views. Input is
+        /// two concatenated UTF-8 row keys; first_len == 0 means all text.
+        #[no_mangle]
+        pub extern "C" fn exact_list_text(rt: u32, view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize), |_| 0)
         }
 
         /// The safe-area insets changed; returns the batch's length.

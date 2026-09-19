@@ -289,9 +289,9 @@ impl Kernel {
 
     /// A replaced element's intrinsic size — the bitmap's pixel counts,
     /// taken one-for-one as layout units — reported by the host once the
-    /// image has loaded (`None` to forget it): the node is measured from it
+    /// image or video metadata has loaded (`None` to forget it): the node is measured from it
     /// and keeps its ratio unless a row sets one. Refused for a node that is
-    /// not an `Image` and for a size that is not finite and positive on both
+    /// not an `Image` or `Video` and for a size that is not finite and positive on both
     /// axes. Marks layout dirty.
     pub fn set_intrinsic_size(
         &mut self,
@@ -302,7 +302,7 @@ impl Kernel {
             .arena
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
-        if self.arena.node_type(slot) != NodeType::Image {
+        if !self.arena.node_type(slot).is_replaced() {
             return Err(LayoutError::NotAnImage(view).into());
         }
         if let Some((w, h)) = size {

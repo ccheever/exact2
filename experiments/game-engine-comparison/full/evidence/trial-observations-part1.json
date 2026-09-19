@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "scope": {
+    "trials": [
+      "pixel:/tmp/exact-full-games-20260917/trials/babylon/a1",
+      "pixel:/tmp/exact-full-games-20260917/trials/babylon/b1",
+      "pixel-a:/tmp/exact-full-games-20260917/trials/playcanvas/a1"
+    ],
+    "sources": [
+      "evidence/agent.jsonl",
+      "evidence/final.md",
+      "evidence/record.json",
+      "evidence/changes.diff",
+      "evidence/evaluation-v2/evaluation.log",
+      "evidence/evaluation-v2/acceptance.json",
+      "game proof scripts"
+    ],
+    "evaluatorPolicy": "Evaluator v2 supersedes the original readiness-poll evaluation. See full/harness/EVALUATOR.md."
+  },
+  "trials": [
+    {
+      "id": "babylon-a1",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "cliTokenUsage": {
+        "inputTokens": 1319642,
+        "cachedInputTokens": 1256192,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 13307,
+        "reasoningOutputTokens": 4844
+      },
+      "commandExecutions": {
+        "total": 16,
+        "completed": 13,
+        "failedStatus": 3,
+        "failureBreakdown": {
+          "failedGameplayProofs": 1,
+          "interruptedLongRunningServers": 2
+        },
+        "details": [
+          "The first lantern-13 proof failed because the scripted forward input ended too early.",
+          "Two bun run start commands exited 1 after recorded Ctrl-C shutdowns."
+        ]
+      },
+      "selfRepair": {
+        "explicitClaimedRounds": 1,
+        "basis": "The final agent message explicitly says the proof calibration was corrected in one repair round."
+      },
+      "agentScreenshotEvidence": {
+        "captureInvocationsObservable": 7,
+        "retainedPaths": [
+          "evidence/title.png",
+          "evidence/gameplay.png",
+          "evidence/paused.png",
+          "evidence/lantern-13-won.png"
+        ],
+        "removedPaths": [
+          "evidence/lantern-13-failure.png"
+        ],
+        "captureBasis": "One passing regression run captured three images; three passing lantern-13 proof runs each captured the same victory path; the failed proof invoked its failure capture, which was later removed.",
+        "actualImageInspection": "unknown",
+        "inspectionBasis": "No explicit image-view operation or statement of visual inspection appears in the agent record; creating or listing PNGs is not treated as inspection."
+      },
+      "sourceFilesChanged": [
+        "README.md",
+        "index.html",
+        "lantern-13-proof.mjs",
+        "level.json",
+        "package.json",
+        "src/main.js"
+      ],
+      "generatedOutputs": [
+        "dist/",
+        "evidence/"
+      ],
+      "evaluatorV2": {
+        "passed": true,
+        "casesPassed": 10,
+        "casesTotal": 10,
+        "browserErrors": 0
+      }
+    },
+    {
+      "id": "babylon-b1",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "cliTokenUsage": {
+        "inputTokens": 679023,
+        "cachedInputTokens": 630016,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 8330,
+        "reasoningOutputTokens": 2956
+      },
+      "commandExecutions": {
+        "total": 11,
+        "completed": 9,
+        "failedStatus": 2,
+        "failureBreakdown": {
+          "failedGameplayProofs": 0,
+          "nonRepositoryGitAudit": 1,
+          "interruptedLongRunningServers": 1
+        },
+        "details": [
+          "A git status/diff audit exited 128 because the trial directory was not a Git worktree; the agent followed it with direct artifact checks.",
+          "One bun run start command exited 1 after recorded Ctrl-C shutdown."
+        ]
+      },
+      "selfRepair": {
+        "explicitClaimedRounds": 0,
+        "basis": "The final agent message explicitly says no repair rounds were needed."
+      },
+      "agentScreenshotEvidence": {
+        "captureInvocationsObservable": 5,
+        "retainedPaths": [
+          "evidence/title.png",
+          "evidence/gameplay.png",
+          "evidence/paused.png",
+          "evidence/return-home.png",
+          "evidence/won.png"
+        ],
+        "removedPaths": [],
+        "captureBasis": "The passing regression run captured three images and the passing full-route run captured return-home and win images.",
+        "actualImageInspection": "unknown",
+        "inspectionBasis": "No explicit image-view operation or statement of visual inspection appears in the agent record; creating or listing PNGs is not treated as inspection."
+      },
+      "sourceFilesChanged": [
+        "README.md",
+        "full-route.mjs",
+        "index.html",
+        "src/main.js",
+        "style.css"
+      ],
+      "generatedOutputs": [
+        "dist/",
+        "evidence/"
+      ],
+      "evaluatorV2": {
+        "passed": true,
+        "casesPassed": 10,
+        "casesTotal": 10,
+        "browserErrors": 0
+      }
+    },
+    {
+      "id": "playcanvas-a1",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "high",
+      "cliTokenUsage": {
+        "inputTokens": 1749802,
+        "cachedInputTokens": 1680512,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 20628,
+        "reasoningOutputTokens": 9177
+      },
+      "commandExecutions": {
+        "total": 21,
+        "completed": 15,
+        "failedStatus": 6,
+        "failureBreakdown": {
+          "failedGameplayProofs": 5,
+          "occupiedServerPort": 1
+        },
+        "details": [
+          "The default server port was occupied; the agent recovered by using isolated port 4813.",
+          "Five lantern-13 proof executions failed before subsequent passing executions."
+        ]
+      },
+      "selfRepair": {
+        "explicitClaimedRounds": null,
+        "observableFailedProofRepairAttempts": 5,
+        "observableGroups": [
+          {
+            "scope": "initial platform jump proof",
+            "failedRunsBeforePass": 2
+          },
+          {
+            "scope": "expanded original-twelve and ledge route",
+            "failedRunsBeforePass": 3
+          }
+        ],
+        "postPassHardeningEdits": 1,
+        "basis": "The record shows five failed proof commands followed by edits and later passes. The agent did not state a single total repair-round count; a later legacy-save hardening edit followed an already passing proof and is reported separately."
+      },
+      "agentScreenshotEvidence": {
+        "captureInvocationsObservable": 0,
+        "retainedPaths": [],
+        "removedPaths": [],
+        "captureBasis": "The custom proof and recorded commands contain no screenshot capture call or output path.",
+        "actualImageInspection": "unknown",
+        "inspectionBasis": "No explicit image-view operation or statement of visual inspection appears in the agent record."
+      },
+      "sourceFilesChanged": [
+        "README.md",
+        "index.html",
+        "level.json",
+        "main.js",
+        "src/main.js",
+        "tests/lantern13-proof.mjs"
+      ],
+      "generatedOutputs": [
+        "dist/"
+      ],
+      "evaluatorV2": {
+        "passed": true,
+        "casesPassed": 10,
+        "casesTotal": 10,
+        "browserErrors": 0,
+        "supersededOriginalResult": "9/10; the reload failure was affected by the defective asynchronous readiness poll and is not scored as an engine failure."
+      }
+    }
+  ],
+  "limitations": [
+    "CLI token fields are copied from each agent.jsonl turn.completed usage object. They are aggregate counters; reasoning output is reported as its own field and is not added again to output tokens.",
+    "Tool-failure counts cover command_execution items whose recorded status is failed. They do not treat failed test assertions, intentional server shutdowns, and infrastructure setup errors as equivalent, so the breakdown preserves those categories.",
+    "A repair round is stated as explicit only when the agent gave a count. For PlayCanvas, the five count is an observable failed-proof/edit/retry count rather than an agent-claimed total.",
+    "Screenshot capture accounting covers agent-invoked proof scripts, not the independent evaluator's own screenshots. Actual visual inspection remains unknown unless an image-view action or explicit inspection statement was recorded.",
+    "Source-file lists come from changes.diff plus the agent's final inventory and omit copied BRIEF.md, regenerated dist files, and generated evidence artifacts. They describe paths changed, not semantic change size.",
+    "Evaluator v2 is used for readiness-sensitive scoring. Later v3 reruns also exist and strengthen the batch-versus-single-tick case, but they are outside this requested v2 normalization."
+  ]
+}

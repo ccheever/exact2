@@ -1,0 +1,4 @@
+$ mkdir -p dist/assets && rolldown src/main.js --format es --file dist/game.js && cp index.html styles.css level.json dist/ && cp assets/Fox.glb assets/Fox-LICENSE.md node_modules/ammojs3/dist/ammo.wasm.js node_modules/ammojs3/dist/ammo.wasm.wasm dist/assets/
+<DIR>/game.js  chunk │ size: 2,650.55 kB
+
+✔ rolldown v1.0.0-beta.52 Finished in 321.66 ms

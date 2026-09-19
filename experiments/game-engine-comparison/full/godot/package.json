@@ -1,0 +1,17 @@
+{
+  "name": "lanterns-godot",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "build": "bun build.mjs",
+    "serve": "bun serve.mjs",
+    "smoke:native": "bun smoke-native.mjs",
+    "smoke:web": "bun smoke-web.mjs",
+    "smoke:clock": "bun clock-smoke.mjs",
+    "playthrough": "bun playthrough.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.55.1"
+  }
+}

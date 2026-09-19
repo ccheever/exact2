@@ -79,6 +79,12 @@ pub fn tag(name: &str) -> Option<Tag> {
         "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
             view(vec![], vec![(p("semanticTag"), leak(name))])
         }
+        "list" => Tag {
+            node_type: NodeType::List,
+            fixed_styles: vec![],
+            fixed_props: vec![(p("accessibilityRole"), "list")],
+            positional: None,
+        },
         "scroll" => Tag {
             node_type: NodeType::ScrollView,
             fixed_styles: vec![],
@@ -132,6 +138,12 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: vec![],
             positional: Some(p("src")),
         },
+        "video" => Tag {
+            node_type: NodeType::Video,
+            fixed_styles: vec![(s("object_fit"), "contain")],
+            fixed_props: vec![],
+            positional: Some(p("src")),
+        },
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: vec![],
@@ -176,6 +188,20 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |names: &[&str]| AttrTarget::Styles(names.iter().map(|n| s(n)).collect());
     Some(match name {
         // handlers (the web's events, LLP 1005 §3)
+        "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
+        "durationchange" => AttrTarget::Handler("durationchange"),
+        "timeupdate" => AttrTarget::Handler("timeupdate"),
+        "play" => AttrTarget::Handler("play"),
+        "playing" => AttrTarget::Handler("playing"),
+        "pause" => AttrTarget::Handler("pause"),
+        "ended" => AttrTarget::Handler("ended"),
+        "waiting" => AttrTarget::Handler("waiting"),
+        "seeking" => AttrTarget::Handler("seeking"),
+        "seeked" => AttrTarget::Handler("seeked"),
+        "ratechange" => AttrTarget::Handler("ratechange"),
+        "volumechange" => AttrTarget::Handler("volumechange"),
+        "error" => AttrTarget::Handler("error"),
+        "canplay" => AttrTarget::Handler("canplay"),
         "press" => AttrTarget::Handler("press"),
         "change" => AttrTarget::Handler("change"),
         "hover" => AttrTarget::Handler("hover"),
@@ -192,6 +218,41 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // the canvas's surface (LLP 1009 D3)
         "surface" => AttrTarget::Surface,
         // props (HTML and ARIA attribute names; `testId` is Exact's)
+        "poster" => AttrTarget::Prop(p("poster")),
+        "autoplay" => AttrTarget::Prop(p("autoplay")),
+        "controls" => AttrTarget::Prop(p("controls")),
+        "loop" => AttrTarget::Prop(p("loop")),
+        "muted" => AttrTarget::Prop(p("muted")),
+        "preload" => AttrTarget::Prop(p("preload")),
+        "playsinline" => AttrTarget::Prop(p("playsinline")),
+        "crossorigin" => AttrTarget::Prop(p("crossorigin")),
+        "controlslist" => AttrTarget::Prop(p("controlslist")),
+        "disablepictureinpicture" => AttrTarget::Prop(p("disablepictureinpicture")),
+        "disableremoteplayback" => AttrTarget::Prop(p("disableremoteplayback")),
+        "volume" => AttrTarget::Prop(p("volume")),
+        "playbackRate" => AttrTarget::Prop(p("playbackRate")),
+        "currentTime" => AttrTarget::Prop(p("currentTime")),
+        "paused" => AttrTarget::Prop(p("paused")),
+        "preservesPitch" => AttrTarget::Prop(p("preservesPitch")),
+        "allowsPictureInPicturePlayback" => AttrTarget::Prop(p("allowsPictureInPicturePlayback")),
+        "canStartPictureInPictureAutomaticallyFromInline" => {
+            AttrTarget::Prop(p("canStartPictureInPictureAutomaticallyFromInline"))
+        }
+        "entersFullScreenWhenPlaybackBegins" => {
+            AttrTarget::Prop(p("entersFullScreenWhenPlaybackBegins"))
+        }
+        "exitsFullScreenWhenPlaybackEnds" => AttrTarget::Prop(p("exitsFullScreenWhenPlaybackEnds")),
+        "showsTimecodes" => AttrTarget::Prop(p("showsTimecodes")),
+        "allowsVideoFrameAnalysis" => AttrTarget::Prop(p("allowsVideoFrameAnalysis")),
+        "requiresLinearPlayback" => AttrTarget::Prop(p("requiresLinearPlayback")),
+        "preferredPeakBitRate" => AttrTarget::Prop(p("preferredPeakBitRate")),
+        "preferredForwardBufferDuration" => AttrTarget::Prop(p("preferredForwardBufferDuration")),
+        "automaticallyWaitsToMinimizeStalling" => {
+            AttrTarget::Prop(p("automaticallyWaitsToMinimizeStalling"))
+        }
+        "preventsDisplaySleepDuringVideoPlayback" => {
+            AttrTarget::Prop(p("preventsDisplaySleepDuringVideoPlayback"))
+        }
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
@@ -228,6 +289,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // it; the default, `resizes-visual`, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
+        "item-height" => AttrTarget::Prop(p("itemHeight")),
+        "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -429,4 +492,58 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "className" | "class" | "style" => return None,
         _ => return None,
     })
+}
+
+// A list's fixed or measured row template and scrollport are explicit host policy.
+pub(crate) fn validate_list(
+    tag: &str,
+    expanded: &[contract_syntax::Attr],
+    children: &[contract_syntax::Node],
+    span: contract_syntax::Span,
+) -> Result<(), super::LowerError> {
+    use contract_syntax::{Expr, Node};
+    if tag == "list" {
+        let heights: Vec<_> = expanded
+            .iter()
+            .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
+            .collect();
+        let height = (heights.len() == 1).then(|| heights[0]);
+        if !height
+            .is_some_and(|a| matches!(a.value, Expr::Number(n, _) if n.is_finite() && n > 0.0))
+        {
+            return super::err(
+                "lower-list-height",
+                "`list` needs exactly one positive literal `item-height` or `estimated-item-height` in CSS pixels",
+                span,
+            );
+        }
+        if children.len() != 1 || !matches!(&children[0], Node::Each { .. }) {
+            return super::err(
+                "lower-list-rows",
+                "`list` contains exactly one direct keyed `each`",
+                span,
+            );
+        }
+    } else if expanded
+        .iter()
+        .any(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
+    {
+        return super::err(
+            "lower-list-height",
+            "row height declarations belong on `list`",
+            span,
+        );
+    }
+    if tag == "list"
+        && !expanded
+            .iter()
+            .any(|a| matches!(a.name.as_str(), "height" | "max-height" | "flex"))
+    {
+        return super::err(
+            "lower-list-viewport",
+            "`list` needs a constrained scrollport: height, max-height, or flex",
+            span,
+        );
+    }
+    Ok(())
 }

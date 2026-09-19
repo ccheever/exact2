@@ -330,7 +330,7 @@ impl Default for Tools {
             hermesc: tool(
                 "EXACT_HERMESC",
                 if cfg!(target_os = "linux") {
-                    root.join(format!("../ibex/tools/hermes/hermesc-linux-{arch}"))
+                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
                 } else {
                     root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"))
                 },

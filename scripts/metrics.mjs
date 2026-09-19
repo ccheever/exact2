@@ -8,7 +8,7 @@
  *   bun scripts/metrics.mjs --json     one JSON object
  *   bun scripts/metrics.mjs --app <name> measure that resolved app
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
- *   bun scripts/metrics.mjs --list-memory  fresh-process eager-list heap/RSS baseline (25/1000/25000)
+ *   bun scripts/metrics.mjs --list-memory  fresh-process eager/windowed heap/RSS comparison (25/1000/25000)
  *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
@@ -76,8 +76,8 @@ if (process.argv.includes('--list-memory')) {
   if (built.status !== 0) { console.error(built.error?.message ?? built.stderr); process.exit(built.status ?? 1); }
   const binary = resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'release/metrics');
   out.identity.binary_sha256 = sha256(readFileSync(binary));
-  const sample = (count) => new Promise((done, fail) => {
-    const child = spawn(binary, ['--list-memory', String(count), '--hold'], { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const sample = (count, windowed) => new Promise((done, fail) => {
+    const child = spawn(binary, ['--list-memory', String(count), '--hold', ...(windowed ? ['--windowed'] : [])], { cwd: ROOT, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', result, failure;
     const timer = setTimeout(() => { failure = new Error(`list memory: ${count} rows exceeded 60 s`); child.kill(); }, 60000);
     child.once('error', error => { clearTimeout(timer); fail(error); });
@@ -105,12 +105,12 @@ if (process.argv.includes('--list-memory')) {
     });
   });
   out.list_memory = [];
-  for (const count of [25, 1000, 25000]) out.list_memory.push(await sample(count));
-  out.list_memory_note = 'One fresh process per size; synthetic eager rows, one text leaf per row, monospace layout. Heap is net System allocator requested bytes after compilation (data + decoded plan + runner + kernel); peak excludes allocator-internal realloc transients. Encoded input, allocator slack, stacks and host allocations are excluded from heap, included where resident in RSS. First pixel, native views and decoded image bytes are unmeasured. Memory tracking adds allocator overhead to these construction timings; this is not a frame-rate benchmark.';
+  for (const count of [25, 1000, 25000]) for (const windowed of [false, true]) out.list_memory.push(await sample(count, windowed));
+  out.list_memory_note = 'One fresh process per size/mode; one text leaf per row, monospace layout. Windowed rows add a fixed-height wrapper; measured at an 844px scrollport with one viewport of overscan each side. Windowed retained heap/RSS includes twenty complete down/up traversals; initial_retained_heap_bytes is before traversal; first_traversal_retained_heap_bytes is after one traversal at the same middle position. Live nodes are sampled in the middle. Input data and key/index metadata remain O(N). Heap is net System allocator requested bytes after compilation (data + decoded plan + runner + kernel); peak excludes allocator-internal realloc transients. Encoded input, allocator slack, stacks and host allocations are excluded from heap, included where resident in RSS. First pixel, native views and decoded image bytes are unmeasured. Memory tracking adds allocator overhead to these construction timings; this is not a frame-rate benchmark.';
   if (json) console.log(JSON.stringify(out));
   else {
-    console.log(`Eager list memory baseline — ${JSON.stringify(out.identity)}`);
-    for (const r of out.list_memory) console.log(`  ${r.rows} rows: ${r.live_kernel_nodes} nodes; data ${r.data_heap_bytes} B; plan ${r.decoded_plan_heap_bytes} B; retained heap ${r.retained_heap_delta_bytes} B; peak ${r.peak_heap_delta_bytes} B; RSS ${r.process_rss_bytes ?? 'unmeasured'} B; boot ${r.runner_boot_ms} ms; layout ${r.layout_ms} ms`);
+    console.log(`List memory comparison — ${JSON.stringify(out.identity)}`);
+    for (const r of out.list_memory) console.log(`  ${r.rows} rows / ${r.mode}: ${r.live_kernel_nodes} nodes; data ${r.data_heap_bytes} B; plan ${r.decoded_plan_heap_bytes} B; retained heap ${r.retained_heap_delta_bytes} B; peak ${r.peak_heap_delta_bytes} B; RSS ${r.process_rss_bytes ?? 'unmeasured'} B; boot ${r.runner_boot_ms} ms; layout ${r.layout_ms} ms`);
     console.log(out.list_memory_note);
   }
   process.exit(0);

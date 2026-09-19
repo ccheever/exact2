@@ -1,0 +1,25 @@
+warning: output filename collision at /Users/ccheever/projects/exact2/target/debug/dev
+  |
+  = note: the bin target `dev` in package `typetour-web v0.1.0 (/Users/ccheever/projects/exact2/apps/typetour/web)` has the same output filename as the bin target `dev` in package `caltrain-web v0.1.0 (/Users/ccheever/projects/exact2/apps/caltrain/web)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Users/ccheever/projects/exact2/target/debug/dev.dSYM
+  |
+  = note: the bin target `dev` in package `typetour-web v0.1.0 (/Users/ccheever/projects/exact2/apps/typetour/web)` has the same output filename as the bin target `dev` in package `caltrain-web v0.1.0 (/Users/ccheever/projects/exact2/apps/caltrain/web)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling typetour-web v0.1.0 (/Users/ccheever/projects/exact2/apps/typetour/web)
+   Compiling llp-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/llp/apple)
+   Compiling markdown-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/markdown/apple)
+   Compiling llp-web v0.1.0 (/Users/ccheever/projects/exact2/apps/llp/web)
+   Compiling typetour-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/typetour/apple)
+   Compiling markdown-web v0.1.0 (/Users/ccheever/projects/exact2/apps/markdown/web)
+   Compiling weatherlight-web v0.1.0 (/Users/ccheever/projects/exact2/apps/weatherlight/web)
+   Compiling messages-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/messages/apple)
+   Compiling update-lab-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/update-lab/apple)
+   Compiling messages-linux v0.1.0 (/Users/ccheever/projects/exact2/apps/messages/linux)
+   Compiling messages-web v0.1.0 (/Users/ccheever/projects/exact2/apps/messages/web)
+   Compiling fieldnotes-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/fieldnotes/apple)
+   Compiling weatherlight-apple v0.1.0 (/Users/ccheever/projects/exact2/apps/weatherlight/apple)
+   Compiling update-lab-web v0.1.0 (/Users/ccheever/projects/exact2/apps/update-lab/web)
+   Compiling fieldnotes-web v0.1.0 (/Users/ccheever/projects/exact2/apps/fieldnotes/web)

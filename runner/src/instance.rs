@@ -12,6 +12,10 @@
 //! away. There is no tree diff: a keyed row keeps its views across reorders
 //! because its key, not its position, is its identity.
 
+mod heights;
+mod text;
+mod window;
+
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
@@ -27,6 +31,7 @@ pub enum InstanceError {
     Trap(Trap),
     Bridge(bridge::BridgeError),
     UnknownNodeType(u8),
+    List(&'static str),
     SubjectKind { region: RegionsId },
     KeyKind { region: RegionsId },
     DuplicateKey { region: RegionsId },
@@ -67,6 +72,7 @@ enum Child {
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
+    window: Option<Box<window::ListWindow>>,
 }
 
 #[derive(Debug)]
@@ -83,6 +89,7 @@ enum Active {
 
 #[derive(Debug)]
 struct Row {
+    wrapper: Option<ViewId>,
     key: Value,
     frame: Frame,
     roots: Vec<Child>,
@@ -269,7 +276,11 @@ impl NodeInst {
             last_children: Vec::new(),
         };
         inst.emit_bindings(u, frames)?;
-        inst.children = realize(u, Some(node), row.arm, frames)?;
+        inst.children = if node_type == NodeType::List {
+            inst.list_children(u, frames)?
+        } else {
+            realize(u, Some(node), row.arm, frames)?
+        };
         inst.emit_children(u);
         Ok(inst)
     }
@@ -340,7 +351,11 @@ impl NodeInst {
     }
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+        let old_top = self
+            .bound_prop(u.env.plan, exact_kernel::PropId::ScrollTop)
+            .cloned();
         self.emit_bindings(u, frames)?;
+        self.prepare_list(u.env.plan, old_top)?;
         update_all(u, &mut self.children, frames)?;
         self.emit_children(u);
         Ok(())
@@ -383,6 +398,7 @@ impl RegionInst {
     ) -> Result<RegionInst, InstanceError> {
         let mut inst = RegionInst {
             region,
+            window: None,
             active: match u.env.plan.region(region).kind {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
@@ -400,6 +416,18 @@ impl RegionInst {
         let plan = u.env.plan;
         let row = plan.region(self.region);
         let subject = u.eval(row.subject, frames)?;
+        if let Some(mut window) = self.window.take() {
+            let result = match subject {
+                Value::List(items) => {
+                    window.replace(u, &mut self.active, self.region, items, frames)
+                }
+                _ => Err(InstanceError::SubjectKind {
+                    region: self.region,
+                }),
+            };
+            self.window = Some(window);
+            return result;
+        }
         match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = match subject {
@@ -526,6 +554,7 @@ impl RegionInst {
                             }
                             let roots = realize(u, None, arm, &inner)?;
                             next.push(Row {
+                                wrapper: None,
                                 key,
                                 frame,
                                 roots,
@@ -574,6 +603,10 @@ impl RegionInst {
     }
 
     fn collect_roots(&self, out: &mut Vec<ViewId>) {
+        if let Some(window) = &self.window {
+            out.push(window.content);
+            return;
+        }
         match &self.active {
             Active::Arm { roots, .. } => out.extend(roots_of(roots)),
             Active::Rows { rows } => {
@@ -585,6 +618,10 @@ impl RegionInst {
     }
 
     fn destroy(self, u: &mut Update<'_>) {
+        if let Some(window) = self.window {
+            u.ops.push(Op::DestroyView { id: window.content });
+            return;
+        }
         match self.active {
             Active::Arm { roots, .. } => destroy_all(u, roots),
             Active::Rows { rows } => {
