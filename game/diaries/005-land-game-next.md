@@ -52,8 +52,8 @@ has not yet been certified.
    R14 will move the decode ahead of setup as well.
 7. Geometric layout and movement diagnostics: adapted and headless-verified.
 8. Typed scenes and adapted Lanterns: adapted; Linux verified, first web baseline pending.
-9. DX host transactions and handoff: pending.
-10. I3 fixed evidence and opt-in trials: pending.
+9. DX host transactions and handoff: adapted; local fixtures/headless proofs verified; Apple matrix pending.
+10. I3 fixed evidence and opt-in trials: adapted and headless-verified; first shared fixed-consumer baseline awaits web.
 11. Named real-GPU Fox acceptance, final documentation/matrix: pending.
 
 The T6 production backend, embedded GLB renderer, old Beacons conversion,
@@ -382,3 +382,114 @@ doubles now acknowledge G's deferred restore lifecycle. Each failure cleared in
 one repair round. Three child-mode tests and the complete-session-roster ACK
 negative controls pass. Apple product-resolution fixture: 1 pass; no Swift toolchain
 is installed. No GPU, Apple SDK or browser-rendering success is inferred here.
+
+
+## Increment 10 — fixed I3 evidence and opt-in trials
+
+The fixed consumer is `game/verification/lanterns` (own generated `.shells`
+workspace, captured lock, `lanterns-evidence` save identity). It carries the twelve
+lanterns, original ordinary-input script, four independently compiled edits,
+52-entity Rust-construction equality, and all original apex/moving-crate dynamic,
+queued-input, collision, timer, spring, animation and reload assertions. The
+construction comparison now also checks complete world bytes. Model declarations
+use the baked Fox; controller/animation fields follow G. Historical binary literals,
+605 continuations and the 612-entry migration inventory remain at immutable N;
+none are migrated or overwritten. New evidence is v7 under a distinct identity.
+
+The CPU invariant test runs Off/Save/FreshGame and compares every generated
+checkpoint/continued save and full observation record byte-for-byte. The real host
+proof then restores the same ordinary-input checkpoints through Carry and checks
+all 1,210 observations (five builds × two moments × 121 instants), including full
+save bytes, against that oracle. No queued control field or assertion is removed.
+The recorder gains `pin(tick,state,key=String(tick))`; it retains numeric tick
+validation and complete-inventory/three-mode agreement. The first shared pins file
+stays empty until Linux and web both agree. The fixed app has no historical pin to
+move. Bound: ten probes, 120 continued ticks each, production scene/restore limits.
+The edited contact edge, changed clip palettes and moving-crate velocity/spin are
+negative controls; a removed feature cannot return empty evidence and pass.
+
+An explicit driver launch option `worldMode:'carry'` passes existing Restore::Carry
+through Linux/web/Apple; default Open and HUD checkpoint load remain unchanged.
+The G proof resolves external app paths consistently, including build target and
+process launch. R14 must keep authored merge after typed world decode; when adding
+argument-aware `Game::register`, this fixed consumer's variant dispatch must follow
+its setup/tick branch. No pre-decode authored mutation was added here.
+
+The first host byte comparison exposed test-environment differences. The oracle
+now uses the same integral-millisecond host lattice and 1280×720 viewport as the
+carrier. Full bytes then agree, including queue phase; nothing is normalized out
+of saves. Two fixture repair rounds, with the assertion unchanged. The old
+construction test needed G's declared baked asset digest; it retains all names,
+handles, parents, global-transform/hash assertions and additionally checks bytes.
+
+G runs animation inside Game::tick. Adapted CPU tests use production baked clip
+sampling/joint matrices and the real primitive Feed/Writes path. Timing reports
+whole simulation (including animation) and primitive feed, without inventing a
+separate animation/GPU timing or subtracting medians. Apex still lacks moving crate
+and blending; the supplementary ordinary-input checkpoint proves nonzero velocity
+and spin. No stronger coverage claim is made.
+
+Trials remain opt-in, with immutable prompts, unchanged assertions/negative routes,
+parent-owned receipts, complete timestamp/unknown fields and a 900-second ceiling.
+Version 4 changes only G adapter field/asset names and artifact target selection.
+`--prepare-only` validates archive packaging, locks, build, package tests, same-ref
+negative controls, Landlock content denial and cleanup without auth or agent
+launch. Every archived consumer is prepared before its implementation is stripped;
+only metadata and empty stubs remain. Fixed verification, templates, research,
+evaluators and inherited instructions are also removed. No warm target tree is
+copied. Preparation shares this clone's target; an explicitly requested real trial
+gets its own target and removes it afterward. All three historical result sets and
+methodology, including protocol defects and lack of speed evidence, are preserved
+verbatim with immutable path/ref provenance in `006-historical-change-trials.md`.
+
+
+Increment 10 preliminary measured evidence: real Linux continuous host ran all
+1,210 observations and complete-save comparisons successfully; first baseline
+remains unverified until cross-host agreement. Focused Bun proof/reload/surface
+fixtures: 183 passed, two actual-wasm cases conditionally skipped (those passed
+with the built bridge in increment 9). Fixed construction unit: one passed; I3
+CPU invariant integration: one test covering all three modes passed. CPU feed /
+changed-clip negative controls: two passed. Release 120-tick CPU medians:
+simulation clock operation including animation/reply 230,926 ns; primitive feed 24,056 ns; VmHWM 18,432
+kB; final hash `0xe616dc56c02e8795`. These are one local run, not a speedup claim.
+
+Archive preparation passed against immutable prepared-source object
+`47e8a17727654aac3e5a7b68676c5039bb58c98b` (prepared snapshot; no branch checkout or agent dispatch). Warm production bake 63.731 s; package tests 11 + 3
+passed. Evaluator controls: 8 passing cases, 14 expected failures, six unsupported
+rendering cases across 28 cases. Acceptance's unchanged direct crate route is the
+one baseline mechanics failure; Task A/B fail for the absent requested features.
+All controls emitted full parent receipts, with no unavailable state fields.
+Landlock's real read probe denied evaluator content and allowed resolver/root
+capability reads. Auth was never copied; workspace/build/auth paths and generated
+PNGs were removed. Shared parent build cache is retained. Receipt:
+`scratch/land-exec/trials/47e8a17727654aac3e5a7b68676c5039bb58c98b/a-1/trial.json`.
+Prompts and six evaluator hashes are recorded there; the historical three cohorts
+remain separate from this untimed preparation.
+
+
+The explicit `plan + world` web launch required one additional transactional edge:
+its supplied checkpoint now takes precedence over a running world (including a
+world whose assets are still loading). The candidate consumes that carrier only
+privately until commit, preserves saved input, and abort retains the public carrier.
+Ordinary authored reload still releases physical input. A regression proves those
+branches without a GPU; the production web proof remains a receiving-host job.
+The one-shot world-mode flag clears together with its checkpoint after commit.
+Focused final web launch/reload/surface fixtures: 103 passed, two actual-wasm
+cases conditionally skipped. This fixture is included in the full web sweep too.
+
+
+Increment 10 complete gate sweep: game workspace 691 passed / 14 no-adapter
+failures / 24 ignored diagnostics; app workspaces 43 passed / three no-adapter
+failures / one ignored; fixed app two tests passed (integration exercises all
+three modes). Workspace plus ten app clippy/fmt checks passed. Existing seven games
+passed 28 Linux proof executions (normal + three paranoid modes), with unchanged
+pins. Live Lanterns and fixed evidence each passed three direct Linux runs; the
+G `agreePins` comparator accepted complete identical mode inventories. Fixed keys:
+1,210 ticks and 1,210 saves. Live Lanterns retains the same three ticks/two saves
+reported in increment 8. These Linux-only candidates stay in scratch; both
+`pins.json` files remain empty and `prove --hosts linux` correctly refuses their
+first baseline without web. Game Bun: 132 passed, one skipped. Web: 140 passed,
+five platform/environment failures (four missing `xcrun`, Caltrain Chromium timeout),
+two actual-wasm conditional skips. Root build/test/clippy remain blocked by the
+missing lean Hermes producer; root fmt, caps and boot pass. No new unexplained
+red or weakened assertion. Cubes remains the recorded browser-only benchmark.

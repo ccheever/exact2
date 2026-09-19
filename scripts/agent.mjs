@@ -128,7 +128,7 @@ export function assertWebDistApp(dist, app) {
   if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
+async function openWeb({ plan, world, worldMode = 'open', size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
   if (reuse) {
     try { await reuse.reset(); return reuse; }
     catch (error) { await reuse.close(); throw error; }
@@ -214,7 +214,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     };
     if (world && !plan) {
       const encoded = worldFile(world).toString('base64');
-      await call('Page.addScriptToEvaluateOnNewDocument', { source: `globalThis.exactWorldCarry = Uint8Array.from(atob(${JSON.stringify(encoded)}), c => c.charCodeAt(0));` });
+      await call('Page.addScriptToEvaluateOnNewDocument', { source: `globalThis.exactWorldMode = ${JSON.stringify(worldMode)}; globalThis.exactWorldCarry = Uint8Array.from(atob(${JSON.stringify(encoded)}), c => c.charCodeAt(0));` });
     }
     // The page: this carrier's own server over dist/, or a URL the caller
     // named — the dev server, so a drive can watch an edit arrive.
@@ -232,7 +232,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) {
-      const carry = world ? `exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(worldFile(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
+      const carry = world ? `exact.worldMode = ${JSON.stringify(worldMode)}; exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(worldFile(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
       await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b)); })`);
     }
     const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
@@ -873,10 +873,11 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, worldMode = 'open', size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
   if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (!['open','carry'].includes(worldMode)) throw new Error('worldMode must be open or carry');
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
+  if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world), EXACT_WORLD_MODE:worldMode};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
   // the driver still owns the runner's clock, but UIKit's own transitions,
@@ -894,7 +895,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
+  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, worldMode, size, url, app, webDist, onProcess, reuse });
   const controlled = new Map(), ownershipKey = () => carrier.state?.session ?? carrier.sessions?.[0] ?? null;
   const s = {
     carrier,

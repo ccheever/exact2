@@ -143,12 +143,15 @@ impl Abi {
             .unwrap_or(Value::Null)
     }
     fn restore(&self, id: u32, bytes: &[u8]) -> bool {
+        self.restore_mode(id, bytes, 0)
+    }
+    fn restore_mode(&self, id: u32, bytes: &[u8], mode: u32) -> bool {
         unsafe {
             self.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(b"gpu_restore")(
                 id,
                 bytes.as_ptr(),
                 bytes.len(),
-                0,
+                mode,
             )
         }
     }
@@ -386,7 +389,9 @@ impl Surfaces {
                 && abi.agent(c.id, &json!({"op":"state"}))["world"].is_object()
             {
                 let result = self.restore.take().unwrap().and_then(|bytes| {
-                    let ok = abi.restore(c.id, &bytes);
+                    let mode =
+                        u32::from(std::env::var("EXACT_WORLD_MODE").as_deref() == Ok("carry"));
+                    let ok = abi.restore_mode(c.id, &bytes, mode);
                     c.restore_bytes = Some(bytes);
                     if ok {
                         c.restore_input = true;

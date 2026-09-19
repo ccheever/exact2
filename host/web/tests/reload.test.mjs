@@ -566,3 +566,22 @@ for(const mode of [1,2,3]) test(`candidate child mode ${mode} stages its frames 
   } else assert.equal(child.style.transform,'authored');
   f.destroy(1);assert.equal(child.style.transform,'authored','final owner restores original CSS exactly once');
 });
+
+test('initial plan checkpoint takes precedence over the old world and keeps saved input until commit',async()=>{
+  const restores=[],releases=[];
+  const f=await fixture({gpu:{
+    gpu_carry(id){if(id===1)throw new Error('old world still loading; explicit checkpoint must not save it');return undefined;},
+    gpu_restore(id,bytes,mode){restores.push({id,bytes:[...bytes],mode});return true;},
+    gpu_agent(id,text){const q=JSON.parse(text);if(q.reload){releases.push(q.releaseInput);return JSON.stringify({reload:{values:[],names:[],setupIndices:[]}});}return JSON.stringify({world:{restored:true,input:{forwarded:['Space']}}});},
+  }});
+  f.create(1);
+  f.exact.worldCarry=new Uint8Array([7,8]);f.exact.worldMode='carry';
+  const before=releases.length;
+  const stage=f.exact.gpu.stagePlan({ops:[{op:'surface',id:1,name:'world',values:[]}]});
+  assert.deepEqual(restores.at(-1).bytes,[7,8]);assert.equal(restores.at(-1).mode,1);
+  assert.ok(!releases.slice(before).includes(true),'initial checkpoint must not discard held input');
+  assert.deepEqual([...f.exact.worldCarry],[7,8],'private preparation must not consume the live carrier');
+  stage.abort();assert.deepEqual([...f.exact.worldCarry],[7,8]);
+  const committed=f.exact.gpu.stagePlan({ops:[{op:'surface',id:1,name:'world',values:[]}]});
+  committed.commit();assert.equal(f.exact.worldCarry,undefined);assert.equal(f.exact.worldMode,undefined);
+});

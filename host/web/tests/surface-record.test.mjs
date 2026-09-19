@@ -563,3 +563,10 @@ test('live resize and reload redraw at the last paced frame time', async () => {
   f.paint(11);
   assert.equal(renders.at(-1), 11);
 });
+
+test('initial authored carry is explicit and ordinary initial saves retain Open',async()=>{
+  for(const [worldMode,mode] of [[undefined,0],['open',0],['carry',1]]) {
+    const f=await fixture();f.exact.worldCarry=new Uint8Array([7]);f.exact.worldMode=worldMode;f.create(1);
+    assert.ok(f.order.includes(`restore mode ${mode}`));
+  }
+});

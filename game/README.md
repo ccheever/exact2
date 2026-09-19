@@ -498,3 +498,19 @@ acknowledgement before closing the transport and releasing the proof's process
 ownership. Ordinary `close()` cleans up its isolated launch. Linux and physical
 phone carriers refuse detach. `session.world(name).source(entity)` returns typed
 scene provenance or an explicit unavailable result.
+
+### Fixed engine evidence and explicit authored launch
+
+`open({host, app, plan, world, worldMode: 'carry'})` opens saved state against the
+current compiled initializer; `worldMode` defaults to `'open'` for exact checkpoint
+loading. Both preserve intentional saved input and the restored clock. Native
+carriers use `EXACT_WORLD_MODE=carry` with `EXACT_WORLD`; web uses the same restore
+mode. HUD checkpoint loads remain exact Open. Authored merge follows world decode.
+
+`pin(tick, state, key = String(tick))` accepts a namespaced observation key while
+requiring the exact numeric tick. Tick/save inventories must agree completely in
+continuous, Save and FreshGame; no branch can omit another branch's observations.
+The fixed I3 consumer runs with
+`bun game/prove.mjs game/verification/lanterns --hosts linux,web`. Its first pins
+are published only after both hosts agree. The trial harness under
+`game/bench/trials` is opt-in and is outside default checks.

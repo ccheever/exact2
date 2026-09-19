@@ -253,7 +253,8 @@ extension Canvases {
             let length = request.withUnsafeBufferPointer { m.agent?(e.id, $0.baseAddress, $0.count) ?? UInt32.max }
             guard let data = m.output(length), let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["world"] != nil else { return }
         }
-        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) ?? false }
+        let mode: UInt32 = ProcessInfo.processInfo.environment["EXACT_WORLD_MODE"] == "carry" ? 1 : 0
+        let ok = bytes.withUnsafeBytes { m.restore?(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, mode) ?? false }
         e.restorePending = true
         finishRestore(m, e, refusal: ok ? nil : m.error())
     }

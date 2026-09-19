@@ -1,0 +1,331 @@
+{
+  "units": "metres-y-up",
+  "fragments": {
+    "solid": "solid.fragment.json",
+    "lantern": "lantern.fragment.json"
+  },
+  "assets": {
+    "fox": {
+      "name": "fox.model",
+      "path": "assets/fox.model"
+    }
+  },
+  "entities": [
+    {
+      "id": "ground",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          0,
+          -0.5,
+          0
+        ],
+        "mesh": {
+          "Box": {
+            "size": [
+              36,
+              1,
+              36
+            ]
+          }
+        },
+        "material": {
+          "color": [
+            0.07,
+            0.18,
+            0.11,
+            1
+          ],
+          "roughness": 0.92
+        }
+      },
+      "overrides": {
+        "": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  18.0,
+                  0.5,
+                  18.0
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ledge",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          10,
+          1.2,
+          8
+        ],
+        "mesh": {
+          "Box": {
+            "size": [
+              4,
+              2.4,
+              4
+            ]
+          }
+        },
+        "material": {
+          "color": [
+            0.28,
+            0.27,
+            0.32,
+            1
+          ],
+          "roughness": 0.85
+        }
+      },
+      "overrides": {
+        "": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  2.0,
+                  1.2,
+                  2.0
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "wall",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          -4,
+          1,
+          5
+        ],
+        "mesh": {
+          "Box": {
+            "size": [
+              1,
+              2,
+              5
+            ]
+          }
+        },
+        "material": {
+          "color": [
+            0.31,
+            0.29,
+            0.34,
+            1
+          ],
+          "roughness": 0.88
+        }
+      },
+      "overrides": {
+        "": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.5,
+                  1.0,
+                  2.5
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "crate",
+      "fragment": "solid",
+      "parameters": {
+        "position": [
+          6,
+          0.6,
+          8
+        ],
+        "mesh": {
+          "Box": {
+            "size": [
+              1.2,
+              1.2,
+              1.2
+            ]
+          }
+        },
+        "material": {
+          "color": [
+            0.45,
+            0.24,
+            0.09,
+            1
+          ],
+          "roughness": 0.78
+        }
+      },
+      "overrides": {
+        "": {
+          "Collider": {
+            "shape": {
+              "Box": {
+                "half": [
+                  0.6,
+                  0.6,
+                  0.6
+                ]
+              }
+            }
+          },
+          "Body": {
+            "kind": {
+              "Dynamic": {}
+            },
+            "mass": 3,
+            "damping": 0.45,
+            "spin_damping": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "lantern-1",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          -12,
+          0,
+          10
+        ]
+      }
+    },
+    {
+      "id": "lantern-2",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          -10,
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "id": "lantern-3",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          -12,
+          0,
+          -8
+        ]
+      }
+    },
+    {
+      "id": "lantern-4",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          -6,
+          0,
+          -12
+        ]
+      }
+    },
+    {
+      "id": "lantern-5",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          0,
+          0,
+          -10
+        ]
+      }
+    },
+    {
+      "id": "lantern-6",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          6,
+          0,
+          -12
+        ]
+      }
+    },
+    {
+      "id": "lantern-7",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          12,
+          0,
+          -8
+        ]
+      }
+    },
+    {
+      "id": "lantern-8",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          12,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "lantern-9",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          5,
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "id": "lantern-10",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": "lantern-11",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          0,
+          0,
+          7
+        ]
+      }
+    },
+    {
+      "id": "lantern-12",
+      "fragment": "lantern",
+      "parameters": {
+        "position": [
+          10,
+          2.4,
+          8
+        ]
+      }
+    }
+  ]
+}

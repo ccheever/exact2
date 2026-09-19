@@ -1,0 +1,5 @@
+artifacts/
+dist/
+assets/
+.baked-assets.json
+.scene/

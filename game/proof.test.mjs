@@ -1111,3 +1111,18 @@ test('known native session roster rejects missing or duplicate detach acknowledg
     expect(released).toBe(0);await control.close();expect(released).toBe(0);
   }
 });
+
+test('namespaced evidence pins preserve numeric tick and complete branch inventory',()=>{
+  const calls=[], recorder=pinRecorder({ticks:{},saves:{}},'game/verification/lanterns',(...args)=>calls.push(args),true);
+  recorder.pin(60,{tick:60,hash:syntheticHash},'placement/apex/60');
+  recorder.pin(60,{tick:60,hash:repeatedHash('1')},'clip/apex/60');
+  expect(Object.keys(recorder.pins.ticks)).toEqual(['placement/apex/60','clip/apex/60']);
+  recorder.pin(61,{tick:60,hash:syntheticHash},'wrong/apex/61');
+  expect(calls.at(-1)[1]).toBe(false);
+  expect(()=>recorder.pin(60,{tick:60,hash:syntheticHash},'__proto__')).toThrow('invalid pin key');
+  const pins={ticks:{'placement/apex/60':syntheticHash,'clip/apex/60':repeatedHash('1')},saves:{'clip/apex/60':'a'.repeat(64)}};
+  const rows=['0','1','fresh-game'].map(mode=>({host:'linux',mode,pins:structuredClone(pins)}));
+  expect(agreePins(rows,pins,['linux']).ticks).toEqual(pins.ticks);
+  delete rows[2].pins.ticks['clip/apex/60'];
+  expect(()=>agreePins(rows,pins,['linux'])).toThrow('did not observe ticks clip/apex/60');
+});

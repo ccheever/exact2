@@ -60,8 +60,8 @@ function finishRestore(entry, module, error) {
   const world = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
   if (world && !world.restored) return;
   if (pending.carrier?.worldCarry === pending.bytes) {
-    delete pending.carrier.worldCarry;
-    if (pending.carrier === exact) delete globalThis.exactWorldCarry;
+    delete pending.carrier.worldCarry; delete pending.carrier.worldMode;
+    if (pending.carrier === exact) { delete globalThis.exactWorldCarry; delete globalThis.exactWorldMode; }
   }
   delete entry.pendingRestore; delete entry.attemptedCarry; delete entry.carry;
   delete entry.restoreError; delete entry.restoreReported;
@@ -349,10 +349,11 @@ function restorePending(entry, module = gpu, carrier = exact) {
     catch { return; }
   }
   entry.attemptedCarry = carrier.worldCarry;
-  if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry), 0)) {
+  if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry), carrier.worldMode === "carry" ? 1 : 0)) {
     entry.pendingRestore = {bytes:carrier.worldCarry, carrier};
     finishRestore(entry, module);
   } else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error().replace(/^restore refused: /, "")}`;
+  return true;
 }
 
 function ensure(entry) {
@@ -1092,6 +1093,7 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devA
   if (batch.ops.some(op => ["store", "command", "storage"].includes(op.op))) throw new Error("candidate plan has irreversible effects; restart required");
   const rows = batch.ops.filter(op => op.op === "surface"), staged = new Map(), start = performance.now();
   const old = [...surfaces.values()], at = clockFor(frameAt ?? start);
+  const requestedWorld = exact.worldCarry, carrier = {worldCarry:requestedWorld, worldMode:exact.worldMode};
   if (old.length > 256 || rows.length > 256) throw new Error("candidate exceeds 256 canvas limit");
   const budget = {assets:0, bytes:0, publications:0, ops:batch.ops.length};
   reload.requested = { ...reload.loaded, plan:exact.devPlanArtifact ?? null }; reload.intent = "continue"; reload.phase = "staging"; reload.attempts++;
@@ -1106,10 +1108,13 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devA
         host:{getBoundingClientRect:()=>({width:1,height:1})}, id:0, wants:true, logCursor:0,
       };
       entry.view = row.id; staged.set(row.id, entry);
-      create(entry, gpu, previous?.id ? gpu.gpu_carry(previous.id) : undefined);
-      validateStage(entry, gpu, at, true, assets, budget);
+      create(entry, gpu, carrier.worldCarry !== undefined ? undefined : previous?.id ? gpu.gpu_carry(previous.id) : undefined);
+      // Initial plan + checkpoint is an explicit saved-input launch. Consume its
+      // one-shot carrier privately; an ordinary authored reload releases input.
+      const checkpoint = restorePending(entry, gpu, carrier) === true;
+      validateStage(entry, gpu, at, !checkpoint, assets, budget);
     }
-    for (const entry of old) if (entry.id && gpu.gpu_carry(entry.id) !== undefined && !rows.some(row => row.name === entry.name)) {
+    for (const entry of old) if (entry.id && !rows.some(row => row.name === entry.name) && gpu.gpu_carry(entry.id) !== undefined) {
       throw new Error(`surface ${entry.name}: participating world removed; explicit restart required`);
     }
     validatePublications(batch, staged, gpu, at, true, assets, budget);
@@ -1120,6 +1125,9 @@ function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devA
   return {
     abort() { disposeStage(gpu, staged.values()); planStage = null; },
     commit() {
+      if (requestedWorld !== undefined && carrier.worldCarry === undefined && exact.worldCarry === requestedWorld) {
+        delete exact.worldCarry; delete exact.worldMode; delete globalThis.exactWorldCarry; delete globalThis.exactWorldMode;
+      }
       successfulSwap(start, { ...reload.loaded, plan:exact.devPlanArtifact ?? null }, [...surfaces.values()], "continue");
       reload.restoreOutcome.ui = {scope:"named root slots; row-local state omitted",resetFields:[...new Set([...Object.keys(beforeSlots),...Object.keys(afterSlots)])]
         .filter(name=>JSON.stringify(beforeSlots[name])!==JSON.stringify(afterSlots[name]))
@@ -1158,7 +1166,7 @@ async function swap(version, options) {
     const at = clockFor(frameAt ?? performance.now());
     if (surfaces.size > 256) throw new Error("candidate exceeds 256 canvas limit");
     const budget = {assets:0, bytes:0, publications:0, ops:0};
-    const carrier = {worldCarry:exact.worldCarry};
+    const carrier = {worldCarry:exact.worldCarry, worldMode:exact.worldMode};
     for (const old of surfaces.values()) {
       const entry = candidateEntry(old, options.values?.get(old.view) ?? old.requestedValues ?? old.values);
       staged.push([old, entry]);
@@ -1208,7 +1216,7 @@ async function swap(version, options) {
       messages(entry); assets(entry);
     }
     oldModule?.gpu_unload();
-    if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
+    if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete exact.worldMode; delete globalThis.exactWorldCarry; delete globalThis.exactWorldMode; }
     drainRecords(); schedule();
     successfulSwap(start, exact.gpuArtifacts?.get(version) ?? options.artifact ?? {version}, staged.map(([,e])=>e), intent, options.timing);
     return { ms:performance.now()-start, errors:[], ...diagnostics() };

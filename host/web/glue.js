@@ -1430,7 +1430,7 @@ globalThis.exact = { mutate, clockNow:now,
     return {batch, commit:()=>wasm.exact_finish_boot(1), abort:()=>wasm.exact_finish_boot(0), present:()=>applyBatch(batch)};
   },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, now, worldMode:globalThis.exactWorldMode, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 let gpuLoading = null;
 function loadGpuIfNeeded() {

@@ -1,0 +1,125 @@
+[
+  {
+    "op": "clock",
+    "ticks": 2
+  },
+  {
+    "op": "key_down",
+    "code": "KeyD"
+  },
+  {
+    "op": "clock",
+    "ticks": 64
+  },
+  {
+    "op": "key_up",
+    "code": "KeyD"
+  },
+  {
+    "op": "key_down",
+    "code": "KeyW"
+  },
+  {
+    "op": "clock",
+    "ticks": 49
+  },
+  {
+    "op": "key_up",
+    "code": "KeyW"
+  },
+  {
+    "op": "key_down",
+    "code": "KeyD"
+  },
+  {
+    "op": "clock",
+    "ticks": 18
+  },
+  {
+    "op": "key_up",
+    "code": "KeyD"
+  },
+  {
+    "op": "checkpoint",
+    "name": "moving-crate"
+  },
+  {
+    "op": "key_down",
+    "code": "KeyA"
+  },
+  {
+    "op": "clock",
+    "ticks": 8
+  },
+  {
+    "op": "key_up",
+    "code": "KeyA"
+  },
+  {
+    "op": "key_down",
+    "code": "Space"
+  },
+  {
+    "op": "key_down",
+    "code": "KeyD"
+  },
+  {
+    "op": "clock",
+    "ticks": 20
+  },
+  {
+    "op": "key_up",
+    "code": "KeyD"
+  },
+  {
+    "op": "key_up",
+    "code": "Space"
+  },
+  {
+    "op": "clock",
+    "ticks": 31
+  },
+  {
+    "op": "checkpoint",
+    "name": "launch"
+  },
+  {
+    "op": "key_down",
+    "code": "Space"
+  },
+  {
+    "op": "key_down",
+    "code": "KeyD"
+  },
+  {
+    "op": "clock",
+    "ticks": 27
+  },
+  {
+    "op": "key_down",
+    "code": "KeyE"
+  },
+  {
+    "op": "key_up",
+    "code": "KeyE"
+  },
+  {
+    "op": "clock",
+    "ticks": 6
+  },
+  {
+    "op": "key_up",
+    "code": "Space",
+    "after_ticks": 10
+  },
+  {
+    "op": "key_down",
+    "code": "Space",
+    "after_ticks": 75
+  },
+  {
+    "op": "key_up",
+    "code": "Space",
+    "after_ticks": 76
+  }
+]

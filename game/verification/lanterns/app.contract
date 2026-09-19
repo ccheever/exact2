@@ -1,0 +1,4 @@
+use sceneContent from "./.scene/scene.contract"
+component Evidence
+  view
+    canvas surface=world(variant=0, seed=1041003, started=true, paused=false, round=0, jump_press=0, light_press=0, sound=true, scene=sceneContent()) testId="world" width="100%" height="100%"

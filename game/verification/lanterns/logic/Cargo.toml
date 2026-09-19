@@ -1,0 +1,20 @@
+[package]
+name = "lanterns-evidence-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game = { path = "../../../engine" }
+exact-game-physics = { path = "../../../physics" }
+exact-game-scene = { path = "../../../scene" }
+
+[build-dependencies]
+exact-game-bake = { path = "../../../bake" }
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"
+contract = { path = "../../../../contract/cli" }
+exact-runner = { path = "../../../../runner" }

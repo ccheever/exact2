@@ -897,3 +897,6 @@ fn aspect_only_feed_preserves_authored_integer_camera_height() {
     assert!((f.frame(&w, 1., 2.).proj.y_axis.y - 2. / 180.).abs() < 1e-7);
     assert!((f.frame_pixels(&w, 1., (800., 400.)).proj.y_axis.y - 2. / 200.).abs() < 1e-7);
 }
+
+#[path = "difficult_timing.rs"]
+mod difficult_timing;

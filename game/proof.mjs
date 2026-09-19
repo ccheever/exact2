@@ -174,9 +174,10 @@ export function pinRecorder(previous, name, check, collecting = false) {
       expected === got ? `pin ${key}=${got}` : `pin ${key} differs (expected ${expected}, got ${got}); if the change is intended: bun game/prove.mjs ${name} --repin`, expected === got);
   };
   return {pins,
-    pin(tick, state) {
+    pin(tick, state, key = String(tick)) {
+      if (typeof key !== "string" || key.length < 1 || key.length > 256 || ["__proto__","constructor","prototype"].includes(key)) throw new Error("invalid pin key");
       check(`pin ${tick} sampled at expected tick (got ${state?.tick})`, state?.tick === tick && /^0x[0-9a-f]{16}$/.test(state?.hash));
-      record('ticks', String(tick), state?.hash);
+      record('ticks', key, state?.hash);
     },
     pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
   };
@@ -291,7 +292,7 @@ export async function proof(meta, script) {
     if (!ok) failures.push(label);
     return ok;
   };
-  const {pins, pin, pinSave} = pinRecorder(previousPins, name, check, collecting);
+  const {pins, pin, pinSave} = pinRecorder(previousPins, app.startsWith(resolve(root,"game/games") + "/") ? name : app, check, collecting);
   // The GPU-less host has no process tree to discover: retain the process
   // handles from the carrier and await them. Global ps can block indefinitely
   // on this Mac; an optional web descendant audit is bounded and never delays
@@ -350,7 +351,7 @@ export async function proof(meta, script) {
     const reuse = host === 'web' && !options.world && !options.plan ? reusableWeb : null;
     reusableWeb = null;
     if (reuse) say('CARRIER reused web process; fresh document');
-    const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, reuse, ...options,
+    const raw = await openSession({host, app, size:[1280,720], webDist:dist, onProcess, reuse, ...options,
       env:{EXACT_GAME_PARANOID:process.env.EXACT_GAME_PARANOID ?? '0', ...options.env}});
     sample();
     if (launchReceipt && loadedIdentity()?.digest !== launchReceipt.digest) { await raw.close(); throw new Error('artifacts changed during proof session launch'); }
@@ -404,12 +405,12 @@ export async function proof(meta, script) {
   };
   try {
     if (!['web','macos','ios','linux'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
-    const hash = buildInputHash(host, resolveApp(name).target, process.env.EXACT_GAME_PARANOID ?? '0');
+    const hash = buildInputHash(host, resolveApp(app).target, process.env.EXACT_GAME_PARANOID ?? '0');
     for (const file of proofInputFiles(root, app)) {
       hash.update(file).update(readFileSync(resolve(root,file)));
     }
     const digest = hash.digest('hex'), receipt = resolve(buildOut, `build-${host}.sha256`);
-    const appInfo = resolveApp(name);
+    const appInfo = resolveApp(app);
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `release/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `release/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
