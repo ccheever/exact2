@@ -5877,3 +5877,39 @@ with only Text.swift changed from5a7ed29. No native timing comparison, allocatio
 measurement, UIKit validation or120Hz improvement follows from these checks.
 The99-file source and validation archive remains in
 `exact2-apple-text-length/target/apple-text-length-validation/freeze-v1/`.
+
+### 8.101 Browser trace localizes giant-width stalls to layout, 2026-09-18
+
+One further diagnostic cell keeps the immutable8d9858c Web product, full unsplit
+1MiB paragraph and72-offer recipe from8.99. A separately tested ignored driver
+preserves the full final document proof on assessment failure and traces only
+the third2s window, after the second window drains. It reuses the existing
+four-category,16MiB trace carrier; no rebuild, larger cap or runtime retry occurs.
+
+The workload still fails:57 requests are sent and15 skipped at the four-request
+capacity limit, five per window. All17 sent typing requests eventually echo,
+but only15 handlers begin within the fixed windows. Before and final DOM proofs
+now both retain the canonical1,048,499-byte paragraph digest; this separate source
+check does not turn failed offer acceptance into a pass. The original8.99
+failure and unavailable final digest remain unchanged.
+
+The complete2,180,224-byte trace contains9,476 events with no loss or truncation.
+Frame/process/thread identity and conservative clock brackets join the selected
+renderer. In the third fixed window,178 fully-contained tasks occupy1377.535ms
+of wall time;14 Layout intervals occupy1335.558ms. Four long tasks contain
+326.379,326.087,357.005 and325.708ms Layout intervals. Each names the selected
+frame and full document root at alternating1120/1200px viewport widths. Script,
+style and paint unions are8.926,0.189 and22.490ms; these nested wall families are
+not additive CPU costs. One324.274ms task crosses the endpoint and a333.505ms
+task follows it, both excluded from the four contained misses.
+
+This identifies browser layout as the long measured renderer work, without
+isolating a text subroutine or demonstrating a fix. It supplies no evidence
+that moving parsing to another worker would remove these layout intervals.
+The first two windows have no trace attribution. Frame-callback gaps still
+reach335ms, and tracing overhead is uncalibrated; no matched gain, physical
+presentation or120Hz claim follows. All recorded processes and the private
+listener retire. The20-file frozen archive is under
+`target/web-giant-markdown-8d9858c/cell-trace-v1/`. Next work is a bounded source
+check for avoidable width invalidations or forced reads, preserving full content
+and actual wrapping rather than changing the workload.
