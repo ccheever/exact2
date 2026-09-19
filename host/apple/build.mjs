@@ -535,18 +535,6 @@ function main(args) {
       '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
     );
   }
-  if (!ios) {
-    // The same `--sysroot` gap on macOS is quieter and costs more. The link
-    // succeeds, but clang has no SDK to name, so the linker records `sdk 14.0`
-    // — the deployment target — and AppKit takes the app for one built in
-    // 2023: no frame-synchronized update cycle, legacy scroll pacing, last
-    // decade's window chrome. Under a scroll that is a dropped frame every
-    // second or two that nothing on our side of the API removes (LLP 1044).
-    swiftArgs.push(
-      '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot',
-      '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk,
-    );
-  }
   // SwiftPM owns its output layout. Swift Build and the native build system
   // use different directories; ask with the same destination arguments.
   const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
