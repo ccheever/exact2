@@ -1,0 +1,174 @@
+{
+  "planned": 16,
+  "attempted": 8,
+  "notRun": {
+    "godot": 4,
+    "three": 4
+  },
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "wallCeilingSeconds": 900,
+  "trials": [
+    {
+      "engine": "babylon",
+      "attempt": "a1",
+      "passed": true,
+      "agentSeconds": 407.23869156837463,
+      "buildSeconds": 2.017937183380127,
+      "proofSeconds": 20.922226420999998,
+      "usage": {
+        "input_tokens": 1319642,
+        "cached_input_tokens": 1256192,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 13307,
+        "reasoning_output_tokens": 4844
+      },
+      "uncachedInputTokens": 63450,
+      "agentTimedOut": false,
+      "report": "trials/babylon/a1/evaluation-v3/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "babylon",
+      "attempt": "a2",
+      "passed": true,
+      "agentSeconds": 468.69294714927673,
+      "buildSeconds": 2.06933856010437,
+      "proofSeconds": 20.387872286999997,
+      "usage": {
+        "input_tokens": 1135842,
+        "cached_input_tokens": 1084160,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 12038,
+        "reasoning_output_tokens": 4235
+      },
+      "uncachedInputTokens": 51682,
+      "agentTimedOut": false,
+      "report": "trials/babylon/a2/evaluation/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "babylon",
+      "attempt": "b1",
+      "passed": true,
+      "agentSeconds": 220.3751096725464,
+      "buildSeconds": 2.2197248935699463,
+      "proofSeconds": 20.235196973999997,
+      "usage": {
+        "input_tokens": 679023,
+        "cached_input_tokens": 630016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 8330,
+        "reasoning_output_tokens": 2956
+      },
+      "uncachedInputTokens": 49007,
+      "agentTimedOut": false,
+      "report": "trials/babylon/b1/evaluation-v3/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "babylon",
+      "attempt": "b2",
+      "passed": true,
+      "agentSeconds": 347.3219997882843,
+      "buildSeconds": 2.069019079208374,
+      "proofSeconds": 19.94188773,
+      "usage": {
+        "input_tokens": 861166,
+        "cached_input_tokens": 807168,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 13441,
+        "reasoning_output_tokens": 4059
+      },
+      "uncachedInputTokens": 53998,
+      "agentTimedOut": false,
+      "report": "trials/babylon/b2/evaluation-v3/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "playcanvas",
+      "attempt": "a1",
+      "passed": true,
+      "agentSeconds": 477.5136332511902,
+      "buildSeconds": 0.514434814453125,
+      "proofSeconds": 8.251358653999999,
+      "usage": {
+        "input_tokens": 1749802,
+        "cached_input_tokens": 1680512,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 20628,
+        "reasoning_output_tokens": 9177
+      },
+      "uncachedInputTokens": 69290,
+      "agentTimedOut": false,
+      "report": "trials/playcanvas/a1/evaluation-v3/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "playcanvas",
+      "attempt": "a2",
+      "passed": true,
+      "agentSeconds": 339.3800024986267,
+      "buildSeconds": 0.5149726867675781,
+      "proofSeconds": 8.53131639,
+      "usage": {
+        "input_tokens": 543602,
+        "cached_input_tokens": 489984,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 13981,
+        "reasoning_output_tokens": 5871
+      },
+      "uncachedInputTokens": 53618,
+      "agentTimedOut": false,
+      "report": "trials/playcanvas/a2/evaluation/acceptance.json",
+      "protocolCompliant": true
+    },
+    {
+      "engine": "playcanvas",
+      "attempt": "b1",
+      "passed": true,
+      "agentSeconds": 457.527095079422,
+      "buildSeconds": 0.5146214962005615,
+      "proofSeconds": 8.228053974,
+      "usage": {
+        "input_tokens": 1229794,
+        "cached_input_tokens": 1173888,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 18233,
+        "reasoning_output_tokens": 8303
+      },
+      "uncachedInputTokens": 55906,
+      "agentTimedOut": false,
+      "report": "trials/playcanvas/b1/evaluation-v3/acceptance.json",
+      "protocolCompliant": false
+    },
+    {
+      "engine": "playcanvas",
+      "attempt": "b2",
+      "passed": true,
+      "agentSeconds": 566.1877398490906,
+      "buildSeconds": 0.5150272846221924,
+      "proofSeconds": 9.22633885,
+      "usage": {
+        "input_tokens": 1019233,
+        "cached_input_tokens": 965888,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 15291,
+        "reasoning_output_tokens": 7314
+      },
+      "uncachedInputTokens": 53345,
+      "agentTimedOut": false,
+      "report": "trials/playcanvas/b2/evaluation/acceptance.json",
+      "protocolCompliant": true
+    }
+  ],
+  "externalPasses": 8,
+  "protocolCompliantSuccesses": 7,
+  "protocolViolations": [
+    {
+      "engine": "playcanvas",
+      "attempt": "b1",
+      "reason": "Five repairs in the same crate/ledge proof loop exceeded the three-repair limit; a sixth repair was a separate home-walker loop. Functional submission still passed10/10."
+    }
+  ]
+}

@@ -148,11 +148,10 @@ component Markdown
                 column width="100%" box-sizing="border-box" padding=8 gap=1
                   each e in doc.siblings key=e.id
                     FolderRow(entry=e, open=openFile)
-            scroll flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document"
-              column width="100%" align-items="center" padding-top=28 padding-bottom=72
-                column width="100%" max-width=740 padding-left=32 padding-right=32 box-sizing="border-box" gap=2
-                  each b in doc.blocks key=b.id
-                    Blocks(block=b)
+            list estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" padding-top=28 padding-bottom=72 box-sizing="border-box"
+              each b in doc.blocks key=`${doc.path}:${b.id}`
+                column width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-bottom=2 box-sizing="border-box"
+                  Blocks(block=b)
 
 component FolderRow
   inject

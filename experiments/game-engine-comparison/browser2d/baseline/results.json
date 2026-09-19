@@ -1,0 +1,260 @@
+{
+  "versions": {
+    "phaser": "4.2.1",
+    "kaplay": "3001.0.19",
+    "playwright": "1.63.0"
+  },
+  "renderer": "Headless Chromium; Phaser Canvas, KAPLAY WebGL SwiftShader",
+  "results": [
+    {
+      "engine": "phaser",
+      "runs": [
+        {
+          "startupMs": 241.08020400000004,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 4
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "executionMs": 2.3999996185302734,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 246.71468600000003,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 4
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "executionMs": 2.5,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 235.13488800000005,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 4
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "executionMs": 3,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 259.1213600000001,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 4
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "executionMs": 2.5,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 224.51468299999988,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 4
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 4
+          },
+          "executionMs": 3.8999996185302734,
+          "passed": true,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "engine": "kaplay",
+      "runs": [
+        {
+          "startupMs": 234.0770090000001,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "executionMs": 0.3000011444091797,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 191.4702639999996,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "executionMs": 0.39999961853027344,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 207.61129699999992,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "executionMs": 0.5,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 209.06927700000006,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "executionMs": 0.39999961853027344,
+          "passed": true,
+          "errors": []
+        },
+        {
+          "startupMs": 215.3999990000002,
+          "initial": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "moved": {
+            "x": 140,
+            "collected": 3,
+            "lanterns": 0,
+            "objects": 5
+          },
+          "reset": {
+            "x": 20,
+            "collected": 0,
+            "lanterns": 3,
+            "objects": 5
+          },
+          "executionMs": 0.40000152587890625,
+          "passed": true,
+          "errors": []
+        }
+      ]
+    }
+  ]
+}

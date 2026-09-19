@@ -214,10 +214,16 @@ fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> S
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
 fn unavailable_tree<D: DataSource>(p: &Presenter<D>) -> String {
-    p.host().agent("{\"op\":\"tree\"}").replace(
-        "\"type\":\"WebView\",\"props\":",
-        "\"type\":\"WebView\",\"unavailable\":true,\"props\":",
-    )
+    p.host()
+        .agent("{\"op\":\"tree\"}")
+        .replace(
+            "\"type\":\"WebView\",\"props\":",
+            "\"type\":\"WebView\",\"unavailable\":true,\"props\":",
+        )
+        .replace(
+            "\"type\":\"Video\",\"props\":",
+            "\"type\":\"Video\",\"unavailable\":true,\"props\":",
+        )
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.

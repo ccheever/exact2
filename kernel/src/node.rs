@@ -27,7 +27,12 @@ impl NodeType {
     /// Whether the node's size comes from a measure — text, or a replaced
     /// element (`Image`) with an intrinsic size the host reported.
     pub fn is_measured_leaf(self) -> bool {
-        self.is_text_leaf() || self == NodeType::Image
+        self.is_text_leaf() || self.is_replaced()
+    }
+
+    /// An image or video whose content has an intrinsic size.
+    pub fn is_replaced(self) -> bool {
+        matches!(self, NodeType::Image | NodeType::Video)
     }
 
     /// Whether the node is a scroll container by default (overflow on its

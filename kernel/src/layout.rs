@@ -1,8 +1,9 @@
 //! Layout: the engine wrapper and frame publication.
 //!
 //! [`LayoutTree`] owns the Taffy tree as a derived structure over the arena's
-//! columns. Text leaves carry their slot as the Taffy node context so the
-//! measure closure can hand the host measurer the leaf's runs. After a pass,
+//! columns. Measured leaves carry their slot and a bounded offer cache as the
+//! Taffy node context. The measure closure hands the host measurer the leaf's
+//! runs only when that offer is missing. After a pass,
 //! [`compute`] walks the root, publishes absolute frames into the arena's frame
 //! column, and returns exactly the nodes whose frame bits changed — the
 //! changed-geometry receipt.
@@ -19,7 +20,7 @@ use crate::error::LayoutError;
 use crate::generated::{FieldSizing, NodeType, StyleMask};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::style::taffy_style;
-use crate::text::{Paragraph, TextMeasureRequest, TextMeasurer, TextRun};
+use crate::text::{Paragraph, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
 
 /// What a layout pass changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,9 +49,23 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
     }
 }
 
-/// The engine tree. Node contexts are arena slots (text leaves only).
+struct MeasuredNode {
+    slot: u32,
+    // At most four offers per live node. Removing/rebuilding an engine node
+    // drops these metrics; explicit text/style invalidation clears them.
+    measurements: Vec<Measurement>,
+}
+
+#[derive(Clone, Copy)]
+struct Measurement {
+    width: AxisOffer,
+    height: AxisOffer,
+    metrics: TextMetrics,
+}
+
+/// The engine tree. Measured leaves retain a bounded cache of exact offers.
 pub struct LayoutTree {
-    taffy: TaffyTree<u32>,
+    taffy: TaffyTree<MeasuredNode>,
     fault: Option<String>,
     // One derived height, not an authored target or a second style graph.
     presented_height: Option<(NodeKey, NodeId, f32)>,
@@ -97,7 +112,13 @@ impl LayoutTree {
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
     pub fn new_leaf(&mut self, style: taffy::style::Style, slot: u32, measured: bool) -> NodeId {
         let result = if measured {
-            self.taffy.new_leaf_with_context(style, slot)
+            self.taffy.new_leaf_with_context(
+                style,
+                MeasuredNode {
+                    slot,
+                    measurements: Vec::new(),
+                },
+            )
         } else {
             self.taffy.new_leaf(style)
         };
@@ -140,6 +161,7 @@ impl LayoutTree {
         if self.taffy.style(node).is_ok_and(|old| *old == style) {
             return;
         }
+        self.clear_measurements(node);
         let r = self.taffy.set_style(node, style);
         self.note("set_style", r);
     }
@@ -194,14 +216,22 @@ impl LayoutTree {
 
     /// Replace a node's ordered children.
     pub fn set_children(&mut self, parent: NodeId, children: &[NodeId]) {
+        self.clear_measurements(parent);
         let r = self.taffy.set_children(parent, children);
         self.note("set_children", r);
     }
 
     /// Mark a node (and its ancestors) dirty.
     pub fn mark_dirty(&mut self, node: NodeId) {
+        self.clear_measurements(node);
         let r = self.taffy.mark_dirty(node);
         self.note("mark_dirty", r);
+    }
+
+    fn clear_measurements(&mut self, node: NodeId) {
+        if let Some(context) = self.taffy.get_node_context_mut(node) {
+            context.measurements.clear();
+        }
     }
 
     /// Whether a node needs layout.
@@ -237,17 +267,20 @@ impl LayoutTree {
             |known: Size<Option<f32>>,
              space: Size<AvailableSpace>,
              _node,
-             context: Option<&mut u32>,
+             context: Option<&mut MeasuredNode>,
              _style| {
-                let Some(slot) = context.map(|c| *c) else {
+                let Some(context) = context else {
                     return MeasureOutput::ZERO;
                 };
-                if arena.node_type(slot) == NodeType::Image {
+                let slot = context.slot;
+                if arena.node_type(slot).is_replaced() {
                     // A replaced element: its intrinsic size where nothing
                     // is known (Taffy has already applied the aspect ratio
                     // to a known dimension); nothing at all before it loads,
                     // as a broken `<img>` is 0×0.
-                    let Some((iw, ih)) = arena.intrinsic(slot) else {
+                    let Some((iw, ih)) = arena.intrinsic(slot).or_else(|| {
+                        (arena.node_type(slot) == NodeType::Video).then_some((300.0, 150.0))
+                    }) else {
                         return MeasureOutput::ZERO;
                     };
                     return MeasureOutput {
@@ -257,11 +290,6 @@ impl LayoutTree {
                         },
                         first_baselines: taffy::geometry::Point { x: None, y: None },
                     };
-                }
-                runs.clear();
-                arena.text_runs(slot, &mut runs);
-                if runs.is_empty() {
-                    return MeasureOutput::ZERO;
                 }
                 let width = if arena.node_type(slot) == NodeType::TextInput
                     && arena.style(slot).field_sizing == FieldSizing::Fixed
@@ -279,24 +307,48 @@ impl LayoutTree {
                     .height
                     .map(AxisOffer::Definite)
                     .unwrap_or_else(|| from_available(space.height));
-                // Direction and alignment inherit (a paragraph inside a
-                // centred column centres, as in CSS); the rest are its own.
-                let request = TextMeasureRequest {
-                    runs: &runs,
-                    paragraph: Paragraph::from_style(
-                        &arena.computed_style(slot, StyleMask::INHERITED),
-                    ),
-                    width,
-                    height,
+                // Parent layout can revisit a leaf under the same text offer
+                // after discarding its broader Taffy layout cache. Reuse the
+                // metrics before flattening runs or crossing into the host.
+                // Height is part of the key: an injected measurer may use it.
+                let metrics = if let Some(cached) = context
+                    .measurements
+                    .iter()
+                    .find(|m| m.width == width && m.height == height)
+                {
+                    cached.metrics
+                } else {
+                    runs.clear();
+                    arena.text_runs(slot, &mut runs);
+                    if runs.is_empty() {
+                        return MeasureOutput::ZERO;
+                    }
+                    let request = TextMeasureRequest {
+                        runs: &runs,
+                        paragraph: Paragraph::from_style(
+                            &arena.computed_style(slot, StyleMask::INHERITED),
+                        ),
+                        width,
+                        height,
+                    };
+                    let metrics = match arena.paragraph_stamp(slot) {
+                        Some(stamp) => measurer.measure_identified(&stamp, &request),
+                        None => measurer.measure(&request),
+                    };
+                    if !metrics.is_valid() {
+                        invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
+                        return MeasureOutput::ZERO;
+                    }
+                    if context.measurements.len() == 4 {
+                        context.measurements.remove(0);
+                    }
+                    context.measurements.push(Measurement {
+                        width,
+                        height,
+                        metrics,
+                    });
+                    metrics
                 };
-                let metrics = match arena.paragraph_stamp(slot) {
-                    Some(stamp) => measurer.measure_identified(&stamp, &request),
-                    None => measurer.measure(&request),
-                };
-                if !metrics.is_valid() {
-                    invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
-                    return MeasureOutput::ZERO;
-                }
                 MeasureOutput {
                     size: Size {
                         width: known.width.unwrap_or(metrics.width),

@@ -1,0 +1,19 @@
+{
+  "name": "lanterns-playcanvas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "mkdir -p dist/assets && rolldown src/main.js --format es --file dist/game.js && cp index.html styles.css level.json dist/ && cp assets/Fox.glb assets/Fox-LICENSE.md node_modules/ammojs3/dist/ammo.wasm.js node_modules/ammojs3/dist/ammo.wasm.wasm dist/assets/",
+    "start": "http-server dist -p 4173 -c-1",
+    "check": "bun run build"
+  },
+  "dependencies": {
+    "ammojs3": "0.0.11",
+    "playcanvas": "2.22.2"
+  },
+  "devDependencies": {
+    "http-server": "14.1.1",
+    "rolldown": "1.0.0-beta.52"
+  }
+}

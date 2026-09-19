@@ -1,0 +1,20 @@
+{
+  "local": [
+    {
+      "engine": "playcanvas",
+      "pid": 41815,
+      "port": 4781
+    },
+    {
+      "engine": "babylon",
+      "pid": 41982,
+      "port": 4782
+    },
+    {
+      "engine": "godot",
+      "pid": 79721,
+      "port": 4783
+    }
+  ],
+  "note": "Local development previews intentionally left running; not public deployments."
+}

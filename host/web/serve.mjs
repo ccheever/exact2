@@ -21,6 +21,7 @@ const PUBLIC_FILES = new Set([
   '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-worker.js', '/module-prelude.js',
   '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
   '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/gpu-glue.js',
+  '/list-selection.js', '/media-glue.js',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
@@ -534,6 +535,7 @@ export function webContentType(route) {
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
@@ -581,6 +583,26 @@ export async function readWebRequest(dist, pathname, accept = '') {
 
 /** The production directory origin and diagnostic server share actual HTTP
  * handling, including no-store deletions and the native envelope rung. */
+// One byte range is enough for browser media seeking. Unknown/multipart ranges
+// fall back to the full representation; If-Range without a validator does too.
+export function sendStaticBody(req, res, body, headers = {}) {
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const size = bytes.length;
+  const range = req.method !== 'HEAD' && !req.headers['if-range'] && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  const common = { ...headers, 'accept-ranges': 'bytes' };
+  if (range && (range[1] || range[2])) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(size - 1, Number(range[2])) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) {
+      res.writeHead(416, { ...common, 'content-range': `bytes */${size}`, 'content-length': 0 }); res.end(); return;
+    }
+    res.writeHead(206, { ...common, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+    res.end(bytes.subarray(start, end + 1)); return;
+  }
+  res.writeHead(200, { ...common, 'content-length': size });
+  res.end(req.method === 'HEAD' ? undefined : bytes);
+}
+
 export async function serveStatic(dist, req, res, listener) {
   const target = webRequestURL(req.url);
   if (!target) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -588,10 +610,9 @@ export async function serveStatic(dist, req, res, listener) {
   const route = target.pathname;
   const { found, index } = await readWebRequest(dist, route, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
-  res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
   let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;
   if (!found.immutable && !found.published && INSTALL_FILES.includes(found.route)) body = installNetworkPage(body, listener ?? {host:req.socket.localAddress,port:req.socket.localPort});
-  res.end(req.method === 'HEAD' ? undefined : body);
+  sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
 }
 
 async function main() {

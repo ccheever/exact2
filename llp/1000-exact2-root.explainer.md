@@ -40,7 +40,8 @@ and this one does not. Read them first.
 ## System map
 
 - `kernel/` — `exact-kernel`, the layout/wire/export kernel. Specified by LLP 1001;
-  images (a replaced element across kernel and hosts) by LLP 1011.
+  images (a replaced element across kernel and hosts) by LLP 1011;
+  video and its keyboard-resizing consumer by LLP 1042.
   Design lineage: RFC 0491 (kernel refresh), LLP 0507 (EXWF wire), LLP 0486/0487
   (layout language), LLP 0297 (threading contract).
 - `motion/` — `exact-motion`, the motion evaluator: CSS `transition` semantics

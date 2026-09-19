@@ -53,8 +53,8 @@ pub use request::{
     Response, Work,
 };
 pub use runner::{
-    Advanced, Carried, Command, DataError, DataSource, Event, RouterChange, Runner, RunnerError,
-    Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    Advanced, Carried, Command, DataError, DataSource, Event, ListTextPosition, ListViewport,
+    RouterChange, Runner, RunnerError, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use viewport::Viewport;

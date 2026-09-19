@@ -116,7 +116,11 @@ fn main() {
             .parse()
             .expect("row count must be an integer");
         assert!(count > 0 && count <= 25000, "row count must be 1..=25000");
-        list_memory(count, std::env::args().any(|arg| arg == "--hold"));
+        list_memory(
+            count,
+            std::env::args().any(|arg| arg == "--hold"),
+            std::env::args().any(|arg| arg == "--windowed"),
+        );
         return;
     }
     if std::env::args().any(|arg| arg == "--scaling") {
@@ -251,7 +255,7 @@ fn main() {
 
 // @ref LLP 1010 §6 — baseline first; these are runner measurements, not
 // browser/phone frames. One invocation owns one size and one runner.
-fn list_memory(count: usize, hold: bool) {
+fn list_memory(count: usize, hold: bool, windowed: bool) {
     use std::io::Write;
     use std::sync::atomic::Ordering::Relaxed;
 
@@ -275,7 +279,14 @@ component App
     // Compile outside the measured interval; retain only the encoded input.
     // The decoded plan and source data below are counted separately once,
     // even when runner values share their storage through Rc.
-    let encoded = contract::compile(source).unwrap().encode();
+    let source = if windowed {
+        source.replace("scroll height=844 width=390\n      column\n        each row in rows key=row.id\n          text", "list item-height=24 height=844 width=390\n      each row in rows key=row.id\n        text")
+    } else {
+        source.to_string()
+    };
+    let plan = contract::compile(&source).unwrap();
+    let encoded = plan.encode();
+    drop(plan);
     MEASURE_HEAP.store(true, Relaxed);
     let data = MemoryRows(Value::list(
         (0..count)
@@ -296,6 +307,23 @@ component App
         .unwrap()
     });
     let root = runner.roots()[0];
+    let (_, window_ms) = time(|| {
+        if windowed {
+            runner
+                .list_viewport(
+                    root,
+                    exact_runner::ListViewport {
+                        top: (count as f64 * 12.0 - 422.0).max(0.0),
+                        height: 844.0,
+                        width: 390.0,
+                        origin: 0.0,
+                        pins: [0, 0],
+                        rows: &[],
+                    },
+                )
+                .unwrap();
+        }
+    });
     let (_, layout_ms) = time(|| {
         runner
             .kernel_mut()
@@ -303,12 +331,65 @@ component App
             .unwrap()
     });
     let nodes = runner.kernel().live_count();
-    assert_eq!(nodes, count + 2, "the baseline must materialize every row");
+    if windowed {
+        assert!(nodes <= 216, "three viewports of row instances");
+    } else {
+        assert_eq!(nodes, count + 2, "the baseline must materialize every row");
+    }
+    let initial_retained = HEAP_DELTA.load(Relaxed);
+    let mut first_traversal_retained = initial_retained;
+    if windowed {
+        for pass in 0..20 {
+            for row in (0..count).step_by(35).chain((0..count).step_by(35).rev()) {
+                let top = (row as f64 * 24.0).min((count as f64 * 24.0 - 844.0).max(0.0));
+                runner
+                    .list_viewport(
+                        root,
+                        exact_runner::ListViewport {
+                            top,
+                            height: 844.0,
+                            width: 390.0,
+                            origin: 0.0,
+                            pins: [0, 0],
+                            rows: &[],
+                        },
+                    )
+                    .unwrap();
+                runner
+                    .kernel_mut()
+                    .compute_layout(root, Offer::definite(390.0, 844.0))
+                    .unwrap();
+                assert!(runner.kernel().live_count() <= 216);
+            }
+            runner
+                .list_viewport(
+                    root,
+                    exact_runner::ListViewport {
+                        top: (count as f64 * 12.0 - 422.0).max(0.0),
+                        height: 844.0,
+                        width: 390.0,
+                        origin: 0.0,
+                        pins: [0, 0],
+                        rows: &[],
+                    },
+                )
+                .unwrap();
+            runner
+                .kernel_mut()
+                .compute_layout(root, Offer::definite(390.0, 844.0))
+                .unwrap();
+            if pass == 0 {
+                first_traversal_retained = HEAP_DELTA.load(Relaxed);
+            }
+        }
+    }
     let retained = HEAP_DELTA.load(Relaxed);
     let peak = HEAP_PEAK.load(Relaxed);
     MEASURE_HEAP.store(false, Relaxed);
+    let mode = if windowed { "windowed" } else { "eager" };
+    let slots = runner.kernel().arena().slot_count();
     println!(
-        "{{\"rows\":{count},\"live_kernel_nodes\":{nodes},\"encoded_plan_bytes\":{},\"data_heap_bytes\":{data_bytes},\"decoded_plan_heap_bytes\":{plan_bytes},\"retained_heap_delta_bytes\":{retained},\"peak_heap_delta_bytes\":{peak},\"decode_ms\":{decode_ms:.4},\"runner_boot_ms\":{boot_ms:.4},\"layout_ms\":{layout_ms:.4},\"first_frame_ms\":null,\"native_views\":null,\"decoded_image_bytes\":null}}",
+        "{{\"mode\":\"{mode}\",\"initial_retained_heap_bytes\":{initial_retained},\"first_traversal_retained_heap_bytes\":{first_traversal_retained},\"kernel_slots\":{slots},\"window_ms\":{window_ms:.4},\"rows\":{count},\"live_kernel_nodes\":{nodes},\"encoded_plan_bytes\":{},\"data_heap_bytes\":{data_bytes},\"decoded_plan_heap_bytes\":{plan_bytes},\"retained_heap_delta_bytes\":{retained},\"peak_heap_delta_bytes\":{peak},\"decode_ms\":{decode_ms:.4},\"runner_boot_ms\":{boot_ms:.4},\"layout_ms\":{layout_ms:.4},\"first_frame_ms\":null,\"native_views\":null,\"decoded_image_bytes\":null}}",
         encoded.len()
     );
     // The parent samples RSS while the runner is still alive. It then sends

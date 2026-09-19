@@ -17,7 +17,9 @@ mod source;
 pub use source::{DataError, DataSource};
 mod delivery;
 mod kept;
+mod lists;
 pub mod router;
+pub use lists::{ListTextPosition, ListViewport};
 mod settlement;
 mod viewport;
 pub use carry::Carried;
@@ -1079,47 +1081,6 @@ impl<D: DataSource> Runner<D> {
             }
         }
         result
-    }
-
-    /// Re-evaluate every site and apply one batch. A failure here means the
-    /// instance tree and the kernel may disagree; the runner is poisoned and
-    /// the host restarts it — never a half-applied frame.
-    fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        let mut tree = self.tree.take().expect("booted");
-        let mut ids = std::mem::take(&mut self.ids);
-        let result = {
-            let mut u = Update {
-                env: self.env(&[], &[]),
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-                work: Default::default(),
-            };
-            tree.update(&mut u).map(|_| (u.ops, u.surfaces))
-        };
-        self.ids = ids;
-        self.tree = Some(tree);
-        let (ops, surfaces) = match result {
-            Ok(x) => x,
-            Err(e) => {
-                self.poison();
-                return Err(e.into());
-            }
-        };
-        if let Err(error) = self.wake_deferred_edges() {
-            self.poison();
-            return Err(error);
-        }
-        match self.apply(ops) {
-            Ok(receipt) => {
-                self.surfaces.extend(surfaces);
-                Ok(receipt)
-            }
-            Err(e) => {
-                self.poison();
-                Err(e)
-            }
-        }
     }
 
     fn poison(&mut self) {

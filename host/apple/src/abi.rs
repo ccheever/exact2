@@ -22,6 +22,9 @@
 //! instantiates the exports for one app: its data source and its baked plan
 //! bytes; one app archive per process, since the C names are fixed.
 
+#[path = "abi_lists.rs"]
+mod lists;
+
 use crate::host::Host;
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow, snapshot_of};
@@ -772,6 +775,12 @@ impl<D: DataSource> Bridge<D> {
                 event
             }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            19 => {
+                let Some(event) = Event::media_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
+                };
+                event
+            }
             14 => Event::Navigate(payload),
             15 => {
                 let Some(event) = Event::height_release_payload(&payload) else {
@@ -1420,6 +1429,27 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
+        }
+
+        /// Report an actual list scrollport and bounded interaction pins.
+        #[no_mangle]
+        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_viewport(view, $crate::ListViewport {
+                top, height, width, origin, pins: [focus, interaction], rows: &[],
+            }), |n| n)
+        }
+
+        /// Resolve a logical row key in the input buffer, or UINT32_MAX.
+        #[no_mangle]
+        pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
+        }
+
+        /// Copy logical text without materializing native views. Input is
+        /// two concatenated UTF-8 row keys; first_len == 0 means all text.
+        #[no_mangle]
+        pub extern "C" fn exact_list_text(rt: u32, view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize), |_| 0)
         }
 
         /// The safe-area insets changed; returns the batch's length.

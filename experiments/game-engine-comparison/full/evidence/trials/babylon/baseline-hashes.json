@@ -1,0 +1,17 @@
+{
+  "README.md": "e097caf81141b6ecd09149ba55bfa4d995f9956018f85a5ff75e5cbdc285792f",
+  "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+  "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+  "build-assets.mjs": "39803d3ceabfad906d777c23519a17e66915cc4e4c9454e0c36907690f4fd684",
+  "bun.lock": "30410d6bc9d7fe4c58ca3f563bca433d9bb4bd4cc635db9caed58c51c096c1d3",
+  "full-route.mjs": "22bc6b6d3b5de96e98124fa8d928226a6a7cedb7042037b4c0b43d9deade6eda",
+  "index.html": "02216887a4d379696a736f6d92233e29fef925d2c0c670c78ec037a7a6b63b19",
+  "level.json": "43c87414a1460a6ecd451ae5e0ad3147d3f23a6635b5e1647ab99cc9f0097e23",
+  "package.json": "298bb82a2d328206e2e4db2fa401da99ab5d583d62e8b196e8f689986254600f",
+  "rolldown.config.mjs": "58aa1487b679ae3165f746f4b956f10aebf797dff592b573b73904328218bf72",
+  "server.mjs": "3aaea783b21a0d97e2ec80ce91ed55b6eddf19c61fdc5348ee1069e2acc9ec51",
+  "src/main.js": "81fc357f1b6abc20a9ff6b50a0ec5ba4e95a4fa4fd8c125a90e2f3fb6e47e9a7",
+  "src/world.js": "8a30d6b739dcc689f67cd942e2b934357fdc27400a939ebef8a30d57c58b08c1",
+  "style.css": "c9dc51f076229dddc80b103b375f4cb14afb2072ab44f53173594afdda05fb70",
+  "test.mjs": "8071cb15e8e99931de998a9f42b41fa7f292f80281604f5ab3f6597b76bc1315"
+}

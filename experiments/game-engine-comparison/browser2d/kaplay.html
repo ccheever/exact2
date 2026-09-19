@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><body><script src="node_modules/kaplay/dist/kaplay.js"></script><script>
+const k=kaplay({width:320,height:180,global:false,debug:true,background:[10,10,10]});
+let collected=0,moving=false,armed=false;const player=k.add([k.pos(20,90),k.rect(12,12),k.color(0,221,255),'player']);const lanterns=[60,100,140,180].map(x=>k.add([k.pos(x,90),k.rect(8,8),k.color(255,204,0),'lantern']));
+k.onUpdate(()=>{if(moving)player.pos.x+=2;for(const l of lanterns)if(!l.hidden&&(l.pos.x<180||armed)&&Math.abs(player.pos.x-l.pos.x)<8){l.hidden=true;collected++;}});
+k.onKeyPress('right',()=>moving=true);k.onKeyRelease('right',()=>moving=false);
+k.onLoad(()=>{k.debug.paused=true;window.probe={save(){return {x:player.pos.x,collected,hidden:lanterns.map(l=>l.hidden)}},restore(s){player.pos.x=s.x;collected=s.collected;lanterns.forEach((l,i)=>l.hidden=s.hidden[i]);},input(on){if(on&&!moving)armed=player.pos.x>=170;moving=on;},ticks(n){for(let i=0;i<n;i++)k.debug.stepFrame();},state(){return {x:player.pos.x,collected,lanterns:k.get('lantern').filter(x=>!x.hidden).length,objects:k.get('*').length};},reset(){moving=false;armed=false;player.pos.x=20;collected=0;lanterns.forEach(x=>x.hidden=false);}};});
+</script>

@@ -298,6 +298,24 @@ impl<D: DataSource> Host<D> {
         self.dispatch_at(view, event, self.now_ms)
     }
 
+    /// Host scroll geometry changes only the addressed list's row window.
+    pub fn list_viewport(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+    ) -> String {
+        match self.runner.list_viewport(view, geometry) {
+            Ok(receipt) => self.batch_for(
+                &[Timed {
+                    at_ms: self.runner.now_ms(),
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.batch_for(&[], Some(&format!("{error:?}"))),
+        }
+    }
+
     /// What a reload keeps (`Runner::carry`).
     pub fn carry(&self) -> Carried {
         self.runner.carry()
@@ -830,29 +848,8 @@ impl<D: DataSource> Host<D> {
         let css = host_css(&node, css);
         let handlers: Vec<&str> = kinds
             .iter()
-            .filter_map(|e| {
-                Some(match e {
-                    EventKind::Press => "press",
-                    EventKind::Change => "change",
-                    EventKind::Hover => "hover",
-                    EventKind::Focus => "focus",
-                    EventKind::Blur => "blur",
-                    EventKind::Key => "key",
-                    EventKind::Submit => "submit",
-                    EventKind::Load => "load",
-                    EventKind::Message => "message",
-                    EventKind::Contextmenu => "contextmenu",
-                    EventKind::Dblclick => "dblclick",
-                    EventKind::Swiperight => "swiperight",
-                    EventKind::Scroll => "scroll",
-                    EventKind::Navigate => "navigate",
-                    EventKind::Heightrelease => "heightrelease",
-                    EventKind::Transformgeometry => "transformgeometry",
-                    EventKind::Transformrelease => "transformrelease",
-                    EventKind::Reorderdrop => "reorderdrop",
-                    EventKind::Reachstart | EventKind::Reachend => return None,
-                })
-            })
+            .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
+            .map(|e| e.name())
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
@@ -1040,12 +1037,16 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Toggle => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        NodeType::Video => "video",
     }
 }
 
 /// Props as DOM attributes/properties. Names are the DOM's.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
+    if node.node_type == NodeType::Text && !node.is_inline_run() {
+        out.insert("data-exact-text".into(), String::new());
+    }
     for (id, value) in node.props.iter() {
         if id == PropId::Editable {
             out.insert(
@@ -1072,6 +1073,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityOrientation => "aria-orientation",
             PropId::AccessibilityHeadingLevel => "aria-level",
+            PropId::AccessibilityPosInSet => "aria-posinset",
+            PropId::AccessibilitySetSize => "aria-setsize",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
@@ -1082,6 +1085,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::ScrollTop => "scrollTop",
             PropId::ScrollLeft => "scrollLeft",
             PropId::ScrollFollowEnd => "scrollFollowEnd",
+            PropId::ViewportFit => "viewportFit",
+            PropId::InteractiveWidget => "interactiveWidget",
             PropId::NavigationKey => "navigationKey",
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
@@ -1104,6 +1109,38 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Lang => "lang",
             PropId::ImageSource => "src",
             PropId::Src => "src",
+            PropId::Poster => "poster",
+            PropId::Autoplay => "autoplay",
+            PropId::Controls => "controls",
+            PropId::Loop => "loop",
+            PropId::Muted => "muted",
+            PropId::Preload => "preload",
+            PropId::Playsinline => "playsinline",
+            PropId::Crossorigin => "crossorigin",
+            PropId::Controlslist => "controlslist",
+            PropId::Disablepictureinpicture => "disablepictureinpicture",
+            PropId::Disableremoteplayback => "disableremoteplayback",
+            PropId::Volume => "volume",
+            PropId::PlaybackRate => "playbackRate",
+            PropId::CurrentTime => "currentTime",
+            PropId::Paused => "paused",
+            PropId::PreservesPitch => "preservesPitch",
+            PropId::AllowsPictureInPicturePlayback => "allowsPictureInPicturePlayback",
+            PropId::CanStartPictureInPictureAutomaticallyFromInline => {
+                "canStartPictureInPictureAutomaticallyFromInline"
+            }
+            PropId::EntersFullScreenWhenPlaybackBegins => "entersFullScreenWhenPlaybackBegins",
+            PropId::ExitsFullScreenWhenPlaybackEnds => "exitsFullScreenWhenPlaybackEnds",
+            PropId::ShowsTimecodes => "showsTimecodes",
+            PropId::AllowsVideoFrameAnalysis => "allowsVideoFrameAnalysis",
+            PropId::RequiresLinearPlayback => "requiresLinearPlayback",
+            PropId::PreferredPeakBitRate => "preferredPeakBitRate",
+            PropId::PreferredForwardBufferDuration => "preferredForwardBufferDuration",
+            PropId::AutomaticallyWaitsToMinimizeStalling => "automaticallyWaitsToMinimizeStalling",
+            PropId::PreventsDisplaySleepDuringVideoPlayback => {
+                "preventsDisplaySleepDuringVideoPlayback"
+            }
+
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::ToggleValue => "checked",
