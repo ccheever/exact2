@@ -5858,3 +5858,22 @@ group and private listener retire. Callback timing on the known60Hz carrier is
 not physical presentation or120Hz proof. Next work is source-only pricing of
 failure-proof evidence retention and a bounded observation of the missing
 browser work, before selecting a production optimization.
+
+### 8.100 Reuse the stored Swift text length, 2026-09-18
+
+Ordinary text layout now reads `shape.identity.utf16Count` instead of recounting
+each run through NSString. The immutable identity already stores that count;
+applying paint preserves the run texts and order. This removes repeated work
+without changing wrapping, widths, cache policy or ownership. Its cost saving
+has not been measured and may be negligible for short Messages text.
+
+The one-expression change passes the existing standalone geometry fixture:
+38 methods,7,022 assertions, zero failures, compiled with strict Swift6 and
+warnings as errors. Unicode, viewport pixel, cache and lifetime controls remain.
+The lightweight assertion shim excludes four Session/View-dependent methods;
+this is not full XCTest. A current70-source Mac module typecheck also exits0.
+All73 captured source/header/test inputs match the integrated composition,
+with only Text.swift changed from5a7ed29. No native timing comparison, allocation
+measurement, UIKit validation or120Hz improvement follows from these checks.
+The99-file source and validation archive remains in
+`exact2-apple-text-length/target/apple-text-length-validation/freeze-v1/`.

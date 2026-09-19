@@ -461,7 +461,7 @@ final class TextEngine {
 
     private func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
         let spec = shape.spec, typesetter = shape.typesetter
-        let length = spec.runs.reduce(0) { $0 + ($1.text as NSString).length }
+        let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) {
             let f = font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
