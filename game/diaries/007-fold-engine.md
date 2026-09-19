@@ -95,3 +95,12 @@ Greybox state snapshot gains this field without deleting its existing assertions
 Scene baking now reads resolved manifest defaults and shares the generated-shell
 Cargo policy. External proof tests create their fixtures under TMPDIR, preserving
 their external-path assertions without writing sibling lane directories.
+
+First full sweep: game 704 passed / 18 no-adapter failures / 23 ignored; fixed
+consumer 4 passed / 1 ignored, including both moved CPU tests and the three-mode
+I3 invariant. App compilation exposed an uninferred empty `sounds([])` name
+type; both Lanterns declarations now use `sounds::<&str>([])`. Greybox's
+unchanged incoming tree snapshot omitted the new Glow component; the snapshot
+was updated from the actual failed reply, preserving all original entities and
+fields. Its hash remains exclusively in pins.json. Clippy's Copy warning in
+registry inheritance is corrected without changing behavior.

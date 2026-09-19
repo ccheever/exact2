@@ -1004,7 +1004,7 @@ impl World {
         for (name, registration) in &live.registry {
             self.registry
                 .entry(name)
-                .or_insert_with(|| registration.clone());
+                .or_insert(*registration);
         }
         self.attachments = self.attachments.or(live.attachments);
         self.detach = self.detach.or(live.detach);
