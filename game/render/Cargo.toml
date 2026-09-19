@@ -11,7 +11,7 @@ exact-gpu = { path = "../../gpu" }
 glam = { version = "0.33", default-features = false, features = ["std", "scalar-math", "libm"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Performance"] }
+web-sys = { version = "0.3", features = ["Window", "Performance", "console"] }
 
 [dev-dependencies]
 exact-game-audio = { path = "../audio" }

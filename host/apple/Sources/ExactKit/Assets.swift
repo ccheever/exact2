@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// One complete generation's resolver. Stored bytes are verified once and
 /// retained; an absent name never falls through to another generation.
@@ -36,8 +37,8 @@ public final class AssetResolver {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             directory = dir
         }
-        let url = directory!.appendingPathComponent(name)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let filename = SHA256.hash(data: Data(name.utf8)).map { String(format: "%02x", $0) }.joined()
+        let url = directory!.appendingPathComponent(filename)
         try bytes.write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
         files[name] = url

@@ -104,17 +104,65 @@ final class GpuModule {
     private var recovering = false
     private(set) var recovered = false
     private var deviceObserver: NSObjectProtocol?
+    typealias DeviceIDFn = @convention(c) () -> UInt64
+    typealias LostFn = @convention(c) () -> Bool
+    var deviceID: DeviceIDFn?
+    var deviceLost: LostFn?
+    private(set) var lossGeneration: UInt64 = 0
+    private var activeDeviceID: UInt64 = 0
+    private var failures = 0
+
+    func deliveryClock(now: Double) -> [String: Any] {
+        recovered ? ["op": "clock"] : ["op": "clock", "now": now]
+    }
+
+    func removedDevice(_ registryID: UInt64, generation: UInt64) {
+        guard registryID == activeDeviceID, generation == lossGeneration else { return }
+        recoverDevice()
+    }
 
     func recoverDevice() {
-        guard !recovering else { return }
+        guard !recovering, deviceLost?() == true else { return }
         recovering = true
-        defer { recovering = false }
-        let data = recover.flatMap { output($0()) }
-        let outcome = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        let ok = outcome?["status"] as? String == "recovered"
-        recovered = ok
-        let reason = ok ? nil : "device recovery: \(error()) \(outcome ?? [:])"
-        for owner in canvases.allObjects { owner.recoveredDevice(ok, error: reason) }
+        let generation = lossGeneration
+        let delay = failures == 0 ? 0 : min(5.0, 0.1 * pow(2.0, Double(failures - 1)))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            defer { self.recovering = false }
+            guard generation == self.lossGeneration, self.deviceLost?() == true else { return }
+            let data = self.recover.flatMap { self.output($0()) }
+            let outcome = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            if outcome?["status"] as? String == "healthy" { return }
+            let ok = outcome?["status"] as? String == "recovered" && self.deviceLost?() == false
+            self.recovered = ok
+            if ok {
+                self.lossGeneration += 1; self.failures = 0
+                self.activeDeviceID = self.deviceID?() ?? 0
+                self.observeDevice()
+            } else { self.failures += 1 }
+            let reason = ok ? nil : "device recovery: \(self.error()) \(outcome ?? [:])"
+            for owner in self.canvases.allObjects { owner.recoveredDevice(ok, error: reason) }
+            if !ok { DispatchQueue.main.async { [weak self] in self?.recoverDevice() } }
+        }
+    }
+
+    private func observeDevice() {
+        #if os(macOS)
+        if let deviceObserver { MTLRemoveDeviceObserver(deviceObserver) }
+        let generation = lossGeneration
+        let devices = MTLCopyAllDevicesWithObserver { [weak self] device, name in
+            if name == .wasRemoved || name == .removalRequested {
+                DispatchQueue.main.async { self?.removedDevice(device.registryID, generation: generation) }
+            }
+        }
+        deviceObserver = devices.observer
+        #endif
+    }
+
+    deinit {
+        #if os(macOS)
+        if let deviceObserver { MTLRemoveDeviceObserver(deviceObserver) }
+        #endif
     }
 
     let create: CreateFn
@@ -170,14 +218,10 @@ final class GpuModule {
         let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), childrenMode: childrenMode, readback: readback, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), published: sym("gpu_published", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
         module.recover = sym("gpu_recover", LoadFn.self)
-        #if os(macOS)
-        let devices = MTLCopyAllDevicesWithObserver { [weak module] _, name in
-            if name == .wasRemoved || name == .removalRequested {
-                DispatchQueue.main.async { module?.recoverDevice() }
-            }
-        }
-        module.deviceObserver = devices.observer
-        #endif
+        module.deviceID = sym("gpu_device_registry_id", DeviceIDFn.self)
+        module.deviceLost = sym("gpu_device_is_lost", LostFn.self)
+        module.activeDeviceID = module.deviceID?() ?? 0
+        module.observeDevice()
         module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
         module.period = sym("gpu_period", PeriodFn.self)
         module.bindAt = sym("gpu_bind_at", BindAtFn.self)

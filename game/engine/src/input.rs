@@ -298,6 +298,37 @@ impl Input {
             ..Self::default()
         }
     }
+    pub(crate) fn validate(&self, event: &InputEvent) -> Result<(), String> {
+        if !event.at_ms().is_finite() {
+            return Err("input stamp must be finite".into());
+        }
+        if let InputEvent::Control { name, x, y, .. } = event {
+            if !self.actions.entries.iter().any(|a| &a.name == name) {
+                return Err(format!(
+                    "unknown control `{name}`; declared actions: {}",
+                    self.actions
+                        .entries
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            if !x.is_finite() || !y.is_finite() {
+                return Err(format!("control `{name}` needs finite points"));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn held_controls(&self) -> Vec<String> {
+        self.contacts
+            .iter()
+            .filter(|p| !p.action.is_empty())
+            .map(|p| p.action.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
     fn action(&self, name: &str) -> Option<&Action> {
         let a = self.actions.entries.iter().find(|a| a.name == name);
         assert!(
@@ -603,30 +634,49 @@ mod control_tests {
                 }
             }
         }
-        let mut sim = Sim::<Controlled>::new(()).unwrap();
-        sim.advance(0., Clock::Seekable);
-        sim.input(control("move", 1, PointerPhase::Down, 0., 0.));
-        sim.input(control("move", 1, PointerPhase::Move, 30., 0.));
-        sim.input(control("move", 1, PointerPhase::Move, 60., 0.));
-        sim.input(control("jump", 2, PointerPhase::Down, 0., 0.));
-        sim.input(control("jump", 2, PointerPhase::Up, 0., 0.));
-        let saved = sim.save().unwrap();
-        let mut restored = Sim::<Controlled>::new(()).unwrap();
-        restored.restore(&saved).unwrap();
-        restored.advance(0., Clock::Seekable);
-        for game in [&mut sim, &mut restored] {
-            game.advance(100., Clock::Seekable);
-            assert_eq!(
-                game.get::<Transform>("player").unwrap().position,
-                crate::Vec3::new(6., 1., 0.)
-            );
-            game.input(control("move", 1, PointerPhase::Cancel, 60., 0.));
-            game.advance(200., Clock::Seekable);
-            assert_eq!(
-                game.get::<Transform>("player").unwrap().position,
-                crate::Vec3::new(6., 1., 0.)
-            );
+        for mode in [
+            crate::Paranoid::Off,
+            crate::Paranoid::Save,
+            crate::Paranoid::FreshGame,
+        ] {
+            let mut sim = Sim::<Controlled>::new(()).unwrap().paranoid(mode);
+            sim.advance(1000., Clock::Seekable);
+            let mut down = control("move", 1, PointerPhase::Down, 0., 0.);
+            down.set_at_ms(800.); // Past stamps, like keys, become due now.
+            sim.input(down);
+            let mut motion = control("move", 1, PointerPhase::Move, 60., 0.);
+            motion.set_at_ms(900.);
+            sim.input(motion);
+            sim.advance(1100., Clock::Seekable);
+            assert_eq!(sim.get::<Transform>("player").unwrap().position.x, 6.);
+            assert_eq!(sim.held_controls(), ["move"]);
+            let saved = sim.save().unwrap(); // Contact is held inside Input, not just queued.
+            let mut restored = Sim::<Controlled>::new(()).unwrap().paranoid(mode);
+            restored.restore(&saved).unwrap();
+            restored.advance(1100., Clock::Seekable);
+            for game in [&mut sim, &mut restored] {
+                let mut jump = control("jump", 2, PointerPhase::Down, 0., 0.);
+                jump.set_at_ms(1200.);
+                game.input(jump);
+                game.advance(1200., Clock::Seekable);
+                assert_eq!(game.get::<Transform>("player").unwrap().position.y, 0.);
+                game.advance(1217., Clock::Seekable);
+                assert_eq!(game.get::<Transform>("player").unwrap().position.y, 1.);
+                assert!(game
+                    .agent(r#"{"op":"state"}"#)
+                    .contains(r#""controls":["jump","move"]"#));
+                let bad = control("typo", 3, PointerPhase::Down, 0., 0.);
+                assert!(game.validate_input(&bad).unwrap_err().contains("typo"));
+                game.input(bad); // Never panics even for direct callers.
+                let mut invalid = control("jump", 4, PointerPhase::Down, 0., 0.);
+                invalid.set_at_ms(f64::NAN);
+                assert!(game.validate_input(&invalid).is_err());
+                game.input(invalid);
+                game.input(InputEvent::Blur { at_ms: 1217. });
+                game.advance(1300., Clock::Seekable);
+                assert!(game.held_controls().is_empty());
+            }
+            assert_eq!(sim.save().unwrap(), restored.save().unwrap());
         }
-        assert_eq!(sim.save().unwrap(), restored.save().unwrap());
     }
 }

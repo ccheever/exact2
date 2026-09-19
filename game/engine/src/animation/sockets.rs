@@ -1,6 +1,6 @@
 use super::*;
 
-/// A presentation attachment. Its Transform is the fallback when the target is unavailable.
+/// A tick-boundary and presentation attachment. Its Transform is the fallback when the target is unavailable.
 /// Each attachment chooses its own joint; no bone entities or simulation transform writes.
 #[derive(Default, Clone, Debug, Data)]
 pub struct SocketFollow {
@@ -56,6 +56,7 @@ pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result
         .assets
         .models
         .get(name)
+        .map(|asset| &asset.model)
         .ok_or_else(|| format!("socket model `{name}` not loaded"))?;
     let runtime = w.derived::<Runtime>();
     let mut cache = runtime.sockets.borrow_mut();
@@ -79,35 +80,97 @@ pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result
     }
     cached.1.clone()
 }
-/// Current tick-boundary socket in world space, composed after any game-authored movement.
-/// Presentation interpolates the local chain separately at the displayed alpha.
+/// Current tick-boundary socket in world space. Call `step`, apply its Motion to
+/// the owner Transform, then query sockets. Presentation samples locals at frame alpha.
+/// Use [`socket_matrix`] when the rig can produce shear.
 pub fn socket(w: &World, target: impl crate::Target, joint: &str) -> Result<Transform, String> {
-    let e = target.entity(w).ok_or("socket target does not exist")?;
+    let (scale, rotation, position) =
+        socket_matrix(w, target, joint)?.to_scale_rotation_translation();
+    Ok(Transform {
+        scale,
+        rotation,
+        position,
+    })
+}
+/// Full affine tick-boundary socket, preserving shear from non-uniform ancestors.
+pub fn socket_matrix(w: &World, target: impl crate::Target, joint: &str) -> Result<Mat4, String> {
+    let label = target.label();
+    let e = target
+        .entity(w)
+        .ok_or_else(|| format!("socket target does not exist: `{label}`"))?;
+    socket_matrix_with(w, e, joint, w.len() + 1)
+}
+pub(crate) fn socket_matrix_with(
+    w: &World,
+    e: Entity,
+    joint: &str,
+    remaining: usize,
+) -> Result<Mat4, String> {
+    let label = w
+        .name(e)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("#{}", e.index()));
+    if remaining == 0 {
+        return Err(format!("socket target `{label}` has a follower cycle"));
+    }
+    let pose = w.get::<Pose>(e);
+    if w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e) {
+        let stepped = pose.as_ref().and_then(|p| p.stepped);
+        let fresh = stepped == Some(w.tick())
+            || (!w.in_tick
+                && w.tick()
+                    .checked_sub(1)
+                    .is_some_and(|tick| stepped == Some(tick)));
+        if !fresh {
+            return Err(format!("socket target `{label}` has a stale pose; call animation::step(w), apply Motion, then query socket"));
+        }
+    }
     let node = socket_node(w, e, joint)?;
     let mesh = w.get::<Mesh>(e).unwrap();
     let Mesh::Asset(name) = &*mesh else {
         unreachable!()
     };
-    let model = w.model(name).unwrap();
-    let pose = w.get::<Pose>(e);
+    let model = w
+        .model(name)
+        .ok_or_else(|| format!("socket target `{label}` needs declared model `{name}`"))?;
     let rest;
     let local = if let Some(pose) = &pose {
         if pose.local.len() != model.nodes.len() * 10 {
-            return Err(format!("saved pose does not match model `{name}`"));
+            return Err(format!(
+                "saved pose on `{label}` does not match model `{name}`"
+            ));
         }
         &pose.local
     } else {
         rest = bind_pose(model);
         &rest
     };
-    let global = w
-        .current_global(e)
-        .ok_or("socket target has no Transform")?;
-    let (scale, rotation, position) =
-        (Mat4::from(global) * joint_matrix(model, local, node)).to_scale_rotation_translation();
-    Ok(Transform {
-        scale,
-        rotation,
-        position,
-    })
+    let global = w.current_global_depth(e, remaining - 1).ok_or_else(|| {
+        format!("socket target `{label}` has no Transform or has a follower cycle")
+    })?;
+    Ok(Mat4::from(global) * joint_matrix(model, local, node))
+}
+
+impl Component for SocketFollow {
+    const NAME: &'static str = "SocketFollow";
+    fn register(w: &mut World) {
+        w.register::<Pose>();
+        w.attachment_pose = Some(follower_pose);
+    }
+}
+fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine3A> {
+    let follow = w.get::<SocketFollow>(e)?;
+    let target = match &follow.target {
+        crate::FollowTarget::Entity(e) => *e,
+        crate::FollowTarget::Name(n) => w.named(n)?,
+    };
+    let socket = socket_matrix_with(w, target, &follow.joint, remaining).ok()?;
+    Some(
+        crate::Affine3A::from_mat4(socket)
+            * crate::Affine3A::from_scale_rotation_translation(
+                follow.offset.scale,
+                follow.offset.rotation,
+                follow.offset.position,
+            ),
+    )
 }

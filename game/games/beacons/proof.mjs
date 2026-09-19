@@ -16,6 +16,10 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
   };
   const continuation = async s => {
     const g = s.world('world');
+    if (host !== 'linux') {
+      const limits = (await s.state()).world[0].gpu;
+      check('renderer storage needs fit this host device', limits.requiredStorageBindings <= limits.storageBindings, limits);
+    }
     await g.run(900);
     await g.key_up('Space'); await g.key_up('KeyW');
     check('glow complete at +1s', equal((await g.get('beacon-1','Material')).emissive,[3,3,3]));
@@ -62,7 +66,7 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
     }
     if (index === 1 && host !== 'linux') {
       const measured = (await s.state()).world[0];
-      writeFileSync(resolve(out, `perf-${host}.json`), JSON.stringify({perf:measured.perf, gpu:measured.gpu}, null, 2)+'\n');
+      writeFileSync(resolve(out, `perf-${host}.json`), JSON.stringify({unsampled:true, perf:measured.perf, gpu:measured.gpu}, null, 2)+'\n');
       say(`PERF ${host} seekable counters (timing rings are unsampled, not zero-cost frames): ${JSON.stringify(measured.perf)}`);
     }
     await s.tap('pause');
@@ -95,4 +99,58 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
   check('Play again resets position',equal(await g.global_position('player'),[0,0.9,0]));
   check('Play again resets HUD',node(await s.tree(),'hud-lit')?.props.text==='Beacons 0 / 3');
   await s.close();
+  const controls = await open();
+  await controls.tap('play');
+  const cg = controls.world('world'), ct = await controls.tree();
+  check('Contract controls are named and discoverable', ['move','jump','light'].every(id => node(ct,id)?.props.action === id) && node(ct,'jump')?.accessibleName === 'Jump' && node(ct,'light')?.accessibleName === 'Light');
+  await controls.tap('jump', {down:true});
+  check('held control is visible before its tick', (await controls.state()).world[0].input.forwardedControls.includes('jump'));
+  await cg.run(100);
+  check('Jump control changes player height through gpu_input', (await cg.global_position('player'))[1] > 1);
+  await controls.pointer('cancel'); await cg.settle();
+  // A keyboard-activated Control has the same ID/local origin on every host;
+  // physical touch IDs and font-dependent button centers are host observations.
+  await controls.type('jump',{key:'Space',phase:'down'}); await cg.run(100);
+  const heldSave = resolve(out,'held-control.world'); await cg.save(heldSave);
+  check('held contact is visible after ticks', (await controls.state()).world[0].input.controls.includes('jump'));
+  await controls.type('jump',{key:'Space',phase:'up'}); await cg.settle();
+  await controls.tap('move', {down:true}); await controls.pointer('move',{dx:60,dy:0}); await cg.run(500); await controls.pointer('up');
+  check('local-origin stick moves right', (await cg.global_position('player'))[0] > 1);
+  await cg.settle(); await walk(cg,8,0); await controls.tap('light'); await cg.run(100);
+  check('Light control lights a beacon through gpu_input', (await cg.get('beacon-1','Beacon')).lit);
+  await controls.type('jump',{key:'Space',phase:'down'}); await cg.run(100); await controls.type('jump',{key:'Space',phase:'up'});
+  check('focused control keyboard activation feeds Jump', (await cg.global_position('player'))[1] > 1);
+  await controls.close();
+  const held = await open({world:heldSave}); await held.tap('play');
+  check('fresh host restores held control', (await held.state()).world[0].input.controls.includes('jump'));
+  await held.type('jump',{key:'Enter'}); await held.close();
+  if (host !== 'linux' && process.env.EXACT_PROOF_COMPARE !== '1') {
+    const pointer = await open(); await pointer.tap('play');
+    const pg = pointer.world('world');
+    const delivered = await pointer.tap('world',{down:true,at:[640,360]});
+    await pg.run(100);
+    check('raw pointer changes gameplay via input.pointer()', (await pg.global_position('player'))[1] > 1, {delivery:delivered.delivery});
+    await pointer.pointer('up'); await pointer.close();
+  }
+  // Live/host-only observations have no deterministic cross-host save identity.
+  if (host === 'ios' && process.env.EXACT_PROOF_COMPARE !== '1') {
+    const live = await open({timing:'platform'});
+    await live.tap('play');
+    await live.op({op:'state', ...await live.target('world'), world:true, perf_reset:true});
+    const started = (await live.state()).world[0].presentation;
+    let measured;
+    for (let sample=0; sample<40; sample++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      measured = (await live.state()).world[0];
+      if (measured.perf?.frameMs?.count >= 60) break;
+    }
+    check('live simulator produces timing samples', measured.perf?.frameMs?.count >= 10, measured.perf);
+    const presentation = {...measured.presentation, renders:measured.presentation.sessionRenders-started.sessionRenders, captures:measured.presentation.sessionCaptures-started.sessionCaptures};
+    check('live presentation reports HUD and placement counts', presentation.renders > 0 && presentation.hudChildren > 0, presentation);
+    const receipt = {label:'iOS simulator CPU/presentation timings; no real GPU timing', perf:measured.perf, gpu:measured.gpu, presentation};
+    writeFileSync(resolve(out, 'perf-ios-live.json'), JSON.stringify(receipt,null,2)+'\n');
+    say(`LIVE SIMULATOR ${JSON.stringify(receipt)}`);
+    await live.close();
+  }
+
 });

@@ -40,7 +40,7 @@ await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
   await game.hold("KeyD", 500.0);
   await game.settle();
   const position = await game.global_position("player");
-  check('prompt appears in range', node(await s.tree(), 'near-prompt')?.props.text === 'Press E to light this beacon');
+  check('prompt appears in range', node(await s.tree(), 'near-prompt')?.props.text === 'Tap Light to light this beacon');
   await game.tap("KeyE");
   await game.run(100.0);
   const beacon = await game.get("beacon-1", "Beacon");

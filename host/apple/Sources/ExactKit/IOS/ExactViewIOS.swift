@@ -136,6 +136,7 @@ public final class ExactView: UIView {
                 insets.bottom = 0
             }
         }
+        guard frame.width > 0, frame.height > 0 else { return }
         var size = frame.size
         #if targetEnvironment(simulator)
         // The agent's explicit viewport size is shared with web/macOS/Linux.

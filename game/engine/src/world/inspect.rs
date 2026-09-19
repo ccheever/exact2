@@ -171,6 +171,11 @@ impl World {
         out.push('}');
         out
     }
+    pub(crate) fn has_component_named(&self, e: Entity, name: &str) -> bool {
+        self.components
+            .get(name)
+            .is_some_and(|s| s.has(e.index() as usize))
+    }
     pub(crate) fn component_names(&self, e: Entity) -> Vec<&str> {
         self.components
             .iter()

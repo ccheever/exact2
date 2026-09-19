@@ -120,7 +120,8 @@ export class Cdp {
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export function assertWebDistApp(dist, app) {
-  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${JSON.stringify(app.dir)} bun host/web/build.mjs ${app.crate('web')}`);
+  const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
 async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess }) {
@@ -783,11 +784,10 @@ export async function tapRefusal(session, target, error) {
       if (!state?.entity?.placed?.hidden) continue;
       const box = await session.layout(owner);
       const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
-      error.message = `${target} is ${reason}: layout ${owner} shows the placed box; layout ${target} shows the child when mounted`;
+      error.message = `${target} is ${reason}: layout ${owner} --json shows visibility and any available screen box; layout ${target} shows the child when mounted`;
       return error;
     }
   } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
-  error.message += `; layout ${target} shows the placed box and visibility; tree lists mounted targets`;
   return error;
 }
 
@@ -861,14 +861,14 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets; layout world:${target} shows a placed owner box`);
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target, required = true) {
       const t = await s.tree();
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets; layout world:${target} shows a placed owner box`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets`);
       return node;
     },
     /**
@@ -1115,7 +1115,7 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'layout': {
-      if (r.entity) { const e = r.entity, b = e.screen, p = e.world?.position; return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ''}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible?.inFrustum ? ' · in frustum' : ''}`; }
+      if (r.entity) { const e = r.entity, b = e.screen, p = e.world?.position; return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b && ['x','y','w','h'].every(k => Number.isFinite(b[k])) ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ' · screen unavailable'}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible ? ` · inFrustum ${!!e.visible.inFrustum} · behindCamera ${!!e.visible.behindCamera}` : ''}`; }
       if (!r.viewport) return q(r);
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';

@@ -140,7 +140,6 @@ name = "beacons-gpu"
 version = "0.1.0"
 dependencies = [
  "beacons-logic",
- "exact-game-bake",
  "exact-game-render",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -186,7 +185,6 @@ name = "bench-cubes-gpu"
 version = "0.1.0"
 dependencies = [
  "bench-cubes-logic",
- "exact-game-bake",
  "exact-game-render",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -1222,7 +1220,6 @@ name = "greybox-gpu"
 version = "0.1.0"
 dependencies = [
  "exact-game-audio",
- "exact-game-bake",
  "exact-game-render",
  "greybox-logic",
  "wasm-bindgen",
@@ -2078,7 +2075,6 @@ dependencies = [
 name = "particles-fixture-gpu"
 version = "0.1.0"
 dependencies = [
- "exact-game-bake",
  "exact-game-render",
  "particles-fixture-logic",
  "wasm-bindgen",
@@ -2155,7 +2151,6 @@ dependencies = [
 name = "placement-fixture-gpu"
 version = "0.1.0"
 dependencies = [
- "exact-game-bake",
  "exact-game-render",
  "placement-fixture-logic",
  "wasm-bindgen",

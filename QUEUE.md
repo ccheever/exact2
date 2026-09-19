@@ -502,7 +502,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
 - Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 
-- Native bake root dep-info: replace the explicit `--emit=dep-info=<path>` with Cargo-owned dependency tracking while retaining the exact source receipt; the explicit path forces native root relinks. Web uses Cargo-owned dep-info after E1.
+- Root test environment (2026-09-18): `exact-apple` / `fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit` fails at its real Keychain fixture write with “User interaction is not allowed.” The repaired root sweep completed with `--no-fail-fast`. Its stale Linux reload-focus assertion was corrected against the real browser oracle; all ten paint tests now pass. The Keychain refusal remains; no green root suite is claimed. Evidence: `/tmp/exact-game-goal-proximity/checks/root-test-repaired.log`.
 
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
 
@@ -520,9 +520,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - **D4 primitive-module isolation remains owed:** the round's size target is not met.
   Animation execution/inspection and sprite buffers are outside the primitive web
-  artifact, but common asset ownership/discovery and model-aware spatial bounds
-  still reach it. Move those to the model executor next, then inspect remaining
-  dynamic float formatter paths. Before/after and the particle-cost decision are
+  artifact. Conservative model geometry now computes at delivery, outside the
+  primitive artifact; layout/picking read the retained bounds. Common asset
+  ownership/discovery still reaches it, as do dynamic float formatter paths.
+  Recovery hash reuse removed 11,233 raw bytes; the later shared-tree bounds build
+  measures 777,083 bytes, still over target. Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
@@ -539,7 +541,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   host tests and the Apple ExactKit build pass; that is not a full root build.
   Logs: `/tmp/d4-root-build-2.log`, `/tmp/d4-root-build-final.log`.
 
-- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus is covered by the Beacons proof.
+- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus passes Beacons but uses a per-element policy that differs from HTML page autofocus; Apple processes autofocus once and fails that assertion. Express victory focus through an explicit focus/dialog intent across hosts, keeping page autofocus aligned with HTML (https://html.spec.whatwg.org/multipage/interaction.html#the-autofocus-attribute).
 
 - Physics pending-flag parity pin remains owed. R5 tried 256 static + 32 kinematic
   colliders moving vertically, then 512 static + 64 kinematic colliders moving
@@ -564,10 +566,12 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   children do not participate in mesh depth.
 
 
-- Shared-tree test expectations found by H1: `game/engine/tests/agent.rs` and Greybox's native `agent_snapshots_and_pick` still compare JSON spellings (`0` versus `0.0`); the game workspace run fails four assertions across three targets, reproduced on retry. Linux's `accessibility_focus_is_session_scoped_and_buttons_activate_from_keys` expects reload not to autofocus, whereas the host now clears autofocus history and reapplies it. The macOS Beacons proof also fails victory-control logical focus while its other assertions and web/Linux proofs pass. Reconcile these with S4/R6 before claiming a clean suite; H1 did not change their expectations.
+- Shared-tree test expectations found by H1: `game/engine/tests/agent.rs` and Greybox's native `agent_snapshots_and_pick` still compare JSON spellings (`0` versus `0.0`); the game workspace run fails four assertions across three targets, reproduced on retry. The macOS Beacons proof also fails victory-control logical focus while its other assertions and web/Linux proofs pass. Reconcile these with S4/R6 before claiming a clean suite; H1 did not change their expectations.
 
 - Game driver: consider an opt-in `world().moveTo` only after action bindings and collision boxes can identify a blocker without assuming WASD or a particular motor; E7 deliberately leaves this optional helper out.
 
 - Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.
 
-- I1 remaining scope: connect `InputEvent::Control` to ordinary Contract canvas children across the existing input carriers (including accessibility activation), then put Move/Jump/Light in Beacons and `game/new`. This needs the shared host/GPU and declaration-table paths beyond I1's listed files. Simulator Asset/Skinned currently hit `gpu/src/lib.rs`'s four-storage-buffer fallback (model pipelines need seven); Beacons victory autofocus fails in shared `Accessibility.swift` on iOS as on macOS. A live-readable iOS adapter is also needed for actual `state.world.perf` timing samples; seekable proof rings are unsampled. Scope clarification is pending; no touch-playability or live performance claim yet.
+- I1b verification remaining: the Contract `action` carrier, controls, named refusal/held inspection, timestamp/paranoid regressions, per-mounted Apple autofocus, field-wise GPU limits and live iOS adapter are implemented. All seven Linux paranoid proofs pass; six web proofs pass (Asset reproduces the stopped R8b recovery issue below). Apple game packaging and a freshly rebuilt host-ios fixture stop in `scripts/app.mjs` because staticlib+rlib outputs have hashed unit dep-info; an isolated resolver repair/test is prepared in `/tmp/i1b-dep-info.patch`, awaiting authorization for those out-of-scope files. Beacons/Skinned web/Linux hashes and save bytes agree; the seven iOS runs, Apple autofocus runtime checks, the iOS save-comparison column and live simulator frame/placement/HUD receipt remain owed. Full game tests reproduce the generated Sprites strip being selected as a tracked authored asset (537 pass, one fails); Caltrain web smoke’s assertions pass but Chrome Keychain/encryption stderr fails its final check. No simulator-playability or live-performance claim yet.
+
+- R8b recovery follow-up: the real WebGPU fail-once adapter retry reattaches and reports ready, but the asset fixture still drops the crate after recovery (pixel equality and model-buffer preparation fail). Three local fix rounds stopped; investigate retained renderer/feed reconstruction with the concurrent R8a changes. Evidence: `/tmp/r8b-asset-web3.log`, `/tmp/r8b-asset-web-final/{before-loss,after-loss}.png`.

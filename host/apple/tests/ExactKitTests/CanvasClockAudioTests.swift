@@ -7,6 +7,17 @@ private var periods: [Double] = []
 private var events: [UInt32] = []
 private let replyBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 512)
 private var replyLength: UInt32 = 0
+private var recoveryCalls = 0
+private var mockLost = true
+private var failRecoveryOnce = false
+private func recoverReply() -> UInt32 {
+    recoveryCalls += 1
+    let failed = failRecoveryOnce && recoveryCalls == 1
+    mockLost = failed
+    let bytes = Array("{\"status\":\"\(failed ? "failed" : "recovered")\"}".utf8)
+    bytes.withUnsafeBufferPointer { replyBuffer.update(from: $0.baseAddress!, count: $0.count) }
+    return UInt32(bytes.count)
+}
 private func restoreState(_ restored: Bool) {
     let bytes = Array("{\"world\":{\"restored\":\(restored)}}".utf8)
     bytes.withUnsafeBufferPointer { replyBuffer.update(from: $0.baseAddress!, count: $0.count) }
@@ -18,12 +29,41 @@ private final class VisibleWindow: NSWindow {
 }
 
 final class CanvasClockAudioTests: XCTestCase {
+    func testFailedRecoveryLeavesCanvasEligibleForRetry() {
+        let s = session(module())
+        defer { s.destroy() }
+        s.canvases.recoveredDevice(false, error: "transient adapter failure")
+        XCTAssertTrue(s.canvases.entries[100]!.presentable)
+        XCTAssertTrue(s.canvases.entries[100]!.wants)
+    }
+
+    func testRecoveryCoalescesFiltersDeviceAndRetriesOneLossGeneration() {
+        for failOnce in [false, true] {
+            recoveryCalls = 0; mockLost = true; failRecoveryOnce = failOnce
+            let m = module()
+            m.recover = { recoverReply() }; m.deviceLost = { mockLost }; m.deviceID = { 0 }
+            XCTAssertNotNil(m.deliveryClock(now: 500)["now"])
+            m.removedDevice(42, generation: 0)
+            XCTAssertEqual(recoveryCalls, 0)
+            m.recoverDevice(); m.removedDevice(0, generation: 0); m.recoverDevice()
+            XCTAssertEqual(recoveryCalls, 0, "recovery is always queued")
+            let done = expectation(description: "replacement")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { done.fulfill() }
+            wait(for: [done], timeout: 2)
+            XCTAssertEqual(recoveryCalls, failOnce ? 2 : 1)
+            XCTAssertEqual(m.lossGeneration, 1)
+            XCTAssertNil(m.deliveryClock(now: 900)["now"], "redelivery must not seek")
+            m.removedDevice(0, generation: 0); m.recoverDevice()
+            XCTAssertEqual(recoveryCalls, failOnce ? 2 : 1)
+        }
+    }
+
     private func module() -> GpuModule {
         let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, _, _ in 0 },
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
-            wantsChildren: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
-            wantsChildrenEach: { _ in 0 }, child: { _, _, _, _, _, _, _, _, _, _ in 0 },
+            childrenMode: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, _, _ in 0 },
             childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 },
             errorPtr: { nil }, wantsInput: nil, input: nil, messages: nil,
@@ -197,10 +237,10 @@ final class CanvasClockAudioTests: XCTestCase {
             c.restoreWorld(m, e)
             XCTAssertEqual(c.worldInput.bytes, Data([1, 2, 3]))
             if refused {
-                c.finishRestore(m, e, refusal: "invalid save")
-                c.finishRestore(m, e, refusal: "invalid save")
+                c.finishRestore(m, e, refusal: "restore refused: invalid save")
+                c.finishRestore(m, e, refusal: "restore refused: invalid save")
                 XCTAssertEqual(c.restoreJournal.count, 1)
-                XCTAssertTrue(e.restoreError!.contains("invalid save"))
+                XCTAssertEqual(e.restoreError!, "surface fixture: restore refused: invalid save")
                 XCTAssertNotNil(c.worldInput.bytes)
             } else {
                 restoreState(true); c.finishRestore(m, e)

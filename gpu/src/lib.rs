@@ -267,6 +267,9 @@ pub struct Placement {
     pub homography: [f32; 9],
     /// Larger nearer the eye.
     pub depth: f32,
+    /// Near/far clipping in child coordinates; each row is ax + by + c >= 0.
+    /// Native geometry clips in the GPU; software compositors apply these rows.
+    pub clip_depth: [[f32; 3]; 2],
 }
 
 /// Makes a surface.
@@ -308,11 +311,16 @@ pub struct Gpu {
     pub queue: wgpu::Queue,
 }
 
+mod recovery;
+
 struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
-    presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
+    presentation: Option<wgpu::Surface<'static>>,
+    config: Option<wgpu::SurfaceConfiguration>,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    layer: Option<usize>,
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
     retired: BTreeSet<String>,
@@ -382,10 +390,13 @@ impl Module {
             crate::web::notify_loss(&lost);
         });
         for inst in self.instances.values_mut() {
-            let format = if let Some((target, config)) = &inst.presentation {
+            let format = if let (Some(target), Some(config)) = (&inst.presentation, &inst.config) {
                 target.configure(&gpu.device, config);
                 config.format
             } else {
+                if inst.config.is_some() {
+                    continue;
+                }
                 // Web targets are reattached by web::recover; native offscreen
                 // surfaces use the same format as readback.
                 #[cfg(target_arch = "wasm32")]
@@ -398,28 +409,6 @@ impl Module {
             inst.dirty = true;
         }
         self.gpu = Some(gpu);
-    }
-
-    /// Request a replacement on the same instance, preserving surface ownership and input.
-    /// Headless modules never request an adapter. The JSON outcome includes each
-    /// surface's preparation state; hosts then drain assets and recapture children.
-    pub async fn recover(&mut self) -> Result<String, String> {
-        let Some(instance) = self.instance.clone() else {
-            return Ok("{\"status\":\"no device\",\"instances\":[]}".into());
-        };
-        self.lose_device();
-        let compatible = self
-            .instances
-            .values()
-            .find_map(|i| i.presentation.as_ref().map(|p| &p.0));
-        match load_gpu(instance, compatible).await {
-            Ok(gpu) => self.set_gpu(gpu),
-            Err(error) => {
-                self.error = format!("device recovery: {error}");
-                return Err(self.error.clone());
-            }
-        }
-        Ok(self.recovery_report())
     }
 
     pub(crate) fn recovery_report(&mut self) -> String {
@@ -566,6 +555,9 @@ impl Module {
         if presentation.is_some() {
             surface.device_ready();
         }
+        let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
+            (Some(target), Some(config))
+        });
         self.instances.insert(
             id,
             Instance {
@@ -573,6 +565,9 @@ impl Module {
                 messages: Vec::new(),
                 published: None,
                 presentation,
+                config,
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                layer: None,
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
                 retired: BTreeSet::new(),
@@ -589,6 +584,7 @@ impl Module {
     /// Release presentation resources while preserving every surface's state.
     pub fn lose_device(&mut self) {
         for inst in self.instances.values_mut() {
+            inst.presentation = None;
             inst.surface.device_lost();
             inst.answered.clear();
             inst.outstanding.clear();
@@ -1048,7 +1044,7 @@ impl Module {
         }
         inst.answered.insert(name.into());
         inst.surface.asset(name, bytes);
-        if let (Some(gpu), Some((_, config))) = (&self.gpu, &inst.presentation) {
+        if let (Some(gpu), Some(config)) = (&self.gpu, &inst.config) {
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, config.format);
         }
@@ -1113,7 +1109,8 @@ impl Module {
         if !inst.bound {
             return Some(false);
         }
-        let (target, config) = inst.presentation.as_mut()?;
+        let target = inst.presentation.as_mut()?;
+        let config = inst.config.as_mut()?;
         inst.surface
             .prepare_assets(&gpu.device, &gpu.queue, config.format);
         if config.width != w || config.height != h {
@@ -1345,9 +1342,9 @@ impl Module {
             return None;
         }
         let format = inst
-            .presentation
+            .config
             .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |p| p.1.format);
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
         inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
         let frame = Frame {
             seekable: self.seekable,
@@ -1417,8 +1414,8 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-/// Create the device: the first adapter that can present, with default
-/// limits. Natively synchronous; on the web, awaited by the loader.
+/// Create the device from the first adapter that can present, requesting
+/// supported capacities independently. Awaited by native and web loaders.
 pub async fn load_gpu(
     instance: wgpu::Instance,
     compatible: Option<&wgpu::Surface<'_>>,
@@ -1430,18 +1427,8 @@ pub async fn load_gpu(
         })
         .await
         .map_err(|e| format!("no adapter: {e}"))?;
-    // The limits: wgpu's defaults where the adapter meets them; else its
-    // downlevel defaults with this adapter's texture resolution — what the
-    // iOS simulator's Metal is (its device is below the Apple4 family and
-    // passes 15 inter-stage variables to the default's 16; an iPhone since
-    // the A11 passes 31). Everything a surface here uses fits both; a
-    // device is never refused for a limit no surface needs.
     let available = adapter.limits();
-    let required_limits = if wgpu::Limits::default().check_limits(&available) {
-        wgpu::Limits::default()
-    } else {
-        wgpu::Limits::downlevel_defaults().using_resolution(available)
-    };
+    let required_limits = requested_limits(available);
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("exact"),
@@ -1456,6 +1443,16 @@ pub async fn load_gpu(
         device,
         queue,
     })
+}
+
+/// Request each optional capacity independently; a low inter-stage limit must
+/// not discard storage capacity offered by the same adapter.
+pub fn requested_limits(available: wgpu::Limits) -> wgpu::Limits {
+    let mut limits = wgpu::Limits::downlevel_defaults().using_resolution(available.clone());
+    limits.max_storage_buffers_per_shader_stage =
+        available.max_storage_buffers_per_shader_stage.min(8);
+    limits.max_inter_stage_shader_variables = available.max_inter_stage_shader_variables.min(16);
+    limits
 }
 
 #[cfg(not(target_arch = "wasm32"))]

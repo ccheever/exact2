@@ -277,13 +277,42 @@ export function compilerPaths(text, workspace) {
 }
 // rustc records relative inputs against Cargo's workspace root, even when
 // EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
-function unitDepInfo(message, workspace, named) {
-  if (named) return named;
+export function unitDepInfo(message, workspace) {
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
-    const candidate = resolve(dirname(file), stem + '.d');
-    if (!existsSync(candidate)) continue;
-    if (compilerPaths(readFileSync(candidate, 'utf8'), workspace).includes(resolve(message.target.src_path))) return candidate;
+    // Selected libraries are copied out of deps; Cargo's sibling summary .d
+    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit.
+    for (const candidate of [resolve(dirname(file), 'deps', stem + '.d'), resolve(dirname(file), stem + '.d')]) {
+      if (!existsSync(candidate)) continue;
+      const dep = readFileSync(candidate, 'utf8');
+      const output = dep.slice(0, dep.indexOf(': '));
+      if (compilerPaths('unit: ' + output, workspace).includes(candidate)
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) return candidate;
+    }
+  }
+  // Cargo copies libraries and executables out of deps without reporting their
+  // hashed unit filenames. Match the copied bytes; refuse ambiguous evidence.
+  for (const file of message.filenames.filter(path => path.endsWith('.rlib') || path === message.executable)) {
+    const directory = resolve(dirname(file), 'deps');
+    if (!existsSync(directory)) continue;
+    const executable = file === message.executable;
+    const stem = executable ? message.target.name.replaceAll('-', '_') : basename(file, '.rlib');
+    const bytes = readFileSync(file), matches = [];
+    for (const name of readdirSync(directory)) {
+      if (!name.startsWith(stem + '-') || (!executable && !name.endsWith('.rlib'))) continue;
+      const unit = executable ? name : name.slice(3, -5);
+      if (!/^[a-f0-9]+$/.test(unit.slice(unit.lastIndexOf('-') + 1))) continue;
+      const product = resolve(directory, name);
+      if (statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
+      const candidate = resolve(directory, unit + '.d');
+      if (!existsSync(candidate)) continue;
+      const dep = readFileSync(candidate, 'utf8');
+      const output = dep.slice(0, dep.indexOf(': '));
+      if (compilerPaths('unit: ' + output, workspace).includes(candidate)
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+    }
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
   }
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
 }
@@ -336,11 +365,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   for (const m of messages.filter((m) => m.reason === 'compiler-artifact' && !m.target.kind.includes('custom-build') && graph.roles.has(m.package_id))) {
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
-    const selected = roots.find((r) => r.package === m.package_id && m.target.name === r.name);
-    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,selected?.dep), 'utf8');
-    // Cargo also puts the baker's optional art-directory watch in dep-info.
-    // Its absence is an asset-root input, so creating it invalidates the bake.
-    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path, !!app.manifest.game && resolve(path) === resolve(app.dir, 'art'));
+    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root), 'utf8');
+    for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
   }
@@ -371,6 +397,9 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
   add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));
+  // Shell selection observes art's presence. Track absence for the dev watcher
+  // without giving Cargo a missing path that forces every build dirty.
+  if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
@@ -449,12 +478,9 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
-    // Web root artifacts expose rustc's ordinary .d; preserve it so Cargo can cache the link.
-    // Native static archives still need the explicit unit path for their source receipt.
-    const dep=platform==='web'?null:resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-${pkg.name}.d`);
-    const args=['rustc','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json',...(dep?['--',`--emit=dep-info=${dep}`]:[])];
+    const args=['build','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json'];
     const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
-    const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name,dep});
+    const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);
     if (pkg.id === graph.surface?.id && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)

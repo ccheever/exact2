@@ -126,3 +126,30 @@ fn capsule_pick_from_inside_ignores_internal_cap_surfaces() {
     let reply = s.agent(r#"{"op":"layout","x":400,"y":300}"#);
     assert!(reply.contains("\"distance\":1.5"), "{reply}");
 }
+
+#[test]
+fn busy_is_returned_only_when_requested_and_clock_without_now_does_not_seek() {
+    let mut s = Sim::<Scene>::new(()).unwrap();
+    s.advance(0., Clock::Seekable);
+    s.advance(1000., Clock::Seekable);
+    let before = s.world().tick();
+    assert!(s
+        .agent(r#"{"op":"state","entity":"*","busy":true}"#)
+        .contains("\"busy\":"));
+    assert!(!s
+        .agent(r#"{"op":"state","entity":"*"}"#)
+        .contains("\"busy\":"));
+    s.agent(r#"{"op":"clock"}"#);
+    assert_eq!(s.world().tick(), before);
+}
+#[test]
+fn restore_format_refusal_is_not_double_wrapped() {
+    let mut s = Sim::<Scene>::new(()).unwrap();
+    let error = s.restore(b"old-format").unwrap_err().to_string();
+    assert_eq!(error.matches("restore refused").count(), 1, "{error}");
+    assert!(
+        error.contains("expected EXSIM v5") && error.contains("no cross-version migration"),
+        "{error}"
+    );
+    assert!(!error.contains("named additions"), "{error}");
+}

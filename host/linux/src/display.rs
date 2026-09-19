@@ -337,6 +337,11 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     pointer.0 = (pointer.0 + dx / config.scale).clamp(0.0, viewport.0 - 1.0);
                     pointer.1 = (pointer.1 + dy / config.scale).clamp(0.0, viewport.1 - 1.0);
                     p.set_pointer(Some(pointer));
+                    if p.control_contact.is_some() {
+                        p.control_tap(
+                            &serde_json::json!({"phase":"move","x":pointer.0,"y":pointer.1}),
+                        );
+                    }
                 }
                 InputEvent::Absolute(fx, fy) => {
                     if let Some(fx) = fx {
@@ -346,9 +351,26 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                         pointer.1 = (fy * viewport.1).clamp(0.0, viewport.1 - 1.0);
                     }
                     p.set_pointer(Some(pointer));
+                    if p.control_contact.is_some() {
+                        p.control_tap(
+                            &serde_json::json!({"phase":"move","x":pointer.0,"y":pointer.1}),
+                        );
+                    }
                 }
-                InputEvent::Button(true) => down = p.hit(pointer.0, pointer.1),
+                InputEvent::Button(true) => {
+                    down = p.hit(pointer.0, pointer.1);
+                    if let Some(id) = down.and_then(|hit| p.control_target(hit)) {
+                        p.control_tap(&serde_json::json!({"id":id,"phase":"down","x":pointer.0,"y":pointer.1}));
+                    }
+                }
                 InputEvent::Button(false) => {
+                    if p.control_contact.is_some() {
+                        p.control_tap(
+                            &serde_json::json!({"phase":"up","x":pointer.0,"y":pointer.1}),
+                        );
+                        down = None;
+                        continue;
+                    }
                     let was = down.take();
                     let at = p.hit(pointer.0, pointer.1);
                     if was.is_some() && was == at {
@@ -356,6 +378,11 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     }
                 }
                 InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
+                InputEvent::Activation { code, down } => {
+                    if let Some(id) = p.focus() {
+                        let _ = p.type_key(id, if code == 57 { "Space" } else { "Enter" }, down);
+                    }
+                }
                 InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
                 InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),
                 InputEvent::Key(Key::Escape) => p.blur(),

@@ -361,7 +361,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     let mut outputs = std::collections::BTreeMap::new();
     for path in files {
         if path.extension().and_then(|v| v.to_str()) == Some("png") {
-            let name = format!("{}.tex", path.file_stem().unwrap().to_str().unwrap());
+            let name = format!("{}.tex", art_stem(&path)?);
             if !asset_name(&name) {
                 return Err(format!("invalid sprite asset name `{name}`"));
             }
@@ -375,7 +375,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             continue;
         }
         let (model, textures) = assets(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let name = format!("{}.model", path.file_stem().unwrap().to_str().unwrap());
+        let name = format!("{}.model", art_stem(&path)?);
         if outputs
             .insert(name.clone(), encode(&name, &model)?)
             .is_some()
@@ -417,6 +417,10 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.to_string()),
         }
+    }
+    // The next app resolution can drop this baker after the last art is removed.
+    if !art.exists() {
+        return std::fs::remove_file(manifest).map_err(|e| e.to_string());
     }
     let digests: std::collections::BTreeMap<_, _> =
         outputs.iter().map(|(n, b)| (n, digest(b))).collect();
@@ -464,4 +468,19 @@ pub fn encode(name: &str, value: &impl exact_game::Data) -> Result<Vec<u8>, Stri
     let bytes = exact_game::bin::to_vec(value);
     check_size(name, bytes.len())?;
     Ok(bytes)
+}
+
+fn art_stem(path: &Path) -> Result<&str, String> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "invalid art stem".into())
+}
+#[cfg(all(test, unix))]
+mod stem_tests {
+    #[test]
+    fn png_non_utf8_stem_returns_an_error() {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"bad\xff.png"));
+        assert_eq!(super::art_stem(path).unwrap_err(), "invalid art stem");
+    }
 }

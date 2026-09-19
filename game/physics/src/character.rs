@@ -209,6 +209,8 @@ pub fn capsule(world: &mut World, target: impl Target) -> CapsuleHandle<'_> {
     let entity = target
         .entity(world)
         .unwrap_or_else(|| panic!("capsule target `{label}` does not exist"));
+    assert!(!world.has::<exact_game::character::Character>(entity),
+        "capsule target `{label}` has both Character and CapsuleController; pick one movement controller");
     assert!(
         world.has::<CapsuleController>(entity),
         "capsule target `{label}` has no CapsuleController"

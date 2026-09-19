@@ -1,8 +1,5 @@
-// The web host's glue: apply batches, forward events, tick the clock.
-//
-// @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
-// the app. The app is the wasm (runner + kernel + data crate + baked plan).
-// Nothing here runs per frame; layout and motion are the browser's.
+// Apply batches, forward events and tick the clock; per-frame layout and motion belong to the browser.
+// @ref LLP 1007 §3. This is host code, not app code: the app is the wasm (runner + kernel + data crate + baked plan).
 
 import { navigation } from "./navigation.js";
 const root = document.getElementById("exact-root");
@@ -371,6 +368,7 @@ function applyProps(el, set, clear) {
     else if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
+    else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
     else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
     else if (name === "inert") { el.authoredInert = false; el.inert = false; }
     else el.removeAttribute(name);
@@ -384,6 +382,8 @@ function applyProps(el, set, clear) {
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") {
       if (el.childElementCount === 0) el.textContent = value;
+    } else if (name === "data-action") {
+      el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
       if (el.value !== value) el.value = value;
     } else if (name === "checked") {
@@ -666,7 +666,7 @@ function apply(batch) {
           el.append(surface);
         }
         applyProps(el, op.props, []);
-        el.style.cssText = op.css;
+        el.style.cssText = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : "");
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
         break;
@@ -678,7 +678,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) { exact.gpu?.beforeStyle(el); el.style.cssText = op.css; exact.gpu?.afterStyle(el); }
+        if (el) { exact.gpu?.beforeStyle(el); el.style.cssText = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); exact.gpu?.afterStyle(el); }
         break;
       }
       case "children": {

@@ -159,7 +159,7 @@ fn arena_capacity_is_a_named_atomic_refusal() {
             .limits()
             .max_storage_buffer_binding_size
             .min(gpu.device.limits().max_buffer_size)
-            / 48
+            / 64 // Full affine attachment overrides are the widest per-entity arena.
     );
     let texture = target(&gpu, (64, 64), wgpu::TextureFormat::Rgba8Unorm);
     let f = frame();

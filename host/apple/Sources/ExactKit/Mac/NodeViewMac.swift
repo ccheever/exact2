@@ -277,7 +277,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { canvasInput?.blur(); presenter?.selection.clear() }
+        if ok { inputCanvas?.canvasInput?.blur(); presenter?.selection.clear() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
@@ -749,6 +749,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
+        if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let hit = super.hitTest(point)
             return hit != nil && hit === overlay ? self : hit
@@ -1194,7 +1195,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // take the focus ends the editing, as a click on a button blurs a page's
     // input; a click nothing consumes reaches the viewport, which does the
     // same (a click on the page's ground).
+    override func accessibilityPerformPress() -> Bool {
+        if isSurfaceControl { return control("down") && control("up") }
+        guard !disabled, !inert, handlers.contains("press") else { return false }
+        presenter?.press(id); return true
+    }
     override func mouseDown(with event: NSEvent) {
+        if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         guard !disabled else { pressed = false; return }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
@@ -1211,12 +1218,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
-            if let node = view as? NodeView, node.handlers.contains("press") { return true }
+            if let node = view as? NodeView, (node.handlers.contains("press") || node.isSurfaceControl) { return true }
             next = view.superview
         }
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if isSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
@@ -1227,6 +1235,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        if isSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
         if event.clickCount == 2 {
             var next: NSView? = self

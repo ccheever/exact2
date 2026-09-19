@@ -57,10 +57,16 @@ test('paused placement survives authored style updates and restores latest style
     gpu_placement:(_,i,out)=>{out.set([1,0,200,0,1,100,0,0,1,-1]);return none?0:1;},
   });
   f.exact.gpu.layout();f.frame();
-  f.exact.gpu.beforeStyle(child);
-  child.style={position:'absolute',visibility:'visible',zIndex:'7',transform:'rotate(3deg)',transformOrigin:'center'};
+  // Model cssText replacement, then drive the real apply/applyBatch style operation.
+  Object.defineProperty(child.style,'cssText',{set(css) {
+    for(const key of Object.keys(this)) delete this[key];
+    for(const declaration of css.split(';').filter(Boolean)) {
+      const [key,value]=declaration.split(':'); this[key.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=value;
+    }
+  }});
+  f.exact.views.set(2,child);
   child.offsetLeft=40;child.offsetTop=60;
-  f.exact.gpu.afterStyle(child);
+  f.applyBatch({ops:[{op:'style',id:2,css:'position:absolute;visibility:visible;z-index:7;transform:rotate(3deg);transform-origin:center'}]});
   const matrix=child.style.transform.slice(9,-1).split(',').map(Number);
   assert.equal(matrix[12]+child.offsetLeft,200);assert.equal(matrix[13]+child.offsetTop,100);
   assert.ok(child.style.transform.startsWith('matrix3d('),'reapplied without a frame');

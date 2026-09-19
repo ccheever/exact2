@@ -59,7 +59,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check('pick at the player box reaches player', pick?.hit?.name === 'player', pick);
     if (host !== 'linux') {
       const tap = await s.tap('world:player');
-      check('entity tap uses the host input carrier', tap?.delivery === (host === 'ios' ? 'recognized' : 'platform'), tap);
+      check('entity tap: GPU accepts injected pointer JSON on iOS; platform event on web', tap?.delivery === (host === 'ios' ? 'recognized' : 'platform'), tap);
     }
   }
   await s.world('world').hold('KeyW', 100);

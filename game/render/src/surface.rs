@@ -50,6 +50,7 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     device: bool,
+    storage_limit: u32,
     perf: Perf,
     ready_work: Option<crate::world::assets::Work>,
     trace: Option<crate::trace::Trace>,
@@ -75,6 +76,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             render: None,
             format: None,
             device: false,
+            storage_limit: 0,
             perf: Perf::default(),
             ready_work: None,
             trace: None,
@@ -92,6 +94,18 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
     }
 }
 impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
+    fn storage_fits(&mut self, device: &wgpu::Device) -> bool {
+        self.storage_limit = device.limits().max_storage_buffers_per_shader_stage;
+        let needed = if ASSETS { crate::STORAGE_BINDINGS } else { 5 };
+        if self.storage_limit < needed {
+            self.error = Some(SurfaceError(format!(
+                "renderer needs {needed} vertex storage buffers; device grants {}",
+                self.storage_limit
+            )));
+            return false;
+        }
+        true
+    }
     fn commit_restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
         let sim = self.sim.as_mut().ok_or("world has not been bound")?;
         self.presentation.before_restore(sim.world(), mode);
@@ -107,7 +121,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         if self.sim.as_ref().is_some_and(|s| !s.is_loading()) {
             if let Some((bytes, mode)) = self.pending_restore.take() {
                 if let Err(error) = self.commit_restore(&bytes, mode) {
-                    self.refusal = Some(SurfaceError(format!("restore refused: {error}")));
+                    self.refusal = Some(SurfaceError(format!(
+                        "restore refused: {}",
+                        error.strip_prefix("restore refused: ").unwrap_or(&error)
+                    )));
                 }
             }
         }
@@ -319,6 +336,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) {
+        if !self.storage_fits(device) {
+            return;
+        }
         if !ASSETS {
             return;
         }
@@ -344,17 +364,19 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         }
         let (renderer, _feed) = self.render.as_mut().unwrap();
         let live = sim.presentation_assets().map(str::to_owned).collect();
-        if renderer.retired_bytes(&live) > RETIRED_BUDGET {
-            renderer.compact_assets(format, &live);
-        }
+        // Accept deliveries before the sole compaction: live identical residents
+        // may still be marked retired until preparation reactivates them.
         let prepared: Vec<_> = sim
             .presentation_models()
-            .filter(|(name, _)| self.model_digests.contains_key(*name))
             .map(|(name, model)| {
+                let digest = *self
+                    .model_digests
+                    .entry(name.to_owned())
+                    .or_insert_with(|| crate::models::model_digest(model));
                 (
                     name.to_owned(),
                     renderer
-                        .prepare_model_digest(name, model, self.model_digests[name])
+                        .prepare_model_digest(name, model, digest)
                         .map_err(|e| e.to_string()),
                 )
             })
@@ -439,6 +461,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
+        if !self.storage_fits(device) {
+            return false;
+        }
         self.reported = false;
         if self.error.is_some() {
             return false;
@@ -642,7 +667,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         };
         if matches!(
             event,
-            InputEvent::Key { down: true, .. } | InputEvent::Pointer { phase: Q::Down, .. }
+            InputEvent::Key { down: true, .. }
+                | InputEvent::Pointer { phase: Q::Down, .. }
+                | InputEvent::Control { phase: Q::Down, .. }
         ) {
             self.presentation.unlock();
         }
@@ -673,6 +700,26 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 y: *y,
                 at_ms: *at_ms,
             },
+            InputEvent::Control {
+                name,
+                id,
+                phase,
+                x,
+                y,
+                at_ms,
+            } => E::Control {
+                name: name.clone(),
+                id: u64::from(*id),
+                phase: match phase {
+                    Q::Down => P::Down,
+                    Q::Move => P::Move,
+                    Q::Up => P::Up,
+                    Q::Cancel => P::Cancel,
+                },
+                x: *x,
+                y: *y,
+                at_ms: *at_ms,
+            },
             InputEvent::Wheel { dx, dy, at_ms, .. } => E::Wheel {
                 dx: *dx,
                 dy: *dy,
@@ -680,6 +727,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             },
             InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
         };
+        if let Err(error) = sim.validate_input(&e) {
+            self.refusal = Some(SurfaceError(error));
+            return;
+        }
         sim.input(e);
     }
     fn published(&mut self) -> Option<String> {
@@ -805,8 +856,8 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 reasons.push("first draw pending".into());
             }
             let ready = reasons.is_empty();
-            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
-                exact_game::json::to_string(&reasons).unwrap(),
+            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"storageBindings\":{},\"requiredStorageBindings\":{},\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
+                exact_game::json::to_string(&reasons).unwrap(), self.storage_limit, if ASSETS { crate::STORAGE_BINDINGS } else { 5 },
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
             reply.push_str("}}");
@@ -1023,12 +1074,16 @@ mod residency_tests {
     }
 
     #[test]
-    fn identical_redelivery_survives_post_acceptance_budget_compaction() {
+    fn identical_redelivery_survives_entry_and_post_acceptance_budget_compaction() {
         let gpu = exact_gpu::fixture::device().unwrap();
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
-        let model = model();
+        let mut model = model();
+        // Character-sized resident, already retired when the oversized cache enters preparation.
+        model.meshes[0].positions.resize(80_000 * 3, 0.);
+        model.meshes[0].normals.resize(80_000 * 3, 0.);
+        model.meshes[0].uvs.resize(80_000 * 2, 0.);
         let bytes = exact_game::bin::to_vec(&model);
         let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
         s.assets();
@@ -1057,7 +1112,7 @@ mod residency_tests {
             ..Default::default()
         };
         let r = &mut s.render.as_mut().unwrap().0;
-        for i in 0..11 {
+        for i in 0..13 {
             let name = format!("retired-{i}.tex");
             r.add_texture(&name, &retired).unwrap();
             r.retire_texture(&name);
@@ -1085,7 +1140,7 @@ mod residency_tests {
             .presentation_assets()
             .map(str::to_owned)
             .collect();
-        assert!(s.render.as_ref().unwrap().0.retired_bytes(&live) < RETIRED_BUDGET);
+        assert!(s.render.as_ref().unwrap().0.retired_bytes(&live) > RETIRED_BUDGET);
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         assert!(s.sim.as_ref().unwrap().model_prepared("hero.model"));
         let r = &s.render.as_ref().unwrap().0;

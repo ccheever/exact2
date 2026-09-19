@@ -106,6 +106,26 @@ pub fn load(registry: &'static Registry) -> u32 {
     }
 }
 
+/// The active Metal device identity, for filtering host removal notifications.
+pub fn device_registry_id() -> u64 {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    return with(|m| {
+        use objc2_metal::MTLDevice;
+        let gpu = m.gpu.as_ref()?;
+        // SAFETY: borrowed only to read the device identity; no HAL mutation.
+        unsafe { gpu.device.as_hal::<wgpu::hal::api::Metal>() }.map(|d| d.raw_device().registryID())
+    })
+    .flatten()
+    .unwrap_or(0);
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    0
+}
+
+/// Includes a failed replacement, which still needs a device.
+pub fn device_is_lost() -> bool {
+    with(|m| m.instance.is_some() && m.gpu().is_none()).unwrap_or(false)
+}
+
 /// Recover the loaded module without replacing its surface table. JSON outcome.
 pub fn recover() -> String {
     with(|m| crate::block_on(m.recover()))
@@ -156,7 +176,11 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
         };
         match target {
-            Ok(t) => m.create(name, t, width, height),
+            Ok(t) => {
+                let id = m.create(name, t, width, height)?;
+                m.instances.get_mut(&id)?.layer = Some(layer as usize);
+                Some(id)
+            }
             Err(e) => {
                 ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
                 None
@@ -443,6 +467,12 @@ macro_rules! module {
             $crate::native::load(&$registry)
         }
 
+        /// Active Metal registry identity, or zero off Metal.
+        #[no_mangle]
+        pub extern "C" fn gpu_device_registry_id() -> u64 { $crate::native::device_registry_id() }
+        /// Whether the loaded module needs a replacement device.
+        #[no_mangle]
+        pub extern "C" fn gpu_device_is_lost() -> bool { $crate::native::device_is_lost() }
         /// Recover the device; JSON outcome in gpu_out_ptr, returning its length.
         #[no_mangle]
         pub extern "C" fn gpu_recover() -> u32 {
@@ -577,6 +607,12 @@ macro_rules! module {
                     for (i, v) in p.homography.iter().chain(std::iter::once(&p.depth)).enumerate() {
                         // SAFETY: the caller's contract — `len` ≥ 10 floats at `out`, checked above.
                         unsafe { out.add(i).write_unaligned(*v) }
+                    }
+                    if len >= 16 {
+                        for (i, v) in p.clip_depth.iter().flatten().enumerate() {
+                            // SAFETY: this optional extension checks all sixteen output floats.
+                            unsafe { out.add(10 + i).write_unaligned(*v) }
+                        }
                     }
                     1
                 }
@@ -776,6 +812,8 @@ mod placement_abi_tests {
         frame: [f32; 4],
         preparations: usize,
         retired: bool,
+        formats: Vec<wgpu::TextureFormat>,
+        lose_on_prepare: bool,
     }
     impl Surface for Sign {
         fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
@@ -798,18 +836,36 @@ mod placement_abi_tests {
                 crate::ChildrenMode::Each
             }
         }
-        fn prepare_assets(&mut self, _: &wgpu::Device, _: &wgpu::Queue, _: wgpu::TextureFormat) {
+        fn prepare_assets(
+            &mut self,
+            device: &wgpu::Device,
+            _: &wgpu::Queue,
+            format: wgpu::TextureFormat,
+        ) {
+            if self.lose_on_prepare {
+                self.lose_on_prepare = false;
+                device.destroy();
+                let _ = device.poll(wgpu::PollType::Poll);
+            }
+            self.formats.push(format);
             self.preparations += 1;
         }
         fn agent(&mut self, request: &str) -> Option<String> {
             self.retired = request == "retire";
-            Some(format!("{{\"preparations\":{}}}", self.preparations))
+            if request == "lose-on-prepare" {
+                self.lose_on_prepare = true;
+            }
+            Some(format!(
+                "{{\"preparations\":{},\"formats\":\"{:?}\"}}",
+                self.preparations, self.formats
+            ))
         }
         fn child(&mut self, _: usize, _: Option<&wgpu::TextureView>, frame: [f32; 4]) {
             self.frame = frame;
         }
         fn placement(&self, index: usize) -> Option<Placement> {
             (index != 0).then_some(Placement {
+                clip_depth: [[0., 0., 1.]; 2],
                 hidden: index == 2,
                 homography: [self.frame[2]; 9],
                 depth: -3.,
@@ -850,6 +906,88 @@ mod placement_abi_tests {
         unload();
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn presented_device_loss_rebinds_live_layer_and_readback_keeps_its_format() {
+        #[link(name = "QuartzCore", kind = "framework")]
+        extern "C" {}
+        assert_eq!(load(&REGISTRY), 0);
+        // SAFETY: retained layer outlives the module's presentation target.
+        let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
+            unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
+        let ptr = objc2::rc::Retained::as_ptr(&layer) as *mut std::ffi::c_void;
+        let id = unsafe { super::create("sign", ptr, 16, 16) };
+        assert_ne!(id, 0);
+        assert_eq!(bind(id, "[]"), 0);
+        let frame = Frame {
+            width: 16.,
+            height: 16.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: true,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+        };
+        with(|m| {
+            assert!(m.render(id, &frame).is_some());
+            let format = m.instances[&id].config.as_ref().unwrap().format;
+            assert_eq!(format, wgpu::TextureFormat::Bgra8Unorm);
+            assert!(m.readback(id, &frame).is_some());
+            let state = m.agent(id, "state").unwrap();
+            assert!(!state.contains("Rgba8"), "{state}");
+            let gpu = m.gpu.as_ref().unwrap();
+            gpu.device.destroy();
+            let _ = gpu.device.poll(wgpu::PollType::Poll);
+            m.check_device();
+            assert!(
+                m.instances[&id].presentation.is_none(),
+                "dead presentation must be dropped"
+            );
+            assert!(
+                m.instances[&id].config.is_some(),
+                "retry retains configuration"
+            );
+        });
+        assert!(recover().contains("recovered"));
+        with(|m| {
+            assert!(m.has_device(id));
+            assert!(m.render(id, &frame).is_some());
+            assert!(m.readback(id, &frame).is_some());
+            let state = m.agent(id, "state").unwrap();
+            assert!(!state.contains("Rgba8"), "{state}");
+        });
+        unload();
+    }
+
+    #[test]
+    fn replacement_lost_during_preparation_refuses_then_retries() {
+        assert_eq!(load(&REGISTRY), 0);
+        let id = create_headless("sign");
+        with(|m| {
+            m.agent(id, "lose-on-prepare");
+            m.lose_device();
+        });
+        let failed = recover();
+        assert!(
+            failed.contains("replacement device was lost during recovery"),
+            "{failed}"
+        );
+        assert!(super::device_is_lost());
+        assert!(recover().contains("recovered"));
+        unload();
+    }
+
+    #[test]
+    fn recovery_of_a_healthy_device_does_not_prepare_again() {
+        assert_eq!(load(&REGISTRY), 0);
+        let id = create_headless("sign");
+        let before = with(|m| m.agent(id, "state")).unwrap();
+        assert!(recover().contains("healthy"));
+        assert_eq!(with(|m| m.agent(id, "state")).unwrap(), before);
+        unload();
+    }
+
     #[test]
     fn destroyed_device_recovers_without_replacing_the_surface_table() {
         if load(&REGISTRY) != 0 {
@@ -867,7 +1005,10 @@ mod placement_abi_tests {
                 .messages
                 .push("pending".into())
         });
-        with(|m| m.gpu().unwrap().device.destroy());
+        with(|m| {
+            m.gpu().unwrap().device.destroy();
+            let _ = m.gpu.as_ref().unwrap().device.poll(wgpu::PollType::Poll);
+        });
         let result = recover();
         assert!(result.contains("recovered"), "{result}");
         assert!(result.contains("\"preparations\":1"), "{result}");

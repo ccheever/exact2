@@ -119,6 +119,29 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         parse_input(r#"{"t":"blur","at":5}"#).unwrap(),
         InputEvent::Blur { at_ms: 5.0 }
     );
+    for (phase, expected) in [
+        ("down", PointerPhase::Down),
+        ("move", PointerPhase::Move),
+        ("up", PointerPhase::Up),
+        ("cancel", PointerPhase::Cancel),
+    ] {
+        let json = format!(
+            r#"{{"t":"control","name":"jump","id":4,"phase":"{phase}","x":12,"y":34,"at":1234.5}}"#
+        );
+        assert_eq!(
+            parse_input(&json).unwrap(),
+            InputEvent::Control {
+                name: "jump".into(),
+                id: 4,
+                phase: expected,
+                x: 12.,
+                y: 34.,
+                at_ms: 1234.5
+            }
+        );
+        assert!(parse_input(&json.replace("1234.5", "1e999")).is_err());
+        assert!(parse_input(&json.replace(phase, "invalid")).is_err());
+    }
     let pointer =
         r#"{"t":"pointer","phase":"down","id":1,"x":10,"y":20,"kind":"mouse","buttons":1,"at":2}"#;
     let mut module = Module::new(&EMPTY);
@@ -879,4 +902,18 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
     module.lose_device();
     module.set_gpu(fixture::device().unwrap());
     assert!(module.readback(id, &frame).is_some());
+}
+
+#[test]
+fn storage_capacity_is_independent_of_inter_stage_capacity() {
+    let mut available = wgpu::Limits::default();
+    available.max_inter_stage_shader_variables = 15;
+    let requested = exact_gpu::requested_limits(available.clone());
+    assert!(requested.check_limits(&available));
+    assert_eq!(requested.max_storage_buffers_per_shader_stage, 8);
+    available.max_storage_buffers_per_shader_stage = 4;
+    assert_eq!(
+        exact_gpu::requested_limits(available).max_storage_buffers_per_shader_stage,
+        4
+    );
 }

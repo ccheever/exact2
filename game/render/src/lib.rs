@@ -85,6 +85,8 @@ pub struct MeshId(pub(crate) usize);
 pub struct MaterialId(pub(crate) usize);
 /// Render slots live outside the entity index space and do not allocate entities.
 pub const RENDER_SLOT_BASE: u32 = 1 << 31;
+/// Maximum vertex-stage storage bindings: five scene buffers plus three model buffers.
+pub const STORAGE_BINDINGS: u32 = 8;
 /// One model mesh node under an entity. Geometry/material are batch keys; the
 /// transform slot and full affine offset are uploaded into the instance buffer.
 #[derive(Debug, Clone)]
@@ -320,11 +322,11 @@ macro_rules! module {
 }
 
 impl FrameInput<'_> {
-    pub(crate) fn displayed(
+    pub(crate) fn displayed_matrix(
         &self,
         entity: exact_game::Entity,
         fallback: exact_game::Transform,
-    ) -> exact_game::Transform {
-        world::scene::displayed(self.attachments, entity, fallback)
+    ) -> Mat4 {
+        world::scene::displayed_matrix(self.attachments, entity, fallback)
     }
 }

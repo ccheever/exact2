@@ -261,7 +261,7 @@ impl<G: Game> Sim<G> {
             .models
             .iter()
             .filter(|(n, _)| self.world.assets.states.contains_key(n))
-            .map(|(n, m)| (n.as_str(), m.as_ref()))
+            .map(|(n, m)| (n.as_str(), m.model.as_ref()))
     }
     /// Content remains Loaded after loss; only device preparation is invalidated.
     pub fn invalidate_device_assets(&mut self) -> Vec<String> {
@@ -411,10 +411,7 @@ impl<G: Game> Sim<G> {
                     .assets
                     .dependencies
                     .insert(name.into(), model.textures.clone());
-                self.world
-                    .assets
-                    .models
-                    .insert(name.into(), std::sync::Arc::new(model));
+                self.world.assets.models.insert(name.into(), model.into());
             }
             Err(reason) => {
                 self.asset_failed(name, &reason);
@@ -589,10 +586,17 @@ impl<G: Game> Sim<G> {
     fn boundary(&self, e: &Queued) -> u128 {
         self.projected(e) as u128 * G::HZ as u128 / 1_000_000
     }
+    /// Validate host input without mutating the simulation or panicking.
+    pub fn validate_input(&self, event: &InputEvent) -> Result<(), String> {
+        self.input.validate(event)
+    }
     /// Queue a raw event in stamp order, preserving arrival order at equal stamps.
     /// Paused input updates held state directly, without edges or queued wheel deltas.
     pub fn input(&mut self, event: InputEvent) {
-        assert!(event.at_ms().is_finite(), "input stamp must be finite");
+        if let Err(error) = self.validate_input(&event) {
+            self.world.log(error);
+            return;
+        }
         self.invalidate();
         if G::paused(&self.args) {
             self.input.apply_paused(event);
@@ -968,7 +972,7 @@ impl<G: Game> Sim<G> {
             let models = assets
                 .models
                 .iter()
-                .map(|(name, model)| (name.clone(), bin::to_vec(model.as_ref())))
+                .map(|(name, model)| (name.clone(), bin::to_vec(model.model.as_ref())))
                 .collect::<Vec<_>>();
             assets.models = Default::default();
             // Drop all old component/resource values (including skipped fields
@@ -979,7 +983,9 @@ impl<G: Game> Sim<G> {
             for (name, bytes) in models {
                 assets.models.insert(
                     name,
-                    std::sync::Arc::new(bin::from_slice(&bytes).expect("paranoid asset decode")),
+                    bin::from_slice::<crate::asset::Model>(&bytes)
+                        .expect("paranoid asset decode")
+                        .into(),
                 );
             }
             self.world.assets = assets;
@@ -1218,6 +1224,14 @@ impl<G: Game> Sim<G> {
         }
         keys.into_iter().collect()
     }
+    /// Named contacts, including queued presses and releases at the host boundary.
+    pub fn held_controls(&self) -> Vec<String> {
+        let mut input = self.input.clone();
+        for queued in &self.queue {
+            input.apply_paused(queued.event.clone());
+        }
+        input.held_controls()
+    }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         let assets = &self.world.assets;
@@ -1255,7 +1269,7 @@ impl<G: Game> Sim<G> {
             .collect();
         if self.is_loading() || !pending.is_empty() {
             return Err(DataError::new(format!(
-                "save refused: assets are not ready: {:?}; {}; inspect `state` and `state world:*` before saving again",
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: state.world.loading and state.world.assets before saving again",
                 pending,
                 assets.state_json()
             )));
@@ -1289,14 +1303,12 @@ impl<G: Game> Sim<G> {
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.restore_into(bytes, None).map_err(|e| DataError::new(format!(
-            "restore refused (EXSIM v5): {e}; named additions default, removals are ignored, incompatible types/versions have no migration; inspect `state`")))
+        self.restore_into(bytes, None)
     }
     /// A surface retains the current app bindings, including setup arguments.
     pub fn restore_bound(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let args = crate::json::to_string(&self.args)?;
-        self.restore_into(bytes, Some(&args)).map_err(|e| DataError::new(format!(
-            "restore refused (EXSIM v5): {e}; named additions default, removals are ignored, incompatible types/versions have no migration; inspect `state`")))
+        self.restore_into(bytes, Some(&args))
     }
     fn restore_into(&mut self, bytes: &[u8], args: Option<&str>) -> Result<(), DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
@@ -1322,7 +1334,7 @@ impl<G: Game> Sim<G> {
         next.setup_pending = !next.world.assets.ready();
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
-            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect `state` pending assets and `state world:*`; retry after delivery"));
+            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: state.world.loading and state.world.assets; retry after delivery"));
         }
         next.world.load(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;

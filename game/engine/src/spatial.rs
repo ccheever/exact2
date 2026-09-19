@@ -134,10 +134,10 @@ pub(crate) fn bounds(w: &World, entity: Entity, mesh: Option<&Mesh>) -> (Vec3, V
         );
     }
     if let Some(Mesh::Asset(name)) = mesh {
-        if let Some(model) = w.model(name) {
+        if let Some(model) = w.model_asset(name) {
             let bounds = w
                 .get::<crate::Pose>(entity)
-                .map_or_else(|| crate::asset::pose::animated_bounds(model), |p| p.bounds);
+                .map_or(model.bounds, |p| p.bounds);
             let lo = Vec3::from_slice(&bounds[..3]);
             let hi = Vec3::from_slice(&bounds[3..]);
             return ((hi - lo) * 0.5, (hi + lo) * 0.5);
@@ -378,7 +378,7 @@ pub(crate) struct Layout {
     pub unbounded: bool,
 }
 fn displayed_bounds_pose(w: &World, entity: Entity, view: Option<&View>) -> Affine3A {
-    let pose = w.global(entity).unwrap_or(Affine3A::IDENTITY);
+    let pose = w.current_global(entity).unwrap_or(Affine3A::IDENTITY);
     if w.has::<crate::Sprite>(entity) {
         let (scale, _, position) = pose.to_scale_rotation_translation();
         let rotation = view.map_or(crate::Quat::IDENTITY, |v| {

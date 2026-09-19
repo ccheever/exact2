@@ -60,11 +60,79 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 }, 300000);
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveApp, buildBake } from './app.mjs';
+import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
+
+// Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
+test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-native-cache-')));
+  const write = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), bytes); };
+  try {
+    write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml')));
+    write('Cargo.toml', '[workspace]\nmembers=["gpu","linux"]\nresolver="2"\n');
+    write('gpu/Cargo.toml', '[package]\nname="cache-gpu"\nversion="0.1.0"\nedition="2021"\n[lib]\nname="cache_module"\ncrate-type=["cdylib","staticlib","rlib"]\n');
+    write('gpu/src/lib.rs', '#[no_mangle]\npub extern "C" fn fixture() -> usize { env!("CACHE_FIXTURE_VALUE").len() + include_bytes!("../payload").len() }\n');
+    write('gpu/payload', 'first');
+    write('linux/Cargo.toml', '[package]\nname="cache-linux"\nversion="0.1.0"\nedition="2021"\n[[bin]]\nname="cache-runner"\npath="src/main.rs"\n');
+    write('linux/src/main.rs', 'fn main() { println!("{}", env!("CACHE_EXEC_VALUE").len() + include_bytes!("../payload").len()); }\n');
+    write('linux/payload', 'first');
+    const target = bakeTarget('linux'), id = 'com.exact.cachefixture';
+    const compat = {target, inputs:{platform:'linux', app:id, store:{L:'0'}, keys:[]}};
+    write('linux/build.rs', `fn main() {
+      println!("cargo:rerun-if-changed=build.rs");
+      let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+      std::fs::write(out.join("compat.json"), r#"${JSON.stringify(compat)}"#).unwrap();
+      std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
+      std::fs::write(out.join("app.plan"), b"fixture").unwrap();
+    }`);
+    const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:dir, encoding:'utf8'});
+    assert.equal(lock.status, 0, lock.stderr);
+    const app = {dir, workspace:dir, target:resolve(dir,'target'), id, hasGpu:true,
+      manifest:{app:{id, name:'Cache fixture'}, game:{}, rust:false}, crate:kind=>`cache-${kind}`};
+    const bake = (value, executable = value) => buildBake(app, 'linux', target, {profile:'dev', output:resolve(dir,'bakes'),
+      env:{EXACT_UPDATE_TRUST:'development', CACHE_FIXTURE_VALUE:value, CACHE_EXEC_VALUE:executable, EXACT_RUST_BUNDLE:'', EXACT_UPDATE_RECEIPT:''}});
+    const modified = receipt => receipt.products.filter(p=>/libcache_module\.|\/cache-runner$/.test(p.path))
+      .map(p=>[p.path, statSync(p.path, {bigint:true}).mtimeNs]);
+    const environment = receipt => receipt.binary.configuration.units.find(u=>u.target==='cache_module').environment;
+    const first = bake('left'), stamp = modified(first);
+    assert.ok(stamp.length >= 2, 'dynamic and static libraries must both be exercised');
+    assert.ok(first.binary.inputs.some(f=>f.path===resolve(dir,'gpu/src/lib.rs')));
+    assert.ok(first.binary.inputs.some(f=>f.path===resolve(dir,'gpu/payload')));
+    assert.ok(environment(first).some(([key])=>key==='CACHE_FIXTURE_VALUE'), 'summary .d is not unit evidence');
+    assert.ok(first.binary.configuration.units.find(u=>u.target==='cache-runner').environment
+      .some(([key])=>key==='CACHE_EXEC_VALUE'), 'the executable retains compile-time environment evidence');
+    assert.ok(first.binary.inputs.some(f=>f.path===resolve(dir,'linux/payload')));
+    assert.ok(first.binary.missing.includes(resolve(dir,'art')), 'dev must observe the first art directory');
+    mkdirSync(resolve(dir, 'art'));
+    assert.ok(pendingBuildInputs(first).includes(resolve(dir, 'art')));
+    rmSync(resolve(dir, 'art'), {recursive:true});
+    const unchanged = bake('left');
+    assert.deepEqual(modified(unchanged), stamp, 'unchanged libraries and executables must not relink');
+    assert.equal(unchanged.binary.sha256, first.binary.sha256);
+    const changed = bake('rght'); // Same length and compiled result; the environment still differs.
+    assert.notDeepEqual(environment(changed), environment(first));
+    assert.notEqual(changed.binary.sha256, first.binary.sha256);
+    const changedStamp = modified(changed), stable = bake('rght');
+    assert.deepEqual(modified(stable), changedStamp);
+    assert.equal(stable.binary.sha256, changed.binary.sha256);
+    write('gpu/payload', 'second');
+    const edited = bake('rght');
+    assert.notEqual(edited.binary.sha256, stable.binary.sha256);
+    assert.notEqual(edited.binary.inputs.find(f=>f.path.endsWith('/gpu/payload')).sha256,
+      stable.binary.inputs.find(f=>f.path.endsWith('/gpu/payload')).sha256);
+    const executable = bake('rght', 'next');
+    assert.notEqual(executable.binary.sha256, edited.binary.sha256);
+    assert.notDeepEqual(executable.binary.configuration.units.find(u=>u.target==='cache-runner').environment,
+      edited.binary.configuration.units.find(u=>u.target==='cache-runner').environment);
+    write('linux/payload', 'second');
+    const binaryEdit = bake('rght', 'next');
+    assert.notEqual(binaryEdit.binary.inputs.find(f=>f.path.endsWith('/linux/payload')).sha256,
+      executable.binary.inputs.find(f=>f.path.endsWith('/linux/payload')).sha256);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+}, 180000);
 
 function fixture(body) {
   const root = mkdtempSync(resolve(tmpdir(), 'shell-repair-'));
@@ -107,6 +175,23 @@ test('shell repair replaces half-written members before metadata', () => fixture
   rmSync(resolve(dirname(path),'src'),{recursive:true});
   assert.ok(app().hasGpu);
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
+}));
+
+test('art adds its baker on demand and retains it until generated outputs are pruned', () => fixture(({app, dir, write}) => {
+  const baked = () => {
+    const gpu = app().cargoPackage('gpu');
+    const dependency = gpu.dependencies.some(d=>d.name==='exact-game-bake');
+    assert.equal(gpu.targets.some(t=>t.kind.includes('custom-build')), dependency);
+    return dependency;
+  };
+  assert.equal(baked(), false);
+  write('game/games/foo/art/example.png', 'fixture');
+  assert.equal(baked(), true);
+  write('game/games/foo/.baked-assets.json', '{}');
+  rmSync(resolve(dir, 'art'), {recursive:true});
+  assert.equal(baked(), true, 'cleanup still needs the baker');
+  rmSync(resolve(dir, '.baked-assets.json'));
+  assert.equal(baked(), false);
 }));
 
 test('shell identity survives a renamed logic crate and removes old packages', () => fixture(({app, dir, write, run}) => {
@@ -251,4 +336,36 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   assert.equal(el.exactAutofocus, true);
   apply(el, {}, ['autofocus']);
   assert.equal(el.exactAutofocus, false);
+});
+
+test.each(['library', 'executable'])('copied %s roots require unique compiler dep-info', async kind => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-unit-dep-'));
+  try {
+    const dir = resolve(root, 'release'), deps = resolve(dir, 'deps'), src = resolve(root, 'src/main.rs');
+    mkdirSync(deps, {recursive:true});
+    const executable = kind === 'executable', target = executable ? 'game-native' : 'game_apple';
+    const artifact = resolve(dir, executable ? target : `lib${target}.rlib`);
+    writeFileSync(artifact, 'selected unit');
+    const message = {filenames:executable ? [artifact] : [resolve(dir, `lib${target}.a`), artifact],
+      executable:executable ? artifact : null, target:{name:target, src_path:src}};
+    writeFileSync(resolve(dir, `${target}.d`), `${artifact}: ${src}\n`);
+    const unit = (hash, bytes, source = src) => {
+      const name = `${target.replaceAll('-', '_')}-${hash}`, dep = resolve(deps, `${name}.d`);
+      writeFileSync(resolve(deps, executable ? name : `lib${name}.rlib`), bytes);
+      writeFileSync(dep, `${dep}: ${source}\n\n# env-dep:EXACT_UPDATE_TRUST=development\n`);
+      return dep;
+    };
+    unit('deadbeef', 'another unit');
+    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    const expected = unit('a11ce', 'selected unit', resolve(root, 'old/main.rs'));
+    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    writeFileSync(expected, `${resolve(root, 'copied.d')}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    unit('a11ce', 'selected unit');
+    assert.equal(unitDepInfo(message, root), expected);
+    assert.match(readFileSync(unitDepInfo(message, root), 'utf8'), /env-dep:EXACT_UPDATE_TRUST=development/);
+    unit('aabbcc', 'selected unit');
+    assert.throws(() => unitDepInfo(message, root), /ambiguous rustc unit/);
+  } finally { rmSync(root, {recursive:true, force:true}); }
 });

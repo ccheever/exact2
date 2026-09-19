@@ -1,19 +1,14 @@
 #!/usr/bin/env bun
 import {proof} from '../../proof.mjs';
 import {decodePng} from '../../../scripts/png.mjs';
-import {readFileSync} from 'node:fs';
+import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   if(process.argv.includes('--capture40')) {
     const s=await open({size:[1280,720]});await s.tap('crowd');
     await s.clock('+0');await s.screenshot(resolve(out,`forty-${host}.png`));
     const logs=await s.logs();say(JSON.stringify(logs));
-    if(host==='linux') {
-      const samples=[];
-      for(let i=0;i<21;i++) { await s.clock('+0'); const state=await s.state(); if(i) samples.push(state.paint.ms); }
-      samples.sort((a,b)=>a-b);
-      say(`40 placed children, Linux CPU paint at 1280x720: p50 ${samples[10].toFixed(3)} ms, p95 ${samples[18].toFixed(3)} ms`);
-    }
+    say('40-child capture is visual evidence; no CPU-cost claim is made.');
     check('40 placed children',(await s.world('world').snapshot()).entities.filter(e=>e.components.Placed).length===40);
     await s.close();return;
   }
@@ -34,9 +29,10 @@ await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   check('HUD tap did not pull',!(await s.state()).world[0].resources.Lamp.lit);
   const hud=await box('hud');
   const first=await box('sign');
+  const tuples={initial:Object.fromEntries(['x','y','w','h'].map(k=>[k,first[k]]))};
   const firstAX=node(await s.tree(),'sign')?.accessibilityFrame;
   const oracle={x:430.91,y:299.76,w:140.23,h:30.55};
-  check('placed sign matches Placed::project within 2 px at 1280x720',Object.entries(oracle).every(([k,v])=>Math.abs(first[k]-v)<=2),first);
+  check('placed sign matches Placed::project within 0.5 px at 1280x720',Object.entries(oracle).every(([k,v])=>Math.abs(first[k]-v)<=0.5),first);
   await s.tap('hud');await s.clock('+0');
   check('zero-sized child is explicitly hidden',(await s.state('world:sign')).entity.placed.hidden===true);
   const signId=node(await s.tree(),'sign')?.id ?? first.id;
@@ -55,8 +51,13 @@ await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   check('lamp publication reaches HUD',node(await s.tree(),'hud-label').props.text==='Lamp true');
   {
     const after=await box('sign');
-    const projected={x:492.88443,y:285.10403,w:93.112885,h:38.104492};
-    check('moving displayed sign matches Placed::project tick 59 within 2 px',Object.entries(projected).every(([k,v])=>Math.abs(after[k]-v)<=2),after);
+    tuples.moving=Object.fromEntries(['x','y','w','h'].map(k=>[k,after[k]]));
+    writeFileSync(resolve(out,`placement-${host}.json`),JSON.stringify(tuples,null,2)+'\n');
+    // Paranoid reconstruction primes current/current history every tick. Ordinary
+    // playback displays tick 59 at alpha zero; reconstruction displays tick 60.
+    // Both receipts come from logic/tests/sim.rs and keep the same 0.5 px limit.
+    const projected=['1','fresh-game'].includes(process.env.EXACT_GAME_PARANOID)?{x:494.20934,y:284.9197,w:92.1972,h:38.18921}:{x:492.88443,y:285.10403,w:93.112885,h:38.104492};
+    check('moving displayed sign matches sampled Placed::project within 0.5 px',Object.entries(projected).every(([k,v])=>Math.abs(after[k]-v)<=0.5),after);
     check('orbit moves sign placed box',Math.abs(after.x-first.x)>1,after);
     check('HUD stays at kernel frame',equal(await box('hud'),hud));
     if(host==='macos') {

@@ -1,13 +1,16 @@
 //! Small, bounded asset registries. Lexical iteration keeps diagnostics stable;
 //! these delivery maps are not Data and never enter the simulation hash/save.
 #[derive(Clone)]
-pub(crate) struct AssetMap<V>(Vec<(String, V)>);
+pub(crate) struct AssetMap<V>(Vec<(String, V)>, u64);
 impl<V> Default for AssetMap<V> {
     fn default() -> Self {
-        Self(Vec::new())
+        Self(Vec::new(), 0)
     }
 }
 impl<V> AssetMap<V> {
+    pub(crate) fn revision(&self) -> u64 {
+        self.1
+    }
     fn find(&self, name: &str) -> Result<usize, usize> {
         self.0.binary_search_by(|(key, _)| key.as_str().cmp(name))
     }
@@ -21,6 +24,7 @@ impl<V> AssetMap<V> {
         self.0.len()
     }
     pub(crate) fn insert(&mut self, name: String, value: V) {
+        self.1 = self.1.wrapping_add(1);
         match self.find(&name) {
             Ok(i) => self.0[i].1 = value,
             Err(i) => self.0.insert(i, (name, value)),
@@ -29,6 +33,7 @@ impl<V> AssetMap<V> {
     pub(crate) fn remove(&mut self, name: &str) {
         if let Ok(i) = self.find(name) {
             self.0.remove(i);
+            self.1 = self.1.wrapping_add(1);
         }
     }
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, &V)> {

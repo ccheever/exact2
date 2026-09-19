@@ -25,6 +25,8 @@ fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_a
     assert!(!app.join("assets/renamed.model").exists());
     assert!(!app.join("assets/renamed/0-srgb-straight.tex").exists());
     assert_eq!(fs::read(app.join("assets/authored.bin")).unwrap(), b"keep");
+    assert!(!app.join(".baked-assets.json").exists());
+    exact_game_bake::bake_art(&app).unwrap();
     fs::remove_dir_all(app).unwrap();
 }
 #[test]
@@ -167,6 +169,52 @@ fn obsolete_manifest_refuses_before_changing_outputs() {
     assert_eq!(
         fs::read(app.join("assets/old.tex")).unwrap(),
         b"cannot prove ownership"
+    );
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn clean_sprites_checkout_bakes_without_generated_ownership() {
+    let app = temp();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../games/sprites-fixture");
+    // Copy only tracked, still-present files: no ignored ownership or generated outputs.
+    let tracked = std::process::Command::new("git")
+        .args(["ls-files", "-z", "."])
+        .current_dir(&source)
+        .output()
+        .unwrap();
+    assert!(tracked.status.success());
+    for name in tracked.stdout.split(|b| *b == 0).filter(|n| !n.is_empty()) {
+        let path = std::path::Path::new(std::str::from_utf8(name).unwrap());
+        if !source.join(path).is_file() {
+            continue;
+        }
+        fs::create_dir_all(app.join(path).parent().unwrap()).unwrap();
+        fs::copy(source.join(path), app.join(path)).unwrap();
+    }
+    assert!(!app.join(".baked-assets.json").exists());
+    exact_game_bake::bake_art(&app).unwrap();
+    assert_eq!(
+        fs::read(app.join("assets/strip.tex")).unwrap(),
+        fs::read(app.join("logic/tests/strip.tex")).unwrap()
+    );
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn png_non_utf8_stem_returns_an_error() {
+    use std::os::unix::ffi::OsStrExt;
+    let app = temp();
+    fs::write(
+        app.join("art")
+            .join(std::ffi::OsStr::from_bytes(b"bad\xff.png")),
+        b"unused",
+    )
+    .unwrap();
+    assert_eq!(
+        exact_game_bake::bake_art(&app).unwrap_err(),
+        "invalid art stem"
     );
     fs::remove_dir_all(app).unwrap();
 }

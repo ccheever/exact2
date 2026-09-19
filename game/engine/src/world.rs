@@ -140,6 +140,8 @@ struct Registration {
     ambient: bool,
 }
 
+pub(crate) type AttachmentPose = fn(&World, Entity, usize) -> Option<crate::Affine3A>;
+
 /// One journal event. Reads never generate per-tick samples.
 #[derive(Clone, Debug, Default, Data)]
 pub struct Event {
@@ -176,6 +178,7 @@ pub struct World {
     hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
+    pub(crate) attachment_pose: Option<AttachmentPose>,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
@@ -227,6 +230,7 @@ impl World {
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
+            attachment_pose: None,
             state: State {
                 hz,
                 seed,
@@ -510,7 +514,7 @@ impl World {
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
-    /// Current global position, including ancestor transforms; None if missing.
+    /// Current local position, without ancestor transforms; None if missing.
     pub fn local_position(&self, target: impl Target) -> Option<crate::Vec3> {
         self.get::<crate::Transform>(target).map(|t| t.position)
     }
@@ -531,18 +535,10 @@ impl World {
         radius: f32,
         mut predicate: impl FnMut(&C) -> bool,
     ) -> Option<Entity> {
-        let entity = origin.entity(self)?;
-        let position = self.global_position(entity)?;
-        self.near_xz::<C>(entity, radius)
-            .filter(|(e, _)| self.get::<C>(*e).is_some_and(|c| predicate(&c)))
-            .min_by(|(_, a), (_, b)| {
-                let distance = |p: crate::Vec3| {
-                    let delta = p - position;
-                    delta.x * delta.x + delta.z * delta.z
-                };
-                distance(a.position).total_cmp(&distance(b.position))
-            })
-            .map(|(entity, _)| entity)
+        self.within::<C>(origin, radius, true)
+            .filter(|(e, _, _)| self.get::<C>(*e).is_some_and(|c| predicate(&c)))
+            .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
+            .map(|(entity, _, _)| entity)
     }
     /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances and returned poses use global transforms; missing origins yield no rows.
@@ -569,33 +565,45 @@ impl World {
         radius: f32,
         planar: bool,
     ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
+        self.within::<C>(origin, radius, planar)
+            .map(|(entity, pose, _)| {
+                let (scale, rotation, position) = pose.to_scale_rotation_translation();
+                (
+                    entity,
+                    crate::Transform {
+                        position,
+                        rotation,
+                        scale,
+                    },
+                )
+            })
+    }
+    fn within<C: Component>(
+        &self,
+        origin: impl Target,
+        radius: f32,
+        planar: bool,
+    ) -> impl Iterator<Item = (Entity, crate::Affine3A, f32)> + '_ {
         assert!(radius.is_finite() && radius >= 0.0);
         let origin_entity = origin.entity(self);
-        let origin = origin_entity.and_then(|e| {
-            self.current_global(e)
-                .map(|p| crate::Vec3::from(p.translation))
-        });
-        self.entities().filter_map(move |entity| {
-            if Some(entity) == origin_entity || !self.has::<C>(entity) {
-                return None;
-            }
-            let (scale, rotation, position) =
-                self.current_global(entity)?.to_scale_rotation_translation();
-            let pose = crate::Transform {
-                position,
-                rotation,
-                scale,
-            };
-            origin
-                .is_some_and(|origin| {
-                    let mut delta = pose.position - origin;
-                    if planar {
-                        delta.y = 0.0;
-                    }
-                    delta.length_squared() <= radius * radius
-                })
-                .then_some((entity, pose))
-        })
+        let origin = origin_entity.and_then(|e| self.global_position(e));
+        let candidates = origin.and(self.storage::<C>());
+        candidates
+            .into_iter()
+            .flat_map(|s| s.indices(None))
+            .filter_map(move |index| {
+                let entity = self.entity_at(index);
+                if Some(entity) == origin_entity {
+                    return None;
+                }
+                let pose = self.current_global(entity)?;
+                let mut delta = crate::Vec3::from(pose.translation) - origin?;
+                if planar {
+                    delta.y = 0.0;
+                }
+                let distance = delta.length_squared();
+                (distance <= radius * radius).then_some((entity, pose, distance))
+            })
     }
     /// Allocated component pages in entity-index order, under a shared lease.
     /// Each view supplies its first index, presence words, and a raw pointer valid
@@ -850,7 +858,7 @@ impl World {
         }
         let mut next = Self::new(1, 0);
         next.registry = self.registry.clone();
-        next.assets = self.assets.clone();
+        next.attachment_pose = self.attachment_pose;
         let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
@@ -860,6 +868,8 @@ impl World {
             .checked_add(1)
             .expect("presentation generation exhausted");
         next.epoch.set(self.epoch.get().wrapping_add(1));
+        // Delivery ownership is not saved state; transfer it only after validation.
+        next.assets = std::mem::take(&mut self.assets);
         *self = next;
         Ok(())
     }

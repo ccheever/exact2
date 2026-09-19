@@ -24,15 +24,23 @@ export async function fixture(options = {}) {
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { if (options.refuse?.(id)) return false; restored.add(id); return true; },
-    gpu_error: () => "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
+    gpu_error: () => options.error ?? "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
     gpu_agent: id => JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
     gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
   };
-  const glue = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+  const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
-  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) op(); });
+  const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('// Agent batches register', glue.indexOf('function apply(batch)')));
+  const applyOperations = new Function('exact', 'views', `
+    const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
+    const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false;
+    const prepareContexts = () => {}, refreshSymbols = () => {}, focusAutofocus = () => {}, positionContexts = () => {};
+    const viewFor = (_, id) => views.get(id);
+    ${operationSource}; return apply;
+  `)(exact, views);
+  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
@@ -49,7 +57,8 @@ export async function fixture(options = {}) {
     matches() { return false; }
     querySelector() { return this.canvas; }
     getBoundingClientRect() { return {width:10,height:10}; }
-    cloneNode() { return new Element(this.kind); }
+    cloneNode() { order.push('clone'); return new Element(this.kind); }
+    remove() { order.push('remove clone'); this.isConnected = false; }
     replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; }
     getAttribute() { return null; }
     removeAttribute() {}
@@ -71,7 +80,7 @@ export async function fixture(options = {}) {
     'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
     source
   )(assetDelivery, { exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
-    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {} });
+    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {}, removeEventListener() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
@@ -238,4 +247,58 @@ test('device loss replaces contexts without creating, restoring or unloading sur
   assert.equal(f.exact.gpu.agent(1, {op:'state'}).world.tick, 0);
   el.listeners.keyup({target:el, code:'KeyW', key:'w', timeStamp:2});
   assert.deepEqual(f.events.filter(e=>e.t==='key').map(e=>e.down), [true,false]);
+});
+
+
+test('failed recovery removes clones and backs off instead of retrying each frame', async () => {
+  const f=await fixture(); f.create(1);
+  let attempts=0;
+  f.gpu.gpu_render=()=>3;
+  f.gpu.gpu_recover=async()=>{ attempts++; throw new Error('fail once'); };
+  f.exact.gpu.deviceLost();
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(attempts,1);
+  assert.equal(f.order.filter(x=>x==='remove clone').length,1);
+  for(let i=0;i<10;i++) { f.frame(); f.exact.gpu.deviceLost(); }
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(attempts,1,'retry is held until the backoff expires');
+  f.gpu.gpu_recover=async()=>{attempts++;f.gpu.gpu_render=()=>0;return '{"status":"recovered"}';};
+  await new Promise(r=>setTimeout(r,150));
+  assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
+});
+
+
+test('restore diagnostics wrap an already named refusal exactly once', async () => {
+  const f=await fixture({refuse:()=>true,error:'restore refused: EXSIM v5 awaits declared assets'});
+  f.exact.worldCarry=new Uint8Array([7]); f.create(1);
+  const error=f.exact.gpu.decorate({op:'tap'},{}).error;
+  assert.equal(error.match(/restore refused/g).length,1,error);
+});
+
+
+test('a second loss during recovery schedules the next generation', async () => {
+  const f=await fixture(); f.create(1);
+  let finish, attempts=0;
+  f.gpu.gpu_recover=async()=>{if(++attempts===1) await new Promise(r=>finish=r);return '{"status":"recovered"}';};
+  f.exact.gpu.deviceLost(); await new Promise(r=>setTimeout(r,0));
+  f.exact.gpu.deviceLost(); finish();
+  await new Promise(r=>setTimeout(r,0));
+  assert.equal(attempts,2);
+  assert.equal(f.exact.gpu.recovery.status,'recovered');
+});
+
+test('Contract controls send named local contacts, keyboard edges and blur over gpu_input', async () => {
+  const f = await fixture({input:true}), canvas=f.create(1), button=new f.Element('button');
+  button.parent=canvas;
+  button.closest = selector => selector === '[data-gpu-input]' ? canvas : selector === 'button[data-action]' ? button : null;
+  button.getAttribute = name => name === 'data-action' ? 'jump' : null;
+  button.getBoundingClientRect = () => ({left:100,top:200});
+  button.setPointerCapture = () => {};
+  const event = {target:button,pointerId:7,clientX:130,clientY:240,timeStamp:500,preventDefault(){}};
+  canvas.listeners.pointerdown(event); canvas.listeners.pointermove({...event,clientX:160}); canvas.listeners.pointerup(event);
+  canvas.listeners.keydown({...event,code:'Space',key:' '}); canvas.listeners.keyup({...event,code:'Space',key:' '});
+  canvas.listeners.focusout({...event,relatedTarget:null});
+  assert.deepEqual(f.events.slice(0,3).map(e=>[e.t,e.name,e.phase,e.id,e.x,e.y,e.at]), [
+    ['control','jump','down',7,30,40,0],['control','jump','move',7,60,40,0],['control','jump','up',7,30,40,0]]);
+  assert.deepEqual(f.events.slice(3).map(e=>[e.t,e.phase]), [['control','down'],['control','up'],['blur',undefined]]);
 });

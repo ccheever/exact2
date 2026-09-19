@@ -216,3 +216,33 @@ fn flat_motor_and_named_capsule_coexist_and_report_actual_displacement() {
     assert!(w.get::<CapsuleController>("fox").is_some());
     assert!(w.get::<exact_game::character::Character>("flat").is_some());
 }
+
+#[test]
+fn same_entity_movement_controllers_are_refused_by_both_handles() {
+    let mut w = exact_game::World::new(60, 7);
+    w.spawn_named(
+        "ranger",
+        (
+            exact_game::Transform::default(),
+            exact_game::character::Character::new(),
+            exact_game_physics::CapsuleController::default(),
+        ),
+    );
+    for core in [false, true] {
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if core {
+                let _ = w.character("ranger");
+            } else {
+                let _ = exact_game_physics::capsule(&mut w, "ranger");
+            }
+        }))
+        .expect_err("ambiguous controller accepted");
+        let text = failure.downcast_ref::<String>().unwrap();
+        assert!(
+            text.contains("ranger")
+                && text.contains("Character")
+                && text.contains("CapsuleController"),
+            "{text}"
+        );
+    }
+}

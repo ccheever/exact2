@@ -83,6 +83,10 @@ pub struct PlacedPlane {
     pub depth: f32,
     /// Explicitly absent from presentation, including behind the near plane.
     pub hidden: bool,
+    /// Native clip-volume visibility; a crossing plane still submits geometry.
+    pub native_hidden: bool,
+    /// Near/far inequalities in child coordinates (ax + by + c >= 0).
+    pub clip_depth: [[f32; 3]; 2],
 }
 impl Placed {
     /// Project the displayed entity and camera poses into a host's canvas points.
@@ -94,19 +98,34 @@ impl Placed {
         proj: Mat4,
         size: Vec2,
     ) -> PlacedPlane {
+        self.project_affine(
+            Mat4::from_scale_rotation_translation(pose.scale, pose.rotation, pose.position),
+            child_size,
+            view,
+            proj,
+            size,
+        )
+    }
+    /// Project a full displayed affine pose, including hierarchy shear.
+    pub fn project_affine(
+        self,
+        pose: Mat4,
+        child_size: Vec2,
+        view: Mat4,
+        proj: Mat4,
+        size: Vec2,
+    ) -> PlacedPlane {
         let camera = view.inverse();
-        let origin = pose.position + pose.rotation * (pose.scale * self.offset);
+        let origin = pose.transform_point3(self.offset);
         let (right, up) = match self.facing {
             Facing::Camera => (
-                camera.x_axis.truncate().normalize(),
-                camera.y_axis.truncate().normalize(),
+                camera.x_axis.truncate().normalize() * pose.x_axis.truncate().length(),
+                camera.y_axis.truncate().normalize() * pose.y_axis.truncate().length(),
             ),
-            Facing::Fixed => (pose.rotation * Vec3::X, pose.rotation * Vec3::Y),
+            Facing::Fixed => (pose.x_axis.truncate(), pose.y_axis.truncate()),
         };
-        let x = right * (self.width * pose.scale.x.abs());
-        let y = up
-            * (self.width * child_size.y / child_size.x.max(f32::MIN_POSITIVE)
-                * pose.scale.y.abs());
+        let x = right * (self.width);
+        let y = up * (self.width * child_size.y / child_size.x.max(f32::MIN_POSITIVE));
         let center = origin + x * (0.5 - self.anchor[0]) + y * (0.5 - self.anchor[1]);
         let corners = [
             center - x * 0.5 + y * 0.5,
@@ -116,13 +135,9 @@ impl Placed {
         ];
         let vp = proj * view;
         let clip = corners.map(|p| vp * p.extend(1.));
-        // Reject only a shared side plane. Covering quads can have every corner
-        // outside different sides. Depth crossings are all-or-nothing on every
-        // host, so CSS never receives a map through the eye's vanishing line.
-        let outside = clip.iter().all(|p| p.x < -p.w)
-            || clip.iter().all(|p| p.x > p.w)
-            || clip.iter().all(|p| p.y < -p.w)
-            || clip.iter().all(|p| p.y > p.w);
+        // Homogeneous polygon clipping catches disjoint viewport corners and
+        // keeps native geometry visible while it crosses the near/eye planes.
+        let outside = !intersects_frustum(clip);
         let depth_clipped = clip.iter().any(|p| p.w <= 0. || p.z < 0. || p.z > p.w);
         let behind =
             self.facing == Facing::Fixed && x.cross(y).dot(camera.w_axis.truncate() - origin) <= 0.;
@@ -134,27 +149,69 @@ impl Placed {
         let dx = (map(clip[1]) - a) / child_size.x;
         let dy = (map(clip[3]) - a) / child_size.y;
         let h = [dx.x, dy.x, a.x, dx.y, dy.y, a.y, dx.z, dy.z, a.z];
-        let hidden = child_size.x <= 0.
+        let native_hidden = child_size.x <= 0.
             || child_size.y <= 0.
-            || depth_clipped
-            || [
-                (0., 0.),
-                (child_size.x, 0.),
-                (child_size.x, child_size.y),
-                (0., child_size.y),
-            ]
-            .iter()
-            .any(|&(x, y)| h[6] * x + h[7] * y + h[8] <= 0.)
             || outside
             || behind
             || !h.iter().all(|n| n.is_finite())
             || x.length_squared() == 0.
             || y.length_squared() == 0.;
+        let hidden = native_hidden || depth_clipped;
+        let plane = |v: [f32; 4]| {
+            [
+                (v[1] - v[0]) / child_size.x,
+                (v[3] - v[0]) / child_size.y,
+                v[0],
+            ]
+        };
+        let clip_depth = [plane(clip.map(|p| p.z)), plane(clip.map(|p| p.w - p.z))];
         PlacedPlane {
             corners,
-            homography: if hidden { [0.; 9] } else { h },
+            homography: if native_hidden { [0.; 9] } else { h },
             depth: view.transform_point3(center).z,
             hidden,
+            native_hidden,
+            clip_depth,
         }
     }
+}
+
+fn intersects_frustum(corners: [glam::Vec4; 4]) -> bool {
+    let mut polygon = [glam::Vec4::ZERO; 12];
+    polygon[..4].copy_from_slice(&corners);
+    let mut count = 4;
+    for plane in 0..7 {
+        let distance = |p: glam::Vec4| match plane {
+            0 => p.w - 1e-6,
+            1 => p.z,
+            2 => p.w - p.z,
+            3 => p.x + p.w,
+            4 => p.w - p.x,
+            5 => p.y + p.w,
+            _ => p.w - p.y,
+        };
+        let mut next = [glam::Vec4::ZERO; 12];
+        let mut n = 0;
+        let mut a = polygon[count - 1];
+        let mut da = distance(a);
+        for &b in &polygon[..count] {
+            let db = distance(b);
+            if (da >= 0.) != (db >= 0.) {
+                next[n] = a.lerp(b, da / (da - db));
+                n += 1;
+            }
+            if db >= 0. {
+                next[n] = b;
+                n += 1;
+            }
+            a = b;
+            da = db;
+        }
+        if n == 0 {
+            return false;
+        }
+        polygon = next;
+        count = n;
+    }
+    true
 }

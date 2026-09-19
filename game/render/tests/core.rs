@@ -387,3 +387,94 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         / actual.data.len() as f64;
     assert!(mean_error < 0.1, "normal matrix pixel error: {mean_error}");
 }
+
+#[test]
+fn affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly() {
+    let gpu = fixture::device().unwrap();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
+    let (vertices, indices) = shapes::cube();
+    let mesh = r.add_mesh(&vertices, &indices);
+    r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+        .unwrap();
+    r.write_materials(0, &material([0.6, 0.2, 0.1], 1.))
+        .unwrap();
+    r.set_batches(
+        &[Batch {
+            mesh,
+            casts_shadows: true,
+            slots: 0..1,
+        }],
+        &[0],
+    )
+    .unwrap();
+    let target = target(&gpu, (256, 160), format);
+    let mut f = frame();
+    let baseline = render(&gpu, &mut r, &target, &f).data;
+    let matrix = glam::Mat4::from_scale_rotation_translation(
+        Vec3::new(2., 1., 1.),
+        Quat::IDENTITY,
+        Vec3::new(0.3, 0.2, 0.),
+    ) * glam::Mat4::from_rotation_z(0.7);
+    let (scale, rotation, position) = matrix.to_scale_rotation_translation();
+    let mut w = exact_game::World::new(60, 0);
+    let entity = w.spawn(());
+    let attachments = [exact_game_render::DisplayedAttachment {
+        entity,
+        matrix,
+        pose: exact_game::Transform {
+            scale,
+            rotation,
+            position,
+        },
+    }];
+    f.attachments = &attachments;
+    let attached = render(&gpu, &mut r, &target, &f).data;
+    assert_ne!(attached, baseline);
+    f.attachments = &[];
+    assert_eq!(
+        render(&gpu, &mut r, &target, &f).data,
+        baseline,
+        "detaching clears the affine override"
+    );
+    let transformed: Vec<_> = vertices
+        .iter()
+        .map(|v| exact_game_render::Vertex {
+            position: matrix
+                .transform_point3(Vec3::from_array(v.position))
+                .to_array(),
+            normal: matrix
+                .inverse()
+                .transpose()
+                .transform_vector3(Vec3::from_array(v.normal))
+                .to_array(),
+            ..*v
+        })
+        .collect();
+    let expected = r.add_mesh(&transformed, &indices);
+    r.set_batches(
+        &[Batch {
+            mesh: expected,
+            casts_shadows: true,
+            slots: 0..1,
+        }],
+        &[0],
+    )
+    .unwrap();
+    assert_eq!(
+        attached,
+        render(&gpu, &mut r, &target, &f).data,
+        "shader must preserve the full affine map"
+    );
+}
+
+#[test]
+fn declared_storage_needs_fit_the_host_device() {
+    let Some(gpu) = gpu() else { return };
+    let requested = exact_gpu::requested_limits(gpu.adapter.limits());
+    assert!(exact_game_render::STORAGE_BINDINGS <= requested.max_storage_buffers_per_shader_stage);
+    assert!(
+        exact_game_render::STORAGE_BINDINGS
+            <= gpu.device.limits().max_storage_buffers_per_shader_stage
+    );
+}

@@ -179,16 +179,17 @@ impl World {
     /// println!("{:?}", pose.position);
     /// ```
     pub fn character(&mut self, target: impl Target) -> CharacterHandle<'_> {
-        let entity = target
-            .entity(self)
-            .expect("character target does not exist; `tree world` lists names; add `w.spawn_named(\"player\", (Transform::default(), Character::new()));` in setup");
+        let label = target.label();
+        let entity = target.entity(self).unwrap_or_else(|| panic!("character target `{label}` does not exist; `tree world` lists names; add `w.spawn_named` in setup"));
+        assert!(!self.has_component_named(entity, "CapsuleController"),
+            "character target `{label}` has both Character and CapsuleController; pick one movement controller");
         assert!(
             self.has::<Character>(entity),
-            "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
+            "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:{label}`"
         );
         assert!(
             self.has::<Transform>(entity),
-            "character target has no Transform; add `Transform::default()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
+            "character target has no Transform; add `Transform::default()` to its `w.spawn_named` tuple in setup; inspect `state world:{label}`"
         );
         CharacterHandle {
             world: self,
@@ -216,6 +217,13 @@ mod tests {
         lit: bool,
     }
     #[test]
+    #[should_panic(expected = "world:ranger")]
+    fn missing_component_names_requested_target() {
+        let mut w = World::new(60, 7);
+        w.spawn_named("ranger", Transform::default());
+        let _ = w.character("ranger");
+    }
+    #[test]
     fn named_step_matches_explicit_step_and_releases_borrows() {
         let mut w = World::new(60, 7);
         w.spawn_named(
@@ -239,9 +247,7 @@ mod tests {
         );
     }
     #[test]
-    #[should_panic(
-        expected = "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:player`"
-    )]
+    #[should_panic(expected = "world:player")]
     fn missing_character_is_a_setup_error() {
         let mut w = World::new(60, 7);
         w.spawn_named("player", Transform::default());

@@ -31,6 +31,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     slot_list: Vec<u32>,
     pub(crate) uniform: wgpu::Buffer,
     transforms: [Buffer; 2],
+    attachment_matrices: Buffer,
     current: usize,
     materials: Buffer,
     slots: Buffer,
@@ -87,6 +88,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             "game materials",
         );
         let slots = Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, "game slots");
+        let attachment_matrices = Buffer::new(
+            device,
+            64,
+            wgpu::BufferUsages::STORAGE,
+            "game attachment matrices",
+        );
         let scene_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -94,6 +101,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &transforms,
             &materials,
             &slots,
+            &attachment_matrices,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
@@ -106,6 +114,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             pipelines,
             uniform,
             transforms,
+            attachment_matrices,
             current: 1,
             materials,
             slots,
@@ -438,18 +447,25 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
-        // Attachments are frame dependencies, never interpolated composed endpoints.
-        // Restore these ordinary tick arenas after submission so detaching cannot
-        // leave a stale displayed transform behind or poison page-write filtering.
+        // Sparse affine overrides preserve joint shear without changing tick TRS arenas.
+        let end = frame
+            .attachments
+            .iter()
+            .map(|a| (u64::from(a.entity.index()) + 1) * 64)
+            .max()
+            .unwrap_or(0);
+        if self
+            .attachment_matrices
+            .grow(&self.device, &self.queue, end)
+        {
+            self.rebind();
+        }
         for attachment in frame.attachments {
-            let values = crate::world::floats(attachment.pose);
-            for buffer in &self.transforms {
-                self.queue.write_buffer(
-                    &buffer.raw,
-                    u64::from(attachment.entity.index()) * 40,
-                    bytes(&values),
-                );
-            }
+            self.queue.write_buffer(
+                &self.attachment_matrices.raw,
+                u64::from(attachment.entity.index()) * 64,
+                bytes(&attachment.matrix.to_cols_array()),
+            );
         }
         let device = &self.device;
         let queue = &self.queue;
@@ -517,10 +533,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .iter()
                     .find(|a| a.entity.index() == record.transform)
                     .map_or_else(
-                        || crate::world::scene::interpolate(history, frame.alpha),
-                        |a| a.pose,
+                        || {
+                            let t = crate::world::scene::interpolate(history, frame.alpha);
+                            glam::Mat4::from_scale_rotation_translation(
+                                t.scale, t.rotation, t.position,
+                            )
+                        },
+                        |a| a.matrix,
                     );
-                let position = pose.position + pose.rotation * (pose.scale * center);
+                let position = pose.transform_point3(center);
                 *depth = -frame.view.transform_point3(position).z;
             }
             for &(index, slot, depth) in &self.models.transparent {
@@ -749,16 +770,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         queue.submit([encoder.finish()]);
         for attachment in frame.attachments {
-            for (buffer, pose) in [
-                (&self.transforms[1 - self.current], attachment.history[0]),
-                (&self.transforms[self.current], attachment.history[1]),
-            ] {
-                queue.write_buffer(
-                    &buffer.raw,
-                    u64::from(attachment.entity.index()) * 40,
-                    bytes(&crate::world::floats(pose)),
-                );
-            }
+            queue.write_buffer(
+                &self.attachment_matrices.raw,
+                u64::from(attachment.entity.index()) * 64,
+                bytes(&[0f32; 16]),
+            );
         }
         let mut stats = self.counts;
         stats.draws += extra_draws;
@@ -775,14 +791,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     /// Maximum slot count under the device's granted adapter limits and the widest
-    /// arena (48-byte materials). Valid slot indices are strictly below this count.
+    /// arena (64-byte affine attachments). Valid slot indices are strictly below this count.
     pub fn max_slots(&self) -> u32 {
         (self
             .device
             .limits()
             .max_storage_buffer_binding_size
             .min(self.device.limits().max_buffer_size)
-            / 48)
+            / 64)
             .min(u64::from(u32::MAX)) as u32
     }
 
@@ -816,6 +832,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.transforms,
             &self.materials,
             &self.slots,
+            &self.attachment_matrices,
         );
     }
 }
@@ -832,6 +849,7 @@ fn scene_binds(
     transforms: &[Buffer; 2],
     materials: &Buffer,
     slots: &Buffer,
+    attachments: &Buffer,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
         let buffers = [
@@ -840,8 +858,9 @@ fn scene_binds(
             &transforms[current].raw,
             &materials.raw,
             &slots.raw,
+            &attachments.raw,
         ];
-        let entries: [_; 5] = std::array::from_fn(|i| wgpu::BindGroupEntry {
+        let entries: [_; 6] = std::array::from_fn(|i| wgpu::BindGroupEntry {
             binding: i as u32,
             resource: buffers[i].as_entire_binding(),
         });

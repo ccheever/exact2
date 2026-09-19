@@ -10,7 +10,7 @@ use crate::{
 use glam::Mat4;
 mod sockets;
 use sockets::SocketCache;
-pub use sockets::{socket, socket_node, Motion, SocketFollow};
+pub use sockets::{socket, socket_matrix, socket_node, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap};
 
 /// Saved output shared by every playback controller. Declare the motion root by node name.
@@ -527,13 +527,13 @@ macro_rules! controller {
         }
     })+ };
 }
-controller!(Animation, Blend, Animator, Ik, SocketFollow);
+controller!(Animation, Blend, Animator, Ik);
 impl Rig {
-    fn new(model: &std::sync::Arc<Model>) -> Self {
+    fn new(asset: &crate::asset::ModelAsset) -> Self {
         Self {
-            model: std::sync::Arc::downgrade(model),
-            rest: bind_pose(model),
-            bounds: animated_bounds(model),
+            model: std::sync::Arc::downgrade(&asset.model),
+            rest: bind_pose(&asset.model),
+            bounds: asset.bounds,
         }
     }
 }
@@ -879,7 +879,7 @@ pub fn step(w: &mut World) -> Motion {
             w.assets.models.get(name).is_some_and(|model| {
                 rig.model
                     .upgrade()
-                    .is_some_and(|old| std::sync::Arc::ptr_eq(&old, model))
+                    .is_some_and(|old| std::sync::Arc::ptr_eq(&old, &model.model))
             })
         })
     {
@@ -925,25 +925,25 @@ pub fn step(w: &mut World) -> Motion {
             if !w.assets.declared.contains(name) {
                 return Err(format!("animation model `{name}` must be in Game::ASSETS"));
             }
-            let model = w
+            let asset = w
                 .assets
                 .models
                 .get(name)
-                .cloned()
                 .ok_or("animation model not loaded")?;
+            let model = asset.model.clone();
             if model.nodes.len() > 256 {
                 return Err("animation supports at most 256 imported nodes".into());
             }
             let rig = runtime
                 .rigs
                 .entry(name.clone())
-                .or_insert_with(|| Rig::new(&model));
+                .or_insert_with(|| Rig::new(asset));
             if !rig
                 .model
                 .upgrade()
                 .is_some_and(|old| std::sync::Arc::ptr_eq(&old, &model))
             {
-                *rig = Rig::new(&model);
+                *rig = Rig::new(asset);
                 redelivered_models.insert(name.clone());
             }
             let redelivered = redelivered_models.contains(name);

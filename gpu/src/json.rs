@@ -317,6 +317,20 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 buttons: unsigned("buttons")?,
                 at_ms,
             },
+            "control" => InputEvent::Control {
+                name: string("name")?,
+                id: unsigned("id")?,
+                phase: match string("phase")?.as_str() {
+                    "down" => PointerPhase::Down,
+                    "move" => PointerPhase::Move,
+                    "up" => PointerPhase::Up,
+                    "cancel" => PointerPhase::Cancel,
+                    other => return Err(format!("phase: unknown `{other}`")),
+                },
+                x: point("x")?,
+                y: point("y")?,
+                at_ms,
+            },
             "wheel" => InputEvent::Wheel {
                 dx: point("dx")?,
                 dy: point("dy")?,

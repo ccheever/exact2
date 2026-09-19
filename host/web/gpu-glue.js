@@ -22,6 +22,7 @@ inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
 let loaded = false;
 let recoveringDevice;
+let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
 let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
@@ -42,7 +43,7 @@ function finishRestore(entry, module, error) {
   const pending = entry.pendingRestore;
   if (!pending) return;
   if (error) {
-    entry.restoreError = `surface ${entry.name}: restore refused: ${error}`;
+    entry.restoreError = `surface ${entry.name}: restore refused: ${String(error).replace(/^restore refused: /, "")}`;
     delete entry.pendingRestore;
     reportRestore(entry);
     return;
@@ -164,7 +165,8 @@ function installCanvas(old, entry) {
   if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
 }
 function recoverDevice() {
-  if (recoveringDevice || !loaded) return recoveringDevice;
+  if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
+  lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
   for (const entry of entries) cancelAssets(entry);
@@ -182,11 +184,15 @@ function recoverDevice() {
       attach(entry); assets(entry);
     }
     exact.gpu.recovery = outcome;
+    recoveryFailures = 0;
     schedule();
   })().catch(error => {
+    for (const [, entry] of staged) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
+    recoveryFailures++;
+    if (recoveryFailures < 5) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
     exact.gpu.recovery = {status:"failed", error:String(error)};
     exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
-  }).finally(() => { recoveringDevice = null; });
+  }).finally(() => { recoveringDevice = null; if (lossDuringRecovery && !recoveryFailures) queueMicrotask(recoverDevice); });
   return recoveringDevice;
 }
 
@@ -261,7 +267,7 @@ function create(entry, module, carry) {
       entry.pendingRestore = {bytes:carry};
       finishRestore(entry, module);
     }
-    else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
+    else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error().replace(/^restore refused: /, "")}`;
   }
 }
 function attach(entry) {
@@ -284,7 +290,7 @@ function restorePending(entry, module = gpu, carrier = exact) {
   if (module.gpu_restore(entry.id, worldSize(carrier.worldCarry), 0)) {
     entry.pendingRestore = {bytes:carrier.worldCarry, carrier};
     finishRestore(entry, module);
-  } else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error()}`;
+  } else entry.restoreError = `surface ${entry.name}: restore refused: ${module.gpu_error().replace(/^restore refused: /, "")}`;
 }
 
 function ensure(entry) {
@@ -364,12 +370,30 @@ function listen(entry) {
     };
     if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   };
+  const controls = new Map(), controlKeys = new Map();
+  const control = target => {
+    const node = target instanceof Element ? target.closest('button[data-action]') : null;
+    return node && node.closest('[data-gpu-input]') === el && !node.disabled && !node.closest('[inert]') ? node : null;
+  };
+  const sendControl = (event, node, phase, id, x = 0, y = 0) => send(event, {t:"control", name:node.getAttribute("data-action"), phase, id, x, y});
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
+    const button = controls.get(event.pointerId) ?? control(event.target);
+    if (button) {
+      if (phase === "down") { controls.set(event.pointerId, button); button.setPointerCapture(event.pointerId); }
+      const r = button.getBoundingClientRect();
+      sendControl(event, button, phase, event.pointerId, event.clientX-r.left, event.clientY-r.top);
+      if (phase === "up" || phase === "cancel") controls.delete(event.pointerId);
+      event.preventDefault(); return;
+    }
     if (!fallsThrough(event)) return;
     if (phase === "down") { el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
     send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+  });
+  on("lostpointercapture", event => {
+    const button = controls.get(event.pointerId);
+    if (button) { controls.delete(event.pointerId); sendControl(event, button, "cancel", event.pointerId); }
   });
   on("wheel", (event) => {
     if (!fallsThrough(event)) return;
@@ -387,23 +411,36 @@ function listen(entry) {
   };
   entry.resampleHeld();
   const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-  const blur = event => { held.clear(); send(event, { t: "blur" }); };
+  const blur = event => { held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" }); };
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
     if (event.defaultPrevented || event.isComposing || event.code === "Tab" || event.metaKey || event.ctrlKey || editable(target)) return;
+    const button = control(target);
+    if (button && ["Space", "Enter", "NumpadEnter"].includes(event.code)) {
+      event.preventDefault();
+      if (!controlKeys.has(event.code)) { controlKeys.set(event.code, button); sendControl(event, button, "down", event.code === "Space" ? 4294967294 : 4294967293); }
+      return;
+    }
     if (["Space", "Enter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
     held.add(event.code);
     send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });
   });
   on("keyup", event => {
+    const button = controlKeys.get(event.code);
+    if (button) { controlKeys.delete(event.code); sendControl(event, button, "up", event.code === "Space" ? 4294967294 : 4294967293); event.preventDefault(); return; }
     entry.resampleHeld();
     if (!held.delete(event.code)) return;
     send(event, { t: "key", code: event.code, key: event.key, down: false, repeat: false });
   });
+  const inactive = event => blur(event);
+  window.addEventListener("blur", inactive);
+  // Assistive technology activates a button without a pointer/key sequence.
+  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, button, "down", 4294967292); sendControl(event, button, "up", 4294967292); } });
   on("focusin", event => { if (editable(event.target)) blur(event); });
   on("focusout", event => { if (!el.contains(event.relatedTarget)) blur(event); });
   entry.unlisten = () => {
+    window.removeEventListener("blur", inactive);
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
     entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
     if (previous.tabindex === null) el.removeAttribute("tabindex"); else el.setAttribute("tabindex", previous.tabindex);
@@ -453,7 +490,7 @@ function worlds(request) {
 }
 
 exact.gpu = {
-  deviceLost() { queueMicrotask(() => recoverDevice()); },
+  deviceLost() { if (recoveringDevice) lossDuringRecovery = true; else queueMicrotask(() => recoverDevice()); },
   drainRecords,
   agent,
   settled,

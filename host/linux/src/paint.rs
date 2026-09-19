@@ -115,6 +115,8 @@ impl Shape {
     }
 }
 
+type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
+
 /// A node's box as painted: its transformed bounding box in viewport
 /// points, the clip it was painted under (viewport points, axis-aligned),
 /// and its scroll offset when it is a scroll container.
@@ -128,19 +130,32 @@ pub struct PaintedBox {
     pub clip: Option<Rect4>,
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
-    projective: Option<([f32; 9], Rect4, Option<Rect4>)>,
+    projective: Option<ProjectiveHit>,
 }
 
 impl PaintedBox {
+    /// Project the local center, which need not be the projected AABB center.
+    pub fn center(&self) -> (f32, f32) {
+        if let Some((inv, rect, _, _)) = self.projective {
+            if let Some(h) = crate::placement::inverse(inv) {
+                return crate::placement::map(&h, rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            }
+        }
+        (
+            self.rect.0 + self.rect.2 / 2.,
+            self.rect.1 + self.rect.3 / 2.,
+        )
+    }
+
     /// Whether a point (viewport points) is inside the box and its clip.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
         inside(self.rect)
             && self.clip.is_none_or(inside)
-            && self.projective.is_none_or(|(inv, rect, clip)| {
+            && self.projective.is_none_or(|(inv, rect, clip, planes)| {
                 let (x, y) = crate::placement::map(&inv, x, y);
                 let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
-                inside(rect) && clip.is_none_or(inside)
+                inside(rect) && clip.is_none_or(inside) && crate::placement::accepts(&planes, x, y)
             })
     }
 }
@@ -306,7 +321,13 @@ impl Painter {
         let Some(p) = self.placements.get(&id).copied() else {
             return false;
         };
-        let Placement::Visible { h, canvas, .. } = p else {
+        let Placement::Visible {
+            h,
+            canvas,
+            clip_depth,
+            ..
+        } = p
+        else {
             return true;
         };
         let Some(node) = walk.scene.kernel.node(id) else {
@@ -339,14 +360,16 @@ impl Painter {
         };
         painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
         if let Ok(source) = painter.backend.finish() {
-            if let Some((pixels, rect)) = placement::warp(&source, h, self.scale, self.viewport) {
+            if let Some((pixels, rect)) =
+                placement::warp_clipped(&source, h, clip_depth, self.scale, self.viewport)
+            {
                 self.backend
                     .image(&Rc::new(pixels), rect, &[], Transform::identity());
             }
         }
         for mut b in child_walk.boxes {
-            b.projective = Some((inv, b.rect, b.clip));
-            b.rect = placement::bounds(&h, b.rect);
+            b.projective = Some((inv, b.rect, b.clip, clip_depth));
+            b.rect = placement::clipped_bounds(&h, clip_depth, b.rect);
             b.clip = clip;
             walk.boxes.push(b);
         }

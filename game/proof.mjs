@@ -124,16 +124,31 @@ export function pinRecorder(previous, name, check, collecting = false) {
     pinSave(key, path) { record('saves', key, createHash('sha256').update(readFileSync(path)).digest('hex')); },
   };
 }
+// Compare the captured hosts directly; separate oracle checks cannot prove parity.
+export function comparePlacement(linux, web, tolerance = 0.5) {
+  for (const sample of ['initial','moving']) for (const key of ['x','y','w','h']) {
+    const a=linux?.[sample]?.[key], b=web?.[sample]?.[key];
+    if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a-b)>tolerance)
+      throw new Error(`placement parity ${sample}.${key}: linux=${a}, web=${b}, tolerance=${tolerance} px`);
+  }
+  return true;
+}
+
 // A report describes only recorded failures/stalls, never guesses from successful calls.
 export function facilityReport(replies) {
-  const used = new Set(replies.map(r => r.method));
+  const success = (r, method) => r.method === method && r.reply != null && !r.error && !r.reply.error;
   const stalls = replies.filter(r => r.method === 'clock' && r.reply?.settled === false);
-  const failures = replies.filter(r => r.error);
+  const failures = replies.filter(r => r.error || r.reply?.error);
   const hints = [];
-  if (stalls.length) hints.push(`${stalls.length} stalls; state world:* busy exposes moving values and busy reasons${used.has('state') ? '' : '; state unused'}`);
-  if (failures.some(r => /hidden|behind|screen|box|hit/.test(r.error)) && !used.has('layout')) hints.push('layout unused; layout <id> shows placed boxes and blockers');
-  if (failures.some(r => /asset|save|restor/.test(r.error)) && !used.has('state')) hints.push('state unused; state and state world:* expose pending assets and components');
-  if (failures.length && !used.has('logs')) hints.push('logs unused; logs includes reload/carry refusals');
+  const sameSession = (a,b) => a.session === b.session;
+  const stateUsed = failure => replies.some(r => sameSession(r,failure) && success(r, 'state') && !r.args?.[0]);
+  const busyUsed = stalls.every(stall => replies.some(r => sameSession(r,stall) && success(r, 'state') && r.args?.[0]?.endsWith(':*') && r.args?.[3] === true));
+  if (stalls.length) hints.push(`${stalls.length} stalls; state world:* busy exposes moving values and busy reasons${busyUsed ? '' : '; state unused'}`);
+  const geometry = failures.filter(r => /\bis hidden\b|\bhidden (?:behind|\()|\bbehind (?:the )?camera\b|\boff screen\b|\bcovered or not hit\b|\bno screen box\b/.test(r.error ?? r.reply.error));
+  if (geometry.some(f => !replies.some(r => sameSession(r,f) && success(r, 'layout') && f.args?.[0] && (r.args?.[0] === f.args[0] || r.args?.[0]?.endsWith(`:${f.args[0]}`))))) hints.push('layout unused; layout <id> --json shows visibility and available screen boxes');
+  if (failures.some(r => /asset|save|restor/.test(r.error ?? r.reply.error) && !stateUsed(r))) hints.push('state unused; untargeted state exposes pending assets and restore errors');
+  if (failures.some(f => !replies.some(r => sameSession(r,f) && success(r, 'logs')))) hints.push('logs unused; logs includes reload/carry refusals');
+  if (!stalls.length && !failures.length) hints.push('no recorded stalls or refusals');
   return hints;
 }
 

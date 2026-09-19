@@ -1,6 +1,8 @@
 //! Plane geometry and derived child placements, separate from saved game state.
 use crate::{quads, world::scene, FrameInput, RenderError};
-use exact_game::{Camera, Parent, Placed, Transform, World};
+#[cfg(test)]
+use exact_game::Transform;
+use exact_game::{Camera, Parent, Placed, World};
 use exact_gpu::{wgpu, Placement};
 #[cfg(not(target_arch = "wasm32"))]
 use glam::Vec3;
@@ -29,7 +31,7 @@ pub(crate) struct Placements {
     claims: Vec<u16>,
     cameras: Vec<quads::Item<Camera>>,
     attachments: scene::Attachments,
-    stamp: Option<(u64, u64, u64)>,
+    stamp: Option<(u64, u64, u64, u64)>,
 }
 impl Placements {
     pub fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
@@ -57,6 +59,7 @@ impl Placements {
             w.presentation_generation(),
             w.tick(),
             w.revision::<Parent>(),
+            w.model_revision(),
         );
         let initial = self.stamp.is_none_or(|old| old.0 != next.0);
         if w.query::<&Placed>().iter().next().is_none() {
@@ -87,7 +90,7 @@ impl Placements {
             initial,
             self.stamp.is_none_or(|old| old.1 != next.1),
             self.stamp.is_some_and(|old| old.2 != next.2),
-            false,
+            initial || self.stamp.is_none_or(|old| old.3 != next.3),
         );
         self.stamp = Some(next);
         self.claims.clear();
@@ -116,6 +119,7 @@ impl Placements {
                         hidden: true,
                         homography: [0.; 9],
                         depth: 0.,
+                        clip_depth: [[0., 0., 1.]; 2],
                     },
                     #[cfg(not(target_arch = "wasm32"))]
                     center: Vec3::ZERO,
@@ -130,9 +134,9 @@ impl Placements {
             let Some(child) = self.children.get_mut(usize::from(item.value.child)) else {
                 continue;
             };
-            child.plane = Some(project(
+            child.plane = Some(project_affine(
                 item.value,
-                input.displayed(item.entity, scene::interpolate(item.poses, input.alpha)),
+                input.displayed_matrix(item.entity, scene::interpolate(item.poses, input.alpha)),
                 child.frame,
                 input.view,
                 input.proj,
@@ -198,6 +202,7 @@ impl Placements {
 }
 
 // Geometry stays host-independent in the engine; only the ABI conversion lives here.
+#[cfg(test)]
 pub(crate) fn project(
     value: Placed,
     pose: Transform,
@@ -206,12 +211,35 @@ pub(crate) fn project(
     proj: Mat4,
     size: Vec2,
 ) -> Plane {
-    let p = value.project(pose, Vec2::new(frame[2], frame[3]), view, proj, size);
+    project_affine(
+        value,
+        Mat4::from_scale_rotation_translation(pose.scale, pose.rotation, pose.position),
+        frame,
+        view,
+        proj,
+        size,
+    )
+}
+fn project_affine(
+    value: Placed,
+    pose: Mat4,
+    frame: [f32; 4],
+    view: Mat4,
+    proj: Mat4,
+    size: Vec2,
+) -> Plane {
+    let p = value.project_affine(pose, Vec2::new(frame[2], frame[3]), view, proj, size);
+    let hidden = if cfg!(target_arch = "wasm32") {
+        p.hidden
+    } else {
+        p.native_hidden
+    };
     Plane {
         placement: Placement {
-            hidden: p.hidden,
-            homography: p.homography,
+            hidden,
+            homography: if hidden { [0.; 9] } else { p.homography },
             depth: p.depth,
+            clip_depth: p.clip_depth,
         },
         #[cfg(not(target_arch = "wasm32"))]
         center: (p.corners[0] + p.corners[2]) * 0.5,

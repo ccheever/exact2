@@ -110,8 +110,10 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
-        w.character("player")
-            .step(input.stick_xz("move"), input.pressed("jump"));
+        w.character("player").step(
+            input.stick_xz("move"),
+            input.pressed("jump") || input.pointer().is_some_and(|p| p.down),
+        );
         let nearest = w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit);
         if input.pressed("light") {
             if let Some(e) = nearest {

@@ -138,7 +138,9 @@ fn fox_leg_ik_and_socket() {
             * animation::joint_matrix(model, &local.local, head);
     assert!(socket.position.distance(expected.w_axis.truncate()) < 1e-4);
     // Displayed charm uses the local chain, not its simulation fallback Transform.
-    let gpu = exact_game_render::exact_gpu::fixture::device().unwrap();
+    let Ok(gpu) = exact_game_render::exact_gpu::fixture::device() else {
+        return;
+    };
     let mut renderer = exact_game_render::Renderer::new(
         &gpu.device,
         &gpu.queue,
@@ -163,6 +165,32 @@ fn fox_leg_ik_and_socket() {
         ))
     .w_axis
     .truncate();
+    assert!(
+        s.world()
+            .global_position("charm")
+            .unwrap()
+            .distance(expected)
+            < 1e-4
+    );
+    drop(local);
+    #[derive(Default, exact_game::Data)]
+    struct Layout {
+        entity: EntityLayout,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct EntityLayout {
+        world: WorldPose,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct WorldPose {
+        position: Vec3,
+    }
+    let layout: Layout =
+        exact_game::json::from_str(&s.agent(r#"{"op":"layout","entity":"charm"}"#)).unwrap();
+    assert!(
+        layout.entity.world.position.distance(expected) < 1e-4,
+        "layout world:charm sits on the head plus offset"
+    );
     assert!(
         charm.position.distance(expected) < 1e-4,
         "{charm:?}, expected {expected:?}"

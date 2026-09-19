@@ -44,6 +44,12 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       // Observe the actual surface before delivery, below the agent's mandatory
       // settlement barrier. This probe exists only in this proof's HTTP response.
       const source = `let fixtureDevice; const fixtureErrors=[];
+      let fixtureFailAdapter = false, fixtureAdapterFailures = 0;
+      const fixtureAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+      navigator.gpu.requestAdapter = async (...args) => {
+        if (fixtureFailAdapter) { fixtureFailAdapter = false; fixtureAdapterFailures++; return null; }
+        return fixtureAdapter(...args);
+      };
       const fixtureRequest = GPUAdapter.prototype.requestDevice;
       GPUAdapter.prototype.requestDevice = async function(...args) {
         fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message)); return fixtureDevice;
@@ -51,10 +57,14 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       document.addEventListener('keydown', async event => {
         if(event.code !== 'KeyL') return;
         try {
+          fixtureFailAdapter = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
           await new Promise(resolve=>setTimeout(resolve, 0));
           for(const entry of surfaces.values()) render(entry, 0);
-          await recoveringDevice; await settled();
+          await recoveringDevice;
+          for(let retry=0; exact.gpu.recovery?.status !== 'recovered' && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
+          if(exact.gpu.recovery?.status !== 'recovered' || fixtureAdapterFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
+          await settled();
           for(const entry of surfaces.values()) render(entry, 0);
           await fixtureDevice.queue.onSubmittedWorkDone();
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));

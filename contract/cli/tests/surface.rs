@@ -104,3 +104,32 @@ fn viewport_and_delivery_readers_choose_subsets_without_source_unification() {
         contract::bake(p, NoData).unwrap();
     }
 }
+
+#[test]
+fn control_action_is_a_canvas_child_property() {
+    let source = "component Controls\n  view\n    canvas\n      button action=\"jump\" testId=\"jump\"\n        text \"Jump\"\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(exact_runner::agent::tree(&r).contains(r#""action":"jump""#));
+    let outside = source
+        .replace("    canvas\n", "")
+        .replace("      button", "    button")
+        .replace("        text", "      text");
+    assert!(contract::compile(&outside)
+        .unwrap_err()
+        .to_string()
+        .contains("analyze-control-parent"));
+    assert!(
+        contract::compile(&source.replace("button action", "view action"))
+            .unwrap_err()
+            .to_string()
+            .contains("analyze-control-parent")
+    );
+}

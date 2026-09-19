@@ -319,7 +319,8 @@ pub struct DisplayedAttachment {
     pub entity: Entity,
     /// World pose composed from interpolated local joints.
     pub pose: Transform,
-    pub(crate) history: [Transform; 2],
+    /// Full affine map; geometry must retain this instead of decomposing shear.
+    pub matrix: Mat4,
 }
 struct Attachment {
     history: History,
@@ -332,9 +333,22 @@ struct Attachment {
 pub(crate) struct Attachments {
     owners: std::collections::BTreeMap<Entity, History>,
     items: Vec<Attachment>,
+    pub(crate) diagnostics: std::collections::BTreeMap<Entity, String>,
     pub output: Vec<DisplayedAttachment>,
 }
 impl Attachments {
+    fn warn(&mut self, e: Entity, message: impl FnOnce() -> String) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = self.diagnostics.entry(e) {
+            let message = message();
+            // Presentation may run on only some hosts. Never put its diagnostics
+            // in the simulation journal, which is part of continuation saves.
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::warn_1(&message.clone().into());
+            #[cfg(not(target_arch = "wasm32"))]
+            eprintln!("{message}");
+            entry.insert(message);
+        }
+    }
     pub fn feed(
         &mut self,
         w: &World,
@@ -347,6 +361,7 @@ impl Attachments {
             self.owners.clear();
         }
         self.owners.retain(|e, _| w.contains(*e));
+        self.diagnostics.retain(|e, _| w.contains(*e));
         for owner in self.owners.values_mut() {
             owner.update(w, next_tick, parent_changed);
         }
@@ -363,8 +378,30 @@ impl Attachments {
                 exact_game::FollowTarget::Entity(e) => Some(*e),
                 exact_game::FollowTarget::Name(n) => w.named(n),
             };
-            let Some(target) = target else { continue };
+            let resolved = target
+                .ok_or_else(|| format!("unresolved target {:?}", follow.target))
+                .and_then(|target| {
+                    exact_game::animation::socket_matrix(w, target, &follow.joint).map(|_| target)
+                });
+            let target = match resolved {
+                Ok(target) => target,
+                Err(error) => {
+                    self.warn(e, || {
+                        format!(
+                            "SocketFollow `{}`: {error}; using authored Transform",
+                            w.name(e).unwrap_or("unnamed")
+                        )
+                    });
+                    continue;
+                }
+            };
             let (Some(home), Some(owner)) = (pose(w, e), pose(w, target)) else {
+                self.warn(e, || {
+                    format!(
+                        "SocketFollow `{}`: unresolved Transform",
+                        w.name(e).unwrap_or("unnamed")
+                    )
+                });
                 continue;
             };
             let Ok(node) = exact_game::animation::socket_node(w, target, &follow.joint) else {
@@ -466,17 +503,16 @@ impl Attachments {
     pub fn frame(&mut self, alpha: f32) {
         self.output.clear();
         for (i, item) in self.items.iter().enumerate() {
-            let (scale, rotation, position) = self
-                .matrix(i, alpha, self.items.len())
-                .to_scale_rotation_translation();
+            let matrix = self.matrix(i, alpha, self.items.len());
+            let (scale, rotation, position) = matrix.to_scale_rotation_translation();
             self.output.push(DisplayedAttachment {
                 entity: item.history.entity,
+                matrix,
                 pose: Transform {
                     scale,
                     rotation,
                     position,
                 },
-                history: [item.history.prev, item.history.curr],
             });
         }
     }
@@ -493,4 +529,15 @@ pub(crate) fn displayed(
         .iter()
         .find(|v| v.entity == entity)
         .map_or(fallback, |v| v.pose)
+}
+
+pub(crate) fn displayed_matrix(
+    attachments: &[DisplayedAttachment],
+    entity: Entity,
+    fallback: Transform,
+) -> Mat4 {
+    attachments
+        .iter()
+        .find(|a| a.entity == entity)
+        .map_or_else(|| matrix(fallback), |a| a.matrix)
 }

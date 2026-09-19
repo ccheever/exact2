@@ -54,7 +54,7 @@ fn only_contributing_blend_markers_and_motion() {
     m.clips[1].markers.push((0.01, "active".into()));
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     let mut b = Blend::across([(0., "slow"), (1., "fast")]).motion_root("");
     b.axis = 1.;
     let e = w.spawn((Mesh::asset("rig.model"), b));
@@ -110,7 +110,7 @@ fn standalone_ik_evaluates_bind_pose() {
     ];
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     let e = w.spawn((
         Mesh::asset("rig.model"),
         Ik {
@@ -147,7 +147,7 @@ fn pose_read_returns_all_unique_joints_in_node_order() {
     });
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     let e = w.spawn(Mesh::asset("rig.model"));
     let read = pose_json(&w, e).unwrap();
     assert_eq!(read.matches("\"name\"").count(), 256);
@@ -189,7 +189,7 @@ fn world() -> World {
     w.assets.declared.insert("rig.model".into());
     w.assets.models.insert(
         "rig.model".into(),
-        std::sync::Arc::new(Model {
+        crate::asset::ModelAsset::from(Model {
             nodes: vec![Node::default()],
             skins: vec![Skin {
                 joints: vec![0],
@@ -307,7 +307,7 @@ fn animator_parameter_fade_markers_and_weighted_root_motion() {
     ];
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     let a = Animator::new([
         State::new("idle", Play::Clip("slow".into()))
             .to("travel", Condition::Arg("go".into(), Cmp::Eq, true.into())),
@@ -402,7 +402,7 @@ fn explicit_motion_root_is_not_first_skin_joint_and_wraps_backwards() {
     m.clips[0].tracks[0].node = 1;
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     let e = w.spawn((
         Mesh::asset("rig.model"),
         Animation::play("slow").motion_root("motion").speed(-130.),
@@ -424,7 +424,7 @@ fn independent_attachment_joints_and_query_after_movement() {
     });
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(model));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(model));
     let e = w.spawn((Transform::at(1., 2., 3.), Mesh::asset("rig.model")));
     w.spawn((Transform::default(), SocketFollow::new(e, "head")));
     w.spawn((Transform::default(), SocketFollow::new(e, "hand")));
@@ -578,7 +578,7 @@ fn zero_length_and_zero_speed_once_finish_but_pause_waits() {
         };
         w.assets
             .models
-            .insert("rig.model".into(), std::sync::Arc::new(m));
+            .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
         let mut a = Animator::new([
             State::new("once", Play::Clip("still".into()))
                 .once()
@@ -699,10 +699,10 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     let mut m = w.model("rig.model").unwrap().clone();
     m.nodes[0].name = "renamed".into();
     m.nodes[0].transform = Mat4::from_translation(Vec3::Y * 3.).to_cols_array();
-    let expected = Rig::new(&std::sync::Arc::new(m.clone()));
+    let expected = Rig::new(&crate::asset::ModelAsset::from(m.clone()));
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(m));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
     step(&mut w);
     w.step_clock();
     assert!(socket(&w, e, "").is_err());
@@ -768,7 +768,7 @@ fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
             .collect();
         step(&mut w);
         w.step_clock();
-        let old = std::sync::Arc::downgrade(w.assets.models.get("rig.model").unwrap());
+        let old = std::sync::Arc::downgrade(&w.assets.models.get("rig.model").unwrap().model);
         let mut m = w.model("rig.model").unwrap().clone();
         m.nodes[0].transform = Mat4::from_translation(Vec3::Y * 3.).to_cols_array();
         if extra_node {
@@ -777,7 +777,7 @@ fn r3_redelivery_primes_every_shared_pose_and_accepts_new_topology() {
         let expected = bind_pose(&m);
         w.assets
             .models
-            .insert("rig.model".into(), std::sync::Arc::new(m));
+            .insert("rig.model".into(), crate::asset::ModelAsset::from(m));
         assert!(old.upgrade().is_none());
         // Redelivery between samples in the same tick must reach both entities.
         step(&mut w);
@@ -863,7 +863,7 @@ fn same_tick_redelivery_resamples_without_advancing_any_controller() {
         model.clips[0].markers = vec![(0.01, "first".into()), (0.02, "second".into())];
         w.assets
             .models
-            .insert("rig.model".into(), std::sync::Arc::new(model));
+            .insert("rig.model".into(), crate::asset::ModelAsset::from(model));
         let entities: Vec<_> = (0..2)
             .map(|_| {
                 let e = w.spawn((
@@ -916,7 +916,7 @@ fn same_tick_redelivery_resamples_without_advancing_any_controller() {
         });
         w.assets
             .models
-            .insert("rig.model".into(), std::sync::Arc::new(model));
+            .insert("rig.model".into(), crate::asset::ModelAsset::from(model));
         step(&mut w);
         for (&e, (bytes, before)) in entities.iter().zip(before) {
             let after = match controller {
@@ -960,7 +960,7 @@ fn topology_change_during_fade_completes_and_allows_later_edge() {
     model.nodes.push(Node::default());
     w.assets
         .models
-        .insert("rig.model".into(), std::sync::Arc::new(model));
+        .insert("rig.model".into(), crate::asset::ModelAsset::from(model));
     step(&mut w);
     for _ in 0..10 {
         step(&mut w);
@@ -990,4 +990,86 @@ fn tick_end_is_the_boundary_written_by_motion_springs_and_publications() {
     w.step_clock();
     assert_eq!(w.now(), end);
     assert_eq!(spring.value(w.now()), spring.value(end));
+}
+
+#[test]
+fn socket_requires_this_ticks_step_and_motion_precedes_query() {
+    let mut w = world();
+    w.spawn_named(
+        "ranger",
+        (
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root(""),
+        ),
+    );
+    assert!(socket(&w, "ranger", "").unwrap_err().contains("ranger"));
+    w.begin_tick();
+    let motion = step(&mut w);
+    assert!(motion.root_motion("ranger").length() > 0.);
+    let before = socket(&w, "ranger", "").unwrap().position;
+    w.get_mut::<Transform>("ranger")
+        .unwrap()
+        .translate_local(motion.root_motion("ranger"));
+    let after = socket(&w, "ranger", "").unwrap().position;
+    assert!((after - before - motion.root_motion("ranger")).length() < 1e-6);
+    w.step_clock();
+    assert!(
+        socket(&w, "ranger", "").is_ok(),
+        "completed boundary remains readable"
+    );
+    w.begin_tick();
+    let error = socket(&w, "ranger", "").unwrap_err();
+    assert!(
+        error.contains("ranger") && error.contains("stale") && error.contains("animation::step"),
+        "{error}"
+    );
+    w.step_clock();
+    assert!(
+        socket(&w, "ranger", "").is_err(),
+        "a skipped tick cannot read the previous pose"
+    );
+}
+
+#[test]
+fn socket_follower_gameplay_bounds_and_pick_use_head_plus_offset() {
+    let mut w = world();
+    w.spawn_named(
+        "head",
+        (
+            Transform::at(3., 2., -8.),
+            Mesh::asset("rig.model"),
+            crate::Visible(false), // Isolate picking the follower from its owner's bounds.
+        ),
+    );
+    let charm = w.spawn_named(
+        "charm",
+        (
+            Transform::default(),
+            Mesh::sphere(0.2),
+            SocketFollow::new("head", "").offset(Transform::at(0., 1., 0.)),
+        ),
+    );
+    w.spawn((Transform::default(), crate::Camera::default()));
+    w.propagate();
+    let want = Vec3::new(3., 3., -8.);
+    assert_eq!(w.global_position("charm"), Some(want));
+    assert_eq!(Vec3::from(w.global(charm).unwrap().translation), want);
+    let layout = crate::spatial::layout(&w, crate::Vec2::splat(600.), charm);
+    assert_eq!(Vec3::from(layout.pose.translation), want);
+    let view = crate::spatial::View::new(&w, crate::Vec2::splat(600.)).unwrap();
+    let [x, y, width, height] = layout.screen.unwrap();
+    let hit =
+        crate::spatial::pick(&w, &view, crate::Vec2::new(x + width / 2., y + height / 2.)).unwrap();
+    assert_eq!(hit.0, charm);
+    assert_eq!(w.get::<Transform>(charm).unwrap().position, Vec3::ZERO);
+    w.register_audio();
+    w.resource_mut::<crate::audio::Sounds>()
+        .add("bell", crate::audio::Synth::sine(880.).seconds(1.));
+    w.play("bell").at("charm").start();
+    crate::audio::step(&mut w);
+    assert_eq!(
+        w.resource::<crate::audio::Voices>().voices[0].position,
+        Some(want)
+    );
 }

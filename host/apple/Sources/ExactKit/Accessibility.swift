@@ -1,4 +1,4 @@
-// HTML live regions and once-per-session autofocus, shared by Apple hosts.
+// HTML live regions and once-per-mounted-node autofocus, shared by Apple hosts.
 #if os(macOS)
 import AppKit
 #else
@@ -33,6 +33,7 @@ extension Presenter {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
         }
+        autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
         for node in views.values.sorted(by: { $0.id < $1.id }) {
             if node.kind == "button" || node.props["accessibilityRole"] == "button" {
                 #if os(macOS)
@@ -55,18 +56,18 @@ extension Presenter {
                 }
                 node.liveText = text
             } else { node.liveText = nil }
-            guard !autofocusProcessed, node.props["autofocus"] == "true",
+            guard !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
             // Mark before dispatch: a focus action can synchronously apply another batch.
-            autofocusProcessed = true
+            autofocusProcessed.insert(ObjectIdentifier(node))
             #if os(macOS)
             guard let window = node.window else { continue }
             let current = window.firstResponder
-            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view else { continue }
+            guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
             let target: NSView = node.textArea ?? node.field ?? node
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
-            func hasFocus(_ view: UIView) -> Bool { view.isFirstResponder || view.subviews.contains(where: hasFocus) }
+            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil) || view.subviews.contains(where: hasFocus) }
             guard let window = node.window, !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
             _ = target.becomeFirstResponder()

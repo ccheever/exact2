@@ -389,7 +389,7 @@ impl Quads {
         let up = inv.y_axis.truncate().normalize();
         let mut left = exact_game::emitter::PARTICLE_BUDGET;
         for item in &self.particles {
-            let t = f.displayed(
+            let t = f.displayed_matrix(
                 item.entity,
                 crate::world::scene::interpolate(item.poses, f.alpha),
             );
@@ -399,12 +399,12 @@ impl Quads {
                     return;
                 }
                 left -= 1;
-                let position = t.position + t.rotation * (t.scale * p.position);
+                let position = t.transform_point3(p.position);
                 let index = self.particle_data.len();
                 self.particle_data.push(quad(
                     position,
-                    right * p.size * t.scale.x.abs(),
-                    up * p.size * t.scale.y.abs(),
+                    right * p.size * t.x_axis.truncate().length(),
+                    up * p.size * t.y_axis.truncate().length(),
                     p.color,
                     [0., 0., 1., 1.],
                     3.,
@@ -425,13 +425,13 @@ impl Quads {
                 let Some((_, _, size)) = self.textures.get(&s.texture) else {
                     continue;
                 };
-                let t = f.displayed(
+                let t = f.displayed_matrix(
                     item.entity,
                     crate::world::scene::interpolate(item.poses, f.alpha),
                 );
-                let x = right * (s.size.x * t.scale.x.abs());
-                let y = up * (s.size.y * t.scale.y.abs());
-                let center = t.position + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
+                let x = right * (s.size.x * t.x_axis.truncate().length());
+                let y = up * (s.size.y * t.y_axis.truncate().length());
+                let center = t.w_axis.truncate() + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
                 let [fx, fy, fw, fh] = s.frame.map(f32::from);
                 let mut uv = if fw == 0. || fh == 0. {
                     [0., 0., 1., 1.]

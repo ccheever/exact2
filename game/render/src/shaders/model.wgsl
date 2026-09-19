@@ -51,6 +51,12 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let s=mix(vec3(prev[i+7u],prev[i+8u],prev[i+9u]),vec3(curr[i+7u],curr[i+8u],curr[i+9u]),a);
     let skin=skinned(draw,vertex,position,normal);
     let local=(draw.local*vec4(skin[0],1.0)).xyz;
+    if attached(slot) {
+        let affine=attachment_matrices[slot];
+        let world=(affine*vec4(local,1.0)).xyz;
+        let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
+        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,uv,slot);
+    }
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
     let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);

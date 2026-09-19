@@ -37,6 +37,72 @@ fn declared_models_gate_setup_and_ticks_and_survive_restore() {
     assert_eq!(a.world().hash(), b.world().hash());
 }
 #[test]
+fn skinned_bounds_follow_delivery_pose_and_restore_without_changing_saved_state() {
+    struct Scene;
+    impl Game for Scene {
+        const ID: &'static str = "skinned-bounds";
+        const ASSETS: &'static [&'static str] = &["rig.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.register::<animation::Pose>();
+            w.spawn_named("rig", (Transform::default(), Mesh::asset("rig.model")));
+            w.spawn((Transform::at(0., 0., 40.), Camera::default()));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let model = |reach| asset::Model {
+        bounds: [-1., -1., -1., 1., 1., 1.],
+        nodes: vec![asset::Node::default()],
+        skins: vec![asset::Skin {
+            joints: vec![0],
+            inverse_binds: Mat4::IDENTITY.to_cols_array().to_vec(),
+            ..Default::default()
+        }],
+        clips: vec![asset::Clip {
+            tracks: vec![asset::Track {
+                times: vec![0., 1.],
+                values: vec![0., 0., 0., reach, 0., 0.],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut sim = Sim::<Scene>::new(()).unwrap();
+    sim.asset("rig.model", Some(&bin::to_vec(&model(8.))))
+        .unwrap();
+    sim.viewport(800., 600.);
+    let entity = sim.world().named("rig").unwrap();
+    let center = Vec2::new(400., 300.);
+    let before = sim.save().unwrap();
+    let layout = sim.layout(entity).unwrap().screen;
+    for _ in 0..10 {
+        assert_eq!(sim.layout(entity).unwrap().screen, layout);
+        let hit = sim.pick(center).unwrap();
+        assert_eq!(hit.entity, entity);
+        assert!((hit.distance - 31.).abs() < 1e-5, "{hit:?}");
+    }
+    assert_eq!(sim.save().unwrap(), before);
+    sim.restore(&before).unwrap();
+    assert_eq!(sim.layout(entity).unwrap().screen, layout);
+    sim.asset("rig.model", Some(&bin::to_vec(&model(12.))))
+        .unwrap();
+    assert!((sim.pick(center).unwrap().distance - 27.).abs() < 1e-5);
+    assert_ne!(sim.layout(entity).unwrap().screen, layout);
+    let bind = animation::bind_pose(sim.world().model("rig.model").unwrap());
+    let mut pose = animation::Pose::default();
+    pose.previous = bind.clone();
+    pose.local = bind;
+    pose.bounds = [-2., -2., -2., 2., 2., 2.];
+    sim.world_mut().insert(entity, pose);
+    assert!((sim.pick(center).unwrap().distance - 38.).abs() < 1e-5);
+    let posed = sim.save().unwrap();
+    sim.restore(&posed).unwrap();
+    assert!((sim.pick(center).unwrap().distance - 38.).abs() < 1e-5);
+    sim.world_mut().remove::<animation::Pose>(entity);
+    assert!((sim.pick(center).unwrap().distance - 27.).abs() < 1e-5);
+}
+#[test]
 fn missing_declared_model_refuses_by_name_and_never_ticks() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     assert!(sim
@@ -191,6 +257,70 @@ fn texture_declaration_is_allowed_but_a_texture_is_not_a_mesh() {
 }
 
 #[test]
+fn deferred_textures_replace_retire_and_move_through_restore_in_name_order() {
+    struct Textures;
+    impl Game for Textures {
+        const ID: &'static str = "texture-queue";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            for name in ["005.tex", "200.tex"] {
+                w.spawn((Transform::default(), Sprite::new(name, Vec2::ONE)));
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let texture = |value| asset::TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![value; 4]],
+        ..Default::default()
+    };
+    let mut sim = Sim::<Textures>::new(()).unwrap();
+    sim.defer_assets(true);
+    for i in (0..256).rev() {
+        sim.deliver_asset(
+            &format!("{i:03}.tex"),
+            Ok(asset::Content::Texture(texture(i as u8))),
+        )
+        .unwrap();
+    }
+    assert!(sim
+        .deliver_asset("overflow.tex", Ok(asset::Content::Texture(texture(0))))
+        .is_err());
+    let replacement = texture(99);
+    let pixels = replacement.mips[0].as_ptr();
+    sim.deliver_asset("005.tex", Ok(asset::Content::Texture(replacement)))
+        .unwrap();
+    let saved = sim.save().unwrap();
+    assert!(sim.restore(b"invalid").is_err());
+    sim.restore(&saved).unwrap();
+    assert!(sim.take_assets().is_empty());
+    let delivered: Vec<_> = sim.take_textures().into_iter().collect();
+    assert_eq!(
+        delivered
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>(),
+        ["005.tex", "200.tex"]
+    );
+    assert_eq!(delivered[0].1.mips[0], [99; 4]);
+    assert_eq!(
+        delivered[0].1.mips[0].as_ptr(),
+        pixels,
+        "restore and upload move mip ownership"
+    );
+    assert_eq!(delivered[1].1.mips[0], [200; 4]);
+    assert!(sim.take_textures().is_empty());
+    sim.defer_assets(false);
+    sim.deliver_asset("005.tex", Ok(asset::Content::Texture(texture(3))))
+        .unwrap();
+    assert!(
+        sim.take_textures().is_empty(),
+        "headless delivery retains no upload payload"
+    );
+}
+
+#[test]
 fn model_delivery_checks_carrier_size_before_decode() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     let error = sim
@@ -321,5 +451,24 @@ fn failed_cosmetic_dependencies_do_not_gate_a_save() {
     assert!(
         sim.save().is_ok(),
         "a failed cosmetic cannot block on its other textures"
+    );
+}
+
+#[test]
+fn loading_refusals_name_the_state_that_contains_pending_assets() {
+    let mut sim = Sim::<Loading>::new(()).unwrap();
+    let clock = sim.agent(r#"{"op":"clock"}"#);
+    let save = sim.save().unwrap_err().to_string();
+    for error in [clock, save] {
+        assert!(
+            error.contains("state.world.loading") && error.contains("state.world.assets"),
+            "{error}"
+        );
+        assert!(!error.contains("state world:*"), "{error}");
+    }
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(
+        state.contains("crate.model") && state.contains("Pending"),
+        "{state}"
     );
 }

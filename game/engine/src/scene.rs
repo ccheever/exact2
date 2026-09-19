@@ -451,6 +451,10 @@ impl World {
     /// World pose: a root reads its local Transform directly, without propagation.
     /// Parented poses reflect the last propagate call.
     pub fn global(&self, e: Entity) -> Option<Affine3A> {
+        // Socket-derived gameplay poses are tick-boundary reads, not stored hierarchy nodes.
+        if self.attachment_pose.is_some() {
+            return self.current_global(e);
+        }
         if !self.has::<Parent>(e) {
             return self.get::<Transform>(e).map(|local| local.affine());
         }
@@ -462,6 +466,18 @@ impl World {
     }
     /// Resolve the current local poses through the parent chain, before propagation.
     pub fn current_global(&self, e: Entity) -> Option<Affine3A> {
+        self.current_global_depth(e, self.len() + 1)
+    }
+    pub(crate) fn current_global_depth(&self, e: Entity, remaining: usize) -> Option<Affine3A> {
+        if remaining == 0 {
+            return None;
+        }
+        if let Some(pose) = self
+            .attachment_pose
+            .and_then(|resolve| resolve(self, e, remaining))
+        {
+            return Some(pose);
+        }
         let mut pose = self.get::<Transform>(e)?.affine();
         let mut at = e;
         for _ in 0..self.len() {
@@ -472,6 +488,12 @@ impl World {
             else {
                 return Some(pose);
             };
+            if let Some(parent_pose) = self
+                .attachment_pose
+                .and_then(|resolve| resolve(self, parent, remaining - 1))
+            {
+                return Some(parent_pose * pose);
+            }
             pose = self
                 .get::<Transform>(parent)
                 .map_or(Affine3A::IDENTITY, |t| t.affine())

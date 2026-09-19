@@ -317,3 +317,124 @@ simulation/save pins. Game and GPU all-target clippy, both fmt checks, caps, boo
 and the Apple ExactKit build pass. Full root build remains blocked in Weatherlight's
 Bun/Rolldown bake, including the bounded serial retry; no root-workspace green is
 claimed. Regenerated model SHA-256s and their reasons are in the size receipt.
+
+### Recovery hash reuse — 2026-09-18
+
+A later paired Beacons build removed the four-line model digest reconstruction
+from `WorldSurface::device_lost`. GPU loss leaves CPU model content unchanged;
+asset delivery already hashes replacements, and asset preparation already fills
+missing hashes after retirement/restore. Reusing that path removes work and makes
+model serialization unreachable from the primitive-only module.
+
+| Beacons GPU module | raw bytes | gzip bytes (level 9) |
+|---|---:|---:|
+| before | 794,148 | 339,351 |
+| after | 782,915 | 335,367 |
+| removed | 11,233 (1.41%) | 3,984 (1.17%) |
+
+Both use the normal web build and `wasm-opt -Oz`. The GPU production-source delta
+between captures is the four-line deletion; concurrent edits were host JavaScript,
+documentation and the recovery regression. Pre-bindgen attribution confirms the
+model serializers and recovery-specific BTreeMap collection/sort are gone. This
+is a separate paired measurement from D4 above, not a comparison to its older
+baseline. The 650,000-byte target remains unmet by 132,915 bytes.
+
+Artifacts, SHA-256s, attribution and checks are retained locally under
+`/tmp/exact-game-goal-asset-boundary/`. The extended existing recovery test covers
+both retained and retired hashes and failed on the old implementation at the
+unnecessary rehash assertion.
+
+Validation: 128 renderer tests passed (7 ignored); all-target renderer Clippy,
+scoped formatting, caps and boot pass. Beacons web retains its simulation/save
+pins. Asset web retains its pins but still fails the previously recorded recovered
+pixel/model-buffer checks; this size reduction does not close that recovery issue.
+
+
+### Shared model bounds — 2026-09-18
+
+Imported conservative bounds are computed with delivery and retained beside the
+immutable model. Layout, picking and animation share those six floats. Replacing
+content replaces its bounds; fresh-game reconstruction recomputes them from the
+model bytes. Neither the asset format nor simulation saves change. The trade is
+24 bytes per retained model entry and one geometry walk at delivery instead of
+repeated walks during layout/picking before a Pose exists.
+
+`churn --model-layout` measures one public layout plus one public pick. Three
+alternating before/after runs, each the median of 7 × 100 pairs, used the same
+isolated source path, lockfile and release profile. Median across those runs:
+
+| skinned model | before (µs/pair) | after (µs/pair) |
+|---|---:|---:|
+| 3 vertices | 1.007 | 0.558 |
+| 30,000 vertices | 649.049 | 0.420 |
+
+Every run retains world hash `8338e471f999d37a`. These are CPU query timings on a
+busy shared Mac, not frame-rate or loading-time measurements. The initial probe
+was corrected to include required UVs; its invalid fixture supplied no timing.
+
+Normal Beacons web builds changed from 782,915 to 777,083 raw bytes and 335,367
+to 332,730 gzip bytes. This is a shared-tree observation: a concurrent GPU source
+edit was also present, so the complete 5,832-byte difference is not attributed
+solely to this change. Attribution does verify that `animated_bounds` and its
+vertex walk are absent from the primitive artifact. Common asset ownership is
+still linked; the 650,000-byte target remains unmet.
+
+The 285 engine tests pass (2 ignored), including explicit replacement, Pose
+precedence, read-only query/save and restore coverage. Skinned-fixture Linux
+passes all three proof modes, and web passes with unchanged pose/tick/save pins.
+Engine/render all-target Clippy, scoped formatting and caps pass. Evidence:
+`/tmp/exact-game-goal-model-bounds/`.
+
+The 12 renderer asset/restore tests and boot also pass. The captured tick-120
+web/Linux saves match byte-for-byte (14,928 bytes); see `cross-host-save.json`
+in that evidence directory. These passes do not close the separate browser
+device-loss defect or the root suite's existing Keychain failure.
+
+### Native unchanged bake — 2026-09-18
+
+All selected native units use ordinary `cargo build`; the executable-specific
+`--emit` override is removed. Copied products identify unique compiler dep-info by
+exact bytes plus source/rule validation. The receipt continues to hash compiler
+inputs and compile-time environment, never substituting product identity for them.
+
+Two consecutive Beacons native bakes on this arm64 Mac take 56.130 s and 0.940 s.
+The repeat compiles nothing and preserves both GPU/executable bytes, nanosecond
+mtimes and the full 183-unit binary-input digest. This is one warm unchanged bake,
+not cold-start or edit-to-pixel latency. The real-Cargo cache regression and web /
+headless-Linux Beacons proofs pass. Logs, product hashes and timings:
+`/tmp/exact-game-goal-executable-cache/real-bake-results.json`.
+
+### Restore transfers asset ownership — 2026-09-18
+
+`World::load` transfers delivery bookkeeping after the replacement world passes
+all validation. Assets are not saved state, so cloning their names, states,
+dependencies and ownership sets before decoding was redundant. Malformed,
+truncated, trailing-byte and cyclic saves leave the current ownership untouched.
+The asset format, public API and saved bytes stay the same.
+
+`churn --asset-restore` uses an otherwise empty world with 0–256 delivered models.
+Three alternating release before/after runs, each 7 × 100 restores, on this shared
+arm64 Mac give these medians (µs/restore):
+
+| delivered assets | World before | World after | full Sim before | full Sim after |
+|---|---:|---:|---:|---:|
+| 0 | 1.276 | 1.326 | 3.393 | 3.401 |
+| 8 | 1.565 | 0.993 | 4.435 | 4.215 |
+| 64 | 4.261 | 1.039 | 10.928 | 7.503 |
+| 256 | 13.366 | 1.056 | 30.395 | 17.396 |
+
+World hash `754bcd349d7932fb` is identical throughout. These isolate retained asset
+bookkeeping, not realistic scene load time or frame rate. World source is the sole
+production-code delta across the native pair; the concurrent lockfile change only
+removes an unrelated generated `new-proof-*` fixture. Full Sim still validates and
+constructs its candidate separately. The engine suite passes 287 tests (2 ignored),
+renderer restore tests pass, and Skinned web plus Linux's three reconstruction
+modes retain pose/hash/save pins. Evidence: `/tmp/exact-game-goal-restore-ownership/`.
+
+A preceding sorted-vector texture-queue experiment was rejected and fully reverted:
+its observed primitive artifact was 5,622 raw bytes smaller, but reverse-order
+256-texture delivery/drain rose from 65.974 to 86.358 µs/batch (three alternating
+run medians). The bounded upload queue keeps its tree map. `churn --texture-delivery`
+retains the workload; replacement, retirement, single-drain ownership and restore
+coverage stay in the asset tests. No shipped size saving is claimed for that
+experiment. Evidence: `/tmp/exact-game-goal-texture-registry/`.

@@ -398,7 +398,7 @@ pub enum AssetState {
 }
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
-    pub models: map::AssetMap<Arc<Model>>,
+    pub models: map::AssetMap<ModelAsset>,
     pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
     pub required: BTreeSet<String>,
@@ -408,6 +408,19 @@ pub(crate) struct Assets {
     pub dependencies: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
     pub refusal: Option<(String, String)>,
+}
+#[derive(Clone)]
+pub(crate) struct ModelAsset {
+    pub model: Arc<Model>,
+    pub bounds: [f32; 6],
+}
+impl From<Model> for ModelAsset {
+    fn from(model: Model) -> Self {
+        Self {
+            bounds: pose::animated_bounds(&model),
+            model: Arc::new(model),
+        }
+    }
 }
 impl Assets {
     pub fn ready(&self) -> bool {
@@ -491,14 +504,21 @@ impl Assets {
     }
 }
 impl crate::World {
+    /// Delivery stamp for presentation caches; excluded from simulation state.
+    pub fn model_revision(&self) -> u64 {
+        self.assets.models.revision()
+    }
+
     /// Only declarations are visible to simulation. Cosmetic arrival cannot change this read.
     pub fn model(&self, name: &str) -> Option<&Model> {
+        self.model_asset(name).map(|asset| asset.model.as_ref())
+    }
+    pub(crate) fn model_asset(&self, name: &str) -> Option<&ModelAsset> {
         self.assets
             .declared
             .contains(name)
             .then(|| self.assets.models.get(name))
             .flatten()
-            .map(AsRef::as_ref)
     }
     /// Outstanding declared assets (the agent additionally lists presentation requests).
     pub fn loading(&self) -> impl Iterator<Item = &str> {

@@ -186,7 +186,7 @@ fn capacity_error_during_timed_bind_does_not_refuse_committed_values() {
         return;
     };
     let limits = wgpu::Limits {
-        max_storage_buffer_binding_size: 48 * 16,
+        max_storage_buffer_binding_size: 64 * 16,
         ..Default::default()
     };
     let (device, queue) =
@@ -398,6 +398,12 @@ fn full_seekable_render_has_no_performance_samples() {
 
 #[test]
 fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
+    #[derive(Default, exact_game::Data)]
+    struct Pins {
+        ticks: std::collections::BTreeMap<String, String>,
+    }
+    let pins: Pins =
+        exact_game::json::from_str(include_str!("../../games/greybox/pins.json")).unwrap();
     use exact_gpu::{Module, Registry};
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 3, || {
@@ -415,7 +421,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     let setup = module
         .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
         .unwrap();
-    assert!(setup.contains("0x9a871d8582d905e7"), "{setup}");
+    assert!(setup.contains(&pins.ticks["0"]), "{setup}");
     assert!(setup.contains("\"device\":false"));
     assert!(module.input_json(
         id,
@@ -423,14 +429,14 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
     assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains("0x71f43e51a13cc49f"), "{tick}");
+    assert!(tick.contains(&pins.ticks["90"]), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap().unwrap();
     module.lose_device();
     assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
-    assert!(state.contains("0x71f43e51a13cc49f"), "{state}");
+    assert!(state.contains(&pins.ticks["90"]), "{state}");
 }
 
 #[test]
@@ -620,6 +626,16 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         (10, 4),
         "both winding variants and one shared texture plus three defaults"
     );
+    let renderer = &original.render.as_ref().unwrap().0 as *const _;
+    for _ in 0..2 {
+        original.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(&original.render.as_ref().unwrap().0 as *const _, renderer);
+        assert_eq!(
+            original.render.as_ref().unwrap().0.asset_work(),
+            work,
+            "matching presentation/readback format must not rebuild or upload"
+        );
+    }
     for tick in 0..=30 {
         fixture::render(&gpu, &mut original, &frame(tick as f64 * 1000. / 60.)).unwrap();
         assert_eq!(
@@ -655,6 +671,52 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         state.contains("\"restored\":true") && state.contains("\"forwarded\":[\"KeyW\"]"),
         "{state}"
     );
+    // Recovery retains content hashes; preparation reconstructs a retired digest
+    // when a same-device restore has revived its CPU model.
+    for retain_digest in [true, false] {
+        if !retain_digest {
+            restored.model_digests.clear();
+        }
+        let hashes = crate::models::model_hash_count();
+        restored.device_lost();
+        assert_eq!(
+            crate::models::model_hash_count(),
+            hashes,
+            "device loss does not rehash retained CPU content"
+        );
+        restored.device_ready();
+        restored.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(
+            crate::models::model_hash_count(),
+            hashes + usize::from(!retain_digest),
+            "preparation hashes only a model whose digest was retired"
+        );
+        for (name, data) in &textures {
+            restored.asset(name, Ok(&exact_game::bin::to_vec(data)));
+        }
+        restored.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        assert!(restored
+            .render
+            .as_ref()
+            .unwrap()
+            .0
+            .models
+            .loaded
+            .contains_key("crate.model"));
+        assert!(restored.sim().unwrap().model_prepared("crate.model"));
+        fixture::render(&gpu, &mut restored, &frame(500.)).unwrap();
+        assert!(
+            !restored
+                .render
+                .as_ref()
+                .unwrap()
+                .0
+                .models
+                .records
+                .is_empty(),
+            "recovered model must be drawn"
+        );
+    }
     let mut primitive = surface();
     fixture::render(&gpu, &mut primitive, &frame(0.)).unwrap();
     assert_eq!(primitive.render.as_ref().unwrap().0.asset_work(), (0, 0));
@@ -689,4 +751,86 @@ fn performance_recording_arms_only_through_diagnostic_state() {
     assert!(state.contains("\"p50\":4"));
     let state = s.agent(r#"{"op":"state","perf_reset":true}"#).unwrap();
     assert!(state.contains("\"p50\":0"));
+}
+
+#[test]
+fn world_surface_retires_and_readds_a_real_placed_child() {
+    let gpu = fixture::device().unwrap();
+    let mut s = surface();
+    let entity = s
+        .sim
+        .as_mut()
+        .unwrap()
+        .world_mut()
+        .spawn_named("sign", (Transform::default(), exact_game::Placed::child(0)));
+    for _ in 0..2 {
+        assert_eq!(s.children_mode(), exact_gpu::ChildrenMode::Each);
+        s.child(0, None, [0., 0., 100., 50.]);
+        fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+        assert!(s.placement(0).is_some());
+        s.sim
+            .as_mut()
+            .unwrap()
+            .world_mut()
+            .remove::<exact_game::Placed>(entity);
+        assert_eq!(s.children_mode(), exact_gpu::ChildrenMode::Overlay);
+        s.children_count(0);
+        fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+        assert!(s.placement(0).is_none());
+        assert!(s.placed.children.is_empty());
+        s.sim
+            .as_mut()
+            .unwrap()
+            .world_mut()
+            .insert(entity, exact_game::Placed::child(0));
+    }
+}
+
+#[test]
+fn control_json_reaches_world_and_unknown_names_refuse_without_poisoning_it() {
+    struct Controls;
+    impl Game for Controls {
+        const ID: &'static str = "control-abi";
+        type Args = ();
+        fn actions() -> exact_game::Actions {
+            exact_game::Actions::new().button("jump", &["Space"])
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", (Transform::default(),));
+        }
+        fn tick(w: &mut World, input: &Input, _: &()) {
+            if input.pressed("jump") {
+                w.get_mut::<Transform>("player").unwrap().position.y += 1.;
+            }
+        }
+    }
+    let mut surface = WorldSurface::<Controls>::default();
+    surface.bind(&[], Some(1000.)).unwrap();
+    let event = exact_gpu::json::parse_input(
+        r#"{"t":"control","name":"typo","phase":"down","id":7,"x":0,"y":0,"at":1000}"#,
+    )
+    .unwrap();
+    surface.input(&event);
+    assert!(surface.take_error().unwrap().0.contains("typo"));
+    let event = exact_gpu::json::parse_input(
+        r#"{"t":"control","name":"jump","phase":"down","id":7,"x":0,"y":0,"at":1000}"#,
+    )
+    .unwrap();
+    surface.input(&event);
+    assert!(surface.take_error().is_none());
+    surface
+        .sim
+        .as_mut()
+        .unwrap()
+        .advance(1100., Clock::Seekable);
+    assert_eq!(
+        surface
+            .sim()
+            .unwrap()
+            .get::<Transform>("player")
+            .unwrap()
+            .position
+            .y,
+        1.
+    );
 }

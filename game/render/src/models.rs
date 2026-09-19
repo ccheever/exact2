@@ -270,12 +270,16 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         model: &Model,
         digest: u64,
     ) -> Result<(), RenderError> {
-        if self
+        if let Some(resident) = self
             .models
             .loaded
-            .get(name)
-            .is_some_and(|m| m.digest == digest)
+            .get_mut(name)
+            .filter(|m| m.digest == digest)
         {
+            if !resident.active {
+                resident.active = true;
+                self.models.revision += 1;
+            }
             return Ok(());
         }
         model.validate().map_err(RenderError::scene)?;
@@ -943,6 +947,17 @@ mod retirement_regressions {
         .unwrap();
         model.materials[0].alpha_mode = AlphaMode::Blend;
         r.prepare_model("hero.model", &model).unwrap();
+        let handles = r.models.loaded["hero.model"].nodes.clone();
+        r.models.loaded.get_mut("hero.model").unwrap().active = false;
+        let work = r.residency_work();
+        r.prepare_model("hero.model", &model).unwrap();
+        assert!(
+            r.models.loaded["hero.model"].active,
+            "equal digest reactivates resident"
+        );
+        assert_eq!(r.models.loaded["hero.model"].nodes, handles);
+        assert_eq!(r.residency_work().since(work).mesh_uploads, 0);
+        assert_eq!(r.residency_work().since(work).texture_uploads, 0);
         struct Moving;
         impl exact_game::Game for Moving {
             type Args = ();

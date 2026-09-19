@@ -714,3 +714,27 @@ fn autofocus_starts_again_in_a_reloaded_host_generation() {
     p.reload(&plan, NoData).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "play")));
 }
+
+#[test]
+fn covered_id_tap_refuses_without_dispatching_the_cover() {
+    let source = r#"component Cover
+  state count = 0
+  action press writes count
+    count = count + 1
+  view
+    box width=100 height=100
+      button testId="under" position="absolute" left=0 top=0 width=100 height=100 press=press
+        text "Under"
+      button testId="cover" position="absolute" left=0 top=0 width=100 height=100 press=press
+        text "Cover"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    let id = view(&p, "under");
+    assert!(p.tap(id).unwrap_err().contains("covered or not hit"));
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
+    p.tap(view(&p, "cover")).unwrap();
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+}

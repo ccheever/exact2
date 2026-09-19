@@ -28,11 +28,12 @@ fn proof_endpoint_pin() {
 
 #[test]
 fn placed_sign_projection_receipt_at_1280_by_720() {
-    let mut sim = Sim::<SmallGame>::new(Options::default()).unwrap();
     for (ms, expected) in [
         (0., [430.91, 299.76, 140.23, 30.55]),
         (983.334, [492.88443, 285.10403, 93.112885, 38.104492]),
+        (1000., [494.20934, 284.9197, 92.1972, 38.18921]),
     ] {
+        let mut sim = Sim::<SmallGame>::new(Options::default()).unwrap();
         sim.run(ms);
         let w = sim.world();
         let pose = *w.get::<Transform>("camera").unwrap();
@@ -62,7 +63,7 @@ fn placed_sign_projection_receipt_at_1280_by_720() {
         println!("projected tick {}: {bounds:?}", w.tick());
         {
             for (a, b) in bounds.into_iter().zip(expected) {
-                assert!((a - b).abs() < 2.);
+                assert!((a - b).abs() < 0.01);
             }
         }
     }

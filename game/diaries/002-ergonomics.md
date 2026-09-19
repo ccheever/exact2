@@ -727,7 +727,7 @@ U1 did not edit those pins. No commit or sub-agent.
 **R6 — 2026-09-18, uncommitted.** Camera now derives and always saves its projection, moving the enumerated pre-1.0 pins once; aspect-only feeds retain authored orthographic height. Quad pipelines/capacity prepare before interaction, compatible sprite runs coalesce (the strip is six draws), mixed-kind ties are total, and invalid components journal without blacking out neighbors. Particle invariant hoisting preserves the old evaluator's float bits and measures 2.80 ms median encode for 20 × 1,000 on this M5 Max; both timing receipts are retained outside build directories. Texture residency is shared, atlas frames do not rediscover dependencies, and retired assets are charged from GPU allocation sizes, including pending same-name replacements; slot reclamation keeps live hero handles/history, with GPU arena packing reserved for the remaining capacity excess. Restart counters survive Carry/paranoid reconstruction, authored Cargo package names survive directory renames, explicit focus precedes autofocus, host replacement clears autofocus history, and topology replacement cannot freeze an Animator fade. Greybox intentionally keeps the nearest-one interaction introduced earlier: one press lights one eligible beacon, a gameplay change documented in its README, not disguised as an equivalent query idiom. Process survivors fail and remain in the cleanup receipt; inventory parsing covers both day widths and zombies. Device skips are Linux-only in residency proofs, KeyP checks textures/pipelines too, and Apple fixtures pin 299/300-frame cooldown plus visibility refresh. Feel records only the host draw callback, refuses overflow, retains every legacy drawn row and projects the first beacon as a fixed landmark; the three cited trace batches and their reanalysis are retained. Sitting #2 remains provisional under shared load, with landmark CV distinct from world CV; no perceptual winner or new sitting is claimed. Final validation and the finding-to-regression map are in the game README.
 
 
-**H1 — 2026-09-18, uncommitted.** Device recovery now has one `gpu_recover` entry point: it replaces the adapter/device/queue while preserving surface identities, messages and input, reports preparation per instance, and rebinds browser contexts or Metal layers; headless Linux reports `no device`. Destroying the browser device produces identical pixels, exactly one retained-texture fetch, the original preparation counts and no readiness reasons. The white macOS Fox was a readback-format residency reset, not a missing texture path: preserving the presentation format yields 5,882 orange pixels, including RGB (178,125,50). Verified Apple texture payloads now live in private reloadable files. Linux placed children use full inverse homographies for pixels and hits, disappear from the tree when hidden, and match the initial web box exactly; forty children cost 0.829/0.963 ms paint p50/p95. Moving-frame sampling still differs by 1.31 px and is queued outside this recovery-only render slice. JSON equality and generated-shell cleanup were already present; the image-worker test now uses a barrier. Native recovery, browser tests, Apple tests, simulator build and caps pass. The shared-tree suite still exposes agent JSON-string assertions and a Linux autofocus expectation; macOS Beacons still misses victory-control focus. The generated-game suite passes all five tests after extending its bounded cold-build watchdog to three minutes, with its game and four recorded shell directories cleaned. Concurrent S4 pin changes are preserved, not attributed to H1. No commit or sub-agent.
+**H1 — 2026-09-18, uncommitted.** Device recovery now has one `gpu_recover` entry point: it replaces the adapter/device/queue while preserving surface identities, messages and input, reports preparation per instance, and rebinds browser contexts or Metal layers; headless Linux reports `no device`. Destroying the browser device produces identical pixels, exactly one retained-texture fetch, the original preparation counts and no readiness reasons. The white macOS Fox was a readback-format residency reset, not a missing texture path: preserving the presentation format yields 5,882 orange pixels, including RGB (178,125,50). Verified Apple texture payloads now live in private reloadable files. Linux placed children use full inverse homographies for pixels and hits, disappear from the tree when hidden, and had matching initial boxes in that run. Correction (R8b): the unretained forty-child timing did not establish CPU cost and is withdrawn. R7 fixed the moving-frame sample; R8b compares captured web/Linux tuples directly at 0.5 px. JSON equality and generated-shell cleanup were already present; the image-worker test now uses a barrier. Native recovery, browser tests, Apple tests, simulator build and caps pass. The shared-tree suite still exposes agent JSON-string assertions and a Linux autofocus expectation; macOS Beacons still misses victory-control focus. The generated-game suite passes all five tests after extending its bounded cold-build watchdog to three minutes, with its game and four recorded shell directories cleaned. Concurrent S4 pin changes are preserved, not attributed to H1. No commit or sub-agent.
 
 
 **S4 — 2026-09-18, uncommitted.** Attachments choose their own joint with `SocketFollow::new("fox", "head").offset(t)` and compose the same interpolated local TRS chain as skinning; tick-boundary gameplay uses `animation::socket`. The two-joint 90° GPU test matches the displayed midpoint within 1e-4, including new attachments and unrelated model arrival, and the Fox charm now asserts its exact composed position. `let motion = animation::step(w)` advances explicitly once, checks idempotence before querying, returns owned root motion/markers, and retries a failed first sample when its rig arrives; followers need no second simulation step. Core `Character` and physics `CapsuleController` have separate Target-based handles and displacement results; `tick_end`, explicit local/global positions, named audio targets, and State/Condition constructors remove the remaining author plumbing. Per-key manifest overrides retain generated defaults, and PNG art bakes the sprite texture with explicit nearest/clamp/sRGB defaults; its original bytes remain only as a test golden. Skinned tick-60/120 pins become `4d44c305a176e577`/`d147cd9b2a8c62f7` from the attachment save-schema change, Beacons tick-907 becomes `0b132d378ffd3b21` from end-boundary tween sampling, and Placement tick-330 becomes `626f1c12836bea76` from its end-boundary orbit; joint JSON and the other simulation pins are unchanged. Greybox's layout snapshot uses lossless position floats, and standalone Animation saves carry `sampled` instead of a negative-zero sentinel. All seven logic files total 714→698 lines; the README records each count and the skinned setup/tick and Greybox tick verbatim before/after. Validation: 521 workspace tests passed, 15 ignored, no failures; all-target clippy/fmt, 33 Bun tests, every game's four Linux paranoid runs and the three requested web proofs passed. Concurrent generated-game cleanup interrupted earlier workspace runs; the final exclusion pattern matched no package, so every member ran. The web descendant audit skipped stalled `ps`, while every recorded host exit was awaited. Caps used explicit S4 paths in an isolated index, then unstaged them; no commit or sub-agent.
@@ -741,3 +741,230 @@ I1 (2026-09-18, unfinished): the fourth host is now actually driven on the iPhon
 
 
 **D4 — 2026-09-18, uncommitted.** Ryu owns shortest decimal ties; baked tangents, the enumerated physics clone, obsolete manifest ownership fallback, duplicate game-test shims and fourth paranoid execution are gone. Camera already derived at the starting revision, and `Animation.sampled` had already replaced signed-zero initialization. One restore helper commits both immediate and deferred success; a failed carry is a typed refusal through every host. Child composition is one enum, and asset transport tests call the extracted delivery function with supplied limits. Animation remains a module, with Pose/rig data factored below playback and a concrete model presentation executor owning inspection and Carry reconciliation; registration follows setup, and derived animation caches never enter saves or hashes. The normal primitive module excludes playback and sprite preparation, while the measured particle cost justifies retaining untextured emitters. The before/after size table, digests and remaining path toward the unmet size targets live in the bench README; no new Cargo feature, flag change, typed-move compromise or hash weakening is credited. Crate/Fox model digests change only for tangent removal, while all game tick/save pins stay unchanged. All seven Linux paranoid proofs and the three requested web proofs pass; game tests, clippy, GPU/Caltrain tests, browser tests, Apple ExactKit, fmt, boot and caps are recorded in the D4 receipt. Full root build remains blocked in Weatherlight's Bun/Rolldown bake after the bounded serial retry. The README pass deletes repeated fixture code, measurements and review narrative in favor of source links and retained receipts. No commit, clone, stash or sub-agent; caps uses an isolated index and explicit paths.
+
+
+**Proximity simplification — 2026-09-18, Codex, uncommitted.** One presence-bit
+iterator now serves storage snapshot/save, stillness, settle deadlines, destruction
+and proximity queries. It replaces six duplicated storage walks; the localized
+runtime changes remove twelve source lines. `near`, `near_xz` and `nearest_xz_where`
+share distance selection; nearest no longer decomposes transforms or scans unrelated
+entities. No public API, serialized format, spatial index, cache, dependency or core
+feature flag was added. Sparse/recycled membership, inclusive radii, stable ties,
+current parents, mutable rows and a save/load continuation are exercised by existing
+engine tests plus one regression in `tests/character.rs`.
+
+The existing `churn --proximity` diagnostic measures nearest queries from an entity
+handle, not name lookup. Three alternating baseline/current pairs on the shared
+arm64 Mac, each seven 1,000-query samples, gave medians of 0.676 → 0.417 µs (32
+entities, eight eligible components), 770.853 → 5.860 µs (100,000 entities, twelve
+components), and 570.813 → 353.743 µs (10,000 matching components). Early logs count
+the excluded origin among components in the small/dense cases; the printed count is
+corrected. Raw logs and preserved executables: `/tmp/exact-game-goal-proximity/`.
+These are query measurements under concurrent builds, not FPS or a whole-engine
+speed claim. The benchmark executable changes by +16 bytes; there is no binary-size
+reduction claim. General churn timings varied widely on the shared machine; both
+100k/500k world hashes remain identical across all six baseline/current executions.
+The full engine suite passes (284 tests, two existing ignored), as do the focused
+character tests (10), engine Clippy, staged caps and boot. Root build passes. Root
+tests exposed Weatherlight's missing `period_ms` fixture field; it now explicitly
+supplies zero (headless cadence unknown), and Weatherlight's GPU test passes.
+The rebuilt Linux Beacons proof failed before readiness, with no gameplay assertions
+and no surviving recorded child; the second bounded attempt passed every assertion
+in 386.890 s including its rebuild. Root Clippy, format and boot also pass. The
+repaired full root suite continues with an unrelated Apple Keychain fixture failure
+(“User interaction is not allowed”); the shared worktree has concurrent edits, so
+these results are not a clean integrated-commit claim.
+
+
+**Native bake simplification — 2026-09-18, Codex, uncommitted.** Native libraries
+now use Cargo's exact unit dep-info, preserving source and compile-time environment
+evidence without the explicit output flag that forced relinking. Aggregate `.d`
+files are refused because they omit environment rows. The receipt no longer needs
+the old compiler-input exception for an absent art directory.
+
+A real Beacons repeat exposed a second cause: Cargo reported its missing `art/`
+watch as stale on every build. Games without art now omit the generated GPU build
+script and baker dependency (five existing modules). Removing the last art prunes
+owned outputs and the empty ownership manifest; the next resolution drops the
+baker. The outer receipt still records absent art, so the dev watcher detects its
+creation. There is no new author option, script or runtime dependency.
+
+The native regression exercises real Cargo links, included-file edits, environment
+changes, unchanged product timestamps and first-art detection. The script suite
+passes 15 tests with one opt-in asset diagnostic skipped; the ten bake-output tests,
+baker Clippy and formatting pass. The real Beacons repeat preserves module bytes,
+SHA-256, mtime and binary-input identity. Its second whole bake still takes 64.363 s
+under concurrent builds: Linux's executable retains explicit dep-info and relinks;
+this is not a full warm-build budget claim. The web/Linux proofs after shell
+regeneration pass in 76.208/78.457 s with matching pins and all five save digests.
+The web proof awaited its recorded carriers;
+the additional descendant inventory was unavailable because `ps` stalled. Evidence:
+`/tmp/exact-game-goal-native-cache/`. Root tests remain affected by the unrelated
+Keychain fixture refusal recorded above; no clean integrated-commit claim.
+
+**Native executable cache — 2026-09-18, Codex, uncommitted.** The remaining
+executable override above is removed. Every selected unit now uses `cargo build`.
+For copied executable/rlib products, exact byte identity selects the unique hashed
+Cargo unit, whose dep-info must name itself and the selected source. Ambiguity is
+refused; no timestamp selection or aggregate dep-info fallback is used. Compiler
+inputs and environment still determine the receipt, independently of product hashes.
+
+The extended real-Cargo regression fails before the change on the unchanged
+executable timestamp and passes afterward; it covers a renamed executable,
+compile-time environment changes and included-file edits. Default script tests
+pass 16, with two opt-in tests skipped; the native opt-in test passes separately.
+Two real Beacons native bakes take 56.130 s then 0.940 s on this arm64 Mac. The
+second compiles nothing and retains both product hashes/mtimes and the complete
+183-unit binary-input digest. This is one unchanged warm bake, not an edit or
+cold-build timing claim. Web/Linux proofs pass in 21.312/24.864 s with unchanged
+pins and saves; web's extra descendant inventory is unavailable (`ps` stalled),
+while recorded carrier exits are awaited. Caps, boot and diff checks pass.
+Evidence: `/tmp/exact-game-goal-executable-cache/`. The full root suite finishes
+with the Keychain refusal and a stale Linux reload-focus assertion. The real
+browser sweep confirms fresh-generation autofocus, and the corrected Linux test
+also checks carried state and keyboard activation after reload; all ten paint
+tests pass. Its first extension undercounted the earlier tap and was corrected
+in the second fix round. Keychain remains refused; this shared worktree is not
+a clean integrated-commit claim.
+
+**R8b — 2026-09-18, uncommitted.** Recovery retains presentation configuration
+across failed adapter/attachment attempts, recreates native layer targets, and
+refuses a replacement lost during preparation. Apple filters device identity and
+queues one loss generation with backoff; web discards failed canvas clones and
+limits automatic retries. Recovery redelivery does not seek the Apple world.
+The unsupported forty-child CPU timing is withdrawn. Placement proof captures
+initial/moving tuples; `prove.mjs` compares web and Linux directly at 0.5 px.
+
+| Brief fixes | Regression / evidence |
+|---|---|
+| 1, 6 | `CanvasClockAudioTests.testRecoveryCoalescesFiltersDeviceAndRetriesOneLossGeneration`, `testFailedRecoveryLeavesCanvasEligibleForRetry`; native healthy-recovery no-op test |
+| 2 | `presented_device_loss_rebinds_live_layer_and_readback_keeps_its_format`: render, destroy, drop old target, recover, render/read back on the live layer |
+| 3, 4 | Web `failed recovery removes clones and backs off`; second-loss queue test; asset fixture destroys the actual device and fails one adapter request before retry |
+| 5 | Apple recovery test checks redelivery has no `now`; engine `busy_is_returned_only_when_requested_and_clock_without_now_does_not_seek` |
+| 7 | Presented-device test checks BGRA readback; `peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_window_honest` checks matching-format residency; Fox orange band is 4,000–30,000 pixels |
+| 8, 9 | Opaque 1×1 → 2×2 and four-colored projective corners; the corner test was run with a deliberately wrong inverse and failed |
+| 10 | `covered_id_tap_refuses_without_dispatching_the_cover`; tap uses projected local center and checks the hit ancestry before dispatch |
+| 11 | `forty-child capture does not mislabel painter timing as CPU cost`; numeric claim removed |
+| 12 | `direct placement comparison rejects two hosts passing a two-pixel oracle`; captured web/Linux tuples passed at 0.5 px |
+| 13 | `AssetResolverTests.testPrefixNamesMaterializeReloadAndCleanUpIndependently`: colliding hierarchical names use distinct flat SHA-256 paths, reload, then cleanup |
+| 14 | `loading_refusals_name_the_state_that_contains_pending_assets` follows untargeted state and observes the pending name |
+| 15, 16 | UI restore tap keeps its original error; hidden-child advice uses JSON visibility; CLI prints `behindCamera` and unavailable screen |
+| 17, 20 | Executed fake-carrier CLI proofs independently reproduce missing-web repin acceptance and dropped failure summaries before the fix; both pass afterward |
+| 18 | Restore format/host prefix tests; busy and clock-settle tests; report tests require relevant successful calls from the same session and print a clean-run result |
+| 19 | `stale-build repair command names the rejected web dist` |
+| 21 | `repin refuses manifest normalization before writing authored files` |
+
+Focused before/after logs and broader validation are in `/tmp/r8b-*.log`.
+The full shared-tree result is reported separately; this table is a test map,
+not a claim that every concurrent build/fixture passed.
+
+R8b validation limit: the third real asset-web retry still failed pixel equality
+and model-buffer preparation despite successful adapter retry/reattachment and
+texture redelivery (`/tmp/r8b-asset-web3.log`). That fix loop stopped and remains
+in QUEUE. The 0.5 px placement comparison, asset Linux/macOS proofs, seven native
+GPU tests, fourteen focused Apple tests, focused JS tooling tests, caps, formatting,
+and root GPU/Linux clippy passed. Shared-tree fixture/suite results are not implied
+by those focused passes; native launches also hit existing watchdogs.
+
+R8b additional receipts: skinned Linux passes, including byte-identical save
+continuation (`/tmp/r8b-skinned-linux.log`); placement macOS passes on its retry
+(`/tmp/r8b-placement-macos-retry.log`). Skinned web's retry passes the 4,017-orange
+pixel band, GPU residency and byte-identical continuation checks, but disagrees
+with the stored continuation pin (`/tmp/r8b-skinned-web-retry.log`); pin changes
+remain R8a's scope. The combined proof/new Bun run has 49 passes and one failure:
+the generated game's Linux build exceeded the existing no-output watchdog.
+The repeated host Bun run has 63 passes and two watchdog failures (native quad
+order and the Caltrain web stack); focused surface recovery tests pass. No
+watchdog was enlarged. Explicit-file caps and `git diff --check` pass again.
+
+The full R8b game workspace run completed with 536 passed, 11 ignored, zero
+failures (`/tmp/r8b-game-tests2.log`). Game all-target Clippy and formatting
+passed; the earlier root workspace build passed (`/tmp/r8b-root-build2.log`).
+A duplicate root build was stopped after waiting on a foreign build lock.
+The real default asset-fixture repin with a missing Chrome refused the missing
+requested web host and preserved `pins.json` (`/tmp/r8b-repin-missing-web.log`).
+
+Skinned macOS did not produce a passing R8b receipt in three attempts: app
+readiness timeout, stale Rust dep-info packaging refusal, then another builder's
+active app lock (`/tmp/r8b-skinned-macos{,-retry,-final}.log`). The lock and its
+owner were left untouched. This fixture is unverified by this run.
+
+The real explicit `--repin --hosts linux` completed successfully in all three
+modes, retained the existing tick/save pins, and wrote `hosts: ["linux"]` plus
+the explicit-host generation command (`/tmp/r8b-repin-linux.log` and
+`/tmp/r8b-asset-pins-linux.json`). The original pins file was restored after
+verification. Boot passed (`/tmp/r8b-boot.log`). No commit was made.
+
+I1b connects the existing engine Control event to ordinary Contract canvas buttons: one `action` row, no runner or Surface entry point, with Move/Jump/Light shared by Beacons and the template. The browser proof caught `data-action` naming and CSS replacement erasing `touch-action: none`; the final web round and Linux now demonstrate actual movement, jump, lighting, keyboard activation, and held-contact restore. Nonzero stamp and paranoid reconstruction regressions pass. The save comparison exposed host-specific physical contact IDs/centers; its held-control save now uses keyboard activation with a fixed ID and local origin, fixing Linux’s origin conversion while retaining the touch-to-jump observation. Apple autofocus is now per mounted node and the iOS adapter permits a live timing read; their simulator proof is pending the existing Apple dep-info packaging failure, so these are not yet simulator-playability or performance claims.
+
+
+## Recovery hash reuse — 2026-09-18
+
+Removed four runtime lines from `WorldSurface::device_lost`: retained CPU model
+content already has its delivery hash, and preparation already computes a missing
+hash when restore revives content after retirement. No authoring API, flag or
+artifact was added. The existing real-GPU restore test now performs both recovery
+cases; it failed before the deletion at the unnecessary rehash and passes after.
+
+Paired Beacons web builds shrink the optimized GPU module from 794,148 to 782,915
+bytes (11,233 bytes, 1.41%) and level-9 gzip from 339,351 to 335,367. Model serializers
+and the recovery BTreeMap collection/sort disappear from primitive attribution.
+These are this pair's measurements, not the older D4 baseline. D4's 650,000-byte
+target remains unmet. The initial size-helper attempt encountered a copied target
+cache whose dep-info named the old directory; normal workspace builds produced the
+valid pair. No compiler evidence check was weakened.
+
+Renderer tests: 128 passed, 7 ignored, zero failures, including retained/retired
+hash recovery and replacement-device pixel equality. All-target renderer Clippy,
+scoped formatting, caps, diff whitespace and boot pass. Caps used a copied index;
+the shared index was preserved. A host header comment was compacted by one line
+because concurrent host edits had taken it to 1,501 lines.
+
+Beacons web passes its real app proof with unchanged tick/save pins. Asset web
+preserves its tick/save pins and recovers content/readiness, but reproduces R8b's
+two already-recorded failures: recovered pixels and model-buffer preparation.
+The stopped three-round recovery fix loop was not reopened. Both web runs awaited
+recorded children; the extra descendant audit was unavailable because `ps` stalled.
+Root workspace tests remain live in the producer suite and have the already-recorded
+real Keychain fixture failure; no root-workspace green is claimed. No commit made.
+Evidence and exact artifact hashes: `/tmp/exact-game-goal-asset-boundary/`.
+
+
+## Shared imported bounds — 2026-09-18
+
+Conservative model bounds now live beside immutable delivered content. Layout,
+picking and animation reuse them; redelivery replaces them, and FreshGame derives
+them again from the decoded model. The public API, asset format and saves remain
+unchanged. This adds six floats per retained model entry and removes the geometry
+walk from primitive modules. The paired query timings and qualified shared-tree
+size observation are in `game/bench/README.md`.
+
+285 engine tests and 12 renderer asset/restore tests pass; 2 engine diagnostics
+remain ignored. Engine/render all-target Clippy, scoped formatting, caps and boot
+pass. Skinned-fixture Linux passes normal, paranoid and FreshGame; web passes.
+The actual tick-120 web/Linux saves are byte-identical: 14,928 bytes, SHA-256
+`0d50ebe6388c4db317aae21fb3a1f30269f9e67300c3a0ec50e82eec0b7e5a79`.
+Web's extra descendant audit was unavailable (`ps` stalled); recorded children
+were awaited. Root tests remain running with the earlier Keychain fixture failure.
+Evidence: `/tmp/exact-game-goal-model-bounds/`. Shared index preserved; no commit.
+
+**Restore ownership — 2026-09-18, Codex, uncommitted.** `World::load` moves asset
+bookkeeping after successful decoding/hierarchy validation instead of cloning it
+beforehand. The regression fails on the prior copy and passes on transfer, including
+four invalid-save forms that retain the live world and all asset ownership. No
+public API, asset format or save change. Three alternating release pairs with 256
+delivered models measure World restore 13.366 → 1.056 µs and complete Sim restore
+30.395 → 17.396 µs; the empty-world control is essentially unchanged. These are
+bookkeeping diagnostics, not frame-rate or full-scene loading claims. Source and
+lockfile attribution, smaller cases and logs are in `game/bench/README.md` and
+`/tmp/exact-game-goal-restore-ownership/`.
+
+All 287 engine tests (2 ignored), three renderer restore tests, engine/render
+all-target Clippy and formatting pass. Skinned web passes in 22.327 s; Linux's
+normal/Save/FreshGame modes pass in 58.887/0.503/0.781 s (normal includes rebuild),
+retaining joint, tick and continuation-save pins. Recorded child exits pass. The
+preceding compact texture-registry experiment is rejected: its observed 5.6 KB
+reduction cost about 31% on the 256-texture reverse-order batch. Original runtime
+storage is restored byte-for-byte; its workload and ownership regression remain.
+Primitive-module isolation, fresh authoring scores and the existing root Keychain
+refusal remain open; no whole-goal completion or clean integrated commit is claimed.

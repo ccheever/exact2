@@ -196,7 +196,10 @@ impl Canvas {
             return None;
         }
         if let Some(error) = error {
-            let error = format!("restore refused: {error}");
+            let error = format!(
+                "restore refused: {}",
+                error.strip_prefix("restore refused: ").unwrap_or(&error)
+            );
             self.restore_error = Some(error.clone());
             self.restore_input = false;
             return Some(error);
@@ -354,7 +357,10 @@ impl Surfaces {
                     }
                 });
                 if let Err(e) = result {
-                    let e = format!("restore refused: {e}");
+                    let e = format!(
+                        "restore refused: {}",
+                        e.strip_prefix("restore refused: ").unwrap_or(&e)
+                    );
                     c.restore_error = Some(e.clone());
                     self.error = Some(e);
                 }
@@ -509,7 +515,7 @@ impl Surfaces {
             // viewport/clock, without trying to render a GPU frame.
             abi.agent(canvas.id,&json!({"op":"state","now":host.now(),"width":node.frame.width,"height":node.frame.height}));
             for (i, id) in children.iter().enumerate() {
-                let mut h = [0.; 10];
+                let mut h = [0.; 16];
                 let code = unsafe {
                     abi.symbol::<unsafe extern "C" fn(u32, u32, *mut f32, usize) -> u32>(
                         b"gpu_placement",
@@ -522,6 +528,10 @@ impl Surfaces {
                             Placement::Visible {
                                 h: h[..9].try_into().unwrap(),
                                 depth: h[9],
+                                clip_depth: [
+                                    h[10..13].try_into().unwrap(),
+                                    h[13..16].try_into().unwrap(),
+                                ],
                                 canvas: view,
                             },
                         );
@@ -545,21 +555,24 @@ impl Surfaces {
                 != 0
         })
     }
-    fn input(&mut self, view: u32, event: Value) {
+    fn input(&mut self, view: u32, event: Value) -> bool {
         if let Some(c) = self.canvases.get_mut(&view) {
             if event["t"] == "key" {
                 let code = event["code"].as_str().unwrap_or_default().to_string();
                 if event["down"] == true {
                     c.held.insert(code);
                 } else if !c.held.remove(&code) {
-                    return;
+                    return true;
                 }
             }
             let abi = self.abi.as_ref().unwrap();
             if abi.text(b"gpu_input", c.id, &event.to_string()) != 0 {
                 self.error = abi.error();
+                return false;
             }
+            return true;
         }
+        false
     }
 }
 impl<D: DataSource> Presenter<D> {
@@ -583,12 +596,96 @@ impl<D: DataSource> Presenter<D> {
         let mut cursor = Some(id);
         while let Some(view) = cursor {
             if self.surfaces.wants_input(view) {
-                self.surfaces.input(view, event);
-                return true;
+                return self.surfaces.input(view, event);
             }
             cursor = self.host.kernel().node(view).and_then(|n| n.parent);
         }
         false
+    }
+    pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
+        let mut cursor = Some(id);
+        while let Some(id) = cursor {
+            let node = self.host.kernel().node(id)?;
+            if node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
+                || self.host.route_visibility(id).1
+            {
+                return None;
+            }
+            if node.props.str(exact_kernel::PropId::Action).is_some() {
+                return Some(id);
+            }
+            cursor = node.parent;
+        }
+        None
+    }
+    pub(crate) fn control_input(
+        &mut self,
+        id: u32,
+        phase: &str,
+        x: f32,
+        y: f32,
+        contact: u32,
+        at: f64,
+    ) -> bool {
+        let Some(name) = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(exact_kernel::PropId::Action))
+            .map(str::to_owned)
+        else {
+            return false;
+        };
+        let Some((ox, oy, _, _)) = self.rect_of(id) else {
+            return false;
+        };
+        self.surface_input(
+            id,
+            json!({"t":"control","name":name,"id":contact,"phase":phase,"x":x-ox,"y":y-oy,"at":at}),
+        )
+    }
+    pub(crate) fn control_tap(&mut self, q: &Value) -> Option<Value> {
+        let phase = q["phase"].as_str();
+        let continuing = phase.is_some_and(|p| p != "down");
+        let (id, sx, sy) = if continuing {
+            self.control_contact?
+        } else {
+            let id = q["id"].as_u64()? as u32;
+            let id = self.control_target(id)?;
+            let (x, y, w, h) = self.rect_of(id)?;
+            (id, x + w / 2., y + h / 2.)
+        };
+        let x = q["x"]
+            .as_f64()
+            .unwrap_or(sx as f64 + q["dx"].as_f64().unwrap_or(0.)) as f32;
+        let y = q["y"]
+            .as_f64()
+            .unwrap_or(sy as f64 + q["dy"].as_f64().unwrap_or(0.)) as f32;
+        if !x.is_finite() || !y.is_finite() {
+            return Some(json!({"error":"control needs finite points"}));
+        }
+        if !continuing && self.hit(x, y).and_then(|hit| self.control_target(hit)) != Some(id) {
+            return Some(json!({"error":"control is covered"}));
+        }
+        if phase == Some("down") && self.control_contact.is_some() {
+            return Some(json!({"error":"a contact is already down"}));
+        }
+        let phases = match phase {
+            None => vec!["down", "up"],
+            Some("hold") => vec!["move"],
+            Some(p @ ("down" | "move" | "up" | "cancel")) => vec![p],
+            _ => return Some(json!({"error":"unknown control phase"})),
+        };
+        for step in phases {
+            if !self.control_input(id, step, x, y, 1, self.host.now()) {
+                return Some(json!({"error":"control surface refused input"}));
+            }
+        }
+        self.control_contact = match phase {
+            Some("down" | "move" | "hold") => Some((id, x, y)),
+            _ => None,
+        };
+        Some(json!({"tapped":id,"phase":phase,"at":[x,y],"delivery":"recognized"}))
     }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
         let mut cursor = Some(id);
@@ -777,13 +874,16 @@ mod tests {
             assert_eq!(c.restore_bytes, Some(vec![1]));
             if refused {
                 assert!(c
-                    .finish_restore(Some("invalid save".into()), None)
+                    .finish_restore(Some("restore refused: invalid save".into()), None)
                     .unwrap()
                     .contains("invalid save"));
                 assert!(c
-                    .finish_restore(Some("invalid save".into()), None)
+                    .finish_restore(Some("restore refused: invalid save".into()), None)
                     .is_none());
-                assert!(c.restore_error.is_some());
+                assert_eq!(
+                    c.restore_error.as_deref(),
+                    Some("restore refused: invalid save")
+                );
                 assert_eq!(c.restore_bytes, Some(vec![1]));
             } else {
                 c.finish_restore(

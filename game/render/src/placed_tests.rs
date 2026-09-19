@@ -283,7 +283,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
 }
 
 #[test]
-fn crossing_near_or_eye_and_beyond_far_never_emit_a_homography() {
+fn css_hides_depth_crossings_while_native_clips_the_visible_nameplate() {
     let size = Vec2::splat(200.);
     let camera = Camera {
         near: 0.1,
@@ -291,10 +291,27 @@ fn crossing_near_or_eye_and_beyond_far_never_emit_a_homography() {
         ..Default::default()
     };
     for (z, width) in [(-0.15, 0.2), (-0.15, 2.), (-11., 1.)] {
-        let mut pose = Transform::at(0., 0., z);
-        pose.rotation = exact_game::Quat::from_rotation_y(0.8);
-        let p = project(
-            Placed::child(0).width(width).facing(Facing::Fixed),
+        let pose = Transform {
+            rotation: exact_game::Quat::from_rotation_y(0.8),
+            ..Transform::at(0., 0., z)
+        };
+        let value = Placed {
+            anchor: [0.5, 0.5],
+            ..Placed::child(0).width(width).facing(Facing::Fixed)
+        };
+        let css = value.project(
+            pose,
+            Vec2::splat(100.),
+            Mat4::IDENTITY,
+            camera.matrix(size),
+            size,
+        );
+        assert!(
+            css.hidden,
+            "CSS cannot cross near or eye: z={z}, width={width}"
+        );
+        let native = project(
+            value,
             pose,
             [0., 0., 100., 100.],
             Mat4::IDENTITY,
@@ -302,22 +319,17 @@ fn crossing_near_or_eye_and_beyond_far_never_emit_a_homography() {
             size,
         )
         .placement;
-        assert!(p.hidden, "z={z}, width={width}");
-        assert_eq!(p.homography, [0.; 9]);
-    }
-    let p = project(
-        Placed::child(0),
-        Transform::at(0., 0., -2.),
-        [0., 0., 100., 100.],
-        Mat4::IDENTITY,
-        camera.matrix(size),
-        size,
-    )
-    .placement;
-    assert!(!p.hidden);
-    let h = p.homography;
-    for (x, y) in [(0., 0.), (100., 0.), (100., 100.), (0., 100.)] {
-        assert!(h[6] * x + h[7] * y + h[8] > 0.);
+        assert_eq!(
+            native.hidden,
+            z < -10.,
+            "walk-up nameplate still intersects native clip volume"
+        );
+        if !native.hidden {
+            let near = native.clip_depth[0];
+            let sides = [near[2], near[0] * 100. + near[2]];
+            assert!(sides.iter().any(|d| *d < 0.) && sides.iter().any(|d| *d > 0.));
+            assert!(native.homography.iter().all(|v| v.is_finite()));
+        }
     }
 }
 
@@ -350,5 +362,143 @@ fn headless_placement_uses_the_displayed_camera_and_plane_sample() {
     assert_eq!(
         p.placement(0).unwrap().homography,
         expected.placement.homography
+    );
+}
+
+#[test]
+fn disjoint_corner_parallelogram_is_not_in_the_viewport() {
+    let pose = Transform {
+        position: Vec3::new(1.75, 1.75, -0.5),
+        rotation: exact_game::Quat::from_rotation_z(3. * std::f32::consts::FRAC_PI_4),
+        scale: Vec3::new(4.5f32.sqrt(), 2f32.sqrt(), 1.),
+    };
+    let p = Placed {
+        anchor: [0.5, 0.5],
+        ..Placed::child(0).facing(Facing::Fixed)
+    }
+    .project(
+        pose,
+        Vec2::splat(100.),
+        Mat4::IDENTITY,
+        Mat4::from_scale(Vec3::new(1., 1., -1.)),
+        Vec2::splat(200.),
+    );
+    assert!(
+        p.hidden,
+        "quad outside the top-right corner has no intersection"
+    );
+}
+
+#[test]
+fn linux_placed_socket_redelivery_snaps_the_new_rig_history() {
+    use exact_game::{
+        asset::{Content, Model, Node},
+        Mesh, Pose, SocketFollow,
+    };
+    struct Rig;
+    impl exact_game::Game for Rig {
+        const ID: &'static str = "placed-redelivery";
+        const ASSETS: &'static [&'static str] = &["rig.model"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    let mut model = Model {
+        nodes: vec![Node {
+            name: "head".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut sim = exact_game::Sim::<Rig>::new(()).unwrap();
+    sim.deliver_asset("rig.model", Ok(Content::Model(model.clone())))
+        .unwrap();
+    let mut pose = Pose::default();
+    pose.previous = exact_game::animation::bind_pose(&model);
+    pose.local = pose.previous.clone();
+    pose.local[0] = 4.;
+    sim.world_mut().spawn_named(
+        "rig",
+        (Transform::default(), Mesh::asset("rig.model"), pose),
+    );
+    sim.world_mut().spawn((
+        Transform::default(),
+        SocketFollow::new("rig", "head"),
+        Placed::child(0),
+    ));
+    sim.world_mut()
+        .spawn((Transform::at(0., 0., 10.), Camera::default()));
+    let saved = sim.world().save();
+    sim.world_mut().load(&saved).unwrap();
+    let mut p = Placements::default();
+    p.child(0, None, [0., 0., 100., 50.]);
+    p.feed(sim.world()).unwrap();
+    p.feed(sim.world()).unwrap();
+    p.headless(Vec2::splat(200.), 0.5);
+    assert!((p.children[0].plane.unwrap().center.x - 2.).abs() < 1e-5);
+    model.nodes[0].transform[13] = 1.;
+    sim.deliver_asset("rig.model", Ok(Content::Model(model)))
+        .unwrap();
+    p.feed(sim.world()).unwrap();
+    p.headless(Vec2::splat(200.), 0.5);
+    assert!(
+        (p.children[0].plane.unwrap().center.x - 4.).abs() < 1e-5,
+        "new rig must snap instead of interpolating old previous pose"
+    );
+}
+
+#[test]
+fn displayed_unresolved_follower_logs_once_and_falls_back() {
+    let mut w = World::new(60, 0);
+    w.spawn_named(
+        "lost-charm",
+        (
+            Transform::at(1., 2., 3.),
+            exact_game::SocketFollow::new("missing-head", "head"),
+        ),
+    );
+    let mut attachments = scene::Attachments::default();
+    let before = w.journal();
+    for _ in 0..3 {
+        attachments.feed(&w, false, false, false, false);
+    }
+    assert_eq!(
+        w.journal().len(),
+        before.len(),
+        "presentation diagnostics must not enter saves"
+    );
+    let errors: Vec<_> = attachments.diagnostics.values().collect();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].contains("lost-charm") && errors[0].contains("missing-head"));
+    attachments.frame(0.5);
+    assert!(attachments.output.is_empty());
+}
+
+#[test]
+fn displayed_stale_follower_logs_once_by_name() {
+    let mut w = World::new(60, 0);
+    w.spawn_named(
+        "head",
+        (
+            Transform::default(),
+            exact_game::Mesh::asset("rig.model"),
+            exact_game::Animation::play("walk"),
+        ),
+    );
+    w.spawn_named(
+        "charm",
+        (
+            Transform::default(),
+            exact_game::SocketFollow::new("head", "head"),
+        ),
+    );
+    let mut a = scene::Attachments::default();
+    for _ in 0..3 {
+        a.feed(&w, false, false, false, false);
+    }
+    let errors: Vec<_> = a.diagnostics.values().collect();
+    assert_eq!(errors.len(), 1);
+    assert!(
+        errors[0].contains("charm") && errors[0].contains("head") && errors[0].contains("stale")
     );
 }

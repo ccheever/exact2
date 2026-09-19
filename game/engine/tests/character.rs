@@ -161,6 +161,63 @@ fn proximity_returns_unborrowed_poses() {
     }
 }
 #[test]
+fn sparse_proximity_survives_holes_reuse_and_predicate_edits() {
+    let mut w = World::new(60, 0);
+    let origin = w.spawn_named("origin", Transform::default());
+    let mut candidates = Vec::new();
+    for i in 0..4_100 {
+        let e = w.spawn(Transform::at((i % 7) as f32, 8., 0.));
+        if i % 63 == 0 {
+            w.insert(e, Beacon::default());
+            candidates.push(e);
+        }
+    }
+    for &e in candidates.iter().step_by(2) {
+        w.despawn(e);
+    }
+    for _ in 0..10 {
+        w.spawn((Beacon::default(), Transform::at(-2., 0., 0.)));
+    }
+    let expected: Vec<_> = w
+        .entities()
+        .filter_map(|e| {
+            let p = w.global_position(e)?;
+            (e != origin && w.has::<Beacon>(e) && p.x.abs() <= 3.).then_some((e, p))
+        })
+        .collect();
+    let nearest = expected
+        .iter()
+        .min_by(|(_, a), (_, b)| (a.x * a.x).total_cmp(&(b.x * b.x)))
+        .unwrap()
+        .0;
+    assert_eq!(
+        w.near_xz::<Beacon>(origin, 3.)
+            .map(|(e, p)| (e, p.position))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(w.nearest_xz::<Beacon>(origin, 3.), Some(nearest));
+    // No column lease survives yielding a copied pose. Later rows see edits.
+    for (e, _) in w.near_xz::<Beacon>(origin, 3.) {
+        w.get_mut::<Beacon>(e).unwrap().lit = true;
+        w.get_mut::<Transform>(e).unwrap().position.y = 0.;
+    }
+    let mut seen = 0;
+    assert_eq!(
+        w.nearest_xz_where::<Beacon>(origin, 3., |b| {
+            seen += 1;
+            b.lit
+        }),
+        Some(nearest)
+    );
+    assert_eq!(seen, expected.len());
+    assert_eq!(w.near::<Beacon>(origin, 3.).count(), expected.len());
+    let saved = w.save();
+    w.load(&saved).unwrap();
+    assert_eq!(w.save(), saved);
+    assert_eq!(w.nearest_xz::<Beacon>("origin", 3.), Some(nearest));
+}
+#[test]
 fn character_external_contact_is_an_event_once() {
     for vy in [0., -1.] {
         let mut c = character();

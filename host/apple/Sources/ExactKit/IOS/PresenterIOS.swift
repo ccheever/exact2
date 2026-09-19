@@ -7,7 +7,7 @@
 import UIKit
 
 final class Presenter {
-    var autofocusProcessed = false
+    var autofocusProcessed: Set<ObjectIdentifier> = []
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.

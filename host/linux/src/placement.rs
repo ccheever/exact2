@@ -8,6 +8,7 @@ pub(crate) enum Placement {
     Visible {
         h: [f32; 9],
         depth: f32,
+        clip_depth: [[f32; 3]; 2],
         canvas: u32,
     },
 }
@@ -52,36 +53,70 @@ pub(crate) fn compose(h: [f32; 9], ts: Transform, x: f32, y: f32) -> [f32; 9] {
     }
     out
 }
-pub(crate) fn bounds(h: &[f32; 9], r: Rect4) -> Rect4 {
-    let corners = [
-        (r.0, r.1),
-        (r.0 + r.2, r.1),
-        (r.0, r.1 + r.3),
-        (r.0 + r.2, r.1 + r.3),
-    ]
-    .map(|(x, y)| map(h, x, y));
-    let lo = corners.iter().fold((f32::INFINITY, f32::INFINITY), |a, p| {
-        (a.0.min(p.0), a.1.min(p.1))
-    });
-    let hi = corners
-        .iter()
-        .fold((f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
-            (a.0.max(p.0), a.1.max(p.1))
-        });
-    (lo.0, lo.1, hi.0 - lo.0, hi.1 - lo.1)
-}
 /// Inverse-map each destination pixel through the full homography, then sample
 /// premultiplied RGBA bilinearly. There is no affine/projective approximation.
 /// Bounding allocation is clipped to the viewport, independently of perspective.
+#[cfg(test)]
 pub(crate) fn warp(
     source: &Pixmap,
     h: [f32; 9],
     scale: f32,
     viewport: (f32, f32),
 ) -> Option<(Pixmap, Rect4)> {
+    warp_clipped(source, h, [[0., 0., 1.]; 2], scale, viewport)
+}
+pub(crate) fn accepts(planes: &[[f32; 3]; 2], x: f32, y: f32) -> bool {
+    planes.iter().all(|p| p[0] * x + p[1] * y + p[2] >= 0.)
+}
+pub(crate) fn clipped_bounds(h: &[f32; 9], planes: [[f32; 3]; 2], r: Rect4) -> Rect4 {
+    let mut points = vec![
+        (r.0, r.1),
+        (r.0 + r.2, r.1),
+        (r.0 + r.2, r.1 + r.3),
+        (r.0, r.1 + r.3),
+    ];
+    for p in [planes[0], planes[1], [h[6], h[7], h[8] - 1e-6]] {
+        let mut next = Vec::new();
+        let Some(mut a) = points.last().copied() else {
+            return (0., 0., 0., 0.);
+        };
+        let d = |v: (f32, f32)| p[0] * v.0 + p[1] * v.1 + p[2];
+        for &b in &points {
+            let (da, db) = (d(a), d(b));
+            if (da >= 0.) != (db >= 0.) {
+                let t = da / (da - db);
+                next.push((a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t));
+            }
+            if db >= 0. {
+                next.push(b);
+            }
+            a = b;
+        }
+        points = next;
+    }
+    if points.is_empty() {
+        return (0., 0., 0., 0.);
+    }
+    let mut lo = (f32::INFINITY, f32::INFINITY);
+    let mut hi = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for (x, y) in points {
+        let q = map(h, x, y);
+        lo = (lo.0.min(q.0), lo.1.min(q.1));
+        hi = (hi.0.max(q.0), hi.1.max(q.1));
+    }
+    (lo.0, lo.1, hi.0 - lo.0, hi.1 - lo.1)
+}
+pub(crate) fn warp_clipped(
+    source: &Pixmap,
+    h: [f32; 9],
+    planes: [[f32; 3]; 2],
+    scale: f32,
+    viewport: (f32, f32),
+) -> Option<(Pixmap, Rect4)> {
     let inv = inverse(h)?;
-    let b = bounds(
+    let b = clipped_bounds(
         &h,
+        planes,
         (
             0.,
             0.,
@@ -107,10 +142,20 @@ pub(crate) fn warp(
             (x0 + (i as u32 % width) as f32 + 0.5) / scale,
             (y0 + (i as u32 / width) as f32 + 0.5) / scale,
         );
-        let (x, y) = (x * scale - 0.5, y * scale - 0.5);
-        if x < -1. || y < -1. || x >= source.width() as f32 || y >= source.height() as f32 {
+        if !accepts(&planes, x, y) || h[6] * x + h[7] * y + h[8] <= 0. {
             continue;
         }
+        let (x, y) = (x * scale, y * scale);
+        if !x.is_finite()
+            || !y.is_finite()
+            || x < 0.
+            || y < 0.
+            || x >= source.width() as f32
+            || y >= source.height() as f32
+        {
+            continue;
+        }
+        let (x, y) = (x - 0.5, y - 0.5);
         let (ix, iy) = (x.floor() as i32, y.floor() as i32);
         let (fx, fy) = (x - x.floor(), y - y.floor());
         let mut rgba = [0.; 4];
@@ -120,10 +165,10 @@ pub(crate) fn warp(
             (0, 1, (1. - fx) * fy),
             (1, 1, fx * fy),
         ] {
-            let (sx, sy) = (ix + dx, iy + dy);
-            if sx < 0 || sy < 0 || sx >= source.width() as i32 || sy >= source.height() as i32 {
-                continue;
-            }
+            let (sx, sy) = (
+                (ix + dx).clamp(0, source.width() as i32 - 1),
+                (iy + dy).clamp(0, source.height() as i32 - 1),
+            );
             let index = (sy as usize * source.width() as usize + sx as usize) * 4;
             for (c, value) in rgba.iter_mut().enumerate() {
                 *value += source.data()[index + c] as f32 * weight;
@@ -142,6 +187,64 @@ pub(crate) fn warp(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn near_clipped_nameplate_retains_visible_pixels_and_rejects_clipped_hits() {
+        let mut src = Pixmap::new(100, 50).unwrap();
+        src.fill(tiny_skia::Color::WHITE);
+        let h = [1., 0., 0., 0., 1., 0., 0., 0., 1.];
+        let clip = [[1., 0., -50.], [0., 0., 1.]];
+        let (out, rect) = warp_clipped(&src, h, clip, 1., (100., 50.)).unwrap();
+        assert_eq!(rect, (50., 0., 50., 50.));
+        assert!(out.data().chunks_exact(4).all(|p| p == [255; 4]));
+        assert_eq!(
+            clipped_bounds(&h, clip, (0., 0., 40., 50.)),
+            (0., 0., 0., 0.)
+        );
+        assert!(!accepts(&clip, 49., 25.));
+        assert!(accepts(&clip, 51., 25.));
+        // An eye crossing is bounded by near before projecting, never by the invalid full quad.
+        let h = [1., 0., 0., 0., 1., 0., 0.02, 0., -0.5];
+        let (out, rect) =
+            warp_clipped(&src, h, [[1., 0., -30.], [0., 0., 1.]], 1., (400., 400.)).unwrap();
+        assert!(out.data().chunks_exact(4).any(|p| p[3] != 0));
+        assert!(rect.0.is_finite() && rect.2 > 0.);
+    }
+    #[test]
+    fn opaque_texel_scaled_to_two_pixels_has_no_transparent_border() {
+        let mut src = Pixmap::new(1, 1).unwrap();
+        src.fill(tiny_skia::Color::from_rgba8(200, 50, 10, 255));
+        let (out, _) = warp(&src, [2., 0., 0., 0., 2., 0., 0., 0., 1.], 1., (2., 2.)).unwrap();
+        assert!(
+            out.data().chunks_exact(4).all(|p| p == [200, 50, 10, 255]),
+            "{:?}",
+            out.data()
+        );
+    }
+
+    #[test]
+    fn projective_quad_preserves_four_distinct_corners() {
+        let mut src = Pixmap::new(40, 40).unwrap();
+        let colors = [
+            [255, 0, 0, 255],
+            [0, 255, 0, 255],
+            [0, 0, 255, 255],
+            [255, 255, 0, 255],
+        ];
+        for (i, p) in src.data_mut().chunks_exact_mut(4).enumerate() {
+            p.copy_from_slice(&colors[usize::from(i % 40 >= 20) + 2 * usize::from(i / 40 >= 20)]);
+        }
+        let h = [2., 0.3, 10., 0.2, 2., 10., 0.02, 0.005, 1.];
+        let (out, b) = warp(&src, h, 1., (100., 100.)).unwrap();
+        for ((x, y), color) in [(2., 2.), (38., 2.), (2., 38.), (38., 38.)]
+            .into_iter()
+            .zip(colors)
+        {
+            let (x, y) = map(&h, x, y);
+            let p = out.pixel((x - b.0) as u32, (y - b.1) as u32).unwrap();
+            assert_eq!([p.red(), p.green(), p.blue(), p.alpha()], color);
+        }
+    }
+
     #[test]
     fn perspective_round_trip_and_quad_pixels() {
         let h = [1.2, 0.2, 10., 0.1, 1., 20., 0.004, 0.002, 1.];

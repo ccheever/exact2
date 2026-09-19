@@ -171,7 +171,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
         session = exact.makeSession(delegate: adapter, label: "main")
-        if agentMode { session.clock = 0 }
+        if agentMode && environment["EXACT_AGENT_TIMING"] != "platform" { session.clock = 0 }
         return true
     }
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {

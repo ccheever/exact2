@@ -427,6 +427,7 @@ impl Surface for StackSurface {
                 homography[2] += 100_000.0;
             }
             card.placement = Some(Placement {
+                clip_depth: [[0., 0., 1.]; 2],
                 hidden: false,
                 homography,
                 depth: card.pose.z,
@@ -570,6 +571,7 @@ mod tests {
         let mut card = CardState::new();
         card.frame = [0., 20., 100., 50.];
         card.placement = Some(Placement {
+            clip_depth: [[0., 0., 1.]; 2],
             homography: [1.; 9],
             depth: -1.,
             hidden: false,

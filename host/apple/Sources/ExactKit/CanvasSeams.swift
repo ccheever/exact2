@@ -21,6 +21,17 @@ extension NodeView {
         }
         return nil
     }
+    var isSurfaceControl: Bool { props["action"] != nil && inputCanvas != nil }
+    @discardableResult
+    func control(_ phase: String, id: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
+        guard let name = props["action"], let canvas = inputCanvas,
+              ["up", "cancel"].contains(phase) || (!disabled && !inert) else { return false }
+        return canvas.canvases?.input(canvas, ["t":"control", "name":name, "phase":phase, "id":id, "x":point.x, "y":point.y], timestamp: timestamp) == true
+    }
+    func controlKey(_ code: String, down: Bool, timestamp: Double? = nil) -> Bool {
+        guard isSurfaceControl, ["Space", "Enter", "NumpadEnter"].contains(code) else { return false }
+        return control(down ? "down" : "up", id: code == "Space" ? 4294967294 : 4294967293, timestamp: timestamp)
+    }
     func forwardsCanvasKey(_ code: String, command: Bool = false) -> Bool {
         guard !disabled, !inert, field == nil, textArea == nil, !command, code != "Tab" else { return false }
         return !(["Space", "Enter", "NumpadEnter"].contains(code)
@@ -56,7 +67,7 @@ extension Canvases {
         failed = error
         if let error { fputs("exact gpu: \(error)\n", stderr); restoreJournal.append(["lines": [error]]) }
         for entry in entries.values {
-            entry.presentable = ok; entry.wants = ok
+            entry.presentable = true; entry.wants = true
             entry.uploaded = false; entry.readAt = -1
             entry.view.needsCapture = true
             if ok { messages(entry) }
@@ -100,7 +111,8 @@ extension Canvases {
         guard e.restorePending else { return }
         if let refusal {
             e.restorePending = false
-            e.restoreError = "surface \(e.name): restore refused: \(refusal)"
+            let reason = refusal.hasPrefix("restore refused: ") ? String(refusal.dropFirst(17)) : refusal
+            e.restoreError = "surface \(e.name): restore refused: \(reason)"
             restoreJournal.append(["canvas": e.view.id, "lines": [e.restoreError!]])
             return
         }
@@ -196,7 +208,7 @@ extension Canvases {
             // Establish the ready world's epoch at delivery, even when occlusion
             // prevents its first presentation. Recovery never moves that clock.
             if delivered, let ask = m.agent,
-               let data = try? JSONSerialization.data(withJSONObject: ["op": "clock", "now": session?.now() ?? 0]) {
+               let data = try? JSONSerialization.data(withJSONObject: m.deliveryClock(now: session?.now() ?? 0)) {
                 data.withUnsafeBytes { _ = ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
             }
         }
@@ -235,7 +247,7 @@ extension Canvases {
     func input(_ e: Entry, _ m: GpuModule, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
         guard let s = session, let send = m.input else { return false }
         if (event["t"] as? String == "key" && event["down"] as? Bool == true)
-            || (event["t"] as? String == "pointer" && event["phase"] as? String == "down") {
+            || (["pointer", "control"].contains(event["t"] as? String ?? "") && event["phase"] as? String == "down") {
             lifecycle.gesture()
         }
         var value = event
@@ -266,8 +278,14 @@ extension Canvases {
             fputs("exact gpu: view \(view): world reply must be an object\n", stderr)
             return nil
         }
-        if request["op"] as? String == "state", let error = e.restoreError, var world = value["world"] as? [String: Any] {
-            world["restoreError"] = error; value["world"] = world
+        if request["op"] as? String == "state", var world = value["world"] as? [String: Any] {
+            if let error = e.restoreError { world["restoreError"] = error }
+            let children = e.view.overlay?.subviews.compactMap { $0 as? NodeView } ?? []
+            world["presentation"] = ["sessionRenders": rendered, "sessionCaptures": captures,
+                "placedChildren": children.filter { $0.placement != nil && !$0.placementHidden }.count,
+                "hiddenChildren": children.filter { $0.placementHidden }.count,
+                "hudChildren": children.filter { $0.placement == nil && !$0.placementHidden }.count]
+            value["world"] = world
         }
         return value
     }

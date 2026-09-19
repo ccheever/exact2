@@ -137,6 +137,23 @@ impl RawStorage {
             .get(index / 64)
             .is_some_and(|word| word & (1 << (index % 64)) != 0)
     }
+    // Membership alone takes no value lease; callers can mutate a yielded row.
+    pub(crate) fn indices<'a>(
+        &'a self,
+        skip: Option<&'a RawStorage>,
+    ) -> impl Iterator<Item = usize> + 'a {
+        self.mask.iter().enumerate().flat_map(move |(word, &bits)| {
+            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
+            std::iter::from_fn(move || {
+                if bits == 0 {
+                    return None;
+                }
+                let index = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                Some(index)
+            })
+        })
+    }
     pub(crate) fn revision(&self) -> u64 {
         self.revision.get()
     }
@@ -244,37 +261,32 @@ impl RawStorage {
         if let Some(w) = &mut full {
             w.begin_seq(self.len);
         }
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let observe = !skip.is_some_and(|s| s.has(i));
-                if !observe && full.is_none() {
-                    continue;
-                }
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                let value = self.ptr(i);
-                if let Some(w) = &mut full {
-                    w.item();
-                    w.begin_seq(2);
-                    w.item();
-                    entity(i).write(*w);
-                    w.item();
-                    if observe {
-                        out.push((
-                            i,
-                            w.with_observation_by(|w| unsafe { (self.desc.write)(value, w) }),
-                        ));
-                    } else {
-                        unsafe { (self.desc.write)(value, *w) };
-                    }
-                    w.end_seq();
+        for i in self.indices(None) {
+            let observe = !skip.is_some_and(|s| s.has(i));
+            if !observe && full.is_none() {
+                continue;
+            }
+            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            let value = self.ptr(i);
+            if let Some(w) = &mut full {
+                w.item();
+                w.begin_seq(2);
+                w.item();
+                entity(i).write(*w);
+                w.item();
+                if observe {
+                    out.push((
+                        i,
+                        w.with_observation_by(|w| unsafe { (self.desc.write)(value, w) }),
+                    ));
                 } else {
-                    let mut w = crate::hash::Hasher::default();
-                    unsafe { (self.desc.write)(value, &mut w) };
-                    out.push((i, w.finish()));
+                    unsafe { (self.desc.write)(value, *w) };
                 }
+                w.end_seq();
+            } else {
+                let mut w = crate::hash::Hasher::default();
+                unsafe { (self.desc.write)(value, &mut w) };
+                out.push((i, w.finish()));
             }
         }
         if let Some(w) = &mut full {
@@ -284,17 +296,9 @@ impl RawStorage {
 
     pub(super) fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         let _lease = self.lease(false);
-        self.mask.iter().enumerate().any(|(word, &bits)| {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                if unsafe { (self.desc.moving)(self.ptr(i), now) } {
-                    return true;
-                }
-            }
-            false
+        self.indices(skip.map(|s| &s.raw)).any(|i| {
+            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            unsafe { (self.desc.moving)(self.ptr(i), now) }
         })
     }
     pub(super) fn visit_moving(
@@ -304,15 +308,10 @@ impl RawStorage {
         visit: &mut dyn FnMut(usize) -> bool,
     ) {
         let _lease = self.lease(false);
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence and shared lease protect this slot.
-                if unsafe { (self.desc.moving)(self.ptr(i), now) } && !visit(i) {
-                    return;
-                }
+        for i in self.indices(skip.map(|s| &s.raw)) {
+            // SAFETY: presence and shared lease protect this slot.
+            if unsafe { (self.desc.moving)(self.ptr(i), now) } && !visit(i) {
+                return;
             }
         }
     }
@@ -323,34 +322,24 @@ impl RawStorage {
     ) -> Option<u64> {
         let _lease = self.lease(false);
         let mut at = now.tick;
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
-            while bits != 0 {
-                let i = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: presence proves initialization; the shared lease excludes writers.
-                at = at.max(unsafe { (self.desc.settle)(self.ptr(i), now) }?);
-            }
+        for i in self.indices(skip.map(|s| &s.raw)) {
+            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            at = at.max(unsafe { (self.desc.settle)(self.ptr(i), now) }?);
         }
         Some(at)
     }
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);
         w.begin_seq(self.len);
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let index = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                w.item();
-                w.begin_seq(2);
-                w.item();
-                entity(index).write(w);
-                w.item();
-                // SAFETY: the bit proves initialization and the shared lease excludes writers.
-                unsafe { (self.desc.write)(self.ptr(index), w) };
-                w.end_seq();
-            }
+        for index in self.indices(None) {
+            w.item();
+            w.begin_seq(2);
+            w.item();
+            entity(index).write(w);
+            w.item();
+            // SAFETY: the bit proves initialization and the shared lease excludes writers.
+            unsafe { (self.desc.write)(self.ptr(index), w) };
+            w.end_seq();
         }
         w.end_seq();
     }
@@ -413,15 +402,10 @@ impl RawStorage {
 }
 impl Drop for RawStorage {
     fn drop(&mut self) {
-        for (word, &bits) in self.mask.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let index = word * 64 + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                // SAFETY: each presence bit owns one initialized value; no lease
-                // survives the owner. Bytes subsequently deallocates the pages.
-                unsafe { (self.desc.drop_in_place)(self.ptr(index)) };
-            }
+        for index in self.indices(None) {
+            // SAFETY: each presence bit owns one initialized value; no lease
+            // survives the owner. Bytes subsequently deallocates the pages.
+            unsafe { (self.desc.drop_in_place)(self.ptr(index)) };
         }
     }
 }

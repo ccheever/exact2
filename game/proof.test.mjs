@@ -2,9 +2,9 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {agreePins, webUnavailable, pinRecorder, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt} from './proof.mjs';
+import {agreePins, comparePlacement, webUnavailable, pinRecorder, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt} from './proof.mjs';
 import {checkSteadyResidency} from './games/asset-fixture/residency.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
 
 test('held keys release the original carrier and retain partial failure steps', async () => {
   const calls = [], node = {id:17};
@@ -382,9 +382,9 @@ test('pin failure gives the one regeneration command; collection bypasses only o
   expect(calls.at(-1)).toEqual(['pin 60 repeated consistently',false]);
 });
 test('facility report connects observed stalls/refusals to unused operations', () => {
-  expect(facilityReport([{method:'clock',reply:{settled:false}},{method:'tap',error:'hidden behind camera'}]).join(' ')).toContain('layout unused');
-  expect(facilityReport([{method:'layout'},{method:'tap',error:'hidden behind camera'}]).join(' ')).not.toContain('layout unused');
-  expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual([]);
+  expect(facilityReport([{method:'clock',reply:{settled:false}},{method:'tap',args:['sign'],error:'hidden behind camera'}]).join(' ')).toContain('layout unused');
+  expect(facilityReport([{method:'layout',args:['sign'],reply:{}},{method:'tap',args:['sign'],error:'hidden behind camera'}]).join(' ')).not.toContain('layout unused');
+  expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual(['no recorded stalls or refusals']);
 });
 
 test('hidden placed-child refusal uses observed camera visibility and names layout', async () => {
@@ -392,7 +392,7 @@ test('hidden placed-child refusal uses observed camera visibility and names layo
     state:async name=>{calls.push(name);return {entity:{placed:{hidden:true}}};},
     layout:async name=>({entity:{visible:{behindCamera:true}}})};
   const error=await tapRefusal(s,'sign',new Error('no view matches sign'));
-  expect(error.message).toContain('hidden (behind the camera): layout world:sign shows the placed box');
+  expect(error.message).toContain('hidden (behind the camera): layout world:sign --json shows visibility');
   expect(calls).toEqual(['world:sign']);
 });
 
@@ -406,6 +406,149 @@ test('tap diagnostics never manufacture a missing-entity refusal for a UI-only t
   const s={tree:async target=>target?{entities:[{name:'sign'}]}:{nodes:[{id:7,world:{}}]},
     state:async()=>{queried++;throw new Error('must not query an unobserved name');}};
   const error=await tapRefusal(s,'play',new Error('restore refused'));
-  expect(error.message).toStartWith('restore refused; layout play');
+  expect(error.message).toBe('restore refused');
   expect(queried).toBe(0);
+});
+
+
+test('layout CLI names behind-camera and unavailable projection without undefined coordinates', () => {
+  const text=render('layout',{entity:{name:'sign',screen:{unavailable:true},visible:{behindCamera:true,inFrustum:false}}});
+  expect(text).toContain('behindCamera'); expect(text).toContain('screen unavailable'); expect(text).not.toContain('undefined');
+});
+test('facility use must succeed and answer the relevant refusal', () => {
+  const failed={method:'tap',args:['sign'],error:'sign is hidden (behind the camera)'};
+  for(const call of [{method:'layout',args:['other'],reply:{}},{method:'layout',args:['sign'],error:'unavailable'}])
+    expect(facilityReport([failed,call]).join(' ')).toContain('layout unused');
+  expect(facilityReport([failed,{method:'layout',args:['world:sign'],reply:{entity:{}}}]).join(' ')).not.toContain('layout unused');
+  expect(facilityReport([{method:'tap',args:['hitbox'],error:'restore refused'}]).join(' ')).not.toContain('layout');
+  expect(facilityReport([{method:'tap',error:'assets pending'},{method:'state',args:['world:player'],reply:{}}]).join(' ')).toContain('state unused');
+  expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual(['no recorded stalls or refusals']);
+});
+
+
+test('stale-build repair command names the rejected web dist', () => {
+  const dist=mkdtempSync(resolve(tmpdir(),'r8b-dist-'));
+  try { expect(()=>assertWebDistApp(dist,{id:'com.test',dir:'/app',crate:()=> 'test-web'})).toThrow(`EXACT_WEB_DIST='${dist}'`); }
+  finally { rmSync(dist,{recursive:true,force:true}); }
+});
+test('repin refuses manifest normalization before writing authored files', async () => {
+  const {gameDefaults}=await import('./app/shells.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'r8b-manifest-'));
+  const before=process.env.EXACT_PROOF_REPIN;
+  try {
+    mkdirSync(resolve(dir,'logic/src'),{recursive:true});
+    writeFileSync(resolve(dir,'logic/src/lib.rs'),`impl Game for Test { const ID: &'static str = "fixture"; }`);
+    writeFileSync(resolve(dir,'app.json'),'{}');
+    process.env.EXACT_PROOF_REPIN='1';
+    expect(()=>gameDefaults(dir)).toThrow('repin refused: manifest normalization would write');
+    expect(readFileSync(resolve(dir,'app.json'),'utf8')).toBe('{}');
+  } finally { if(before===undefined) delete process.env.EXACT_PROOF_REPIN; else process.env.EXACT_PROOF_REPIN=before; rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('direct placement comparison rejects two hosts passing a two-pixel oracle', () => {
+  const a={initial:{x:0,y:0,w:10,h:10},moving:{x:5,y:5,w:10,h:10}}, b=structuredClone(a);
+  expect(comparePlacement(a,b)).toBe(true);
+  b.moving.x+=1.31;
+  expect(()=>comparePlacement(a,b)).toThrow('placement parity moving.x');
+  b.moving.x=a.moving.x+0.5;
+  expect(comparePlacement(a,b)).toBe(true);
+});
+
+for (const scenario of ['report','repin']) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
+  const name=`r8b-tooling-${process.pid}`, app=resolve(import.meta.dir,'games',name);
+  const pins={ticks:{1:'0x123456789abcdef0'},saves:{continuation:'a'.repeat(64)}};
+  mkdirSync(app);
+  try {
+    writeFileSync(resolve(app,'pins.json'),JSON.stringify(pins));
+    writeFileSync(resolve(app,'proof.mjs'),`
+      import {mkdirSync,writeFileSync} from 'node:fs';
+      const out=process.env.EXACT_PROOF_OUT, host=process.argv[2];
+      mkdirSync(out,{recursive:true});
+      const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web');
+      const row={name:${JSON.stringify(name)},host,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
+      writeFileSync(out+'/summary.json',JSON.stringify(row));
+      if(host==='web') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
+      process.exit(failed?1:0);
+    `);
+    const run=async(args,extra={})=>{
+      const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),name,...args],{env:{...process.env,...extra},stdout:'pipe',stderr:'pipe'});
+      const [code,stdout,stderr]=await Promise.all([p.exited,new Response(p.stdout).text(),new Response(p.stderr).text()]);
+      return {code,text:stdout+stderr};
+    };
+    if (scenario === 'report') {
+    const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
+    expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
+    const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
+    expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
+    } else {
+    const refused=await run(['--repin']);
+    expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
+    const allowed=await run(['--repin','--hosts','linux']);
+    expect(allowed.code).toBe(0);
+    const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
+    expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
+    }
+  } finally { rmSync(app,{recursive:true,force:true}); }
+});
+
+
+test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
+  const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
+  const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
+  const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
+  const clock=new Function('s',`return ({${source.slice(a,b)}}).clock;`)(s);
+  const reply=await clock();
+  expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
+  expect(reply.diagnostic).toContain('state world:* busy');
+  expect(reply.diagnostic).toContain('state shows held input');
+  expect(reply.diagnostic).toContain('logs shows reload/refusals');
+});
+
+test('game pin literals stay in pins files, not README or renderer expectations', () => {
+  for (const path of ['README.md','render/README.md','audio/README.md','render/src/surface_tests.rs']) {
+    expect(readFileSync(resolve(import.meta.dir,path),'utf8')).not.toMatch(/0x[0-9a-f]{16}|`[0-9a-f]{64}`/);
+  }
+});
+test('moving placement oracle rejects the old 1.31 pixel discrepancy', () => {
+  const source=readFileSync(resolve(import.meta.dir,'games/placement-fixture/proof.mjs'),'utf8');
+  const line=source.split('\n').find(s=>s.includes("check('moving displayed sign"));
+  const projected={x:492.88443,y:285.10403,w:93.112885,h:38.104492};
+  let accepted;
+  new Function('check','projected','after',line)((_,ok)=>accepted=ok,projected,{...projected,x:projected.x+1.31});
+  expect(accepted).toBe(false);
+});
+test('paranoid placement pins the reconstructed endpoint with the same half pixel limit', () => {
+  const source=readFileSync(resolve(import.meta.dir,'games/placement-fixture/proof.mjs'),'utf8');
+  const declaration=source.split('\n').find(s=>s.includes('const projected='));
+  const checkLine=source.split('\n').find(s=>s.includes("check('moving displayed sign"));
+  const run=new Function('check','projected','after',checkLine);
+  for(const mode of ['0','1','fresh-game']) {
+    const projected=new Function('process',`${declaration};return projected;`)({env:{EXACT_GAME_PARANOID:mode}});
+    expect(projected.x).toBe(mode==='0'?492.88443:494.20934);
+    let accepted;
+    run((_,ok)=>accepted=ok,projected,{...projected,x:projected.x+0.49});expect(accepted).toBe(true);
+    run((_,ok)=>accepted=ok,projected,{...projected,x:projected.x+0.51});expect(accepted).toBe(false);
+  }
+});
+
+
+test('forty-child capture does not mislabel painter timing as CPU cost', async () => {
+  const source=readFileSync(resolve(import.meta.dir,'games/placement-fixture/proof.mjs'),'utf8');
+  const a=source.indexOf("  if(process.argv.includes('--capture40')) {"),b=source.indexOf('  const start=',a);
+  const messages=[];
+  const session={tap:async()=>{},clock:async()=>{},screenshot:async()=>{},logs:async()=>[],close:async()=>{},
+    state:async()=>{throw new Error('paint.ms does not establish CPU cost');},world:()=>({snapshot:async()=>({entities:Array.from({length:40},()=>({components:{Placed:{}}}))})})};
+  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+  await new AsyncFunction('process','open','resolve','out','host','say','check',source.slice(a,b))(
+    {argv:['--capture40']},async()=>session,resolve,'/tmp','linux',s=>messages.push(s),(name,ok)=>expect(ok).toBe(true));
+  expect(messages.join(' ')).toContain('no CPU-cost claim');
+});
+
+
+test('report does not count diagnostics from another session or infer geometry from asset names', () => {
+  expect(facilityReport([{session:1,method:'tap',args:['play'],error:'restore refused: asset hidden.model pending'}]).join(' ')).not.toContain('layout');
+  expect(facilityReport([{session:1,method:'tap',args:['sign'],error:'sign is hidden'}, {session:2,method:'layout',args:['sign'],reply:{}}]).join(' ')).toContain('layout unused');
+  expect(facilityReport([{session:1,method:'clock',reply:{settled:false}}, {session:1,method:'state',args:['world:*',null,false,true],reply:{busy:[]}}]).join(' ')).not.toContain('state unused');
 });

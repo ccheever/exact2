@@ -57,6 +57,21 @@ pub enum InputEvent {
         /// Host clock in milliseconds.
         at_ms: f64,
     },
+    /// A canvas child feeding a named surface action, in control-local points.
+    Control {
+        /// The child's declared action.
+        name: String,
+        /// Host contact identifier.
+        id: u32,
+        /// Contact phase.
+        phase: PointerPhase,
+        /// Horizontal point inside the control.
+        x: f32,
+        /// Vertical point inside the control.
+        y: f32,
+        /// Host clock in milliseconds.
+        at_ms: f64,
+    },
     /// A wheel at a point in the canvas.
     Wheel {
         /// Horizontal delta.

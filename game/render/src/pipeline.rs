@@ -127,6 +127,7 @@ impl Pipelines {
                 storage(2, wgpu::ShaderStages::VERTEX),
                 storage(3, wgpu::ShaderStages::VERTEX_FRAGMENT),
                 storage(4, wgpu::ShaderStages::VERTEX),
+                storage(5, wgpu::ShaderStages::VERTEX),
             ],
         );
         let tone_layout = layout(

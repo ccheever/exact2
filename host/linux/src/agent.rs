@@ -157,6 +157,11 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id()),
         Some("tap") => {
+            if let Ok(q) = serde_json::from_str(line) {
+                if let Some(reply) = p.control_tap(&q) {
+                    return reply.to_string();
+                }
+            }
             // A held contact (LLP 1035.003 D1) rides evdev when that carrier
             // lands (LLP 1015's lane); until then it is unsupported, said so.
             if field_str(line, "phase").is_some() {

@@ -85,37 +85,42 @@ pub async fn recover(
         if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
             return Err("recovery canvas table mismatch".into());
         }
-        // Detach old contexts before replacing their bindings. The wgpu Instance
-        // itself survives, so no surface is ever configured by another instance.
-        let targets: Vec<_> = ids
-            .iter()
-            .zip(canvases)
-            .map(|(id, canvas)| {
-                let inst = module.instances.get_mut(id).unwrap();
-                let config = inst.presentation.take().map(|p| p.1);
-                (*id, canvas, config)
-            })
-            .collect();
         module.recover().await?;
-        for (id, canvas, config) in targets {
-            if let Some(config) = config {
-                let gpu = module.gpu.as_ref().ok_or("no device")?;
-                let target = gpu
-                    .instance
-                    .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-                    .map_err(|e| e.to_string())?;
-                target.configure(&gpu.device, &config);
-                let inst = module.instances.get_mut(&id).unwrap();
-                inst.surface.device_ready();
-                inst.surface
-                    .prepare_assets(&gpu.device, &gpu.queue, config.format);
-                inst.presentation = Some((target, config));
-            }
+        // Stage the whole replacement table. Configurations remain on instances,
+        // even when adapter creation, attachment, or a second loss fails.
+        let gpu = module.gpu.as_ref().ok_or("no device")?;
+        let mut targets = Vec::new();
+        for (id, canvas) in ids.iter().zip(canvases) {
+            let config = module.instances[id]
+                .config
+                .as_ref()
+                .ok_or("missing presentation configuration")?;
+            let target = gpu
+                .instance
+                .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                .map_err(|e| e.to_string())?;
+            target.configure(&gpu.device, config);
+            targets.push((*id, target));
+        }
+        for (id, target) in targets {
+            let inst = module.instances.get_mut(&id).unwrap();
+            let config = inst.config.as_ref().unwrap();
+            inst.surface.device_ready();
+            inst.surface
+                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+            inst.presentation = Some(target);
+        }
+        if module
+            .device_lost
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("replacement device was lost during recovery".into());
         }
         Ok(module.recovery_report())
     }
     .await;
     if let Err(error) = &result {
+        module.lose_device();
         module.error = format!("device recovery: {error}");
     }
     MODULE.with(|m| *m.borrow_mut() = Some(module));

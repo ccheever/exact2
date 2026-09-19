@@ -22,7 +22,7 @@ values. Model node determinant parity selects the matching front face in forward
 reverse-Z is unsupported. Capsule height is tip-to-tip.
 
 `max_slots()` is an exclusive limit from granted storage binding/buffer limits and
-48-byte materials. Writes and batch changes return named `RenderError`s before
+64-byte affine attachments. Writes and batch changes return named `RenderError`s before
 mutation on capacity refusal. Incomplete records/invalid meshes are caller errors.
 Arenas grow with GPU copies and never shrink. `Stats.instances/triangles` describe
 the forward scene; `draws` includes all passes; `texture_creations` is cumulative.
@@ -325,7 +325,15 @@ pipelines prepare with the asset-capable renderer before its ready boundary.
 
 `Placed` feeds displayed plane geometry to the host's child-composition seam.
 Browser children use CSS homographies; native children share the quad pass and
-world depth. Socket attachments use the interpolated local joint chain.
+world depth. Side visibility clips the whole polygon against the viewport. CSS
+hides a near/eye-plane crossing; native submits the quad to the clip volume and
+Linux's software warp/hits apply the same near/far planes. A walk-up nameplate
+therefore keeps its visible portion on native/Linux. Socket attachments retain the
+full affine matrix from interpolated local joints, including non-uniform-scale shear.
+The GPU palette oracle compares every matrix element at alpha 0, 0.5 and 1; a pixel
+regression compares an attached cube with directly transformed vertices.
+Simulation goldens live in each fixture's [pins.json](../games/skinned-fixture/pins.json),
+not in this README.
 See [placement geometry](src/placed.rs), [tests](src/placed_tests.rs), and the
 [fixture](../games/placement-fixture/README.md). `ChildrenMode` distinguishes
 host overlay, a composite subtree with optional history, and individual children.

@@ -25,6 +25,8 @@ pub enum InputEvent {
     Wheel(f32, f32),
     /// A key went down: the character it types, or a control key.
     Key(Key),
+    /// Space/Enter press edges for focused Contract controls.
+    Activation { code: u16, down: bool },
 }
 
 /// A key that matters to an input.
@@ -167,6 +169,7 @@ impl Input {
                             // touchscreen). Both are a primary press.
                             0x110 | 0x14a => out.push(InputEvent::Button(down)),
                             42 | 54 => self.shift = down,
+                            28 | 57 => out.push(InputEvent::Activation { code, down }),
                             _ if down => {
                                 if let Some(k) = key(code, self.shift) {
                                     out.push(InputEvent::Key(k));

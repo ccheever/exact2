@@ -88,6 +88,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         message: e.message,
         span: e.span,
     })?;
+    check_controls(&expanded.root.view, false)?;
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };
@@ -345,6 +346,47 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                 ),
                 span,
             );
+        }
+    }
+    Ok(())
+}
+
+// Check the expanded tree: a component can supply a canvas's controls.
+fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
+    for node in nodes {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                for attr in attrs.iter().filter(|a| a.name == "action") {
+                    if !in_canvas || tag != "button" {
+                        return err(
+                            "analyze-control-parent",
+                            "`action` requires a button inside a canvas",
+                            attr.span,
+                        );
+                    }
+                }
+                check_controls(children, in_canvas || tag == "canvas")?;
+            }
+            Node::Provide { body, .. } | Node::Each { body, .. } => {
+                check_controls(body, in_canvas)?
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                check_controls(then, in_canvas)?;
+                check_controls(otherwise, in_canvas)?;
+            }
+            Node::Match { some, none, .. } => {
+                check_controls(&some.1, in_canvas)?;
+                check_controls(none, in_canvas)?;
+            }
+            Node::Use { children, .. } => check_controls(children, in_canvas)?,
+            Node::Children { .. } => {}
         }
     }
     Ok(())

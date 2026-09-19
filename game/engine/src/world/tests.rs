@@ -31,6 +31,75 @@ fn registration_links_only_declared_storage_kinds() {
 }
 use crate::{Component, Transform, Vec3};
 
+#[test]
+fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
+    use crate::asset::AssetState;
+    let mut world = World::new(60, 0);
+    world.spawn_named("retained", Transform::default());
+    world.assets.request("pending.model");
+    world
+        .assets
+        .models
+        .insert("ready.model".into(), crate::asset::Model::default().into());
+    world
+        .assets
+        .states
+        .insert("ready.model".into(), AssetState::Loaded);
+    world.assets.declared.insert("ready.model".into());
+    world.assets.required.insert("ready.model".into());
+    world.assets.requested.insert("pending.model".into());
+    world.assets.prepared.insert("ready.model".into());
+    world.assets.redelivery.insert("pending.model".into());
+    world
+        .assets
+        .dependencies
+        .insert("ready.model".into(), vec!["ready.tex".into()]);
+    world.assets.retired.push("retired.model".into());
+    world.assets.refusal = Some(("refused.model".into(), "reason".into()));
+    let saved = world.save();
+    let names: Vec<_> = world.assets.states.keys().map(|n| n.as_ptr()).collect();
+    let check = |world: &World| {
+        assert_eq!(world.save(), saved);
+        assert_eq!(
+            world
+                .assets
+                .states
+                .keys()
+                .map(|n| n.as_ptr())
+                .collect::<Vec<_>>(),
+            names
+        );
+        assert!(world.model("ready.model").is_some());
+        assert_eq!(world.loading().collect::<Vec<_>>(), Vec::<&str>::new());
+        assert!(world.assets.requested.contains("pending.model"));
+        assert!(world.assets.prepared.contains("ready.model"));
+        assert!(world.assets.redelivery.contains("pending.model"));
+        assert_eq!(
+            world.assets.dependencies.get("ready.model").unwrap(),
+            &["ready.tex"]
+        );
+        assert_eq!(world.assets.retired, ["retired.model"]);
+        assert_eq!(world.assets.refusal.as_ref().unwrap().1, "reason");
+    };
+    let mut trailing = saved.clone();
+    trailing.push(0);
+    let mut cyclic = World::new(60, 0);
+    let entity = cyclic.spawn(Transform::default());
+    cyclic.insert(entity, Parent(entity));
+    world.register::<Parent>();
+    for invalid in [
+        b"bad".to_vec(),
+        saved[..saved.len() - 1].to_vec(),
+        trailing,
+        cyclic.save(),
+    ] {
+        assert!(world.load(&invalid).is_err());
+        check(&world);
+    }
+    world.load(&saved).unwrap();
+    check(&world);
+}
+
 #[derive(Default, Component)]
 struct Velocity(Vec3);
 fn churn(w: &mut World, ticks: u32) {

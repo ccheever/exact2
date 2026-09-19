@@ -513,6 +513,21 @@ extension Agent {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
+            let phase = req["phase"] as? String
+            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard v.becomeFirstResponder() else { return ["error":"control cannot take focus"] }
+            for step in phase.map({ [$0] }) ?? ["down", "up"] {
+                guard v.controlKey(code, down: step == "down") else { return ["error":"control \(v.props["action"] ?? "") refused input"] }
+            }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak v] in
+                    guard let v else { return ["phase":"up", "delivery":"recognized"] }
+                    return v.controlKey(code, down: false) ? ["phase":"up", "delivery":"recognized"] : ["error":"control refused release"]
+                }
+            }
+            return ["typed":v.id, "key":key, "delivery":"recognized"]
+        }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
@@ -524,12 +539,13 @@ extension Agent {
            v.forwardsCanvasKey(device.code) {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
             let phase = req["phase"] as? String
+            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
-                session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false])
+                guard session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else { return ["error":"surface refused key"] }
             }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak self, weak canvas] in
-                    if let self, let canvas { self.session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) }
+                    if let self, let canvas { guard self.session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) else { return ["error":"surface refused key release"] } }
                     return ["phase": "up", "delivery": "recognized"]
                 }
             }

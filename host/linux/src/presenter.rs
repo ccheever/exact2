@@ -54,6 +54,7 @@ pub struct Presenter<D: DataSource> {
     focus: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
+    pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
     /// A failed painter's blank fallback cannot bless an update generation.
@@ -301,6 +302,7 @@ impl<D: DataSource> Presenter<D> {
             focus: None,
             autofocus_processed: Default::default(),
             pointer: None,
+            control_contact: None,
             boxes: Vec::new(),
             dirty: true,
             surfaces: Default::default(),
@@ -1049,7 +1051,8 @@ impl<D: DataSource> Presenter<D> {
     fn focusable(&self, id: ViewId) -> bool {
         self.host.kernel().node(id).is_some_and(|n| {
             n.props.bool(PropId::Disabled) != Some(true)
-                && (n.node_type == NodeType::TextInput
+                && (n.props.str(PropId::Action).is_some()
+                    || n.node_type == NodeType::TextInput
                     || n.props.str(PropId::AccessibilityRole) == Some("button"))
         })
     }
@@ -1059,6 +1062,12 @@ impl<D: DataSource> Presenter<D> {
     /// else drops it). Returns the node pressed, if any.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
+        if let Some(control) = self.control_target(hit) {
+            for phase in ["down", "up"] {
+                self.control_input(control, phase, x, y, 1, now_ms);
+            }
+            return Some(control);
+        }
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -1093,7 +1102,16 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+        let (x, y) = b.center();
+        let mut hit = self.hit(x, y);
+        while hit.is_some() && hit != Some(id) {
+            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
+        }
+        if hit != Some(id) {
+            return Err(format!(
+                "view {id} is covered or not hit at its projected center"
+            ));
+        }
         let now = self.host.now();
         self.press_at(x, y, now);
         Ok(format!(
@@ -1245,6 +1263,29 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .ok_or_else(|| format!("no view {id}"))?;
+        if node.props.bool(PropId::Disabled) == Some(true) || self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is disabled or inert"));
+        }
+        if node.props.str(PropId::Action).is_some() && matches!(key, "Space" | "Enter") {
+            self.focus = Some(id);
+            let (x, y, _, _) = self.rect_of(id).ok_or("control has no box")?;
+            return if self.control_input(
+                id,
+                if down { "down" } else { "up" },
+                x,
+                y,
+                if key == "Space" {
+                    u32::MAX - 1
+                } else {
+                    u32::MAX - 2
+                },
+                self.host.now(),
+            ) {
+                Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
+            } else {
+                Err(format!("control {id} refused input"))
+            };
+        }
         let editable = node.node_type == NodeType::TextInput;
         let activation = matches!(key, "Space" | "Enter")
             && matches!(
@@ -1313,6 +1354,12 @@ impl<D: DataSource> Presenter<D> {
 
     /// Drop focus.
     pub fn blur(&mut self) {
+        if let Some((id, _, _)) = self.control_contact.take() {
+            self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
+        }
+        if let Some(id) = self.focus {
+            self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
+        }
         if self.focus.take().is_some() {
             self.dirty = true;
         }
