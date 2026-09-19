@@ -531,7 +531,7 @@ impl TextEngine {
             return (key, self.paragraphs.spec(key).expect("checked identity"));
         }
         let spec = build();
-        let key = self.paragraphs.identity(&spec);
+        let key = self.paragraphs.identity_owned(spec);
         self.paragraphs.bind(stamp, key);
         (key, self.paragraphs.spec(key).expect("new identity"))
     }

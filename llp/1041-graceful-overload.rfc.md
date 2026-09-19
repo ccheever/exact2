@@ -7533,3 +7533,48 @@ source03 `804981fb`, hit addendum `ad36c9bd`, test bytes `66351f83`, final log
 `02395023` and release `6a352327`. The earlier failures and§8.122's candidate
 archive remain preserved; this is diagnostic closure, not native readiness
 or a performance result.
+
+### 8.138 Move eligible owned text into a new cache identity, 2026-09-19
+
+A cold identified text request previously constructed an owned `Spec`, cloned
+its runs and strings into the canonical cache identity, then discarded the
+temporary. The Linux text engine now moves that temporary into the canonical
+`Arc` on a new identity. Borrowed and owned inputs share the original lookup;
+fingerprint, exact equality, clock/serial updates and trim-before-insert order
+are preserved. An equal-content hit retains the existing canonical identity.
+
+The move requires the runs vector and every run/strut string to have capacity
+equal to length. Spare-capacity inputs keep the old clone path because capacity
+is charged by the cache: moving arbitrary spare storage would change eviction
+accounting. Borrowed callers also retain their original clone behavior. No
+cache limit, cold eviction policy, stamp qualification, shaping, layout, font
+work or accepted-owner lifetime changes.
+
+Six new tests run against identical fixtures with old and new production.
+The baseline passes four controls and fails two source-copy counts. A real
+Kernel-derived Unicode request copies82 bytes instead of the required41;
+the candidate copies41. A separate styled, owned builder copies37 bytes on
+baseline and zero on candidate. These counters cover host `Run::from_style`
+and `Run::clone` UTF-8 bytes only, not all text-library allocations or memory.
+Independent borrowed engines match metrics, baselines, glyph data and RGBA
+before those count assertions. Tests also check actual old-clone capacities,
+spare-capacity fallback, eviction accounting, equal-content identities, empty
+inputs and independently retained old/new paragraph owners.
+
+Candidate focused6, complete identified16 and residency32 tests pass:48
+distinct tests across54 candidate executions. Strict all-targets Linux-package
+Clippy and scoped formatting pass. Both production files are byte-identical
+to their compiled versions; subsequent test formatting changes only whitespace
+and optional trailing commas. A lifetime fixture was corrected before execution:
+`clear()` intentionally preserves pinned identities, so the test must also drop
+the engine/cache owner before asserting retirement at the last external owner.
+The earlier source-only fixture remains preserved, with no executed failure
+claimed for it. All63 recorded PIDs and seven groups are absent.
+
+Integration uses exactly `text.rs`, `text/cache.rs` and
+`text/identified_tests.rs`, from base `5300a42`. Evidence is under
+`exact2-linux-owned-text-spec/target/owned-text-spec-validation/freeze-final`:
+source `55c6e09c`, full patch `506937d2`, production patch `9c29bdef` and
+report `a70b1e67`. This removes a demonstrated copy on an eligible cold path;
+the earlier82-callback observations do not quantify its frequency or cost.
+Native latency, throughput and120Hz benefit remain unmeasured.

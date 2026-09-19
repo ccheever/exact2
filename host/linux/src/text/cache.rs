@@ -20,6 +20,7 @@
 //! added to the existing cold-paragraph budget. Catalog replacement drops all.
 use super::{Paragraph, Run, ShapedSource, Spec};
 use exact_kernel::{ParagraphStamp, TextMetrics};
+use std::borrow::Cow;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
@@ -322,12 +323,18 @@ impl Cache {
     }
 
     pub fn identity(&mut self, spec: &Spec) -> (u64, u64) {
-        let hash = fingerprint(spec);
+        self.identity_input(Cow::Borrowed(spec))
+    }
+    pub fn identity_owned(&mut self, spec: Spec) -> (u64, u64) {
+        self.identity_input(Cow::Owned(spec))
+    }
+    fn identity_input(&mut self, spec: Cow<'_, Spec>) -> (u64, u64) {
+        let hash = fingerprint(&spec);
         self.clock += 1;
         if let Some(entry) = self
             .identities
             .get_mut(&hash)
-            .and_then(|bucket| bucket.iter_mut().find(|e| equal(&e.spec, spec)))
+            .and_then(|bucket| bucket.iter_mut().find(|e| equal(&e.spec, &spec)))
         {
             entry.used = self.clock;
             return (hash, entry.id);
@@ -336,7 +343,19 @@ impl Cache {
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
-            spec: Arc::new(spec.clone()),
+            // Moving spare capacity would change key_bytes and cold eviction.
+            // Only a new canonical-capacity identity can bypass the old clone.
+            spec: Arc::new(match spec {
+                Cow::Owned(spec)
+                    if spec.runs.capacity() == spec.runs.len()
+                        && std::iter::once(&spec.strut)
+                            .chain(&spec.runs)
+                            .all(|r| r.text.capacity() == r.text.len()) =>
+                {
+                    spec
+                }
+                other => other.as_ref().clone(),
+            }),
             source: None,
             widths: HashMap::new(),
             intrinsic: [None; 2],
