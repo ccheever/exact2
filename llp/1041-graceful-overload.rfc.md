@@ -6393,3 +6393,48 @@ Hosts still must qualify displayed geometry, live eligibility and binding before
 their own clock advance, then use bound dispatch's second validation. No host
 adapter or Messages worker activation is included; these are correctness
 prerequisites, not native latency or120Hz results.
+
+### 8.114 Stage native subtree publication before replacing retained A, 2026-09-18
+
+The explicit Rust native-region producer now keeps selected A's native properties,
+children, geometry and collection facts while replacement B is pending. It captures
+one replaceable candidate, validates its publication identity, stages the complete
+node diff, then replaces the selected mirror only after admission succeeds. Live B
+cannot leak body/children/destroy updates into A; ordinary outside controls continue.
+The existing opaque region boot and public ABI are unchanged. No Swift subtree
+consumer or app entry is activated by this increment.
+
+Capture admission prices borrowed properties, styles, topology and collection rows
+before copying. Default ceilings are4,096 nodes/edges/rows,64 collections,8MiB logical
+wire per selected/candidate packet and16MiB staged diff. These bounds do not measure
+total heap, source/font/layout storage or RSS. Bounded snapshots and staging still
+allocate and traverse; per-node compatibility frame lookup remains to be replaced
+by the separately planned bulk projection.
+
+Refused B must also revoke the client's previous current-state advertisement. An
+actual public dispatch test sets a13,520-byte diff allowance: A fits, A+B does not.
+Old production retains A correctly but returns no native-region state; the intended
+assertion fails. The fix emits retained A with current:false before returning the
+staging error. The identical test passes with unchanged A, no partial B operations,
+outside typing and later complete-B recovery. It is a deterministic capacity refusal,
+not an allocator/OOM reproduction. Earlier capture/compute/observe failures are
+outside this narrow error-path correction.
+
+The final owner round passes8 Host,3 library and38 collection tests, strict affected
+all-target Clippy and scoped formatting. The library checks include72 exact ordinary
+batch-byte combinations. Prior fixture syntax and Clippy-placement failures remain
+preserved; no fourth candidate correction was needed. Source seal4e1e3123 and raw
+execution are under `exact2-apple-native-publication/target/native-publication-candidate-*`.
+Independent review closes the public-error issue at source level.
+
+MAIN integrates the exact nine files. A shared-target audit found older kernel
+artifacts could survive switching worktrees, so byte-identical kernel/Runner/Apple
+entry refreshes force a current-source rebuild. The composed run passes40 kernel
+region tests plus the49 scoped producer/collection tests, Clippy and formatting.
+The initial49-pass run and a mistyped test-target refusal are preserved separately;
+only the fresh composed run qualifies integration. Evidence is in
+`target/native-publication-integration/`.
+
+Native coordinate/pixel parity, retained-action host eligibility/clock routing,
+full10k Messages capacity and native consumer activation remain open. These are
+publication correctness results, not a responsiveness or120Hz measurement.

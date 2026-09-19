@@ -1411,3 +1411,33 @@ fn key_reuse_certificate_tracks_outer_values_and_unreferenced_scope_structure() 
     changed.row = Some(Rc::new(std::cell::RefCell::new(BTreeMap::new())));
     assert!(!memo.unchanged(&input, &[changed]));
 }
+
+#[test]
+fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
+    let mut h = Harness::new(10_000, false, false);
+    let ordinary = h.tree.collections();
+    let rows = ordinary.iter().map(|c| c.rows.len()).sum::<usize>();
+    assert_eq!(
+        h.tree.collections_bounded(1, rows, 4096, 1 << 20).unwrap(),
+        ordinary
+    );
+    assert!(h.tree.collections_bounded(0, rows, 4096, 1 << 20).is_err());
+    assert!(h
+        .tree
+        .collections_bounded(1, rows - 1, 4096, 1 << 20)
+        .is_err());
+    assert!(h.tree.collections_bounded(1, rows, 0, 1 << 20).is_err());
+    assert!(h.tree.collections_bounded(1, rows, 4096, 0).is_err());
+    assert_eq!(
+        h.tree.collections(),
+        ordinary,
+        "refusal never mutates epochs or revisions"
+    );
+    h.send(h.feedback(640.0));
+    let current = h.tree.collections();
+    assert_eq!(
+        h.tree.collections_bounded(2, 4096, 4096, 1 << 20).unwrap(),
+        current
+    );
+    assert_ne!(current, ordinary);
+}

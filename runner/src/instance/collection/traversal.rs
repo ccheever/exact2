@@ -80,6 +80,118 @@ impl Tree {
         out.sort_by_key(|c| c.view);
         out
     }
+    /// Checked host projection: traversal storage is bounded before reservation;
+    /// count every row/collection before allocating any owned snapshot or row.
+    pub fn collections_bounded(
+        &self,
+        max_collections: usize,
+        max_rows: usize,
+        max_traversal: usize,
+        max_json_bytes: usize,
+    ) -> Result<Vec<CollectionSnapshot>, &'static str> {
+        if !self.has_collections {
+            return Ok(Vec::new());
+        }
+        let mut stack = Vec::new();
+        stack
+            .try_reserve_exact(max_traversal)
+            .map_err(|_| "collection stack allocation")?;
+        let mut roots = Vec::new();
+        roots
+            .try_reserve_exact(max_traversal)
+            .map_err(|_| "collection root stack allocation")?;
+        let mut counts = (0usize, 0usize);
+        // First pass is borrowed only, including each wrapper's first authored root.
+        self.visit_collections_bounded(&mut stack, max_traversal, |c| {
+            counts.0 = counts.0.checked_add(1).ok_or("collection count overflow")?;
+            counts.1 = counts
+                .1
+                .checked_add(c.mounted.len())
+                .ok_or("collection row overflow")?;
+            if counts.0 > max_collections || counts.1 > max_rows {
+                return Err("collection projection capacity");
+            }
+            for row in &c.mounted {
+                first_root_bounded(&row.row.roots, &mut roots, max_traversal)?;
+            }
+            Ok(())
+        })?;
+        // JSON has no source strings. 1024 per row includes two worst-case
+        // finite f64 decimal spellings, integer identities, names and punctuation;
+        // 1024 per collection includes extent and correction. No snapshot clone
+        // precedes this conservative wire admission.
+        let wire = counts
+            .0
+            .checked_add(counts.1)
+            .and_then(|n| n.checked_mul(1024))
+            .and_then(|n| n.checked_add(2))
+            .ok_or("collection wire overflow")?;
+        if wire > max_json_bytes {
+            return Err("collection wire capacity");
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(counts.0)
+            .map_err(|_| "collection snapshot allocation")?;
+        self.visit_collections_bounded(&mut stack, max_traversal, |c| {
+            let mut rows = Vec::new();
+            rows.try_reserve_exact(c.mounted.len())
+                .map_err(|_| "collection rows allocation")?;
+            for row in &c.mounted {
+                rows.push(CollectionRow {
+                    view: row.wrapper,
+                    root: first_root_bounded(&row.row.roots, &mut roots, max_traversal)?,
+                    index: row.position,
+                    top: c.index.prefix(row.position).unwrap(),
+                    height: c.index.height(row.position).unwrap(),
+                    epoch: row.epoch,
+                    measured: c.index.is_measured(c.index.key(row.position).unwrap()),
+                });
+            }
+            out.push(CollectionSnapshot {
+                view: c.view,
+                revision: c.revision,
+                scroll_sequence: c.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
+                count: c.index.len(),
+                total_extent: c.index.total_height(),
+                rows,
+                correction: c.correction,
+            });
+            Ok(())
+        })?;
+        out.sort_unstable_by_key(|c| c.view);
+        Ok(out)
+    }
+    fn visit_collections_bounded<'a>(
+        &'a self,
+        stack: &mut Vec<&'a Child>,
+        limit: usize,
+        mut visit: impl FnMut(&'a Collection) -> Result<(), &'static str>,
+    ) -> Result<(), &'static str> {
+        stack.clear();
+        push_children_bounded(stack, &self.children, limit)?;
+        let mut visited = 0usize;
+        while let Some(child) = stack.pop() {
+            visited = visited
+                .checked_add(1)
+                .ok_or("collection traversal overflow")?;
+            if visited > limit {
+                return Err("collection traversal capacity");
+            }
+            match child {
+                Child::Node(n) => {
+                    if let Some(c) = &n.collection {
+                        visit(c)?;
+                        for row in &c.mounted {
+                            push_children_bounded(stack, &row.row.roots, limit)?;
+                        }
+                    }
+                    push_children_bounded(stack, &n.children, limit)?;
+                }
+                Child::Region(r) => push_active_bounded(stack, &r.active, limit)?,
+            }
+        }
+        Ok(())
+    }
     /// Targeted geometry update. Never evaluates collection data or key expressions,
     /// settles resources, or traverses unmounted rows. An edge is returned only
     /// for accepted geometry; the runner dispatches it after committing the ops.
@@ -437,4 +549,51 @@ fn edit_walk<T>(
         }
     }
     Ok(None)
+}
+
+fn push_children_bounded<'a>(
+    stack: &mut Vec<&'a Child>,
+    children: &'a [Child],
+    limit: usize,
+) -> Result<(), &'static str> {
+    if children.len() > limit.saturating_sub(stack.len()) {
+        return Err("collection stack capacity");
+    }
+    stack.extend(children.iter().rev());
+    Ok(())
+}
+fn push_active_bounded<'a>(
+    stack: &mut Vec<&'a Child>,
+    active: &'a Active,
+    limit: usize,
+) -> Result<(), &'static str> {
+    match active {
+        Active::Arm { roots, .. } => push_children_bounded(stack, roots, limit),
+        Active::Rows { rows } => {
+            for row in rows.iter().rev() {
+                push_children_bounded(stack, &row.roots, limit)?;
+            }
+            Ok(())
+        }
+    }
+}
+fn first_root_bounded<'a>(
+    children: &'a [Child],
+    stack: &mut Vec<&'a Child>,
+    limit: usize,
+) -> Result<ViewId, &'static str> {
+    stack.clear();
+    push_children_bounded(stack, children, limit)?;
+    let mut visited = 0usize;
+    while let Some(child) = stack.pop() {
+        visited = visited.checked_add(1).ok_or("collection root overflow")?;
+        if visited > limit {
+            return Err("collection root capacity");
+        }
+        match child {
+            Child::Node(n) => return Ok(n.view),
+            Child::Region(r) => push_active_bounded(stack, &r.active, limit)?,
+        }
+    }
+    Err("collection row has no authored root")
 }

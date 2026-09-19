@@ -11,6 +11,10 @@ impl DataSource for Data {
             Ok(Value::Record(
                 vec![Value::Str("giant α body ".repeat(8192).into())].into(),
             ))
+        } else if name == "numbers" {
+            Ok(Value::List(
+                vec![Value::Number(1.), Value::Number(2.)].into(),
+            ))
         } else {
             Err(DataError::UnknownSource(name.into()))
         }
@@ -181,4 +185,261 @@ fn bridge_completion_owns_payload_even_when_runtime_not_booted() {
     );
     assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("not booted"));
     assert_eq!(RELEASES.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+/// Producer-side companion to CollectionMacTests' complete native-subtree
+/// boundary. This fixed envelope is an admission control, not the full 10k
+/// Messages consumer or a replacement for its preserved 64-offer overflow.
+#[test]
+fn selected_native_subtree_waits_for_b_while_outside_composer_commits() {
+    let source = r##"component App
+  state mounted = true
+  action unmount writes mounted
+    mounted = false
+  state body = "A body 👩🏽‍💻 العربية"
+  state sender = true
+  state draft = ""
+  action revise writes body, sender
+    body = "B body not selected yet"
+    sender = false
+  action edit(value: string) writes draft
+    draft = value
+  action reply writes draft
+    draft = "Reply selected row"
+  view
+    column width="100%" height="100%"
+      when mounted
+        view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+          view id="content" width="100%" height="100%"
+            column testId="bubble" padding=10 border-radius=12 background-color="#e6f0ff"
+              when sender
+                text "Sender" testId="sender"
+              text body testId="body" font-size=14 line-height=1.45
+              text "12:34" testId="meta"
+              button press=reply testId="reply"
+                text "Reply"
+          text "Preparing" id="pending"
+      button press=revise testId="revise"
+        text "Revise"
+      button press=unmount testId="unmount"
+        text "Unmount"
+      input value=draft change=edit testId="input"
+      text draft testId="echo"
+"##;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        600.,
+        800.,
+        registration(),
+        exact_apple::content_region::NativeProjectionLimits::default(),
+    )
+    .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    assert!(settle(&mut host, &drops) > 0);
+    let selected = host.region_publication_id().expect("A complete before B");
+    let view = |host: &Host<Data>, name: &str| {
+        let key = host.runner().kernel().find_by_test_id(name)[0];
+        host.runner().kernel().node_by_key(key).unwrap().id
+    };
+    let body = view(&host, "body");
+    let bubble = view(&host, "bubble");
+    let sender = view(&host, "sender");
+    let input = view(&host, "input");
+    let revise = view(&host, "revise");
+    host.resize(550., 800.);
+    let (blocked, request) = host
+        .pending_region_request()
+        .expect("real B request withheld");
+    let blocked_metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
+    let pending = host.dispatch_at(revise, Event::Press, 10.);
+    let typed = host.dispatch_at(input, Event::Change("composer progresses".into()), 11.);
+    let newer = host
+        .pending_region_request()
+        .expect("new source requires its own B")
+        .0;
+    assert_ne!(blocked, newer, "the control actually superseded B");
+    let retained = host.region_publication_id() == Some(selected);
+    let leaks_body = pending.contains(&format!("{{\"op\":\"props\",\"id\":{body},"));
+    let leaks_children = pending.contains(&format!("{{\"op\":\"children\",\"id\":{bubble},"));
+    let leaks_destroy = pending.contains(&format!("{{\"op\":\"destroy\",\"id\":{sender}}}"));
+    assert!(
+        typed.contains("composer progresses"),
+        "outside shell remains live: {typed}"
+    );
+    let before_stale = host.region_publication_id();
+    let before_clock = host.engine().now();
+    let stale =
+        host.complete_region_text(blocked, blocked_metrics, Rc::new(DropProbe(drops.clone())));
+    assert!(!stale.contains("\"error\":\""), "{stale}");
+    assert_eq!(host.pending_region_request().unwrap().0, newer);
+    assert_eq!(
+        host.region_publication_id(),
+        before_stale,
+        "stale completion cannot select anything"
+    );
+    assert_eq!(
+        host.engine().now(),
+        before_clock,
+        "completion has no invented input clock"
+    );
+    // Print every boundary observation before the one expected behavioral RED.
+    eprintln!("selected={selected} retained={retained} body_leak={leaks_body} children_leak={leaks_children} destroy_leak={leaks_destroy}");
+    assert!(
+        retained && !leaks_body && !leaks_children && !leaks_destroy,
+        "selected native A must remain complete while latest B is pending: {pending}"
+    );
+    let mut completed = String::new();
+    let mut turns = 0;
+    while let Some((id, request)) = host.pending_region_request() {
+        let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
+        let batch = host.complete_region_text(id, metrics, Rc::new(DropProbe(drops.clone())));
+        assert!(!batch.contains("\"error\":\""), "{batch}");
+        completed.push_str(&batch);
+        turns += 1;
+        assert!(turns <= 64);
+    }
+    assert_ne!(host.region_publication_id(), Some(selected));
+    assert!(
+        completed.contains("B body not selected yet"),
+        "complete B owns its body"
+    );
+    assert!(completed.contains(&format!("{{\"op\":\"destroy\",\"id\":{sender}}}")));
+    assert!(completed.contains(&format!("{{\"op\":\"children\",\"id\":{bubble},")));
+    assert!(
+        host.runner().kernel().find_by_test_id("sender").is_empty(),
+        "selection never resurrects a live key"
+    );
+    let unmount = view(&host, "unmount");
+    let _terminal = host.dispatch_at(unmount, Event::Press, 12.);
+    assert!(
+        host.region_publication_id().is_none(),
+        "removed owner cannot retain native selection"
+    );
+    assert!(
+        host.pending_region_request().is_none(),
+        "removed owner cannot keep a worker request"
+    );
+    assert!(
+        drops.get() > 0,
+        "native and kernel artifact aliases release on owner removal"
+    );
+}
+
+#[test]
+fn native_projection_budget_is_explicit_and_does_not_select_opaque_mode() {
+    let source = r#"component App
+  view
+    column width="100%" height="100%"
+      view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          text "bounded body"
+        text "Preparing" id="pending"
+"#;
+    let bytes = contract::compile(source).unwrap().encode();
+    let limits = exact_apple::content_region::NativeProjectionLimits {
+        nodes: 0,
+        ..Default::default()
+    };
+    let refused = Host::boot_native_region(
+        &bytes,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        600.,
+        800.,
+        registration(),
+        limits,
+    );
+    assert!(
+        refused.is_err(),
+        "no partial selected packet on structural refusal"
+    );
+}
+
+#[test]
+fn native_collection_epochs_stay_with_selected_rows_until_complete() {
+    let source = r#"component App
+  resource numbers = numbers() as shape list<number>
+  state textValue = "A body"
+  state draft = ""
+  action revise writes textValue
+    textValue = "B longer body still pending"
+  action edit(value: string) writes draft
+    draft = value
+  view
+    column width="100%" height="100%"
+      view id="owner" width="100%" height=400 flex-shrink=0 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          list virtualized=true testId="list" width="100%" height="100%"
+            each item in numbers key=item
+              column width="100%" padding=4
+                text textValue
+                button press=revise
+                  text "Reply"
+        text "Preparing" id="pending"
+      button press=revise testId="revise"
+        text "Revise"
+      input value=draft change=edit testId="input"
+"#;
+    let plan = contract::compile(source).unwrap().encode();
+    let (mut host, _) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        600.,
+        800.,
+        registration(),
+        Default::default(),
+    )
+    .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    settle(&mut host, &drops);
+    let selected = host.region_publication_id().unwrap();
+    let a = host.runner().collections().pop().unwrap();
+    let revise = host.runner().kernel().find_by_test_id("revise")[0];
+    let revise = host.runner().kernel().node_by_key(revise).unwrap().id;
+    let pending = host.dispatch_at(revise, Event::Press, 10.);
+    assert!(!pending.contains("\"error\":\""), "{pending}");
+    assert!(host.pending_region_request().is_some());
+    assert_eq!(host.region_publication_id(), Some(selected));
+    let b = host.runner().collections().pop().unwrap();
+    assert_ne!(
+        a.revision, b.revision,
+        "the fixture really changed row metadata"
+    );
+    assert!(
+        !pending.contains("\"op\":\"collections\""),
+        "live B collection metadata leaked: {pending}"
+    );
+    let feedback = exact_runner::CollectionFeedback {
+        view: a.view,
+        revision: a.revision,
+        scroll_sequence: a.scroll_sequence + 1,
+        scroll_top: 0.,
+        port_width: 600.,
+        port_height: 400.,
+        row_width: 600.,
+        measurements: a
+            .rows
+            .iter()
+            .map(|r| exact_runner::RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                height: 120.,
+            })
+            .collect(),
+        focus_view: None,
+        interaction_view: None,
+    };
+    let stale = host.collection_feedback(&feedback.encode().unwrap(), 11.);
+    assert!(!stale.contains("\"error\":\""), "{stale}");
+    assert_eq!(
+        host.runner().collections()[0],
+        b,
+        "A heights must not be credited to B epochs"
+    );
+    settle(&mut host, &drops);
+    assert_ne!(host.region_publication_id(), Some(selected));
 }
