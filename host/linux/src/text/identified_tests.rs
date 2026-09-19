@@ -44,6 +44,13 @@ pub(super) fn shaped(spec: &Spec) {
         });
     }
 }
+thread_local! { static SPEC_LOOKUPS: Cell<usize> = const { Cell::new(0) }; }
+pub(super) fn spec_looked_up() {
+    SPEC_LOOKUPS.with(|v| v.set(v.get() + 1));
+}
+fn spec_lookups() -> usize {
+    SPEC_LOOKUPS.with(Cell::get)
+}
 fn reset() {
     WORK.with(|w| w.set(Work::default()));
 }
@@ -843,5 +850,184 @@ mod owned_spec {
         assert!(new_source.upgrade().is_some());
         drop(b);
         assert!(new_source.upgrade().is_none());
+    }
+
+    mod warm_identity {
+        use super::*;
+
+        fn original(
+            e: &mut TextEngine,
+            stamp: &ParagraphStamp,
+            text: &str,
+        ) -> ((u64, u64), Arc<Spec>) {
+            if let Some(key) = e.paragraphs.identified_reference(stamp) {
+                return (key, e.paragraphs.spec(key).expect("checked identity"));
+            }
+            let key = e.paragraphs.identity_owned(spec(text));
+            e.paragraphs.bind(stamp, key);
+            (key, e.paragraphs.spec(key).expect("new identity"))
+        }
+
+        #[test]
+        fn warm_painter_performs_one_spec_lookup_with_identical_pixels() {
+            let e = Rc::new(std::cell::RefCell::new(engine()));
+            let mut k = tree(e.clone(), "café e\u{301} 日本語 warm paint");
+            apply(
+                &mut k,
+                &[Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                }],
+            );
+            k.compute_layout(1, Offer::definite(360., 160.)).unwrap();
+            let mut painter = Painter::new(e.clone(), 1., Box::new(Raster::new()));
+            let first = paint(&mut painter, &k);
+            let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+            let p = e
+                .borrow_mut()
+                .paragraph_identified(&stamp, Some(320.), || panic!("warm"))
+                .unwrap();
+            let shape_before = e.borrow().shape_calls;
+            reset();
+            let before = spec_lookups();
+            let next = paint(&mut painter, &k);
+            let actual = spec_lookups() - before;
+            assert_eq!(next.pixmap.data(), first.pixmap.data());
+            assert_eq!(e.borrow().shape_calls, shape_before);
+            assert_eq!(work(), Work::default());
+            let again = e
+                .borrow_mut()
+                .paragraph_identified(&stamp, Some(320.), || panic!("warm"))
+                .unwrap();
+            assert!(Rc::ptr_eq(&p, &again));
+            eprintln!("warm actual Painter Cache::spec calls={actual}, expected=1");
+            assert_eq!(actual, 1, "duplicate warm Spec lookup");
+        }
+
+        #[test]
+        fn warm_sequence_matches_original_state_geometry_palette_and_stale_refusal() {
+            let mut k = stamp_tree("styled α日本語");
+            apply(
+                &mut k,
+                &[
+                    Op::CreateView {
+                        id: 3,
+                        node_type: NodeType::Text,
+                    },
+                    prop(3, PropId::Text, "other owner"),
+                    Op::SetChildren {
+                        id: 1,
+                        children: vec![2, 3],
+                    },
+                ],
+            );
+            let mut a = engine();
+            let mut b = engine();
+            let mut held_a = Vec::new();
+            let mut held_b = Vec::new();
+            for (id, text, width) in [
+                (2, "styled α日本語", 120.25),
+                (3, "other owner", 93.5),
+                (2, "styled α日本語", 120.25),
+                (3, "other owner", 93.5),
+                (2, "styled α日本語", 81.25),
+            ] {
+                let stamp = k.node(id).unwrap().paragraph_stamp().unwrap();
+                let (key, s) = a.identified_spec(&stamp, || spec(text));
+                let (old_key, old_s) = original(&mut b, &stamp, text);
+                assert_eq!(key, old_key);
+                assert_eq!(*s, *old_s);
+                assert!(!Arc::ptr_eq(&s, &old_s));
+                let pa = a.paragraph_for(&s, Some(width), key);
+                let pb = b.paragraph_for(&old_s, Some(width), old_key);
+                assert_eq!(geometry(&pa), geometry(&pb));
+                assert_eq!(pixels(&mut a, &pa), pixels(&mut b, &pb));
+                assert_eq!(
+                    a.paragraphs.trim_test_state(),
+                    b.paragraphs.trim_test_state()
+                );
+                held_a.push(pa);
+                held_b.push(pb);
+            }
+            let prior = k.node(2).unwrap().paragraph_stamp().unwrap();
+            let mut style = StyleProps {
+                text_color: exact_kernel::ColorValue::Fixed(exact_kernel::Color::rgba(
+                    220, 15, 25, 255,
+                )),
+                ..StyleProps::default()
+            };
+            style.mask.set(StyleId::TextColor);
+            apply(
+                &mut k,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(style),
+                }],
+            );
+            let painted = k.node(2).unwrap().paragraph_stamp().unwrap();
+            assert_ne!(prior, painted);
+            assert!(prior.same_metrics(&painted));
+            let (key, sa) = a.identified_spec(&painted, || panic!("paint-only build"));
+            let (old_key, sb) = original(&mut b, &painted, "must not replace");
+            assert_eq!(key, old_key);
+            assert_eq!(*sa, *sb);
+            assert_eq!(
+                a.paragraphs.trim_test_state(),
+                b.paragraphs.trim_test_state()
+            );
+            drop(sa);
+            drop(sb);
+            // Invalid identity is removed before ordinary cold fallback, with no hit clock.
+            a.paragraphs.bind(&painted, (u64::MAX, u64::MAX));
+            b.paragraphs.bind(&painted, (u64::MAX, u64::MAX));
+            let (key, sa) = a.identified_spec(&painted, || spec("styled α日本語"));
+            let (old_key, sb) = original(&mut b, &painted, "styled α日本語");
+            assert_eq!(key, old_key);
+            assert_eq!(*sa, *sb);
+            assert_eq!(
+                a.paragraphs.trim_test_state(),
+                b.paragraphs.trim_test_state()
+            );
+            drop(sa);
+            drop(sb);
+            drop(held_a);
+            drop(held_b);
+            a.paragraphs.clear();
+            b.paragraphs.clear();
+            assert_eq!(
+                a.paragraphs.trim_test_state(),
+                b.paragraphs.trim_test_state()
+            );
+            assert_eq!(a.residency().identities, 0);
+        }
+
+        #[test]
+        fn warm_empty_and_returned_spec_add_no_persistent_owner() {
+            for text in ["", "one owner é"] {
+                let k = stamp_tree(text);
+                let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+                let mut e = engine();
+                let (key, first) = e.identified_spec(&stamp, || spec(text));
+                let weak = Arc::downgrade(&first);
+                assert_eq!(Arc::strong_count(&first), 2);
+                let (again, second) = e.identified_spec(&stamp, || panic!("warm build"));
+                assert_eq!(key, again);
+                assert!(Arc::ptr_eq(&first, &second));
+                assert_eq!(Arc::strong_count(&first), 3);
+                drop(second);
+                assert_eq!(Arc::strong_count(&first), 2);
+                e.paragraphs.clear();
+                assert_eq!(e.residency().identities, 0);
+                assert_eq!(Arc::strong_count(&first), 1);
+                assert!(weak.upgrade().is_some());
+                drop(first);
+                assert!(weak.upgrade().is_none());
+                if text.is_empty() {
+                    assert!(e
+                        .paragraph_identified(&stamp, Some(100.), || spec(""))
+                        .is_none());
+                }
+            }
+        }
     }
 }

@@ -527,8 +527,8 @@ impl TextEngine {
         stamp: &ParagraphStamp,
         build: impl FnOnce() -> Spec,
     ) -> ((u64, u64), Arc<Spec>) {
-        if let Some(key) = self.paragraphs.identified(stamp) {
-            return (key, self.paragraphs.spec(key).expect("checked identity"));
+        if let Some(identity) = self.paragraphs.identified(stamp) {
+            return identity;
         }
         let spec = build();
         let key = self.paragraphs.identity_owned(spec);
