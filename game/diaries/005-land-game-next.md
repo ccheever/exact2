@@ -43,7 +43,7 @@ has not yet been certified.
    with lowest-slot duplicate resolution. No public rename method exists at the
    engine tip; decode/replacement rebuilds names. Scatter returns explicit errors
    instead of partial vectors, and uses engine asset bounds for placement.
-2. Incremental observation: pending.
+2. Incremental observation: carried with engine storage and hierarchy semantics.
 3. Typed kinds and hot joins: pending.
 4. Static physics split and fixes: pending.
 5. Ownership, restore clock anchor, EXCAP v2: pending.
@@ -82,3 +82,17 @@ Root build/test/clippy were attempted: TS app bakes refuse the missing lean
 Hermes executor on this producer. Root fmt, caps and boot pass. Web fixture sweep:
 93 pass, 5 fail (four require xcrun/Apple SDK; Caltrain needs its web dist baked).
 These platform/tooling failures do not authorize weakening any assertion.
+
+Observation gate: 344 engine tests pass (4 ignored diagnostics), workspace and all
+eight consumer clippy/fmt pass, 28 Linux normal/paranoid executions preserve every
+pin, Bun 115 pass/1 skip, caps and boot pass. Dirty slot hashing and page hierarchy
+stamps retain the slow oracle; tests include 200,000 interleaved slots, churn and
+production Body edits. The physics Body declaration was extracted early to let
+that oracle use the real component schema; bytes and stepping are unchanged.
+The existing ergonomic seek test now demands one serialization on a warm seek
+and two after mutation, preserving its live-path zero-serialization assertion.
+
+Selected root crates: 517 tests pass, three exact-gpu native placement tests fail
+without an adapter, one diagnostic ignored; selected core clippy passes. Caltrain
+web dist was baked successfully, but its placement fixture then timed out after
+60 seconds. Apple fixture failures still require xcrun.

@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+mod body;
 mod character;
 mod math;
 mod queries;

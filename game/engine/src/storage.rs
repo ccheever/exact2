@@ -144,7 +144,7 @@ impl<C: Data> Storage<C> {
             return None;
         }
         let lease = self.lease(true);
-        self.mark_page(index / PAGE);
+        self.mark_slot(index);
         Some(RefMut {
             ptr: self.ptr(index),
             _lease: lease,
@@ -155,12 +155,22 @@ impl<C: Data> Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
-    fn snapshot(
+    fn reset_observation(&self);
+    #[cfg(test)]
+    fn snapshot_uncached(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
         out: &mut Vec<(usize, u64)>,
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
+    );
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
     );
     fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool;
     fn visit_moving(
@@ -214,14 +224,28 @@ impl<C: Data> Erased for Storage<C> {
     ) -> Result<(), DataError> {
         self.raw.read(r, valid)
     }
-    fn snapshot(
+    #[cfg(test)]
+    fn snapshot_uncached(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
         out: &mut Vec<(usize, u64)>,
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
     ) {
-        self.raw.snapshot(skip, out, full, entity);
+        self.raw.snapshot_uncached(skip, out, full, entity);
+    }
+    fn reset_observation(&self) {
+        self.raw.reset_observation();
+    }
+    fn snapshot(
+        &self,
+        skip: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
+    ) {
+        self.raw.snapshot(skip, out, full, entity, label);
     }
     fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         self.raw.moving(now, skip)

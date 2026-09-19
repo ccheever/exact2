@@ -40,6 +40,7 @@ pub trait Fetch {
     type Item<'a>;
     fn words(&self) -> usize;
     fn mark_page(&self, page: usize);
+    fn mark_observation(&self, word: usize, bits: u64);
     fn word(&self, word: usize) -> u64;
     /// # Safety
     /// The index must pass this fetch's mask. Call at most once per index within
@@ -148,6 +149,13 @@ macro_rules! reference {
                     );
                 }
             }
+            fn mark_observation(&self, word: usize, bits: u64) {
+                if $m {
+                    if let Some(s) = self.storage {
+                        s.mark_observation(word, bits);
+                    }
+                }
+            }
             fn words(&self) -> usize {
                 self.required_words()
             }
@@ -227,6 +235,7 @@ macro_rules! tuples {
         impl<$($T: Fetch),+> Fetch for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
             fn mark_page(&self, page: usize) { $(self.$i.mark_page(page);)+ }
+            fn mark_observation(&self, word: usize, bits: u64) { $(self.$i.mark_observation(word, bits);)+ }
             fn words(&self) -> usize { usize::MAX $(.min(self.$i.words()))+ }
             fn word(&self, word: usize) -> u64 { u64::MAX $(& self.$i.word(word))+ }
             unsafe fn fetch<'a>(&self, index: usize) -> Self::Item<'a> {
@@ -398,6 +407,7 @@ fn next_index<Q: Query>(
     }
     let index = (*word - 1) * 64 + bits.trailing_zeros() as usize;
     *bits &= *bits - 1;
+    query.state.mark_observation(*word - 1, 1 << (index % 64));
     Some(index)
 }
 

@@ -431,6 +431,11 @@ impl World {
         if count != 0 {
             let slots = self.alive_mask.len() * 64;
             crate::data::limits::reserve(r, &mut self.hierarchy.nodes, slots)?;
+            crate::data::limits::reserve(
+                r,
+                &mut self.hierarchy.global_pages,
+                slots.div_ceil(crate::storage::PAGE),
+            )?;
             crate::data::limits::reserve(r, &mut self.hierarchy.entities, count)?;
             crate::data::limits::reserve(r, &mut self.hierarchy.path, count)?;
             crate::data::limits::reserve(r, &mut self.hierarchy.broken, count)?;
@@ -528,6 +533,7 @@ pub(crate) struct Hierarchy {
     path: Vec<Entity>,
     broken: Vec<Entity>,
     stamp: u64,
+    global_pages: Vec<u64>,
 }
 #[derive(Default)]
 struct Node {
@@ -539,7 +545,11 @@ struct Node {
     global: Affine3A,
 }
 impl Hierarchy {
+    pub(crate) fn page_generation(&self, page: usize) -> u64 {
+        self.global_pages.get(page).copied().unwrap_or(0)
+    }
     fn resolve(&mut self, w: &World, reject: bool) -> Result<(), crate::DataError> {
+        let previous_stamp = self.stamp;
         self.stamp = self.stamp.wrapping_add(1);
         if self.stamp == 0 {
             self.nodes.clear();
@@ -554,6 +564,11 @@ impl Hierarchy {
                 self.nodes.resize_with(i + 1, Node::default);
             }
             let n = &mut self.nodes[i];
+            // A newly available global must dirty observation even when its
+            // numeric pose equals this slot's previous incarnation or old pose.
+            if n.entity != e || n.done != previous_stamp {
+                n.done = 0;
+            }
             n.entity = e;
             n.parent = w.contains(p.0).then_some(p.0);
             n.present = stamp;
@@ -611,6 +626,19 @@ impl Hierarchy {
                     .get::<Transform>(e)
                     .map_or(Affine3A::IDENTITY, |t| t.affine());
                 let n = &mut self.nodes[e.index() as usize];
+                // Observation sees the last propagated pose, including inherited
+                // motion from Ambient ancestors. Compare bits so signed zero is
+                // never missed; harmless NaN payload changes may dirty a page.
+                if n.done == 0
+                    || n.global.to_cols_array().map(f32::to_bits)
+                        != base.to_cols_array().map(f32::to_bits)
+                {
+                    let page = e.index() as usize / crate::storage::PAGE;
+                    if page >= self.global_pages.len() {
+                        self.global_pages.resize(page + 1, 0);
+                    }
+                    self.global_pages[page] = self.global_pages[page].wrapping_add(1);
+                }
                 n.global = base;
                 n.done = stamp;
             }

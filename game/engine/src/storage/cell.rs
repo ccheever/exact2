@@ -14,6 +14,7 @@ pub(crate) struct Singleton<C> {
     borrowed: Cell<isize>,
     pub(super) epoch: Rc<Cell<u64>>,
     name: &'static str,
+    observation: Cell<Option<u64>>,
 }
 impl<C: Data> Singleton<C> {
     pub fn new(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -22,9 +23,11 @@ impl<C: Data> Singleton<C> {
             borrowed: Cell::new(0),
             epoch,
             name,
+            observation: Cell::new(None),
         }
     }
     pub fn insert(&mut self, value: C) {
+        self.observation.set(None);
         self.epoch.set(self.epoch.get().wrapping_add(1));
         *self.value.get_mut() = Some(value);
     }
@@ -40,6 +43,7 @@ impl<C: Data> Singleton<C> {
     }
     pub fn get_mut(&self) -> Option<RefMut<'_, C>> {
         let lease = Lease::new(self.name, &self.borrowed, true);
+        self.observation.set(None);
         self.epoch.set(self.epoch.get().wrapping_add(1));
         // SAFETY: the exclusive lease excludes all other references to this cell.
         let value = unsafe { &mut *self.value.get() }.as_mut()?;
@@ -48,6 +52,20 @@ impl<C: Data> Singleton<C> {
             _lease: lease,
             _life: PhantomData,
         })
+    }
+    pub(crate) fn observation_hash(&self, full: Option<&mut crate::hash::Hasher>) -> Option<u64> {
+        let value = self.get()?; // Cache hits still enforce the shared lease.
+        let hash = match (self.observation.get(), full) {
+            (Some(hash), Some(w)) => {
+                value.write(w);
+                hash
+            }
+            (Some(hash), None) => hash,
+            (None, Some(w)) => w.with_observation(&*value),
+            (None, None) => crate::hash::of(&*value),
+        };
+        self.observation.set(Some(hash));
+        Some(hash)
     }
 }
 pub(crate) fn make_cell<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Box<dyn Erased> {
@@ -68,6 +86,7 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn remove(&mut self, index: usize) {
         if index == 0 {
+            self.observation.set(None);
             self.epoch.set(self.epoch.get().wrapping_add(1));
             *self.value.get_mut() = None;
         }
@@ -127,7 +146,8 @@ impl<C: Data> Erased for Singleton<C> {
         self.insert(value);
         Ok(())
     }
-    fn snapshot(
+    #[cfg(test)]
+    fn snapshot_uncached(
         &self,
         _: Option<&Storage<crate::Ambient>>,
         out: &mut Vec<(usize, u64)>,
@@ -149,6 +169,38 @@ impl<C: Data> Erased for Singleton<C> {
             w.end_seq();
         } else if let Some(value) = value {
             out.push((0, crate::hash::of(&*value)));
+        }
+    }
+    fn reset_observation(&self) {
+        self.observation.set(None);
+    }
+    fn snapshot(
+        &self,
+        _: Option<&Storage<crate::Ambient>>,
+        out: &mut Vec<(u8, &'static str, Entity, u64)>,
+        full: Option<&mut crate::hash::Hasher>,
+        entity: &dyn Fn(usize) -> Entity,
+        label: (u8, &'static str),
+    ) {
+        if let Some(w) = full {
+            w.begin_seq(self.len());
+            if self.has(0) {
+                w.item();
+                w.begin_seq(2);
+                w.item();
+                entity(0).write(w);
+                w.item();
+                out.push((
+                    label.0,
+                    label.1,
+                    entity(0),
+                    self.observation_hash(Some(w)).unwrap(),
+                ));
+                w.end_seq();
+            }
+            w.end_seq();
+        } else if let Some(hash) = self.observation_hash(None) {
+            out.push((label.0, label.1, entity(0), hash));
         }
     }
     fn moving(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> bool {
