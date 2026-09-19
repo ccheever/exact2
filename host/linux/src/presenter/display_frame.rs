@@ -245,6 +245,7 @@ impl<D: DataSource> Presenter<D> {
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
                 self.display.acknowledged = Some(picture.witness);
+                self.retire_acknowledged_pointer();
                 self.acknowledge_collection_scroll(model_scroll);
                 // Clamp the newest queued intent using B's numeric bounds, not
                 // live C and not B's older scroll intent. If the clamp changes

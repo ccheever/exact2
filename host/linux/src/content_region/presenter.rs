@@ -75,8 +75,36 @@ impl<D: DataSource> Presenter<D> {
         };
         let region = host.content_region();
         let feedback_before = region.is_some_and(|r| r.publication_painted());
-        let paint = |brush: &mut Painter| match region {
-            Some(region) => brush.paint_region(&scene, self.viewport, region, &collection_limits),
+        // Capture only at a successful current CPU picture, before display_frame
+        // restores A. Retained replay never obtains new B handlers/arguments.
+        let mut handlers = None;
+        let mut capture = |key, kind| {
+            let node = host.kernel().node_by_key(key)?;
+            let handlers = handlers.get_or_insert_with(|| host.runner().handlers());
+            handlers
+                .get(&node.id)
+                .filter(|events| events.contains(&kind))?;
+            Some(host.runner().capture_action_binding(key, kind))
+        };
+        let eligible = |key| host.retained_action_eligible(key);
+        let motion = |key, picture: &std::rc::Rc<()>| {
+            self.retained_motion
+                .as_ref()
+                .is_some_and(|permit| permit.allows(host, key, picture))
+        };
+        let mut actions = crate::paint::RegionActions {
+            capture: &mut capture,
+            eligible: &eligible,
+            motion: &motion,
+        };
+        let mut paint = |brush: &mut Painter| match region {
+            Some(region) => brush.paint_region(
+                &scene,
+                self.viewport,
+                region,
+                &collection_limits,
+                &mut actions,
+            ),
             None => brush.paint(&scene, self.viewport),
         };
         let mut painted = paint(&mut self.brush);

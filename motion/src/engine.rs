@@ -67,7 +67,15 @@ struct Slot {
     target: Value,
     presented: Value,
     running: Option<Running>,
-    hold: Option<u64>,
+    owner: Option<Owner>,
+}
+
+/// One process-unique identity follows a held property into its own return.
+/// Authored replacement curves have no owner; no historical identities remain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    Held(u64),
+    Returning(u64),
 }
 
 /// Fixed-size identity of a running spring's complete curve. Web hosts compare
@@ -163,9 +171,9 @@ impl Engine {
     /// Equality with its target does not imply rest: a spring may carry velocity
     /// at zero displacement. Holds are active here but remain clock-quiescent.
     pub fn is_active(&self, node: u64, property: Property) -> bool {
-        self.slots
-            .get(&(node, property))
-            .is_some_and(|slot| slot.hold.is_some() || slot.running.is_some())
+        self.slots.get(&(node, property)).is_some_and(|slot| {
+            matches!(slot.owner, Some(Owner::Held(_))) || slot.running.is_some()
+        })
     }
 
     /// A committed change to one animatable row. This is CSS Transitions §3:
@@ -194,7 +202,7 @@ impl Engine {
                     target: change.value,
                     presented: change.value,
                     running: None,
-                    hold: None,
+                    owner: None,
                 },
             );
             self.dirty.insert(key);
@@ -202,7 +210,7 @@ impl Engine {
         };
 
         let after = change.value;
-        if slot.hold.is_some() {
+        if matches!(slot.owner, Some(Owner::Held(_))) {
             slot.target = after;
             return Ok(());
         }
@@ -211,6 +219,7 @@ impl Engine {
                 if after == slot.target {
                     return Ok(());
                 }
+                slot.owner = None;
                 let before = slot.presented;
                 slot.target = after;
                 match declaration {
@@ -238,6 +247,7 @@ impl Engine {
                     slot.running = Some(running);
                     return Ok(());
                 }
+                slot.owner = None;
                 let current = running.sample(now);
                 slot.target = after;
                 let Some(declaration) = declaration.filter(|_| current.value != after) else {
@@ -299,6 +309,7 @@ impl Engine {
             slot.presented = sample.value;
             if sample.done {
                 slot.running = None;
+                slot.owner = None;
             }
             self.dirty.insert(*key);
         }

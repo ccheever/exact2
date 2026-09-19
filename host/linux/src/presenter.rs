@@ -48,6 +48,7 @@ mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
 mod images;
+mod retained_action;
 mod swipe;
 mod transform;
 mod transform_geometry;
@@ -99,6 +100,7 @@ pub struct Presenter<D: DataSource> {
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
+    retained_motion: Option<retained_action::MotionPermit>,
     arrange: Option<arrange::State>,
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
@@ -338,6 +340,7 @@ impl<D: DataSource> Presenter<D> {
             refusal_turn: false,
             collection: collection::State::default(),
             contact: None,
+            retained_motion: None,
             transform_geometry: Default::default(),
             arrange: None,
             brush: Painter::new(text.clone(), scale, backend),
@@ -592,6 +595,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
+        self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
         self.brush.arrange_lift = None;
@@ -722,6 +726,7 @@ impl<D: DataSource> Presenter<D> {
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
+        self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
         self.brush.arrange_lift = None;
@@ -1097,7 +1102,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
         if self.brush.region_blocks_action(hit) {
-            return None;
+            return self.retained_press(hit, now_ms);
         }
         let kernel = self.host.kernel();
         let focus = kernel

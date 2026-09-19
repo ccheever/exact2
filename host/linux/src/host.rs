@@ -521,6 +521,73 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    // Current eligibility only DENIES an old picture's target. It never finds
+    // a replacement handler or supplies coordinates/arguments from the live tree.
+    pub(crate) fn retained_action_eligible(&self, key: NodeKey) -> bool {
+        let Some(node) = self.kernel().node_by_key(key) else {
+            return false;
+        };
+        let mut at = Some(node.id);
+        while let Some(id) = at {
+            let Some(node) = self.kernel().node(id) else {
+                return false;
+            };
+            let visibility = self.route_visibility(id);
+            if visibility.0
+                || visibility.1
+                || node.style.display == exact_kernel::Display::None
+                || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
+                || node.props.str(exact_kernel::PropId::Commandfor).is_some()
+            {
+                return false;
+            }
+            at = node.parent;
+        }
+        true
+    }
+
+    pub(crate) fn dispatch_retained(
+        &mut self,
+        key: NodeKey,
+        binding: &exact_runner::runner::ActionBinding,
+        kind: exact_plan::EventKind,
+        now_ms: f64,
+    ) -> Result<bool, String> {
+        let event = match kind {
+            exact_plan::EventKind::Press => Event::Press,
+            exact_plan::EventKind::Swiperight => Event::Swiperight,
+            _ => return Ok(false),
+        };
+        // BEFORE host clock/focus/commit. Runner repeats its opaque binding check
+        // at dispatch; a refusal takes neither the sample nor an ordinary action.
+        if !now_ms.is_finite()
+            || now_ms < self.now_ms
+            || !self.retained_action_eligible(key)
+            || self.runner.validate_action_binding(binding, kind).is_err()
+        {
+            return Ok(false);
+        }
+        let result = self.runner.dispatch_bound(binding, event);
+        if matches!(
+            result,
+            Err(exact_runner::runner::ActionBindingError::Refused(_))
+        ) {
+            return Ok(false);
+        }
+        self.now_ms = now_ms;
+        let error = match result {
+            Ok(receipt) => self.commit(
+                &[Timed {
+                    at_ms: now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+        };
+        error.map_or(Ok(true), Err)
+    }
+
     /// Move the clock: every timer due fires at its own due time (LLP 1012
     /// §2). The clock lands where the runner says — a timer's refusal stops
     /// it at that timer's due time and is the error; the commits before it

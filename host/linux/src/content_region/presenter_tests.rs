@@ -1306,3 +1306,188 @@ fn natural_scroll_removed_and_recreated_keys_cannot_borrow_painted_a_geometry() 
     p.wheel_at(point.0, point.1, 0., 30.);
     assert_eq!(p.scroll_of(new_port).1, 30.);
 }
+
+// Source-only retained-action baseline. Shared fixture stays in the existing
+// swipe tests; it uses actual Messages handlers and complete MessageBubble.
+use super::swipe_tests::retained_actions as actions;
+
+#[test]
+fn retained_actions_press_keeps_complete_a_binding_while_body_b_is_parked() {
+    let _service = crate::content_region::test_service();
+    let mut p = actions::boot(&actions::source(), true, actions::Rows::default());
+    let reply = actions::id(&p, "reply-message-0");
+    let at = actions::point(&mut p, reply);
+    let key = p
+        .host
+        .kernel()
+        .node(actions::id(&p, "body-message-0"))
+        .unwrap()
+        .key;
+    let stamp = p
+        .host
+        .content_region()
+        .unwrap()
+        .text_snapshot(key)
+        .unwrap()
+        .request
+        .stamp()
+        .clone();
+    let a = actions::ack(&mut p);
+    let _gate = actions::block_body(&mut p, 1.);
+    assert_eq!(
+        p.press_at(at.0, at.1, 10.),
+        Some(reply),
+        "actual retained Press dispatch"
+    );
+    assert_eq!(actions::selected(&p), Value::str("message-0"));
+    assert_eq!(
+        p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(key)
+            .unwrap()
+            .request
+            .stamp(),
+        &stamp
+    );
+    assert!(
+        !p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(key)
+            .unwrap()
+            .current
+    );
+    // Ordinary controls and composer remain outside the registered worker region.
+    let composer = actions::id(&p, "composer");
+    p.type_text(composer, "typing with B parked").unwrap();
+    assert_eq!(
+        p.host.runner().slot("draft"),
+        Some(&Value::str("typing with B parked"))
+    );
+    let outside = actions::id(&p, "outside");
+    let at = actions::point(&mut p, outside);
+    assert_eq!(p.press_at(at.0, at.1, 11.), Some(outside));
+    assert_eq!(actions::selected(&p), Value::str("outside"));
+    assert_eq!(p.host.content_region().unwrap().work_counts().0, 1);
+    assert!(!a.pixels.data().is_empty());
+}
+
+#[test]
+fn retained_actions_changed_curry_or_visibility_refuses_before_clock_or_focus() {
+    let _service = crate::content_region::test_service();
+    for control in ["curry-change", "disable", "hide"] {
+        let mut p = actions::boot(&actions::source(), true, actions::Rows::default());
+        let reply = actions::id(&p, "reply-message-0");
+        let at = actions::point(&mut p, reply);
+        let key = p.host.kernel().node(reply).unwrap().key;
+        p.focus = Some(actions::id(&p, "composer"));
+        let _gate = actions::block_body(&mut p, 1.);
+        actions::action(&mut p, control, 2.);
+        if control == "curry-change" {
+            assert_eq!(
+                p.host
+                    .kernel()
+                    .node(actions::id(&p, "reply-changed-0"))
+                    .unwrap()
+                    .key,
+                key
+            );
+        }
+        let before = actions::clocks(&p);
+        let focus = p.focus;
+        assert_eq!(p.press_at(at.0, at.1, 100.), None, "{control}");
+        assert_eq!(
+            actions::clocks(&p),
+            before,
+            "rejected sample cannot advance clock/dispatch"
+        );
+        assert_eq!(p.focus, focus);
+        assert_eq!(actions::selected(&p), Value::str(""));
+    }
+}
+
+#[test]
+fn retained_actions_down_a_pending_b_live_c_never_rebinds_or_implicitly_paints() {
+    let _service = crate::content_region::test_service();
+    let mut p = actions::boot(&actions::source(), true, actions::Rows::default());
+    let reply = actions::id(&p, "reply-message-0");
+    let at = actions::point(&mut p, reply);
+    let key = p
+        .host
+        .kernel()
+        .node(actions::id(&p, "body-message-0"))
+        .unwrap()
+        .key;
+    let a_stamp = p
+        .host
+        .content_region()
+        .unwrap()
+        .text_snapshot(key)
+        .unwrap()
+        .request
+        .stamp()
+        .clone();
+    actions::action(&mut p, "body-change", 1.);
+    actions::ready(&mut p);
+    let b = p.display_frame().unwrap();
+    assert!(p.last_frame_succeeded);
+    let b_bytes = b.pixels.data().to_vec();
+    assert_eq!(
+        p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(key)
+            .unwrap()
+            .request
+            .stamp(),
+        &a_stamp
+    );
+    assert!(
+        p.pointer_down(at.0, at.1, 2.).unwrap(),
+        "DOWN belongs to acknowledged A"
+    );
+    let gate = actions::block_body(&mut p, 3.);
+    actions::action(&mut p, "curry-change", 4.);
+    let before = actions::clocks(&p);
+    assert!(!p.pointer_up(at.0, at.1, 100.).unwrap());
+    assert_eq!(actions::clocks(&p), before);
+    assert_eq!(actions::selected(&p), Value::str(""));
+    assert_eq!(p.collection_interaction(), None);
+    assert!(p.display_complete(&b));
+    let b_stamp = p
+        .host
+        .content_region()
+        .unwrap()
+        .text_snapshot(key)
+        .unwrap()
+        .request
+        .stamp()
+        .clone();
+    assert_ne!(b_stamp, a_stamp);
+    assert!(p.dirty(), "C must survive matching B ACK");
+    // The actual post-ACK input path must keep B until the carrier submits C.
+    let _ = p.box_of(reply);
+    assert_eq!(p.press_at(at.0, at.1, 101.), None);
+    assert_eq!(actions::clocks(&p), before);
+    assert_eq!(
+        p.host
+            .content_region()
+            .unwrap()
+            .text_snapshot(key)
+            .unwrap()
+            .request
+            .stamp(),
+        &b_stamp
+    );
+    assert_eq!(b.pixels.data(), b_bytes);
+    assert!(!p.display_complete(&b));
+    drop(gate);
+    actions::ready(&mut p);
+    actions::ack(&mut p);
+    let current = actions::id(&p, "reply-changed-0");
+    let at = actions::point(&mut p, current);
+    assert_eq!(p.press_at(at.0, at.1, 102.), Some(current));
+    assert_eq!(actions::selected(&p), Value::str("changed-0"));
+    assert_eq!(b.pixels.data(), b_bytes);
+}

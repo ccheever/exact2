@@ -24,6 +24,21 @@ pub struct ActionBinding {
     args: Vec<BindingScalar>,
 }
 
+impl ActionBinding {
+    /// Retained scalar UTF-8 payload bytes, for aggregate host picture budgets.
+    /// Walks at most eight scalars without allocation or exposing their values;
+    /// excludes scalar metadata, allocator overhead and the transient capture.
+    pub fn retained_utf8_bytes(&self) -> usize {
+        self.args
+            .iter()
+            .map(|arg| match arg {
+                BindingScalar::String(value) => value.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+}
+
 /// Refusal before an action, clock or host effect. Generic dispatch is unaffected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionBindingRefusal {

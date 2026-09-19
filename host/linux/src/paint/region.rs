@@ -4,6 +4,50 @@
 //! changes, including destroyed keys. Shell origin/clip and scroll remain live.
 use super::*;
 use exact_kernel::{NodeKey, RegionPublication};
+use exact_plan::EventKind;
+use exact_runner::runner::{ActionBinding, ActionBindingRefusal};
+
+pub(crate) enum ActionSlot {
+    Absent,
+    Refused,
+    Bound(Rc<ActionBinding>),
+}
+type CapturedAction = Option<Result<ActionBinding, ActionBindingRefusal>>;
+/// Borrowed only during CPU capture/replay. Scene and the ordinary painter do
+/// not acquire a Runner, handler graph or candidate snapshot.
+pub(crate) struct RegionActions<'a> {
+    pub capture: &'a mut dyn FnMut(NodeKey, EventKind) -> CapturedAction,
+    pub eligible: &'a dyn Fn(NodeKey) -> bool,
+    pub motion: &'a dyn Fn(NodeKey, &Rc<()>) -> bool,
+}
+pub(crate) struct ActionNode {
+    pub key: NodeKey,
+    pub parent: Option<NodeKey>,
+    pub blocked: bool,
+    pub press: ActionSlot,
+    pub swipe: ActionSlot,
+    swipe_policy: Option<(exact_kernel::TouchAction, Option<exact_motion::Transition>)>,
+}
+impl ActionNode {
+    pub(crate) fn swipe_matches(&self, node: &NodeRef<'_>, kernel: &Kernel) -> bool {
+        self.swipe_policy
+            .as_ref()
+            .is_some_and(|(touch, transition)| {
+                *touch == node.style.touch_action
+                    && Presented::from_style(node.style) == Presented::IDENTITY
+                    && node
+                        .style
+                        .transition
+                        .matching(exact_motion::Property::Translate)
+                        == transition.as_ref()
+                    && !node.children().iter().any(|id| {
+                        kernel
+                            .node(*id)
+                            .is_some_and(|n| n.props.bool(PropId::SwipeIndicator) == Some(true))
+                    })
+            })
+    }
+}
 
 const COMMANDS: usize = exact_kernel::region::REGION_NODES * 12;
 /// Numeric interaction geometry owned by the same picture as the pixels.
@@ -51,6 +95,7 @@ struct NodePaint {
     opacity: f32,
     clips: bool,
     scroll: Option<(f32, f32)>,
+    action: ActionNode,
 }
 pub(super) struct Picture {
     publication: Rc<RegionPublication>,
@@ -61,6 +106,8 @@ pub(super) struct Picture {
     scale: u32,
     incarnation: Rc<()>,
     owner: ViewId,
+    action_identity: Rc<()>,
+    by_id: BTreeMap<ViewId, usize>,
 }
 impl Picture {
     pub(super) fn belongs_to(&self, region: &crate::content_region::ContentRegionState) -> bool {
@@ -78,6 +125,7 @@ impl Picture {
         region: &crate::content_region::ContentRegionState,
         publication: &Rc<RegionPublication>,
         collection_limits: &BTreeMap<ViewId, f32>,
+        actions: &mut RegionActions<'_>,
     ) -> Result<Rc<Self>, String> {
         if let Some(p) = &painter.region_picture {
             if p.matches(publication)
@@ -155,6 +203,9 @@ impl Picture {
         let mut commands = Vec::new();
         let mut nodes = Vec::new();
         let mut command_cost = 0usize;
+        let mut event_count = 0usize;
+        let mut string_bytes = 0usize;
+        let mut by_id = BTreeMap::new();
         while let Some(visit) = stack.pop() {
             let id = match visit {
                 Visit::Leave(i) => {
@@ -231,6 +282,63 @@ impl Picture {
                 return Err("content flat paint command limit".into());
             }
             let i = nodes.len();
+            let mut slot = |kind| -> Result<ActionSlot, String> {
+                let Some(binding) = (actions.capture)(node.key, kind) else {
+                    return Ok(ActionSlot::Absent);
+                };
+                event_count += 1;
+                if event_count > 256 {
+                    return Err("content retained action count limit".into());
+                }
+                match binding {
+                    Ok(binding) => {
+                        string_bytes += binding.retained_utf8_bytes();
+                        if string_bytes > 65536 {
+                            return Err("content retained action UTF-8 limit".into());
+                        }
+                        Ok(ActionSlot::Bound(Rc::new(binding)))
+                    }
+                    Err(_) => Ok(ActionSlot::Refused),
+                }
+            };
+            let press = slot(EventKind::Press)?;
+            let swipe = slot(EventKind::Swiperight)?;
+            let swipe_policy = (matches!(swipe, ActionSlot::Bound(_))
+                && Presented::from_style(node.style) == Presented::IDENTITY
+                && !node.children().iter().any(|id| {
+                    scene
+                        .kernel
+                        .node(*id)
+                        .is_some_and(|n| n.props.bool(PropId::SwipeIndicator) == Some(true))
+                })
+                && matches!(
+                    node.style.touch_action,
+                    exact_kernel::TouchAction::None
+                        | exact_kernel::TouchAction::PanY
+                        | exact_kernel::TouchAction::PanLeftPanY
+                        | exact_kernel::TouchAction::PanRightPanY
+                ))
+            .then(|| {
+                (
+                    node.style.touch_action,
+                    node.style
+                        .transition
+                        .matching(exact_motion::Property::Translate)
+                        .cloned(),
+                )
+            });
+            let action = ActionNode {
+                key: node.key,
+                parent: node
+                    .parent
+                    .and_then(|id| scene.kernel.node(id))
+                    .map(|n| n.key),
+                blocked: !(actions.eligible)(node.key),
+                press,
+                swipe,
+                swipe_policy,
+            };
+            by_id.insert(id, i);
             nodes.push(NodePaint {
                 ordinal,
                 key: node.key,
@@ -240,6 +348,7 @@ impl Picture {
                 opacity,
                 clips,
                 scroll: scroll_offset,
+                action,
             });
             commands.push(Command::Enter(i));
             stack.push(Visit::Leave(i));
@@ -260,6 +369,8 @@ impl Picture {
                 .node_by_key(region.binding().owner)
                 .ok_or("content owner removed")?
                 .id,
+            action_identity: Rc::new(()),
+            by_id,
         }))
     }
 }
@@ -268,6 +379,17 @@ pub(super) struct Published {
     pub selection: Option<(Rc<RegionPublication>, exact_kernel::Frame)>,
 }
 impl Painter {
+    pub(crate) fn retained_action_node(
+        &self,
+        region: &crate::content_region::ContentRegionState,
+        id: ViewId,
+    ) -> Option<(&Rc<()>, &ActionNode)> {
+        let p = self
+            .region_picture
+            .as_ref()
+            .filter(|p| p.belongs_to(region))?;
+        Some((&p.action_identity, &p.nodes[*p.by_id.get(&id)?].action))
+    }
     pub(crate) fn region_scroll_bounds(
         &self,
         region: &crate::content_region::ContentRegionState,
@@ -334,9 +456,9 @@ impl Painter {
             .ok_or("region has no successful native frame")?;
         Ok(frame.selection.clone())
     }
-    /// This first region consumer is read-only. Deny action dispatch using the
-    /// last successful picture's IDs even when live source/handlers changed or
-    /// a failed frame kept old boxes. Scroll routing remains separate.
+    /// Ordinary live-handler dispatch cannot enter a retained picture. Only
+    /// the separate captured Press/Swiperight route may qualify those IDs.
+    /// Failed frames keep the old boundary; scroll routing remains separate.
     pub(crate) fn region_blocks_action(&self, view: ViewId) -> bool {
         self.region_picture
             .as_ref()
@@ -359,6 +481,7 @@ struct Resolved {
     geometry: BoxGeometry,
     scroll: Option<(f32, f32)>,
     live_hit: bool,
+    transform: Transform,
 }
 pub(super) struct Replay<'a> {
     pub picture: &'a Picture,
@@ -373,6 +496,7 @@ impl<'a> Replay<'a> {
         content: NodeKey,
         viewport: (f32, f32),
         scale: f32,
+        actions: &RegionActions<'_>,
     ) -> Result<Self, String> {
         let frames = picture
             .publication
@@ -402,7 +526,8 @@ impl<'a> Replay<'a> {
         }
         let mut stack = Vec::new();
         let mut nodes = Vec::with_capacity(picture.nodes.len());
-        let query_transform = Transform::from_scale(scale, scale).pre_scale(1. / scale, 1. / scale);
+        let mut transform = Transform::identity();
+        let mut moving = 0;
         let device_clip = (
             0.,
             0.,
@@ -420,7 +545,50 @@ impl<'a> Replay<'a> {
                     let geometry = n.paint.geometry(paint_rect(f.frame, offset));
                     let rect = geometry.outer.rect;
                     let c = geometry.content;
-                    let mut finite = finite_rect(rect)
+                    let parent = transform;
+                    if let Some(node) = scene.kernel.node_by_key(n.key) {
+                        let p = (scene.presented)(node.id);
+                        if p.moves() {
+                            let ActionSlot::Bound(_) = &n.action.swipe else {
+                                return Err("content replay refuses unbound motion".into());
+                            };
+                            moving += 1;
+                            if moving > 1
+                                || !n.action.swipe_matches(&node, scene.kernel)
+                                || !(actions.motion)(n.key, &picture.action_identity)
+                                || !p.translate.0.is_finite()
+                                || !p.translate.1.is_finite()
+                                || p.scale != 1.
+                                || p.rotate != 0.
+                                || p.opacity != n.opacity
+                            {
+                                return Err(
+                                    "content replay refuses changed swipe presentation".into()
+                                );
+                            }
+                            // EXACT ordinary node composition, including f32
+                            // center association. Never translate baked pixels.
+                            let (x, y, w, h) = paint_rect(f.frame, offset);
+                            let (cx, cy) = (x + w / 2., y + h / 2.);
+                            transform = parent.pre_concat(
+                                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
+                                    .pre_rotate(p.rotate)
+                                    .pre_scale(p.scale, p.scale)
+                                    .pre_translate(-cx, -cy),
+                            );
+                        }
+                    }
+                    let mut finite = [
+                        transform.sx,
+                        transform.ky,
+                        transform.kx,
+                        transform.sy,
+                        transform.tx,
+                        transform.ty,
+                    ]
+                    .into_iter()
+                    .all(f32::is_finite)
+                        && finite_rect(rect)
                         && finite_rect(c)
                         && n.paint
                             .padding
@@ -440,6 +608,9 @@ impl<'a> Replay<'a> {
                         return Err("nonfinite content paint geometry".into());
                     }
                     if let Payload::Text(p, _) = &n.payload {
+                        let query_transform = Transform::from_scale(scale, scale)
+                            .pre_concat(transform)
+                            .pre_scale(1. / scale, 1. / scale);
                         if !p.prepared_ink_supports((c.0, c.1), scale, query_transform, device_clip)
                         {
                             return Err("content-region prepared ink query refused".into());
@@ -465,8 +636,9 @@ impl<'a> Replay<'a> {
                         geometry,
                         scroll,
                         live_hit,
+                        transform,
                     });
-                    stack.push(offset);
+                    stack.push((offset, parent));
                     if n.opacity > 0. {
                         if let Some(s) = scroll {
                             offset = (offset.0 + s.0, offset.1 + s.1);
@@ -474,7 +646,7 @@ impl<'a> Replay<'a> {
                     }
                 }
                 Command::Leave(_) => {
-                    offset = stack.pop().ok_or("content recipe scope mismatch")?;
+                    (offset, transform) = stack.pop().ok_or("content recipe scope mismatch")?;
                 }
             }
         }
@@ -491,7 +663,7 @@ impl<'a> Replay<'a> {
         &self,
         painter: &mut Painter,
         walk: &mut Walk<'_, '_>,
-        parent: Transform,
+        _parent: Transform,
         _offset: (f32, f32),
         outer_clip: Option<Rect4>,
     ) {
@@ -503,6 +675,8 @@ impl<'a> Replay<'a> {
                     let n = &self.picture.nodes[i];
                     let r = &self.nodes[i];
                     let g = &r.geometry;
+                    // Containing-block transforms were refused before prepare.
+                    let parent = r.transform;
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
                             id: n.id,

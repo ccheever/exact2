@@ -1,6 +1,6 @@
 //! Temporary presentation ownership; committed style remains the target.
 
-use super::{validate_value, Engine, EngineError, Property, Running, Value};
+use super::{validate_value, Engine, EngineError, Owner, Property, Running, Value};
 use crate::transition::TimingFunction;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -10,6 +10,8 @@ static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Opaque ownership of one live node/property presentation. A new hold or
 /// removal invalidates it; hosts must also discard tokens on runtime teardown.
+/// After ending, it can identify only its own running return via `owns_return`;
+/// all hold mutations still require `has_hold` and refuse a returning token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HoldToken {
     node: u64,
@@ -137,7 +139,7 @@ impl Engine {
             let slot = self.slots.get_mut(&key).expect("both adopted properties");
             slot.presented = values[i];
             slot.running = None;
-            slot.hold = Some(serial + i as u64);
+            slot.owner = Some(Owner::Held(serial + i as u64));
             self.dirty.insert(key);
             HoldStart {
                 token: HoldToken {
@@ -207,7 +209,7 @@ impl Engine {
         let value = presented.unwrap_or(slot.presented);
         slot.presented = value;
         slot.running = None;
-        slot.hold = Some(serial);
+        slot.owner = Some(Owner::Held(serial));
         self.dirty.insert(key);
         Ok(Some(HoldStart {
             token: HoldToken {
@@ -224,7 +226,19 @@ impl Engine {
     pub fn has_hold(&self, token: HoldToken) -> bool {
         self.slots
             .get(&(token.node, token.property))
-            .is_some_and(|slot| slot.hold == Some(token.serial))
+            .is_some_and(|slot| slot.owner == Some(Owner::Held(token.serial)))
+    }
+
+    /// Whether this exact token's return still runs in this engine. This is
+    /// read-only and does not grant hold mutation authority. Retarget, rebegin,
+    /// removal and natural completion revoke it, even if a new curve has the
+    /// same numeric descriptor. Unchanged-target observations preserve it.
+    pub fn owns_return(&self, token: HoldToken) -> bool {
+        self.slots
+            .get(&(token.node, token.property))
+            .is_some_and(|slot| {
+                slot.owner == Some(Owner::Returning(token.serial)) && slot.running.is_some()
+            })
     }
 
     /// Whether a property has a live hold. Browser lowering must preserve its
@@ -232,7 +246,7 @@ impl Engine {
     pub fn is_held(&self, node: u64, property: Property) -> bool {
         self.slots
             .get(&(node, property))
-            .is_some_and(|slot| slot.hold.is_some())
+            .is_some_and(|slot| matches!(slot.owner, Some(Owner::Held(_))))
     }
 
     /// Seek and change only the held presentation. Stale tokens return `false`
@@ -293,7 +307,6 @@ impl Engine {
         slot.running = declaration.map(|declaration| {
             Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
         });
-        slot.hold = None;
         slot.presented = if let Some(running) = &slot.running {
             let sample = running.sample(now_s);
             if sample.done {
@@ -303,6 +316,10 @@ impl Engine {
         } else {
             slot.target
         };
+        slot.owner = slot
+            .running
+            .as_ref()
+            .map(|_| Owner::Returning(token.serial));
         self.dirty.insert(key);
         Ok(true)
     }
@@ -495,6 +512,267 @@ mod tests {
                 Err(EngineError::HoldSerialExhausted)
             );
             assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
+        }
+    }
+
+    fn returning(end: HoldEnd) -> (Engine, HoldToken) {
+        use crate::{Change, SpringConfig, Transition, TransitionProperty, Transitions};
+        let mut e = Engine::new();
+        e.set_transitions(
+            7,
+            Transitions(vec![Transition::new(
+                TransitionProperty::All,
+                0.0,
+                TimingFunction::Spring(SpringConfig::default()),
+            )]),
+        )
+        .unwrap();
+        e.observe(Change {
+            node: 7,
+            property: Property::Translate,
+            value: Value::ZERO,
+            velocity: None,
+        })
+        .unwrap();
+        let token = e
+            .begin_hold(7, Property::Translate, 1.0, Some(Value::new(80.0, 4.0)))
+            .unwrap()
+            .unwrap()
+            .token;
+        assert!(e.has_hold(token));
+        assert!(!e.owns_return(token));
+        assert!(e.end_hold(token, 1.0, end).unwrap());
+        e.frame();
+        (e, token)
+    }
+
+    #[test]
+    fn return_owner_is_not_held_and_unchanged_observation_preserves_it() {
+        use crate::Change;
+        eprintln!("return-owner layout bytes: old_optional_serial={} tagged_optional_owner={} slot={} token={}",
+            std::mem::size_of::<Option<u64>>(), std::mem::size_of::<Option<super::super::Owner>>(),
+            std::mem::size_of::<super::super::Slot>(), std::mem::size_of::<HoldToken>());
+        for end in [
+            HoldEnd::Cancel,
+            HoldEnd::Release {
+                velocity: Value::new(12.0, 0.0),
+            },
+        ] {
+            let (mut e, token) = returning(end);
+            assert!(e.owns_return(token));
+            assert!(!e.has_hold(token));
+            assert!(!e.is_held(7, Property::Translate));
+            assert!(e.is_active(7, Property::Translate));
+            let descriptor = e.spring_descriptor(7, Property::Translate).unwrap();
+            let before = format!("{e:?}");
+            assert!(e.owns_return(token));
+            assert_eq!(format!("{e:?}"), before, "qualification is read-only");
+            assert!(!e
+                .update_hold(token, f64::NAN, Value::scalar(f64::NAN))
+                .unwrap());
+            assert!(!e.end_hold(token, f64::NAN, HoldEnd::Cancel).unwrap());
+            assert_eq!(
+                format!("{e:?}"),
+                before,
+                "returned token is stale for hold mutation"
+            );
+            e.observe(Change {
+                node: 7,
+                property: Property::Translate,
+                value: Value::ZERO,
+                velocity: None,
+            })
+            .unwrap();
+            assert!(e.owns_return(token));
+            assert_eq!(
+                e.spring_descriptor(7, Property::Translate),
+                Some(descriptor)
+            );
+            assert_eq!(e.now(), 1.0);
+            assert!(e.frame().is_empty());
+        }
+    }
+
+    #[test]
+    fn identical_descriptor_replacement_return_has_a_different_owner() {
+        let (mut e, old) = returning(HoldEnd::Cancel);
+        let descriptor = e.spring_descriptor(7, Property::Translate).unwrap();
+        let new = e
+            .begin_hold(7, Property::Translate, 1.0, None)
+            .unwrap()
+            .unwrap()
+            .token;
+        assert_ne!(old, new);
+        assert!(!e.owns_return(old));
+        assert!(e.has_hold(new));
+        assert!(e.is_held(7, Property::Translate));
+        assert!(!e.owns_return(new));
+        assert!(e.end_hold(new, 1.0, HoldEnd::Cancel).unwrap());
+        assert_eq!(
+            e.spring_descriptor(7, Property::Translate),
+            Some(descriptor)
+        );
+        assert!(
+            !e.owns_return(old),
+            "identical numbers must not revive an old owner"
+        );
+        assert!(e.owns_return(new));
+        assert!(!e.has_hold(new));
+        assert!(!e.is_held(7, Property::Translate));
+        let before = format!("{e:?}");
+        assert!(!e.end_hold(old, 1.0, HoldEnd::Cancel).unwrap());
+        assert_eq!(format!("{e:?}"), before);
+    }
+
+    #[test]
+    fn changed_target_replaces_return_authority_even_without_a_new_curve() {
+        use crate::{Change, Transitions};
+        for mode in 0..3 {
+            let (mut e, token) = returning(HoldEnd::Cancel);
+            let target = if mode == 1 {
+                e.value(7, Property::Translate).unwrap()
+            } else {
+                Value::new(20.0, 0.0)
+            };
+            if mode == 2 {
+                e.set_transitions(7, Transitions::default()).unwrap();
+            }
+            e.observe(Change {
+                node: 7,
+                property: Property::Translate,
+                value: target,
+                velocity: None,
+            })
+            .unwrap();
+            assert!(!e.owns_return(token), "retarget branch {mode}");
+            assert!(!e.has_hold(token));
+            assert_eq!(e.target(7, Property::Translate), Some(target));
+            assert_eq!(e.is_active(7, Property::Translate), mode == 0);
+        }
+    }
+
+    #[test]
+    fn return_owner_survives_sampling_and_declaration_but_not_completion_or_removal() {
+        use crate::{Change, Transitions};
+        let (mut e, token) = returning(HoldEnd::Cancel);
+        let descriptor = e.spring_descriptor(7, Property::Translate).unwrap();
+        e.set_transitions(7, Transitions::default()).unwrap();
+        e.advance(1.02).unwrap();
+        assert!(e.owns_return(token));
+        assert_eq!(
+            e.spring_descriptor(7, Property::Translate),
+            Some(descriptor)
+        );
+        e.advance(e.settle_time().unwrap() + 1.0).unwrap();
+        assert!(!e.owns_return(token));
+        assert!(!e.has_hold(token));
+        assert!(!e.is_active(7, Property::Translate));
+        for whole_node in [false, true] {
+            let (mut e, token) = returning(HoldEnd::Cancel);
+            if whole_node {
+                e.remove(7);
+            } else {
+                assert!(e.remove_property(7, Property::Translate));
+            }
+            assert!(!e.owns_return(token));
+            e.observe(Change {
+                node: 7,
+                property: Property::Translate,
+                value: Value::ZERO,
+                velocity: None,
+            })
+            .unwrap();
+            assert!(!e.owns_return(token));
+            assert!(!e.has_hold(token));
+        }
+    }
+
+    #[test]
+    fn paired_takeover_replaces_both_returns_and_keeps_hold_predicates_strict() {
+        use crate::Change;
+        let (mut e, translate) = returning(HoldEnd::Cancel);
+        e.observe(Change {
+            node: 7,
+            property: Property::Scale,
+            value: Value::scalar(1.0),
+            velocity: None,
+        })
+        .unwrap();
+        let scale = e
+            .begin_hold(7, Property::Scale, 1.0, Some(Value::scalar(1.5)))
+            .unwrap()
+            .unwrap()
+            .token;
+        assert!(e.end_hold(scale, 1.0, HoldEnd::Cancel).unwrap());
+        assert!(e.owns_return(translate) && e.owns_return(scale));
+        let pair = e.begin_transform_hold(7, 1.0, None).unwrap().unwrap();
+        assert!(!e.owns_return(translate) && !e.owns_return(scale));
+        for token in [pair.translate().token, pair.scale().token] {
+            assert!(e.has_hold(token));
+            assert!(e.is_held(token.node(), token.property()));
+            assert!(!e.owns_return(token));
+        }
+        assert!(e
+            .update_transform_hold(pair, 1.1, [Value::new(30.0, 0.0), Value::scalar(1.2)])
+            .unwrap());
+        for token in [pair.translate().token, pair.scale().token] {
+            assert!(e.end_hold(token, 1.1, HoldEnd::Cancel).unwrap());
+            assert!(e.owns_return(token));
+            assert!(!e.has_hold(token));
+        }
+        assert!(!e
+            .update_transform_hold(pair, f64::NAN, [Value::scalar(f64::NAN); 2])
+            .unwrap());
+    }
+
+    #[test]
+    fn process_serials_refuse_other_engine_return_despite_identical_node_and_curve() {
+        let (a, at) = returning(HoldEnd::Cancel);
+        let (b, bt) = returning(HoldEnd::Cancel);
+        assert_ne!(at.serial(), bt.serial());
+        assert_eq!(
+            a.spring_descriptor(7, Property::Translate),
+            b.spring_descriptor(7, Property::Translate)
+        );
+        assert!(a.owns_return(at) && b.owns_return(bt));
+        assert!(!a.owns_return(bt) && !b.owns_return(at));
+        assert!(!a.has_hold(bt) && !b.has_hold(at));
+    }
+
+    #[test]
+    fn an_end_without_a_running_curve_does_not_leave_return_authority() {
+        use crate::{Change, Transitions};
+        for zero_distance in [false, true] {
+            let (mut e, old) = returning(HoldEnd::Cancel);
+            if !zero_distance {
+                e.set_transitions(7, Transitions::default()).unwrap();
+            }
+            let value = if zero_distance {
+                Value::ZERO
+            } else {
+                Value::new(30.0, 0.0)
+            };
+            let token = e
+                .begin_hold(7, Property::Translate, 1.0, Some(value))
+                .unwrap()
+                .unwrap()
+                .token;
+            assert!(!e.owns_return(old));
+            assert!(e.end_hold(token, 1.0, HoldEnd::Cancel).unwrap());
+            assert!(!e.owns_return(token));
+            assert!(!e.has_hold(token));
+            assert!(!e.is_active(7, Property::Translate));
+            e.observe(Change {
+                node: 7,
+                property: Property::Translate,
+                value: Value::new(5.0, 0.0),
+                velocity: None,
+            })
+            .unwrap();
+            assert!(
+                !e.owns_return(token),
+                "a later authored curve cannot inherit the token"
+            );
         }
     }
 }

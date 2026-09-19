@@ -38,6 +38,7 @@ pub(super) struct Contact {
     position: (f32, f32),
     last_ms: f64,
     pub(super) hold: Option<Hold>,
+    retained: Option<super::retained_action::RetainedContact>,
 }
 impl<D: DataSource> Presenter<D> {
     pub(super) fn input_live(&self, key: NodeKey) -> bool {
@@ -60,6 +61,13 @@ impl<D: DataSource> Presenter<D> {
         true
     }
     fn contact_live(&self, contact: &Contact) -> bool {
+        if let Some(retained) = &contact.retained {
+            return self.retained_contact_live(retained)
+                && contact
+                    .hold
+                    .as_ref()
+                    .is_none_or(|h| self.host.has_hold(h.primary.token));
+        }
         match &contact.hold {
             Some(held) => {
                 self.host.has_hold(held.primary.token)
@@ -100,10 +108,43 @@ impl<D: DataSource> Presenter<D> {
     /// Retire after commits even when the target itself was untouched.
     pub(super) fn retire_pointer(&mut self) {
         if self.contact.as_ref().is_some_and(|c| !self.contact_live(c)) {
+            if self.contact.as_ref().is_some_and(|c| c.retained.is_some()) {
+                // Cancel only our token, at the already accepted Host time. An
+                // invalid future sample must not strand a hold or advance time.
+                let contact = self.contact.take().unwrap();
+                if let Some(held) = contact.hold {
+                    if let Err(error) = self.end_contact(&held, HoldEnd::Cancel, self.host.now()) {
+                        self.host.log(error);
+                    }
+                }
+                self.set_collection_interaction(None);
+                return;
+            }
             if let Err(error) = self.pointer_cancel(self.pointer_now()) {
                 self.host.log(error);
             }
         }
+    }
+    /// Only after a successful, matching, current-origin picture installation.
+    /// Same-A repaints retain their contact; foreign/duplicate ACKs never enter.
+    #[cfg(any(target_os = "linux", test))]
+    pub(super) fn retire_acknowledged_pointer(&mut self) {
+        let stale = self
+            .contact
+            .as_ref()
+            .and_then(|c| c.retained.as_ref())
+            .is_some_and(|c| !self.retained_contact_picture_current(c));
+        if stale {
+            let contact = self.contact.take().unwrap();
+            if let Some(held) = contact.hold {
+                match self.host.snap_retained_motion(held.primary.token) {
+                    Ok(changed) => self.dirty |= changed,
+                    Err(error) => self.host.log(error),
+                }
+            }
+            self.set_collection_interaction(None);
+        }
+        self.retire_retained_motion_picture();
     }
     pub(super) fn pointer_now(&self) -> f64 {
         self.contact
@@ -117,6 +158,37 @@ impl<D: DataSource> Presenter<D> {
     /// Primary down shared by evdev, VNC, and explicitly labeled agent synthesis.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
+        if self.host.content_region().is_some() {
+            if let Some(view) = self
+                .hit(x, y)
+                .filter(|id| self.brush.region_blocks_action(*id))
+            {
+                let Some(hit) = self.host.kernel().node(view).map(|n| n.key) else {
+                    return Ok(false);
+                };
+                let Some(retained) = self.retained_down(hit) else {
+                    self.retire_pointer();
+                    return Ok(false);
+                };
+                self.pointer_cancel(now_ms)?;
+                // Cancellation may run layout/effects; it must not rebind A.
+                if !self.retained_contact_live(&retained) {
+                    return Ok(false);
+                }
+                let candidate = retained.swipe.as_ref().map(|t| Candidate::Swipe(t.key));
+                self.contact = Some(Contact {
+                    hit,
+                    candidate,
+                    origin: (x, y),
+                    position: (x, y),
+                    last_ms: now_ms,
+                    hold: None,
+                    retained: Some(retained),
+                });
+                self.set_collection_interaction(Some(view));
+                return Ok(true);
+            }
+        }
         self.pointer_cancel(now_ms)?;
         let Some(hit) = self
             .hit(x, y)
@@ -143,6 +215,7 @@ impl<D: DataSource> Presenter<D> {
             position: (x, y),
             last_ms: now_ms,
             hold: None,
+            retained: None,
         });
         self.set_collection_interaction(Some(view));
         Ok(true)
@@ -172,9 +245,20 @@ impl<D: DataSource> Presenter<D> {
                 Some(Candidate::Height { handle, target }) if dy.abs() > dx.abs() => {
                     self.begin_height_drag(handle, target, now_ms)
                 }
-                Some(Candidate::Swipe(key)) if dx.abs() > dy.abs() && self.input_live(key) => {
+                Some(Candidate::Swipe(key))
+                    if dx.abs() > dy.abs()
+                        && (contact.retained.is_some() || self.input_live(key)) =>
+                {
                     if dx < 0. {
                         self.tick(now_ms);
+                        if contact
+                            .retained
+                            .as_ref()
+                            .is_some_and(|r| !self.retained_contact_live(r))
+                        {
+                            self.set_collection_interaction(None);
+                            return Ok(false);
+                        }
                         let view = self.host.kernel().node_by_key(key).unwrap().id;
                         if self.host.presented(view).translate.0 <= 0. {
                             self.set_collection_interaction(None);
@@ -190,6 +274,13 @@ impl<D: DataSource> Presenter<D> {
             };
             match begin {
                 Ok(Some(held)) => {
+                    if let Some(target) = contact.retained.as_ref().and_then(|c| c.swipe.as_ref()) {
+                        if !self.begin_retained_motion(target, held.primary.token) {
+                            self.end_contact(&held, HoldEnd::Cancel, self.host.now())?;
+                            self.set_collection_interaction(None);
+                            return Ok(false);
+                        }
+                    }
                     contact.hold = Some(held);
                     contact.origin = (x, y);
                 }
@@ -271,8 +362,29 @@ impl<D: DataSource> Presenter<D> {
                             .x;
                         let mut error = None;
                         if current >= 64. && self.host.has_hold(held.primary.token) {
-                            error = self.host.dispatch_held(held.primary.token, now_ms).err();
-                            error = error.or(self.after_commit());
+                            if let Some(retained) = &contact.retained {
+                                let delivered = match &retained.swipe {
+                                    Some(target) => self.retained_swipe_dispatch(
+                                        target,
+                                        held.primary.token,
+                                        now_ms,
+                                    ),
+                                    None => Ok(false),
+                                };
+                                match delivered {
+                                    Ok(false) => {
+                                        let ended =
+                                            self.end_swipe(&held, HoldEnd::Cancel, self.host.now());
+                                        self.set_collection_interaction(None);
+                                        return ended.map(|_| false);
+                                    }
+                                    Err(e) => error = Some(e),
+                                    Ok(true) => {}
+                                }
+                            } else {
+                                error = self.host.dispatch_held(held.primary.token, now_ms).err();
+                                error = error.or(self.after_commit());
+                            }
                         }
                         let velocity = held.velocity.estimate(now_ms / 1000.);
                         let ended = self.end_swipe(&held, HoldEnd::Release { velocity }, now_ms);
@@ -285,7 +397,13 @@ impl<D: DataSource> Presenter<D> {
                 .hit(x, y)
                 .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
             if at == Some(contact.hit) {
-                self.press_at(x, y, now_ms);
+                if let Some(retained) = &contact.retained {
+                    if let Some(target) = &retained.press {
+                        self.retained_press_target(target, now_ms);
+                    }
+                } else {
+                    self.press_at(x, y, now_ms);
+                }
             }
             Ok(false)
         };

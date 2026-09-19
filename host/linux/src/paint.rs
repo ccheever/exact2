@@ -30,7 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod region;
-pub(crate) use region::ScrollBounds;
+pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -423,12 +423,13 @@ impl Painter {
 
     /// Paint exactly the registered selected branch. An accepted publication
     /// requires its native snapshot; live candidate text is never a fallback.
-    pub fn paint_region(
+    pub(crate) fn paint_region(
         &mut self,
         scene: &Scene<'_>,
         viewport: (f32, f32),
         region: &crate::content_region::ContentRegionState,
         collection_limits: &BTreeMap<ViewId, f32>,
+        actions: &mut RegionActions<'_>,
     ) -> Result<Frame, String> {
         region.validate_scale(self.scale)?;
         self.validate_region_presentation(scene, region)?;
@@ -455,8 +456,16 @@ impl Painter {
             exact_kernel::RegionSelection::Accepted(publication) => {
                 let picture = if receipt.current {
                     // A flat native paint/hit snapshot, never an app/layout
-                    // graph. No UTF-8 copy or cold text lookup is permitted.
-                    region::Picture::capture(self, scene, region, publication, collection_limits)?
+                    // graph. Only bounded action scalars are copied; paragraph
+                    // UTF-8 and cold text lookup remain outside this path.
+                    region::Picture::capture(
+                        self,
+                        scene,
+                        region,
+                        publication,
+                        collection_limits,
+                        actions,
+                    )?
                 } else {
                     self.region_picture
                         .as_ref()
@@ -473,6 +482,7 @@ impl Painter {
                     region.binding().content,
                     viewport,
                     self.scale,
+                    actions,
                 )?;
                 let frame = self.paint_selected(
                     scene,

@@ -6708,3 +6708,45 @@ MAIN evidence is `target/split-facts-integration/`; all46 recorded PIDs/seven
 groups retire. A lead preflight JSON-schema mismatch stopped before application
 or compilation and remains recorded separately. Native bytes, retained actions,
 worker-backed app activation and physical120Hz remain unproved by this increment.
+
+### 8.121 Retained Linux row actions and owned return motion, 2026-09-19
+
+The CPU region picture now captures bounded Press and right-swipe bindings, so
+an acknowledged A can keep its own row actions while B is prepared. Live state
+may deny a captured target; it cannot redirect that action to B or a recycled
+row. Current curry, ancestry, visibility and eligibility are checked before
+advancing input time, and Runner validates again before dispatch. Unsupported
+bindings remain barriers. Capture admits the whole picture or refuses, with256
+event entries and65,536 captured UTF8 bytes per picture; A+B can retain twice
+those amounts, plus one4,096-byte temporary capture. Contacts retain weak
+identities rather than pictures, paragraphs or resource values.
+
+A qualified single-row Translate hold moves retained pixels and hits together.
+Cancellation can paint its ordinary nonzero return even when its action is no
+longer valid. Motion preserves the process-unique hold serial as Returning until
+completion or replacement, without granting it hold-mutation authority. A
+successful distinct-picture ACK immediately retires the old contact and pin and
+snaps only its still-owned Translate motion. An identical-looking newer return
+or hold is untouched. Wrong-origin and duplicate acknowledgements confer no
+retirement authority. This is not general retained transform support.
+
+The original candidate passed10/11 tests but refused retained UP. Two added
+tests then reproduced ACK-only retirement and cancelled-return paint failures.
+The correction passes all14 retained tests, including actual moved RGBA/row-hit
+agreement with ordinary rendering and a foreign replacement-curve control.
+Full Motion84 and Linux27 distinct interaction tests pass on the owner checkout.
+Mac non-test Clippy initially rejected five ACK-only helpers as unused; matching
+their cfg to the existing display caller closes that final correction. Formatting
+changes no bytes. The optional identity remains16 bytes on this compiler, with
+Slot160 and HoldToken24; this is not a general memory or overhead measurement.
+
+Fresh MAIN compilation passes135 distinct tests:84 Motion,24 Linux swipe,
+18 Linux region and nine Runner binding tests. Strict all-target Clippy for the
+three affected packages, all15-file formatting, caps and boot pass. Evidence is
+`target/retained-actions-integration/`;40 recorded PIDs/eight groups retire.
+Owner source and execution evidence remains in
+`exact2-linux-retained-actions/target/retained-actions-validation/`.
+These are Mac-hosted CPU/model tests with a real worker and small row fixture,
+not an actual Linux display run, full10,000-message worker activation, latency
+improvement or physical120Hz proof. Native SplitFacts capacity and ACK progress
+remain a separate unintegrated candidate.
