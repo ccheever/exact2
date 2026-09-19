@@ -1,0 +1,61 @@
+{
+  "engine": "babylon",
+  "task": "a",
+  "replicate": 2,
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "dispatch": 1789709705.7416725,
+  "agent": {
+    "pid": 1939580,
+    "started": 1789709705.7419107,
+    "finished": 1789710174.4348578,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "build": {
+    "pid": 1960100,
+    "started": 1789710174.4351425,
+    "finished": 1789710176.504481,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "server": {
+    "pid": 1960355,
+    "port": 41495,
+    "root": "/tmp/exact-full-games-20260917/trials/babylon/a2/game/dist"
+  },
+  "evaluation": {
+    "pid": 1960365,
+    "started": 1789710176.8922637,
+    "finished": 1789710197.9048998,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "sourceHashes": {
+    "BRIEF.md": "9ad25b1f01ed99cfa9ff678621fa9a10104f8a03bea6a47f6efec036a489b564",
+    "README.md": "ee49accf1b6914599ec3b19cb9eaf984f1d6df042bd33a20de3730d6aa1fffcc",
+    "assets/Fox-LICENSE.md": "cde77ede120ead30e83135cdf3732c6b857d81ab7857ea0d027559bd2af8b38d",
+    "assets/Fox.glb": "d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+    "build-assets.mjs": "39803d3ceabfad906d777c23519a17e66915cc4e4c9454e0c36907690f4fd684",
+    "bun.lock": "30410d6bc9d7fe4c58ca3f563bca433d9bb4bd4cc635db9caed58c51c096c1d3",
+    "evidence/gameplay.png": "eccb2a2a577c501cdc9eec4e31db38248b04141d33609654232c5c9856f5cca2",
+    "evidence/lantern-13-failure.png": "0a4256e8ff389d0742ee31c82c04b7e668c8b809810eb39cc37b6bce33893cd5",
+    "evidence/lantern-13-proof.json": "c7c89873bc08e013ae0eec5b58f529b81c8606b1d75a2c3ceabf83a4d08006ad",
+    "evidence/lantern-13-won.png": "91ed56a6425c0d71e21421687c5a8bf8d8e42f56184c2b1cac4212032eba41a9",
+    "evidence/paused.png": "41bd69e729f2696e17afd533a5c591c48b139c4d0ff3a71a89a69a1103aa0205",
+    "evidence/self-test.json": "6f5554ad3746b65a515d52d141cb0a5e7b250b63ea4c0113f57b2a373f924fc9",
+    "evidence/title.png": "c69e91d594a01b23d281b3b56fb9f4a6ca48c508bc76558faea0237578226fc4",
+    "full-route.mjs": "22bc6b6d3b5de96e98124fa8d928226a6a7cedb7042037b4c0b43d9deade6eda",
+    "index.html": "af0691be95ce82299bbd47f9826231c66bab0a2104d64dac6a8610c90022877e",
+    "level.json": "b9a93095268e242990560134fa73f64d35c37df64f63ed6bc12a8ddab3104f07",
+    "package.json": "e8546dd449120afa94e49eb7bc84b941c83067efa53c4aab3447b4720af024c2",
+    "proof-lantern-13.mjs": "08a75bdb37d6329aeda1a5b2a43ae898ed50f0f85ed946a9a4d95738b3c761a9",
+    "rolldown.config.mjs": "58aa1487b679ae3165f746f4b956f10aebf797dff592b573b73904328218bf72",
+    "server.mjs": "3aaea783b21a0d97e2ec80ce91ed55b6eddf19c61fdc5348ee1069e2acc9ec51",
+    "src/main.js": "cdf6795323f178e5c3e510bc533663a84d324fa62f12d9ad17a0b4038df36079",
+    "src/world.js": "8a30d6b739dcc689f67cd942e2b934357fdc27400a939ebef8a30d57c58b08c1",
+    "style.css": "c9dc51f076229dddc80b103b375f4cb14afb2072ab44f53173594afdda05fb70",
+    "test.mjs": "8071cb15e8e99931de998a9f42b41fa7f292f80281604f5ab3f6597b76bc1315"
+  },
+  "finished": 1789710197.9488385
+}

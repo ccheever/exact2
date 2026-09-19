@@ -1,6 +1,10 @@
 // @ref LLP 1027 D10 — app-owned browser storage, installed after first pixel.
 // Each operation is one IndexedDB transaction: readers never see partial writes,
 // and directory moves/removals cannot race another tab's filesystem operation.
+// Modification times come from the platform's clock, captured when this
+// module evaluates: a realm that later refuses ambient time to app code (the
+// module Worker, LLP 1027.002 D2) still stamps files with the real one.
+const now = Date.now.bind(Date);
 const roots = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks still reject
@@ -132,7 +136,7 @@ export function createFileStore(appId) {
         catch (error) { reject(failure(error.message)); return; }
         request.onupgradeneeded = () => {
           const store = request.result.createObjectStore('files', { keyPath: 'path' });
-          for (const path of rootPaths) store.put({ path, kind: 'directory', modifiedMs: Date.now() });
+          for (const path of rootPaths) store.put({ path, kind: 'directory', modifiedMs: now() });
         };
         request.onerror = () => reject(failure(request.error?.message || 'IndexedDB open failed'));
         request.onblocked = () => reject(failure('IndexedDB upgrade blocked'));
@@ -165,7 +169,7 @@ export function createFileStore(appId) {
         const changes = {
           put(value) { records.set(value.path, value); store.put(value); },
           remove(path) { records.delete(path); store.delete(path); },
-          touch(path) { const value = directory(records, path); this.put({ ...value, modifiedMs: Date.now() }); },
+          touch(path) { const value = directory(records, path); this.put({ ...value, modifiedMs: now() }); },
         };
         try { result = operation(records, changes); }
         catch (cause) { error = cause; transaction.abort(); }
@@ -187,7 +191,7 @@ export function createFileStore(appId) {
         joined.set(new Uint8Array(copied), previous.contents.byteLength);
         contents = joined.buffer;
       }
-      changes.put({ path, kind: 'file', contents, modifiedMs: Date.now() });
+      changes.put({ path, kind: 'file', contents, modifiedMs: now() });
       if (!previous) changes.touch(parentOf(path));
     });
   }
@@ -218,7 +222,7 @@ export function createFileStore(appId) {
           current += `/${part}`;
           if (records.has(current)) directory(records, current);
           else {
-            changes.put({ path: current, kind: 'directory', modifiedMs: Date.now() });
+            changes.put({ path: current, kind: 'directory', modifiedMs: now() });
             changes.touch(parent);
           }
         }
@@ -276,7 +280,7 @@ export function createFileStore(appId) {
         directory(records, parentOf(to));
         if (from === to) throw failure('copy requires distinct regular files');
         if (records.has(to)) file(records, to);
-        changes.put({ path: to, kind: 'file', contents: source.contents.slice(0), modifiedMs: Date.now() });
+        changes.put({ path: to, kind: 'file', contents: source.contents.slice(0), modifiedMs: now() });
         changes.touch(parentOf(to));
       });
     },

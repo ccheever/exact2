@@ -74,6 +74,9 @@ pub struct Bridge<D: DataSource> {
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: std::collections::BTreeMap<u64, exact_runner::RequestOut>,
     launch: Option<String>,
     input: Vec<u8>,
     output: Vec<u8>,
@@ -105,6 +108,7 @@ impl<D: DataSource> Bridge<D> {
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
+            parked: std::collections::BTreeMap::new(),
             launch: None,
             input: Vec::new(),
             output: Vec::new(),
@@ -234,25 +238,62 @@ impl<D: DataSource> Bridge<D> {
     fn emit(&mut self, s: String) -> u32 {
         // Whatever the last call asked the host to run goes to the executor
         // with the batch (LLP 1016 D2); the presenter never sees a request.
-        if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
+        // A continuation is dispatched here, on this thread, after the
+        // commit that handed it out (LLP 1027.002 D3); one a source holds
+        // is parked and released after a later commit.
+        let Bridge {
+            host,
+            executor,
+            parked,
+            ..
+        } = self;
+        if let (Some(h), Some(x)) = (host.as_mut(), executor.as_ref()) {
             if !h.has_ordered_request_refusals() {
                 x.resume_ordered();
             }
             for r in h.take_requests() {
-                let ordered = r.request.is_ordered();
-                let work = r
-                    .request
-                    .continuation
-                    .and_then(|token| h.continuation(token));
-                let ticket = r.ticket;
-                if let Err(reason) = x.run(r, work) {
-                    h.refuse_request(ticket, reason, ordered);
-                    x.notify();
+                let dispatch = match r.request.continuation {
+                    Some(token) => h.dispatch_work(token),
+                    None => {
+                        Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
+                        continue;
+                    }
+                };
+                Self::run_dispatch(h, x, parked, r, dispatch);
+            }
+            for (token, dispatch) in h.release_work() {
+                if let Some(r) = parked.remove(&token) {
+                    Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
         }
         self.output = s.into_bytes();
         self.output.len() as u32
+    }
+
+    fn run_dispatch(
+        h: &mut Host<D>,
+        x: &crate::executor::Executor,
+        parked: &mut std::collections::BTreeMap<u64, exact_runner::RequestOut>,
+        r: exact_runner::RequestOut,
+        dispatch: exact_runner::Dispatch,
+    ) {
+        let ticket = r.ticket;
+        let ordered = r.request.is_ordered();
+        let result = match dispatch {
+            exact_runner::Dispatch::Run(work) => x.run(r, Some(work)),
+            exact_runner::Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    parked.insert(token, r);
+                }
+                Ok(())
+            }
+            exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => x.run(r, None),
+        };
+        if let Err(reason) = result {
+            h.refuse_request(ticket, reason, ordered);
+            x.notify();
+        }
     }
 
     /// The executor's queued outcomes into the runner (LLP 1016 D2): the
@@ -403,6 +444,7 @@ impl<D: DataSource> Bridge<D> {
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 ));
                 self.host = Some(host);
+                self.parked.clear();
                 Ok(batch)
             }
             Err(e) => Err(format!("{e:?}")),
@@ -692,6 +734,7 @@ impl<D: DataSource> Bridge<D> {
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
         ));
         self.host = Some(candidate.host);
+        self.parked.clear();
         self.emit(candidate.batch)
     }
 
@@ -751,6 +794,12 @@ impl<D: DataSource> Bridge<D> {
                         .as_ref()
                         .map_or_else(not_booted, |h| h.hold_refusal("invalid transform event"));
                     return self.emit(out);
+                };
+                event
+            }
+            18 => {
+                let Some(event) = Event::media_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
                 };
                 event
             }
@@ -892,19 +941,6 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_intrinsic(view, size));
-        self.emit(out)
-    }
-
-    /// One common LE collection feedback packet in the input buffer. An invalid
-    /// length is rejected by decoding an empty packet, never a truncated prefix.
-    /// Edge actions can issue requests; publish the batch and submit that work
-    /// through the same executor path as an ordinary event.
-    pub fn collection_feedback(&mut self, len: usize, now_ms: f64) -> u32 {
-        let bytes = self.input.get(..len).unwrap_or(&[]);
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |host| host.collection_feedback(bytes, now_ms));
         self.emit(out)
     }
 
@@ -1379,6 +1415,27 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
+        /// Report an actual list scrollport and bounded interaction pins.
+        #[no_mangle]
+        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_viewport(view, $crate::ListViewport {
+                top, height, width, origin, pins: [focus, interaction], rows: &[],
+            }), |n| n)
+        }
+
+        /// Resolve a logical row key in the input buffer, or UINT32_MAX.
+        #[no_mangle]
+        pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_index(view, len as usize), |_| u32::MAX)
+        }
+
+        /// Copy logical text without materializing native views. Input is
+        /// two concatenated UTF-8 row keys; first_len == 0 means all text.
+        #[no_mangle]
+        pub extern "C" fn exact_list_text(rt: u32, view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize), |_| 0)
+        }
+
         /// The safe-area insets changed; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_insets(rt: u32, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
@@ -1430,3 +1487,6 @@ mod executor_order_tests;
 #[cfg(test)]
 #[path = "collection_tests.rs"]
 mod collection_tests;
+
+#[path = "abi_collections.rs"]
+mod collections;

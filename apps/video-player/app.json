@@ -1,0 +1,41 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Video Player",
+  "short_name": "Video",
+  "id": "com.exact.videoplayer",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#11151c",
+  "background_color": "#11151c",
+  "app": {
+    "id": "com.exact.videoplayer",
+    "name": "Video Player"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 720,
+        "height": 820,
+        "minWidth": 320,
+        "minHeight": 420
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

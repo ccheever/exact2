@@ -22,6 +22,7 @@
 mod collection;
 pub mod expr;
 mod fonts;
+mod media;
 mod routes;
 pub mod tags;
 
@@ -538,6 +539,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                tags::validate_list(tag, &expanded, children, *span)?;
                 self.check_collection(tag, &expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
@@ -1027,6 +1029,7 @@ impl<'a> Lowerer<'a> {
         prop: PropId,
         scope: &Scope,
     ) -> Result<(), LowerError> {
+        media::check(name, value, span)?;
         let want = tags::prop_ty(prop);
         if prop == PropId::ImageSource {
             if let Expr::Str(source, _) = value {
@@ -1117,7 +1120,9 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
-        if tag != "iframe" && matches!(a.name.as_str(), "src" | "sandbox" | "load" | "message") {
+        if (tag != "iframe" && matches!(a.name.as_str(), "sandbox" | "load" | "message"))
+            || (tag != "iframe" && tag != "video" && a.name == "src")
+        {
             return err(
                 "lower-attr-tag",
                 format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
@@ -1265,7 +1270,14 @@ impl<'a> Lowerer<'a> {
                 } else {
                     usize::from(matches!(
                         event,
-                        "change" | "key" | "hover" | "message" | "navigate"
+                        "change"
+                            | "key"
+                            | "hover"
+                            | "message"
+                            | "timeupdate"
+                            | "durationchange"
+                            | "error"
+                            | "navigate"
                     ))
                 };
                 let valid = if matches!(event, "reachstart" | "reachend") {
@@ -1323,29 +1335,8 @@ impl<'a> Lowerer<'a> {
                 for arg in args {
                     codes.push(self.expr_code(arg, scope, locals)?);
                 }
-                let kind = match event {
-                    "press" => EventKind::Press,
-                    "change" => EventKind::Change,
-                    "hover" => EventKind::Hover,
-                    "focus" => EventKind::Focus,
-                    "blur" => EventKind::Blur,
-                    "submit" => EventKind::Submit,
-                    "key" => EventKind::Key,
-                    "load" => EventKind::Load,
-                    "message" => EventKind::Message,
-                    "contextmenu" => EventKind::Contextmenu,
-                    "dblclick" => EventKind::Dblclick,
-                    "reachstart" => EventKind::Reachstart,
-                    "reachend" => EventKind::Reachend,
-                    "swiperight" => EventKind::Swiperight,
-                    "scroll" => EventKind::Scroll,
-                    "navigate" => EventKind::Navigate,
-                    "heightrelease" => EventKind::Heightrelease,
-                    "transformgeometry" => EventKind::Transformgeometry,
-                    "transformrelease" => EventKind::Transformrelease,
-                    "reorderdrop" => EventKind::Reorderdrop,
-                    _ => unreachable!("tag table admitted an unknown handler"),
-                };
+                let kind =
+                    EventKind::from_name(event).expect("tag table admitted an unknown handler");
                 handlers.push((kind, self.actions[ai], codes));
             }
         }

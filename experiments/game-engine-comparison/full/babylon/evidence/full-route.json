@@ -1,0 +1,675 @@
+{
+  "route": [
+    {
+      "type": "waypoint",
+      "x": 0,
+      "z": 7,
+      "reached": {
+        "x": 0,
+        "y": 0,
+        "z": 7.20657,
+        "vx": 0,
+        "vy": 0,
+        "vz": -4.48999,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-11",
+      "tick": 67,
+      "player": {
+        "x": 0,
+        "y": 0,
+        "z": 7.206691,
+        "vx": 0,
+        "vy": -0.000001,
+        "vz": 0.003889,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": -12,
+      "z": 10,
+      "reached": {
+        "x": -11.671291,
+        "y": 0,
+        "z": 9.923485,
+        "vx": -4.373081,
+        "vy": 0,
+        "vz": 1.01793,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-1",
+      "tick": 231,
+      "player": {
+        "x": -11.671173,
+        "y": 0,
+        "z": 9.923458,
+        "vx": 0.003784,
+        "vy": 0.000001,
+        "vz": -0.000881,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": -10,
+      "z": 2,
+      "reached": {
+        "x": -10.063687,
+        "y": 0,
+        "z": 2.301966,
+        "vx": 0.926603,
+        "vy": 0,
+        "vz": -4.393338,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-2",
+      "tick": 339,
+      "player": {
+        "x": -10.063713,
+        "y": 0,
+        "z": 2.302084,
+        "vx": -0.000802,
+        "vy": -0.000001,
+        "vz": 0.003805,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": -12,
+      "z": -8,
+      "reached": {
+        "x": -11.945198,
+        "y": 0,
+        "z": -7.70842,
+        "vx": -0.829372,
+        "vy": 0.000001,
+        "vz": -4.412726,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-3",
+      "tick": 479,
+      "player": {
+        "x": -11.945176,
+        "y": 0,
+        "z": -7.708302,
+        "vx": 0.000718,
+        "vy": -0.000001,
+        "vz": 0.00382,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": -6,
+      "z": -12,
+      "reached": {
+        "x": -6.358368,
+        "y": 0,
+        "z": -11.7413,
+        "vx": 3.640523,
+        "vy": 0.000001,
+        "vz": -2.628043,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-4",
+      "tick": 575,
+      "player": {
+        "x": -6.358466,
+        "y": 0,
+        "z": -11.741229,
+        "vx": -0.003152,
+        "vy": 0.000001,
+        "vz": 0.002275,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 0,
+      "z": -10,
+      "reached": {
+        "x": -0.29065,
+        "y": 0,
+        "z": -10.079592,
+        "vx": 4.330555,
+        "vy": 0.000001,
+        "vz": 1.185877,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-5",
+      "tick": 663,
+      "player": {
+        "x": -0.290767,
+        "y": 0,
+        "z": -10.079623,
+        "vx": -0.003749,
+        "vy": -0.000001,
+        "vz": -0.001027,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 6,
+      "z": -12,
+      "reached": {
+        "x": 5.726324,
+        "y": 0,
+        "z": -11.916456,
+        "vx": 4.294356,
+        "vy": 0.000001,
+        "vz": -1.310924,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-6",
+      "tick": 751,
+      "player": {
+        "x": 5.726209,
+        "y": 0,
+        "z": -11.916421,
+        "vx": -0.003718,
+        "vy": -0.000001,
+        "vz": 0.001135,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 12,
+      "z": -8,
+      "reached": {
+        "x": 11.825339,
+        "y": 0,
+        "z": -8.109031,
+        "vx": 3.808792,
+        "vy": 0,
+        "vz": 2.377629,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-7",
+      "tick": 851,
+      "player": {
+        "x": 11.825236,
+        "y": 0,
+        "z": -8.109096,
+        "vx": -0.003296,
+        "vy": 0.000001,
+        "vz": -0.002057,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 12,
+      "z": 0,
+      "reached": {
+        "x": 11.993064,
+        "y": 0,
+        "z": -0.32177,
+        "vx": 0.096754,
+        "vy": 0,
+        "vz": 4.488949,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-8",
+      "tick": 959,
+      "player": {
+        "x": 11.993061,
+        "y": 0,
+        "z": -0.321891,
+        "vx": -0.000084,
+        "vy": -0.000001,
+        "vz": -0.003888,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 5,
+      "z": 2,
+      "reached": {
+        "x": 5.453701,
+        "y": 0,
+        "z": 1.849357,
+        "vx": -4.261239,
+        "vy": 0,
+        "vz": 1.414872,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-9",
+      "tick": 1055,
+      "player": {
+        "x": 5.453815,
+        "y": 0,
+        "z": 1.849319,
+        "vx": 0.00369,
+        "vy": -0.000001,
+        "vz": -0.001225,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 0,
+      "z": 0,
+      "reached": {
+        "x": 0.346959,
+        "y": 0,
+        "z": 0.117648,
+        "vx": -4.252189,
+        "vy": 0,
+        "vz": -1.441841,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-10",
+      "tick": 1131,
+      "player": {
+        "x": 0.347074,
+        "y": 0,
+        "z": 0.117687,
+        "vx": 0.003683,
+        "vy": -0.000001,
+        "vz": 0.001249,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 4.8,
+      "z": 8,
+      "reached": {
+        "x": 4.767718,
+        "y": 0,
+        "z": 7.942856,
+        "vx": 2.208462,
+        "vy": 0,
+        "vz": 3.909311,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "crate-pushed",
+      "crate": {
+        "x": 7.396361,
+        "y": 0.6,
+        "z": 8,
+        "vx": -0.001297,
+        "vy": 0,
+        "vz": 0
+      },
+      "player": {
+        "x": 6.44636,
+        "y": 0,
+        "z": 7.942821,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 6.296360999999999,
+      "z": 6.2,
+      "reached": {
+        "x": 6.292226,
+        "y": 0,
+        "z": 6.151951,
+        "vx": -0.385003,
+        "vy": 0,
+        "vz": -4.473454,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 6.3362169999999995,
+      "z": 8,
+      "reached": {
+        "x": 6.335002,
+        "y": 0,
+        "z": 7.948979,
+        "vx": 0.10684,
+        "vy": 0,
+        "vz": 4.48872,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "west-of-crate",
+      "crate": {
+        "x": 7.396217,
+        "y": 0.6,
+        "z": 8,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0
+      },
+      "player": {
+        "x": 6.335001,
+        "y": 0,
+        "z": 7.948939,
+        "vx": -0.000092,
+        "vy": 0.000005,
+        "vz": -0.00388,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "on-crate",
+      "player": {
+        "x": 7.182441,
+        "y": 1.199565,
+        "z": 7.948938,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "grounded": true,
+        "animation": "Survey"
+      },
+      "crate": {
+        "x": 7.396514,
+        "y": 0.6,
+        "z": 8,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0
+      }
+    },
+    {
+      "type": "on-ledge",
+      "player": {
+        "x": 8.791085,
+        "y": 2.4,
+        "z": 7.948938,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    },
+    {
+      "type": "waypoint",
+      "x": 10,
+      "z": 8,
+      "reached": {
+        "x": 9.689034,
+        "y": 2.4,
+        "z": 7.986866,
+        "vx": 4.485991,
+        "vy": 0,
+        "vz": 0.189478,
+        "grounded": true,
+        "animation": "Run"
+      }
+    },
+    {
+      "type": "lit",
+      "id": "lantern-12",
+      "tick": 1481,
+      "player": {
+        "x": 9.688912,
+        "y": 2.4,
+        "z": 7.98686,
+        "vx": -0.003884,
+        "vy": -0.000001,
+        "vz": -0.000164,
+        "grounded": true,
+        "animation": "Survey"
+      }
+    }
+  ],
+  "passed": true,
+  "url": "http://127.0.0.1:39977/",
+  "final": {
+    "phase": "won",
+    "ticks": 1481,
+    "elapsed": 24.683333,
+    "remaining": 155.316667,
+    "player": {
+      "x": 9.688912,
+      "y": 2.4,
+      "z": 7.98686,
+      "vx": -0.003884,
+      "vy": -0.000001,
+      "vz": -0.000164,
+      "grounded": true,
+      "animation": "Survey"
+    },
+    "crate": {
+      "x": 7.396514,
+      "y": 0.6,
+      "z": 8,
+      "vx": 0,
+      "vy": 0,
+      "vz": 0
+    },
+    "lanterns": [
+      {
+        "id": "lantern-1",
+        "x": -12,
+        "y": 0,
+        "z": 10,
+        "lit": true
+      },
+      {
+        "id": "lantern-2",
+        "x": -10,
+        "y": 0,
+        "z": 2,
+        "lit": true
+      },
+      {
+        "id": "lantern-3",
+        "x": -12,
+        "y": 0,
+        "z": -8,
+        "lit": true
+      },
+      {
+        "id": "lantern-4",
+        "x": -6,
+        "y": 0,
+        "z": -12,
+        "lit": true
+      },
+      {
+        "id": "lantern-5",
+        "x": 0,
+        "y": 0,
+        "z": -10,
+        "lit": true
+      },
+      {
+        "id": "lantern-6",
+        "x": 6,
+        "y": 0,
+        "z": -12,
+        "lit": true
+      },
+      {
+        "id": "lantern-7",
+        "x": 12,
+        "y": 0,
+        "z": -8,
+        "lit": true
+      },
+      {
+        "id": "lantern-8",
+        "x": 12,
+        "y": 0,
+        "z": 0,
+        "lit": true
+      },
+      {
+        "id": "lantern-9",
+        "x": 5,
+        "y": 0,
+        "z": 2,
+        "lit": true
+      },
+      {
+        "id": "lantern-10",
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "lit": true
+      },
+      {
+        "id": "lantern-11",
+        "x": 0,
+        "y": 0,
+        "z": 7,
+        "lit": true
+      },
+      {
+        "id": "lantern-12",
+        "x": 10,
+        "y": 2.4,
+        "z": 8,
+        "lit": true
+      }
+    ],
+    "count": 12,
+    "total": 12,
+    "events": [
+      {
+        "type": "lantern-lit",
+        "tick": 67,
+        "id": "lantern-11"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 231,
+        "id": "lantern-1"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 339,
+        "id": "lantern-2"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 479,
+        "id": "lantern-3"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 575,
+        "id": "lantern-4"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 663,
+        "id": "lantern-5"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 751,
+        "id": "lantern-6"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 851,
+        "id": "lantern-7"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 959,
+        "id": "lantern-8"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 1055,
+        "id": "lantern-9"
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 1131,
+        "id": "lantern-10"
+      },
+      {
+        "type": "jump",
+        "tick": 1353
+      },
+      {
+        "type": "jump",
+        "tick": 1406
+      },
+      {
+        "type": "lantern-lit",
+        "tick": 1481,
+        "id": "lantern-12"
+      },
+      {
+        "type": "win",
+        "tick": 1481
+      }
+    ],
+    "assetReady": true
+  },
+  "recordedAt": "2026-09-18T05:14:08.783Z"
+}

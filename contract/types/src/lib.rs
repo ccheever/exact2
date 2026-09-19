@@ -1329,6 +1329,20 @@ fn refine_params_from_view(
                             | "reachstart"
                             | "reachend"
                             | "scroll"
+                            | "loadedmetadata"
+                            | "durationchange"
+                            | "timeupdate"
+                            | "play"
+                            | "playing"
+                            | "pause"
+                            | "ended"
+                            | "waiting"
+                            | "seeking"
+                            | "seeked"
+                            | "ratechange"
+                            | "volumechange"
+                            | "error"
+                            | "canplay"
                             | "navigate"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
@@ -1348,7 +1362,10 @@ fn refine_params_from_view(
                             // Event payloads: change/key/message are strings;
                             // hover is whether the pointer is over.
                             let payload = match a.name.as_str() {
-                                "change" | "key" | "message" | "navigate" => vec![Ty::String],
+                                "change" | "key" | "message" | "navigate" | "error" => {
+                                    vec![Ty::String]
+                                }
+                                "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
                                 "scroll" => vec![Ty::Number, Ty::Number],
                                 _ => vec![],

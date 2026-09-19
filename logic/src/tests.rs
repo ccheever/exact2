@@ -1,5 +1,6 @@
 use super::*;
 use exact_plan::bytes::Writer;
+use exact_runner::Dispatch;
 use serde_json::json;
 
 struct Fixture;
@@ -13,8 +14,11 @@ impl DataSource for Fixture {
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
         Ok(Value::Number(1.))
     }
-    fn continuation_token(&mut self, token: u64) -> Option<u64> {
-        token.checked_add(10)
+    fn dispatch(&mut self, token: u64, _: &Store) -> Dispatch {
+        match token.checked_add(10) {
+            Some(registry) => Dispatch::Host(registry),
+            None => Dispatch::Missing,
+        }
     }
 }
 
@@ -23,8 +27,13 @@ crate::configured!(ConfiguredFixture, Fixture, || Swappable::off(Fixture));
 #[test]
 fn configured_embedded_executor_preserves_browser_continuation_routing() {
     let mut source = ConfiguredFixture::default();
-    assert_eq!(source.continuation_token(7), Some(17));
-    assert_eq!(source.continuation_token(u64::MAX), None);
+    let store = Store::default();
+    assert!(matches!(source.dispatch(7, &store), Dispatch::Host(17)));
+    assert!(matches!(
+        source.dispatch(u64::MAX, &store),
+        Dispatch::Missing
+    ));
+    assert_eq!(source.placement(), exact_runner::Placement::Main);
 }
 fn encoded(op: u8, f: impl FnOnce(&mut Writer)) -> Vec<u8> {
     let mut w = Writer::default();

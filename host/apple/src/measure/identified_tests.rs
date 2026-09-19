@@ -137,13 +137,23 @@ fn both_axis_offers_are_exact_and_intrinsic_kinds_are_distinct() {
         m.measure_identified(&stamp, &request(&runs, w, h));
     }
     assert_eq!(state.borrow().calls, 4);
+    // Fill the owner to capacity with further distinct offers: all retained.
+    for i in 0..12u32 {
+        let w = AxisOffer::Definite(100.0 + i as f32);
+        m.measure_identified(&stamp, &request(&runs, w, AxisOffer::MaxContent));
+    }
+    assert_eq!(state.borrow().calls, 16);
+    for &(w, h) in &pairs {
+        m.measure_identified(&stamp, &request(&runs, w, h));
+    }
+    assert_eq!(state.borrow().calls, 16, "a full pass of offers is retained");
     m.measure_identified(
         &stamp,
         &request(&runs, AxisOffer::MaxContent, AxisOffer::MaxContent),
     );
-    assert_eq!(state.borrow().calls, 5);
+    assert_eq!(state.borrow().calls, 17);
     m.measure_identified(&stamp, &request(&runs, pairs[0].0, pairs[0].1));
-    assert_eq!(state.borrow().calls, 6, "fifth offer evicts oldest of four");
+    assert_eq!(state.borrow().calls, 18, "the seventeenth offer evicts the oldest");
 }
 
 #[test]

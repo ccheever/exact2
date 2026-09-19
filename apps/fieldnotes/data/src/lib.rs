@@ -4,6 +4,7 @@ mod backup;
 
 use exact_data::storage;
 use exact_plan::Value;
+pub use exact_runner::Placement;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
 use serde_json::{json, Value as Json};
 
@@ -32,14 +33,18 @@ pub struct Backup {
     pending: Option<Pending>,
 }
 
-/// The two source owners of the Fieldnotes application.
-pub type Data<J> = exact_data::Mixed<J, Backup>;
+/// The two source owners of the Fieldnotes application; the Rust one placed
+/// (LLP 1027.002 D1), on `main` or on an owner thread of its own.
+pub type Data<J> = exact_data::Mixed<J, exact_data::Placed<Backup>>;
+
+/// The source names the Rust half owns: the composer's list and the bake's.
+pub const RUST_SOURCES: &[&str] = &["backupNotes"];
 
 /// App composition: the existing TypeScript sources and the Rust backup source.
-pub fn mixed<J: DataSource>(javascript: J) -> Data<J> {
+pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
     exact_data::Mixed::new(
         javascript,
-        Backup::default(),
+        exact_data::Placed::new(Backup::default(), rust),
         &[
             "library",
             "saveNote",
@@ -47,10 +52,15 @@ pub fn mixed<J: DataSource>(javascript: J) -> Data<J> {
             "restoreNotes",
             "deleteNote",
         ],
-        &["backupNotes"],
+        RUST_SOURCES,
     )
     .expect("Fieldnotes sources have distinct owners and the same app identity")
-    .with_embedded_rust(|_| Ok(Backup::default()))
+    .with_embedded_rust(|placed| {
+        Ok(exact_data::Placed::new(
+            Backup::default(),
+            placed.given_placement(),
+        ))
+    })
 }
 
 impl Backup {

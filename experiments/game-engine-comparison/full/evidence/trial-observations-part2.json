@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "scope": {
+    "trials": [
+      "pixel:babylon/a2",
+      "pixel:babylon/b2",
+      "pixel-a:playcanvas/a2",
+      "pixel-a:playcanvas/b1",
+      "pixel-a:playcanvas/b2"
+    ],
+    "counting": "Failed tools are command_execution items with status=failed. Screenshot counts cover agent-invoked scripts, not evaluator captures. Source lists omit copied BRIEF.md and generated dist/evidence files.",
+    "evaluatorPolicy": "Final evaluator v3 is authoritative; all five trials passed 10/10 with zero browser errors."
+  },
+  "trials": [
+    {
+      "id": "babylon-a2",
+      "cliTokens": {"input": 1135842, "cachedInput": 1084160, "cacheWriteInput": 0, "output": 12038, "reasoningOutput": 4235},
+      "commands": {
+        "total": 16,
+        "completed": 11,
+        "failed": 5,
+        "breakdown": {"proof": 3, "nonRepositoryGitAudit": 1, "interruptedServer": 1}
+      },
+      "repairs": {
+        "explicitRounds": 3,
+        "basis": "Agent explicitly labeled repair 1, 2, and 3: wall-routing, held-forward duration, then landing predicate."
+      },
+      "screenshots": {
+        "captureInvocations": 7,
+        "retained": ["evidence/title.png", "evidence/gameplay.png", "evidence/paused.png", "evidence/lantern-13-won.png", "evidence/lantern-13-failure.png"],
+        "basis": "One passing regression run captured three images; one passing proof captured victory; three failed proofs each invoked the same overwritten failure path.",
+        "actualImageInspection": "unknown"
+      },
+      "sourceFilesChanged": ["README.md", "index.html", "level.json", "package.json", "proof-lantern-13.mjs", "src/main.js"],
+      "evaluatorV3": {"passed": true, "cases": "10/10", "browserErrors": 0}
+    },
+    {
+      "id": "babylon-b2",
+      "cliTokens": {"input": 861166, "cachedInput": 807168, "cacheWriteInput": 0, "output": 13441, "reasoningOutput": 4059},
+      "commands": {
+        "total": 13,
+        "completed": 10,
+        "failed": 3,
+        "breakdown": {"proof": 0, "nonRepositoryGitAudit": 1, "occupiedServerPort": 1, "interruptedServer": 1}
+      },
+      "repairs": {
+        "explicitRounds": null,
+        "observableFailedProofRepairAttempts": 0,
+        "note": "Both proof runs passed. A post-pass terminal-message polish was made and reverified."
+      },
+      "screenshots": {
+        "captureInvocations": 10,
+        "retained": ["evidence/title.png", "evidence/gameplay.png", "evidence/paused.png", "evidence/return-home.png", "evidence/home-win.png"],
+        "basis": "Two passing regression runs captured three images each; two passing return-home proofs captured two each.",
+        "actualImageInspection": "claimed",
+        "inspectionBasis": "The agent explicitly stated that the production screenshot confirmed the persistent return-home HUD instruction; no separate image-view operation is present."
+      },
+      "sourceFilesChanged": ["README.md", "index.html", "package.json", "return-home-proof.mjs", "src/main.js", "style.css"],
+      "evaluatorV3": {"passed": true, "cases": "10/10", "browserErrors": 0}
+    },
+    {
+      "id": "playcanvas-a2",
+      "cliTokens": {"input": 543602, "cachedInput": 489984, "cacheWriteInput": 0, "output": 13981, "reasoningOutput": 5871},
+      "commands": {
+        "total": 10,
+        "completed": 9,
+        "failed": 1,
+        "breakdown": {"proof": 0, "nonRepositoryGitAuditAfterPassingChecks": 1}
+      },
+      "repairs": {
+        "explicitRounds": 0,
+        "basis": "Agent explicitly stated that its proof passed first run with no repair rounds."
+      },
+      "screenshots": {
+        "captureInvocations": 0,
+        "retained": [],
+        "actualImageInspection": "unknown"
+      },
+      "selfProofLimitation": {
+        "runsActualBrowserApp": false,
+        "description": "tests/lantern-13-proof.mjs imports ammojs3 and creates a separate btDiscreteDynamicsWorld, collision bodies, stepping, interaction, and persistence checks. It does not load the built browser app, src/main.js, or window.lanterns, so it duplicates the physics/gameplay setup instead of proving the submitted app.",
+        "externalResult": "Independent evaluator v3 exercised the produced browser app and passed 10/10."
+      },
+      "sourceFilesChanged": ["README.md", "index.html", "level.json", "package.json", "src/main.js", "tests/lantern-13-proof.mjs"],
+      "evaluatorV3": {"passed": true, "cases": "10/10", "browserErrors": 0}
+    },
+    {
+      "id": "playcanvas-b1",
+      "cliTokens": {"input": 1229794, "cachedInput": 1173888, "cacheWriteInput": 0, "output": 18233, "reasoningOutput": 8303},
+      "commands": {
+        "total": 17,
+        "completed": 9,
+        "failed": 8,
+        "breakdown": {"proof": 6, "nonRepositoryGitAudit": 1, "occupiedServerPort": 1}
+      },
+      "repairs": {
+        "explicitRounds": null,
+        "observableFailedProofRepairAttempts": 6,
+        "basis": "Six failed browser-proof runs are followed by route/test edits and a later pass; the agent did not claim one total repair-round count."
+      },
+      "screenshots": {
+        "captureInvocations": 0,
+        "retained": [],
+        "actualImageInspection": "unknown"
+      },
+      "sourceFilesChanged": ["README.md", "index.html", "src/main.js", "styles.css", "tests/return-home-proof.mjs"],
+      "evaluatorV3": {"passed": true, "cases": "10/10", "browserErrors": 0}
+    },
+    {
+      "id": "playcanvas-b2",
+      "cliTokens": {"input": 1019233, "cachedInput": 965888, "cacheWriteInput": 0, "output": 15291, "reasoningOutput": 7314},
+      "commands": {
+        "total": 16,
+        "completed": 12,
+        "failed": 4,
+        "breakdown": {"proof": 3, "occupiedServerPort": 1}
+      },
+      "repairs": {
+        "explicitRounds": 2,
+        "basis": "Final message explicitly reports two proof-harness repair rounds; three proof commands failed while diagnosing readiness and the crate jump."
+      },
+      "screenshots": {
+        "captureInvocations": 0,
+        "retained": [],
+        "actualImageInspection": "unknown"
+      },
+      "sourceFilesChanged": ["README.md", "index.html", "src/main.js", "styles.css", "tests/return-home-proof.mjs"],
+      "evaluatorV3": {"passed": true, "cases": "10/10", "browserErrors": 0}
+    }
+  ],
+  "limitations": [
+    "Token values are copied from each agent.jsonl turn.completed usage record; reasoning output is reported separately and is not added again to output.",
+    "A failed composite command can contain successful build/proof steps before a trailing non-repository Git command fails; those are classified as audit failures rather than gameplay failures.",
+    "Repair counts are explicit only when the agent supplied a count. Otherwise, observable failed-proof/edit/retry attempts are reported without treating them as an agent-claimed total.",
+    "Screenshot creation does not establish visual inspection. Babylon-b2 is marked claimed only because its agent explicitly said a screenshot confirmed the HUD; the inspection mechanism was not recorded.",
+    "For trials evaluated after the v3 harness change, the authoritative v3 result is stored in the main evaluation log; earlier trials retain reruns under evaluation-v3 directories."
+  ]
+}

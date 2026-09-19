@@ -4,6 +4,7 @@
 // web views, and menus through it.
 #if os(macOS)
 import AppKit
+import os
 
 /// The viewport: a click that reached it — on no node that takes the focus
 /// or a press — ends the editing, as a click on a page's blank ground blurs
@@ -52,6 +53,9 @@ final class PageScrollView: NSScrollView {
 }
 
 final class Presenter {
+    /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
+    /// what the main thread spent on a list window, a batch, a text slice.
+    static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -64,11 +68,13 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
+    let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
+    private var textViewportIndex: TextViewportIndex?
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var navigation = NavigationHost(presenter: self)
@@ -88,8 +94,8 @@ final class Presenter {
 
     init() {
         viewport.documentView = root
-        viewport.hasVerticalScroller = true
-        viewport.hasHorizontalScroller = true
+        viewport.hasVerticalScroller = !Diag.on("NOSCROLLERS")
+        viewport.hasHorizontalScroller = !Diag.on("NOSCROLLERS")
         viewport.autohidesScrollers = true
         viewport.scrollerStyle = .overlay
         viewport.automaticallyAdjustsContentInsets = false
@@ -98,27 +104,259 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText(); self?.transformGeometry.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
     }
 
-    deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
+    deinit {
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        pumpLink?.invalidate()
+    }
 
-    /// Layer-backed AppKit can ask an offscreen paragraph to repaint on resize.
-    /// Shape/paint only visible text; scrolling invalidates the newly exposed area.
+    /// How far past its visible part a paragraph's text is painted, and how
+    /// close to that painted edge the visible part may come before the band
+    /// is painted again.
+    ///
+    /// AppKit scrolls a contained list on its own thread and the main thread
+    /// follows (LLP 1044 F3), so whatever scrolls into view must already be
+    /// painted: a strip painted when it is exposed is a strip shown blank
+    /// first. Text is therefore painted for a band around the scrollport —
+    /// never for a whole long document, which layer-backed AppKit would
+    /// otherwise repaint offscreen — and a paragraph inside its band is only
+    /// composited. Bands are admitted a few per frame by `pump`, nearest
+    /// first, so mounting a row and rasterizing its text are different
+    /// frames; only text already visible is painted at once.
+    static let textBandReach: CGFloat = 1400
+    static let textBandSlack: CGFloat = 500
+    /// Paragraphs admitted to painting per pump slice, beyond the urgent ones.
+    static let textBandsPerSlice = 2
+    /// How far from the scrollport a paragraph's text is rasterized, and how
+    /// many rasters one pump slice may ask a worker for. Asking costs the main
+    /// thread a cached layout and an attributed string; the pixels are the
+    /// worker's (TextRasterMac.swift).
+    static let textRasterReach: CGFloat = 1600
+    static let textRastersPerSlice = 6
+
+    private func textBand(_ node: NodeView, reach: CGFloat) -> NSRect {
+        guard let document = node.enclosingScrollView?.documentView else { return node.bounds }
+        return node.convert(document.visibleRect, from: document)
+            .insetBy(dx: -reach, dy: -reach).intersection(node.bounds)
+    }
+
+    /// The part of a paragraph whose text is painted: its band. A paragraph
+    /// with none paints no text until it is admitted — unless it is on screen.
     func textVisibleRect(_ node: NodeView) -> NSRect {
-        node.convert(viewport.contentView.bounds, from: viewport.contentView)
-            .intersection(node.bounds).intersection(node.visibleRect)
+        if let band = visibleText[node.id] { return band }
+        guard !textBand(node, reach: 0).isEmpty else { return .zero }
+        let band = textBand(node, reach: Self.textBandReach)
+        visibleText[node.id] = band
+        return band
     }
 
-    func refreshVisibleText() {
+    /// Bring bands up to date. Visible paragraphs always; others up to
+    /// `limit` of them (nil: all). True when some were left for a later slice.
+    @discardableResult
+    func refreshVisibleText(limit: Int? = nil) -> Bool {
+        // Bounds notifications can arrive while a batch is still changing the
+        // hierarchy. Query its final geometry once the outermost batch ends.
+        guard !applying else { return false }
+        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
         var next: [UInt32: NSRect] = [:]
-        for node in selection.paragraphs {
-            let rect = textVisibleRect(node)
-            guard !rect.isEmpty else { continue }
-            next[node.id] = rect
-            if visibleText[node.id] != rect { node.setNeedsDisplay(rect) }
+        var waiting: [(CGFloat, NodeView)] = []
+        var rasters: [(CGFloat, NodeView)] = []
+        for node in textViewportIndex!.candidates(reach: Self.textRasterReach) where node.needsTextRaster && node.rastersText {
+            // On screen without pixels: now. Otherwise nearest first, a few a slice.
+            if !textBand(node, reach: 0).isEmpty { textRasters.ensure(node, urgent: true) }
+            else { rasters.append((textBand(node, reach: Self.textRasterReach).height, node)) }
+        }
+        rasters.sort { $0.0 > $1.0 }
+        var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count
+        var rastersDeferred = false
+        for (_, node) in rasters {
+            guard rasterBudget > 0 else { rastersDeferred = true; break }
+            rasterBudget -= 1
+            textRasters.ensure(node, urgent: false)
+        }
+        for node in textViewportIndex!.candidates(reach: Self.textBandSlack) where node.needsTextRaster && !node.rastersText {
+            let want = textBand(node, reach: Self.textBandSlack)
+            guard !want.isEmpty else { continue }
+            let old = visibleText[node.id]
+            if let old, old.contains(want) { next[node.id] = old; continue }
+            let shown = textBand(node, reach: 0)
+            if !shown.isEmpty, old.map({ !$0.contains(shown) }) ?? true {
+                next[node.id] = admit(node, after: old)
+            } else {
+                if let old { next[node.id] = old }
+                // Nearest the scrollport first: `want` is what is within slack.
+                waiting.append((want.height * want.width, node))
+            }
+        }
+        waiting.sort { $0.0 > $1.0 }
+        var left = limit ?? waiting.count
+        var deferred = false
+        for (_, node) in waiting {
+            guard left > 0 else { deferred = true; break }
+            left -= 1
+            next[node.id] = admit(node, after: visibleText[node.id])
         }
         visibleText = next
+        return deferred || rastersDeferred
+    }
+
+    private func admit(_ node: NodeView, after old: NSRect?) -> NSRect {
+        let band = textBand(node, reach: Self.textBandReach)
+        for exposed in Self.exposedTextRects(band, after: old) { node.setNeedsDisplay(exposed) }
+        return band
+    }
+
+    // MARK: The pump — list fill and text admission, a slice per frame
+
+    private var pumpLink: CADisplayLink?
+    private let pumpTarget = PumpTarget()
+    private var listSyncPending = false
+    private var textPending = false
+
+    /// A scroll container moved. Nothing here may take long: AppKit is inside
+    /// its scroll synchronizer, and the scrolling thread is waiting on it.
+    private var diagFirstScroll: CFTimeInterval = 0
+    private var diagFrozen: Bool {
+        guard Diag.on("FREEZE") else { return false }
+        if diagFirstScroll == 0 { diagFirstScroll = CACurrentMediaTime() }
+        return CACurrentMediaTime() - diagFirstScroll > 1.0
+    }
+    func scrolled() {
+        guard !applying else { return }
+        if diagFrozen { listSyncPending = false; textPending = false; stopPump(); return }
+        if let us = ExactEnv.environment["EXACT_DIAG_DELAY"].flatMap(UInt32.init) { usleep(us) }
+        if let us = ExactEnv.environment["EXACT_DIAG_SPIN"].flatMap(Double.init) {
+            let until = CACurrentMediaTime() + us / 1_000_000
+            var x = 0.0
+            while CACurrentMediaTime() < until { x += 1 }
+            _ = x
+        }
+        let post = Self.signposts.beginInterval("scrolled")
+        defer { Self.signposts.endInterval("scrolled", post) }
+        // Most ticks move inside the band the mounted rows already cover: then
+        // there is nothing to report, and nothing here reads or writes the
+        // scroll view again until AppKit next calls in.
+        switch listsNeed() {
+        case .nothing: break
+        case .soon: listSyncPending = true
+        case .now: syncLists()
+        }
+        // Only what is already on screen without paint; the rest is pumped.
+        textPending = refreshVisibleText(limit: 0) || textPending
+        if listSyncPending || textPending { startPump() }
+    }
+
+    /// After a batch: paint what is visible now, admit the rest over frames.
+    private func batchApplied() {
+        syncLists()
+        coverLists()
+        if refreshVisibleText(limit: Self.textBandsPerSlice) { textPending = true; startPump() }
+    }
+
+    private func startPump() {
+        guard pumpLink == nil else { return }
+        // A display link, not a timer: a slice's commit must keep one phase
+        // against the refresh. A free-running 120 Hz timer drifts through the
+        // frame, and about once a second its commit landed in the scrolling
+        // thread's own commit window and cost that frame — a hitch every
+        // 1.2 s with this thread idle (LLP 1044, the pump's first version).
+        pumpTarget.fire = { [weak self] in self?.pump() }
+        let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        pumpLink = link
+    }
+
+    private func stopPump() {
+        pumpLink?.invalidate()
+        pumpLink = nil
+    }
+
+    /// Everything the pump owes, now. The agent's wheel is synchronous — it
+    /// reads the tree right after — and so is anything that must not observe
+    /// a half-filled window (LLP 1012: an agent never waits).
+    func settlePump() {
+        if listSyncPending { listSyncPending = false; syncLists() }
+        refreshVisibleText()
+        textPending = false
+        stopPump()
+    }
+
+    /// One slice: the list window if it is owed, else a few text bands.
+    private func pump() {
+        if listSyncPending {
+            listSyncPending = false
+            let post = Self.signposts.beginInterval("pump-list")
+            syncLists()
+            Self.signposts.endInterval("pump-list", post)
+            return
+        }
+        if textPending {
+            let post = Self.signposts.beginInterval("pump-text")
+            textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
+            Self.signposts.endInterval("pump-text", post)
+        }
+        if !listSyncPending && !textPending { stopPump() }
+    }
+
+    private enum ListNeed { case nothing, soon, now }
+
+    /// What the mounted rows of each windowed list cover, from the last batch
+    /// that changed them: `scrolled` compares an offset against four numbers
+    /// instead of walking the rows on every tick.
+    private struct ListCover {
+        var top: CGFloat, bottom: CGFloat, origin: CGFloat
+        var atStart: Bool, atEnd: Bool
+    }
+    private var listCovers: [UInt32: ListCover] = [:]
+
+    private func coverLists() {
+        listCovers.removeAll(keepingCapacity: true)
+        for list in listViews.values {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
+                  let content = list.container.subviews.first as? NodeView else { continue }
+            var cover = ListCover(top: .infinity, bottom: -.infinity, origin: content.frame.minY, atStart: false, atEnd: false)
+            for case let row as NodeView in content.container.subviews {
+                let index = Int(row.props["accessibilityPosInSet"] ?? "") ?? 0, count = Int(row.props["accessibilitySetSize"] ?? "") ?? -1
+                if row.frame.minY < cover.top { cover.top = row.frame.minY; cover.atStart = index <= 1 }
+                if row.frame.maxY > cover.bottom { cover.bottom = row.frame.maxY; cover.atEnd = index == count }
+            }
+            if cover.top.isFinite { listCovers[list.id] = cover }
+        }
+    }
+
+    /// Whether a windowed list has scrolled to where the runner would mount
+    /// rows (its window is a scrollport either side), and whether it is close
+    /// to showing past the mounted ones — a jump, a scroller drag, a fling
+    /// faster than the pump. Then it fills now.
+    private func listsNeed() -> ListNeed {
+        var need = ListNeed.nothing
+        for list in listViews.values {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil, let scroll = list.scroll else { continue }
+            guard let cover = listCovers[list.id] else { return .now }
+            let visible = scroll.contentView.bounds, port = visible.height
+            let first = cover.top + cover.origin, last = cover.bottom + cover.origin
+            if (!cover.atEnd && visible.maxY + port * 0.35 > last) || (!cover.atStart && visible.minY - port * 0.35 < first) { return .now }
+            if (!cover.atEnd && visible.maxY + port + 1 > last) || (!cover.atStart && visible.minY - port - 1 < first) { need = .soon }
+        }
+        return need
+    }
+
+    /// Scrolling exposes strips of an existing backing store. Repainting the
+    /// overlapping area redraws every visible glyph on every scroll tick.
+    /// Content/style changes still invalidate through the node's normal path.
+    static func exposedTextRects(_ rect: NSRect, after previous: NSRect?) -> [NSRect] {
+        guard !rect.isEmpty else { return [] }
+        guard let previous else { return [rect] }
+        let overlap = rect.intersection(previous)
+        guard !overlap.isEmpty else { return [rect] }
+        return [
+            NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: overlap.minY - rect.minY),
+            NSRect(x: rect.minX, y: overlap.maxY, width: rect.width, height: rect.maxY - overlap.maxY),
+            NSRect(x: rect.minX, y: overlap.minY, width: overlap.minX - rect.minX, height: overlap.height),
+            NSRect(x: overlap.maxX, y: overlap.minY, width: rect.maxX - overlap.maxX, height: overlap.height),
+        ].filter { !$0.isEmpty }
     }
 
     /// The viewport's size in points: what the kernel lays out under.
@@ -158,6 +396,13 @@ final class Presenter {
         transformGeometry.reset()
         selection.structureChanged()
         visibleText.removeAll()
+        textViewportIndex = nil
+        stopPump()
+        listCovers.removeAll()
+        listSyncPending = false
+        textPending = false
+        listGeometry.removeAll()
+        listViews.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -211,6 +456,55 @@ final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
+    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32) -> Void)?
+    var onListIndex: ((UInt32, String) -> Int?)?
+    var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
+    var interacting: UInt32 = 0
+    private var listGeometry: [UInt32: [Double]] = [:]
+    private var listViews: [UInt32: NodeView] = [:]
+    private var listSyncDepth = 0
+    private var listSyncQueued = false
+
+    /// Fill and measure the row window before paint. Unusual documents with
+    /// many zero-height rows continue next turn instead of recursing forever.
+    func syncLists() {
+        guard !applying else { return }
+        guard listSyncDepth < 8 else {
+            if !listSyncQueued {
+                listSyncQueued = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.listSyncQueued = false
+                    self.syncLists()
+                }
+            }
+            return
+        }
+        listSyncDepth += 1
+        defer { listSyncDepth -= 1 }
+        listGeometry = listGeometry.filter { views[$0.key] != nil }
+        for list in Array(listViews.values) {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
+            guard views[list.id] === list, let scroll = list.scroll,
+                  let content = list.container.subviews.first as? NodeView else { continue }
+            var responder = root.window?.firstResponder as? NSView
+            if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
+            while responder != nil && !(responder is NodeView) { responder = responder?.superview }
+            let focused = responder as? NodeView
+            let focus = focused?.isDescendant(of: list) == true ? focused!.id : 0
+            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
+            let top = Double(scroll.contentView.bounds.minY)
+            let height = Double(scroll.contentSize.height)
+            let width = Double(content.frame.width)
+            let origin = Double(content.frame.minY)
+            let rows = content.container.subviews.compactMap { $0 as? NodeView }
+            let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
+                + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
+            if listGeometry[list.id] == stamp { continue }
+            listGeometry[list.id] = stamp
+            onList?(list.id, top, height, width, origin, focus, interaction)
+        }
+    }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -271,6 +565,8 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
+        defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         toolbar.prepare()
         for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
@@ -287,8 +583,10 @@ final class Presenter {
                 waiting = []
                 geometry?()
                 for (id, f) in q where views[id] != nil { f() }
+                batchApplied()
             }
         }
+        if !batch.ops.isEmpty { textViewportIndex = nil }
         let structureChanged = batch.ops.contains { ["children", "roots", "destroy", "create", "style"].contains($0["op"] as? String ?? "") }
         if structureChanged { selection.structureChanged() }
         for op in batch.ops {
@@ -325,6 +623,7 @@ final class Presenter {
                 v.applyStyle(op["style"] as? [String: Any] ?? [:])
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
+                if v.kind == "list" { listViews[id] = v }
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "style":
@@ -337,8 +636,10 @@ final class Presenter {
                 let container = parent.container
                 for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
                 for (i, child) in want.enumerated() {
-                    if child.kind == "text" { child.wantsLayer = true }
-                    if child.superview !== container { container.addSubview(child) }
+                    if child.superview !== container {
+                        child.prepareToMount()
+                        container.addSubview(child)
+                    }
                     if container.subviews.firstIndex(of: child) != i {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
@@ -360,10 +661,14 @@ final class Presenter {
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
+                listViews.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) {
+                    r.prepareToMount()
+                    root.addSubview(r)
+                }
             case "frame":
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
@@ -415,7 +720,6 @@ final class Presenter {
         toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
-        refreshVisibleText()
         if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
     }
 
@@ -541,10 +845,82 @@ enum Capture {
     }
 }
 
+/// Paragraph geometry in each scroll document's own coordinates. A scroll
+/// changes the query rectangle, never the index. Layout/structure changes
+/// discard it. Selection and copy keep their complete document order.
+/// @ref LLP 1033 (long documents), LLP 1010 (native scrolling)
+struct TextViewportIndex {
+    private struct Entry {
+        let node: NodeView
+        let rect: NSRect
+        var bottom: CGFloat
+    }
+    private struct Group {
+        let document: NSView
+        var entries: [Entry]
+    }
+    private var groups: [Group] = []
+
+    init(_ paragraphs: [NodeView]) {
+        var positions: [ObjectIdentifier: Int] = [:]
+        for node in paragraphs {
+            guard let document = node.enclosingScrollView?.documentView else { continue }
+            let key = ObjectIdentifier(document)
+            let index: Int
+            if let found = positions[key] { index = found }
+            else {
+                index = groups.count
+                positions[key] = index
+                groups.append(Group(document: document, entries: []))
+            }
+            let rect = node.convert(node.bounds, to: document)
+            groups[index].entries.append(Entry(node: node, rect: rect, bottom: rect.maxY))
+        }
+        for i in groups.indices {
+            groups[i].entries.sort { $0.rect.minY < $1.rect.minY }
+            var bottom = -CGFloat.infinity
+            for j in groups[i].entries.indices {
+                bottom = max(bottom, groups[i].entries[j].rect.maxY)
+                groups[i].entries[j].bottom = bottom
+            }
+        }
+    }
+
+    /// Paragraphs within `reach` of each scroll document's visible rect.
+    func candidates(reach: CGFloat = 0) -> [NodeView] {
+        var result: [NodeView] = []
+        for group in groups {
+            let shown = group.document.visibleRect
+            guard !shown.isEmpty else { continue }
+            let visible = shown.insetBy(dx: -reach, dy: -reach)
+            // Prefix maxima include tall/overlapping paragraphs that start
+            // before the viewport. Binary-searching only minY loses them.
+            var lo = 0, hi = group.entries.count
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2
+                if group.entries[mid].bottom <= visible.minY { lo = mid + 1 }
+                else { hi = mid }
+            }
+            var index = lo
+            while index < group.entries.count && group.entries[index].rect.minY < visible.maxY {
+                let entry = group.entries[index]
+                if entry.rect.intersects(visible) { result.append(entry.node) }
+                index += 1
+            }
+        }
+        return result
+    }
+}
+
 extension NSRect {
     /// The rect inside the given edges (never negative in size).
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
         NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
+}
+/// The display link's Objective-C target: `Presenter` is not an `NSObject`.
+final class PumpTarget: NSObject {
+    var fire: (() -> Void)?
+    @objc func tick(_ link: CADisplayLink) { fire?() }
 }
 #endif

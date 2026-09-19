@@ -1,0 +1,122 @@
+[
+  {
+    "engine": "godot",
+    "repeat": 0,
+    "seconds": 0.16604959964752197,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":3,\"engine\":\"Godot\",\"objects\":4,\"reset_visible\":3,\"reset_x\":0.0,\"ticks\":60,\"x\":120.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 1,
+    "seconds": 0.15755433775484562,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":3,\"engine\":\"Godot\",\"objects\":4,\"reset_visible\":3,\"reset_x\":0.0,\"ticks\":60,\"x\":120.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 2,
+    "seconds": 0.15836325474083424,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":3,\"engine\":\"Godot\",\"objects\":4,\"reset_visible\":3,\"reset_x\":0.0,\"ticks\":60,\"x\":120.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 3,
+    "seconds": 0.15901624038815498,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":3,\"engine\":\"Godot\",\"objects\":4,\"reset_visible\":3,\"reset_x\":0.0,\"ticks\":60,\"x\":120.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "godot",
+    "repeat": 4,
+    "seconds": 0.1580826062709093,
+    "code": 0,
+    "stdout": "Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\nRESULT {\"collected\":3,\"engine\":\"Godot\",\"objects\":4,\"reset_visible\":3,\"reset_x\":0.0,\"ticks\":60,\"x\":120.0}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 0,
+    "seconds": 0.0220502857118845,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"ticks\":60,\"x\":119.99996185,\"collected\":3,\"reset_x\":0.000000,\"reset_visible\":3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 1,
+    "seconds": 0.02093467488884926,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"ticks\":60,\"x\":119.99996185,\"collected\":3,\"reset_x\":0.000000,\"reset_visible\":3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 2,
+    "seconds": 0.020054331049323082,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"ticks\":60,\"x\":119.99996185,\"collected\":3,\"reset_x\":0.000000,\"reset_visible\":3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 3,
+    "seconds": 0.02334534004330635,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"ticks\":60,\"x\":119.99996185,\"collected\":3,\"reset_x\":0.000000,\"reset_visible\":3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "love",
+    "repeat": 4,
+    "seconds": 0.019336272031068802,
+    "code": 0,
+    "stdout": "RESULT {\"engine\":\"LOVE\",\"ticks\":60,\"x\":119.99996185,\"collected\":3,\"reset_x\":0.000000,\"reset_visible\":3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 0,
+    "seconds": 0.14053391478955746,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"ticks\": 60, \"x\": 120, \"collected\": 3, \"remaining\": 0, \"reset_x\": 0, \"reset_visible\": 3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 1,
+    "seconds": 0.12814520113170147,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"ticks\": 60, \"x\": 120, \"collected\": 3, \"remaining\": 0, \"reset_x\": 0, \"reset_visible\": 3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 2,
+    "seconds": 0.13540991581976414,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"ticks\": 60, \"x\": 120, \"collected\": 3, \"remaining\": 0, \"reset_x\": 0, \"reset_visible\": 3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 3,
+    "seconds": 0.13141057454049587,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"ticks\": 60, \"x\": 120, \"collected\": 3, \"remaining\": 0, \"reset_x\": 0, \"reset_visible\": 3}\n",
+    "stderr": ""
+  },
+  {
+    "engine": "pygame",
+    "repeat": 4,
+    "seconds": 0.12542195431888103,
+    "code": 0,
+    "stdout": "pygame 2.6.1 (SDL 2.28.4, Python 3.12.3)\nHello from the pygame community. https://www.pygame.org/contribute.html\nRESULT {\"engine\": \"Pygame\", \"ticks\": 60, \"x\": 120, \"collected\": 3, \"remaining\": 0, \"reset_x\": 0, \"reset_visible\": 3}\n",
+    "stderr": ""
+  }
+]

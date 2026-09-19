@@ -1,0 +1,19 @@
+{
+  "name": "lanterns-threejs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rolldown -c",
+    "dev": "bun run server.mjs",
+    "test": "bun run self-test.mjs"
+  },
+  "dependencies": {
+    "cannon-es": "0.20.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "rolldown": "1.0.0-beta.39"
+  }
+}

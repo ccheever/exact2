@@ -417,6 +417,22 @@ public final class ExactSession {
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
+        presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction in
+            #if canImport(AppKit)
+            let post = Presenter.signposts.beginInterval("exact_list")
+            #endif
+            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction)
+            #if canImport(AppKit)
+            Presenter.signposts.endInterval("exact_list", post)
+            #endif
+            // Scrolling within the mounted window changes no native views.
+            // Avoid running every presenter's batch-finalization pass for it.
+            if !batch.ops.isEmpty || batch.error != nil { apply(batch) }
+        }
+        #if canImport(AppKit)
+        presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
+        presenter.onListText = { [unowned self] id, first, last in runtime.listText(id, first: first, last: last) }
+        #endif
         presenter.onDblclick = { [unowned self] id in apply(runtime.dblclick(id, now: now())) }
         presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
@@ -579,7 +595,7 @@ public final class ExactSession {
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
-        if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
+        if batch.timers, clockTimer == nil, !ExactEnv.agentMode, ExactEnv.environment["EXACT_DIAG_NOCLOCK"] == nil {
             clockTimer = SessionClockTimer.schedule { [weak self] _ in
                 guard let self else { return }
                 apply(runtime.advance(now: now()))

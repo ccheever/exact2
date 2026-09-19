@@ -1,7 +1,9 @@
 //! Native transport scheduling shared by Apple and Linux (LLP 1041 D1–D4).
 //! Only explicitly independent HTTP leaves the ordered lane. Each worker has
 //! its own bindings and transport, so held data cannot consume control leases.
-use exact_runner::{FailureKind, HttpScheduling, Outcome, Request, RequestOut, Response};
+use exact_runner::{
+    FailureKind, HttpScheduling, Outcome, Reply, Request, RequestOut, Response, Work as OwnedWork,
+};
 use ibex2::stdlib::abort::AbortController;
 use std::collections::VecDeque;
 use std::sync::{
@@ -24,7 +26,7 @@ struct Job {
     ticket: u64,
     request: Request,
     forced: bool,
-    work: Option<Work>,
+    work: Option<OwnedWork>,
     bytes: usize,
 }
 struct Completed {
@@ -39,6 +41,7 @@ struct State {
     counts: [usize; 2],
     bytes: [usize; 2],
     next: usize,
+    ordered: VecDeque<u64>,
     retired: bool,
     ordered_barrier: bool,
     notified: bool,
@@ -107,7 +110,16 @@ impl Core {
         core
     }
 
+    #[cfg(test)]
     pub(super) fn run(&self, r: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
+        self.run_owned(r, work.map(OwnedWork::Now))
+    }
+
+    pub(super) fn run_owned(
+        &self,
+        r: RequestOut,
+        work: Option<OwnedWork>,
+    ) -> Result<(), &'static str> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
         let admitted = (|| {
@@ -140,6 +152,9 @@ impl Core {
                 return Err(reason);
             }
         };
+        if ordered {
+            state.ordered.push_back(r.ticket);
+        }
         state.counts[lane] += 1;
         state.bytes[lane] += bytes;
         state.jobs[lane].push_back(Job {
@@ -157,19 +172,35 @@ impl Core {
     /// and lose later results when parsing one reply fails.
     pub(super) fn drain(&self) -> Vec<(u64, Outcome)> {
         let mut state = self.shared.state.lock().unwrap();
-        let first = state.next;
-        let lane = if state.completed[first].is_empty() {
-            1 - first
-        } else {
-            first
+        let ready = |lane: usize, state: &State| {
+            if lane == 0 {
+                state.ordered.front().and_then(|ticket| {
+                    state.completed[0]
+                        .iter()
+                        .position(|done| done.ticket == *ticket)
+                })
+            } else {
+                (!state.completed[1].is_empty()).then_some(0)
+            }
         };
-        let Some(done) = state.completed[lane].pop_front() else {
+        let first = state.next;
+        let (lane, index) = if let Some(index) = ready(first, &state) {
+            (first, index)
+        } else if let Some(index) = ready(1 - first, &state) {
+            (1 - first, index)
+        } else {
             return vec![];
         };
+        let done = state.completed[lane]
+            .remove(index)
+            .expect("ready completion");
+        if lane == 0 {
+            state.ordered.pop_front();
+        }
         state.next = 1 - lane;
         state.counts[lane] -= 1;
         state.bytes[lane] -= done.bytes;
-        if state.completed.iter().any(|q| !q.is_empty()) {
+        if has_ready(&state) {
             wake(&mut state);
         }
         vec![(done.ticket, done.outcome)]
@@ -192,7 +223,7 @@ impl Core {
         state.notified = false;
         // A refusal may use this turn instead of a completion. Preserve the
         // completion wake even in that case. An extra empty pump is harmless.
-        if state.completed.iter().any(|q| !q.is_empty()) {
+        if has_ready(&state) {
             wake(&mut state);
         }
     }
@@ -227,6 +258,29 @@ impl Drop for WorkerSlot {
         LIVE_WORKERS.fetch_sub(1, Ordering::AcqRel);
     }
 }
+fn has_ready(state: &State) -> bool {
+    !state.completed[1].is_empty()
+        || state
+            .ordered
+            .front()
+            .is_some_and(|ticket| state.completed[0].iter().any(|done| done.ticket == *ticket))
+}
+
+fn complete(shared: &Shared, lane: usize, ticket: u64, bytes: usize, outcome: Outcome) {
+    let mut state = shared.state.lock().unwrap();
+    if state.retired {
+        return;
+    }
+    state.completed[lane].push_back(Completed {
+        ticket,
+        outcome: bounded_outcome(outcome, bytes),
+        bytes,
+    });
+    if has_ready(&state) {
+        wake(&mut state);
+    }
+}
+
 fn wake(state: &mut State) {
     if !state.retired && !state.notified {
         state.notified = true;
@@ -316,44 +370,40 @@ fn worker(
                 state = shared.ready.wait(state).unwrap();
             }
         };
+        let Job {
+            ticket,
+            request,
+            forced,
+            work,
+            bytes,
+        } = job;
+        let work = match work {
+            Some(OwnedWork::Later(hand)) if request.continuation.is_some() => {
+                let owner = shared.clone();
+                let reply =
+                    Reply::new(move |outcome| complete(&owner, lane, ticket, bytes, outcome));
+                // The module owner completes asynchronously; the I/O owner stays free.
+                // Reply's drop path publishes an aborted outcome if the handoff panics.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hand(reply)));
+                continue;
+            }
+            Some(OwnedWork::Now(work)) => Some(work),
+            _ => None,
+        };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let scoped = job.request.grants.as_deref().map(|scope| {
+            let scoped = request.grants.as_deref().map(|scope| {
                 exact_data::storage::scope(&grants, Some(scope))
                     .and_then(|s| ibex2::grant::GrantSet::parse(s).map_err(|e| e.to_string()))
                     .map(|g| ibex2::host::Host::new().endow(g))
             });
             match scoped {
                 Some(Err(message)) => failed(FailureKind::Refused, message),
-                Some(Ok(ref scoped)) => execute(
-                    Some(scoped),
-                    job.request,
-                    job.forced,
-                    job.work,
-                    &shared.abort,
-                ),
-                None => execute(
-                    bindings.as_ref(),
-                    job.request,
-                    job.forced,
-                    job.work,
-                    &shared.abort,
-                ),
+                Some(Ok(ref scoped)) => execute(Some(scoped), request, forced, work, &shared.abort),
+                None => execute(bindings.as_ref(), request, forced, work, &shared.abort),
             }
         }))
         .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
-        let mut state = shared.state.lock().unwrap();
-        if state.retired {
-            let abandoned = std::mem::take(&mut state.jobs[lane]);
-            drop(state);
-            drop(abandoned);
-            return;
-        }
-        state.completed[lane].push_back(Completed {
-            ticket: job.ticket,
-            outcome: bounded_outcome(outcome, job.bytes),
-            bytes: job.bytes,
-        });
-        wake(&mut state);
+        complete(&shared, lane, ticket, bytes, outcome);
     }
 }
 

@@ -1,5 +1,5 @@
 //! Data-source boundary (LLP 1004 D4, LLP 1027 D4–D5).
-use crate::request::{Answer, Outcome};
+use crate::request::{Answer, Dispatch, Outcome, Placement, Work};
 use crate::store::Store;
 use exact_plan::{Plan, Value};
 
@@ -26,11 +26,40 @@ pub trait DataSource {
         None
     }
 
-    /// Resolve a composed token for the browser's existing executor registry.
-    /// Unlike native `continuation`, work stays in the browser. Composers consume
-    /// their routing entry here; ordinary executors already use registry tokens.
-    fn continuation_token(&mut self, token: u64) -> Option<u64> {
-        Some(token)
+    /// Where this source's module instance runs (LLP 1027.002 D1). A
+    /// composer orders every child that shares a `secret.keep` name with a
+    /// worker child (D3); a host refuses a placement it cannot run.
+    fn placement(&self) -> Placement {
+        Placement::Main
+    }
+
+    /// The work behind continuation `token`, at dispatch: on the runner's
+    /// thread, after the commit that handed the request out, with the store
+    /// as committed then (LLP 1027.002 D3, change 1). A worker's proxy takes
+    /// its scoped snapshot here. The default is `continuation`'s closure on
+    /// the host's I/O worker, which is what every source did before
+    /// placement existed.
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        let _ = store;
+        match self.continuation(token) {
+            Some(work) => Dispatch::Run(Work::Now(work)),
+            None => Dispatch::Missing,
+        }
+    }
+
+    /// Work `dispatch` answered `Held` that the commit just made releases,
+    /// in order (LLP 1027.002 D3, change 2). A host asks after every commit
+    /// and runs each as it would have at dispatch.
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        let _ = store;
+        Vec::new()
+    }
+
+    /// A `Later` answer whose transaction was refused: its token is never
+    /// dispatched. A source that recorded the call forgets it here (LLP
+    /// 1027.002 D3, the cleanup of rolled-back calls).
+    fn discard(&mut self, token: u64) {
+        let _ = token;
     }
 
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.

@@ -1,0 +1,307 @@
+// @ref LLP 1042. An AVPlayer and AVKit presentation survive every layout/keyboard change.
+import Foundation
+import AVFoundation
+import AVKit
+#if os(macOS)
+import AppKit
+private typealias PlatformView = NSView
+private typealias PlatformImageView = NSImageView
+#else
+import UIKit
+private typealias PlatformView = UIView
+private typealias PlatformImageView = UIImageView
+#endif
+public typealias VideoCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
+
+private final class VideoContainer: PlatformView {
+    weak var arm: VideoArm?
+    #if os(macOS)
+    override var isFlipped: Bool { true }
+    override func layout() { super.layout(); arm?.layout() }
+    #else
+    override func layoutSubviews() { super.layoutSubviews(); arm?.layout() }
+    override func didMoveToWindow() { super.didMoveToWindow(); arm?.attach() }
+    #endif
+}
+
+private final class VideoArm: NSObject {
+    let player = AVPlayer()
+    let container = VideoContainer(frame: .zero)
+    let poster = PlatformImageView(frame: .zero)
+    #if os(macOS)
+    let presentation = AVPlayerView(frame: .zero)
+    #else
+    let controller = AVPlayerViewController()
+    var presentation: UIView { controller.view }
+    #endif
+    let context: UnsafeMutableRawPointer?
+    let callback: VideoCallback
+    var props: [String: String] = [:]
+    var observations: [NSKeyValueObservation] = []
+    var playerObservations: [NSKeyValueObservation] = []
+    var notifications: [NSObjectProtocol] = []
+    var tick: Any?
+    var lastError: String?
+    var invalidated = false
+    var generation = 0
+    var posterGeneration = 0
+    var pendingSeek: Double?
+    var naturalSize = CGSize.zero
+    var wantsPlay = false
+    var lastPaused = true
+    var lastTimeStatus = AVPlayer.TimeControlStatus.paused
+
+    init(context: UnsafeMutableRawPointer?, callback: @escaping VideoCallback) {
+        self.context = context; self.callback = callback
+        super.init()
+        container.arm = self
+        #if os(macOS)
+        container.wantsLayer = true; container.layer?.masksToBounds = true
+        presentation.player = player
+        poster.imageScaling = .scaleProportionallyUpOrDown
+        #else
+        container.clipsToBounds = true
+        controller.player = player
+        poster.contentMode = .scaleAspectFit
+        poster.isUserInteractionEnabled = false
+        #endif
+        container.addSubview(presentation)
+        container.addSubview(poster)
+        poster.isHidden = true
+        playerObservations = [
+            player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in self?.timeStatusChanged() },
+            player.observe(\.rate, options: [.new]) { [weak self] _, _ in self?.emit("ratechange") },
+            player.observe(\.volume, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") },
+            player.observe(\.isMuted, options: [.new]) { [weak self] _, _ in self?.emit("volumechange") }
+        ]
+        tick = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
+            guard let self, !self.invalidated else { return }
+            self.emit("timeupdate", payload: String(self.seconds))
+        }
+    }
+    var seconds: Double { let s = player.currentTime().seconds; return s.isFinite ? s : 0 }
+    func bool(_ name: String, _ fallback: Bool = false) -> Bool { props[name].map { $0 == "true" } ?? fallback }
+    func number(_ name: String, _ fallback: Double) -> Double { props[name].flatMap(Double.init) ?? fallback }
+    var rate: Float { Float(number("playbackRate", 1)) }
+    var snapshot: [String: Any] {
+        let duration = player.currentItem?.duration.seconds ?? .nan
+        return ["currentTime": seconds, "duration": duration.isFinite ? duration as Any : NSNull(),
+                "paused": player.rate == 0, "muted": player.isMuted, "volume": player.volume,
+                "playbackRate": player.rate, "readyState": player.currentItem?.status == .readyToPlay ? 4 : 0,
+                "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
+                "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
+                "src": props["src"] ?? "", "renderer": "AVKit", "generation": generation]
+    }
+    func emit(_ event: String = "snapshot", payload: String = "") {
+        guard !invalidated else { return }
+        // KVO and AVFoundation completion delivery are serialized onto main before crossing the ABI.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.emit(event, payload: payload) }; return
+        }
+        if event == "error" { lastError = payload }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["event": event, "payload": payload, "state": snapshot]) else { return }
+        data.withUnsafeBytes { callback(context, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
+    func timeStatusChanged() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.timeStatusChanged() }; return }
+        guard !invalidated else { return }
+        let status = player.timeControlStatus
+        let paused = status == .paused
+        if paused != lastPaused { lastPaused = paused; emit(paused ? "pause" : "play") }
+        if status != lastTimeStatus {
+            lastTimeStatus = status
+            if status == .playing { poster.isHidden = true; emit("playing") }
+            if status == .waitingToPlayAtSpecifiedRate { emit("waiting") }
+        }
+    }
+    func update(_ values: [String: String]) {
+        let old = props
+        props = values
+        let changed = { (name: String) in old[name] != values[name] }
+        for (name, min, max) in [("volume", 0.0, 1.0), ("playbackRate", 0.25, 4.0), ("currentTime", 0.0, Double.greatestFiniteMagnitude), ("preferredPeakBitRate", 0.0, Double.greatestFiniteMagnitude), ("preferredForwardBufferDuration", 0.0, Double.greatestFiniteMagnitude)] {
+            if let text = props[name], let value = Double(text), value.isFinite, value >= min, value <= max { continue }
+            if props[name] != nil { emit("error", payload: "Invalid \(name)"); props.removeValue(forKey: name) }
+        }
+        #if os(macOS)
+        presentation.controlsStyle = bool("controls") ? .inline : .none
+        presentation.showsFullScreenToggleButton = !(props["controlslist"] ?? "").split(separator: " ").contains("nofullscreen")
+        presentation.showsSharingServiceButton = false
+        presentation.showsTimecodes = bool("showsTimecodes")
+        presentation.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        presentation.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
+        #else
+        controller.showsPlaybackControls = bool("controls")
+        controller.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        controller.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
+        controller.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
+        controller.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
+        controller.requiresLinearPlayback = bool("requiresLinearPlayback")
+        controller.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
+        #endif
+        player.isMuted = bool("muted")
+        player.volume = Float(number("volume", 1))
+        player.allowsExternalPlayback = !bool("disableremoteplayback") && !(props["controlslist"] ?? "").split(separator: " ").contains("noremoteplayback")
+        player.automaticallyWaitsToMinimizeStalling = bool("automaticallyWaitsToMinimizeStalling", true)
+        player.preventsDisplaySleepDuringVideoPlayback = bool("preventsDisplaySleepDuringVideoPlayback", true)
+        if changed("poster") { loadPoster() }
+        if changed("src") {
+            wantsPlay = props["paused"].map { $0 == "false" } ?? bool("autoplay")
+            loadSource()
+        }
+        if changed("paused"), let value = props["paused"] {
+            wantsPlay = value == "false"
+            if wantsPlay { if player.currentItem == nil { loadSource() }; play() } else { player.pause() }
+        }
+        if changed("playbackRate"), player.rate != 0 { player.rate = rate }
+        if changed("currentTime"), props["currentTime"] != nil { seek(number("currentTime", 0)) }
+        configureItem()
+        if let error = props["sourceError"], error != old["sourceError"] { emit("error", payload: error) }
+        layout()
+        emit()
+    }
+    func configureItem() {
+        player.currentItem?.preferredPeakBitRate = number("preferredPeakBitRate", 0)
+        player.currentItem?.preferredForwardBufferDuration = number("preferredForwardBufferDuration", 0)
+        player.currentItem?.audioTimePitchAlgorithm = bool("preservesPitch", true) ? .spectral : .varispeed
+    }
+    func loadSource() {
+        generation += 1
+        lastError = nil
+        observations.removeAll()
+        notifications.forEach(NotificationCenter.default.removeObserver)
+        notifications.removeAll()
+        player.replaceCurrentItem(with: nil)
+        naturalSize = .zero
+        pendingSeek = props["currentTime"].flatMap(Double.init)
+        guard let source = props["src"], !source.isEmpty, let url = URL(string: source) else { return }
+        // preload is a hint: AVKit may prepare an item so its native Play control works.
+        let item = AVPlayerItem(url: url)
+        player.replaceCurrentItem(with: item)
+        configureItem()
+        let token = generation
+        observations = [item.observe(\.status, options: [.initial, .new]) { [weak self, weak item] _, _ in
+            DispatchQueue.main.async {
+                guard let self, let item, !self.invalidated, self.generation == token else { return }
+                if item.status == .failed { self.emit("error", payload: item.error?.localizedDescription ?? "Media could not be loaded") }
+                if item.status == .readyToPlay {
+                    self.naturalSize = item.presentationSize
+                    self.emit("loadedmetadata")
+                    if item.duration.seconds.isFinite { self.emit("durationchange", payload: String(item.duration.seconds)) }
+                    self.emit("canplay")
+                    if let time = self.pendingSeek { self.pendingSeek = nil; self.seek(time) }
+                    if self.wantsPlay { self.play() }
+                    self.layout()
+                }
+            }
+        }, item.observe(\.presentationSize, options: [.new]) { [weak self] item, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.invalidated, self.generation == token else { return }
+                self.naturalSize = item.presentationSize; self.layout(); self.emit()
+            }
+        }]
+        notifications.append(NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            guard let self, !self.invalidated, self.generation == token else { return }
+            if self.bool("loop") {
+                self.player.seek(to: .zero) { [weak self] complete in
+                    DispatchQueue.main.async { guard let self, complete, !self.invalidated, self.generation == token, self.wantsPlay else { return }; self.play() }
+                }
+            } else { self.wantsPlay = false; self.emit("ended") }
+        })
+        if wantsPlay { play() }
+    }
+    func play() { player.defaultRate = rate; player.play() }
+    func seek(_ time: Double) {
+        guard player.currentItem?.status == .readyToPlay else { pendingSeek = time; return }
+        poster.isHidden = true
+        emit("seeking")
+        let token = generation
+        player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
+            DispatchQueue.main.async {
+                guard let self, completed, !self.invalidated, self.generation == token else { return }
+                self.emit("seeked"); self.emit("timeupdate", payload: String(self.seconds))
+            }
+        }
+    }
+    func loadPoster() {
+        posterGeneration += 1
+        let token = posterGeneration
+        poster.image = nil; poster.isHidden = true
+        guard let source = props["poster"], let url = URL(string: source) else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let data = try? Data(contentsOf: url)
+            DispatchQueue.main.async {
+                guard let self, !self.invalidated, self.posterGeneration == token, let data else { return }
+                #if os(macOS)
+                self.poster.image = NSImage(data: data)
+                #else
+                self.poster.image = UIImage(data: data)
+                #endif
+                self.poster.isHidden = self.player.rate != 0
+            }
+        }
+    }
+    #if os(iOS)
+    func attach() {
+        guard container.window != nil, controller.parent == nil else { return }
+        var responder: UIResponder? = container.next
+        while let current = responder {
+            if let parent = current as? UIViewController { parent.addChild(controller); controller.didMove(toParent: parent); break }
+            responder = current.next
+        }
+    }
+    #endif
+    func layout() {
+        guard !invalidated else { return }
+        #if os(iOS)
+        attach()
+        #endif
+        let fit = props["objectFit"] ?? "contain"
+        let gravity: AVLayerVideoGravity = fit == "contain" || fit == "scale-down" ? .resizeAspect : fit == "cover" ? .resizeAspectFill : .resize
+        #if os(macOS)
+        presentation.videoGravity = gravity
+        #else
+        controller.videoGravity = gravity
+        #endif
+        var frame = container.bounds
+        if (fit == "none" || fit == "scale-down"), naturalSize.width > 0, naturalSize.height > 0 {
+            let scale = fit == "none" ? 1 : min(1, min(frame.width / naturalSize.width, frame.height / naturalSize.height))
+            frame = CGRect(x: (frame.width - naturalSize.width * scale) / 2, y: (frame.height - naturalSize.height * scale) / 2, width: naturalSize.width * scale, height: naturalSize.height * scale)
+        }
+        if presentation.superview === container { presentation.frame = frame }
+        poster.frame = container.bounds
+    }
+    func invalidate() {
+        guard !invalidated else { return }
+        invalidated = true; generation += 1; posterGeneration += 1
+        player.pause()
+        if let tick { player.removeTimeObserver(tick) }; tick = nil
+        observations.removeAll(); playerObservations.removeAll()
+        notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
+        player.replaceCurrentItem(with: nil)
+        #if os(iOS)
+        controller.willMove(toParent: nil); controller.view.removeFromSuperview(); controller.removeFromParent()
+        #endif
+        container.removeFromSuperview()
+    }
+}
+
+@_cdecl("exact_video_create")
+public func videoCreate(_ context: UnsafeMutableRawPointer?, _ callback: VideoCallback?) -> UnsafeMutableRawPointer? {
+    guard let callback else { return nil }
+    return Unmanaged.passRetained(VideoArm(context: context, callback: callback)).toOpaque()
+}
+private func arm(_ raw: UnsafeMutableRawPointer?) -> VideoArm? { raw.map { Unmanaged<VideoArm>.fromOpaque($0).takeUnretainedValue() } }
+@_cdecl("exact_video_view")
+public func videoView(_ raw: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? { arm(raw).map { Unmanaged.passUnretained($0.container).toOpaque() } }
+@_cdecl("exact_video_update")
+public func videoUpdate(_ raw: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ count: Int) {
+    guard let object = arm(raw), let bytes, let values = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: count)) as? [String: String] else { return }
+    object.update(values)
+}
+@_cdecl("exact_video_state")
+public func videoState(_ raw: UnsafeMutableRawPointer?) { arm(raw)?.emit() }
+@_cdecl("exact_video_destroy")
+public func videoDestroy(_ raw: UnsafeMutableRawPointer?) {
+    guard let raw else { return }
+    let object = Unmanaged<VideoArm>.fromOpaque(raw).takeRetainedValue(); object.invalidate()
+}

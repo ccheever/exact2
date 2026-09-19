@@ -1,0 +1,20 @@
+[
+  {
+    "name": "three",
+    "rawBytes": 751755,
+    "gzipBytes": 196544,
+    "buildMs": 64.323353
+  },
+  {
+    "name": "babylon",
+    "rawBytes": 8225392,
+    "gzipBytes": 1882441,
+    "buildMs": 390.62094499999995
+  },
+  {
+    "name": "playcanvas",
+    "rawBytes": 3002949,
+    "gzipBytes": 794623,
+    "buildMs": 87.55059699999993
+  }
+]

@@ -1,0 +1,8 @@
+**/node_modules/
+**/dist/
+**/.godot/
+**/build/
+**/export/
+**/*.pid
+**/server.log
+**/agent.jsonl

@@ -5,7 +5,9 @@ use exact_kernel::{AxisOffer, NodeKey, ParagraphStamp, TextMetrics};
 use std::collections::{HashMap, VecDeque};
 
 const OWNERS: usize = 256;
-const OFFERS: usize = 4;
+/// As many as the kernel's own per-leaf memo (`LEAF_OFFERS`): a layout pass
+/// offers one paragraph six to thirteen distinct sizes (LLP 1044 F6).
+const OFFERS: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Axis {

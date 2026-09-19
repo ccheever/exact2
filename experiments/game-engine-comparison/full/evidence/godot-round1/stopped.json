@@ -1,0 +1,15 @@
+{
+  "root": 864777,
+  "pids": [
+    864777,
+    864796,
+    864798,
+    864799,
+    864815,
+    864817,
+    864838,
+    864872
+  ],
+  "reason": "Full win completed; nightfall case exceeded five minutes. Stop for aggregated repair.",
+  "time": 1789709060.4201422
+}

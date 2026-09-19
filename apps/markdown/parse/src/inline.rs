@@ -169,8 +169,7 @@ impl<'a> Parser<'a> {
                     // One UTF-8 character, not one byte.
                     let width = utf8_width(c);
                     let end = (self.at + width).min(self.src.len());
-                    self.pending
-                        .push_str(std::str::from_utf8(&self.src[self.at..end]).unwrap_or(""));
+                    self.pending.push_str(&self.text[self.at..end]);
                     self.at = end;
                 }
             }

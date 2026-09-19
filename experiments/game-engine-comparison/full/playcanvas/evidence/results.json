@@ -1,0 +1,493 @@
+{
+  "engine": {
+    "ready": true,
+    "engine": "PlayCanvas",
+    "version": "2.22.2"
+  },
+  "startupMs": 695.2874299999999,
+  "checks": {
+    "initial": true,
+    "movement": true,
+    "jump": true,
+    "persistedReload": true,
+    "noBrowserErrors": true
+  },
+  "samples": {
+    "initial": {
+      "phase": "playing",
+      "ticks": 0,
+      "elapsed": 0,
+      "remaining": 180,
+      "player": {
+        "x": 0,
+        "y": -2.384185793236071e-8,
+        "z": 12,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0,
+        "grounded": true,
+        "animation": "Survey"
+      },
+      "crate": {
+        "x": 6,
+        "y": 2.384185793236071e-8,
+        "z": 8,
+        "vx": 0,
+        "vy": 0,
+        "vz": 0
+      },
+      "lanterns": [
+        {
+          "id": "lantern-1",
+          "x": -12,
+          "y": 0,
+          "z": 10,
+          "lit": false
+        },
+        {
+          "id": "lantern-2",
+          "x": -10,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-3",
+          "x": -12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-4",
+          "x": -6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-5",
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "lit": false
+        },
+        {
+          "id": "lantern-6",
+          "x": 6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-7",
+          "x": 12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-8",
+          "x": 12,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-9",
+          "x": 5,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-10",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-11",
+          "x": 0,
+          "y": 0,
+          "z": 7,
+          "lit": false
+        },
+        {
+          "id": "lantern-12",
+          "x": 10,
+          "y": 2.4,
+          "z": 8,
+          "lit": false
+        }
+      ],
+      "count": 0,
+      "total": 12,
+      "events": [],
+      "assetReady": true
+    },
+    "moved": {
+      "phase": "playing",
+      "ticks": 60,
+      "elapsed": 1,
+      "remaining": 179,
+      "player": {
+        "x": 1.2321768849687942e-7,
+        "y": -9.179115295632201e-7,
+        "z": 7.610856056213379,
+        "vx": 3.261425618461544e-8,
+        "vy": 0.0000014901161193847656,
+        "vz": -4.463510036468506,
+        "grounded": true,
+        "animation": "Run"
+      },
+      "crate": {
+        "x": 6.00002384185791,
+        "y": 0.000001573562622092517,
+        "z": 8.000025749206543,
+        "vx": 0.00009668126585893333,
+        "vy": 0.00000426173210144043,
+        "vz": 0.000010740539437392727
+      },
+      "lanterns": [
+        {
+          "id": "lantern-1",
+          "x": -12,
+          "y": 0,
+          "z": 10,
+          "lit": false
+        },
+        {
+          "id": "lantern-2",
+          "x": -10,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-3",
+          "x": -12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-4",
+          "x": -6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-5",
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "lit": false
+        },
+        {
+          "id": "lantern-6",
+          "x": 6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-7",
+          "x": 12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-8",
+          "x": 12,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-9",
+          "x": 5,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-10",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-11",
+          "x": 0,
+          "y": 0,
+          "z": 7,
+          "lit": false
+        },
+        {
+          "id": "lantern-12",
+          "x": 10,
+          "y": 2.4,
+          "z": 8,
+          "lit": false
+        }
+      ],
+      "count": 0,
+      "total": 12,
+      "events": [],
+      "assetReady": true
+    },
+    "jumped": {
+      "phase": "playing",
+      "ticks": 72,
+      "elapsed": 1.2,
+      "remaining": 178.8,
+      "player": {
+        "x": 1.237612536897359e-7,
+        "y": 0.9501374721527099,
+        "z": 7.536464214324951,
+        "vx": 0,
+        "vy": 3.967820882797241,
+        "vz": 0,
+        "grounded": false,
+        "animation": "Survey"
+      },
+      "crate": {
+        "x": 6.000027656555176,
+        "y": 0.0000051498413086159545,
+        "z": 8.000025749206543,
+        "vx": -0.0001587334118084982,
+        "vy": -0.00023323297500610352,
+        "vz": 0.000010562912393652368
+      },
+      "lanterns": [
+        {
+          "id": "lantern-1",
+          "x": -12,
+          "y": 0,
+          "z": 10,
+          "lit": false
+        },
+        {
+          "id": "lantern-2",
+          "x": -10,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-3",
+          "x": -12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-4",
+          "x": -6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-5",
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "lit": false
+        },
+        {
+          "id": "lantern-6",
+          "x": 6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-7",
+          "x": 12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-8",
+          "x": 12,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-9",
+          "x": 5,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-10",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-11",
+          "x": 0,
+          "y": 0,
+          "z": 7,
+          "lit": false
+        },
+        {
+          "id": "lantern-12",
+          "x": 10,
+          "y": 2.4,
+          "z": 8,
+          "lit": false
+        }
+      ],
+      "count": 0,
+      "total": 12,
+      "events": [
+        {
+          "type": "jump",
+          "tick": 61
+        }
+      ],
+      "assetReady": true
+    },
+    "loaded": {
+      "phase": "playing",
+      "ticks": 72,
+      "elapsed": 1.2,
+      "remaining": 178.8,
+      "player": {
+        "x": 1.237612536897359e-7,
+        "y": 0.9501374721527099,
+        "z": 7.536464214324951,
+        "vx": 0,
+        "vy": 3.967820882797241,
+        "vz": 0,
+        "grounded": false,
+        "animation": "Survey"
+      },
+      "crate": {
+        "x": 6.000027656555176,
+        "y": 0.0000051498413086159545,
+        "z": 8.000025749206543,
+        "vx": -0.0001587334118084982,
+        "vy": -0.00023323297500610352,
+        "vz": 0.000010562912393652368
+      },
+      "lanterns": [
+        {
+          "id": "lantern-1",
+          "x": -12,
+          "y": 0,
+          "z": 10,
+          "lit": false
+        },
+        {
+          "id": "lantern-2",
+          "x": -10,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-3",
+          "x": -12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-4",
+          "x": -6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-5",
+          "x": 0,
+          "y": 0,
+          "z": -10,
+          "lit": false
+        },
+        {
+          "id": "lantern-6",
+          "x": 6,
+          "y": 0,
+          "z": -12,
+          "lit": false
+        },
+        {
+          "id": "lantern-7",
+          "x": 12,
+          "y": 0,
+          "z": -8,
+          "lit": false
+        },
+        {
+          "id": "lantern-8",
+          "x": 12,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-9",
+          "x": 5,
+          "y": 0,
+          "z": 2,
+          "lit": false
+        },
+        {
+          "id": "lantern-10",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "lit": false
+        },
+        {
+          "id": "lantern-11",
+          "x": 0,
+          "y": 0,
+          "z": 7,
+          "lit": false
+        },
+        {
+          "id": "lantern-12",
+          "x": 10,
+          "y": 2.4,
+          "z": 8,
+          "lit": false
+        }
+      ],
+      "count": 0,
+      "total": 12,
+      "events": [
+        {
+          "type": "jump",
+          "tick": 61
+        },
+        {
+          "type": "save",
+          "tick": 72
+        },
+        {
+          "type": "load",
+          "tick": 72
+        }
+      ],
+      "assetReady": true
+    }
+  },
+  "errors": [],
+  "passed": true
+}

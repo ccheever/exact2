@@ -7,7 +7,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
 **Implementer:** Claude (Fable 5); the macOS behavior landed 2026-08-29 (this document transcribes it)
-**Windowing work:** Codex, started 2026-09-14 at Charlie's direction ("ok do what you think" after the list-memory assessment). §6 is the implementation plan; it does not claim windowing is built.
+**Windowing work:** Codex, started 2026-09-14 at Charlie's direction ("ok do what you think" after the list-memory assessment). §6 records the staged implementation; fixed-height runner/web landed 2026-09-17, measured heights and Apple geometry 2026-09-18 through Markdown. Linux geometry, image budgets and Messages acceptance remain open.
 **Related:** LLP 1001 §1 (the `ScrollView`/`List` default — the only per-tag default — and the root-width rule), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls; the engine follows), LLP 1007 §1 (the web host's `<div data-scroll>`), LLP 1008 §1, §5 (the window as a viewport over a document; the chaining scroll view), `rules/RULES.md` §The web is the standard, `rules/NOT-DOING.md` §Components (no virtualList v2) and §Motion (scroll-vs-pan arbitration is the platform's)
 
 ## Summary
@@ -91,8 +91,7 @@ as an inline declaration and wins over the stylesheet. Every node is
 `position: relative` by a page rule (LLP 1001 §1's declared baseline; an
 absolute node's inline style wins). The browser lays out, clips, scrolls,
 chains at edges, restores nothing across a reload, and the window scrolls
-the document as for any page. The host does nothing per frame and knows
-nothing about scroll positions.
+the document as for any page. Ordinary scroll containers remain platform-owned. The explicit windowed `list` also reports its actual geometry to the runner (§6.2); this does not dispatch an application action.
 
 ## 3. The macOS host: `NSScrollView`, made to agree with CSS (`host/apple`)
 
@@ -214,21 +213,20 @@ scroll position across a reload (the tree is rebuilt; LLP 1007 §9);
 not); scroll snapping; `scrollIntoView` and programmatic scroll (an agent
 operation, later).
 
-**Current, 2026-09-14:** `List` and `ScrollView` still have the same
-behavior on every host; `virtualized` is inert. A windowed list still
-needs a logical total extent (today `content` counts materialized children)
-and window-origin compensation, plus runner row lifetime management.
-The scroll-offset event exists on web and Apple; Linux needs the same
-feedback when windowing lands there. The old 60-fps-only trigger is
-replaced by §6's memory and responsiveness requirements.
+**Current, 2026-09-17:** explicit fixed-height lists now have runner-owned row
+lifetimes, logical extent and browser geometry feedback (§6.2). The inert
+`virtualized` prop is deleted; its ordinal is now `itemHeight`. Ordinary
+`scroll`/`each` remains eager. Apple/Linux still need the list geometry
+path and interaction pins; do not migrate shared consumers before that
+work lands. The old 60-fps-only trigger is replaced by §6's memory and
+responsiveness requirements.
 
 ## 6. Bounded list memory — implementation plan, 2026-09-14
 
 **Owner:** Codex. **Start:** 2026-09-14. **Consumer:** Messages inbox and
 transcript, then the other apps' long lists. **Order:** baseline → runner
 and web window → Apple and Linux → bounded raster loading → consumer sweep.
-The baseline starts now; this is not a statement that the later slices
-have landed. Router/viewport work already assigned in LLPs 1038/1039 keeps
+Baseline and the fixed-height runner/web slice are implemented; later slices remain open. Router/viewport work already assigned in LLPs 1038/1039 keeps
 its assignment. ExactViewport is a viewport fact, not the missing size of
 a nested scroll container; windowing must observe the actual scrollport.
 This LLP returns to `current/`; 1036's research link leaves that overlay
@@ -340,6 +338,128 @@ interaction can pin its row until completion; pins are explicit, counted
 and bounded (at most one focused row and one other interacting row).
 Switching interactions releases the earlier pin. A keep-alive map that
 grows with every visited key fails the memory requirement.
+
+**First slice, 2026-09-17 — fixed-height runner and web:**
+
+```contract
+list item-height=24 height=240 width=390
+  each item in rows key=item.id
+    Cell(item=item)
+```
+
+`list` requires one direct keyed `each`, a positive literal `item-height`
+in CSS pixels, and a constrained scrollport (`height`, `max-height` or
+`flex`). This is explicit host policy, not a CSS property. Each item gets
+an absolute, clipped fixed-height wrapper inside a full-height content
+box. The wrapper has `role=listitem`, `aria-posinset` and `aria-setsize`;
+the list has `role=list`. Normal CSS governs authored descendants. Row
+height does not change while mounted. A changing width may wrap content
+inside that fixed box; variable-height measurement is still owed.
+
+`Runner::list_viewport` takes the actual offset, viewport height, content
+origin and at most two descendant pins. The web ABI's `exact_list` reports
+these on scroll, resize and focus/pointer changes, after batches and
+before paint. Browser scroll anchoring is disabled on this list because
+the runner preserves the first visible key and its intra-row offset.
+An authored `scrollTop` change overrides that anchor. Pointer release
+keeps its pin through the following click; focus retains its row until
+blur. Viewport creation begins with two rows, then host measurement fills
+the actual viewport plus one viewport on either side. Removed rows lose
+instances and local slots; returning creates fresh instances.
+
+Scroll-only updates neither settle resources nor evaluate every key.
+App/data updates validate all keys (including offscreen duplicates),
+rebuild the O(N) key index, and update retained rows. Reordering preserves
+keyed identity; deleting the anchor selects the next surviving neighbor,
+then the previous one. Input records and key metadata remain O(N). This
+slice bounds instantiated UI, not total memory independently of N.
+
+The existing memory diagnostic now compares eager and windowed rows in
+fresh processes and reports initial versus post-traversal retained heap.
+Windowed cases traverse every row down and up twenty times. Native views,
+decoded image bytes and first pixel are still explicitly unmeasured by
+that runner diagnostic. Native geometry/pins, accessibility navigation
+to uninstantiated rows, variable heights, end-follow and Messages adoption
+are not completed by this slice.
+
+**Measured runner comparison, 2026-09-17:** M5 Max, Darwin 25.6.0,
+Rust 1.97.0, release binary; 844px viewport and 24px text rows. Both modes
+use the same binary, with tracking enabled. Heap includes input records,
+decoded plan, key metadata, row instances, kernel and retained receipts;
+RSS is the whole runner process, not native app footprint.
+
+| Records | Mode | Live kernel nodes | Retained heap, MiB | Peak heap, MiB | RSS, MiB |
+|---:|---|---:|---:|---:|---:|
+| 25 | eager | 27 | 0.115 | 0.144 | 3.438 |
+| 25 | windowed | 52 | 0.180 | 0.235 | 3.703 |
+| 1,000 | eager | 1,002 | 3.926 | 4.948 | 10.984 |
+| 1,000 | windowed | 214 | 1.435 | 1.710 | 6.781 |
+| 25,000 | eager | 25,002 | 112.159 | 140.769 | 130.719 |
+| 25,000 | windowed | 214 | 5.533 | 5.808 | 11.625 |
+
+Windowed rows pay for an extra wrapper, so a short list can cost more.
+The 25,000-record input alone is 2.098 MiB; input and key/index storage
+explain the remaining dependence on record count. At 25,000, retained
+requested heap is exactly 5,801,313 bytes after traversal 1 and traversal
+20 at the same middle position. Kernel storage peaks at 356 slots for
+both long sizes, reusing retired slots. The smaller runs are still warming
+the kernel's bounded 64-receipt ring; the initial-to-traversed high-water
+increase must not be confused with retaining visited rows.
+
+The final loaded-machine sample has eager boot/layout 143.93/64.73ms and
+windowed boot/window-fill/layout 11.19/4.52/0.074ms. These are single
+allocation-instrumented samples, not p50s or first-frame measurements.
+Raw results: `/tmp/exact-list-memory-windowed-final.json`, source base
+`d0f60f5` plus this slice; the JSON records source and binary hashes.
+
+**Validation status:** six focused tests in `host/web/tests/lists.rs` pass:
+bounded live/retained nodes and no data calls during twenty traversals;
+pinned state/identity then release; reorder/deleted-anchor preservation;
+resize/programmatic offsets/invalid geometry; web batch retirement and
+accessibility positions; invalid authoring and offscreen duplicate keys.
+The web artifact builds; JavaScript syntax, caps and boot checks pass.
+
+**Browser acceptance, 2026-09-17:** a temporary Contract fixture using
+Caltrain's real station data passed in headless Chrome through
+`scripts/agent.mjs`, against a fresh isolated web build. It exercised actual
+wheel scrolling, retention of a focused offscreen row, retirement on blur,
+fresh identity on return, bounded mounted rows, and an authored scroll
+jump with 12px scrollport padding. The 492px jump aligned row 7 (80px
+rows) with the scrollport's top, accounting for the content origin.
+Fixture and raw output: `/tmp/exact-list-acceptance.contract`,
+`/tmp/exact-list-acceptance.mjs`, `/tmp/exact-list-acceptance.log`.
+
+The prior disk-space block is cleared. Workspace validation remains blocked:
+`cargo build --workspace` failed when the Caltrain Apple asset gate's
+`exact-filesystem` subprocess exited before replying. A direct helper call
+then passed, but the build retry and full test run were interrupted after
+persistent native executable startup stalls. The test build completed in
+17m28s and the initial Caltrain suites passed; a sampled test process stayed
+at macOS `_dyld_start` before executing test code. Rerunning, concurrent
+`--list` startup preparation, and copying a binary outside the build directory
+did not clear the stall; validation stopped at the three-round limit.
+Clippy was not reached. Formatting, caps, boot and the six focused list tests
+pass. Logs: `/tmp/exact-dirty-build.log`, `/tmp/exact-dirty-build-retry.log`,
+`/tmp/exact-dirty-test.log`, `/tmp/exact-test-startup-sample.txt`.
+Finish workspace validation before committing this slice. Native geometry
+and consumer acceptance remain open.
+
+**Measured rows and the Markdown consumer, 2026-09-18:**
+`estimated-item-height` selects variable-height rows instead of fixed
+`item-height`. A prefix-sum index accepts actual heights, preserves the reading
+key through changes, and invalidates measurements when width changes. The
+browser sends DOM sizes; Apple sends scrollport geometry and reads row sizes
+from kernel layout. AppKit and UIKit settle windows before paint. The regular
+Markdown reader now uses this path; `apps/markdown/README.md` records measured
+construction costs and verification limits.
+
+Selection can outlive a row instance. Its logical endpoint is the opaque row
+key, outer text-paragraph ordinal and UTF-16 offset. The runner projects text
+from the same row template, one unloaded row at a time, without committing
+kernel operations; mounted rows retain their current local state. AppKit and
+browser selection use this path for partial and full-document copy. Copy does
+not mount the selected range. This does not claim virtual accessibility
+navigation, Linux geometry, or the image budget below is complete.
 
 ### 6.3 Raster memory is a separate budget
 

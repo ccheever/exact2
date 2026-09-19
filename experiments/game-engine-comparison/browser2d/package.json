@@ -1,0 +1,17 @@
+{
+  "name": "browser2d",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "kaplay": "^3001.0.19",
+    "phaser": "^4.2.1",
+    "playwright": "^1.63.0"
+  }
+}

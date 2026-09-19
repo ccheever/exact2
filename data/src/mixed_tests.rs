@@ -246,9 +246,10 @@ fn colliding_full_width_continuations_route_once_to_their_owner() {
         }
     );
     assert!(mixed.continuation(js).is_none());
+    // A composed token routes once at dispatch, then is gone.
     let browser = token(mixed.answer(&mut store, "jswait", &[]).unwrap());
-    assert_eq!(mixed.continuation_token(browser), Some(u64::MAX));
-    assert_eq!(mixed.continuation_token(browser), None);
+    assert!(matches!(mixed.dispatch(browser, &store), Dispatch::Run(_)));
+    assert!(matches!(mixed.dispatch(browser, &store), Dispatch::Missing));
 }
 
 #[test]
@@ -393,4 +394,347 @@ fn secret_scope_restores_after_error_unwind_and_cannot_broaden_parent() {
     assert_eq!(store.get("b"), Some("pending B"));
     assert_eq!(store.take_writes().len(), 1);
     assert_eq!(store.granted(), &["a", "b"]);
+}
+
+// --- LLP 1027.002 D3: the ordered set ------------------------------------------
+
+use crate::{envelope, Placed};
+use exact_runner::{Dispatch, Placement, Reply, Work};
+use std::sync::{Arc, Mutex};
+
+/// A worker child's proxy, without a thread: it records at `answer`, and at
+/// `dispatch` runs the call against a scoped snapshot and answers at once
+/// with the turn's envelope — the shape `Placed` and the TypeScript worker
+/// have, made deterministic.
+struct Proxy {
+    inner: Source,
+    recorded: Vec<(u64, String, Vec<Value>)>,
+    next: u64,
+}
+
+impl Proxy {
+    fn new(inner: Source) -> Self {
+        Self {
+            inner,
+            recorded: Vec::new(),
+            next: 100,
+        }
+    }
+}
+
+impl DataSource for Proxy {
+    fn placement(&self) -> Placement {
+        Placement::Worker
+    }
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.inner.query(source, args)
+    }
+    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        self.next += 1;
+        self.recorded
+            .push((self.next, source.to_string(), args.to_vec()));
+        Ok(Answer::Later(Request::continuation(self.next)))
+    }
+    fn parse(
+        &mut self,
+        store: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        envelope::apply(outcome, store, &mut Vec::new())
+    }
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        let Some(at) = self.recorded.iter().position(|(t, _, _)| *t == token) else {
+            return Dispatch::Missing;
+        };
+        let (_, source, args) = self.recorded.remove(at);
+        let grants = self.inner.grants().to_owned();
+        let mut local = Store::new(&grants, envelope::snapshot(store, &grants));
+        let result = self.inner.answer(&mut local, &source, &args);
+        let outcome = envelope::encode(result, &mut local, Vec::new());
+        Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+    fn app_id(&self) -> &str {
+        self.inner.app_id()
+    }
+    fn grants(&self) -> &str {
+        self.inner.grants()
+    }
+    fn revision(&self) -> Option<&str> {
+        self.inner.revision()
+    }
+}
+
+fn run(dispatch: Dispatch) -> Outcome {
+    match dispatch {
+        Dispatch::Run(Work::Now(work)) => work(),
+        Dispatch::Run(Work::Later(work)) => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(Reply::new(move |outcome| {
+                let _ = tx.send(outcome);
+            }));
+            rx.recv_timeout(std::time::Duration::from_secs(5))
+                .expect("a reply")
+        }
+        Dispatch::Held => panic!("held"),
+        Dispatch::Host(_) => panic!("host"),
+        Dispatch::Missing => panic!("missing"),
+    }
+}
+
+fn value_of(answer: Result<Answer, DataError>) -> Value {
+    match answer.unwrap() {
+        Answer::Now(v) => v,
+        _ => panic!("a value"),
+    }
+}
+
+#[test]
+fn a_worker_child_orders_every_member_that_shares_a_secret_and_commits_through_parse() {
+    // Both children keep `shared`: one set, both members, one turn at a time.
+    let js = Source::new("js");
+    let rust = Source::new("rust");
+    let mut mixed = Mixed::new(
+        Proxy::new(js.clone()),
+        rust.clone(),
+        &["jssecret", "js"],
+        &["rustsecret", "rust"],
+    )
+    .unwrap();
+    assert_eq!(mixed.placement(), Placement::Worker);
+    let mut store = Store::new(
+        "secret.keep js\nsecret.keep rust\nsecret.keep shared",
+        [("shared".to_string(), "before".to_string())],
+    );
+    // Nothing ran at `answer`: both calls are recorded, both answer later.
+    let a = token(mixed.answer(&mut store, "jssecret", &[]).unwrap());
+    let b = token(mixed.answer(&mut store, "rustsecret", &[]).unwrap());
+    assert!(js.calls.borrow().is_empty());
+    assert!(rust.calls.borrow().is_empty());
+    // The first turn is dispatched; the second is held behind it.
+    let first = mixed.dispatch(a, &store);
+    assert!(matches!(mixed.dispatch(b, &store), Dispatch::Held));
+    assert!(mixed.release(&store).is_empty());
+    let outcome = run(first);
+    assert!(envelope::is_turn(&outcome));
+    // The worker child ran against a scoped snapshot; its write lands in
+    // the live store only now, through `parse`, inside the transaction.
+    assert_eq!(store.get("js"), None);
+    let v = value_of(mixed.parse(&mut store, "jssecret", &[], outcome));
+    assert_eq!(v.as_str(), Some("before"));
+    assert_eq!(store.get("js"), Some("written"));
+    // The turn ended: the held call is released, computed on `main`
+    // against the store as committed now, and commits the same way.
+    store.set("shared", "after").unwrap();
+    let mut released = mixed.release(&store);
+    assert_eq!(released.len(), 1);
+    let (t, dispatch) = released.pop().unwrap();
+    assert_eq!(t, b);
+    assert_eq!(store.get("rust"), None);
+    let outcome = run(dispatch);
+    let v = value_of(mixed.parse(&mut store, "rustsecret", &[], outcome));
+    assert_eq!(v.as_str(), Some("after"));
+    assert_eq!(store.get("rust"), Some("written"));
+    assert!(mixed.release(&store).is_empty());
+    assert_eq!(rust.calls.borrow().as_slice(), ["answer:rustsecret"]);
+}
+
+#[test]
+fn disjoint_secrets_leave_a_main_child_inline_and_a_refusal_discards_the_recorded_call() {
+    let mut js = Source::new("js");
+    js.grants = "secret.keep js".into();
+    let mut rust = Source::new("rust");
+    rust.grants = "secret.keep rust".into();
+    let mut mixed = Mixed::new(Proxy::new(js), rust.clone(), &["js"], &["rust"]).unwrap();
+    let mut store = Store::new("secret.keep js\nsecret.keep rust", []);
+    // The main child shares no name with the worker: it answers now, inline.
+    assert!(matches!(
+        mixed.answer(&mut store, "rust", &[]).unwrap(),
+        Answer::Now(_)
+    ));
+    // A recorded worker call whose transaction is refused is discarded: its
+    // token dispatches nothing and nothing waits for it.
+    let a = token(mixed.answer(&mut store, "js", &[]).unwrap());
+    mixed.discard(a);
+    assert!(matches!(mixed.dispatch(a, &store), Dispatch::Missing));
+    assert!(mixed.release(&store).is_empty());
+    let b = token(mixed.answer(&mut store, "js", &[]).unwrap());
+    let outcome = run(mixed.dispatch(b, &store));
+    assert!(matches!(
+        mixed.parse(&mut store, "js", &[], outcome).unwrap(),
+        Answer::Now(_)
+    ));
+}
+
+/// A `Send` source for the real owner thread: reads `shared`, writes its
+/// own name, and yields once through a storage request when asked to.
+#[derive(Clone)]
+struct Threaded {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+impl DataSource for Threaded {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::Number(0.0))
+    }
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.calls.lock().unwrap().push(format!(
+            "answer:{source}:{}",
+            std::thread::current().name().unwrap_or("?")
+        ));
+        store.set("rust", "written")?;
+        if source == "yield" {
+            return Ok(Answer::Later(Request::storage(b"payload".to_vec())));
+        }
+        if source == "fail" {
+            return Err(DataError::BadArguments("n".into()));
+        }
+        let seen = args
+            .first()
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        Ok(Answer::Now(Value::str(&format!(
+            "{}+{seen}",
+            store.get("shared").unwrap_or("")
+        ))))
+    }
+    fn parse(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.calls.lock().unwrap().push(format!("parse:{source}"));
+        let text = match outcome {
+            Outcome::Storage(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            other => format!("{other:?}"),
+        };
+        store.set("rust", &format!("resumed:{text}"))?;
+        Ok(Answer::Now(Value::str(&text)))
+    }
+    fn app_id(&self) -> &str {
+        "com.exact.test"
+    }
+    fn grants(&self) -> &str {
+        "secret.keep rust\nsecret.keep shared"
+    }
+}
+
+#[test]
+fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut placed = Placed::new(
+        Threaded {
+            calls: calls.clone(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    assert_eq!(placed.placement(), Placement::Worker);
+    let mut store = Store::new(
+        "secret.keep rust\nsecret.keep shared",
+        [("shared".to_string(), "s".to_string())],
+    );
+    let arg = Value::str("arg");
+    let t = token(
+        placed
+            .answer(&mut store, "now", std::slice::from_ref(&arg))
+            .unwrap(),
+    );
+    let outcome = run(placed.dispatch(t, &store));
+    assert!(calls.lock().unwrap()[0].starts_with("answer:now:exact-owner"));
+    assert_eq!(store.get("rust"), None);
+    let v = value_of(placed.parse(&mut store, "now", std::slice::from_ref(&arg), outcome));
+    assert_eq!(v.as_str(), Some("s+arg"));
+    assert_eq!(store.get("rust"), Some("written"));
+
+    // A yield: the turn's writes commit, the request goes to the host, and
+    // the outcome resumes on the owner as a new turn with a fresh snapshot.
+    let t = token(placed.answer(&mut store, "yield", &[]).unwrap());
+    let outcome = run(placed.dispatch(t, &store));
+    let request = match placed.parse(&mut store, "yield", &[], outcome).unwrap() {
+        Answer::Later(request) => request,
+        _ => panic!("a yield"),
+    };
+    assert_eq!(request.storage.as_deref(), Some(&b"payload"[..]));
+    let t = token(
+        placed
+            .parse(&mut store, "yield", &[], Outcome::Storage(b"done".to_vec()))
+            .unwrap(),
+    );
+    let outcome = run(placed.dispatch(t, &store));
+    let v = value_of(placed.parse(&mut store, "yield", &[], outcome));
+    assert_eq!(v.as_str(), Some("done"));
+    assert_eq!(store.get("rust"), Some("resumed:done"));
+
+    // An error keeps its kind; a dropped owner reports `Aborted` as data.
+    let t = token(placed.answer(&mut store, "fail", &[]).unwrap());
+    let outcome = run(placed.dispatch(t, &store));
+    assert_eq!(
+        placed.parse(&mut store, "fail", &[], outcome).unwrap_err(),
+        DataError::BadArguments("n".into())
+    );
+    // Work already dispatched outlives its proxy: the owner finishes the
+    // turn it holds, and the reply lands on a ticket nobody holds.
+    let t = token(placed.answer(&mut store, "now", &[]).unwrap());
+    let dispatch = placed.dispatch(t, &store);
+    drop(placed);
+    assert!(envelope::is_turn(&run(dispatch)));
+    // A reply dropped unsent — an owner that died mid-turn — is `Aborted`.
+    let (tx, rx) = std::sync::mpsc::channel();
+    drop(Reply::new(move |outcome| {
+        let _ = tx.send(outcome);
+    }));
+    assert!(matches!(
+        rx.recv().unwrap(),
+        Outcome::Failed {
+            kind: FailureKind::Aborted,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_built_worker_keeps_its_template_here_and_builds_its_instance_on_the_owner() {
+    fn build(template: &Threaded) -> crate::placed::Obtain<Threaded> {
+        let calls = template.calls.clone();
+        Box::new(move || {
+            calls.lock().unwrap().push(format!(
+                "built:{}",
+                std::thread::current().name().unwrap_or("?")
+            ));
+            Ok(Threaded { calls })
+        })
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut placed = Placed::built(
+        Threaded {
+            calls: calls.clone(),
+        },
+        Placement::Worker,
+        build,
+    );
+    placed.activate().unwrap();
+    let mut store = Store::new("secret.keep rust\nsecret.keep shared", []);
+    let t = token(placed.answer(&mut store, "now", &[]).unwrap());
+    let outcome = run(placed.dispatch(t, &store));
+    let v = value_of(placed.parse(&mut store, "now", &[], outcome));
+    assert_eq!(v.as_str(), Some("+"));
+    assert_eq!(calls.lock().unwrap()[0], "built:exact-owner");
+    // The template stays: replacement and validation go through it.
+    assert!(placed.query("x", &[]).is_ok());
+    placed.activate_for_validation().unwrap();
+    assert_eq!(placed.placement(), Placement::Main);
+    assert!(matches!(
+        placed.answer(&mut store, "now", &[]).unwrap(),
+        Answer::Now(_)
+    ));
 }

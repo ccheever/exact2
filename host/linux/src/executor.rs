@@ -1,6 +1,6 @@
 //! Bounded native I/O, shared with Apple. A nonblocking socketpair makes
 //! completions and admission refusals visible to the Linux display loop.
-use exact_runner::{Outcome, RequestOut};
+use exact_runner::{Outcome, RequestOut, Work};
 use std::io::{Read, Write};
 use std::os::unix::{
     io::{AsRawFd, RawFd},
@@ -60,12 +60,8 @@ impl Executor {
         self.core.resume_ordered();
     }
     /// Admit work, or return a refusal without an overflow queue.
-    pub fn run(
-        &self,
-        request: RequestOut,
-        work: Option<Box<dyn FnOnce() -> Outcome + Send>>,
-    ) -> Result<(), &'static str> {
-        self.core.run(request, work)
+    pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
+        self.core.run_owned(request, work)
     }
     /// Acknowledge a coalesced wake, including turns used by refusal settlement.
     pub fn begin_pump(&self) {

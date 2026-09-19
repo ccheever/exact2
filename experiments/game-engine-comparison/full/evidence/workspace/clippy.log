@@ -1,0 +1,7 @@
+   Compiling exact-kernel v0.1.0 (/Users/ccheever/projects/exact2/kernel)
+   Compiling exact-js v0.1.0 (/Users/ccheever/projects/exact2/js)
+    Checking exact-update v0.1.0 (/Users/ccheever/projects/exact2/update)
+    Checking exact-js-value v0.1.0 (/Users/ccheever/projects/exact2/js/value)
+    Checking exact-filesystem v0.1.0 (/Users/ccheever/projects/exact2/filesystem)
+    Checking caltrain-gpu v0.1.0 (/Users/ccheever/projects/exact2/apps/caltrain/gpu)
+    Checking weatherlight-gpu v0.1.0 (/Users/ccheever/projects/exact2/apps/weatherlight/gpu)

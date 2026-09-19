@@ -1,0 +1,831 @@
+{
+  "engine": "godot",
+  "task": "baseline",
+  "url": "http://127.0.0.1:4173/?agent=1",
+  "recordedAt": "2026-09-18T05:24:20.457Z",
+  "renderer": "Chromium SwiftShader",
+  "milliseconds": 518692.34906499996,
+  "cases": [
+    {
+      "name": "title, level and imported asset",
+      "passed": true,
+      "milliseconds": 3478.250071
+    },
+    {
+      "name": "actual keyboard movement and active animation",
+      "passed": false,
+      "error": "Error: Browser keyboard must move real player",
+      "state": {
+        "assetReady": true,
+        "count": 0,
+        "crate": {
+          "vx": 0.00000434492903877981,
+          "vy": -0.0000178428999788594,
+          "vz": 0.000090496614575386,
+          "x": 6.0000114440918,
+          "y": 0.597277224063873,
+          "z": 8.00000762939453
+        },
+        "elapsed": 0.55,
+        "events": [],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": false,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": false,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": false,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": false,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": false,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "playing",
+        "player": {
+          "animation": "Survey",
+          "grounded": true,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 0,
+          "y": 0,
+          "z": 12
+        },
+        "remaining": 179.45,
+        "ticks": 33,
+        "total": 12
+      },
+      "milliseconds": 8836.622753
+    },
+    {
+      "name": "fixed movement, jump gravity and landing",
+      "passed": true,
+      "milliseconds": 9194.203109
+    },
+    {
+      "name": "pause freezes clock and body",
+      "passed": true,
+      "milliseconds": 5010.901901000001
+    },
+    {
+      "name": "solid wall collision",
+      "passed": true,
+      "milliseconds": 13703.722009999998
+    },
+    {
+      "name": "dynamic crate push and ledge collision",
+      "passed": true,
+      "milliseconds": 24933.953164
+    },
+    {
+      "name": "save survives reload with world and clock restored",
+      "passed": false,
+      "error": "Error: Save lost clock or lanterns",
+      "state": {
+        "assetReady": true,
+        "count": 0,
+        "crate": {
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 6,
+          "y": 0.600000023841858,
+          "z": 8
+        },
+        "elapsed": 0,
+        "events": [],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": false,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": false,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": false,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": false,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": false,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "title",
+        "player": {
+          "animation": "Survey",
+          "grounded": false,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 0,
+          "y": 0,
+          "z": 12
+        },
+        "remaining": 180,
+        "ticks": 0,
+        "total": 12
+      },
+      "milliseconds": 25150.263648000007
+    },
+    {
+      "name": "complete lantern route and task-specific victory",
+      "passed": true,
+      "milliseconds": 159820.309292
+    },
+    {
+      "name": "night falls and restart works",
+      "passed": false,
+      "error": "Error: evaluate: Target page, context or browser has been closed",
+      "state": {
+        "assetReady": true,
+        "count": 0,
+        "crate": {
+          "vx": 0.000023935486751725,
+          "vy": -0.0000161658026627265,
+          "vz": 0.0000768495228840038,
+          "x": 6.00000047683716,
+          "y": 0.597277522087097,
+          "z": 8.00000095367432
+        },
+        "elapsed": 0.05,
+        "events": [],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": false,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": false,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": false,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": false,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": false,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "playing",
+        "player": {
+          "animation": "Survey",
+          "grounded": true,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 0,
+          "y": 0,
+          "z": 12
+        },
+        "remaining": 179.95,
+        "ticks": 3,
+        "total": 12
+      },
+      "milliseconds": 264959.451229
+    },
+    {
+      "name": "one batch equals many fixed ticks",
+      "passed": false,
+      "error": "Error: evaluate: Target page, context or browser has been closed",
+      "state": {
+        "assetReady": true,
+        "count": 0,
+        "crate": {
+          "vx": 0.000023935486751725,
+          "vy": -0.0000161658026627265,
+          "vz": 0.0000768495228840038,
+          "x": 6.00000047683716,
+          "y": 0.597277522087097,
+          "z": 8.00000095367432
+        },
+        "elapsed": 0.05,
+        "events": [],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": false,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": false,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": false,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": false,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": false,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "playing",
+        "player": {
+          "animation": "Survey",
+          "grounded": true,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 0,
+          "y": 0,
+          "z": 12
+        },
+        "remaining": 179.95,
+        "ticks": 3,
+        "total": 12
+      },
+      "milliseconds": 0.44768600002862513
+    }
+  ],
+  "errors": [],
+  "trace": [
+    {
+      "stage": "crate-push",
+      "state": {
+        "assetReady": true,
+        "count": 0,
+        "crate": {
+          "vx": 0.0000355990123352967,
+          "vy": 0.0000290315128950169,
+          "vz": 0.0000366241692972835,
+          "x": 7.40992069244385,
+          "y": 0.591397404670715,
+          "z": 7.99917459487915
+        },
+        "elapsed": 2.76666666666667,
+        "events": [],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": false,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": false,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": false,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": false,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": false,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": false,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": false,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": false,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "playing",
+        "player": {
+          "animation": "Survey",
+          "grounded": true,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 6.4590539932251,
+          "y": 0.000845432281494141,
+          "z": 8.04141330718994
+        },
+        "remaining": 177.233333333333,
+        "ticks": 166,
+        "total": 12
+      }
+    },
+    {
+      "stage": "win",
+      "state": {
+        "assetReady": true,
+        "count": 12,
+        "crate": {
+          "vx": 0.0000303014348901343,
+          "vy": -0.0000494291671202518,
+          "vz": 0.0000064684463723097,
+          "x": 7.40999937057495,
+          "y": 0.590006172657013,
+          "z": 8.04024505615234
+        },
+        "elapsed": 25,
+        "events": [
+          {
+            "id": "lantern-1",
+            "tick": 170,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-2",
+            "tick": 280,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-3",
+            "tick": 419,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-4",
+            "tick": 517,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-5",
+            "tick": 603,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-6",
+            "tick": 689,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-7",
+            "tick": 787,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-8",
+            "tick": 896,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-9",
+            "tick": 994,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-10",
+            "tick": 1068,
+            "type": "lantern-lit"
+          },
+          {
+            "id": "lantern-11",
+            "tick": 1163,
+            "type": "lantern-lit"
+          },
+          {
+            "tick": 1316,
+            "type": "jump"
+          },
+          {
+            "tick": 1396,
+            "type": "jump"
+          },
+          {
+            "id": "lantern-12",
+            "tick": 1499,
+            "type": "lantern-lit"
+          },
+          {
+            "tick": 1499,
+            "type": "win"
+          }
+        ],
+        "lanterns": [
+          {
+            "id": "lantern-1",
+            "lit": true,
+            "x": -12,
+            "y": 0,
+            "z": 10
+          },
+          {
+            "id": "lantern-2",
+            "lit": true,
+            "x": -10,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-3",
+            "lit": true,
+            "x": -12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-4",
+            "lit": true,
+            "x": -6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-5",
+            "lit": true,
+            "x": 0,
+            "y": 0,
+            "z": -10
+          },
+          {
+            "id": "lantern-6",
+            "lit": true,
+            "x": 6,
+            "y": 0,
+            "z": -12
+          },
+          {
+            "id": "lantern-7",
+            "lit": true,
+            "x": 12,
+            "y": 0,
+            "z": -8
+          },
+          {
+            "id": "lantern-8",
+            "lit": true,
+            "x": 12,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-9",
+            "lit": true,
+            "x": 5,
+            "y": 0,
+            "z": 2
+          },
+          {
+            "id": "lantern-10",
+            "lit": true,
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "id": "lantern-11",
+            "lit": true,
+            "x": 0,
+            "y": 0,
+            "z": 7
+          },
+          {
+            "id": "lantern-12",
+            "lit": true,
+            "x": 10,
+            "y": 2.40000009536743,
+            "z": 8
+          }
+        ],
+        "phase": "won",
+        "player": {
+          "animation": "Survey",
+          "grounded": true,
+          "vx": 0,
+          "vy": 0,
+          "vz": 0,
+          "x": 9.93897533416748,
+          "y": 2.40006303787231,
+          "z": 8.00396537780762
+        },
+        "remaining": 155,
+        "ticks": 1500,
+        "total": 12
+      }
+    }
+  ],
+  "passed": false
+}

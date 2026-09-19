@@ -1,0 +1,6 @@
+name: "main"
+embedded_instances { id: "player" data: "" position {x: 0 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }
+embedded_instances { id: "lantern30" data: "" position {x: 30 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }
+embedded_instances { id: "lantern60" data: "" position {x: 60 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }
+embedded_instances { id: "lantern90" data: "" position {x: 90 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }
+embedded_instances { id: "runner" data: "components { id: \"script\" component: \"/main/main.script\" position {x:0 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }" position {x: 0 y:0 z:0} rotation {x:0 y:0 z:0 w:1} }

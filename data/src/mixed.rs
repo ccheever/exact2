@@ -1,12 +1,58 @@
 //! Explicit source ownership across two executors, without depending on either engine.
 //! @ref LLP 1027 D8 / LLP 1027.001 / LLP 1029.000 — paired replacement.
+//! @ref LLP 1027.002 D3 — the ordered set: every child that shares a
+//! `secret.keep` name with a worker child takes its turns one at a time,
+//! each against the store as committed at dispatch.
 
+use crate::envelope;
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Request, Store, Work,
+};
 use serde_json::Value as Json;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 type Retain<R> = fn(&R) -> Result<R, DataError>;
+
+/// A call an ordered member recorded, to run at dispatch.
+enum Recorded {
+    Answer {
+        rust: bool,
+        source: String,
+        args: Vec<Value>,
+    },
+    Resume {
+        rust: bool,
+        source: String,
+        args: Vec<Value>,
+        outcome: Outcome,
+    },
+}
+
+/// What a parked ordered call waits for: its turn's envelope, or the host's
+/// outcome for the request its turn yielded.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Turn,
+    Yielded,
+}
+
+type Key = (bool, String, Vec<u8>);
+
+fn key(rust: bool, source: &str, args: &[Value]) -> Key {
+    let mut bytes = Vec::new();
+    for a in args {
+        bytes.extend(a.to_bytes());
+    }
+    (rust, source.to_string(), bytes)
+}
+
+/// One ordered set (LLP 1027.002 D3, change 2): its members, the turn it
+/// has reserved, and the calls waiting behind it, in order.
+struct Set {
+    busy: bool,
+    held: VecDeque<u64>,
+}
 
 /// Two data executors with disjoint, declared source names and one app identity.
 /// Each child retains its own grants; hosts receive their union. Construction
@@ -21,10 +67,21 @@ pub struct Mixed<J, R> {
     retain_rust: Option<Retain<R>>,
     continuations: BTreeMap<u64, (bool, u64)>,
     next_continuation: u64,
+    /// The ordered sets a worker child makes (none when both children are
+    /// on `main`), and which set each child belongs to.
+    sets: Vec<Set>,
+    set_of: [Option<usize>; 2],
+    recorded: BTreeMap<u64, (usize, Recorded)>,
+    stages: HashMap<Key, VecDeque<Stage>>,
+    logs: Vec<String>,
 }
 
 fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
+}
+
+fn kept_names(grants: &str) -> BTreeSet<String> {
+    Store::new(grants, []).granted().iter().cloned().collect()
 }
 
 impl<J: DataSource, R: DataSource> Mixed<J, R> {
@@ -94,6 +151,36 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             "mixed:{}",
             serde_json::to_string(&(javascript.revision(), rust.revision())).unwrap()
         );
+        // The ordered sets (LLP 1027.002 D3, change 2): a worker child is a
+        // set; a main child joins it when their `secret.keep` names overlap,
+        // since the Store is the only state the ordering protects. Two
+        // workers with disjoint names are two sets that run concurrently.
+        let workers = [
+            javascript.placement() == Placement::Worker,
+            rust.placement() == Placement::Worker,
+        ];
+        let overlap = !kept_names(javascript.grants()).is_disjoint(&kept_names(rust.grants()));
+        let mut sets = Vec::new();
+        let mut set_of = [None, None];
+        if workers.iter().any(|w| *w) {
+            if overlap || (workers[0] && workers[1]) {
+                sets.push(Set {
+                    busy: false,
+                    held: VecDeque::new(),
+                });
+                set_of = [Some(0), Some(0)];
+            } else {
+                for (i, worker) in workers.iter().enumerate() {
+                    if *worker {
+                        set_of[i] = Some(sets.len());
+                        sets.push(Set {
+                            busy: false,
+                            held: VecDeque::new(),
+                        });
+                    }
+                }
+            }
+        }
         Ok(Self {
             javascript,
             rust,
@@ -104,6 +191,11 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             retain_rust,
             continuations: BTreeMap::new(),
             next_continuation: 1,
+            sets,
+            set_of,
+            recorded: BTreeMap::new(),
+            stages: HashMap::new(),
+            logs: Vec::new(),
         })
     }
 
@@ -112,6 +204,30 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             .get(source)
             .copied()
             .ok_or_else(|| DataError::UnknownSource(source.into()))
+    }
+
+    fn token(&mut self) -> Result<u64, DataError> {
+        let token = self.next_continuation;
+        self.next_continuation = token
+            .checked_add(1)
+            .ok_or_else(|| unavailable("mixed continuation tokens exhausted"))?;
+        Ok(token)
+    }
+
+    fn child_grants(&self, rust: bool) -> String {
+        if rust {
+            self.rust.grants().to_owned()
+        } else {
+            self.javascript.grants().to_owned()
+        }
+    }
+
+    fn child_placement(&self, rust: bool) -> Placement {
+        if rust {
+            self.rust.placement()
+        } else {
+            self.javascript.placement()
+        }
     }
 
     fn route_answer(&mut self, rust: bool, mut answer: Answer) -> Result<Answer, DataError> {
@@ -131,19 +247,131 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                 request.grants = Some(grants.into());
             }
             if let Some(child) = request.continuation {
-                let token = self.next_continuation;
-                self.next_continuation = token
-                    .checked_add(1)
-                    .ok_or_else(|| unavailable("mixed continuation tokens exhausted"))?;
+                let token = self.token()?;
                 self.continuations.insert(token, (rust, child));
                 request.continuation = Some(token);
             }
         }
         Ok(answer)
     }
+
+    /// Record an ordered member's call; it runs at dispatch, one turn at a
+    /// time per set, against the store as committed then.
+    fn record(&mut self, set: usize, k: Key, recorded: Recorded) -> Result<Answer, DataError> {
+        let token = self.token()?;
+        self.recorded.insert(token, (set, recorded));
+        self.stages.entry(k).or_default().push_back(Stage::Turn);
+        Ok(Answer::Later(Request::continuation(token)))
+    }
+
+    /// Start a recorded turn: a worker child records and dispatches its own
+    /// job; a main child computes here, now, against a snapshot, and its
+    /// envelope goes round through the host like any other reply.
+    fn start(&mut self, set: usize, token: u64, store: &Store) -> Dispatch {
+        let Some((_, recorded)) = self.recorded.remove(&token) else {
+            return Dispatch::Missing;
+        };
+        let rust = match &recorded {
+            Recorded::Answer { rust, .. } | Recorded::Resume { rust, .. } => *rust,
+        };
+        self.sets[set].busy = true;
+        let grants = self.child_grants(rust);
+        if self.child_placement(rust) == Placement::Worker {
+            let mut scratch = Store::new(&grants, []);
+            let answer = match recorded {
+                Recorded::Answer { source, args, .. } => {
+                    self.child_answer(rust, &mut scratch, &source, &args)
+                }
+                Recorded::Resume {
+                    source,
+                    args,
+                    outcome,
+                    ..
+                } => self.child_parse(rust, &mut scratch, &source, &args, outcome),
+            };
+            return match answer {
+                Ok(Answer::Later(request)) if request.continuation.is_some() => {
+                    let child = request.continuation.expect("checked");
+                    let dispatch = if rust {
+                        self.rust.dispatch(child, store)
+                    } else {
+                        self.javascript.dispatch(child, store)
+                    };
+                    if matches!(dispatch, Dispatch::Missing | Dispatch::Held) {
+                        self.sets[set].busy = false;
+                    }
+                    dispatch
+                }
+                // A worker child that answered at once (or refused): its
+                // reply still goes round as an envelope, so the turn ends
+                // where every turn ends.
+                other => {
+                    let outcome = envelope::encode(other, &mut scratch, Vec::new());
+                    Dispatch::Run(Work::Now(Box::new(move || outcome)))
+                }
+            };
+        }
+        let mut local = Store::new(&grants, envelope::snapshot(store, &grants));
+        let result = match recorded {
+            Recorded::Answer { source, args, .. } => {
+                self.child_answer(rust, &mut local, &source, &args)
+            }
+            Recorded::Resume {
+                source,
+                args,
+                outcome,
+                ..
+            } => self.child_parse(rust, &mut local, &source, &args, outcome),
+        };
+        let outcome = envelope::encode(result, &mut local, Vec::new());
+        Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+
+    fn child_answer(
+        &mut self,
+        rust: bool,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if rust {
+            self.rust.answer(store, source, args)
+        } else {
+            self.javascript.answer(store, source, args)
+        }
+    }
+
+    fn child_parse(
+        &mut self,
+        rust: bool,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if rust {
+            self.rust.parse(store, source, args, outcome)
+        } else {
+            self.javascript.parse(store, source, args, outcome)
+        }
+    }
+
+    /// The turn's `console` lines a main member produced, for the host's
+    /// logs; a worker child keeps its own.
+    pub fn take_logs(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.logs)
+    }
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn placement(&self) -> Placement {
+        if self.sets.is_empty() {
+            Placement::Main
+        } else {
+            Placement::Worker
+        }
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         let javascript = self.javascript.preload()?;
         let rust = self.rust.preload()?;
@@ -164,13 +392,21 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         args: &[Value],
     ) -> Result<Answer, DataError> {
         let rust = self.owner(source)?;
-        let answer = if rust {
-            let grants = self.rust.grants().to_owned();
-            store.with_grants(&grants, |store| self.rust.answer(store, source, args))?
-        } else {
-            let grants = self.javascript.grants().to_owned();
-            store.with_grants(&grants, |store| self.javascript.answer(store, source, args))?
-        };
+        if let Some(set) = self.set_of[rust as usize] {
+            return self.record(
+                set,
+                key(rust, source, args),
+                Recorded::Answer {
+                    rust,
+                    source: source.to_string(),
+                    args: args.to_vec(),
+                },
+            );
+        }
+        let grants = self.child_grants(rust);
+        let answer = store.with_grants(&grants, |store| {
+            self.child_answer(rust, store, source, args)
+        })?;
         self.route_answer(rust, answer)
     }
 
@@ -182,18 +418,135 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         let rust = self.owner(source)?;
-        let answer = if rust {
-            let grants = self.rust.grants().to_owned();
-            store.with_grants(&grants, |store| {
-                self.rust.parse(store, source, args, outcome)
-            })?
-        } else {
-            let grants = self.javascript.grants().to_owned();
-            store.with_grants(&grants, |store| {
-                self.javascript.parse(store, source, args, outcome)
-            })?
-        };
+        let grants = self.child_grants(rust);
+        if let Some(set) = self.set_of[rust as usize] {
+            let k = key(rust, source, args);
+            return match self.stages.get_mut(&k).and_then(VecDeque::pop_front) {
+                Some(Stage::Turn) => {
+                    // The reserved turn ended, however it ended.
+                    self.sets[set].busy = false;
+                    let answer = if self.child_placement(rust) == Placement::Worker {
+                        store.with_grants(&grants, |store| {
+                            self.child_parse(rust, store, source, args, outcome)
+                        })
+                    } else {
+                        let mut logs = Vec::new();
+                        let answer = store.with_grants(&grants, |store| {
+                            envelope::apply(outcome, store, &mut logs)
+                        });
+                        self.logs.extend(logs);
+                        answer
+                    };
+                    match answer {
+                        Ok(Answer::Later(request)) => {
+                            self.stages.entry(k).or_default().push_back(Stage::Yielded);
+                            self.route_answer(rust, Answer::Later(request))
+                        }
+                        other => other,
+                    }
+                }
+                Some(Stage::Yielded) => self.record(
+                    set,
+                    k,
+                    Recorded::Resume {
+                        rust,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome,
+                    },
+                ),
+                None => Err(unavailable(format!(
+                    "`{source}`: a reply for an answer not in flight"
+                ))),
+            };
+        }
+        let answer = store.with_grants(&grants, |store| {
+            self.child_parse(rust, store, source, args, outcome)
+        })?;
         self.route_answer(rust, answer)
+    }
+
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        if let Some((set, _)) = self.recorded.get(&token) {
+            let set = *set;
+            if self.sets[set].busy {
+                self.sets[set].held.push_back(token);
+                return Dispatch::Held;
+            }
+            return self.start(set, token, store);
+        }
+        let Some((rust, child)) = self.continuations.get(&token).copied() else {
+            return Dispatch::Missing;
+        };
+        let dispatch = if rust {
+            self.rust.dispatch(child, store)
+        } else {
+            self.javascript.dispatch(child, store)
+        };
+        if !matches!(dispatch, Dispatch::Held) {
+            self.continuations.remove(&token);
+        }
+        dispatch
+    }
+
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        let mut released = Vec::new();
+        for set in 0..self.sets.len() {
+            if self.sets[set].busy {
+                continue;
+            }
+            if let Some(token) = self.sets[set].held.pop_front() {
+                let dispatch = self.start(set, token, store);
+                released.push((token, dispatch));
+            }
+        }
+        // A child's own held work, under the tokens this composer handed out.
+        for rust in [false, true] {
+            let inner = if rust {
+                self.rust.release(store)
+            } else {
+                self.javascript.release(store)
+            };
+            for (child, dispatch) in inner {
+                let outer = self
+                    .continuations
+                    .iter()
+                    .find(|(_, (r, c))| *r == rust && *c == child)
+                    .map(|(outer, _)| *outer);
+                if let Some(outer) = outer {
+                    if !matches!(dispatch, Dispatch::Held) {
+                        self.continuations.remove(&outer);
+                    }
+                    released.push((outer, dispatch));
+                }
+            }
+        }
+        released
+    }
+
+    fn discard(&mut self, token: u64) {
+        match self.recorded.remove(&token) {
+            Some((
+                _,
+                Recorded::Answer { rust, source, args }
+                | Recorded::Resume {
+                    rust, source, args, ..
+                },
+            )) => {
+                if let Some(stages) = self.stages.get_mut(&key(rust, &source, &args)) {
+                    stages.pop_back();
+                }
+            }
+            None => {
+                if let Some((rust, child)) = self.continuations.remove(&token) {
+                    if rust {
+                        self.rust.discard(child);
+                    } else {
+                        self.javascript.discard(child);
+                    }
+                }
+            }
+        }
     }
 
     fn app_id(&self) -> &str {
@@ -241,15 +594,6 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
             self.rust.continuation(child)
         } else {
             self.javascript.continuation(child)
-        }
-    }
-
-    fn continuation_token(&mut self, token: u64) -> Option<u64> {
-        let (rust, child) = self.continuations.remove(&token)?;
-        if rust {
-            self.rust.continuation_token(child)
-        } else {
-            self.javascript.continuation_token(child)
         }
     }
 
@@ -311,6 +655,8 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                 "mixed replacement changes admitted identity or grants",
             ));
         }
+        // Placement is carried, never changed by a replacement (LLP
+        // 1027.002 §6): the children's placements decide the sets again.
         Self::construct(javascript, rust, self.sources.clone(), self.retain_rust)
     }
 }

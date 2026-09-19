@@ -296,6 +296,7 @@ final class TextEngine {
             engine.fonts = fonts
             engine.residency = residency
             engine.catalog = catalog
+            engine.dropMeasuredBreaks()
         }
     }
 
@@ -308,6 +309,7 @@ final class TextEngine {
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
         fonts.removeAll(keepingCapacity: true)
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
+        dropMeasuredBreaks()
         catalog.removeAll(keepingCapacity: true)
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
@@ -428,6 +430,46 @@ final class TextEngine {
             s.append(NSAttributedString(string: r.text, attributes: a))
         }
         return s
+    }
+
+    /// The line ranges and baselines the kernel's measurement of `spec` at
+    /// `width` produced, if that measurement is still resident. Plain values:
+    /// a worker typesets its own lines from them (TextRasterMac.swift).
+    func measuredBreaks(_ spec: Spec, width: CGFloat) -> ([CFRange], [CGFloat])? {
+        guard spec.lineClamp == 0 else { return nil }
+        let identity = residency.identity(spec)
+        if let kept = measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)] { return kept }
+        guard let measured = residency.geometry(identity, width: width) else { return nil }
+        return (measured.lines.map { CTLineGetStringRange($0) }, measured.baselines)
+    }
+
+    /// The breaks of recent definite-width measurements, as plain values. The
+    /// measured paragraph itself is weakly resident and is usually gone by
+    /// the time its row asks for pixels; without these the main thread would
+    /// typeset the paragraph a second time just to tell a worker where its
+    /// lines end.
+    private struct MeasuredBreakKey: Hashable {
+        let token: TextIdentityToken
+        let width: CGFloat
+    }
+    private var measuredBreakCache: [MeasuredBreakKey: ([CFRange], [CGFloat])] = [:]
+    private var measuredBreakOrder: [MeasuredBreakKey] = []
+    private static let measuredBreakLimit = 512
+
+    /// A new identity namespace (a font catalog, a restored checkpoint) keys nothing here.
+    private func dropMeasuredBreaks() {
+        measuredBreakCache.removeAll(keepingCapacity: true)
+        measuredBreakOrder.removeAll(keepingCapacity: true)
+    }
+
+    private func keepBreaks(_ p: Paragraph, identity: TextIdentity, width: CGFloat) {
+        let key = MeasuredBreakKey(token: identity.token, width: width)
+        guard measuredBreakCache[key] == nil else { return }
+        if measuredBreakOrder.count >= Self.measuredBreakLimit {
+            measuredBreakCache.removeValue(forKey: measuredBreakOrder.removeFirst())
+        }
+        measuredBreakOrder.append(key)
+        measuredBreakCache[key] = (p.lines.map { CTLineGetStringRange($0) }, p.baselines)
     }
 
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
@@ -675,8 +717,9 @@ final class TextEngine {
         let started = CACurrentMediaTime()
         let identity = residency.identity(spec)
         let intrinsic = request.width < 0
-        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent : .maxContent
-        if intrinsic, let metrics = residency.scalar(identity, kind: kind) {
+        let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent
+            : intrinsic ? .maxContent : .definite(Double(request.width == 0 ? 0 : request.width).bitPattern)
+        if let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1
             measureSeconds += CACurrentMediaTime() - started
             return metrics
@@ -693,6 +736,7 @@ final class TextEngine {
             residency.prepare(estimatedBytes: identity.utf16Count * 64)
             p = layout(shape, width: width)
         } else { p = paragraph(spec, width: width) }
+        if !intrinsic && spec.lineClamp == 0 { keepBreaks(p, identity: identity, width: width) }
         let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
         if intrinsic { residency.put(identity, kind: kind, metrics: metrics) }
         measureSeconds += CACurrentMediaTime() - started

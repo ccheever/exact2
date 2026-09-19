@@ -25,6 +25,9 @@ extension NodeView {
         for child in children {
             child.removeFromSuperview()
             child.textParent = self
+            #if os(macOS)
+            child.wantsLayer = false
+            #endif
         }
         invalidateText()
     }
@@ -48,6 +51,10 @@ extension NodeView {
     func invalidateText() {
         cachedTextSpec = nil
         cachedTextLayout = nil
+        #if os(macOS)
+        // The old pixels stay up until the new ones replace them.
+        textRasterKey = nil
+        #endif
     }
 
     func paragraphSpec() -> Spec {

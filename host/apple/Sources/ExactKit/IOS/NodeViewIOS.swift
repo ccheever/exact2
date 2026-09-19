@@ -237,6 +237,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var field: UITextField?
     var scroll: ScrollView?
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
+    var video: VideoView?
     var web: UIView?
     /// A scroll container's content extent (the `content` op), before the
     /// axes that do not scroll are held to the box.
@@ -454,6 +455,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         imageSource = nil
         clearSymbol()
         image = nil
+        video?.invalidate(); video = nil
         presenter?.session?.webviews.destroy(id: id)
         web = nil
         presenter = nil
@@ -496,6 +498,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             addSubview(f)
             field = f
         }
+        if kind == "video" { video = VideoView(owner: self) }
         if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
             w.frame = bounds
             w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -542,6 +545,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        presenter?.syncLists()
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         repaintThrough()
@@ -973,6 +977,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        video?.update()
         setNeedsDisplay()
     }
 
@@ -984,6 +989,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func applyStyle(_ s: [String: Any]) {
+        defer { video?.update() }
         style = s
         updateSymbol()
         clipPath = ClipPath.path(s["clip_path"])
@@ -1056,6 +1062,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         if field != nil { field?.frame = contentBox() }
+        video?.layout()
         layoutTextArea()
         layoutSymbol()
     }

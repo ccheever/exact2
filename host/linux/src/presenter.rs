@@ -88,6 +88,9 @@ pub struct Presenter<D: DataSource> {
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: BTreeMap<u64, exact_runner::RequestOut>,
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
@@ -326,6 +329,7 @@ impl<D: DataSource> Presenter<D> {
         let mut p = Presenter {
             host,
             executor,
+            parked: BTreeMap::new(),
             refusal_turn: false,
             collection: collection::State::default(),
             contact: None,
@@ -596,6 +600,7 @@ impl<D: DataSource> Presenter<D> {
         images.enable_decode();
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
@@ -719,6 +724,7 @@ impl<D: DataSource> Presenter<D> {
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
         self.contact = None;
@@ -806,19 +812,25 @@ impl<D: DataSource> Presenter<D> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        // A continuation is dispatched here, on this thread, after the
+        // commit that handed it out (LLP 1027.002 D3); one a source holds
+        // is parked and released after a later commit.
         if !self.host.has_ordered_request_refusals() {
             self.executor.resume_ordered();
         }
         for r in self.host.take_requests() {
-            let ordered = r.request.is_ordered();
-            let work = r
-                .request
-                .continuation
-                .and_then(|token| self.host.continuation(token));
-            let ticket = r.ticket;
-            if let Err(reason) = self.executor.run(r, work) {
-                self.host.refuse_request(ticket, reason, ordered);
-                self.executor.notify();
+            let dispatch = match r.request.continuation {
+                Some(token) => self.host.dispatch_work(token),
+                None => {
+                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
+                    continue;
+                }
+            };
+            self.run_dispatch(r, dispatch);
+        }
+        for (token, dispatch) in self.host.release_work() {
+            if let Some(r) = self.parked.remove(&token) {
+                self.run_dispatch(r, dispatch);
             }
         }
         self.commands.extend(self.host.take_commands());
@@ -838,6 +850,27 @@ impl<D: DataSource> Presenter<D> {
         self.clamp_scroll();
         self.retire_pointer();
         error
+    }
+
+    fn run_dispatch(&mut self, r: exact_runner::RequestOut, dispatch: exact_runner::Dispatch) {
+        let ticket = r.ticket;
+        let ordered = r.request.is_ordered();
+        let result = match dispatch {
+            exact_runner::Dispatch::Run(work) => self.executor.run(r, Some(work)),
+            exact_runner::Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    self.parked.insert(token, r);
+                }
+                Ok(())
+            }
+            exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
+                self.executor.run(r, None)
+            }
+        };
+        if let Err(reason) = result {
+            self.host.refuse_request(ticket, reason, ordered);
+            self.executor.notify();
+        }
     }
 
     /// Loads that arrived since the last call: their sizes reach the kernel.

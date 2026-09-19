@@ -45,8 +45,24 @@ macro_rules! configured {
             ) -> Option<Box<dyn FnOnce() -> $crate::exact_runner::Outcome + Send>> {
                 $crate::exact_runner::DataSource::continuation(&mut self.0, token)
             }
-            fn continuation_token(&mut self, token: u64) -> Option<u64> {
-                $crate::exact_runner::DataSource::continuation_token(&mut self.0, token)
+            fn placement(&self) -> $crate::exact_runner::Placement {
+                $crate::exact_runner::DataSource::placement(&self.0)
+            }
+            fn dispatch(
+                &mut self,
+                token: u64,
+                store: &$crate::exact_runner::Store,
+            ) -> $crate::exact_runner::Dispatch {
+                $crate::exact_runner::DataSource::dispatch(&mut self.0, token, store)
+            }
+            fn release(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+            ) -> Vec<(u64, $crate::exact_runner::Dispatch)> {
+                $crate::exact_runner::DataSource::release(&mut self.0, store)
+            }
+            fn discard(&mut self, token: u64) {
+                $crate::exact_runner::DataSource::discard(&mut self.0, token)
             }
             fn bind(&mut self, plan: &$crate::exact_plan::Plan) {
                 $crate::exact_runner::DataSource::bind(&mut self.0, plan)

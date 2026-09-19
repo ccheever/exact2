@@ -1,0 +1,1008 @@
+{
+  "recordedAt": "2026-09-18T02:03:07.406Z",
+  "renderer": "headless Chromium SwiftShader",
+  "scope": "procedural meshes, application-owned tick movement and collection; no physics",
+  "engines": [
+    {
+      "engine": "three",
+      "trials": [
+        {
+          "initial": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "heldNegative": {
+            "ticks": 80,
+            "score": 3,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "collected": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "saved": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "reset": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "restored": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "proofMs": 16.09999990463257,
+          "readyMs": 389.2000000476837,
+          "loadedMs": 509.91707099999996,
+          "errors": [],
+          "passed": true
+        },
+        {
+          "initial": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "heldNegative": {
+            "ticks": 80,
+            "score": 3,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "collected": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "saved": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "reset": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "restored": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "proofMs": 13.799999952316284,
+          "readyMs": 120.70000004768372,
+          "loadedMs": 139.11290000000008,
+          "errors": [],
+          "passed": true
+        },
+        {
+          "initial": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "heldNegative": {
+            "ticks": 80,
+            "score": 3,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "collected": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "saved": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "reset": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "restored": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "proofMs": 7.700000047683716,
+          "readyMs": 70.29999995231628,
+          "loadedMs": 88.12312599999996,
+          "errors": [],
+          "passed": true
+        },
+        {
+          "initial": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "heldNegative": {
+            "ticks": 80,
+            "score": 3,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "collected": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "saved": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "reset": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "restored": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "proofMs": 8,
+          "readyMs": 71.20000004768372,
+          "loadedMs": 88.90252400000008,
+          "errors": [],
+          "passed": true
+        },
+        {
+          "initial": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "heldNegative": {
+            "ticks": 80,
+            "score": 3,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "collected": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "saved": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "reset": {
+            "ticks": 0,
+            "score": 0,
+            "actionHeld": false,
+            "playerX": 0,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": true
+              },
+              {
+                "name": "lantern-2",
+                "visible": true
+              },
+              {
+                "name": "lantern-3",
+                "visible": true
+              },
+              {
+                "name": "lantern-4",
+                "visible": true
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "restored": {
+            "ticks": 80,
+            "score": 4,
+            "actionHeld": true,
+            "playerX": 4,
+            "lanterns": [
+              {
+                "name": "lantern-1",
+                "visible": false
+              },
+              {
+                "name": "lantern-2",
+                "visible": false
+              },
+              {
+                "name": "lantern-3",
+                "visible": false
+              },
+              {
+                "name": "lantern-4",
+                "visible": false
+              }
+            ],
+            "names": [
+              "plane",
+              "player",
+              "lantern-1",
+              "lantern-2",
+              "lantern-3",
+              "lantern-4"
+            ]
+          },
+          "proofMs": 8,
+          "readyMs": 70.30000019073486,
+          "loadedMs": 87.58298700000023,
+          "errors": [],
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "runtimeProofWallMs": 1711.507321
+}

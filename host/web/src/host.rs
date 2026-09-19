@@ -16,7 +16,8 @@ use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, Pr
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
-    Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
+    Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
+    RunnerError, Timed, Work,
 };
 
 #[path = "height_drag.rs"]
@@ -91,6 +92,9 @@ pub struct Host<D: DataSource> {
     font_names: Vec<String>,
     /// The plan-owned face catalog, queried separately from op batches.
     font_catalog: String,
+    /// Requests whose continuation a source held at dispatch (LLP 1027.002
+    /// D3): released after a later commit, by token.
+    parked: BTreeMap<u64, RequestOut>,
     location: String,
     collections: String,
 }
@@ -178,6 +182,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             font_names,
             font_catalog,
+            parked: BTreeMap::new(),
             location: launch.into(),
             collections: String::new(),
         };
@@ -222,21 +227,8 @@ impl<D: DataSource> Host<D> {
             batch.store(&w);
         }
         batch.grants(host.runner.data().grants());
-        for mut r in host.runner.take_requests() {
-            if let Some(message) = crate::batch::request_refusal(&r.request) {
-                batch.refuse(r.ticket, message);
-                continue;
-            }
-            if let Some(token) = r.request.continuation {
-                r.request.continuation = host.runner.data().continuation_token(token);
-            }
-            batch.request(&r);
-        }
-        host.collections = host.runner.collections_json();
-        batch.collections(&host.collections);
-        let timers = host.runner.has_timers();
-        let clock = host.runner.now_ms();
-        Ok((host, batch.finish(timers, clock, None)))
+        let batch = host.complete(batch, None);
+        Ok((host, batch))
     }
 
     /// The latest top URL, also the module re-boot's launch fact.
@@ -299,6 +291,24 @@ impl<D: DataSource> Host<D> {
     /// [`Host::dispatch_at`] at the clock's last value.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
         self.dispatch_at(view, event, self.now_ms)
+    }
+
+    /// Host scroll geometry changes only the addressed list's row window.
+    pub fn list_viewport(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+    ) -> String {
+        match self.runner.list_viewport(view, geometry) {
+            Ok(receipt) => self.batch_for(
+                &[Timed {
+                    at_ms: self.runner.now_ms(),
+                    receipt,
+                }],
+                None,
+            ),
+            Err(error) => self.batch_for(&[], Some(&format!("{error:?}"))),
+        }
     }
 
     /// What a reload keeps (`Runner::carry`).
@@ -437,9 +447,12 @@ impl<D: DataSource> Host<D> {
         self.batch_from(Batch::new(), receipts, error)
     }
 
-    // Geometry retirement precedes feedback; carry its token-qualified ops into
-    // the feedback receipt without consuming dirty animation frames in between.
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        self.emit_receipts(receipts, &mut batch);
+        self.complete(batch, error.map(str::to_string))
+    }
+
+    fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
@@ -459,14 +472,14 @@ impl<D: DataSource> Host<D> {
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    self.create(id, &mut batch, handlers.get(&id).map_or(&[], Vec::as_slice));
+                    self.create(id, batch, handlers.get(&id).map_or(&[], Vec::as_slice));
                 }
             }
             for key in r.created.iter().chain(r.touched.iter()) {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
                     if r.touched.contains(key) {
-                        self.update(id, &mut batch);
+                        self.update(id, batch);
                     }
                 }
             }
@@ -479,17 +492,17 @@ impl<D: DataSource> Host<D> {
                 std::slice::from_ref(r),
                 t.at_ms / 1000.0,
             );
-            Self::emit_lowered(&mut batch, synced);
-            self.reconcile_height_drags(&mut batch);
-            self.reconcile_transform_drags(&mut batch);
-            self.emit_springs(&mut batch, &[], t.at_ms / 1000.0);
+            Self::emit_lowered(batch, synced);
+            self.reconcile_height_drags(batch);
+            self.reconcile_transform_drags(batch);
+            self.emit_springs(batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
         for t in receipts {
             for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    self.emit_children(node.id, &mut batch);
+                    self.emit_children(node.id, batch);
                 }
             }
         }
@@ -499,8 +512,8 @@ impl<D: DataSource> Host<D> {
             batch.roots(&roots);
         }
         if !receipts.is_empty() {
-            self.emit_height_drags(&mut batch);
-            self.emit_transform_drags(&mut batch);
+            self.emit_height_drags(batch);
+            self.emit_transform_drags(batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
@@ -519,15 +532,44 @@ impl<D: DataSource> Host<D> {
         for w in self.runner.take_store_writes() {
             batch.store(&w);
         }
-        for mut r in self.runner.take_requests() {
-            if let Some(message) = crate::batch::request_refusal(&r.request) {
-                batch.refuse(r.ticket, message);
-                continue;
+    }
+
+    /// Hand the last commit's requests to the page and finish the batch. A
+    /// continuation is dispatched here, on this thread, with the store as
+    /// committed (LLP 1027.002 D3); one a source holds is parked and
+    /// released after a later commit. Work a source answers at once — a
+    /// main member's turn in an ordered set — is fulfilled here, and the
+    /// commits it makes join the batch.
+    fn complete(&mut self, mut batch: Batch, error: Option<String>) -> String {
+        let mut error = error;
+        loop {
+            let mut immediate = Vec::new();
+            for r in self.runner.take_requests() {
+                self.emit_request(r, &mut batch, &mut immediate);
             }
-            if let Some(token) = r.request.continuation {
-                r.request.continuation = self.runner.data().continuation_token(token);
+            for (token, dispatch) in self.runner.release_work() {
+                if let Some(r) = self.parked.remove(&token) {
+                    self.emit_dispatch(r, dispatch, &mut batch, &mut immediate);
+                }
             }
-            batch.request(&r);
+            if immediate.is_empty() || error.is_some() {
+                break;
+            }
+            let mut receipts = Vec::new();
+            for (ticket, outcome) in immediate {
+                match self.runner.fulfill(ticket, outcome) {
+                    Ok(Some(receipt)) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Ok(None) => {}
+                    Err(e) => {
+                        error = Some(format!("{e:?}"));
+                        break;
+                    }
+                }
+            }
+            self.emit_receipts(&receipts, &mut batch);
         }
         let collections = self.runner.collections_json();
         if collections != self.collections {
@@ -535,7 +577,60 @@ impl<D: DataSource> Host<D> {
             batch.collections(&self.collections);
         }
         let timers = self.runner.has_timers();
-        batch.finish(timers, self.runner.now_ms(), error)
+        batch.finish(timers, self.runner.now_ms(), error.as_deref())
+    }
+
+    fn emit_request(
+        &mut self,
+        r: RequestOut,
+        batch: &mut Batch,
+        immediate: &mut Vec<(u64, Outcome)>,
+    ) {
+        if let Some(message) = crate::batch::request_refusal(&r.request) {
+            batch.refuse(r.ticket, message);
+            return;
+        }
+        let Some(token) = r.request.continuation else {
+            batch.request(&r);
+            return;
+        };
+        let dispatch = self.runner.dispatch_work(token);
+        self.emit_dispatch(r, dispatch, batch, immediate);
+    }
+
+    fn emit_dispatch(
+        &mut self,
+        mut r: RequestOut,
+        dispatch: Dispatch,
+        batch: &mut Batch,
+        immediate: &mut Vec<(u64, Outcome)>,
+    ) {
+        match dispatch {
+            Dispatch::Host(registry) => {
+                r.request.continuation = Some(registry);
+                batch.request(&r);
+            }
+            Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            Dispatch::Run(Work::Later(_)) => immediate.push((
+                r.ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Unsupported,
+                    message: "an owner thread is unavailable on this host".into(),
+                },
+            )),
+            Dispatch::Held => {
+                if let Some(token) = r.request.continuation {
+                    self.parked.insert(token, r);
+                }
+            }
+            Dispatch::Missing => immediate.push((
+                r.ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Unsupported,
+                    message: "missing or consumed browser continuation".into(),
+                },
+            )),
+        }
     }
 
     /// Capture a live browser presentation. Reply includes cancellation and
@@ -743,29 +838,8 @@ impl<D: DataSource> Host<D> {
         let css = host_css(&node, css);
         let handlers: Vec<&str> = kinds
             .iter()
-            .filter_map(|e| {
-                Some(match e {
-                    EventKind::Press => "press",
-                    EventKind::Change => "change",
-                    EventKind::Hover => "hover",
-                    EventKind::Focus => "focus",
-                    EventKind::Blur => "blur",
-                    EventKind::Key => "key",
-                    EventKind::Submit => "submit",
-                    EventKind::Load => "load",
-                    EventKind::Message => "message",
-                    EventKind::Contextmenu => "contextmenu",
-                    EventKind::Dblclick => "dblclick",
-                    EventKind::Swiperight => "swiperight",
-                    EventKind::Scroll => "scroll",
-                    EventKind::Navigate => "navigate",
-                    EventKind::Heightrelease => "heightrelease",
-                    EventKind::Transformgeometry => "transformgeometry",
-                    EventKind::Transformrelease => "transformrelease",
-                    EventKind::Reorderdrop => "reorderdrop",
-                    EventKind::Reachstart | EventKind::Reachend => return None,
-                })
-            })
+            .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
+            .map(|e| e.name())
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
@@ -950,12 +1024,16 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Toggle => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        NodeType::Video => "video",
     }
 }
 
 /// Props as DOM attributes/properties. Names are the DOM's.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
+    if node.node_type == NodeType::Text && !node.is_inline_run() {
+        out.insert("data-exact-text".into(), String::new());
+    }
     for (id, value) in node.props.iter() {
         if id == PropId::Editable {
             out.insert(
@@ -982,6 +1060,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityOrientation => "aria-orientation",
             PropId::AccessibilityHeadingLevel => "aria-level",
+            PropId::AccessibilityPosInSet => "aria-posinset",
+            PropId::AccessibilitySetSize => "aria-setsize",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
@@ -992,6 +1072,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::ScrollTop => "scrollTop",
             PropId::ScrollLeft => "scrollLeft",
             PropId::ScrollFollowEnd => "scrollFollowEnd",
+            PropId::ViewportFit => "viewportFit",
+            PropId::InteractiveWidget => "interactiveWidget",
             PropId::NavigationKey => "navigationKey",
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
@@ -1014,6 +1096,38 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::Lang => "lang",
             PropId::ImageSource => "src",
             PropId::Src => "src",
+            PropId::Poster => "poster",
+            PropId::Autoplay => "autoplay",
+            PropId::Controls => "controls",
+            PropId::Loop => "loop",
+            PropId::Muted => "muted",
+            PropId::Preload => "preload",
+            PropId::Playsinline => "playsinline",
+            PropId::Crossorigin => "crossorigin",
+            PropId::Controlslist => "controlslist",
+            PropId::Disablepictureinpicture => "disablepictureinpicture",
+            PropId::Disableremoteplayback => "disableremoteplayback",
+            PropId::Volume => "volume",
+            PropId::PlaybackRate => "playbackRate",
+            PropId::CurrentTime => "currentTime",
+            PropId::Paused => "paused",
+            PropId::PreservesPitch => "preservesPitch",
+            PropId::AllowsPictureInPicturePlayback => "allowsPictureInPicturePlayback",
+            PropId::CanStartPictureInPictureAutomaticallyFromInline => {
+                "canStartPictureInPictureAutomaticallyFromInline"
+            }
+            PropId::EntersFullScreenWhenPlaybackBegins => "entersFullScreenWhenPlaybackBegins",
+            PropId::ExitsFullScreenWhenPlaybackEnds => "exitsFullScreenWhenPlaybackEnds",
+            PropId::ShowsTimecodes => "showsTimecodes",
+            PropId::AllowsVideoFrameAnalysis => "allowsVideoFrameAnalysis",
+            PropId::RequiresLinearPlayback => "requiresLinearPlayback",
+            PropId::PreferredPeakBitRate => "preferredPeakBitRate",
+            PropId::PreferredForwardBufferDuration => "preferredForwardBufferDuration",
+            PropId::AutomaticallyWaitsToMinimizeStalling => "automaticallyWaitsToMinimizeStalling",
+            PropId::PreventsDisplaySleepDuringVideoPlayback => {
+                "preventsDisplaySleepDuringVideoPlayback"
+            }
+
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::ToggleValue => "checked",

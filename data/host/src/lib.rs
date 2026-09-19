@@ -1,7 +1,7 @@
 //! Optional app storage executor. The runner and portable Rust module own no I/O.
 //! @ref LLP 1027.001 D2 — requests travel as values; native work stays on workers.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
+use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Placement, Store, Work};
 use std::{collections::BTreeMap, path::PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
@@ -190,6 +190,54 @@ impl<D: DataSource> DataSource for Storage<D> {
         next.directories = self.directories.clone();
         Ok(next)
     }
+    fn placement(&self) -> Placement {
+        self.source.placement()
+    }
+
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        match self.pending.get(&token) {
+            Some(Pending::Child(child)) => {
+                let child = *child;
+                let dispatch = self.source.dispatch(child, store);
+                if !matches!(dispatch, Dispatch::Held) {
+                    self.pending.remove(&token);
+                }
+                dispatch
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            Some(Pending::Storage(..)) => match self.continuation(token) {
+                Some(work) => Dispatch::Run(Work::Now(work)),
+                None => Dispatch::Missing,
+            },
+            None => Dispatch::Missing,
+        }
+    }
+
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        let mut released = Vec::new();
+        for (child, dispatch) in self.source.release(store) {
+            let outer = self
+                .pending
+                .iter()
+                .find(|(_, p)| matches!(p, Pending::Child(c) if *c == child))
+                .map(|(outer, _)| *outer);
+            let Some(outer) = outer else {
+                continue;
+            };
+            if !matches!(dispatch, Dispatch::Held) {
+                self.pending.remove(&outer);
+            }
+            released.push((outer, dispatch));
+        }
+        released
+    }
+
+    fn discard(&mut self, token: u64) {
+        if let Some(Pending::Child(child)) = self.pending.remove(&token) {
+            self.source.discard(child);
+        }
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         match self.pending.remove(&token)? {
             Pending::Child(token) => self.source.continuation(token),
@@ -207,13 +255,6 @@ impl<D: DataSource> DataSource for Storage<D> {
                     native::run(&paths, &grants, &payload)
                 }))
             }
-        }
-    }
-    fn continuation_token(&mut self, token: u64) -> Option<u64> {
-        match self.pending.remove(&token)? {
-            Pending::Child(token) => self.source.continuation_token(token),
-            #[cfg(not(target_arch = "wasm32"))]
-            Pending::Storage(..) => None,
         }
     }
 }

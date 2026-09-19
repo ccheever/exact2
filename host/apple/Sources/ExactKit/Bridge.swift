@@ -127,6 +127,10 @@ final class Runtime {
     }
     func dblclick(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 11, 0, now)) }
     func submit(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 7, 0, now)) }
+    func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
+        let n = write(event + "\n" + payload)
+        return read(exact_dispatch(rt, view, 18, n, now))
+    }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)
@@ -154,6 +158,20 @@ final class Runtime {
     }
     func advance(now: Double) -> Batch { read(exact_advance(rt, now)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
+    func list(_ view: UInt32, top: Double, height: Double, width: Double, origin: Double, focus: UInt32, interaction: UInt32) -> Batch {
+        read(exact_list(rt, view, top, height, width, origin, focus, interaction))
+    }
+    func listIndex(_ view: UInt32, key: String) -> Int? {
+        let n = write(key)
+        let index = exact_list_index(rt, view, UInt32(n))
+        return index == UInt32.max ? nil : Int(index)
+    }
+    func listText(_ view: UInt32, first: (String, Int, Int)?, last: (String, Int, Int)?) -> String {
+        let a = first?.0 ?? "", b = last?.0 ?? ""
+        let n = write(a + b)
+        let len = exact_list_text(rt, view, UInt32(a.utf8.count), UInt32(n), UInt32(first?.1 ?? 0), UInt32(first?.2 ?? 0), UInt32(last?.1 ?? 0), UInt32(last?.2 ?? 0))
+        return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+    }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) }
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
     func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }

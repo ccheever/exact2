@@ -461,3 +461,51 @@ fn response_ceiling_and_missing_continuations_fail_without_poisoning_the_lane() 
     .unwrap();
     assert_eq!(collect(&core, &woke, 1)[0].1, Outcome::Storage(vec![42]));
 }
+
+#[test]
+fn asynchronous_module_reply_keeps_io_available_and_ordered_results_in_order() {
+    let (core, _fixture, woke) = setup();
+    let (handed, replies) = channel();
+    core.run_owned(
+        job(10, Request::continuation(1)),
+        Some(OwnedWork::Later(Box::new(move |reply| {
+            handed.send(reply).unwrap();
+        }))),
+    )
+    .unwrap();
+    let reply = replies.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (entered, ran) = channel();
+    core.run(
+        job(11, Request::continuation(2)),
+        Some(Box::new(move || {
+            entered.send(()).unwrap();
+            Outcome::Storage(vec![2])
+        })),
+    )
+    .unwrap();
+    ran.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Independent I/O can finish while the module still owns its reply.
+    core.run(
+        job(
+            12,
+            Request::get("https://example.test/read").independent_http(4096),
+        ),
+        None,
+    )
+    .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 12);
+    assert!(
+        core.drain().is_empty(),
+        "later ordered answer overtook the module"
+    );
+    assert!(!core.ordered_idle());
+    reply.send(Outcome::Storage(vec![1]));
+    assert_eq!(
+        collect(&core, &woke, 2)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        [10, 11]
+    );
+    assert!(core.ordered_idle());
+}

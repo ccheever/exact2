@@ -1,0 +1,17 @@
+# Video Player's data source: empty. Every screen is authored in the Contract,
+# so the seam (LLP 1004 D4) answers nothing and the first frame queries nothing.
+[package]
+name = "video-player-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Video Player's data source: nothing to answer"
+publish = false
+
+[lib]
+name = "video_player_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

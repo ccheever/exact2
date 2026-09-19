@@ -14,13 +14,39 @@ final class TextSelection {
     private var ordered: [NodeView]?
     private var indices: [UInt32: Int] = [:]
     private var painted: [UInt32: NSRange] = [:]
+    private struct Position {
+        var key: String
+        var row: Int
+        var paragraph: Int
+        var offset: Int
+        var tuple: (String, Int, Int) { (key, paragraph, offset) }
+        var order: (Int, Int, Int) { (row, paragraph, offset) }
+    }
+    private weak var list: NodeView?
+    private var logicalAnchor: Position?
+    private var logicalFocus: Position?
+    private var allListText = false
+    private var positions: [UInt32: Position] = [:]
 
     func structureChanged() {
         ordered = nil
         indices.removeAll(keepingCapacity: true)
+        positions.removeAll(keepingCapacity: true)
+        if let list, var a = logicalAnchor, var b = logicalFocus {
+            if let ai = presenter?.onListIndex?(list.id, a.key), let bi = presenter?.onListIndex?(list.id, b.key) {
+                a.row = ai; b.row = bi; logicalAnchor = a; logicalFocus = b
+            } else {
+                self.list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
+                anchor = nil; focus = nil
+            }
+        }
     }
 
     init(_ presenter: Presenter) { self.presenter = presenter }
+
+    /// Whether anything is selected at all: the cheap question a paragraph
+    /// asks before the exact one (`range`).
+    var isActive: Bool { allListText || logicalAnchor != nil || (anchor != nil && focus != nil) }
 
     var paragraphs: [NodeView] {
         if let ordered { return ordered }
@@ -52,10 +78,12 @@ final class TextSelection {
         anchor = nil; focus = nil
         anchorIndex = 0; focusIndex = 0
         dragged = false
+        list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         invalidate()
     }
 
     func begin(_ node: NodeView, event: NSEvent) {
+        list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
         anchorIndex = index(node, at: node.local(event.locationInWindow))
         focusIndex = anchorIndex
@@ -73,17 +101,21 @@ final class TextSelection {
                 anchorIndex = lo; focusIndex = hi; dragged = true
             }
         }
+        if let (owner, start) = position(node, offset: anchorIndex), let (_, end) = position(node, offset: focusIndex) {
+            list = owner; logicalAnchor = start; logicalFocus = end
+        }
         invalidate()
     }
 
     func drag(_ event: NSEvent) {
-        guard anchor != nil else { return }
+        guard anchor != nil || list != nil else { return }
         dragged = true
         let point = event.locationInWindow
-        let nodes = paragraphs
+        let nodes = paragraphs.filter { list == nil || $0.isDescendant(of: list!) }
         guard let node = nodes.min(by: { distance($0, point) < distance($1, point) }) else { return }
         focus = node
         focusIndex = index(node, at: node.local(point))
+        if let (_, value) = position(node, offset: focusIndex), list != nil { logicalFocus = value }
         node.autoscroll(with: event)
         invalidate()
     }
@@ -97,6 +129,16 @@ final class TextSelection {
 
     func selectAll() {
         let nodes = paragraphs
+        if let first = nodes.first(where: { position($0, offset: 0) != nil }),
+           let (owner, start) = position(first, offset: 0),
+           let last = nodes.last(where: { $0.isDescendant(of: owner) }),
+           let (_, end) = position(last, offset: length(last)) {
+            list = owner; logicalAnchor = start; logicalFocus = end; allListText = true
+            anchor = first; focus = last; dragged = true
+            invalidate()
+            return
+        }
+        list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = nodes.first; focus = nodes.last
         anchorIndex = 0; focusIndex = nodes.last.map(length) ?? 0
         dragged = true
@@ -104,18 +146,37 @@ final class TextSelection {
     }
 
     func copy() {
+        let text = selectedText()
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func selectedText() -> String {
+        if let list {
+            return presenter?.onListText?(list.id, allListText ? nil : logicalAnchor?.tuple, allListText ? nil : logicalFocus?.tuple) ?? ""
+        }
         let parts = paragraphs.compactMap { node -> String? in
             guard let range = range(node), range.length > 0 else { return nil }
             return (node.paragraphSpec().runs.map(\.text).joined() as NSString).substring(with: range)
         }
-        guard !parts.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(parts.joined(separator: "\n\n"), forType: .string)
+        return parts.joined(separator: "\n\n")
     }
 
     private func length(_ node: NodeView) -> Int { node.paragraphSpec().runs.reduce(0) { $0 + ($1.text as NSString).length } }
 
     func range(_ node: NodeView) -> NSRange? {
+        if let list {
+            guard let (owner, p) = position(node, offset: 0), owner === list else { return nil }
+            let count = length(node)
+            if allListText { return NSRange(location: 0, length: count) }
+            guard let a = logicalAnchor, let b = logicalFocus else { return nil }
+            let (start, end) = a.order <= b.order ? (a, b) : (b, a)
+            guard (p.row, p.paragraph) >= (start.row, start.paragraph), (p.row, p.paragraph) <= (end.row, end.paragraph) else { return nil }
+            let lo = (p.row, p.paragraph) == (start.row, start.paragraph) ? min(start.offset, count) : 0
+            let hi = (p.row, p.paragraph) == (end.row, end.paragraph) ? min(end.offset, count) : count
+            return NSRange(location: lo, length: max(0, hi - lo))
+        }
         guard anchor != nil && focus != nil else { return nil }
         _ = paragraphs
         guard let anchor, let focus, let a = indices[anchor.id], let b = indices[focus.id],
@@ -126,6 +187,34 @@ final class TextSelection {
         let hi = n == end ? (forward ? focusIndex : anchorIndex) : length(node)
         let count = length(node)
         return NSRange(location: min(lo, count), length: max(0, min(hi, count) - min(lo, count)))
+    }
+
+    /// The wrapper's key survives retirement. Paragraph ordinals follow the
+    /// same outer-text traversal as the runner's read-only text projection.
+    private func position(_ node: NodeView, offset: Int) -> (NodeView, Position)? {
+        var ancestor: NSView? = node
+        var wrapper: NodeView?
+        while let view = ancestor {
+            if let n = view as? NodeView, n.props["listItemKey"] != nil { wrapper = n; break }
+            ancestor = view.superview
+        }
+        guard let wrapper, let key = wrapper.props["listItemKey"], let index = Int(wrapper.props["accessibilityPosInSet"] ?? "") else { return nil }
+        ancestor = wrapper.superview
+        while let view = ancestor {
+            if let owner = view as? NodeView, owner.kind == "list" {
+                if positions[node.id] == nil {
+                    let nodes = paragraphs.filter { $0.isDescendant(of: wrapper) }
+                    for (ordinal, text) in nodes.enumerated() {
+                        positions[text.id] = Position(key: key, row: index - 1, paragraph: ordinal, offset: 0)
+                    }
+                }
+                guard var result = positions[node.id] else { return nil }
+                result.offset = offset
+                return (owner, result)
+            }
+            ancestor = view.superview
+        }
+        return nil
     }
 
     private func distance(_ node: NodeView, _ point: NSPoint) -> CGFloat {
