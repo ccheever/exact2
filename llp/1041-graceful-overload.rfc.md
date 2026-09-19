@@ -6172,3 +6172,35 @@ invalidations. Separately, the complete Messages viewport worker path still
 needs faithful collection, decoration and action ownership; a text-only stand-in
 would not satisfy this workload. Neither investigation establishes a speedup,
 physical120Hz or a completed Linux baseline.
+
+### 8.108 Unchanged Linux timers no longer force a repaint, 2026-09-18
+
+The ordinary Linux timer path now requests painting from actual commit effects
+instead of marking every advance dirty. It still executes every due action,
+preserves receipt order, performs the same layout and motion work, and runs all
+post-commit services. Node/layout changes, navigation, the final animation sample,
+errors and registered content regions conservatively demand painting. Existing
+dirty state is only ORed with new demand; a pending picture or later mutation is
+never cleared. Focus retirement, scroll clamping, images and collection feedback
+retain their own invalidations. Nonvisual commands wake the existing executor
+FD without requiring a paint; an appearance command marks its visual change.
+Explicit agent clock operations and other commit callers stay conservative.
+
+Twelve tests use the real Presenter and counted CPU backend on macOS. With old
+production, nine controls pass and three assertions fail: paused due and
+not-yet-due timers each cause one extra paint through the ordinary submission
+gate, and a command-only timer does not independently wake the loop. The exact
+same test bytes pass with the change. All29 display tests plus18 existing
+collection/height controls pass, as do strict exact-linux all-target Clippy and
+scoped formatting. Two earlier test-authoring failures are preserved separately.
+Whole-workspace formatting still fails in external Snapback sources, untouched
+here; this is not a blanket workspace-green result.
+
+The three-path freeze is in the private `exact2-linux-noop-timer` worktree at
+`target/noop-timer-validation/freeze-v1/`, manifest7e2e0371, patcha77d5e37.
+MAIN received those exact tested sources; its integration receipt is at
+`target/linux-noop-timer-integration/`. Full layout and synchronous post-commit
+scans remain. These checks establish avoided paints in the tested cases, not
+native timing, a completed Messages baseline or120Hz. Linux-only display code
+was not exercised by the Mac tests, and the stopped native attempt sequence
+remains stopped.

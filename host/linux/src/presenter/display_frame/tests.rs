@@ -675,3 +675,322 @@ fn viewport_headless_resize_keeps_immediate_root_scroll_semantics() {
     assert_eq!((pixels.width(), pixels.height()), (900, 900));
     assert!(!p.dirty());
 }
+
+// Timer repaint demand: real runner receipts, display ownership and side effects.
+const IDLE_TIMER: &str = r##"component App
+  state running = false
+  state ticks = 0
+  action tick writes ticks
+    if running
+      ticks = ticks + 1
+  task timer mount
+    every(250, tick)
+  view
+    text `${ticks}` testId="ticks"
+"##;
+fn timer_primed(source: &str) -> Fixture {
+    let (mut p, paints, fail) = boot_app(source);
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert!(!p.dirty());
+    paints.set(0);
+    (p, paints, fail)
+}
+#[test]
+fn timer_demand_paused_due_receipt_does_not_repaint() {
+    let plan = contract::compile(IDLE_TIMER).unwrap();
+    let mut runner = exact_runner::Runner::boot(
+        plan,
+        Empty,
+        exact_kernel::Kernel::new(Box::new(exact_kernel::MonospaceMeasurer::default())),
+        exact_runner::Viewport {
+            width: 320.,
+            height: 240.,
+        },
+        "/",
+    )
+    .unwrap();
+    let due = runner.advance_timed(250.);
+    assert!(due.error.is_none());
+    assert_eq!(due.receipts.len(), 1, "due timer really executes");
+    let r = &due.receipts[0].receipt;
+    assert!(r.created.is_empty() && r.destroyed.is_empty() && r.touched.is_empty());
+    assert!(!r.layout_invalidated);
+    let (mut p, paints, _) = timer_primed(IDLE_TIMER);
+    let epoch = p.host.kernel().epoch();
+    assert!(p.advance(250.).is_none());
+    assert_eq!(p.host.now(), 250.);
+    assert_eq!(p.host.kernel().epoch(), epoch);
+    let submitted = if p.dirty() {
+        let frame = submit(&mut p).unwrap();
+        assert!(complete(&mut p, &frame));
+        true
+    } else {
+        false
+    };
+    assert_eq!(
+        paints.get(),
+        0,
+        "paused due timer must not repaint through the real loop gate"
+    );
+    assert!(!submitted && !p.dirty());
+}
+#[test]
+fn timer_demand_empty_receipts_do_not_repaint_but_explicit_clock_does() {
+    let (mut p, paints, _) = timer_primed(IDLE_TIMER);
+    assert!(p.advance(100.).is_none());
+    assert_eq!(p.host.now(), 100.);
+    let submitted = if p.dirty() {
+        let frame = submit(&mut p).unwrap();
+        assert!(complete(&mut p, &frame));
+        true
+    } else {
+        false
+    };
+    assert_eq!(
+        paints.get(),
+        0,
+        "empty receipt must not repaint through the real loop gate"
+    );
+    assert!(!submitted && !p.dirty());
+    assert_eq!(p.clock(125.), (125., None));
+    assert!(p.dirty(), "explicit clock remains conservative");
+}
+#[test]
+fn timer_demand_changed_timer_and_final_motion_frame_remain_visible() {
+    let source = IDLE_TIMER.replace("running = false", "running = true")
+        .replace("text `${ticks}` testId=\"ticks\"", "box testId=\"ticks\" scale=(1 + ticks) transition=\"scale 100ms linear\" width=30 height=30");
+    let (mut p, _, _) = timer_primed(&source);
+    assert!(p.advance(250.).is_none());
+    assert!(p.dirty() && p.host.motion());
+    let b = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &b));
+    assert!(!p.dirty());
+    assert!(p.advance(400.).is_none());
+    assert!(!p.host.motion(), "final sample has settled");
+    assert_eq!(p.host.presented(id(&p, "ticks")).scale, 2.);
+    assert!(
+        p.dirty(),
+        "settling sample must still reach a final picture"
+    );
+}
+#[test]
+fn timer_demand_pending_b_keeps_dirty_c_and_b_pixels() {
+    let (mut p, paints, _) = primed();
+    let b = submit(&mut p).unwrap();
+    let pixels = b.pixels.data().to_vec();
+    p.type_text(id(&p, "input"), "C").unwrap();
+    assert!(p.advance(100.).is_none());
+    assert!(p.dirty());
+    assert!(submit(&mut p).is_none());
+    assert_eq!(b.pixels.data(), pixels);
+    assert!(complete(&mut p, &b));
+    assert!(p.dirty());
+    let c = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &c));
+    assert_eq!(paints.get(), 2);
+}
+#[test]
+#[allow(unsafe_code)] // poll borrows this live executor FD with a zero timeout; it takes no ownership.
+fn timer_demand_nonvisual_command_wakes_existing_executor_without_paint() {
+    let source = "component App\n  action tick\n    copyText(\"timer\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    p.executor.begin_pump();
+    assert!(p.advance(250.).is_none());
+    assert_eq!(p.commands.len(), 1);
+    assert_eq!(p.commands[0].name, "copyText");
+    let mut fd = libc::pollfd {
+        fd: p.executor_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    assert_eq!(
+        unsafe { libc::poll(&mut fd, 1, 0) },
+        1,
+        "queued command must wake the loop before its next timer"
+    );
+    assert!(!p.dirty(), "nonvisual command alone needs no picture");
+    p.run_commands(Empty::default);
+    assert!(p.commands.is_empty());
+}
+#[test]
+fn timer_demand_scheme_command_marks_its_visual_effect() {
+    let source = "component App\n  action tick\n    setScheme(\"dark\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged\" color=\"light-dark(#000000,#ffffff)\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    assert!(p.advance(250.).is_none());
+    p.run_commands(Empty::default);
+    assert!(p.brush.dark && p.dirty());
+}
+#[test]
+fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
+    for focus_only in [true, false] {
+        let (mut p, _, _) = timer_primed(IDLE_TIMER);
+        if focus_only {
+            p.focus = Some(u32::MAX);
+        } else {
+            p.page = (0., 60.);
+        }
+        assert!(p.advance(100.).is_none());
+        assert!(p.focus.is_none());
+        assert_eq!(p.page, (0., 0.));
+        assert!(
+            p.dirty(),
+            "focus retirement and clamp must each invalidate independently"
+        );
+    }
+}
+#[test]
+fn timer_demand_router_change_is_consumed_even_without_view_edits() {
+    let source = "routes nav\n  home \"/\"\n    post \"/post\"\ncomponent App\n  action tick writes nav\n    nav = open(nav, \"/post\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged shell\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    assert!(p.advance(250.).is_none());
+    assert!(p.host.router_op().is_some());
+    assert!(p.dirty(), "consumed navigation remains conservative");
+}
+
+struct TimerMeasure {
+    fail: Rc<Cell<bool>>,
+}
+impl exact_kernel::TextMeasurer for TimerMeasure {
+    fn measure(&mut self, r: &exact_kernel::TextMeasureRequest<'_>) -> exact_kernel::TextMetrics {
+        let mut metrics = exact_kernel::MonospaceMeasurer::default().measure(r);
+        if self.fail.get() {
+            metrics.height = f32::NAN;
+        }
+        metrics
+    }
+}
+#[test]
+fn timer_demand_failed_layout_recovers_and_marks_actual_geometry() {
+    let source =
+        "component App\n  view\n    text \"recover geometry\" testId=\"text\" width=\"100%\"\n";
+    let (mut p, _, _) = boot_app(source);
+    let fail = Rc::new(Cell::new(false));
+    p.host = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        Empty,
+        Box::new(TimerMeasure { fail: fail.clone() }),
+        320.,
+        240.,
+    )
+    .unwrap()
+    .0;
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    let text = id(&p, "text");
+    assert_eq!(p.host.kernel().node(text).unwrap().frame.width, 320.);
+    fail.set(true);
+    assert!(p.host.resize(160., 240.).is_some());
+    assert!(
+        p.advance(50.).is_some(),
+        "failed recovery is not silently clean"
+    );
+    let failed = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &failed));
+    fail.set(false);
+    assert!(p.advance(100.).is_none());
+    assert_eq!(p.host.kernel().node(text).unwrap().frame.width, 160.);
+    assert!(p.dirty(), "empty receipt recovery still changes geometry");
+}
+#[test]
+fn timer_demand_image_report_stays_dirty_through_empty_advance() {
+    let (mut p, _, _) = timer_primed("component App\n  view\n    image testId=\"image\"\n");
+    let image = id(&p, "image");
+    assert!(p.apply_reports(vec![(image, Some((32., 48.)))]));
+    assert!(p.dirty());
+    assert!(p.advance(100.).is_none());
+    assert!(p.dirty());
+    let b = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &b));
+}
+struct TimerRows;
+impl DataSource for TimerRows {
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        assert_eq!(name, "timerRows");
+        Ok(Value::list(
+            (0..200).map(|n| Value::Number(n as f64)).collect(),
+        ))
+    }
+}
+#[test]
+fn timer_demand_collection_feedback_still_refines_after_empty_advance() {
+    let source = "component App\n  resource rows = timerRows() as shape list<number>\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      each x in rows key=x\n        text `${x}` height=24\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        TimerRows,
+        (320., 240.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    for _ in 0..16 {
+        assert!(p.pump(0.).is_none());
+        if p.dirty() {
+            let f = submit(&mut p).unwrap();
+            assert!(complete(&mut p, &f));
+        }
+    }
+    let before = p.host.runner().collections().pop().unwrap();
+    assert!(before.rows.iter().all(|r| r.measured));
+    let port = before.view;
+    let bounds = p.box_of(port).unwrap().rect;
+    p.wheel_at(bounds.0 + 2., bounds.1 + 2., 0., 480.);
+    assert!(p.advance(100.).is_none());
+    assert!(p.dirty());
+    for _ in 0..8 {
+        if p.dirty() {
+            let f = submit(&mut p).unwrap();
+            assert!(complete(&mut p, &f));
+        }
+        assert!(p.advance(100.).is_none());
+    }
+    let after = p.host.runner().collections().pop().unwrap();
+    assert!(after.rows[0].index > before.rows[0].index);
+    assert!(after.rows.iter().all(|r| r.measured));
+}
+#[test]
+fn timer_demand_content_region_remains_conservative_for_same_shell() {
+    let _service = crate::content_region::test_service();
+    let source = "component App\n  view\n    view id=\"owner\" width=320 height=240 overflow-x=\"hidden\" overflow-y=\"hidden\"\n      scroll id=\"content\" width=320 height=240\n        text \"immutable paragraph\" testId=\"paragraph\"\n      text \"Preparing content\" id=\"pending\" position=\"absolute\"\n";
+    let (mut p, error) = Presenter::boot_with_content_region(
+        &contract::compile(source).unwrap().encode(),
+        Empty,
+        (320., 240.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+        crate::content_region::ContentRegionRegistration {
+            activate: None,
+            owner: "owner",
+            content: "content",
+            pending: "pending",
+        },
+    )
+    .unwrap();
+    assert!(error.is_none());
+    // The real placeholder ACK starts the region's font/source worker.
+    let placeholder = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &placeholder));
+    let end = std::time::Instant::now() + Duration::from_secs(10);
+    while !p
+        .host
+        .content_region()
+        .unwrap()
+        .receipt()
+        .is_some_and(|r| r.current)
+    {
+        assert!(std::time::Instant::now() < end);
+        assert!(p.poll_content_region().is_none());
+        std::thread::yield_now();
+    }
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    assert!(!p.dirty());
+    assert!(p.advance(100.).is_none());
+    assert!(
+        p.dirty(),
+        "geometry equality alone cannot certify a region publication"
+    );
+}

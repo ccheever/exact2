@@ -639,8 +639,10 @@ impl<D: DataSource> Presenter<D> {
                 // resolves to here (LLP 1034 D2). `system` is no override,
                 // and this host has no system to follow, so it draws light.
                 "setScheme" => {
-                    self.brush.dark =
+                    let dark =
                         matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
+                    self.dirty |= self.brush.dark != dark;
+                    self.brush.dark = dark;
                     if let Some(error) = self.host.content_region_appearance(self.brush.dark) {
                         self.host.log(error);
                     }
@@ -793,7 +795,12 @@ impl<D: DataSource> Presenter<D> {
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     fn after_commit(&mut self) -> Option<String> {
-        let error = self.sync_commit();
+        self.dirty = true;
+        self.finish_commit()
+    }
+
+    fn finish_commit(&mut self) -> Option<String> {
+        let error = self.service_commit();
         self.queue_collections();
         let refined = self.refine_collections();
         let geometry = self.refresh_transform_geometry();
@@ -803,6 +810,10 @@ impl<D: DataSource> Presenter<D> {
     // Collection feedback calls this directly: never recurse through refinement.
     fn sync_commit(&mut self) -> Option<String> {
         self.dirty = true;
+        self.service_commit()
+    }
+
+    fn service_commit(&mut self) -> Option<String> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
@@ -821,7 +832,11 @@ impl<D: DataSource> Presenter<D> {
                 self.executor.notify();
             }
         }
-        self.commands.extend(self.host.take_commands());
+        let commands = self.host.take_commands();
+        if !commands.is_empty() {
+            self.commands.extend(commands);
+            self.executor.notify();
+        }
         let mut error = self.sync_images();
         if !self.booting {
             error = error.or_else(|| {
@@ -833,11 +848,13 @@ impl<D: DataSource> Presenter<D> {
         if let Some(f) = self.focus {
             if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
                 self.focus = None;
+                self.dirty = true;
             }
         }
-        self.clamp_scroll();
+        self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
+        self.dirty |= error.is_some();
         error
     }
 
@@ -1386,8 +1403,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// The runner's clock (timers), from the presenter's loop.
     pub fn advance(&mut self, now_ms: f64) -> Option<String> {
-        let e = self.host.advance(now_ms);
-        let after = self.after_commit();
+        let (e, paint) = self.host.advance_effects(now_ms);
+        self.dirty |= paint;
+        let after = self.finish_commit();
         e.or(after)
     }
 
