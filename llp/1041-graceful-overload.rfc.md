@@ -5919,3 +5919,35 @@ demonstrated cause. Observer reads remain a possible perturbation, not the
 identified trigger of these four FrameWidget IPC tasks. No further browser run
 or production change is selected from this evidence; full content and actual
 wrapping remain required.
+
+### 8.102 First current Mac stack-sampling attempt produces no report, 2026-09-18
+
+One diagnostic reuses the immutable8d9858c Messages product from8.98, its
+full10k/batch32 workload and unchanged ordinary-clock driver. An external
+`sample` process attaches to the freshly verified app PID at the existing load
+marker, requesting3s at2ms intervals with a10s sampler deadline. The app's75s
+watchdog and workload remain independent of the sampler.
+
+Profiling fails. After5.151s of sampler process lifetime, the coordinator's exact
+target-identity check no longer matches and sends TERM only to the sampler.
+Its only output is the sampling-start line; no stack report exists. The rejected
+process snapshot was not saved, so target absence and an identity change cannot
+be distinguished retrospectively. This is not evidence of a tool permission
+refusal, completed3s sampling, symbolication cost or a particular app hotspot.
+The proposed repeated visible-text scan remains an unmeasured source hypothesis.
+
+The native driver and watcher exit0 without watchdog actions. All three phases
+retain18 resize changes and12 input handlers/ACKs, including six actual signed
+40px wheel movements. Full10,000 rows and actual32 changed rows remain; tracking
+mode is still not established because its observations overflow. The silent
+interval contains eight timer chains, four exceeding8.333ms, with an11.8345ms
+maximum. Attempted sampling adds uncalibrated disturbance, so these observations
+are neither a matched timing comparison nor120Hz evidence. All nine recorded
+PIDs, seven groups and four owned poster releases close. The184-file failed
+profile/native-capture archive remains under
+`target/messages-current-sample-execution-v1/`.
+
+A separate earlier-attachment variant is being prepared, keeping the same
+duration, interval and deadlines. Its possible coverage includes startup and
+setup; it cannot be labeled load-only or full10k-only. The failed first attempt
+is preserved, and no production optimization is selected from absent stacks.
