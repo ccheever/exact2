@@ -158,7 +158,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs']) {
+    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs','game/app/scenes.mjs']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp } = await import(resolve(root,'scripts/app.mjs'));

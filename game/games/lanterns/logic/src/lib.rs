@@ -154,6 +154,7 @@ impl Game for Lanterns {
             .register_resource::<Environment>()
             .register::<Player>()
             .register::<Camera>()
+            .register::<Follow>()
             .register::<DirectionalLight>()
             .register::<AudioListener>()
             .register::<AudioSource>();

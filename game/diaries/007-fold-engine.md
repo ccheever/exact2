@@ -118,3 +118,13 @@ recycled identities; an empty or unchanged implementation cannot pass. Peak RSS:
 1,333,528 kB. Release, one local run; no speedup claim. The existing decode and
 projection bounds above still govern admission. This diagnostic adds one ignored
 test to the ordinary suite and passes when explicitly run with `--release --ignored`.
+
+Final broad app checks caught two standalone live-capture failures: the explicit
+Lanterns registry lacked its `Follow` camera type. Both live and fixed declarations
+now register it before setup. Existing won/lost, fractional-clock and held-control
+capture assertions are unchanged. The additional root app-tooling suite exposed
+a duplicate unconditional `app.prepare()` left beside the engine's optional
+`app.prepare?.(true)`; it broke ordinary no-lock apps. Removed the duplicate,
+and copied the new scene module into the existing isolated shell fixture so its
+original tests can load the full dependency graph. One repair round for each;
+no assertion was removed or weakened.
