@@ -17,6 +17,9 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Internal event/property ID collisions** (Charlie, 2026-09-19): investigate assignment and cross-branch collision detection after navigation and video independently claimed host dispatch kind 14 (merged as navigation 14, media 19).
+  Audit the manually mirrored Rust/Swift/browser dispatch codes alongside generated kernel property IDs and plan event ordinals; determine how to keep assignments consistent and detect incompatible host/plan pairs without adding another declaration authority.
+
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
