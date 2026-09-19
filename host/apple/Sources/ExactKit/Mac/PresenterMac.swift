@@ -109,6 +109,7 @@ final class Presenter {
 
     deinit {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        pumpLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
@@ -122,8 +123,8 @@ final class Presenter {
     /// never for a whole long document, which layer-backed AppKit would
     /// otherwise repaint offscreen — and a paragraph inside its band is only
     /// composited. Bands are admitted a few per frame by `pump`, nearest
-    /// first, so deferred text can be prepared in later slices; only text
-    /// already visible is painted at once.
+    /// first, so mounting a row and rasterizing its text are different
+    /// frames; only text already visible is painted at once.
     static let textBandReach: CGFloat = 1400
     static let textBandSlack: CGFloat = 500
     /// Paragraphs admitted to painting per pump slice, beyond the urgent ones.
@@ -207,11 +208,10 @@ final class Presenter {
         return band
     }
 
-    // MARK: The pump — list fill and text admission, a slice per turn
+    // MARK: The pump — list fill and text admission, a slice per frame
 
-    private var pumpGeneration: UInt64 = 0
-    private var scheduledPump: UInt64?
-    private var pumpRunning = false
+    private var pumpLink: CADisplayLink?
+    private let pumpTarget = PumpTarget()
     private var listSyncPending = false
     private var textPending = false
 
@@ -234,35 +234,29 @@ final class Presenter {
         if listSyncPending || textPending { startPump() }
     }
 
-    /// After a batch: paint what is visible now, admit the rest over slices.
+    /// After a batch: paint what is visible now, admit the rest over frames.
     private func batchApplied() {
         syncLists()
         coverLists()
         if refreshVisibleText(limit: Self.textBandsPerSlice) { textPending = true; startPump() }
     }
 
-    private func startPump(afterSlice: Bool = false) {
-        guard scheduledPump == nil, !pumpRunning else { return }
-        let generation = pumpGeneration
-        scheduledPump = generation
-        let fire = { [weak self] in
-            guard let self, self.scheduledPump == generation else { return }
-            self.scheduledPump = nil
-            self.pumpRunning = true
-            self.pump()
-            self.pumpRunning = false
-            if self.listSyncPending || self.textPending { self.startPump(afterSlice: true) }
-            else { self.stopPump() }
-        }
-        // Admit only owed work after the scrolling callback returns. Further
-        // slices yield briefly; the delay does not promise a separate frame.
-        if afterSlice { DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(4), execute: fire) }
-        else { DispatchQueue.main.async(execute: fire) }
+    private func startPump() {
+        guard pumpLink == nil else { return }
+        // A display link, not a timer: a slice's commit must keep one phase
+        // against the refresh. A free-running 120 Hz timer drifts through the
+        // frame, and about once a second its commit landed in the scrolling
+        // thread's own commit window and cost that frame — a hitch every
+        // 1.2 s with this thread idle (LLP 1044, the pump's first version).
+        pumpTarget.fire = { [weak self] in self?.pump() }
+        let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        pumpLink = link
     }
 
     private func stopPump() {
-        pumpGeneration &+= 1
-        scheduledPump = nil
+        pumpLink?.invalidate()
+        pumpLink = nil
     }
 
     /// Everything the pump owes, now. The agent's wheel is synchronous — it
@@ -289,6 +283,7 @@ final class Presenter {
             textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
             Self.signposts.endInterval("pump-text", post)
         }
+        if !listSyncPending && !textPending { stopPump() }
     }
 
     private enum ListNeed { case nothing, soon, now }
@@ -915,5 +910,10 @@ extension NSRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
         NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
+}
+/// The display link's Objective-C target: `Presenter` is not an `NSObject`.
+final class PumpTarget: NSObject {
+    var fire: (() -> Void)?
+    @objc func tick(_ link: CADisplayLink) { fire?() }
 }
 #endif
