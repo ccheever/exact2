@@ -45,10 +45,20 @@ fn image_with_sun(
     tint: Option<Material>,
     sun: Option<exact_game_render::Sun>,
 ) -> Option<fixture::Pixels> {
+    image_with_pose(model, eye, tint, sun, Transform::default())
+}
+fn image_with_pose(
+    model: &Model,
+    eye: Vec3,
+    tint: Option<Material>,
+    sun: Option<exact_game_render::Sun>,
+    pose: Transform,
+) -> Option<fixture::Pixels> {
     let gpu = fixture::device().ok()?;
     let mut sim = Sim::<Test>::new(()).unwrap();
     sim.asset("panels.model", Some(&bin::to_vec(model)))
         .unwrap();
+    *sim.world().get_mut::<Transform>("model").unwrap() = pose;
     if let Some(tint) = tint {
         let e = sim.world().named("model").unwrap();
         sim.world_mut().insert(e, tint);
@@ -194,6 +204,17 @@ fn mirrored_single_sided_nodes_keep_their_front_face() {
     };
     m.nodes[0].transform = glam::Mat4::from_scale(Vec3::new(-1., 1., 1.)).to_cols_array();
     assert_eq!(front, image(&m, Vec3::new(0., 0., 5.), None).unwrap());
+    for alpha_mode in [AlphaMode::Opaque, AlphaMode::Blend] {
+        let mut entity_model = m.clone();
+        entity_model.nodes[0].transform = glam::Mat4::IDENTITY.to_cols_array();
+        entity_model.materials[0].alpha_mode = alpha_mode;
+        let reflected = Transform::default().with_scale(Vec3::new(-1., 1., 1.));
+        assert_eq!(
+            image(&entity_model, Vec3::new(0., 0., 5.), None).unwrap(),
+            image_with_pose(&entity_model, Vec3::new(0., 0., 5.), None, None, reflected).unwrap(),
+            "mirrored entity owner keeps its visible face ({alpha_mode:?})"
+        );
+    }
     let back = image(&m, Vec3::new(0., 0., -5.), None).unwrap();
     assert_eq!(back.at(128, 128), [0, 0, 0, 255]);
 
@@ -268,7 +289,7 @@ fn models_and_materials_share_named_textures_defaults_and_samplers() {
     };
     renderer.add_texture("shared.tex", &texture).unwrap();
     let work = renderer.asset_work();
-    assert_eq!(work, (5, 4));
+    assert_eq!(work, (10, 4)); // Both attachment windings are prepared on delivery.
     renderer.prepare_model("b.model", &m).unwrap();
     renderer.add_texture("shared.tex", &texture).unwrap();
     assert_eq!(renderer.asset_work(), work);

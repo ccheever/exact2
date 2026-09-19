@@ -1224,13 +1224,16 @@ impl<G: Game> Sim<G> {
         }
         keys.into_iter().collect()
     }
-    /// Named contacts, including queued presses and releases at the host boundary.
-    pub fn held_controls(&self) -> Vec<String> {
+    pub(crate) fn host_input(&self) -> Input {
         let mut input = self.input.clone();
         for queued in &self.queue {
             input.apply_paused(queued.event.clone());
         }
-        input.held_controls()
+        input
+    }
+    /// Named contacts, including queued presses and releases at the host boundary.
+    pub fn held_controls(&self) -> Vec<String> {
+        self.host_input().held_controls()
     }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
@@ -1269,7 +1272,7 @@ impl<G: Game> Sim<G> {
             .collect();
         if self.is_loading() || !pending.is_empty() {
             return Err(DataError::new(format!(
-                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: state.world.loading and state.world.assets before saving again",
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
                 pending,
                 assets.state_json()
             )));
@@ -1334,7 +1337,7 @@ impl<G: Game> Sim<G> {
         next.setup_pending = !next.world.assets.ready();
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
-            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: state.world.loading and state.world.assets; retry after delivery"));
+            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
         }
         next.world.load(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
@@ -1346,6 +1349,14 @@ impl<G: Game> Sim<G> {
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
+        next.input
+            .validate_saved(&s.input)
+            .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
+        for event in &s.queue {
+            next.input
+                .validate(&event.event)
+                .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
+        }
         next.input.restore_dynamic(s.input);
         next.queue = s.queue.into();
         for e in &mut next.queue {

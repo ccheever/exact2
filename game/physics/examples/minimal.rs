@@ -70,6 +70,8 @@ pub extern "C" fn pile_hash() -> u64 {
         assert_eq!(sim.world().hash(), restored.world().hash());
     }
     let hash = sim.world().hash();
-    assert_eq!(hash, 0x129ba6d92f9ac217);
+    let pins: std::collections::BTreeMap<String, String> =
+        exact_game::json::from_str(include_str!("../tests/pins.json")).unwrap();
+    assert_eq!(format!("0x{:016x}", hash), pins["pile-600"]);
     hash
 }

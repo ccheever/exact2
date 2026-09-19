@@ -387,10 +387,12 @@ mod tests {
     #[test]
     fn particle_invariant_hoisting_preserves_pre_r6_float_bits() {
         // Receipts from e0ab1904's evaluator, including the random draws discarded by Point.
-        for (shape, expected) in [
-            (Shape::Point, 0x726f3ee0098bb673),
-            (Shape::Sphere(2.), 0xf45aa92ab410079c),
-            (Shape::Cone(2., 3.), 0x638294ccb7850105),
+        let pins: std::collections::BTreeMap<String, String> =
+            crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
+        for (shape, key) in [
+            (Shape::Point, "emitter-point"),
+            (Shape::Sphere(2.), "emitter-sphere"),
+            (Shape::Cone(2., 3.), "emitter-cone"),
         ] {
             let e = Emitter {
                 shape,
@@ -424,7 +426,7 @@ mod tests {
                     values.extend(p.color);
                 });
             }
-            assert_eq!(crate::hash::of(&values), expected);
+            assert_eq!(format!("0x{:016x}", crate::hash::of(&values)), pins[key]);
         }
     }
     #[test]

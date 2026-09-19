@@ -911,6 +911,11 @@ fn storage_capacity_is_independent_of_inter_stage_capacity() {
     let requested = exact_gpu::requested_limits(available.clone());
     assert!(requested.check_limits(&available));
     assert_eq!(requested.max_storage_buffers_per_shader_stage, 8);
+    available.max_storage_buffers_per_shader_stage = 12;
+    assert_eq!(
+        exact_gpu::requested_limits(available.clone()).max_storage_buffers_per_shader_stage,
+        12
+    );
     available.max_storage_buffers_per_shader_stage = 4;
     assert_eq!(
         exact_gpu::requested_limits(available).max_storage_buffers_per_shader_stage,

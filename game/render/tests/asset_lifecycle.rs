@@ -66,7 +66,7 @@ fn terminal_declaration_requests_no_more_frames() {
 }
 
 #[test]
-fn mirrored_entity_model_refuses_by_name() {
+fn mirrored_entity_model_is_accepted_for_attachment_owners() {
     let Ok(gpu) = fixture::device() else { return };
     let mut renderer = exact_game_render::Renderer::new(
         &gpu.device,
@@ -83,10 +83,9 @@ fn mirrored_entity_model_refuses_by_name() {
     };
     world.spawn((pose, Mesh::asset("mirrored.model")));
     world.propagate();
-    let error = exact_game_render::Feed::default()
+    exact_game_render::Feed::default()
         .feed(&world, &mut renderer)
-        .unwrap_err();
-    assert!(error.to_string().contains("mirrored.model"));
+        .unwrap();
 }
 
 #[test]

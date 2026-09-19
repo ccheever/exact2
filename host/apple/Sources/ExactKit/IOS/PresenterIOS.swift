@@ -228,6 +228,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        autofocusProcessed.removeAll()
         segments.reset()
         menus.reset()
         swipeActions.reset()

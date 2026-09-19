@@ -172,7 +172,7 @@ fn a_press_goes_through_hit_testing_and_bubbles_to_the_handler() {
     let child = p.host().kernel().node(button).unwrap().children()[0];
     let reply = p.tap(child).unwrap();
     assert!(
-        reply.starts_with(&format!("{{\"tapped\":{child},\"at\":[")),
+        reply.starts_with(&format!("{{\"tapped\":{button},\"at\":[")),
         "{reply}"
     );
     assert!(has(&p, "stations-screen"), "the stations screen opened");
@@ -737,4 +737,35 @@ fn covered_id_tap_refuses_without_dispatching_the_cover() {
     assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
     p.tap(view(&p, "cover")).unwrap();
     assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+}
+
+#[test]
+fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
+    for actionable in [false, true] {
+        let handler = if actionable { " press=child" } else { "" };
+        let source = format!(
+            r#"component Nested
+  state count = 0
+  action parent writes count
+    count = count + 1
+  action child writes count
+    count = count + 10
+  view
+    button testId="parent" width=100 height=100 press=parent
+      box testId="child" width=100 height=100{handler}
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, error) =
+            Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+        assert!(error.is_none());
+        let result = p.tap(view(&p, "parent"));
+        if actionable {
+            assert!(result.unwrap_err().contains("activates"));
+            assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
+        } else {
+            result.unwrap();
+            assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+        }
+    }
 }

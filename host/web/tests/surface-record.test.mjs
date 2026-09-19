@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 // Run the production lazy module and applyBatch with a deterministic GPU and
 // presenter. The runner's returned batch addresses the *final* outer tree.
 export async function fixture(options = {}) {
-  const views = new Map(), records = [], diagnostics = [];
+  const views = new Map(), records = [], diagnostics = [], observers = [];
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [], restored = new Set();
   let mutations = Promise.resolve(), frame;
@@ -25,7 +25,7 @@ export async function fixture(options = {}) {
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id) { if (options.refuse?.(id)) return false; restored.add(id); return true; },
     gpu_error: () => options.error ?? "fixture refusal", gpu_render: () => 0, gpu_dirty: () => false,
-    gpu_agent: id => JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? []}}, lines:[], from:0, next:0}),
+    gpu_agent: id => JSON.stringify({world:{tick:0,restored:restored.has(id),input:{forwarded:options.forwarded ?? [],controlContacts:options.controlContacts ?? []}}, lines:[], from:0, next:0}),
     gpu_input: (id, json) => { events.push(JSON.parse(json)); return true; }, gpu_shader_check: async () => true,
     gpu_shader: () => true,
     gpu_assets: () => '[]', gpu_asset: () => true, gpu_lifecycle: () => true, gpu_clock: () => true, gpu_period: () => {},
@@ -77,16 +77,16 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
+    'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
     source
-  )(assetDelivery, { exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 1,
+  )(assetDelivery, { exact }, async version => version ? nextGpu : gpu, { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden: false, addEventListener() {} }, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {}, removeEventListener() {} });
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element,
+  return { exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
@@ -301,4 +301,93 @@ test('Contract controls send named local contacts, keyboard edges and blur over 
   assert.deepEqual(f.events.slice(0,3).map(e=>[e.t,e.name,e.phase,e.id,e.x,e.y,e.at]), [
     ['control','jump','down',7,30,40,0],['control','jump','move',7,60,40,0],['control','jump','up',7,30,40,0]]);
   assert.deepEqual(f.events.slice(3).map(e=>[e.t,e.phase]), [['control','down'],['control','up'],['blur',undefined]]);
+});
+
+for (const change of ['rename','clear','remove','disabled','hidden','inert']) test(`held control retains its binding through ${change}`, async () => {
+  const f=await fixture({input:true}), canvas=f.create(1), button=new f.Element('button');
+  let name='jump'; button.parent=canvas;
+  button.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?button:s==='[inert]'&&button.inert?button:null;
+  button.getAttribute=()=>name; button.getBoundingClientRect=()=>Object.create({get left(){return 100;},get top(){return 200;}});
+  button.setPointerCapture=()=>{throw Error('capture unavailable');};
+  let focused=false;button.focus=()=>{focused=true;};
+  const e={target:button,pointerId:7,clientX:130,clientY:240,timeStamp:0,preventDefault(){}};
+  assert.doesNotThrow(()=>canvas.listeners.pointerdown(e)); assert.ok(focused);
+  if(change==='rename') name='light';
+  if(change==='clear') name=null;
+  if(change==='remove') button.isConnected=false;
+  if(change==='disabled') button.disabled=true;
+  if(change==='hidden') button.hidden=true;
+  if(change==='inert') button.inert=true;
+  canvas.listeners.pointerup({...e,target:canvas});
+  assert.equal(f.events.at(-1).name,'jump');
+  assert.ok(['up','cancel'].includes(f.events.at(-1).phase));
+});
+test('two captured pointers keep CSS coordinates and lost capture cancels just its binding', async()=>{
+  const f=await fixture({input:true}), canvas=f.create(1);
+  for(const id of [7,8]) {
+    const b=new f.Element('button'); b.parent=canvas;
+    b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+    b.getAttribute=()=>id===7?'jump':'move'; b.getBoundingClientRect=()=>({left:100,top:200}); b.setPointerCapture=()=>{};
+    canvas.listeners.pointerdown({target:b,pointerId:id,clientX:130,clientY:240,timeStamp:0,preventDefault(){}});
+  }
+  canvas.listeners.pointermove({target:canvas,pointerId:8,clientX:300,clientY:400,timeStamp:0,preventDefault(){}});
+  canvas.listeners.lostpointercapture({target:canvas,pointerId:7,timeStamp:0});
+  canvas.listeners.pointerup({target:canvas,pointerId:8,clientX:300,clientY:400,timeStamp:0,preventDefault(){}});
+  assert.deepEqual(f.events.map(e=>[e.name,e.phase,e.id]),[['jump','down',7],['move','down',8],['move','move',8],['jump','cancel',7],['move','up',8]]);
+  assert.equal(f.events[2].x,200);
+});
+for(const status of ['healthy','no device']) test(`recovery ${status} leaves canvases intact`,async()=>{
+ const f=await fixture();f.create(1);f.gpu.gpu_recover=async()=>JSON.stringify({status});
+ f.exact.gpu.deviceLost();await new Promise(r=>setTimeout(r,0));
+ assert.ok(!f.order.includes('replace'));assert.equal(f.exact.gpu.recovery.status,status);
+});
+test('second cutover failure preserves both live canvases and their input',async()=>{
+ const f=await fixture({input:true}), first=f.create(1), second=f.create(2,'other');
+ const replace=second.canvas.replaceWith;second.canvas.replaceWith=()=>{throw Error('second install');};
+ f.gpu.gpu_recover=async()=>'{"status":"recovered"}';
+ f.exact.gpu.deviceLost();await new Promise(r=>setTimeout(r,0));
+ assert.ok(first.canvas.isConnected);assert.ok(second.canvas.isConnected);
+ first.listeners.keydown({target:first,code:'KeyW',timeStamp:0});assert.equal(f.events.at(-1).code,'KeyW');
+ second.canvas.replaceWith=replace;
+ await new Promise(r=>setTimeout(r,150));
+});
+
+ test('fresh host restores exact keyboard control ownership without a new press',async()=>{
+ const f=await fixture({input:true,controlContacts:[{id:4294967294,action:'jump',origin:[0,0],position:[0,0]}]});f.exact.worldCarry=new Uint8Array([7]);const canvas=f.create(1);
+ canvas.listeners.keyup({target:canvas,code:'Space',timeStamp:0,preventDefault(){}});
+ assert.deepEqual(f.events.map(e=>[e.t,e.name,e.id,e.phase]),[['control','jump',4294967294,'up']]);
+ });
+
+for(const refusal of ['disabled','hidden','inert','missing']) test(`control down refuses ${refusal}`,async()=>{
+ const f=await fixture({input:true}),canvas=f.create(1),b=new f.Element('button');b.parent=canvas;
+ b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:s.includes('[inert]')&&refusal==='inert'?b:null;
+ b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';
+ canvas.listeners.pointerdown({target:b,pointerId:1,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
+ assert.deepEqual(f.events,[]);
+});
+test('fresh host can release a saved pointer contact by its original identity',async()=>{
+ const f=await fixture({input:true,controlContacts:[{id:7,action:'move',origin:[20,30],position:[80,30]}]});f.exact.worldCarry=new Uint8Array([7]);f.create(1);
+ const reply=f.exact.gpu.handle({op:'tap',id:1,contact:7,phase:'cancel'},null,x=>x);
+ assert.equal(reply.delivery,'recognized');assert.deepEqual(f.events.map(e=>[e.name,e.id,e.phase,e.x,e.y]),[['move',7,'cancel',80,30]]);
+});
+test('attachment exception rolls back the published map and keeps both inputs live',async()=>{
+ const f=await fixture({input:true}),a=f.create(1),b=f.create(2,'other');let fail=true;
+ f.gpu.gpu_recover=async()=>'{"status":"recovered"}';
+ f.gpu.gpu_wants_input=id=>{if(id===2&&fail){fail=false;throw Error('attach');}return true;};
+ f.exact.gpu.deviceLost();await new Promise(r=>setTimeout(r,0));
+ assert.ok(a.canvas.isConnected&&b.canvas.isConnected);
+ for(const el of [a,b]) el.listeners.keydown({target:el,code:'KeyW',timeStamp:0});
+ assert.equal(f.events.length,2);await new Promise(r=>setTimeout(r,150));
+ assert.equal(f.exact.gpu.recovery.status,'recovered');
+});
+
+for (const change of ['clear','remove']) test(`DOM ${change} cancels a held control without another pointer event`,async()=>{
+  const f=await fixture({input:true}), canvas=f.create(1), b=new f.Element('button');
+  b.parent=canvas; let name='jump';
+  b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+  b.getAttribute=()=>name; b.getBoundingClientRect=()=>({left:10,top:20});
+  canvas.listeners.pointerdown({target:b,pointerId:7,clientX:20,clientY:30,timeStamp:0,preventDefault(){}});
+  if(change==='clear')name=null;else b.isConnected=false;
+  f.mutation();
+  assert.deepEqual(f.events.map(e=>[e.name,e.phase,e.id]),[['jump','down',7],['jump','cancel',7]]);
 });

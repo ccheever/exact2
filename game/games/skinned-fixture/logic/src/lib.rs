@@ -14,6 +14,11 @@ impl Game for SmallGame {
     const ID: &'static str = "skinned-fixture";
     const ASSETS: &'static [&'static str] = &["fox.model"];
     type Args = Options;
+    fn actions() -> Actions {
+        Actions::new()
+            .button("mirror-charm", &["KeyM"])
+            .button("skip-animation", &["KeyK"])
+    }
     fn setup(w: &mut World, _: &Options) {
         w.spawn_named(
             "fox",
@@ -63,7 +68,13 @@ impl Game for SmallGame {
             ..Environment::default()
         });
     }
-    fn tick(w: &mut World, _: &Input, args: &Options) {
+    fn tick(w: &mut World, input: &Input, args: &Options) {
+        if input.pressed("mirror-charm") {
+            w.get_mut::<SocketFollow>("charm").unwrap().offset.scale.x *= -1.;
+        }
+        if input.held("skip-animation") {
+            return;
+        }
         let end = w.tick_end();
         let speed = if w.tick() < 30 {
             0.

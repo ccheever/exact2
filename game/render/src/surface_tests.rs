@@ -914,3 +914,53 @@ fn control_json_reaches_world_and_unknown_names_refuse_without_poisoning_it() {
         1.
     );
 }
+
+#[test]
+fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers() {
+    struct Missing;
+    impl Game for Missing {
+        const ID: &'static str = "shared-attachment-warning";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named(
+                "charm",
+                (
+                    Transform::default(),
+                    exact_game::SocketFollow::new("missing", "head"),
+                    exact_game::Placed::child(0),
+                ),
+            );
+            w.spawn((Transform::at(0., 0., 8.), Camera::default()));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn paused(_: &()) -> bool {
+            true
+        }
+    }
+    let gpu = fixture::device().unwrap();
+    let mut s = WorldSurface::<Missing, crate::ModelPresentation, true>::default();
+    s.bind(&[], None).unwrap();
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    let registry = s.placed.attachments.diagnostics.clone();
+    assert!(std::rc::Rc::ptr_eq(
+        &registry,
+        s.render.as_ref().unwrap().1.attachment_diagnostics()
+    ));
+    assert_eq!(registry.borrow().len(), 1);
+    let save = s.carry().unwrap().unwrap();
+    for _ in 0..3 {
+        s.restore(&save, Restore::Open).unwrap();
+        fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+        assert!(std::rc::Rc::ptr_eq(
+            &registry,
+            s.render.as_ref().unwrap().1.attachment_diagnostics()
+        ));
+        assert_eq!(registry.borrow().len(), 1);
+    }
+    let w = s.sim.as_mut().unwrap().world_mut();
+    let e = w.named("charm").unwrap();
+    w.despawn(e);
+    s.dirty = true;
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    assert!(registry.borrow().is_empty());
+}

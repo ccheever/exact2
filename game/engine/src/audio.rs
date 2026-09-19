@@ -482,10 +482,9 @@ pub struct Play<'a> {
 impl Play<'_> {
     /// Follow a live entity by name or handle; missing targets are named setup errors.
     pub fn at(mut self, target: impl crate::Target) -> Self {
-        let label = target.label();
         let entity = target
             .entity(self.world)
-            .unwrap_or_else(|| panic!("audio target `{label}` does not exist"));
+            .unwrap_or_else(|| panic!("audio target `{}` does not exist", target.label()));
         let voice = &mut self.voice;
         voice.at = At::Entity(entity);
         self

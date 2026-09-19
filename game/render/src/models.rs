@@ -387,10 +387,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         &mut self,
         _format: wgpu::TextureFormat,
         live: &std::collections::BTreeSet<String>,
+        prepared: &std::collections::BTreeSet<String>,
     ) {
         self.models
             .loaded
-            .retain(|n, m| m.active && live.contains(n));
+            .retain(|n, m| live.contains(n) && (m.active || prepared.contains(n)));
         self.models
             .textures
             .retain(|n, t| n.starts_with('\0') || (t.active && live.contains(n)));
@@ -530,7 +531,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         crate::world::assets::Work {
             texture_uploads: textures,
             mesh_uploads: self.mesh_uploads,
-            pipeline_creations: 11
+            pipeline_creations: 16
                 + pipelines as u64
                 + skin.map_or(0, |s| s.pipeline_creations)
                 + self.quads.work_pipelines(),
@@ -555,7 +556,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             records,
         )
     }
-    /// Feed transparent poses on completed ticks. O(model instances), never primitive entities.
+    /// Feed poses for transparency and winding on completed ticks. O(model instances).
     pub(crate) fn model_poses(
         &mut self,
         world: &exact_game::World,
@@ -566,16 +567,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             skinning.feed(&self.queue, world, entities, initial);
         }
         self.models.pose_history.retain(|e, _| entities.contains(e));
-        for ((record, history), &entity) in self
+        for ((_, history), &entity) in self
             .models
             .records
             .iter()
             .zip(&mut self.models.poses)
             .zip(entities)
         {
-            if self.models.materials[record.material.0].alpha != AlphaMode::Blend {
-                continue;
-            }
             let digest = world
                 .get::<exact_game::Mesh>(entity)
                 .and_then(|m| match &*m {
@@ -1015,7 +1013,7 @@ mod retirement_regressions {
         }
         assert!(r.retired_bytes(&live) > 64 * 1024 * 1024);
         let before = r.residency_work();
-        r.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live);
+        r.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live, &Default::default());
         assert!(r.retired_bytes(&live) <= 64 * 1024 * 1024);
         assert_eq!(r.models.loaded["hero.model"].nodes, hero);
         assert_eq!(r.models.materials[hero[0].1 .0].bind, bind);

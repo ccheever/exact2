@@ -61,8 +61,8 @@ pub(crate) fn model_source(shadow: bool) -> String {
 
 pub(crate) struct Pipelines {
     pub models: Option<ModelPipelines>,
-    pub forward: [wgpu::RenderPipeline; 4],
-    pub shadow: wgpu::RenderPipeline,
+    pub forward: [wgpu::RenderPipeline; 8],
+    pub shadow: [wgpu::RenderPipeline; 2],
     pub sky: wgpu::RenderPipeline,
     pub tone: [wgpu::RenderPipeline; 2],
     pub bloom: [wgpu::RenderPipeline; 3],
@@ -222,22 +222,26 @@ impl Pipelines {
                 wgpu::TextureFormat::Rgba16Float,
                 None,
                 &[("FOG", if i & 2 != 0 { 1.0 } else { 0.0 })],
+                i & 4 != 0,
             )
         });
-        let shadow = make_pipeline(
-            device,
-            &shaders[1],
-            "game shadow",
-            "vs_shadow",
-            None,
-            &[Some(&scene_layout), Some(&camera_layout)],
-            &vertex_layout,
-            depth(true, wgpu::CompareFunction::Less, Default::default()),
-            1,
-            wgpu::TextureFormat::Rgba16Float,
-            None,
-            &[],
-        );
+        let shadow = std::array::from_fn(|i| {
+            make_pipeline(
+                device,
+                &shaders[1],
+                "game shadow",
+                "vs_shadow",
+                None,
+                &[Some(&scene_layout), Some(&camera_layout)],
+                &vertex_layout,
+                depth(true, wgpu::CompareFunction::Less, Default::default()),
+                1,
+                wgpu::TextureFormat::Rgba16Float,
+                None,
+                &[],
+                i != 0,
+            )
+        });
         let sky = make_pipeline(
             device,
             &shaders[2],
@@ -251,6 +255,7 @@ impl Pipelines {
             wgpu::TextureFormat::Rgba16Float,
             None,
             &[],
+            false,
         );
         let tone = std::array::from_fn(|i| {
             let layouts = [Some(&tone_layout), Some(&bloom_layout)];
@@ -267,6 +272,7 @@ impl Pipelines {
                 format,
                 None,
                 &[("ENCODE_SRGB", if format.is_srgb() { 0.0 } else { 1.0 })],
+                false,
             )
         });
         let additive = wgpu::BlendComponent {
@@ -291,6 +297,7 @@ impl Pipelines {
                     alpha: additive,
                 }),
                 &[],
+                false,
             )
         });
         Self {
@@ -359,37 +366,37 @@ impl Pipelines {
                 layouts,
             }
         });
-        let offsets = model.offsets().expect("validated model");
-        for (node, local) in model.nodes.iter().zip(offsets) {
+        for node in &model.nodes {
             let Some(mesh) = node.mesh else { continue };
             let m = &model.materials[model.meshes[mesh as usize].material as usize];
-            let mirrored = usize::from(local.determinant() < 0.);
-            let base = 4 * usize::from(m.double_sided)
-                + 8 * usize::from(m.alpha_mode == exact_game::asset::AlphaMode::Blend)
-                + 16 * mirrored;
-            for effect in 0..4 {
-                let i = base + effect;
-                family.forward[i].get_or_insert_with(|| {
-                    crate::model_pipeline::pipeline(
-                        device,
-                        &family.shaders[0],
-                        &family.layouts[i & 1],
-                        i,
-                        false,
-                    )
-                });
-            }
-            if m.alpha_mode != exact_game::asset::AlphaMode::Blend {
-                let i = usize::from(m.double_sided) + mirrored * 2;
-                family.shadow[i].get_or_insert_with(|| {
-                    crate::model_pipeline::pipeline(
-                        device,
-                        &family.shaders[1],
-                        &family.layouts[2],
-                        base,
-                        true,
-                    )
-                });
+            for mirrored in 0..2 {
+                let base = 4 * usize::from(m.double_sided)
+                    + 8 * usize::from(m.alpha_mode == exact_game::asset::AlphaMode::Blend)
+                    + 16 * mirrored;
+                for effect in 0..4 {
+                    let i = base + effect;
+                    family.forward[i].get_or_insert_with(|| {
+                        crate::model_pipeline::pipeline(
+                            device,
+                            &family.shaders[0],
+                            &family.layouts[i & 1],
+                            i,
+                            false,
+                        )
+                    });
+                }
+                if m.alpha_mode != exact_game::asset::AlphaMode::Blend {
+                    let i = usize::from(m.double_sided) + mirrored * 2;
+                    family.shadow[i].get_or_insert_with(|| {
+                        crate::model_pipeline::pipeline(
+                            device,
+                            &family.shaders[1],
+                            &family.layouts[2],
+                            base,
+                            true,
+                        )
+                    });
+                }
             }
         }
     }
@@ -409,6 +416,7 @@ fn make_pipeline(
     format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
     constants: &[(&str, f64)],
+    mirrored: bool,
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
@@ -439,6 +447,11 @@ fn make_pipeline(
             },
         }),
         primitive: wgpu::PrimitiveState {
+            front_face: if mirrored {
+                wgpu::FrontFace::Cw
+            } else {
+                wgpu::FrontFace::Ccw
+            },
             cull_mode: if buffers.is_empty() {
                 None
             } else {

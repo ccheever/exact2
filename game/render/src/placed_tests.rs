@@ -508,7 +508,7 @@ fn displayed_unresolved_follower_logs_once_and_falls_back() {
         before.len(),
         "presentation diagnostics must not enter saves"
     );
-    let errors: Vec<_> = attachments.diagnostics.values().collect();
+    let errors: Vec<_> = attachments.diagnostics.borrow().values().cloned().collect();
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("lost-charm") && errors[0].contains("missing-head"));
     attachments.frame(0.5);
@@ -517,7 +517,16 @@ fn displayed_unresolved_follower_logs_once_and_falls_back() {
 
 #[test]
 fn displayed_stale_follower_logs_once_by_name() {
-    let mut w = World::new(60, 0);
+    struct Skipped;
+    impl exact_game::Game for Skipped {
+        const ID: &'static str = "skipped-animation";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    let mut sim = exact_game::Sim::<Skipped>::new(()).unwrap();
+    sim.run(17.);
+    let w = sim.world_mut();
     w.spawn_named(
         "head",
         (
@@ -535,11 +544,41 @@ fn displayed_stale_follower_logs_once_by_name() {
     );
     let mut a = scene::Attachments::default();
     for _ in 0..3 {
-        a.feed(&w, false, false, false, false);
+        a.feed(w, false, false, false, false);
     }
-    let errors: Vec<_> = a.diagnostics.values().collect();
+    let errors: Vec<_> = a.diagnostics.borrow().values().cloned().collect();
     assert_eq!(errors.len(), 1);
     assert!(
         errors[0].contains("charm") && errors[0].contains("head") && errors[0].contains("stale")
+    );
+}
+
+#[test]
+fn attachment_diagnostics_are_shared_and_history_reset_keeps_them() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn_named(
+        "lost",
+        (
+            Transform::default(),
+            exact_game::SocketFollow::new("missing", "head"),
+        ),
+    );
+    let mut a = scene::Attachments::default();
+    let mut b = scene::Attachments::default();
+    b.diagnostics = a.diagnostics.clone();
+    a.feed(&w, true, false, false, false);
+    assert!(
+        b.diagnostics.borrow().contains_key(&e),
+        "second feed must see the first warning"
+    );
+    a.reset();
+    assert!(a.diagnostics.borrow().contains_key(&e));
+    b.feed(&w, true, false, false, false);
+    assert_eq!(a.diagnostics.borrow().len(), 1);
+    w.despawn(e);
+    b.feed(&w, false, false, false, false);
+    assert!(
+        a.diagnostics.borrow().is_empty(),
+        "dead entity warnings are pruned for both feeds"
     );
 }

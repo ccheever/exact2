@@ -784,7 +784,7 @@ export async function tapRefusal(session, target, error) {
       if (!state?.entity?.placed?.hidden) continue;
       const box = await session.layout(owner);
       const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
-      error.message = `${target} is ${reason}: layout ${owner} --json shows visibility and any available screen box; layout ${target} shows the child when mounted`;
+      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
       return error;
     }
   } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
@@ -935,6 +935,12 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
      */
     async pointer(phase, opts = {}) {
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+      if (!s.contact && ['up','cancel'].includes(phase)) {
+        const state = await s.state();
+        const contacts = (state.world ?? []).flatMap(w => (w.input?.controlContacts ?? []).filter(c=>c.id<4294967292).map(c=>({...c,canvas:w.canvas})));
+        if (contacts.length === 1) return s.op({op:'tap',id:contacts[0].canvas,contact:contacts[0].id,phase});
+        if (contacts.length > 1) throw new Error('multiple restored contacts; release one with tap and its contact ID');
+      }
       if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
       const r = await carrier.input(null, phase, opts);
       if (r.delivery !== 'unsupported') {

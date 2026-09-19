@@ -246,3 +246,42 @@ fn same_entity_movement_controllers_are_refused_by_both_handles() {
         );
     }
 }
+
+#[test]
+fn one_sided_controller_errors_name_the_missing_requested_controller() {
+    let mut w = exact_game::World::new(60, 7);
+    w.spawn_named(
+        "capsule-only",
+        (
+            exact_game::Transform::default(),
+            CapsuleController::default(),
+        ),
+    );
+    w.spawn_named(
+        "character-only",
+        (
+            exact_game::Transform::default(),
+            exact_game::character::Character::new(),
+        ),
+    );
+    for (name, missing) in [
+        ("capsule-only", "Character"),
+        ("character-only", "CapsuleController"),
+    ] {
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if name == "capsule-only" {
+                let _ = w.character(name);
+            } else {
+                let _ = physics::capsule(&mut w, name);
+            }
+        }))
+        .expect_err("missing controller accepted");
+        let text = error.downcast_ref::<String>().unwrap();
+        assert!(
+            text.contains(name)
+                && text.contains(&format!("has no {missing}"))
+                && !text.contains("has both"),
+            "{text}"
+        );
+    }
+}

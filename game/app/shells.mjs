@@ -116,7 +116,11 @@ export function gameShells(dir, game, workspace) {
     const bakeArt = existsSync(resolve(appDir, 'art')) || existsSync(resolve(appDir, '.baked-assets.json'));
     for (const kind of ['gpu', 'web', 'apple', 'linux']) {
       const shellName = `${key}-${kind}`, shell = resolve(root, shellName);
-      const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false${kind === 'linux' ? '' : `\n\n[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]`}\n\n[dependencies]\n`;
+      // These adapters contain entry points only; tests live in authored crates.
+      const target = kind === 'linux'
+        ? `[[bin]]\nname = "${name}-linux"\npath = "src/main.rs"\ntest = false`
+        : `[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]\ntest = false\ndoctest = false`;
+      const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n${target}\n\n[dependencies]\n`;
       const dependencies = kind === 'gpu'
         ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n${bakeArt ? '\n[build-dependencies]\nexact-game-bake.workspace = true\n' : ''}`
         : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;

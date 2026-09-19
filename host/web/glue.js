@@ -1193,7 +1193,7 @@ function agentNow(request) { const r = agentReply(request), decorate = globalThi
 function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
-    if (request.entity !== undefined || request.world === true) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
+    if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     switch (request.op) {
       case "state": {
         const st = ask(request);

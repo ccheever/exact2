@@ -51,6 +51,8 @@ final class Canvases {
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
+        var controls: [Int: SurfaceControl] = [:]
+        var recoveryRedelivery = false
         var restorePending = false
         var restoreError: String?
         /// The surface samples the children (LLP 1014 D2): the overlay is

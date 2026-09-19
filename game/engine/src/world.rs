@@ -36,22 +36,22 @@ impl Entity {
 pub trait Target {
     /// Name or slot for a setup error.
     fn label(&self) -> String;
-    /// Resolve a live entity, without reviving a stale handle.
-    fn entity(self, world: &World) -> Option<Entity>;
+    /// Resolve a live entity without consuming its diagnostic label or reviving a stale handle.
+    fn entity(&self, world: &World) -> Option<Entity>;
 }
 impl Target for Entity {
     fn label(&self) -> String {
         format!("#{}", self.index())
     }
-    fn entity(self, world: &World) -> Option<Entity> {
-        world.contains(self).then_some(self)
+    fn entity(&self, world: &World) -> Option<Entity> {
+        world.contains(*self).then_some(*self)
     }
 }
 impl Target for &str {
     fn label(&self) -> String {
         (*self).into()
     }
-    fn entity(self, world: &World) -> Option<Entity> {
+    fn entity(&self, world: &World) -> Option<Entity> {
         world.resolve(self)
     }
 }

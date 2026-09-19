@@ -43,8 +43,11 @@ impl Motion {
         self.playback(target).is_some_and(|p| p.crossed(marker))
     }
 }
-pub(super) type SocketCache =
-    BTreeMap<(String, String), (std::sync::Weak<Model>, Result<u32, String>)>;
+pub(super) struct ModelSockets {
+    model: std::sync::Weak<Model>,
+    joints: BTreeMap<String, Result<u32, String>>,
+}
+pub(super) type SocketCache = BTreeMap<String, ModelSockets>;
 /// Resolve a joint per loaded rig, including cached named refusals.
 pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result<u32, String> {
     let e = target.entity(w).ok_or("socket target does not exist")?;
@@ -58,27 +61,29 @@ pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result
         .get(name)
         .map(|asset| &asset.model)
         .ok_or_else(|| format!("socket model `{name}` not loaded"))?;
-    let runtime = w.derived::<Runtime>();
-    let mut cache = runtime.sockets.borrow_mut();
-    let cached = cache
-        .entry((name.clone(), joint.into()))
-        .or_insert_with(|| {
-            (
-                std::sync::Arc::downgrade(model),
-                named_node(model, joint).ok_or_else(|| format!("unknown socket `{joint}`")),
-            )
-        });
-    if !cached
-        .0
-        .upgrade()
-        .is_some_and(|old| std::sync::Arc::ptr_eq(&old, model))
-    {
-        *cached = (
-            std::sync::Arc::downgrade(model),
-            named_node(model, joint).ok_or_else(|| format!("unknown socket `{joint}`")),
+    let mut runtime = w.derived::<Runtime>();
+    let cache = &mut runtime.sockets;
+    if !cache.get(name).is_some_and(|cached| {
+        cached
+            .model
+            .upgrade()
+            .is_some_and(|old| std::sync::Arc::ptr_eq(&old, model))
+    }) {
+        cache.insert(
+            name.clone(),
+            ModelSockets {
+                model: std::sync::Arc::downgrade(model),
+                joints: BTreeMap::new(),
+            },
         );
     }
-    cached.1.clone()
+    let joints = &mut cache.get_mut(name).unwrap().joints;
+    if let Some(node) = joints.get(joint) {
+        return node.clone();
+    }
+    let node = named_node(model, joint).ok_or_else(|| format!("unknown socket `{joint}`"));
+    joints.insert(joint.into(), node.clone());
+    node
 }
 /// Current tick-boundary socket in world space. Call `step`, apply its Motion to
 /// the owner Transform, then query sockets. Presentation samples locals at frame alpha.
@@ -94,10 +99,9 @@ pub fn socket(w: &World, target: impl crate::Target, joint: &str) -> Result<Tran
 }
 /// Full affine tick-boundary socket, preserving shear from non-uniform ancestors.
 pub fn socket_matrix(w: &World, target: impl crate::Target, joint: &str) -> Result<Mat4, String> {
-    let label = target.label();
     let e = target
         .entity(w)
-        .ok_or_else(|| format!("socket target does not exist: `{label}`"))?;
+        .ok_or_else(|| format!("socket target does not exist: `{}`", target.label()))?;
     socket_matrix_with(w, e, joint, w.len() + 1)
 }
 pub(crate) fn socket_matrix_with(
@@ -106,25 +110,38 @@ pub(crate) fn socket_matrix_with(
     joint: &str,
     remaining: usize,
 ) -> Result<Mat4, String> {
-    let label = w
-        .name(e)
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("#{}", e.index()));
+    let label = || {
+        w.name(e)
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("#{}", e.index()))
+    };
     if remaining == 0 {
-        return Err(format!("socket target `{label}` has a follower cycle"));
+        return Err(format!("socket target `{}` has a follower cycle", label()));
     }
-    let pose = w.get::<Pose>(e);
-    if w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e) {
-        let stepped = pose.as_ref().and_then(|p| p.stepped);
-        let fresh = stepped == Some(w.tick())
-            || (!w.in_tick
-                && w.tick()
+    if socket_stale(w, e) {
+        return Err(format!("socket target `{}` has a stale pose; call animation::step(w), apply Motion, then query socket", label()));
+    }
+    compose_socket(w, e, joint, remaining)
+}
+/// Whether an animated socket needs this tick's animation step. Setup's bind pose is valid.
+pub fn socket_stale(w: &World, e: Entity) -> bool {
+    if !(w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e)) {
+        return false;
+    }
+    let stepped = w.get::<Pose>(e).and_then(|p| p.stepped);
+    !(stepped == Some(w.tick())
+        || (!w.in_tick
+            && ((w.tick() == 0 && stepped.is_none())
+                || w.tick()
                     .checked_sub(1)
-                    .is_some_and(|tick| stepped == Some(tick)));
-        if !fresh {
-            return Err(format!("socket target `{label}` has a stale pose; call animation::step(w), apply Motion, then query socket"));
-        }
+                    .is_some_and(|tick| stepped == Some(tick)))))
+}
+fn compose_socket(w: &World, e: Entity, joint: &str, remaining: usize) -> Result<Mat4, String> {
+    if remaining == 0 {
+        return Err("socket follower cycle".into());
     }
+    let label = w.name(e).unwrap_or("unnamed");
+    let pose = w.get::<Pose>(e);
     let node = socket_node(w, e, joint)?;
     let mesh = w.get::<Mesh>(e).unwrap();
     let Mesh::Asset(name) = &*mesh else {
@@ -164,13 +181,29 @@ fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine
         crate::FollowTarget::Entity(e) => *e,
         crate::FollowTarget::Name(n) => w.named(n)?,
     };
-    let socket = socket_matrix_with(w, target, &follow.joint, remaining).ok()?;
-    Some(
-        crate::Affine3A::from_mat4(socket)
-            * crate::Affine3A::from_scale_rotation_translation(
-                follow.offset.scale,
-                follow.offset.rotation,
-                follow.offset.position,
-            ),
-    )
+    if !w.contains(target) {
+        return None;
+    }
+    if socket_stale(w, target) {
+        if let Some((old, pose)) = w.derived::<FollowerPoses>().0.get(&e) {
+            if *old == target {
+                return Some(*pose);
+            }
+        }
+    }
+    // A restored stale boundary still has its saved local joint pose. Explicit
+    // socket queries refuse it; followers can reconstruct without an authored snap.
+    let socket = compose_socket(w, target, &follow.joint, remaining).ok()?;
+    let pose = crate::Affine3A::from_mat4(socket)
+        * crate::Affine3A::from_scale_rotation_translation(
+            follow.offset.scale,
+            follow.offset.rotation,
+            follow.offset.position,
+        );
+    let mut cache = w.derived::<FollowerPoses>();
+    cache.0.retain(|entity, _| w.contains(*entity));
+    cache.0.insert(e, (target, pose));
+    Some(pose)
 }
+#[derive(Default)]
+struct FollowerPoses(BTreeMap<Entity, (Entity, crate::Affine3A)>);

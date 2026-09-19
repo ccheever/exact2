@@ -31,18 +31,18 @@ final class CanvasInput {
         if let view { view.canvases?.input(view, ["t": "blur"]) }
     }
     func touches(_ values: Set<UITouch>, phase: String, source: NodeView) -> Bool {
-        guard let view, !view.disabled, !view.inert else { return false }
+        guard let view, phase != "down" || (!view.disabled && !view.inert) else { return false }
         var sent = false
         for touch in values where touch.view === source || source.isSurfaceControl {
             let token = ObjectIdentifier(touch)
             if phase == "down" {
-                if !source.isSurfaceControl { _ = view.focusCanvas() }
+                if source.isSurfaceControl || source.ownsSurfaceControl { _ = source.becomeFirstResponder() } else { _ = view.focusCanvas() }
                 touches[token] = nextTouch
                 nextTouch += 1
             }
             guard let id = touches[token] else { continue }
             let p = source.local(touch.location(in: nil))
-            if source.isSurfaceControl {
+            if source.isSurfaceControl || source.ownsSurfaceControl {
                 let ok = source.control(phase, id: id, point: p, timestamp: touch.timestamp)
                 if phase == "up" || phase == "cancel" { touches.removeValue(forKey: token) }
                 sent = ok || sent; continue
@@ -59,10 +59,10 @@ final class CanvasInput {
         for press in presses {
             guard let key = press.key else { continue }
             let code = KeyCodes.hid(key.keyCode.rawValue)
-            if source.isSurfaceControl && ["Space", "Enter", "NumpadEnter"].contains(code) {
+            if (source.isSurfaceControl || !down) && ["Space", "Enter", "NumpadEnter"].contains(code) {
                 if down && keys.contains(code) { handled = true; continue }
                 if down { keys.insert(code) } else { keys.remove(code) }
-                handled = source.controlKey(code, down: down, timestamp: press.timestamp) || handled; continue
+                if source.controlKey(code, down: down, timestamp: press.timestamp) { handled = true; continue }
             }
             if down {
                 guard source.isFirstResponder, source.forwardsCanvasKey(code,
@@ -107,7 +107,7 @@ extension Agent {
             return ["error": "the contact's canvas is gone"]
         }
         guard let node = continuing ? canvasContact : view(request), (session.canvases.wantsInput(node.id) || node.isSurfaceControl),
-              session.presenter.views[node.id] === node, !node.disabled, !node.inert, let window = node.window else { return nil }
+              session.presenter.views[node.id] === node, continuing || (!node.disabled && !node.inert), let window = node.window else { return nil }
         if request["contextmenu"] != nil || request["dblclick"] != nil { return nil }
         let vp = session.presenter.viewport
         let b = box(node)
@@ -150,7 +150,11 @@ extension Agent {
             contact = phase == "move" ? point : nil
             if contact == nil { canvasContact = nil }
         case "hold":
-            guard contact != nil, send("move") else { return ["error": "no accepted contact is down"] }
+            guard let previous = contact else { return ["error": "no accepted contact is down"] }
+            if point != previous {
+                guard send("move") else { return ["error": "surface refused pointer"] }
+                contact = point
+            }
         default: return ["error": "unknown pointer phase \(phase!)"]
         }
         return ["phase": phase!, "at": at, "delivery": "recognized"]

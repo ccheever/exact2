@@ -5,6 +5,8 @@ final class AssetResolverTests: XCTestCase {
     func testPrefixNamesMaterializeReloadAndCleanUpIndependently() throws {
         var resolver: AssetResolver? = try AssetResolver(root: URL(fileURLWithPath: "/unused"), verified: ["assets/a.tex": Data([1]), "assets/a.tex/x.tex": Data([2])])
         let a = try XCTUnwrap(resolver?.url("assets/a.tex")), b = try XCTUnwrap(resolver?.url("assets/a.tex/x.tex"))
+        let encoded = Data("assets/a.tex".utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        XCTAssertEqual(a.lastPathComponent, encoded)
         XCTAssertEqual(a.deletingLastPathComponent(), b.deletingLastPathComponent())
         for _ in 0..<2 {
             XCTAssertEqual(try resolver?.delivery("assets/a.tex"), Data([1]))

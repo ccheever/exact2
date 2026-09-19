@@ -41,9 +41,9 @@ final class CanvasInput {
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {
         guard let view else { return false }
         let code = KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
-        if source.isSurfaceControl && ["Space", "Enter", "NumpadEnter"].contains(code) {
+        if (source.isSurfaceControl || !down) && ["Space", "Enter", "NumpadEnter"].contains(code) {
             if down && event.isARepeat { return true }
-            return source.controlKey(code, down: down, timestamp: event.timestamp)
+            if source.controlKey(code, down: down, timestamp: event.timestamp) { return true }
         }
         if down {
             guard view.window?.firstResponder === source,

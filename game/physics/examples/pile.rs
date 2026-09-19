@@ -60,7 +60,9 @@ fn main() {
             assert_eq!(hash, minimal::simulate_with_restore(120, mode));
         }
         println!("MINIMAL_HASH_120 continuous=save=fresh-game=0x{hash:016x}");
-        assert_eq!(hash, 0x5608994347e54d28);
+        let pins: std::collections::BTreeMap<String, String> =
+            exact_game::json::from_str(include_str!("../tests/pins.json")).unwrap();
+        assert_eq!(format!("0x{:016x}", hash), pins["minimal-120"]);
         return;
     }
     let counts: Vec<usize> = args.iter().filter_map(|s| s.parse().ok()).collect();

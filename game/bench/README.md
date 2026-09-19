@@ -503,3 +503,118 @@ the primitive check's identity key). Linux uses all three restore modes. All cap
 Beacons and Skinned save pairs agree across hosts. Browser descendant audits report
 `ps` unavailable; recorded children were awaited. Existing root/Apple/perceptual
 gaps remain separate.
+
+### JSON float destinations — 2026-09-18
+
+JSON now parses floats at their destination width. Large integral-looking
+decimals such as `f32::MAX` no longer fail an intermediate u64 conversion, and
+`1.0000000596046448` rounds directly to f32 instead of rounding through f64.
+Reader's default f32/f64 methods preserve binary conversions; integer reads still
+reject overflow. Unknown fields validate number grammar without imposing a numeric
+range on discarded values. Typed float overflow and malformed JSON remain errors.
+
+The isolated production-source pair changes only the three Data files: Beacons
+measures **725,274 → 727,915 raw bytes**, **310,111 → 311,423 gzip bytes** with the
+selected normal-inline scanner. The 650,000-byte target remains unmet. Three
+bounded candidates were tried; forced inlining adds another 5,108 raw bytes and
+is not retained. Three rotating run medians, in µs per 1,000 three-float rows:
+
+| destination | before | normal inline | forced inline |
+|---|---:|---:|---:|
+| f32 | 63.046 | 62.597 | 61.642 |
+| f64 | 61.709 | 61.708 | 57.271 |
+
+Earlier rotating runs measured 52.088 → 57.473 µs for f32 and 51.850 → 55.980 µs
+for f64 with normal inlining. Shared-machine variance prevents a no-regression or
+speedup claim; a quiet comparison remains queued. These are decoding diagnostics,
+not frame timings. Native and Bun WebAssembly separately check 100,000 bit-pattern
+samples per width, decimal/binary round trips, strict integer ranges and the f32
+midpoint case; both produce digest `10542334cfc1939f`. The benchmark's separate
+`input_hash` identifies its input, not decoded output.
+
+The regressions fail before the correction. The initial corrected tree passes
+549 workspace tests (11 ignored), all-target Clippy, formatting, caps and boot;
+Beacons web and Linux's three restore modes pass with six identical save pairs.
+After selecting normal inline, all 10 Data tests, the full placement-response
+round trip, engine all-target Clippy, Data formatting, caps and boot pass. The
+shared-tree web recheck retains the original tick/save pins but fails four
+pointer-control assertions. Concurrent render/host edits also leave workspace
+formatting and all-target Clippy failing (`bool_assert_comparison` in
+`render/tests/core.rs`). Thus the earlier green suite is not a final integrated
+green claim. No pins were changed. Sources, binaries, runs and failures are in
+`/tmp/exact-game-goal-json-floats/`.
+
+### Shared primitive trigonometry — 2026-09-18
+
+Primitive geometry uses glam's existing portable trig backend. `revolve` computes
+one circle and reuses it across rings: 200 temporary bytes at 24 segments, released
+when construction finishes. No author API, manifest flag or retained cache changes.
+Three alternating native pairs, median of seven batches per run, measure four
+primitives (sphere, cylinder and two capsules):
+
+| segments | before (µs) | final (µs) |
+|---|---:|---:|
+| 24 | 8.710 | 7.249 |
+| 64 | 46.143 | 33.351 |
+| 256 | 758.549 | 624.803 |
+
+This is 17–28% faster mesh construction on the shared Mac, not a frame-rate claim.
+The first portable-trig candidate repeated longitudes and was slower; circle reuse
+removes that cost. Portable shadow power was also tried: a cascade fit rose from
+0.166 to 0.202 µs, so `shadows.rs` is restored byte-for-byte. Three candidates close
+here. The final unchanged shadow calculation measures 0.180/0.168 µs in the pair;
+that variation is not an attributed speedup.
+
+Native and Bun WebAssembly produce matching digests of all vertex/index bits for
+32 generated meshes (3–257 segments) and 48 shadow fits, both before and after:
+`5099ec9f61dd99b9` and `17d18412e74cc909`. The CPU probe compiles the actual geometry
+and cascade-fitting source with matching glam/libm versions; unused Wasm host
+imports throw if called, and none is called. It is not a GPU pixel-parity claim.
+
+Normal Beacons builds observe 740,610 → 736,397 raw bytes and 316,850 → 315,404 gzip
+bytes. Concurrent input/render changes prevent attributing the whole delta.
+Pre-opt compiler math attribution falls from 9,787 to 3,021 bytes: the duplicate
+trig/range-reduction routines disappear; shadow power remains. The 650,000-byte
+target is still unmet by 86,397 bytes. Source inventories, binaries, alternating
+runs and link maps are in `/tmp/exact-game-goal-render-math/`.
+
+Workspace build, all-target Clippy, formatting, caps and boot pass. Beacons web and
+Linux normal/Save/FreshGame proofs pass; six captured save files agree byte-for-byte.
+The physical-pointer capture differs only in carrier contact ID and local origin/
+position, with the same tick-6 world hash. The full workspace sweep, including
+documentation checks, passed 559 tests without failures (11 ignored). A temporary
+probe was sampled at `_dyld_start`
+before Rust and later completed; shared Cargo waits and native startup delays make
+these wall times unsuitable as edit-loop measurements. All three math candidates
+are closed. No pin changed; the goal remains active.
+
+### Target labels only on failure — 2026-09-18
+
+`Target::entity` borrows its target so character, audio, socket and physics helpers
+can format the target's name only on refusal. Game calls and error text stay the
+same. Socket cycle/stale-pose labels are lazy too. An instrumented release probe
+calls the real APIs 10,000 times each after warming their caches:
+
+| Operation, by name or entity | Allocations/call before | After |
+|---|---:|---:|
+| Character step | 1 | 0 |
+| Capsule controller lookup (without the physics step) | 1 | 0 |
+| Construct and position an audio play | 2 | 1 |
+| Socket matrix query, retained pose | 4 | 2 |
+
+Unpositioned audio play still allocates once for the sound name. Socket lookup
+still allocates its owned cache keys. Character and socket world hashes match the
+baseline (`6d50cb871af0b48d`, `cae0edfdeefba5ad`). These are allocation counts, not
+frame-rate or elapsed-time measurements. No cache or author-facing option is added.
+
+The normal Beacons build is 736,397 → 737,332 raw bytes and 315,404 → 315,392 gzip;
+this shared-tree comparison is not isolated attribution. The raw-size target
+remains unmet. Two compiler-hint candidates (`cold`, then `inline(never)`) saved
+no raw bytes and compressed seven bytes worse; both were removed. Three candidates
+are closed. Sources, binaries, per-call counts and receipts are in
+`/tmp/exact-game-goal-target-labels/`.
+
+Engine/physics tests pass (328, with 2 ignored), as do the workspace build,
+all-target Clippy and formatting. Beacons web/Linux and the animated-model web
+proof preserve their pins. Linux's first freshly linked launch timed out before
+readiness; its recorded child exited, and a cached retry passed in 5.26 seconds.

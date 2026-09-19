@@ -112,8 +112,9 @@ identity. A primitive world binds no model group and samples no material texture
 Model materials use a separate forward pipeline and alpha-tested shadow pipeline,
 with opaque/mask/blend, culled/double-sided and mirrored variants prepared before
 the prepared surface draws. Device loss preserves Loaded content and re-requests
-texture bytes for upload. Negative-determinant entity-global transforms refuse by
-asset name; baked mirrored nodes use the prepared winding variant.
+texture bytes for upload. Entity transforms and socket attachments select winding
+from the composed determinant together with the baked node transform. Adjacent
+instances with different winding split into separate draw ranges.
 Five texture slots (base colour, normal, metallic-roughness, emission, occlusion)
 share three 1×1 default views and cached samplers. Named textures are shared across
 materials and models, uploaded once per renderer, and released from CPU memory. Colour/emission textures use sRGB texture formats; data maps are

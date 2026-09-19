@@ -30,7 +30,7 @@ pub(crate) struct Placements {
     items: Vec<quads::Item<Placed>>,
     claims: Vec<u16>,
     cameras: Vec<quads::Item<Camera>>,
-    attachments: scene::Attachments,
+    pub(crate) attachments: scene::Attachments,
     stamp: Option<(u64, u64, u64, u64)>,
 }
 impl Placements {
@@ -66,7 +66,11 @@ impl Placements {
             self.items.clear();
             self.claims.clear();
             self.cameras.clear();
-            self.attachments = scene::Attachments::default();
+            self.attachments.reset();
+            self.attachments
+                .diagnostics
+                .borrow_mut()
+                .retain(|e, _| w.contains(*e));
             self.stamp = Some(next);
             return Ok(());
         }

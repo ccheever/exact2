@@ -461,7 +461,7 @@ fn loading_refusals_name_the_state_that_contains_pending_assets() {
     let save = sim.save().unwrap_err().to_string();
     for error in [clock, save] {
         assert!(
-            error.contains("state.world.loading") && error.contains("state.world.assets"),
+            error.contains("world[0].loading") && error.contains("world[0].assets"),
             "{error}"
         );
         assert!(!error.contains("state world:*"), "{error}");

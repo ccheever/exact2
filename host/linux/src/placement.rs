@@ -188,6 +188,42 @@ pub(crate) fn warp_clipped(
 mod tests {
     use super::*;
     #[test]
+    fn rotated_edges_are_opaque_and_sampler_uses_the_inverse() {
+        let mut src = Pixmap::new(8, 8).unwrap();
+        for (i, p) in src.data_mut().chunks_exact_mut(4).enumerate() {
+            p.copy_from_slice(if i % 8 < 4 {
+                &[240, 20, 10, 255]
+            } else {
+                &[10, 20, 240, 255]
+            });
+        }
+        let (c, s) = (0.8, 0.6);
+        let h = [2. * c, -2. * s, 20., 2. * s, 2. * c, 10., 0., 0., 1.];
+        let (out, b) = warp(&src, h, 1., (50., 50.)).unwrap();
+        let mut edge = 0;
+        for y in 0..out.height() {
+            for x in 0..out.width() {
+                let (dx, dy) = (b.0 + x as f32 + 0.5 - 20., b.1 + y as f32 + 0.5 - 10.);
+                // Independent analytic inverse of translation * rotation * scale.
+                let (u, v) = ((c * dx + s * dy) / 2., (-s * dx + c * dy) / 2.);
+                if (0.0..8.).contains(&u) && (0.0..8.).contains(&v) {
+                    let p = out.pixel(x, y).unwrap();
+                    assert_eq!(p.alpha(), 255, "edge ({u},{v})");
+                    if !(0.5..=7.5).contains(&u) || !(0.5..=7.5).contains(&v) {
+                        edge += 1;
+                    }
+                    if u < 3. {
+                        assert_eq!(p.red(), 240);
+                    }
+                    if u > 5. {
+                        assert_eq!(p.blue(), 240);
+                    }
+                }
+            }
+        }
+        assert!(edge > 10);
+    }
+    #[test]
     fn near_clipped_nameplate_retains_visible_pixels_and_rejects_clipped_hits() {
         let mut src = Pixmap::new(100, 50).unwrap();
         src.fill(tiny_skia::Color::WHITE);

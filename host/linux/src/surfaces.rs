@@ -179,12 +179,20 @@ fn verify_module(path: &std::path::Path, compat: &Value) -> Result<(), String> {
     }
     Ok(())
 }
+#[derive(Clone)]
+pub(crate) struct ControlBinding {
+    view: u32,
+    surface: u32,
+    name: String,
+    offset: (f32, f32),
+}
 struct Canvas {
     id: u32,
     name: String,
     owner: bool,
     since: u64,
     held: BTreeSet<String>,
+    restored_controls: Vec<Value>,
     restore_error: Option<String>,
     restore_input: bool,
     restore_bytes: Option<Vec<u8>>,
@@ -211,6 +219,10 @@ impl Canvas {
                 .flatten()
                 .filter_map(|v| v.as_str().map(str::to_owned))
                 .collect();
+            self.restored_controls = state["world"]["input"]["controlContacts"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             self.restore_input = false;
             self.restore_bytes = None;
         }
@@ -307,6 +319,7 @@ impl Surfaces {
                         owner,
                         since: 0,
                         held: BTreeSet::new(),
+                        restored_controls: Vec::new(),
                         restore_error: None,
                         restore_input: false,
                         restore_bytes: None,
@@ -627,25 +640,169 @@ impl<D: DataSource> Presenter<D> {
         contact: u32,
         at: f64,
     ) -> bool {
-        let Some(name) = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(exact_kernel::PropId::Action))
-            .map(str::to_owned)
-        else {
+        self.restore_controls();
+        if phase == "down" && self.control_bindings.contains_key(&contact) {
+            return true;
+        }
+        if phase == "down" {
+            let Some(name) = self
+                .host
+                .kernel()
+                .node(id)
+                .and_then(|n| n.props.str(exact_kernel::PropId::Action))
+                .map(str::to_owned)
+            else {
+                return false;
+            };
+            let Some((ox, oy, _, _)) = self.rect_of(id) else {
+                return false;
+            };
+            let mut surface = Some(id);
+            while surface.is_some_and(|v| !self.surfaces.wants_input(v)) {
+                surface = surface.and_then(|v| self.host.kernel().node(v).and_then(|n| n.parent));
+            }
+            let Some(surface) = surface else {
+                return false;
+            };
+            self.focus = Some(id);
+            self.control_bindings.insert(
+                contact,
+                ControlBinding {
+                    view: id,
+                    surface,
+                    name,
+                    offset: (ox, oy),
+                },
+            );
+        }
+        let Some(owner) = self.control_bindings.get(&contact).cloned() else {
             return false;
         };
-        let Some((ox, oy, _, _)) = self.rect_of(id) else {
-            return false;
-        };
-        self.surface_input(
-            id,
-            json!({"t":"control","name":name,"id":contact,"phase":phase,"x":x-ox,"y":y-oy,"at":at}),
-        )
+        if matches!(phase, "up" | "cancel") {
+            self.control_bindings.remove(&contact);
+        }
+        let accepted = self.surfaces.input(owner.surface, json!({"t":"control","name":owner.name,"id":contact,"phase":phase,"x":x-owner.offset.0,"y":y-owner.offset.1,"at":at}));
+        if !accepted && phase == "down" {
+            self.control_bindings.remove(&contact);
+        }
+        accepted
     }
+    pub(crate) fn restore_controls(&mut self) {
+        for (&surface, canvas) in &mut self.surfaces.canvases {
+            for contact in canvas.restored_controls.drain(..) {
+                let (Some(id), Some(name)) = (contact["id"].as_u64(), contact["action"].as_str())
+                else {
+                    continue;
+                };
+                let view = self
+                    .host
+                    .preorder()
+                    .into_iter()
+                    .find(|v| {
+                        self.host
+                            .kernel()
+                            .node(*v)
+                            .and_then(|n| n.props.str(exact_kernel::PropId::Action))
+                            == Some(name)
+                    })
+                    .unwrap_or(surface);
+                self.control_bindings.insert(
+                    id as u32,
+                    ControlBinding {
+                        view,
+                        surface,
+                        name: name.into(),
+                        offset: (0., 0.),
+                    },
+                );
+                if id < u64::from(u32::MAX - 2) {
+                    self.control_contact = Some((
+                        view,
+                        contact["position"][0].as_f64().unwrap_or(0.) as f32,
+                        contact["position"][1].as_f64().unwrap_or(0.) as f32,
+                    ));
+                }
+            }
+        }
+    }
+    pub(crate) fn cancel_removed_controls(&mut self) {
+        let removed: Vec<_> = self
+            .control_bindings
+            .iter()
+            .filter(|(_, b)| {
+                self.host
+                    .kernel()
+                    .node(b.view)
+                    .and_then(|n| n.props.str(exact_kernel::PropId::Action))
+                    .is_none()
+            })
+            .map(|(id, b)| (*id, b.clone()))
+            .collect();
+        for (id, b) in removed {
+            self.control_input(
+                b.view,
+                "cancel",
+                b.offset.0,
+                b.offset.1,
+                id,
+                self.host.now(),
+            );
+            if id == 1 {
+                self.control_contact = None;
+            }
+        }
+    }
+    /// Route a hardware activation key through focused controls or the canvas.
+    pub fn activation_key(&mut self, key: &str, down: bool) {
+        self.restore_controls();
+        let contact = if key == "Space" {
+            u32::MAX - 1
+        } else {
+            u32::MAX - 2
+        };
+        if !down && self.control_bindings.contains_key(&contact) {
+            self.control_input(0, "up", 0., 0., contact, self.host.now());
+            return;
+        }
+        if let Some(id) = self.focus {
+            let _ = self.type_key(id, key, down);
+        } else if let Some(view) = self
+            .surfaces
+            .canvases
+            .keys()
+            .copied()
+            .find(|v| self.surfaces.wants_input(*v))
+        {
+            self.surface_input(
+                view,
+                json!({"t":"key","code":key,"key":key,"down":down,"at":self.host.now()}),
+            );
+        }
+    }
+
     pub(crate) fn control_tap(&mut self, q: &Value) -> Option<Value> {
+        self.restore_controls();
         let phase = q["phase"].as_str();
+        if let Some(contact) = q["contact"]
+            .as_u64()
+            .filter(|_| matches!(phase, Some("up" | "cancel")))
+        {
+            let owner = self.control_bindings.get(&(contact as u32))?.clone();
+            let ok = self.control_input(
+                owner.view,
+                phase.unwrap(),
+                owner.offset.0,
+                owner.offset.1,
+                contact as u32,
+                self.host.now(),
+            );
+            self.control_contact = None;
+            return Some(if ok {
+                json!({"phase":phase,"delivery":"recognized"})
+            } else {
+                json!({"error":"control release refused"})
+            });
+        }
         let continuing = phase.is_some_and(|p| p != "down");
         let (id, sx, sy) = if continuing {
             self.control_contact?
@@ -672,6 +829,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let phases = match phase {
             None => vec!["down", "up"],
+            Some("hold") if x == sx && y == sy => vec![],
             Some("hold") => vec!["move"],
             Some(p @ ("down" | "move" | "up" | "cancel")) => vec![p],
             _ => return Some(json!({"error":"unknown control phase"})),
@@ -865,6 +1023,7 @@ mod tests {
                 owner: true,
                 since: 0,
                 held: Default::default(),
+                restored_controls: Vec::new(),
                 restore_error: None,
                 restore_input: true,
                 restore_bytes: Some(vec![1]),
@@ -916,8 +1075,13 @@ void gpu_load_headless(void) {}
 uint32_t gpu_recover(void) { return 0; }
 uint32_t gpu_child(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }
-uint32_t gpu_children_mode(void) { return 0; }
-uint32_t gpu_placement(void) { return 0; }
+uint32_t gpu_children_mode(void) { return 3; }
+uint32_t gpu_placement(uint32_t id, uint32_t index, float *h, size_t len) {
+  if (len<16) return 0;
+  for(int i=0;i<16;i++) h[i]=0;
+  h[0]=h[4]=h[8]=h[12]=h[15]=1; h[9]=(float)index;
+  return 1;
+}
 void gpu_unload(void) {}
 uint32_t gpu_create_headless(void) { return 1; }
 uint32_t gpu_bind_at(void) { return 0; }
@@ -926,8 +1090,11 @@ uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
   for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
   return 268435457;
 }
-uint32_t gpu_input(void) { return 0; }
-uint32_t gpu_wants_input(void) { return 0; }
+uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
+  char event[2048]; if(len>=sizeof(event)) return 1; memcpy(event,text,len);event[len]=0;
+  return strstr(event,"control") && !strstr(event,"jump") ? 1 : 0;
+}
+uint32_t gpu_wants_input(void) { return 1; }
 uint32_t gpu_assets(void) { return 0; }
 bool gpu_asset(void) { return true; }
 uint32_t gpu_published(void) { return 268435457; }
@@ -1007,6 +1174,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 owner: true,
                 since: 0,
                 held: BTreeSet::new(),
+                restored_controls: Vec::new(),
                 restore_error: None,
                 restore_input: false,
                 restore_bytes: None,
@@ -1015,6 +1183,153 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         );
         let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
         assert_eq!(reply["hit"]["name"], "cpu");
+        drop(p);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn controls_own_release_and_focus_and_placed_siblings_cover() {
+        #[derive(Default)]
+        struct NoData;
+        impl DataSource for NoData {
+            fn query(
+                &mut self,
+                n: &str,
+                _: &[exact_runner::Value],
+            ) -> Result<exact_runner::Value, exact_runner::DataError> {
+                Err(exact_runner::DataError::UnknownSource(n.into()))
+            }
+        }
+        let (path, compat) = fixture();
+        let source = r#"component Controls
+  state renamed = false
+  action rename writes renamed
+    renamed = true
+  view
+    column
+      canvas testId="world" width=100 height=100
+        button testId="jump" action=(renamed ? "light" : "jump") width=100 height=100
+      button testId="rename" press=rename width=100 height=40
+"#;
+        let plan = contract::compile(source).unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            NoData,
+            (100., 200.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        let find = |p: &Presenter<NoData>, name: &str| {
+            p.host
+                .preorder()
+                .into_iter()
+                .find(|id| {
+                    p.host
+                        .kernel()
+                        .node(*id)
+                        .unwrap()
+                        .props
+                        .str(exact_kernel::PropId::TestId)
+                        == Some(name)
+                })
+                .unwrap()
+        };
+        let canvas = find(&p, "world");
+        let button = find(&p, "jump");
+        let rename = find(&p, "rename");
+        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces.canvases.insert(
+            canvas,
+            Canvas {
+                id: 1,
+                name: "world".into(),
+                owner: true,
+                since: 0,
+                held: Default::default(),
+                restored_controls: vec![],
+                restore_error: None,
+                restore_input: false,
+                restore_bytes: None,
+                restore_logged: false,
+            },
+        );
+        p.boxes();
+        assert!(p.control_input(button, "down", 20., 30., 1, 0.));
+        assert_eq!(p.focus(), Some(button));
+        p.activation_key("Space", true);
+        assert_eq!(p.control_bindings[&(u32::MAX - 1)].name, "jump");
+        p.activation_key("Space", false);
+        assert!(!p.control_bindings.contains_key(&(u32::MAX - 1)));
+        p.focus = None;
+        p.activation_key("Space", true);
+        assert!(p.surfaces.canvases[&canvas].held.contains("Space"));
+        p.activation_key("Space", false);
+        assert!(p.surfaces.canvases[&canvas].held.is_empty());
+        p.focus = Some(button);
+        p.activation_key("Space", true);
+        p.host.dispatch_at(rename, Event::Press, 0.);
+        p.after_commit();
+        p.activation_key("Space", true); // hardware autorepeat keeps the original press
+        assert_eq!(p.control_bindings[&(u32::MAX - 1)].name, "jump");
+        p.activation_key("Space", false);
+        assert!(
+            p.control_input(button, "up", 200., 300., 1, 0.),
+            "release must still be jump"
+        );
+        // Restoration uses the same immutable action even after the binary's HUD changed.
+        p.surfaces
+            .canvases
+            .get_mut(&canvas)
+            .unwrap()
+            .restored_controls = vec![json!({"id":4294967294u32,"action":"jump","position":[0,0]})];
+        assert!(p.type_key(button, "Space", false).is_ok());
+        assert!(!p.control_input(button, "down", 20., 30., 3, 0.));
+        assert!(
+            !p.control_bindings.contains_key(&3),
+            "a refused press owns nothing"
+        );
+        drop(p);
+        let source = r#"component Placed
+  state count = 0
+  action press writes count
+    count = count + 1
+  view
+    canvas testId="world" width=100 height=100
+      button testId="under" width=100 height=100 press=press
+      button testId="cover" width=100 height=100 press=press
+"#;
+        let plan = contract::compile(source).unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            NoData,
+            (100., 100.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        let canvas = find(&p, "world");
+        let under = find(&p, "under");
+        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces.canvases.insert(
+            canvas,
+            Canvas {
+                id: 1,
+                name: "world".into(),
+                owner: true,
+                since: 0,
+                held: Default::default(),
+                restored_controls: vec![],
+                restore_error: None,
+                restore_input: false,
+                restore_bytes: None,
+                restore_logged: false,
+            },
+        );
+        assert!(p.tap(under).unwrap_err().contains("covered or not hit"));
+        assert_eq!(
+            p.host.runner().slot("count"),
+            Some(&exact_runner::Value::Number(0.))
+        );
         drop(p);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

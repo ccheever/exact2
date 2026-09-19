@@ -205,19 +205,21 @@ pub struct CapsuleHandle<'a> {
 }
 /// Address a CapsuleController + Transform by name or handle.
 pub fn capsule(world: &mut World, target: impl Target) -> CapsuleHandle<'_> {
-    let label = target.label();
+    let label = || target.label();
     let entity = target
         .entity(world)
-        .unwrap_or_else(|| panic!("capsule target `{label}` does not exist"));
-    assert!(!world.has::<exact_game::character::Character>(entity),
-        "capsule target `{label}` has both Character and CapsuleController; pick one movement controller");
+        .unwrap_or_else(|| panic!("capsule target `{}` does not exist", label()));
     assert!(
         world.has::<CapsuleController>(entity),
-        "capsule target `{label}` has no CapsuleController"
+        "capsule target `{}` has no CapsuleController",
+        label()
     );
+    assert!(!world.has::<exact_game::character::Character>(entity),
+        "capsule target `{}` has both Character and CapsuleController; pick one movement controller", label());
     assert!(
         world.has::<Transform>(entity),
-        "capsule target `{label}` has no Transform"
+        "capsule target `{}` has no Transform",
+        label()
     );
     CapsuleHandle { world, entity }
 }

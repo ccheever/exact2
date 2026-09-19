@@ -379,9 +379,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 }
                 InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
                 InputEvent::Activation { code, down } => {
-                    if let Some(id) = p.focus() {
-                        let _ = p.type_key(id, if code == 57 { "Space" } else { "Enter" }, down);
-                    }
+                    p.activation_key(if code == 57 { "Space" } else { "Enter" }, down);
                 }
                 InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
                 InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),

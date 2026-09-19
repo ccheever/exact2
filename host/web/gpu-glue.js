@@ -22,6 +22,7 @@ inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
 let loaded = false;
 let recoveringDevice;
+let pendingCutover;
 let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
 let raf = null;
 let finishReady;
@@ -168,12 +169,17 @@ function recoverDevice() {
   if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
-  const staged = entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
+  const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
   for (const entry of entries) cancelAssets(entry);
   recoveringDevice = (async () => {
-    const outcome = JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
-    if (gpu !== module) return;
+    const outcome = pendingCutover?.module === module ? pendingCutover.outcome : JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
+    if (gpu !== module) { for (const [, e] of staged) e.el.remove(); return; }
+    if (["healthy", "no device"].includes(outcome.status)) {
+      for (const [, e] of staged) e.el.remove();
+      exact.gpu.recovery = outcome; recoveryFailures = 0; return;
+    }
     if (outcome.status !== "recovered") throw new Error(JSON.stringify(outcome));
+    pendingCutover = {module, staged, outcome};
     for (const [old, entry] of staged) {
       if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
       entry.values = old.values;
@@ -183,11 +189,21 @@ function recoverDevice() {
       entry.wants = true; delete entry.renderedAt;
       attach(entry); assets(entry);
     }
+    pendingCutover = null;
     exact.gpu.recovery = outcome;
     recoveryFailures = 0;
     schedule();
   })().catch(error => {
-    for (const [, entry] of staged) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
+    for (const [old, entry] of staged) {
+      cancelAssets(entry); entry.observer?.disconnect(); entry.unlisten?.();
+      if (surfaces.get(old.view) === entry) {
+        entry.el.replaceWith(old.el); surfaces.set(old.view, old);
+        if (publishers.get(old.name) === entry) publishers.set(old.name, old);
+        if (old.host === old.el) exact.views.set(old.view, old.el);
+      }
+      if (live(old.view) === old) attach(old);
+      if (!pendingCutover) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
+    }
     recoveryFailures++;
     if (recoveryFailures < 5) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
     exact.gpu.recovery = {status:"failed", error:String(error)};
@@ -370,20 +386,38 @@ function listen(entry) {
     };
     if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   };
-  const controls = new Map(), controlKeys = new Map();
+  const controls = entry.controls ??= new Map(), controlKeys = entry.controlKeys ??= new Map();
   const control = target => {
     const node = target instanceof Element ? target.closest('button[data-action]') : null;
-    return node && node.closest('[data-gpu-input]') === el && !node.disabled && !node.closest('[inert]') ? node : null;
+    return node && node.closest('[data-gpu-input]') === el && node.getAttribute('data-action') && !node.disabled && !node.hidden && !node.closest('[hidden], [inert]') && !node.closest('[inert]') ? node : null;
   };
-  const sendControl = (event, node, phase, id, x = 0, y = 0) => send(event, {t:"control", name:node.getAttribute("data-action"), phase, id, x, y});
+  const binding = node => { const r = node.getBoundingClientRect(); return {node, name:node.getAttribute("data-action"), left:r.left, top:r.top}; };
+  const sendControl = (event, owner, phase, id, x = 0, y = 0) => send(event, {t:"control", name:owner.name, phase, id, x, y});
+  const cancelRemoved = () => {
+    for (const owners of [controls, controlKeys]) for (const [key, owner] of owners) {
+      if (owner.node && (!owner.node.isConnected || !owner.node.getAttribute("data-action"))) {
+        sendControl({timeStamp:performance.now()}, owner, "cancel", owners === controls ? key : key === "Space" ? 4294967294 : 4294967293);
+        owners.delete(key);
+      }
+    }
+  };
+  const mutations = new MutationObserver(cancelRemoved);
+  mutations.observe(el, {subtree:true, childList:true, attributes:true, attributeFilter:["data-action"]});
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
-    const button = controls.get(event.pointerId) ?? control(event.target);
+    const wasControl = controls.has(event.pointerId);
+    cancelRemoved();
+    if (wasControl && !controls.has(event.pointerId)) { event.preventDefault(); return; }
+    let owner = controls.get(event.pointerId);
+    const button = phase === "down" ? control(event.target) : null;
     if (button) {
-      if (phase === "down") { controls.set(event.pointerId, button); button.setPointerCapture(event.pointerId); }
-      const r = button.getBoundingClientRect();
-      sendControl(event, button, phase, event.pointerId, event.clientX-r.left, event.clientY-r.top);
+      owner = binding(button); controls.set(event.pointerId, owner);
+      try { button.setPointerCapture(event.pointerId); } catch {}
+      button.focus({preventScroll:true});
+    }
+    if (owner) {
+      sendControl(event, owner, phase, event.pointerId, event.clientX-owner.left, event.clientY-owner.top);
       if (phase === "up" || phase === "cancel") controls.delete(event.pointerId);
       event.preventDefault(); return;
     }
@@ -407,6 +441,13 @@ function listen(entry) {
     const world = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world;
     if (!world?.restored) return;
     held.clear(); for (const code of world.input?.forwarded ?? []) held.add(code);
+    controls.clear(); controlKeys.clear();
+    for (const contact of world.input?.controlContacts ?? []) {
+      const owner = {name:contact.action, left:0, top:0, origin:contact.origin, position:contact.position};
+      if (contact.id === 4294967294) controlKeys.set("Space", owner);
+      else if (contact.id === 4294967293) controlKeys.set("Enter", owner);
+      else controls.set(contact.id, owner);
+    }
     delete entry.restoredCarry;
   };
   entry.resampleHeld();
@@ -418,7 +459,7 @@ function listen(entry) {
     const button = control(target);
     if (button && ["Space", "Enter", "NumpadEnter"].includes(event.code)) {
       event.preventDefault();
-      if (!controlKeys.has(event.code)) { controlKeys.set(event.code, button); sendControl(event, button, "down", event.code === "Space" ? 4294967294 : 4294967293); }
+      if (!controlKeys.has(event.code)) { controlKeys.set(event.code, binding(button)); sendControl(event, controlKeys.get(event.code), "down", event.code === "Space" ? 4294967294 : 4294967293); }
       return;
     }
     if (["Space", "Enter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
@@ -427,6 +468,7 @@ function listen(entry) {
     send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });
   });
   on("keyup", event => {
+    entry.resampleHeld();
     const button = controlKeys.get(event.code);
     if (button) { controlKeys.delete(event.code); sendControl(event, button, "up", event.code === "Space" ? 4294967294 : 4294967293); event.preventDefault(); return; }
     entry.resampleHeld();
@@ -436,10 +478,11 @@ function listen(entry) {
   const inactive = event => blur(event);
   window.addEventListener("blur", inactive);
   // Assistive technology activates a button without a pointer/key sequence.
-  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, button, "down", 4294967292); sendControl(event, button, "up", 4294967292); } });
+  on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
   on("focusin", event => { if (editable(event.target)) blur(event); });
   on("focusout", event => { if (!el.contains(event.relatedTarget)) blur(event); });
   entry.unlisten = () => {
+    mutations.disconnect();
     window.removeEventListener("blur", inactive);
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
     entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
@@ -495,10 +538,19 @@ exact.gpu = {
   agent,
   settled,
   wantsInput: (view) => live(view)?.wantsInput === true,
-  answers: (request) => request.entity !== undefined || request.world === true,
+  answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
     const entry = live(request.id);
     if (!entry) return { error: `view ${request.id} has no world` };
+    if (request.op === "tap" && request.contact !== undefined) {
+      entry.resampleHeld?.();
+      const owner = entry.controls?.get(request.contact);
+      if (!owner || !["up", "cancel"].includes(request.phase)) return {error:"no restored contact to release"};
+      const ok = gpu.gpu_input(entry.id, JSON.stringify({t:"control", name:owner.name, id:request.contact, phase:request.phase, x:owner.position?.[0] ?? 0, y:owner.position?.[1] ?? 0, at:exact.now?.() ?? performance.now()}));
+      if (ok) entry.controls.delete(request.contact);
+      messages(entry); schedule();
+      return ok ? tagged({phase:request.phase, delivery:"recognized"}) : {error:gpu.gpu_error()};
+    }
     if (request.op === "focus") {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
       entry.host.focus({ preventScroll: true }); return tagged({ ok: document.activeElement === entry.host });

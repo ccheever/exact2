@@ -493,7 +493,12 @@ fn looping_noise_crossfades_seam_without_changing_one_shots() {
         .highpass_hz(60.0)
         .gain(0.5);
     let original = exact_game_audio::render(&synth, 48000);
-    assert_eq!(exact_game::hash::of(&original), 0xc72651fc30eafc30);
+    let pins: std::collections::BTreeMap<String, String> =
+        exact_game::json::from_str(include_str!("pins.json")).unwrap();
+    assert_eq!(
+        format!("0x{:016x}", exact_game::hash::of(&original)),
+        pins["noise-one-shot-48000"]
+    );
     let looped = exact_game_audio::render(&synth.looped(), 48000);
     let n = looped.len();
     assert_eq!(n, original.len() - 480);

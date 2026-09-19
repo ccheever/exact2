@@ -126,6 +126,9 @@ export function pinRecorder(previous, name, check, collecting = false) {
 }
 // Compare the captured hosts directly; separate oracle checks cannot prove parity.
 export function comparePlacement(linux, web, tolerance = 0.5) {
+  for (const sample of ['initial','moving']) {
+    if (!Number.isInteger(linux?.[sample]?.tick) || linux[sample].tick !== web?.[sample]?.tick) throw new Error(`placement parity ${sample}.tick differs`);
+  }
   for (const sample of ['initial','moving']) for (const key of ['x','y','w','h']) {
     const a=linux?.[sample]?.[key], b=web?.[sample]?.[key];
     if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a-b)>tolerance)
@@ -140,12 +143,12 @@ export function facilityReport(replies) {
   const stalls = replies.filter(r => r.method === 'clock' && r.reply?.settled === false);
   const failures = replies.filter(r => r.error || r.reply?.error);
   const hints = [];
-  const sameSession = (a,b) => a.session === b.session;
+  const sameSession = (a,b) => a.session === b.session && replies.indexOf(a) >= replies.indexOf(b) && (a.clock == null || b.clock == null || a.clock >= b.clock);
   const stateUsed = failure => replies.some(r => sameSession(r,failure) && success(r, 'state') && !r.args?.[0]);
   const busyUsed = stalls.every(stall => replies.some(r => sameSession(r,stall) && success(r, 'state') && r.args?.[0]?.endsWith(':*') && r.args?.[3] === true));
   if (stalls.length) hints.push(`${stalls.length} stalls; state world:* busy exposes moving values and busy reasons${busyUsed ? '' : '; state unused'}`);
   const geometry = failures.filter(r => /\bis hidden\b|\bhidden (?:behind|\()|\bbehind (?:the )?camera\b|\boff screen\b|\bcovered or not hit\b|\bno screen box\b/.test(r.error ?? r.reply.error));
-  if (geometry.some(f => !replies.some(r => sameSession(r,f) && success(r, 'layout') && f.args?.[0] && (r.args?.[0] === f.args[0] || r.args?.[0]?.endsWith(`:${f.args[0]}`))))) hints.push('layout unused; layout <id> --json shows visibility and available screen boxes');
+  if (geometry.some(f => !replies.some(r => sameSession(r,f) && success(r, 'layout') && f.args?.[0] && (r.args?.[0] === f.args[0] || r.args?.[0]?.endsWith(`:${f.args[0]}`))))) hints.push('layout unused; layout <id> (with the driver --json flag) shows visibility and available screen boxes');
   if (failures.some(r => /asset|save|restor/.test(r.error ?? r.reply.error) && !stateUsed(r))) hints.push('state unused; untargeted state exposes pending assets and restore errors');
   if (failures.some(f => !replies.some(r => sameSession(r,f) && success(r, 'logs')))) hints.push('logs unused; logs includes reload/carry refusals');
   if (!stalls.length && !failures.length) hints.push('no recorded stalls or refusals');
@@ -286,11 +289,11 @@ export async function proof(meta, script) {
       return async (...args) => {
         try {
           const reply = await target[method](...args);
-          replies.push({session:id, method, args, reply});
+          replies.push({session:id, method, args, reply, clock:target.now});
           say(`${method} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n${render(method,reply)}`);
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
+          replies.push({session:id, method, args, clock:target.now, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});

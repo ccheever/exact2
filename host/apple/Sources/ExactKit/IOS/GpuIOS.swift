@@ -44,6 +44,8 @@ final class Canvases {
         var wantsInput = false
         var logCursor = 0
         var restoreAttempted = false
+        var controls: [Int: SurfaceControl] = [:]
+        var recoveryRedelivery = false
         var restorePending = false
         var restoreError: String?
         /// The surface samples the children (LLP 1014 D2): the overlay is
@@ -292,8 +294,8 @@ final class Canvases {
         // The texture about to be drawn into may be the one the module is
         // reading (its last frame; its copy into the previous children):
         // its work first.
-        if !m.recovered, !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
-        if !m.recovered, !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
+        if m.lossGeneration == 0, !Capture.cpu, m.textureMetal != nil, Shadow.shared != nil, let sync = m.sync { _ = sync() }
+        if m.lossGeneration == 0, !Capture.cpu, let hand = m.textureMetal, let shadow = Shadow.shared, let texture = shadow.renderTexture(overlay, scale: scale) {
             // Zero-copy (LLP 1008 §9): the module samples the texture the
             // renderer drew, as it is.
             guard live(e.view.id) === e else { return }

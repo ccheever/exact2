@@ -203,6 +203,8 @@ From `game/`, use `cargo test --workspace --no-fail-fast`,
 `EXACT_UPDATE_TRUST=development`, and `EXACT_IDENTITY=-`.
 Apple host builds use Xcode's developer directory and no `SDKROOT`.
 The [proof runner](proof.mjs) owns host setup and cleanup; game proofs own assertions.
+Generated host adapters build as products; their empty Cargo test and documentation
+harnesses are disabled. Tests remain in the authored engine and game crates.
 Paranoid proofs run Off, Save and FreshGame; only web needs a final build-only
 step to restore the ordinary artifact. Native keeps one executable.
 
@@ -234,9 +236,13 @@ joint. Socket access refuses a controller's stale pose by target name: the order
 **step → apply Motion → socket**. `animation::socket_matrix` preserves the full affine
 map. `SocketFollow::new("fox", "head").offset(t)` uses that joint and offset for
 `global_position`, agent layout/pick and spatial audio at the tick boundary; its
-saved `Transform` remains the unavailable-target fallback. The renderer recomposes
-the interpolated local chain and keeps its full matrix, including shear. Unresolved
-or stale displayed followers warn once per entity in the host console, outside saved journals. Ordinary transforms use
+saved `Transform` remains the unavailable-target fallback. At setup (tick zero, outside
+a tick), an unstepped controller uses the bind pose, including after restore. A stale
+follower holds its last composed pose while an explicit `socket()` query still refuses.
+The renderer interpolates the owner hierarchy and joint chain locally before composing
+the full affine matrix, retaining shear and mirrored winding. Unresolved or stale
+displayed followers share one warning per entity across placement, rendering and
+history resets, outside saved journals; dead entities are pruned. Ordinary transforms use
 shortest-path normalized linear quaternion interpolation; skin locals use spherical
 interpolation. See the [skinned fixture](games/skinned-fixture/logic/src/lib.rs) and
 [its continuation tests](games/skinned-fixture/logic/tests/sim.rs).
@@ -356,116 +362,81 @@ These are partial receipts, not a clean final-suite claim.
 | placement-fixture | [pins.json](games/placement-fixture/pins.json) |
 
 
-## I1b control carrier receipt (2026-09-18, working tree)
+## I1b control carrier receipt — updated by R10a (2026-09-18)
 
-R9 below supersedes this receipt’s packaging, recovery and simulator-timing limitations.
+This receipt describes the current working tree on `17cfea2c`, including R10a
+and concurrent R10b edits. The earlier packaging block and temporary resolver
+patch were superseded by R9; they are not current limitations.
 
-The same block is in Beacons and `game/new`, verbatim:
+Beacons and `game/new` expose accessible Move, Jump and Light buttons with
+`action="move"`, `action="jump"` and `action="light"`. A pointer down focuses its
+control and owns its original action, contact ID and local origin until release.
+Renaming the action, including during keyboard autorepeat, does not retarget a held contact; clearing it or removing the
+node cancels that contact. Space/Enter uses the focused control. The move stick's
+60-point radius is independent of device pixel scale.
 
-```contract
-          button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
-            text "Move" color="#ffffff" text-align="center" padding-top=36
-          row position="absolute" right=24 bottom=24 gap=12
-            button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
-              text "Jump" color="#ffffff"
-            button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
-              text "Light" color="#202731"
-```
+Untargeted `state` exposes `world[0].input.controls`, `forwardedControls` and
+`controlContacts`. The last includes contact identity, action, origin, position
+and optional keyboard code, including queued edges. Fresh hosts use that record
+to release saved pointer and keyboard contacts without inventing another press.
+Restore rejects unknown saved action names before installing input or its queue.
 
-The button's label remains its accessible name. `tap jump down`, `clock +100`,
-`tap up` holds a control; `tap light` presses and releases it. A move contact
-uses `tap move down`, `tap move by 60 0`, then a clock step and `tap up`.
-Space/Enter on a focused control follows the same named action. `state.world.input`
-exposes `controls` and `forwardedControls` alongside physical `held`/`forwarded`
-keys. The stick uses a 60-point radius around the press origin, independent of
-screen pixel scale. Beacons' copy says Move/Jump/Light on every host.
+The renderer declares **8** storage bindings for the model path (5 scene + 3
+model); the device requests the adapter's supported capacity. Granted and
+required counts remain visible in `world[0].gpu`. Beacons' scene-only path
+requires 5. The iOS run granted 29 bindings.
 
-Binding cost below counts added/removed production lines in the action-carrier
-hunks, relative to I1. It excludes tests, limits, autofocus, performance counters,
-and concurrent recovery/attachment work; generated code costs zero authored lines.
+R10a regression checks cover immutable press bindings, focus, cancellation,
+restored ownership, capture loss, two pointers, CSS coordinates at DPR 3,
+disabled/hidden/inert controls, recovery no-ops and transactional web cutover.
+Shared Apple tests cover replacement loss during recovery and per-canvas
+one-time clock redelivery, including newly created surfaces. Linux tests cover
+passive and actionable descendants, placed siblings and the rotated inverse
+sampler. Agent tests execute the refusal advice as CLI operations; report tests
+reject diagnostics that preceded the failure, and placement comparisons require
+matching ticks (initial 0, moving 60).
 
-| Layer | Added / removed lines |
-|---|---:|
-| Schema / lowering / analysis | 5 + 1 + 42 / 0 |
-| Runner / plan / native and web GPU wrappers | 0 / 0 |
-| GPU event / JSON | 15 + 14 / 0 |
-| WorldSurface event translation and refusal | 27 / 1 |
-| Engine validation / held controls / agent inspection | 49 / 3 |
-| Web property and event carriers | 37 / 3 |
-| Apple shared, UIKit and AppKit carriers | 76 / 21 |
-| Linux input, presenter, agent and GPU carrier | 168 / 8 |
-| Beacons and template control blocks | 7 each / 0 |
+The R10a Beacons proof exercises pointer Jump, cancel → Move, focused Space,
+fresh-host pointer cancellation and release of restored Space. iOS delivery is
+labelled `recognized`: the agent hit-tests through UIKit and calls the shared
+control seam; UIKit does not synthesize a touch. The live simulator run collected
+65 frame samples and 66 renders, with 5 HUD children and no captures. Its frame
+interval p50/p95 was 16.6667/16.6667 ms; these are simulator CPU/presentation
+measurements, not GPU timings.
 
-Web glue also reclaims three header-comment lines to stay within 1,500 lines.
-The compared held-control save uses Space on the Jump button (fixed control ID
-and local origin); the preceding touch check proves actual button input changes
-height. Raw physical contact IDs and font-dependent press coordinates remain
-host observations, so those touches cannot produce identical input-save bytes.
+The web asset proof passes real device destruction, fail-once recovery, identical
+pixels and unchanged preparation counts. A healthy recovery call also preserves
+the original canvas identities. R10a leaves deterministic simulation pins unchanged.
 
-The iOS `recognized` label means GPU acceptance of agent-injected JSON after
-UIKit hit-testing. UIKit did not synthesize a touch. The greybox entity-tap
-assertion is a GPU-accept label; Beacons now additionally holds a raw pointer
-and checks that `input.pointer()` changes player height, and drives named
-controls to movement, jumping and a lit beacon. Real UIKit contacts use the
-same control delivery helper.
+R10a host receipts (ordinary mode, unchanged pins):
 
-The adapter starts from downlevel limits and requests storage and inter-stage
-capacity independently. R8a's current model path needs **eight** vertex storage
-bindings (five scene plus three model), and the renderer declares that count.
-The granted/required counts are visible in `state.world.gpu` and checked by the
-Beacons/Skinned proofs. Native renderer tests check the actual requested device.
-No buffers have been packed; simulator adapter verification is still pending.
+| Proof | Linux | Web | macOS | iOS |
+|---|---|---|---|---|
+| Beacons controls and fresh restore | pass, 77.647 s | pass, 13.027 s | pass, 396.363 s | pass, 248.423 s |
+| Asset recovery | not rerun here | pass, 24.621 s | not rerun here | not rerun here |
+| Placement, pinned ticks 0 and 60 | pass, 438.120 s | pass, 11.098 s | not rerun here | not rerun here |
 
-Recorded matrix so far (no pins changed):
+The explicit Beacons web/Linux comparison passes with equal world hashes; the
+subsequent Linux autorepeat regression and full Beacons rerun pass with unchanged
+pins. Placement rectangles are identical across web/Linux at ticks 0 and 60.
 
-| Game | Linux, including both paranoid modes | Web | iOS |
-|---|---|---|---|
-| Greybox | pass (initial readiness timeout passed on retry) | pass | packaging blocked |
-| Beacons | pass | pass | packaging blocked |
-| Asset | pass | fails the already-queued R8b recovery pixel/preparation checks | packaging blocked |
-| Skinned | pass | pass | packaging blocked |
-| Particles | pass | pass | packaging blocked |
-| Sprites | pass | pass | packaging blocked |
-| Placement | pass | pass | packaging blocked |
+Final validation: game workspace **559 passed, 11 ignored, zero failures**, using
+`RUST_TEST_THREADS=2 CARGO_BUILD_JOBS=2` after stopping a stalled parallel rustdoc
+batch. The targeted `exact-gpu` / `contract-lower` run has 29 passes; ExactKit has
+91 on macOS, and the shared control/recovery suite has 3 on the specified iOS
+simulator. The combined web/Apple-build/proof Bun suite has 134 passes, including
+`--repin` and `--report` regressions. Game and Linux all-target Clippy, root/game
+fmt, root workspace build, boot and explicitly staged scoped caps pass. Caps
+files were unstaged afterward; no R10a commit was made.
 
-Apple's game builder stops before Swift packaging: `scripts/app.mjs` does not
-resolve the hashed rustc unit dep-info for a staticlib+rlib root. Beacons iOS
-reproduced this after the required delayed retry; Beacons macOS and the rebuilt
-host-ios fixture hit the same failure. The isolated repair and regression test
-are prepared in `/tmp/i1b-dep-info.patch` (test passes); applying those two files
-is outside this brief's scope and awaits authorization. ExactKit itself compiles
-on iOS and macOS. The previously built host-ios fixture passes its smoke, which
-is not a final-source runtime receipt. Apple victory focus, all seven iOS games,
-three-host save equality, and live simulator timings remain unverified.
-
-The live iOS proofs now request platform timing and read frame rings plus
-`presentation.sessionRenders`, `sessionCaptures`, `placedChildren`,
-`hiddenChildren` and `hudChildren`. They record render/capture deltas over the
-sample interval. No live simulator numbers were obtained in this run. Seekable
-rings remain explicitly unsampled; no real GPU timing is claimed.
-
-Control stamp/restore/paranoid tests, Contract analysis/lowering, GPU JSON and
-real WorldSurface input tests pass. The final Bun run has 37 passes and two
-existing opt-in skips. Game all-target clippy, root/game formatting, scoped caps,
-boot and the root workspace build pass. The full game test rerun ends with 537 passes, 11 ignored and one
-unrelated `clean_sprites_checkout_bakes_without_generated_ownership` failure:
-`strip.tex` is regenerated but still selected as tracked authored input; the
-delayed targeted retry reproduces it. The initial Greybox inspection snapshot
-was updated only for the two new empty control arrays, not simulation pins.
-Caltrain's web assertions pass, but the overall smoke fails on Chrome's
-Keychain/encryption error output. Root tests are still running in the JavaScript app bakes
-(`/tmp/i1b-root-tests.log`); no root-test pass is claimed.
-
-Final web/Linux comparisons pass for both games, with equal world hashes and
-byte-identical saves: Beacons web 26.471 s / Linux 85.226 s; Skinned web
-21.024 s / Linux 82.100 s (including each run’s rebuild where needed).
-Beacons’ final paranoid Save and FreshGame runs also pass. Skinned’s save
-filenames now agree across hosts; their bytes already agreed. Receipts are in
-`games/{beacons,skinned-fixture}/artifacts/prove/summary.json`. The iOS column
-cannot be added until the packaging resolver is repaired.
+Some earlier proof descendant-process audits timed out; their explicit carrier
+shutdowns completed, but no successful descendant audit is claimed for those runs.
 
 
 ## R9 recovery and simulator receipt (2026-09-18)
+
+Historical R9 measurements follow; the updated I1b/R10a receipt above records
+the current control, autofocus and recovery validation.
 
 A failed adapter retry can receive replacement texture bytes before device
 attachment. WorldSurface now invalidates device assets once per loss, retaining

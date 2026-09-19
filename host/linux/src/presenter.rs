@@ -51,9 +51,10 @@ pub struct Presenter<D: DataSource> {
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,
-    focus: Option<ViewId>,
+    pub(crate) focus: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
+    pub(crate) control_bindings: BTreeMap<u32, crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
     dirty: bool,
@@ -303,6 +304,7 @@ impl<D: DataSource> Presenter<D> {
             autofocus_processed: Default::default(),
             pointer: None,
             control_contact: None,
+            control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             dirty: true,
             surfaces: Default::default(),
@@ -738,6 +740,7 @@ impl<D: DataSource> Presenter<D> {
     /// stale.
     pub(crate) fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
+        self.cancel_removed_controls();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
@@ -1064,7 +1067,9 @@ impl<D: DataSource> Presenter<D> {
         let hit = self.hit(x, y)?;
         if let Some(control) = self.control_target(hit) {
             for phase in ["down", "up"] {
-                self.control_input(control, phase, x, y, 1, now_ms);
+                if !self.control_input(control, phase, x, y, 1, now_ms) {
+                    return None;
+                }
             }
             return Some(control);
         }
@@ -1113,7 +1118,22 @@ impl<D: DataSource> Presenter<D> {
             ));
         }
         let now = self.host.now();
-        self.press_at(x, y, now);
+        let actual = self.hit(x, y).and_then(|hit| {
+            self.control_target(hit)
+                .or_else(|| self.handler_target(hit, EventKind::Press))
+        });
+        if let Some(actual) = actual.filter(|actual| {
+            *actual != id && self.handler_target(id, EventKind::Press) != Some(*actual)
+        }) {
+            return Err(format!(
+                "view {id} activates view {actual} at its projected center"
+            ));
+        }
+        let activated = self.press_at(x, y, now);
+        if actual.is_some() && activated.is_none() {
+            return Err(format!("view {id} did not accept activation"));
+        }
+        let id = activated.unwrap_or(id);
         Ok(format!(
             "{{\"tapped\":{id},\"at\":[{},{}]}}",
             num(r2(x)),
@@ -1258,6 +1278,20 @@ impl<D: DataSource> Presenter<D> {
 
     /// Agent keyboard input uses the same focus and activation path as evdev.
     pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
+        self.restore_controls();
+        let contact = if key == "Space" {
+            u32::MAX - 1
+        } else {
+            u32::MAX - 2
+        };
+        if !down && matches!(key, "Space" | "Enter") && self.control_bindings.contains_key(&contact)
+        {
+            return if self.control_input(id, "up", 0., 0., contact, self.host.now()) {
+                Ok(format!("{{\"typed\":{id}}}"))
+            } else {
+                Err("control release refused".into())
+            };
+        }
         let node = self
             .host
             .kernel()
@@ -1354,6 +1388,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Drop focus.
     pub fn blur(&mut self) {
+        self.control_bindings.clear();
         if let Some((id, _, _)) = self.control_contact.take() {
             self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
         }

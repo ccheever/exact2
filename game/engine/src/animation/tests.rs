@@ -1003,8 +1003,9 @@ fn socket_requires_this_ticks_step_and_motion_precedes_query() {
             Animation::play("slow").motion_root(""),
         ),
     );
-    assert!(socket(&w, "ranger", "").unwrap_err().contains("ranger"));
+    assert!(socket(&w, "ranger", "").is_ok(), "setup reads bind pose");
     w.begin_tick();
+    assert!(socket(&w, "ranger", "").unwrap_err().contains("ranger"));
     let motion = step(&mut w);
     assert!(motion.root_motion("ranger").length() > 0.);
     let before = socket(&w, "ranger", "").unwrap().position;
@@ -1072,4 +1073,69 @@ fn socket_follower_gameplay_bounds_and_pick_use_head_plus_offset() {
         w.resource::<crate::audio::Voices>().voices[0].position,
         Some(want)
     );
+}
+
+#[test]
+fn paused_setup_and_never_stepped_restore_use_bind_socket() {
+    let mut w = world();
+    w.spawn_named(
+        "owner",
+        (
+            Transform::at(3., 2., 1.),
+            Mesh::asset("rig.model"),
+            Animation::play("slow"),
+        ),
+    );
+    w.spawn_named(
+        "charm",
+        (
+            Transform::default(),
+            SocketFollow::new("owner", "").offset(Transform::at(0., 1., 0.)),
+        ),
+    );
+    for restore in [false, true] {
+        if restore {
+            w.load(&w.save()).unwrap();
+        }
+        assert_eq!(w.tick(), 0);
+        assert_eq!(
+            socket(&w, "owner", "").unwrap().position,
+            Vec3::new(3., 2., 1.)
+        );
+        assert_eq!(w.global_position("charm"), Some(Vec3::new(3., 3., 1.)));
+    }
+}
+
+#[test]
+fn stale_follower_keeps_last_composed_pose_while_explicit_socket_refuses() {
+    let mut w = world();
+    w.spawn_named(
+        "owner",
+        (
+            Transform::at(3., 2., 1.),
+            Mesh::asset("rig.model"),
+            Animation::play("slow"),
+        ),
+    );
+    w.spawn_named(
+        "charm",
+        (
+            Transform::default(),
+            SocketFollow::new("owner", "").offset(Transform::at(0., 1., 0.)),
+        ),
+    );
+    w.begin_tick();
+    step(&mut w);
+    w.step_clock();
+    let last = w.global_position("charm").unwrap();
+    w.begin_tick();
+    w.get_mut::<Transform>("owner").unwrap().position += Vec3::splat(10.);
+    w.get_mut::<SocketFollow>("charm").unwrap().offset.position += Vec3::splat(5.);
+    for boundary in [false, true] {
+        if boundary {
+            w.step_clock();
+        }
+        assert!(socket(&w, "owner", "").unwrap_err().contains("stale"));
+        assert_eq!(w.global_position("charm"), Some(last));
+    }
 }

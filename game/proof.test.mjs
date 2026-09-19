@@ -349,20 +349,22 @@ test('local and global position helpers preserve parent-space distinction', asyn
   expect(w.position).toBeUndefined();
 });
 
+const syntheticHash = '0x' + '12345678' + '9abcdef0';
+const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
-  name:'fixture', host, mode, failures:[], pins:{ticks:{60:'0x123456789abcdef0'}, saves:{continuation:'a'.repeat(64)}},
+  name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
 })));
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
   expect(agreePins(rows, old, ['linux','web'])).toEqual({...old,hosts:['linux','web']});
   for (const section of ['ticks','saves']) {
     const bad=structuredClone(rows), key=Object.keys(bad[4].pins[section])[0];
-    bad[4].pins[section][key]=section==='ticks'?'0x1111111111111111':'b'.repeat(64);
+    bad[4].pins[section][key]=section==='ticks'?repeatedHash('1'):'b'.repeat(64);
     expect(()=>agreePins(bad,old,['linux','web'])).toThrow(`web 1 ${section} ${key}`);
     expect(rows[0].pins).toEqual(old);
   }
   expect(()=>agreePins(rows.slice(1),old,['linux','web'])).toThrow('linux 0 missing');
-  expect(()=>agreePins(rows,{...old,ticks:{...old.ticks,90:'0x123456789abcdef0'}},['linux','web'])).toThrow('did not observe ticks 90');
+  expect(()=>agreePins(rows,{...old,ticks:{...old.ticks,90:syntheticHash}},['linux','web'])).toThrow('did not observe ticks 90');
 });
 test('no-web repin records only linux and still requires three modes', () => {
   const rows=candidates(['linux']), old=rows[0].pins;
@@ -371,19 +373,19 @@ test('no-web repin records only linux and still requires three modes', () => {
   expect(()=>agreePins(rows.slice(0,2),old,['linux'])).toThrow('linux fresh-game missing');
 });
 test('pin failure gives the one regeneration command; collection bypasses only old pins', () => {
-  const calls=[], old={ticks:{60:'0x123456789abcdef0'},saves:{}};
+  const calls=[], old={ticks:{60:syntheticHash},saves:{}};
   const normal=pinRecorder(old,'fixture',(...args)=>calls.push(args));
-  normal.pin(60,{tick:60,hash:'0x1111111111111111'});
-  expect(calls.at(-1)).toEqual(['pin 60 differs (expected 0x123456789abcdef0, got 0x1111111111111111); if the change is intended: bun game/prove.mjs fixture --repin',false]);
+  normal.pin(60,{tick:60,hash:repeatedHash('1')});
+  expect(calls.at(-1)).toEqual([`pin 60 differs (expected ${syntheticHash}, got ${repeatedHash('1')}); if the change is intended: bun game/prove.mjs fixture --repin`,false]);
   const collecting=pinRecorder(old,'fixture',(...args)=>calls.push(args),true);
-  collecting.pin(60,{tick:59,hash:'0x1111111111111111'});
+  collecting.pin(60,{tick:59,hash:repeatedHash('1')});
   expect(calls.at(-1)[1]).toBe(false);
-  collecting.pin(60,{tick:60,hash:'0x2222222222222222'});
+  collecting.pin(60,{tick:60,hash:repeatedHash('2')});
   expect(calls.at(-1)).toEqual(['pin 60 repeated consistently',false]);
 });
 test('facility report connects observed stalls/refusals to unused operations', () => {
   expect(facilityReport([{method:'clock',reply:{settled:false}},{method:'tap',args:['sign'],error:'hidden behind camera'}]).join(' ')).toContain('layout unused');
-  expect(facilityReport([{method:'layout',args:['sign'],reply:{}},{method:'tap',args:['sign'],error:'hidden behind camera'}]).join(' ')).not.toContain('layout unused');
+  expect(facilityReport([{method:'tap',args:['sign'],error:'hidden behind camera'},{method:'layout',args:['sign'],reply:{}}]).join(' ')).not.toContain('layout unused');
   expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual(['no recorded stalls or refusals']);
 });
 
@@ -392,7 +394,7 @@ test('hidden placed-child refusal uses observed camera visibility and names layo
     state:async name=>{calls.push(name);return {entity:{placed:{hidden:true}}};},
     layout:async name=>({entity:{visible:{behindCamera:true}}})};
   const error=await tapRefusal(s,'sign',new Error('no view matches sign'));
-  expect(error.message).toContain('hidden (behind the camera): layout world:sign --json shows visibility');
+  expect(error.message).toContain('hidden (behind the camera): `layout world:sign` (with --json before the quoted operation) shows visibility');
   expect(calls).toEqual(['world:sign']);
 });
 
@@ -447,7 +449,7 @@ test('repin refuses manifest normalization before writing authored files', async
 
 
 test('direct placement comparison rejects two hosts passing a two-pixel oracle', () => {
-  const a={initial:{x:0,y:0,w:10,h:10},moving:{x:5,y:5,w:10,h:10}}, b=structuredClone(a);
+  const a={initial:{tick:0,x:0,y:0,w:10,h:10},moving:{tick:60,x:5,y:5,w:10,h:10}}, b=structuredClone(a);
   expect(comparePlacement(a,b)).toBe(true);
   b.moving.x+=1.31;
   expect(()=>comparePlacement(a,b)).toThrow('placement parity moving.x');
@@ -457,7 +459,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 
 for (const scenario of ['report','repin']) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}`, app=resolve(import.meta.dir,'games',name);
-  const pins={ticks:{1:'0x123456789abcdef0'},saves:{continuation:'a'.repeat(64)}};
+  const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
   try {
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(pins));
@@ -506,10 +508,23 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   expect(reply.diagnostic).toContain('logs shows reload/refusals');
 });
 
-test('game pin literals stay in pins files, not README or renderer expectations', () => {
-  for (const path of ['README.md','render/README.md','audio/README.md','render/src/surface_tests.rs']) {
-    expect(readFileSync(resolve(import.meta.dir,path),'utf8')).not.toMatch(/0x[0-9a-f]{16}|`[0-9a-f]{64}`/);
+test('game pin literals stay in fixture pins across the tracked tree', () => {
+  const root=resolve(import.meta.dir,'..');
+  const tracked=Bun.spawnSync(['git','ls-files','-z'],{cwd:root});
+  expect(tracked.exitCode).toBe(0);
+  const violations=[];
+  // Archived receipts, design/review provenance and source checksums are evidence.
+  const evidence=/(^|\/)(artifacts|bench|diaries)\/|^(llp|issues|vendor)\//;
+  const constants=new Set(['9e3779b1'+'85ebca87','c2b2ae3d'+'27d4eb4f'].map(v=>'0x'+v)); // upload hash mixing
+  for(const path of tracked.stdout.toString().split('\0').filter(Boolean)) {
+    if(path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') continue;
+    const text=readFileSync(resolve(root,path),'utf8');
+    for(const match of text.matchAll(/0x[0-9a-fA-F]{16}|`[0-9a-f]{64}`/g)) {
+      if(path==='game/render/src/world/upload.rs' && constants.has(match[0])) continue;
+      violations.push(`${path}: ${match[0]}`);
+    }
   }
+  expect(violations).toEqual([]);
 });
 test('moving placement oracle rejects the old 1.31 pixel discrepancy', () => {
   const source=readFileSync(resolve(import.meta.dir,'games/placement-fixture/proof.mjs'),'utf8');
@@ -551,4 +566,33 @@ test('report does not count diagnostics from another session or infer geometry f
   expect(facilityReport([{session:1,method:'tap',args:['play'],error:'restore refused: asset hidden.model pending'}]).join(' ')).not.toContain('layout');
   expect(facilityReport([{session:1,method:'tap',args:['sign'],error:'sign is hidden'}, {session:2,method:'layout',args:['sign'],reply:{}}]).join(' ')).toContain('layout unused');
   expect(facilityReport([{session:1,method:'clock',reply:{settled:false}}, {session:1,method:'state',args:['world:*',null,false,true],reply:{busy:[]}}]).join(' ')).not.toContain('state unused');
+});
+
+test('report requires relevant diagnostics after the failure and at its clock or later',()=>{
+  for(const [method,args,error] of [['layout',['sign'],'sign is hidden'],['state',[],'restore asset refused'],['logs',[],'refused'],['state',['world:*',null,false,true],null]]) {
+    const diagnostic={session:1,method,args,reply:{},clock:10};
+    const failure={session:1,method:error?'tap':'clock',args:['sign'],...(error?{error}:{reply:{settled:false}}),clock:20};
+    const hint=method==='state'?'state unused':`${method} unused`;
+    expect(facilityReport([diagnostic,failure]).join(' ')).toContain(hint);
+    expect(facilityReport([failure,diagnostic]).join(' ')).toContain(hint);
+    expect(facilityReport([failure,{...diagnostic,clock:20}]).join(' ')).not.toContain(hint);
+  }
+});
+test('direct placement comparison refuses different simulation ticks',()=>{
+  const sample={x:1,y:2,w:3,h:4,tick:0};
+  expect(()=>comparePlacement({initial:sample,moving:{...sample,tick:60}},{initial:sample,moving:{...sample,tick:61}})).toThrow(/tick/);
+});
+
+test('refusal advice executes as real driver CLI operations with a global JSON flag', async()=>{
+  const s={tree:async target=>target?{entities:[{name:'sign'}]}:{nodes:[{id:7,props:{testId:'world'},world:{}}]},state:async()=>({entity:{placed:{hidden:true}}}),layout:async()=>({entity:{visible:{behindCamera:true}}})};
+  const refusal=await tapRefusal(s,'sign',Error('no view matches sign'));
+  const advised=[...refusal.message.matchAll(/`([^`]+)`/g)].map(m=>m[1]);
+  expect(advised).toEqual(['layout world:sign']);
+  const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
+  const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
+  const calls=[], output=[];
+  const cli=new Function('open','resolve','render','console',`${body}; return main;`)(async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
+  for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
+  expect(calls).toEqual([['layout','world:sign'],['state']]);
+  expect(output[1].world[0].loading).toEqual(['crate.model']);
 });

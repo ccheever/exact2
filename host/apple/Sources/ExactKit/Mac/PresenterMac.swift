@@ -131,6 +131,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
         toolbar.reset()

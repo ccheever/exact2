@@ -86,7 +86,9 @@ pub struct MaterialId(pub(crate) usize);
 /// Render slots live outside the entity index space and do not allocate entities.
 pub const RENDER_SLOT_BASE: u32 = 1 << 31;
 /// Maximum vertex-stage storage bindings: five scene buffers plus three model buffers.
-pub const STORAGE_BINDINGS: u32 = 8;
+pub const STORAGE_BINDINGS: u32 = SCENE_STORAGE_BINDINGS + 3;
+/// Scene storage shared by the primitive and model pipelines.
+pub const SCENE_STORAGE_BINDINGS: u32 = 5;
 /// One model mesh node under an entity. Geometry/material are batch keys; the
 /// transform slot and full affine offset are uploaded into the instance buffer.
 #[derive(Debug, Clone)]

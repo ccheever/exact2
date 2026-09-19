@@ -85,7 +85,10 @@ pub async fn recover(
         if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
             return Err("recovery canvas table mismatch".into());
         }
-        module.recover().await?;
+        let outcome = module.recover().await?;
+        if !outcome.contains("\"status\":\"recovered\"") {
+            return Ok(outcome);
+        }
         // Stage the whole replacement table. Configurations remain on instances,
         // even when adapter creation, attachment, or a second loss fails.
         let gpu = module.gpu.as_ref().ok_or("no device")?;

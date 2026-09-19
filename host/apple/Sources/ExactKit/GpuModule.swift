@@ -102,7 +102,6 @@ final class GpuModule {
     var recover: LoadFn?
     let canvases = NSHashTable<Canvases>.weakObjects()
     private var recovering = false
-    private(set) var recovered = false
     private var deviceObserver: NSObjectProtocol?
     typealias DeviceIDFn = @convention(c) () -> UInt64
     typealias LostFn = @convention(c) () -> Bool
@@ -112,8 +111,10 @@ final class GpuModule {
     private var activeDeviceID: UInt64 = 0
     private var failures = 0
 
-    func deliveryClock(now: Double) -> [String: Any] {
-        recovered ? ["op": "clock"] : ["op": "clock", "now": now]
+    func deliveryClock(_ entry: Canvases.Entry, now: Double) -> [String: Any] {
+        let redelivery = entry.recoveryRedelivery
+        entry.recoveryRedelivery = false
+        return redelivery ? ["op": "clock"] : ["op": "clock", "now": now]
     }
 
     func removedDevice(_ registryID: UInt64, generation: UInt64) {
@@ -134,7 +135,6 @@ final class GpuModule {
             let outcome = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             if outcome?["status"] as? String == "healthy" { return }
             let ok = outcome?["status"] as? String == "recovered" && self.deviceLost?() == false
-            self.recovered = ok
             if ok {
                 self.lossGeneration += 1; self.failures = 0
                 self.activeDeviceID = self.deviceID?() ?? 0

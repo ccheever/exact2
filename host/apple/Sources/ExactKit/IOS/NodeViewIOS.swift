@@ -471,6 +471,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        cancelSurfaceControls()
         textParent?.textChildren.removeAll { $0 === self }
         textParent = nil
         textChildren.removeAll()
@@ -945,6 +946,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     func applyProps(set: [String: String], clear: [String]) {
+        if clear.contains("action") { cancelSurfaceControls() }
         if clear.contains("scrollLeft") { pendingScrollLeft = nil }
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
@@ -1202,16 +1204,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if (isSurfaceControl ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
         guard !disabled else { pressed = false; return }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if (isSurfaceControl ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if (isSurfaceControl ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { return }
         guard !disabled else { pressed = false; return }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
@@ -1223,7 +1225,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if (isSurfaceControl ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
 

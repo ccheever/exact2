@@ -524,14 +524,33 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   primitive artifact; layout/picking read the retained bounds. Common asset
   ownership still reaches it. Primitive surfaces now reject unsupported assets
   without linking request/retirement or device-residency bookkeeping. Std float
-  formatting is also absent. The latest paired build measures 725,274 bytes,
-  still over target. Measurements and the particle-cost decision are
+  formatting is also absent. Geometry now shares portable trig and computes each
+  longitude once. Target labels now format only on failure. The latest shared-tree
+  module is 737,332 bytes (concurrent edits prevent attributing its whole delta),
+  still over target.
+  Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
-- Game JSON decoding rejects a large integral decimal before considering its
-  destination float type (`f32::MAX` depth reports "integer outside u64 range").
-  Both the previous std writer and the compact writer emit valid decimal JSON;
-  allow finite float destinations without weakening integer overflow rejection.
+- JSON float decoding needs a quiet performance comparison: the selected normal
+  inline scanner measured 52.088 → 57.473 µs, then 63.046 → 62.597 µs per 1,000
+  f32 triples on the shared Mac. Three bounded candidates are recorded in
+  `/tmp/exact-game-goal-json-floats/`; forced inlining added 5,108 module bytes
+  and was rejected. Finite round trips and native/Wasm bit equality now pass.
+
+- Warm socket queries still allocate two cache-key strings per call, after removing
+  diagnostic labels from success paths. `animation::SocketCache` uses an owned
+  `(model, joint)` tuple for every lookup; retain borrowed lookup without another
+  author API. The real-API allocation probe is in `/tmp/exact-game-goal-target-labels/`.
+
+- Shadow splitting retains std `powf`: sharing portable power increased a cascade
+  fit from 0.166 to 0.202 µs in paired native runs, so that candidate was reverted.
+  The retained geometry change removes duplicate trig; three math candidates are
+  closed in `/tmp/exact-game-goal-render-math/`.
+
+- Native verification startup: a live render-math probe spent over a minute at
+  `_dyld_start` before Rust ran; a test harness stalled similarly. Investigate
+  the shared host's launch delay before treating these wall times as engine cost.
+  `/tmp/exact-game-goal-render-math/probe-final.sample.txt` captures the probe.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
   `screenshot run.world world save`, reopen `--world run.world`, then continue;

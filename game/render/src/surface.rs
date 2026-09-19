@@ -136,7 +136,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     }
     fn storage_fits(&mut self, device: &wgpu::Device) -> bool {
         self.storage_limit = device.limits().max_storage_buffers_per_shader_stage;
-        let needed = if ASSETS { crate::STORAGE_BINDINGS } else { 5 };
+        let needed = if ASSETS {
+            crate::STORAGE_BINDINGS
+        } else {
+            crate::SCENE_STORAGE_BINDINGS
+        };
         if self.storage_limit < needed {
             self.error = Some(SurfaceError(format!(
                 "renderer needs {needed} vertex storage buffers; device grants {}",
@@ -199,6 +203,9 @@ fn observer<'a, const ASSETS: bool>(
             }
         }
         if left < 2 && error.is_none() {
+            if let Some((_, feed)) = render {
+                feed.share_attachment_diagnostics(placed.attachments.diagnostics.clone());
+            }
             if let Err(e) = if ASSETS {
                 placed.feed(world)
             } else {
@@ -375,7 +382,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.ready_work = None;
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
-                Feed::default(),
+                {
+                    let mut feed = Feed::default();
+                    feed.share_attachment_diagnostics(self.placed.attachments.diagnostics.clone());
+                    feed
+                },
             ));
             self.format = Some(format);
         }
@@ -398,6 +409,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 )
             })
             .collect();
+        // Resident geometry is independent of draw readiness: a texture still in
+        // flight hides the model but must not evict this pass's accepted bytes.
+        let touched = prepared
+            .iter()
+            .filter(|(_, result)| result.is_ok())
+            .map(|(name, _)| name.clone())
+            .collect();
         for (name, result) in prepared {
             sim.asset_prepared(&name, result);
         }
@@ -417,7 +435,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
         }
         if renderer.retired_bytes(&live) > RETIRED_BUDGET {
-            renderer.compact_assets(format, &live);
+            renderer.compact_assets(format, &live, &touched);
         }
         self.finish_restore();
         self.assets_dirty = false;
@@ -557,7 +575,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.ready_work = None;
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
-                Feed::default(),
+                {
+                    let mut feed = Feed::default();
+                    feed.share_attachment_diagnostics(self.placed.attachments.diagnostics.clone());
+                    feed
+                },
             ));
             self.format = Some(format);
             self.dirty = true;
@@ -888,7 +910,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
             let ready = reasons.is_empty();
             reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"storageBindings\":{},\"requiredStorageBindings\":{},\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
-                exact_game::json::to_string(&reasons).unwrap(), self.storage_limit, if ASSETS { crate::STORAGE_BINDINGS } else { 5 },
+                exact_game::json::to_string(&reasons).unwrap(), self.storage_limit, if ASSETS { crate::STORAGE_BINDINGS } else { crate::SCENE_STORAGE_BINDINGS },
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
             reply.push_str("}}");
@@ -1200,7 +1222,6 @@ mod residency_tests {
         s.assets();
         s.asset("hero.model", Ok(&bytes));
         s.asset("peer.model", Ok(&exact_game::bin::to_vec(&peer)));
-        s.asset(&model.textures[0], Ok(tex));
         let live = s
             .sim
             .as_ref()
@@ -1210,10 +1231,10 @@ mod residency_tests {
             .collect();
         assert!(s.render.as_ref().unwrap().0.retired_bytes(&live) > RETIRED_BUDGET);
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        assert!(s.sim.as_ref().unwrap().model_prepared("hero.model"));
+        assert!(!s.sim.as_ref().unwrap().model_prepared("hero.model"));
         let r = &s.render.as_ref().unwrap().0;
         assert!(
-            r.retired_bytes(&live) < 32 * 1024 * 1024,
+            r.retired_bytes(&live) <= RETIRED_BUDGET,
             "post-preparation compaction ran"
         );
         assert!(
@@ -1226,10 +1247,22 @@ mod residency_tests {
             r.residency_work().since(work).mesh_uploads,
             peer.meshes.len() as u64
         );
+        s.asset(&model.textures[0], Ok(tex));
         let (after, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         assert_eq!(
             before, after,
             "same hero is drawable without duplicate upload"
+        );
+        assert_eq!(
+            s.render
+                .as_ref()
+                .unwrap()
+                .0
+                .residency_work()
+                .since(work)
+                .mesh_uploads,
+            peer.meshes.len() as u64,
+            "closing the pending texture dependency must not upload the hero again"
         );
     }
 

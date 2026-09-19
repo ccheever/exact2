@@ -266,6 +266,16 @@ impl Default for Feed {
     }
 }
 impl Feed {
+    #[cfg(test)]
+    pub(crate) fn attachment_diagnostics(&self) -> &scene::AttachmentDiagnostics {
+        &self.scene.attachments.diagnostics
+    }
+    pub(crate) fn share_attachment_diagnostics(
+        &mut self,
+        diagnostics: scene::AttachmentDiagnostics,
+    ) {
+        self.scene.attachments.diagnostics = diagnostics;
+    }
     /// Filter same-value assignments by hashing only pages with new write generations.
     /// Enabled by default. Disable for streams known to change every leased page.
     pub fn filter_same_values(&mut self, enabled: bool) {
@@ -319,20 +329,6 @@ impl Feed {
             self.reset();
             self.generation = w.presentation_generation();
         }
-        for &entity in &self.assets.entities {
-            if w.global(entity)
-                .is_some_and(|p| p.matrix3.determinant() < 0.)
-            {
-                if let Some(mesh) = w.get::<Mesh>(entity) {
-                    if let Mesh::Asset(name) = &*mesh {
-                        return Err(RenderError::Scene(format!(
-                            "asset `{name}`: negative-determinant entity transform is unsupported"
-                        )));
-                    }
-                }
-            }
-        }
-
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();

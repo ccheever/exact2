@@ -179,17 +179,17 @@ impl World {
     /// println!("{:?}", pose.position);
     /// ```
     pub fn character(&mut self, target: impl Target) -> CharacterHandle<'_> {
-        let label = target.label();
-        let entity = target.entity(self).unwrap_or_else(|| panic!("character target `{label}` does not exist; `tree world` lists names; add `w.spawn_named` in setup"));
-        assert!(!self.has_component_named(entity, "CapsuleController"),
-            "character target `{label}` has both Character and CapsuleController; pick one movement controller");
+        let label = || target.label();
+        let entity = target.entity(self).unwrap_or_else(|| panic!("character target `{}` does not exist; `tree world` lists names; add `w.spawn_named` in setup", label()));
         assert!(
             self.has::<Character>(entity),
-            "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:{label}`"
+            "character target has no Character; add `Character::new()` to its `w.spawn_named` tuple in setup; inspect `state world:{}`", label()
         );
+        assert!(!self.has_component_named(entity, "CapsuleController"),
+            "character target `{}` has both Character and CapsuleController; pick one movement controller", label());
         assert!(
             self.has::<Transform>(entity),
-            "character target has no Transform; add `Transform::default()` to its `w.spawn_named` tuple in setup; inspect `state world:{label}`"
+            "character target has no Transform; add `Transform::default()` to its `w.spawn_named` tuple in setup; inspect `state world:{}`", label()
         );
         CharacterHandle {
             world: self,

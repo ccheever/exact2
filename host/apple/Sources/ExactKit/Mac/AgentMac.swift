@@ -237,9 +237,8 @@ extension Agent {
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
     /// the path a click takes, with the run loop turning between the steps
     /// of a timed move so AppKit tracks them as it would a hand's. Every
-    /// other operation answers while the button is down. AppKit has no
-    /// cancel for a mouse: `cancel` is reported unsupported and the contact
-    /// stays down, never faked as a release.
+    /// other operation answers while the button is down. Mouse cancellation
+    /// releases the platform contact and clears the driver ownership.
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
         let clip = presenter.viewport.contentView
@@ -286,7 +285,9 @@ extension Agent {
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
-            return ["phase": "cancel", "at": at(p), "delivery": "unsupported", "reason": "AppKit has no cancel for a mouse; the contact is still down — send up"]
+            send(.leftMouseUp, p)
+            contact = nil
+            return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
         }

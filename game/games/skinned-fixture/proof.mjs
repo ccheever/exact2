@@ -78,6 +78,21 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, hos
   const finalSave=resolve(out,'fox-120.world');await restored.world('world').save(finalSave);
   check('fresh continuation saves byte-identically',readFileSync(finalSave).equals(readFileSync(referenceSave)));
   await restored.close();
+  // Setup is a presentable bind pose, also after a pre-first-step save.
+  let attached = await start();
+  const setupLayout = await attached.layout('world:charm');
+  check('first present uses the bind socket before a step', (await attached.state()).world[0].tick===0 && setupLayout.entity.world.position.some(v=>Math.abs(v)>0.1), setupLayout);
+  const setupSave=resolve(out,'fox-setup.world'); await attached.world('world').save(setupSave);
+  await attached.close(); attached=await start(setupSave);
+  check('pre-first-step restore keeps the bind socket', equal((await attached.layout('world:charm')).entity.world.position, setupLayout.entity.world.position));
+  await attached.world('world').key_down('KeyM'); await attached.world('world').run(1000/60+.001); await attached.world('world').key_up('KeyM');
+  const charm = await attached.state('world:charm');
+  check('mirrored charm has a negative offset determinant', charm.entity.components.SocketFollow.offset.scale[0]<0, charm);
+  const last=(await attached.layout('world:charm')).entity.world.position;
+  await attached.world('world').key_down('KeyK'); await attached.world('world').run(1000/60+.001); await attached.world('world').key_up('KeyK');
+  check('skipped animation tick holds the composed charm', equal((await attached.layout('world:charm')).entity.world.position,last));
+  await attached.screenshot(resolve(out,`fox-mirrored-skipped-${host}.png`));
+  await attached.close();
   const cli = spawn('bun',[resolve(import.meta.dir,'../../../scripts/agent.mjs'),host,'--json','tap play','state world:fox pose'],{env:process.env,stdio:['ignore','pipe','pipe']});
   let stdout='',stderr=''; cli.stdout.on('data',b=>stdout+=b); cli.stderr.on('data',b=>stderr+=b);
   const code=await new Promise((ok,reject)=>{cli.on('exit',ok);cli.on('error',reject);});

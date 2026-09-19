@@ -417,6 +417,12 @@ impl World {
     pub fn propagate(&mut self) {
         self.resolve_hierarchy(false)
             .expect("runtime cycles are repaired");
+        // Seed completed follower boundaries even when no presenter/audio query ran.
+        if self.attachment_pose.is_some() {
+            for (e, _) in self.query::<&crate::SocketFollow>().iter() {
+                let _ = self.current_global(e);
+            }
+        }
     }
     pub(crate) fn validate_hierarchy(
         &mut self,

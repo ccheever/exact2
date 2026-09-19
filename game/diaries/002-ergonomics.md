@@ -993,3 +993,56 @@ Detailed scope and receipts: `game/bench/README.md`,
 authoring evidence remain open. No commit or shared-index mutation.
 
 **R9 (2026-09-18):** The missing crate was an ordering defect: failed adapter retries allow texture delivery before `device_ready`, which invalidated those bytes a second time. WorldSurface now invalidates once per loss; the real web fail-once destruction proof and `destroyed_device_rebuilds_textured_model_draws_after_delayed_redelivery` on Metal require identical pixels and preparation counts, and both pass after failing before the change. `restore_mode` now proves Carry inserts Animation/Blend/Animator and replaces conflicting kinds while Open stays byte-exact; its primitive pose regression compares the shared `game.assets: true` wording. The score link resolves to Sitting #2. The Apple fixture’s `childrenMode:` repair was already present, and an isolated Skinned macOS bake/proof plus both dep-info resolver tests pass without a packaging edit. The iOS GPU clock now respects platform timing: Beacons and Skinned produce all four timing rings, whose simulator CPU/presentation p50/p95 figures are recorded in `game/README.md`. The Fox crop uses a 1–8% orange fraction (macOS 1.300%, iOS 3.625%); both actual images pass and 95%-white variants fail. Original pins remain unchanged. The requested game checks and host matrix pass (546 workspace tests, 11 ignored; all seven Linux paranoid proofs); the extra Apple sweep has 87 passes and a separately reproduced autofocus-reset assertion queued outside this slice.
+
+**JSON float destinations — 2026-09-18, Codex.** Large finite decimal values now
+round-trip through Data, and f32 parses directly without double rounding. Integer
+overflow stays strict; unknown numeric fields are checked for grammar and skipped.
+Reader gains two default codec methods; game-author code is unchanged. The isolated
+Beacons pair costs 2,641 raw bytes, reaching 727,915. Normal inlining is retained;
+forced inlining's extra 5,108 bytes is rejected, and variable decoding timings remain
+queued for a quiet comparison. Native/Wasm checks of 100,000 samples per width agree
+bit-for-bit. The initial correction passes 549 workspace tests; final Data and
+placement tests, engine Clippy, Data formatting, caps and boot pass. The shared-tree
+recheck fails four Beacons pointer-control assertions plus workspace formatting and
+a renderer-test Clippy lint amid concurrent edits; original Beacons pins still pass.
+The earlier green run does not certify this later integrated tree. Detailed numbers
+and scope: `game/bench/README.md`, `/tmp/exact-game-goal-json-floats/`.
+No commit, pin rewrite, sub-agent or shared-index mutation by this pass.
+
+**Shared primitive trigonometry — 2026-09-18, Codex.** Geometry uses the existing
+portable math backend and computes each longitude once across all rings. The
+retained production geometry diff is +7/−5 lines; ordinary author code is unchanged.
+Three paired runs show 17–28% faster four-primitive construction at 24/64/256 segments,
+using a 200-byte temporary circle for 24 segments. Native/Wasm geometry and shadow
+digests retain their previous values. Portable shadow power cost about 20% in its
+small CPU fit and is reverted. The final link map removes 6,766 bytes of duplicate
+trig code before optimization; the shared-tree module measures 736,397 bytes, with
+concurrent changes preventing full attribution. Beacons web and all three Linux
+modes pass. Six save files match across hosts; a physical-pointer capture preserves
+different carrier IDs/local coordinates with the same world hash. Details and
+verification scope: `game/bench/README.md`, `/tmp/exact-game-goal-render-math/`.
+No commit, pin rewrite, sub-agent or shared-index mutation by this pass.
+The build, lint, formatting, caps and boot checks pass; the full test process
+finished with 559 passes, 0 failures and 11 ignored, including documentation checks.
+The sweep also exposed empty generated adapter harnesses, addressed below.
+
+**Generated adapters without empty harnesses — 2026-09-18, Codex.** The shared
+bake disables Cargo tests on its 32 entry-point adapters and doctests on their
+24 libraries. Cargo's actual test build retains all 60 authored/core executables
+and produces no adapter test executable; the workspace build still builds all
+32 products. Generated Rust, dependency pins and other target metadata are
+unchanged; a second resolve preserves all 91 generated file timestamps. Four
+generator tests, caps and boot pass. Beacons web and Linux proofs pass with the
+same gameplay/save pins. No elapsed-time improvement is claimed from these
+shared-machine runs. Evidence: `/tmp/exact-game-goal-empty-harnesses/`.
+
+**Target labels only on failure — 2026-09-18, Codex.** Ordinary named and entity
+calls stop allocating diagnostic strings on success. `Target::entity` borrows
+its receiver; game calls and error messages stay unchanged. Per-call allocations
+fall 1→0 for character steps/controller lookup, 2→1 for positioned audio creation,
+and 4→2 for retained-pose socket queries. World hashes and proof pins agree.
+Engine/physics tests pass (328, 2 ignored), plus workspace build/lint/format and
+Beacons web/Linux and animated-model web proofs. Two size hints were rejected;
+the unannotated implementation remains. The observed Beacons trade is +935 raw
+bytes, −12 gzip bytes; no frame-rate claim. Details: `game/bench/README.md` and
+`/tmp/exact-game-goal-target-labels/`.

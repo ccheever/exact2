@@ -57,6 +57,10 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       document.addEventListener('keydown', async event => {
         if(event.code !== 'KeyL') return;
         try {
+          const originalCanvases = [...surfaces.values()].map(e=>e.el);
+          await recoverDevice();
+          const healthyNoCutover = exact.gpu.recovery?.status === 'healthy' && [...surfaces.values()].every((e,i)=>e.el===originalCanvases[i]);
+          if (!healthyNoCutover) throw new Error('healthy recovery replaced a canvas');
           fixtureFailAdapter = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
           await new Promise(resolve=>setTimeout(resolve, 0));
@@ -69,7 +73,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
           await fixtureDevice.queue.onSubmittedWorkDone();
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
           const entry = [...surfaces.values()][0];
-          fetch('/__loss-probe', {method:'POST',body:JSON.stringify({errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
+          fetch('/__loss-probe', {method:'POST',body:JSON.stringify({healthyNoCutover,errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
         } catch(error) { fetch('/__loss-probe', {method:'POST',body:JSON.stringify({error:String(error)})}); }
       });
 ` + await file.text();
@@ -123,6 +127,7 @@ await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) =
       const lost = new Promise(resolve=>lossDone=resolve);
       await restored.type('world', {key:'KeyL'});
       const recovered = await Promise.race([lost, new Promise((_,reject)=>setTimeout(()=>reject(new Error('device recovery timeout')),20000))]);
+      check('healthy device recovery attaches no replacement canvases',recovered.healthyNoCutover===true,recovered);
       check('destroyed GPUDevice recovers content and reuploads texture', !recovered.error && !recovered.errors?.length && recovered.world?.hash===recoveryHash && recovered.world?.assets.every(a=>a.state==='Loaded') && textureRequests>requestsBefore, recovered);
       await restored.screenshot(afterLoss);
       const before = decodePng(readFileSync(beforeLoss)), after = decodePng(readFileSync(afterLoss));

@@ -515,3 +515,37 @@ fn root_motion_walks_the_fox_forward_and_emits_steps() {
         .iter()
         .any(|e| e.line.ends_with("fox footstep")));
 }
+
+#[test]
+fn paused_setup_and_pre_step_restore_keep_bind_pose() {
+    struct Paused;
+    impl Game for Paused {
+        const ID: &'static str = "paused-fox";
+        const ASSETS: &'static [&'static str] = SmallGame::ASSETS;
+        type Args = Options;
+        fn setup(w: &mut World, args: &Options) {
+            SmallGame::setup(w, args);
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {
+            panic!("paused setup stepped");
+        }
+        fn paused(_: &Options) -> bool {
+            true
+        }
+    }
+    let mut s = Sim::<Paused>::new(Options::default()).unwrap();
+    s.load_assets(|name| assets().get(name).cloned().ok_or(name.to_owned()))
+        .unwrap();
+    let before = s.world().global_position("charm").unwrap();
+    assert!(before.length() > 0.1);
+    let save = s.save().unwrap();
+    for restored in [false, true] {
+        if restored {
+            s.restore(&save).unwrap();
+        }
+        s.run(1000.);
+        assert_eq!(s.world().tick(), 0);
+        assert_eq!(s.world().global_position("charm"), Some(before));
+        assert!(animation::socket(s.world(), "fox", "b_Head_05").is_ok());
+    }
+}

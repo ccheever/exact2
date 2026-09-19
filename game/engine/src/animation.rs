@@ -10,7 +10,7 @@ use crate::{
 use glam::Mat4;
 mod sockets;
 use sockets::SocketCache;
-pub use sockets::{socket, socket_matrix, socket_node, Motion, SocketFollow};
+pub use sockets::{socket, socket_matrix, socket_node, socket_stale, Motion, SocketFollow};
 use std::{any::TypeId, collections::BTreeMap};
 
 /// Saved output shared by every playback controller. Declare the motion root by node name.
@@ -497,7 +497,7 @@ struct Runtime {
     entities: Vec<Entity>,
     stamp: Option<[u64; 6]>,
     output: Motion,
-    sockets: std::cell::RefCell<SocketCache>,
+    sockets: SocketCache,
     rigs: BTreeMap<String, Rig>,
     scratch: Vec<f32>,
     pending: Pose,

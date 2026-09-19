@@ -107,6 +107,7 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
   check('held control is visible before its tick', (await controls.state()).world[0].input.forwardedControls.includes('jump'));
   await cg.run(100);
   check('Jump control changes player height through gpu_input', (await cg.global_position('player'))[1] > 1);
+  const pointerSave=resolve(out,'pointer-control.world'); await cg.save(pointerSave);
   await controls.pointer('cancel'); await cg.settle();
   // A keyboard-activated Control has the same ID/local origin on every host;
   // physical touch IDs and font-dependent button centers are host observations.
@@ -121,9 +122,17 @@ await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, sa
   await controls.type('jump',{key:'Space',phase:'down'}); await cg.run(100); await controls.type('jump',{key:'Space',phase:'up'});
   check('focused control keyboard activation feeds Jump', (await cg.global_position('player'))[1] > 1);
   await controls.close();
+  const restoredPointer=await open({world:pointerSave}); await restoredPointer.tap('play');
+  await restoredPointer.pointer('cancel');
+  check('fresh host releases saved pointer ownership',(await restoredPointer.state()).world[0].input.forwardedControls.length===0);
+  await restoredPointer.close();
   const held = await open({world:heldSave}); await held.tap('play');
   check('fresh host restores held control', (await held.state()).world[0].input.controls.includes('jump'));
-  await held.type('jump',{key:'Enter'}); await held.close();
+  await held.type('jump',{key:'Space',phase:'up'});
+  check('restored Space release clears the original contact',(await held.state()).world[0].input.forwardedControls.length===0);
+  await held.world('world').run(100);
+  check('restored controls empty after tick',(await held.state()).world[0].input.controls.length===0);
+  await held.close();
   if (host !== 'linux' && process.env.EXACT_PROOF_COMPARE !== '1') {
     const pointer = await open(); await pointer.tap('play');
     const pg = pointer.world('world');

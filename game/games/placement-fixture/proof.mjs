@@ -29,7 +29,9 @@ await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   check('HUD tap did not pull',!(await s.state()).world[0].resources.Lamp.lit);
   const hud=await box('hud');
   const first=await box('sign');
-  const tuples={initial:Object.fromEntries(['x','y','w','h'].map(k=>[k,first[k]]))};
+  const initialTick=(await w.snapshot()).tick;
+  const tuples={initial:{...Object.fromEntries(['x','y','w','h'].map(k=>[k,first[k]])),tick:initialTick}};
+  check('initial placement pinned at tick zero',initialTick===0);
   const firstAX=node(await s.tree(),'sign')?.accessibilityFrame;
   const oracle={x:430.91,y:299.76,w:140.23,h:30.55};
   check('placed sign matches Placed::project within 0.5 px at 1280x720',Object.entries(oracle).every(([k,v])=>Math.abs(first[k]-v)<=0.5),first);
@@ -51,7 +53,9 @@ await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   check('lamp publication reaches HUD',node(await s.tree(),'hud-label').props.text==='Lamp true');
   {
     const after=await box('sign');
-    tuples.moving=Object.fromEntries(['x','y','w','h'].map(k=>[k,after[k]]));
+    const movingTick=(await w.snapshot()).tick;
+    tuples.moving={...Object.fromEntries(['x','y','w','h'].map(k=>[k,after[k]])),tick:movingTick};
+    check('moving placement pinned at tick 60',movingTick===60);
     writeFileSync(resolve(out,`placement-${host}.json`),JSON.stringify(tuples,null,2)+'\n');
     // Paranoid reconstruction primes current/current history every tick. Ordinary
     // playback displays tick 59 at alpha zero; reconstruction displays tick 60.

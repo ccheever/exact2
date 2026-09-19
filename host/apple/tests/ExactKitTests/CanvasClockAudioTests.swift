@@ -41,8 +41,10 @@ final class CanvasClockAudioTests: XCTestCase {
         for failOnce in [false, true] {
             recoveryCalls = 0; mockLost = true; failRecoveryOnce = failOnce
             let m = module()
+            let s = session(m); defer { s.destroy() }; m.canvases.add(s.canvases)
+            let entry = s.canvases.entries[100]!
             m.recover = { recoverReply() }; m.deviceLost = { mockLost }; m.deviceID = { 0 }
-            XCTAssertNotNil(m.deliveryClock(now: 500)["now"])
+            XCTAssertNotNil(m.deliveryClock(entry, now: 500)["now"])
             m.removedDevice(42, generation: 0)
             XCTAssertEqual(recoveryCalls, 0)
             m.recoverDevice(); m.removedDevice(0, generation: 0); m.recoverDevice()
@@ -52,7 +54,7 @@ final class CanvasClockAudioTests: XCTestCase {
             wait(for: [done], timeout: 2)
             XCTAssertEqual(recoveryCalls, failOnce ? 2 : 1)
             XCTAssertEqual(m.lossGeneration, 1)
-            XCTAssertNil(m.deliveryClock(now: 900)["now"], "redelivery must not seek")
+            XCTAssertNil(m.deliveryClock(entry, now: 900)["now"], "redelivery must not seek")
             m.removedDevice(0, generation: 0); m.recoverDevice()
             XCTAssertEqual(recoveryCalls, failOnce ? 2 : 1)
         }

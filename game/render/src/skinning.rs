@@ -463,131 +463,168 @@ mod tests {
     #[test]
     fn displayed_affine_matches_gpu_with_animated_translation_scale_and_rotated_child() {
         let gpu = exact_gpu::fixture::device().unwrap();
-        let model = Model {
-            nodes: vec![
-                Node::default(),
-                Node {
-                    name: "tip".into(),
-                    parent: Some(0),
+        for mirrored in ["none", "owner", "joint", "offset"] {
+            let model = Model {
+                nodes: vec![
+                    Node::default(),
+                    Node {
+                        name: "tip".into(),
+                        parent: Some(0),
+                        ..Default::default()
+                    },
+                ],
+                skins: vec![Skin {
+                    joints: vec![1],
+                    inverse_binds: Mat4::IDENTITY.to_cols_array().to_vec(),
                     ..Default::default()
-                },
-            ],
-            skins: vec![Skin {
-                joints: vec![1],
-                inverse_binds: Mat4::IDENTITY.to_cols_array().to_vec(),
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let pairs = [
-            [
-                Transform::at(-1., 2., 0.).with_scale(Vec3::new(1., 2., 1.)),
-                Transform {
-                    position: Vec3::new(3., 1., 2.),
-                    rotation: Quat::from_rotation_z(1.2),
-                    scale: Vec3::new(3., 1., 2.),
-                },
-            ],
-            [
-                Transform {
-                    position: Vec3::X,
-                    rotation: Quat::from_rotation_z(0.4),
-                    ..Default::default()
-                },
-                Transform {
-                    position: Vec3::new(2., 1., 0.),
-                    rotation: Quat::from_rotation_z(1.),
-                    scale: Vec3::splat(1.5),
-                },
-            ],
-        ];
-        let pack = |i: usize| {
-            pairs
-                .iter()
-                .flat_map(|p| crate::world::floats(p[i]))
-                .collect::<Vec<_>>()
-        };
-        let mut pose = Pose::default();
-        pose.previous = pack(0);
-        pose.local = pack(1);
-        struct Rig;
-        impl exact_game::Game for Rig {
-            const ID: &'static str = "affine-oracle";
-            const ASSETS: &'static [&'static str] = &["rig.model"];
-            type Args = ();
-            fn setup(_: &mut World, _: &()) {}
-            fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
-        }
-        let mut sim = exact_game::Sim::<Rig>::new(()).unwrap();
-        sim.deliver_asset(
-            "rig.model",
-            Ok(exact_game::asset::Content::Model(model.clone())),
-        )
-        .unwrap();
-        let w = sim.world_mut();
-        let owner = Transform::at(4., 2., 1.);
-        let e = w.spawn((owner, Mesh::asset("rig.model"), pose));
-        let offset = Transform::at(0.3, 0.5, 0.1).with_scale(0.7);
-        w.spawn((
-            Transform::default(),
-            exact_game::SocketFollow::new(e, "tip").offset(offset),
-        ));
-        w.load(&w.save()).unwrap();
-        let mut skin = Skinning::new(&gpu.device);
-        let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
-        let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: 80,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        skin.set(
-            &gpu.device,
-            &gpu.queue,
-            &uniform,
-            &[DrawInstance {
-                transform: 0,
-                geometry: crate::MeshId(0),
-                material: crate::MaterialId(0),
-                local: Mat4::IDENTITY,
-                skin: Some(template),
-            }],
-        )
-        .unwrap();
-        skin.feed(&gpu.queue, w, &[e], false);
-        let mut attachments = crate::world::scene::Attachments::default();
-        attachments.feed(w, true, true, false, false);
-        attachments.feed(w, false, false, false, false);
-        for alpha in [0., 0.5, 1.] {
-            let mut values = [0f32; 20];
-            values[19] = alpha;
-            gpu.queue.write_buffer(&uniform, 0, bytes(&values));
-            let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            skin.encode(&mut encoder, None);
-            gpu.queue.submit([encoder.finish()]);
-            let actual: Vec<_> = read(&gpu, &skin.palette.raw, 64)
-                .chunks_exact(4)
-                .map(|v| f32::from_ne_bytes(v.try_into().unwrap()))
-                .collect();
-            let expected =
-                Mat4::from_scale_rotation_translation(owner.scale, owner.rotation, owner.position)
-                    * Mat4::from_cols_slice(&actual)
+            };
+            let mut pairs = [
+                [
+                    Transform::at(-1., 2., 0.).with_scale(Vec3::new(1., 2., 1.)),
+                    Transform {
+                        position: Vec3::new(3., 1., 2.),
+                        rotation: Quat::from_rotation_z(1.2),
+                        scale: Vec3::new(3., 1., 2.),
+                    },
+                ],
+                [
+                    Transform {
+                        position: Vec3::X,
+                        rotation: Quat::from_rotation_z(0.4),
+                        ..Default::default()
+                    },
+                    Transform {
+                        position: Vec3::new(2., 1., 0.),
+                        rotation: Quat::from_rotation_z(1.),
+                        scale: Vec3::splat(1.5),
+                    },
+                ],
+            ];
+            if mirrored == "joint" {
+                for t in &mut pairs[0] {
+                    t.scale.x *= -1.;
+                }
+            }
+            let pack = |i: usize| {
+                pairs
+                    .iter()
+                    .flat_map(|p| crate::world::floats(p[i]))
+                    .collect::<Vec<_>>()
+            };
+            let mut pose = Pose::default();
+            pose.previous = pack(0);
+            pose.local = pack(1);
+            struct Rig;
+            impl exact_game::Game for Rig {
+                const ID: &'static str = "affine-oracle";
+                const ASSETS: &'static [&'static str] = &["rig.model"];
+                type Args = ();
+                fn setup(_: &mut World, _: &()) {}
+                fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+            }
+            let mut sim = exact_game::Sim::<Rig>::new(()).unwrap();
+            sim.deliver_asset(
+                "rig.model",
+                Ok(exact_game::asset::Content::Model(model.clone())),
+            )
+            .unwrap();
+            let w = sim.world_mut();
+            let parent = Transform::at(1., 2., 3.).with_scale(Vec3::new(2., 1., 3.));
+            let parent_entity = w.spawn(parent);
+            let mut owner = Transform {
+                rotation: Quat::from_rotation_z(0.7),
+                ..Transform::at(4., 2., 1.)
+            };
+            if mirrored == "owner" {
+                owner.scale.x = -1.;
+            }
+            let e = w.spawn((
+                owner,
+                exact_game::Parent(parent_entity),
+                Mesh::asset("rig.model"),
+                pose,
+            ));
+            let mut offset = Transform::at(0.3, 0.5, 0.1).with_scale(0.7);
+            if mirrored == "offset" {
+                offset.scale.x *= -1.;
+            }
+            w.spawn((
+                Transform::default(),
+                exact_game::SocketFollow::new(e, "tip").offset(offset),
+            ));
+            w.load(&w.save()).unwrap();
+            let mut skin = Skinning::new(&gpu.device);
+            let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
+            let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 80,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            skin.set(
+                &gpu.device,
+                &gpu.queue,
+                &uniform,
+                &[DrawInstance {
+                    transform: 0,
+                    geometry: crate::MeshId(0),
+                    material: crate::MaterialId(0),
+                    local: Mat4::IDENTITY,
+                    skin: Some(template),
+                }],
+            )
+            .unwrap();
+            skin.feed(&gpu.queue, w, &[e], false);
+            let mut attachments = crate::world::scene::Attachments::default();
+            attachments.feed(w, true, true, false, false);
+            attachments.feed(w, false, false, false, false);
+            for alpha in [0., 0.5, 1.] {
+                let mut values = [0f32; 20];
+                values[19] = alpha;
+                gpu.queue.write_buffer(&uniform, 0, bytes(&values));
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                skin.encode(&mut encoder, None);
+                gpu.queue.submit([encoder.finish()]);
+                let actual: Vec<_> = read(&gpu, &skin.palette.raw, 64)
+                    .chunks_exact(4)
+                    .map(|v| f32::from_ne_bytes(v.try_into().unwrap()))
+                    .collect();
+                let expected = Mat4::from_scale_rotation_translation(
+                    parent.scale,
+                    parent.rotation,
+                    parent.position,
+                ) * Mat4::from_scale_rotation_translation(
+                    owner.scale,
+                    owner.rotation,
+                    owner.position,
+                ) * Mat4::from_cols_slice(&actual)
                     * Mat4::from_scale_rotation_translation(
                         offset.scale,
                         offset.rotation,
                         offset.position,
                     );
-            attachments.frame(alpha);
-            let displayed = attachments.output[0].matrix;
-            for (a, b) in displayed
-                .to_cols_array()
-                .into_iter()
-                .zip(expected.to_cols_array())
-            {
-                assert!(
-                    (a - b).abs() < 1e-4,
-                    "alpha {alpha}: attachment {displayed:?}, GPU {expected:?}"
-                );
+                attachments.frame(alpha);
+                let rendered_owner = attachments
+                    .output
+                    .iter()
+                    .find(|a| a.entity == e)
+                    .expect("the owner mesh must retain the same affine as its socket")
+                    .matrix;
+                let cpu_owner = Mat4::from(w.current_global(e).unwrap());
+                assert!(rendered_owner.abs_diff_eq(cpu_owner, 1e-4));
+                let displayed = attachments.output[0].matrix;
+                for (a, b) in displayed
+                    .to_cols_array()
+                    .into_iter()
+                    .zip(expected.to_cols_array())
+                {
+                    assert!(
+                        (a - b).abs() < 1e-4,
+                        "alpha {alpha}: attachment {displayed:?}, GPU {expected:?}"
+                    );
+                }
             }
         }
     }

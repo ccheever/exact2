@@ -278,6 +278,14 @@ struct Contact {
     origin: Vec2,
     position: Vec2,
 }
+#[derive(Clone, Default, Data)]
+pub(crate) struct ControlContact {
+    id: u64,
+    action: String,
+    origin: Vec2,
+    position: Vec2,
+    code: Option<String>,
+}
 /// Tick-local action edges and accumulated device state. Only Sim mutates it.
 #[derive(Clone, Default, Data)]
 pub struct Input {
@@ -318,7 +326,58 @@ impl Input {
                 return Err(format!("control `{name}` needs finite points"));
             }
         }
+        match event {
+            InputEvent::Pointer { x, y, .. } if !x.is_finite() || !y.is_finite() => {
+                return Err("input needs finite points".into())
+            }
+            InputEvent::Wheel { dx, dy, .. } if !dx.is_finite() || !dy.is_finite() => {
+                return Err("wheel needs finite deltas".into())
+            }
+            _ => {}
+        }
         Ok(())
+    }
+    pub(crate) fn validate_saved(&self, saved: &Self) -> Result<(), String> {
+        if !saved.viewport.is_finite()
+            || saved
+                .pointer
+                .is_some_and(|p| !p.position.is_finite() || !p.delta.is_finite())
+        {
+            return Err("saved input needs finite points".into());
+        }
+        for p in &saved.contacts {
+            if !p.origin.is_finite() || !p.position.is_finite() {
+                return Err(format!("control `{}` needs finite points", p.action));
+            }
+            if !p.action.is_empty() {
+                self.validate(&InputEvent::Control {
+                    name: p.action.clone(),
+                    id: p.id,
+                    phase: PointerPhase::Down,
+                    x: p.origin.x,
+                    y: p.origin.y,
+                    at_ms: 0.,
+                })?;
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn control_contacts(&self) -> Vec<ControlContact> {
+        self.contacts
+            .iter()
+            .filter(|p| !p.action.is_empty())
+            .map(|p| ControlContact {
+                id: p.id,
+                action: p.action.clone(),
+                origin: p.origin,
+                position: p.position,
+                code: match p.id {
+                    4294967294 => Some("Space".into()),
+                    4294967293 => Some("Enter".into()),
+                    _ => None,
+                },
+            })
+            .collect()
     }
     pub(crate) fn held_controls(&self) -> Vec<String> {
         self.contacts
@@ -446,6 +505,9 @@ impl Input {
         }
     }
     fn apply_state(&mut self, event: InputEvent) {
+        if self.validate(&event).is_err() {
+            return;
+        }
         match event {
             InputEvent::Key { code, down, .. } => match (self.keys.binary_search(&code), down) {
                 (Err(i), true) => self.keys.insert(i, code),
@@ -463,7 +525,6 @@ impl Input {
                 y,
                 ..
             } => {
-                self.action(&name);
                 let position = Vec2::new(x, y);
                 match phase {
                     PointerPhase::Down => {
@@ -549,6 +610,83 @@ impl Input {
 mod control_tests {
     use super::*;
 
+    #[test]
+    fn restore_rejects_unknown_saved_control_atomically() {
+        use crate::{Clock, Game, Sim, World};
+        struct Old;
+        struct New;
+        impl Game for Old {
+            const ID: &'static str = "renamed";
+            type Args = ();
+            fn actions() -> Actions {
+                Actions::new().button("old", &[])
+            }
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &Input, _: &()) {}
+        }
+        impl Game for New {
+            const ID: &'static str = "renamed";
+            type Args = ();
+            fn actions() -> Actions {
+                Actions::new().button("new", &[])
+            }
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &Input, _: &()) {}
+        }
+        for queued in [true, false] {
+            let mut old = Sim::<Old>::new(()).unwrap();
+            old.advance(0., Clock::Seekable);
+            old.input(control("old", 7, PointerPhase::Down, 10., 20.));
+            if !queued {
+                old.advance(100., Clock::Seekable);
+            }
+            let mut new = Sim::<New>::new(()).unwrap();
+            let before = new.save().unwrap();
+            let error = new.restore(&old.save().unwrap()).unwrap_err().to_string();
+            assert!(
+                error.contains("old") && error.contains("control"),
+                "{error}"
+            );
+            assert_eq!(new.save().unwrap(), before);
+        }
+    }
+    #[test]
+    fn saved_contacts_validate_origins_positions_and_keyboard_identity() {
+        let mut original = input();
+        original.apply(control("jump", 4294967294, PointerPhase::Down, 10., 20.));
+        let record = crate::json::to_string(&original.control_contacts()).unwrap();
+        assert!(
+            record.contains("\"code\":[\"Space\"]") && record.contains("\"id\":4294967294"),
+            "{record}"
+        );
+        for origin in [true, false] {
+            let mut bad = original.clone();
+            if origin {
+                bad.contacts[0].origin.x = f32::NAN;
+            } else {
+                bad.contacts[0].position.y = f32::INFINITY;
+            }
+            assert!(input().validate_saved(&bad).unwrap_err().contains("finite"));
+        }
+        for event in [
+            control("jump", 1, PointerPhase::Move, f32::NAN, 0.),
+            InputEvent::Pointer {
+                id: 1,
+                phase: PointerPhase::Down,
+                x: f32::INFINITY,
+                y: 0.,
+                at_ms: 0.,
+            },
+        ] {
+            assert!(input().validate(&event).unwrap_err().contains("finite"));
+        }
+    }
+    #[test]
+    fn invalid_control_application_never_panics() {
+        let mut input = input();
+        input.apply(control("missing", 1, PointerPhase::Down, 0., 0.));
+        assert!(input.held_controls().is_empty());
+    }
     fn control(name: &str, id: u64, phase: PointerPhase, x: f32, y: f32) -> InputEvent {
         InputEvent::Control {
             name: name.into(),

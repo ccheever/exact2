@@ -539,6 +539,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        cancelSurfaceControls()
         textParent?.textChildren.removeAll { $0 === self }
         textParent = nil
         textChildren.removeAll()
@@ -954,6 +955,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     func applyProps(set: [String: String], clear: [String]) {
+        if clear.contains("action") { cancelSurfaceControls() }
         if clear.contains("scrollLeft") { pendingScrollLeft = nil }
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
@@ -1224,7 +1226,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
-        if isSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
@@ -1235,7 +1237,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
-        if isSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); return }
+        if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
         if event.clickCount == 2 {
             var next: NSView? = self

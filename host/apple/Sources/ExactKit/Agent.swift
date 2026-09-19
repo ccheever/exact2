@@ -105,7 +105,7 @@ public final class Agent {
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
-        case "tap": let r = tap(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "tap": let r = session.canvases.releaseContact(req) ?? tap(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "clock": Agent.reply(tagged(clock(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))

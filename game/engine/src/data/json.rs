@@ -269,6 +269,7 @@ impl<'a> Decoder<'a> {
         }
         Ok(true)
     }
+    #[inline]
     fn number_token(&mut self) -> Result<(&'a str, bool), DataError> {
         self.ws();
         let start = self.pos;
@@ -312,6 +313,7 @@ impl<'a> Decoder<'a> {
         }
         Ok((&self.text[start..self.pos], float))
     }
+    #[inline]
     fn parse_f64(&self, s: &str) -> Result<f64, DataError> {
         let n: f64 = s.parse().map_err(|_| self.err("expected a number"))?;
         if !n.is_finite() {

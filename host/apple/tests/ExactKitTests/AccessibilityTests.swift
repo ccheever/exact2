@@ -18,7 +18,7 @@ final class AccessibilityTests: XCTestCase {
         first.props["autofocus"] = "true"
         return (p, w, first, other)
     }
-    func testAutofocusNeverTakesExistingFocusOrRetriesAfterReset() {
+    func testAutofocusRespectsExistingFocusAndStartsAgainAfterReset() {
         let (p, w, first, other) = fixture()
         XCTAssertTrue(w.makeFirstResponder(other))
         p.syncAccessibility()
@@ -32,7 +32,7 @@ final class AccessibilityTests: XCTestCase {
         replacement.frame = first.frame
         p.root.addSubview(replacement); p.views[3] = replacement
         p.syncAccessibility()
-        XCTAssertFalse(w.firstResponder === replacement)
+        XCTAssertTrue(w.firstResponder === replacement)
     }
     func testAutofocusOnceAndVisibilityThroughNativeContainers() {
         let (p, w, first, _) = fixture()

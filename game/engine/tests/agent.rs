@@ -153,3 +153,23 @@ fn restore_format_refusal_is_not_double_wrapped() {
     );
     assert!(!error.contains("named additions"), "{error}");
 }
+
+#[test]
+fn cycle_refusal_contains_the_entities_and_parent_ids() {
+    let mut s = Sim::<Scene>::new(()).unwrap();
+    let w = s.world_mut();
+    let a = w.resolve("root").unwrap();
+    let b = w.resolve("child").unwrap();
+    w.insert(a, Parent(b));
+    for op in [r#"{"op":"tree"}"#, r#"{"op":"state","entity":"*"}"#] {
+        let reply = s.agent(op);
+        assert!(
+            reply.contains("root")
+                && reply.contains("child")
+                && reply.contains("Parent #0")
+                && reply.contains("Parent #1"),
+            "{reply}"
+        );
+        assert!(!reply.contains("show Parent components"));
+    }
+}

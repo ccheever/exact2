@@ -99,7 +99,9 @@ fn resume_and_replay_every_tick() {
         "PILE_HASH_600 continuous=save=fresh-game=0x{:016x}",
         a.world().hash()
     );
-    assert_eq!(a.world().hash(), 0x129ba6d92f9ac217);
+    let pins: std::collections::BTreeMap<String, String> =
+        exact_game::json::from_str(include_str!("pins.json")).unwrap();
+    assert_eq!(format!("0x{:016x}", a.world().hash()), pins["pile-600"]);
 }
 #[test]
 fn slopes_box_static_and_sliding() {

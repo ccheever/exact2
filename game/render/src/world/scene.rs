@@ -94,7 +94,7 @@ impl Scene {
     }
     pub fn reset(&mut self) {
         self.versions = None;
-        self.attachments = Attachments::default();
+        self.attachments.reset();
         self.camera = None;
         self.sun = None;
         self.lights.clear();
@@ -322,23 +322,81 @@ pub struct DisplayedAttachment {
     /// Full affine map; geometry must retain this instead of decomposing shear.
     pub matrix: Mat4,
 }
+// Owner transforms must be interpolated locally before hierarchy composition:
+// decomposing a global matrix loses shear under non-uniform ancestors.
+#[derive(Clone)]
+struct Owner {
+    entity: Entity,
+    chain: Vec<History>,
+}
+impl Owner {
+    fn new(w: &World, entity: Entity) -> Self {
+        let mut owner = Self {
+            entity,
+            chain: Vec::new(),
+        };
+        owner.update(w, false, true);
+        owner
+    }
+    fn update(&mut self, w: &World, next_tick: bool, parent_changed: bool) {
+        let mut chain = Vec::new();
+        let mut at = self.entity;
+        for _ in 0..=w.len() {
+            let curr = w
+                .get::<Transform>(at)
+                .as_deref()
+                .copied()
+                .unwrap_or_default();
+            let mut h = self
+                .chain
+                .iter()
+                .find(|h| h.entity == at)
+                .copied()
+                .unwrap_or_else(|| History::new(at, curr));
+            if next_tick {
+                h.prev = h.curr;
+            }
+            h.curr = curr;
+            if snap(w, at, parent_changed) {
+                h.prev = curr;
+            }
+            chain.push(h);
+            let Some(parent) = w.get::<Parent>(at).map(|p| p.0).filter(|e| w.contains(*e)) else {
+                break;
+            };
+            at = parent;
+        }
+        chain.reverse();
+        self.chain = chain;
+    }
+}
+pub(crate) type AttachmentDiagnostics =
+    std::rc::Rc<std::cell::RefCell<std::collections::BTreeMap<Entity, String>>>;
 struct Attachment {
     history: History,
-    owner: History,
+    owner: Owner,
+    held: Option<Mat4>,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
     model_digest: u64,
 }
 #[derive(Default)]
 pub(crate) struct Attachments {
-    owners: std::collections::BTreeMap<Entity, History>,
+    owners: std::collections::BTreeMap<Entity, Owner>,
     items: Vec<Attachment>,
-    pub(crate) diagnostics: std::collections::BTreeMap<Entity, String>,
+    pub(crate) diagnostics: AttachmentDiagnostics,
     pub output: Vec<DisplayedAttachment>,
 }
 impl Attachments {
+    pub fn reset(&mut self) {
+        self.owners.clear();
+        self.items.clear();
+        self.output.clear();
+    }
     fn warn(&mut self, e: Entity, message: impl FnOnce() -> String) {
-        if let std::collections::btree_map::Entry::Vacant(entry) = self.diagnostics.entry(e) {
+        if let std::collections::btree_map::Entry::Vacant(entry) =
+            self.diagnostics.borrow_mut().entry(e)
+        {
             let message = message();
             // Presentation may run on only some hosts. Never put its diagnostics
             // in the simulation journal, which is part of continuation saves.
@@ -361,15 +419,15 @@ impl Attachments {
             self.owners.clear();
         }
         self.owners.retain(|e, _| w.contains(*e));
-        self.diagnostics.retain(|e, _| w.contains(*e));
+        self.diagnostics.borrow_mut().retain(|e, _| w.contains(*e));
         for owner in self.owners.values_mut() {
             owner.update(w, next_tick, parent_changed);
         }
         // Retain animated owners before attachments are spawned so a new charm
         // inherits the owner's displayed history, rather than snapping its bones.
         for (e, _) in w.query::<&exact_game::Pose>().iter() {
-            if let Some(t) = pose(w, e) {
-                self.owners.entry(e).or_insert_with(|| History::new(e, t));
+            if w.has::<Transform>(e) {
+                self.owners.entry(e).or_insert_with(|| Owner::new(w, e));
             }
         }
         let mut at = 0;
@@ -378,6 +436,43 @@ impl Attachments {
                 exact_game::FollowTarget::Entity(e) => Some(*e),
                 exact_game::FollowTarget::Name(n) => w.named(n),
             };
+            while at < self.items.len() && self.items[at].history.entity.index() < e.index() {
+                self.items.remove(at);
+            }
+            if target.is_some_and(|target| exact_game::animation::socket_stale(w, target)) {
+                // Freeze the last composed boundary, including the owner and offset.
+                // A never-fed restored follower reconstructs its saved local pose.
+                let held = if self.items.get(at).is_some_and(|item| {
+                    item.history.entity == e && Some(item.owner.entity) == target
+                }) {
+                    Some(self.matrix(at, 1., self.items.len()))
+                } else {
+                    w.current_global(e).map(Mat4::from)
+                };
+                if let (Some(held), Some(target)) = (held, target) {
+                    self.warn(e, || format!("SocketFollow `{}`: socket target `{}` has a stale pose; keeping last composed pose", w.name(e).unwrap_or("unnamed"), w.name(target).unwrap_or("unnamed")));
+                    if self
+                        .items
+                        .get(at)
+                        .is_some_and(|item| item.history.entity == e)
+                    {
+                        self.items.remove(at);
+                    }
+                    self.items.insert(
+                        at,
+                        Attachment {
+                            history: History::new(e, pose(w, e).unwrap_or_default()),
+                            owner: Owner::new(w, target),
+                            held: Some(held),
+                            chain: Vec::new(),
+                            offset: follow.offset,
+                            model_digest: 0,
+                        },
+                    );
+                    at += 1;
+                    continue;
+                }
+            }
             let resolved = target
                 .ok_or_else(|| format!("unresolved target {:?}", follow.target))
                 .and_then(|target| {
@@ -395,7 +490,7 @@ impl Attachments {
                     continue;
                 }
             };
-            let (Some(home), Some(owner)) = (pose(w, e), pose(w, target)) else {
+            let (Some(home), Some(_)) = (pose(w, e), w.get::<Transform>(target)) else {
                 self.warn(e, || {
                     format!(
                         "SocketFollow `{}`: unresolved Transform",
@@ -430,7 +525,8 @@ impl Attachments {
                     at,
                     Attachment {
                         history: History::new(e, home),
-                        owner: History::new(target, owner),
+                        owner: Owner::new(w, target),
+                        held: None,
                         chain: vec![],
                         offset: follow.offset,
                         model_digest: exact_game::hash::of(model),
@@ -439,10 +535,12 @@ impl Attachments {
             }
             let item = &mut self.items[at];
             item.history.update(w, next_tick, parent_changed);
-            item.owner = *self
+            item.held = None;
+            item.owner = self
                 .owners
                 .entry(target)
-                .or_insert_with(|| History::new(target, owner));
+                .or_insert_with(|| Owner::new(w, target))
+                .clone();
             let model_changed = if models_changed {
                 let digest = exact_game::hash::of(model);
                 let changed = item.model_digest != digest;
@@ -488,17 +586,24 @@ impl Attachments {
         if remaining == 0 {
             return matrix(item.history.at(alpha));
         }
-        let owner = self
-            .items
-            .iter()
-            .position(|v| v.history.entity == item.owner.entity)
-            .map_or_else(
-                || matrix(item.owner.at(alpha)),
-                |i| self.matrix(i, alpha, remaining - 1),
-            );
+        if let Some(held) = item.held {
+            return held;
+        }
+        let owner = self.owner_matrix(&item.owner, alpha, remaining);
         item.chain.iter().fold(owner, |m, pair| {
             m * crate::skinning::interpolated_local(*pair, alpha)
         }) * matrix(item.offset)
+    }
+    fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
+        owner.chain.iter().fold(Mat4::IDENTITY, |m, h| {
+            self.items
+                .iter()
+                .position(|v| v.history.entity == h.entity)
+                .map_or_else(
+                    || m * matrix(h.at(alpha)),
+                    |i| self.matrix(i, alpha, remaining - 1),
+                )
+        })
     }
     pub fn frame(&mut self, alpha: f32) {
         self.output.clear();
@@ -507,6 +612,25 @@ impl Attachments {
             let (scale, rotation, position) = matrix.to_scale_rotation_translation();
             self.output.push(DisplayedAttachment {
                 entity: item.history.entity,
+                matrix,
+                pose: Transform {
+                    scale,
+                    rotation,
+                    position,
+                },
+            });
+        }
+        // The skinned owner must use the same affine chain as its charm; otherwise
+        // the owner mesh would still flatten ancestor shear in its TRS arena.
+        for item in &self.items {
+            let owner = self.owners.get(&item.owner.entity).unwrap_or(&item.owner);
+            if owner.chain.len() < 2 || self.output.iter().any(|a| a.entity == owner.entity) {
+                continue;
+            }
+            let matrix = self.owner_matrix(owner, alpha, self.items.len());
+            let (scale, rotation, position) = matrix.to_scale_rotation_translation();
+            self.output.push(DisplayedAttachment {
+                entity: owner.entity,
                 matrix,
                 pose: Transform {
                     scale,

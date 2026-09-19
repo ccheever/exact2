@@ -1,7 +1,7 @@
 //! Indexed, counterclockwise primitives centred at the origin, with outward normals.
 
 use crate::Vertex;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 /// Unit cube with independent face normals: 24 vertices, 12 triangles.
@@ -56,7 +56,7 @@ pub fn sphere(segments: u32) -> (Vec<Vertex>, Vec<u32>) {
     let profile: Vec<_> = (0..=rings)
         .map(|i| {
             let angle = PI * i as f32 / rings as f32;
-            let (s, c) = angle.sin_cos();
+            let [c, s] = Vec2::from_angle(angle).to_array();
             let s = if i == 0 || i == rings { 0.0 } else { s };
             Ring {
                 radius: s * 0.5,
@@ -130,7 +130,7 @@ pub fn capsule(radius: f32, height: f32, segments: u32) -> (Vec<Vertex>, Vec<u32
     for lower in [false, true] {
         for i in 0..=steps {
             let angle = (i as f32 / steps as f32 + if lower { 1.0 } else { 0.0 }) * FRAC_PI_2;
-            let (s, c) = angle.sin_cos();
+            let [c, s] = Vec2::from_angle(angle).to_array();
             let s = if (!lower && i == 0) || (lower && i == steps) {
                 0.0
             } else {
@@ -161,11 +161,13 @@ struct Ring {
 
 fn revolve(profile: &[Ring], segments: u32) -> (Vec<Vertex>, Vec<u32>) {
     let stride = segments + 1;
+    let circle: Vec<_> = (0..=segments)
+        .map(|j| Vec2::from_angle(TAU * j as f32 / segments as f32).to_array())
+        .collect();
     let mut vertices = Vec::with_capacity(profile.len() * stride as usize);
     let mut indices = Vec::new();
     for (i, ring) in profile.iter().enumerate() {
-        for j in 0..=segments {
-            let (s, c) = (TAU * j as f32 / segments as f32).sin_cos();
+        for &[c, s] in &circle {
             vertices.push(Vertex {
                 position: [ring.radius * c, ring.y, ring.radius * s],
                 normal: [

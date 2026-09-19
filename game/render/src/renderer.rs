@@ -20,7 +20,7 @@ pub(crate) struct Mesh {
 }
 
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
-/// Uses four storage bindings and 4× MSAA HDR; requires WebGPU (not WebGL).
+/// Storage capacity is declared by `STORAGE_BINDINGS`; uses 4× MSAA HDR and WebGPU.
 pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -49,12 +49,50 @@ pub struct RendererWithAssets<const ASSETS: bool> {
 }
 
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
-    fn model_mirrored(&self, index: usize) -> bool {
-        let slot = self.slot_list[self.batches[index].slots.start as usize];
-        self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize]
-            .local
-            .determinant()
-            < 0.
+    fn slot_mirrored(&self, slot: u32, frame: &FrameInput<'_>) -> bool {
+        let (entity, local, fallback) = if slot >= crate::RENDER_SLOT_BASE {
+            let record = &self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize];
+            (record.transform, record.local.determinant(), {
+                let pair = self.models.poses[(slot - crate::RENDER_SLOT_BASE) as usize];
+                crate::world::scene::interpolate(pair, frame.alpha)
+                    .scale
+                    .element_product()
+            })
+        } else {
+            (slot, 1., 1.)
+        };
+        let owner = frame
+            .attachments
+            .iter()
+            .find(|a| a.entity.index() == entity)
+            .map_or(fallback, |a| a.matrix.determinant());
+        owner * local < 0.
+    }
+    // Keep compatible instances batched, splitting only where attachment winding differs.
+    fn winding_ranges<'a>(
+        &'a self,
+        index: usize,
+        frame: &'a FrameInput<'_>,
+    ) -> impl Iterator<Item = (Range<u32>, bool)> + 'a {
+        let mut at = self.batches[index].slots.start;
+        let end = self.batches[index].slots.end;
+        std::iter::from_fn(move || {
+            if at == end {
+                return None;
+            }
+            let start = at;
+            let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
+            at += 1;
+            if frame.attachments.is_empty() && self.model_batches[index].is_none() {
+                at = end;
+            } else {
+                while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored
+                {
+                    at += 1;
+                }
+            }
+            Some((start..at, mirrored))
+        })
     }
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
@@ -581,7 +619,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                pass.set_pipeline(&self.pipelines.shadow);
+                pass.set_pipeline(&self.pipelines.shadow[0]);
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
                 pass.set_bind_group(1, &shadows.cameras[i], &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
@@ -590,32 +628,33 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     if batch.slots.is_empty() || !batch.casts_shadows {
                         continue;
                     }
-                    if let Some(material) = if ASSETS {
-                        self.model_batches[index]
-                    } else {
-                        None
-                    } {
-                        let material = &self.models.materials[material.0];
-                        if material.alpha == exact_game::asset::AlphaMode::Blend {
-                            continue;
+                    for (slots, mirrored) in self.winding_ranges(index, frame) {
+                        if let Some(material) = if ASSETS {
+                            self.model_batches[index]
+                        } else {
+                            None
+                        } {
+                            let material = &self.models.materials[material.0];
+                            if material.alpha == exact_game::asset::AlphaMode::Blend {
+                                continue;
+                            }
+                            pass.set_pipeline(
+                                self.pipelines.models.as_ref().unwrap().shadow[usize::from(
+                                    material.double_sided,
+                                ) + 2
+                                    * usize::from(mirrored)]
+                                .as_ref()
+                                .unwrap(),
+                            );
+                            pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
+                            pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                        } else {
+                            pass.set_pipeline(&self.pipelines.shadow[usize::from(mirrored)]);
                         }
-                        pass.set_pipeline(
-                            self.pipelines.models.as_ref().unwrap().shadow[usize::from(
-                                material.double_sided,
-                            ) + 2 * usize::from(
-                                self.model_mirrored(index),
-                            )]
-                            .as_ref()
-                            .unwrap(),
-                        );
-                        pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
-                        pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
-                    } else {
-                        pass.set_pipeline(&self.pipelines.shadow);
+                        let mesh = &self.meshes[batch.mesh.0];
+                        pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slots);
+                        extra_draws += 1;
                     }
-                    let mesh = &self.meshes[batch.mesh.0];
-                    pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
-                    extra_draws += 1;
                 }
             }
         }
@@ -666,36 +705,44 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 if batch.slots.is_empty() {
                     continue;
                 }
-                if let Some(material) = if ASSETS {
-                    self.model_batches[index]
-                } else {
-                    None
-                } {
-                    let material = &self.models.materials[material.0];
-                    if material.alpha == exact_game::asset::AlphaMode::Blend {
-                        continue;
-                    }
-                    pass.set_pipeline(
-                        self.pipelines.models.as_ref().unwrap().forward[variant
-                            + 4 * usize::from(material.double_sided)
-                            + 16 * usize::from(self.model_mirrored(index))]
-                        .as_ref()
-                        .unwrap(),
-                    );
-                    pass.set_bind_group(
-                        1,
-                        self.shadows
+                for (slots, mirrored) in self.winding_ranges(index, frame) {
+                    if let Some(material) = if ASSETS {
+                        self.model_batches[index]
+                    } else {
+                        None
+                    } {
+                        let material = &self.models.materials[material.0];
+                        if material.alpha == exact_game::asset::AlphaMode::Blend {
+                            continue;
+                        }
+                        pass.set_pipeline(
+                            self.pipelines.models.as_ref().unwrap().forward[variant
+                                + 4 * usize::from(material.double_sided)
+                                + 16 * usize::from(mirrored)]
                             .as_ref()
-                            .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                        &[],
-                    );
-                    pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
-                    pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
-                } else {
-                    pass.set_pipeline(&self.pipelines.forward[variant]);
+                            .unwrap(),
+                        );
+                        pass.set_bind_group(
+                            1,
+                            self.shadows.as_ref().map_or_else(
+                                || self.models.no_shadow.as_ref().unwrap(),
+                                |s| &s.sample,
+                            ),
+                            &[],
+                        );
+                        pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
+                        pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+                    } else {
+                        pass.set_pipeline(
+                            &self.pipelines.forward[variant + 4 * usize::from(mirrored)],
+                        );
+                    }
+                    let mesh = &self.meshes[batch.mesh.0];
+                    if slots.start != batch.slots.start {
+                        extra_draws += 1;
+                    }
+                    pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slots);
                 }
-                let mesh = &self.meshes[batch.mesh.0];
-                pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
             for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
                 self.quads.draw::<ASSETS>(&mut pass, draw);
@@ -716,7 +763,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         self.pipelines.models.as_ref().unwrap().forward[variant
                             + 4 * usize::from(material.double_sided)
                             + 8
-                            + 16 * usize::from(self.model_mirrored(index))]
+                            + 16 * usize::from(
+                                self.slot_mirrored(self.slot_list[slot as usize], frame),
+                            )]
                         .as_ref()
                         .unwrap(),
                     );
@@ -909,7 +958,7 @@ mod packing_tests {
             .vertices
             .grow(&gpu.device, &gpu.queue, 65 * 1024 * 1024);
         assert!(renderer.retired_bytes(&live) > 64 * 1024 * 1024);
-        renderer.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live);
+        renderer.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live, &Default::default());
         assert!(renderer.retired_bytes(&live) <= 64 * 1024 * 1024);
         assert_eq!(renderer.mesh_uploads, uploads);
         assert_eq!(renderer.models.loaded["hero.model"].nodes, handles);

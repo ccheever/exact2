@@ -8,6 +8,13 @@ import UIKit
 import AVFAudio
 #endif
 
+struct SurfaceControl {
+    let node: UInt32
+    let name: String
+    let offset: CGPoint
+    var position: CGPoint
+}
+
 extension NodeView {
     var inputCanvas: NodeView? {
         #if os(macOS)
@@ -22,15 +29,49 @@ extension NodeView {
         return nil
     }
     var isSurfaceControl: Bool { props["action"] != nil && inputCanvas != nil }
+    var ownsSurfaceControl: Bool {
+        presenter?.session?.canvases.entries.values.contains { $0.controls.values.contains { $0.node == id } } == true
+    }
+    func cancelSurfaceControls() {
+        guard let c = presenter?.session?.canvases, let m = c.module else { return }
+        for e in c.entries.values {
+            for (contact, owner) in e.controls where owner.node == id {
+                e.controls.removeValue(forKey: contact)
+                _ = c.input(e, m, ["t":"control", "name":owner.name, "phase":"cancel", "id":contact, "x":owner.position.x, "y":owner.position.y])
+            }
+        }
+    }
     @discardableResult
-    func control(_ phase: String, id: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
-        guard let name = props["action"], let canvas = inputCanvas,
-              ["up", "cancel"].contains(phase) || (!disabled && !inert) else { return false }
-        return canvas.canvases?.input(canvas, ["t":"control", "name":name, "phase":phase, "id":id, "x":point.x, "y":point.y], timestamp: timestamp) == true
+    func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
+        guard let c = presenter?.session?.canvases, let m = c.module else { return false }
+        let entry: Canvases.Entry?
+        if phase == "down" {
+            guard let name = props["action"], !disabled, !inert, let canvas = inputCanvas, let e = c.live(canvas.id) else { return false }
+            #if os(macOS)
+            window?.makeFirstResponder(self)
+            #else
+            _ = becomeFirstResponder()
+            #endif
+            e.controls[contact] = SurfaceControl(node:id, name:name, offset:convert(.zero, to:canvas), position:point)
+            entry = e
+        } else { entry = c.entries.values.first { $0.controls[contact] != nil } }
+        guard let e = entry, var owner = e.controls[contact] else { return false }
+        let p = convert(point, to:e.view)
+        owner.position = CGPoint(x:p.x-owner.offset.x, y:p.y-owner.offset.y)
+        if ["up", "cancel"].contains(phase) { e.controls.removeValue(forKey:contact) }
+        else { e.controls[contact] = owner }
+        return c.input(e, m, ["t":"control", "name":owner.name, "phase":phase, "id":contact, "x":owner.position.x, "y":owner.position.y], timestamp:timestamp)
     }
     func controlKey(_ code: String, down: Bool, timestamp: Double? = nil) -> Bool {
-        guard isSurfaceControl, ["Space", "Enter", "NumpadEnter"].contains(code) else { return false }
-        return control(down ? "down" : "up", id: code == "Space" ? 4294967294 : 4294967293, timestamp: timestamp)
+        guard ["Space", "Enter", "NumpadEnter"].contains(code) else { return false }
+        if down {
+            #if os(macOS)
+            guard window?.firstResponder === self else { return false }
+            #else
+            guard isFirstResponder else { return false }
+            #endif
+        }
+        return control(down ? "down" : "up", id:code == "Space" ? 4294967294 : 4294967293, timestamp:timestamp)
     }
     func forwardsCanvasKey(_ code: String, command: Bool = false) -> Bool {
         guard !disabled, !inert, field == nil, textArea == nil, !command, code != "Tab" else { return false }
@@ -63,6 +104,14 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    func releaseContact(_ request: [String: Any]) -> [String: Any]? {
+        guard let id = request["contact"] as? Int else { return nil }
+        guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase), let m = module,
+              let e = entries.values.first(where: { $0.controls[id] != nil }), let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
+        let ok = input(e,m,["t":"control","name":owner.name,"id":id,"phase":phase,"x":owner.position.x,"y":owner.position.y])
+        return ok ? ["phase":phase,"delivery":"recognized"] : ["error":"control release refused"]
+    }
+
     func recoveredDevice(_ ok: Bool, error: String?) {
         failed = error
         if let error { fputs("exact gpu: \(error)\n", stderr); restoreJournal.append(["lines": [error]]) }
@@ -70,7 +119,7 @@ extension Canvases {
             entry.presentable = true; entry.wants = true
             entry.uploaded = false; entry.readAt = -1
             entry.view.needsCapture = true
-            if ok { messages(entry) }
+            if ok { entry.recoveryRedelivery = true; messages(entry) }
         }
         session?.frames.requestCanvas()
     }
@@ -123,6 +172,13 @@ extension Canvases {
               let world = reply["world"] as? [String: Any], world["restored"] as? Bool == true else { return }
         e.restorePending = false
         worldInput.bytes = nil
+        let input = world["input"] as? [String: Any] ?? [:]
+        for row in input["controlContacts"] as? [[String: Any]] ?? [] {
+            guard let id = row["id"] as? Int, let name = row["action"] as? String else { continue }
+            let node = session?.presenter.views.values.first { $0.props["action"] == name && $0.isDescendant(of:e.view) }
+            let point = row["position"] as? [Double] ?? [0,0]
+            e.controls[id] = SurfaceControl(node:node?.id ?? e.view.id, name:name, offset:node?.convert(.zero, to:e.view) ?? .zero, position:CGPoint(x:point[0],y:point[1]))
+        }
     }
 
     func restoreReply(_ reply: [String: Any]) -> [String: Any] {
@@ -208,7 +264,7 @@ extension Canvases {
             // Establish the ready world's epoch at delivery, even when occlusion
             // prevents its first presentation. Recovery never moves that clock.
             if delivered, let ask = m.agent,
-               let data = try? JSONSerialization.data(withJSONObject: m.deliveryClock(now: session?.now() ?? 0)) {
+               let data = try? JSONSerialization.data(withJSONObject: m.deliveryClock(e, now: session?.now() ?? 0)) {
                 data.withUnsafeBytes { _ = ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
             }
         }
