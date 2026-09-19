@@ -200,6 +200,27 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(index.candidates().map(\.id), Array(1...10).map(UInt32.init))
     }
 
+    func testUpcomingParagraphsAreOrderedByDistanceInsteadOfHeight() {
+        let presenter = Presenter()
+        presenter.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        presenter.root.frame = NSRect(x: 0, y: 0, width: 400, height: 4000)
+        func node(_ id: UInt32, _ top: CGFloat, _ height: CGFloat) -> NodeView {
+            let node = NodeView(id: id, kind: "text", presenter: presenter)
+            node.frame = NSRect(x: 0, y: top, width: 200, height: height)
+            presenter.root.addSubview(node)
+            return node
+        }
+        let above = node(1, 970, 20)
+        let near = node(2, 1320, 20)
+        let far = node(3, 1500, 1000)
+        let index = TextViewportIndex([far, near, above])
+        presenter.viewport.contentView.scroll(to: NSPoint(x: 0, y: 1000))
+        XCTAssertEqual(index.candidates(reach: 1600).map(\.id), [1, 2, 3])
+        // Reverse movement changes priority without rebuilding the index.
+        presenter.viewport.contentView.scroll(to: NSPoint(x: 0, y: 1400))
+        XCTAssertEqual(index.candidates(reach: 1600).map(\.id), [3, 2, 1])
+    }
+
     func testParagraphVisibilityIncludesTallOverlapsAndNestedScrollers() {
         let presenter = Presenter()
         presenter.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)

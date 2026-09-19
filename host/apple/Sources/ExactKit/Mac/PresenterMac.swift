@@ -234,16 +234,15 @@ final class Presenter {
         if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
         var next: [UInt32: NSRect] = [:]
         var waiting: [(CGFloat, NodeView)] = []
-        var rasters: [(CGFloat, NodeView)] = []
+        var rasters: [NodeView] = []
         for node in textViewportIndex!.candidates(reach: Self.textRasterReach) where node.needsTextRaster && node.rastersText {
             // On screen without pixels: now. Otherwise nearest first, a few a slice.
             if !textBand(node, reach: 0).isEmpty { textRasters.ensure(node, urgent: true) }
-            else { rasters.append((textBand(node, reach: Self.textRasterReach).height, node)) }
+            else { rasters.append(node) }
         }
-        rasters.sort { $0.0 > $1.0 }
         var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count
         var rastersDeferred = false
-        for (_, node) in rasters {
+        for node in rasters {
             guard rasterBudget > 0 else { rastersDeferred = true; break }
             rasterBudget -= 1
             if !textRasters.ensure(node, urgent: false) { rastersDeferred = true }
@@ -322,9 +321,6 @@ final class Presenter {
         // 1.2 s with this thread idle (LLP 1044, the pump's first version).
         pumpTarget.fire = { [weak self] in self?.pump() }
         let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
-        // Only speculative list/text admission is paced here. AppKit owns
-        // scrolling; visible gaps and the agent's settle path still fill now.
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
         link.add(to: .main, forMode: .common)
         pumpLink = link
     }
@@ -958,9 +954,10 @@ struct TextViewportIndex {
         }
     }
 
-    /// Paragraphs within `reach` of each scroll document's visible rect.
+    /// Paragraphs within `reach`, nearest each scroll document's visible rect
+    /// first. A tall distant paragraph must not delay a short imminent one.
     func candidates(reach: CGFloat = 0) -> [NodeView] {
-        var result: [NodeView] = []
+        var result: [(CGFloat, NodeView)] = []
         for group in groups {
             let shown = group.document.visibleRect
             guard !shown.isEmpty else { continue }
@@ -976,11 +973,17 @@ struct TextViewportIndex {
             var index = lo
             while index < group.entries.count && group.entries[index].rect.minY < visible.maxY {
                 let entry = group.entries[index]
-                if entry.rect.intersects(visible) { result.append(entry.node) }
+                if entry.rect.intersects(visible) {
+                    let dx = max(0, shown.minX - entry.rect.maxX, entry.rect.minX - shown.maxX)
+                    let dy = max(0, shown.minY - entry.rect.maxY, entry.rect.minY - shown.maxY)
+                    result.append((max(dx, dy), entry.node))
+                }
                 index += 1
             }
         }
-        return result
+        return result.sorted {
+            $0.0 == $1.0 ? $0.1.id < $1.1.id : $0.0 < $1.0
+        }.map { $0.1 }
     }
 }
 

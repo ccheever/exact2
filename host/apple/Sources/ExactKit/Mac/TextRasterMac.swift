@@ -144,7 +144,9 @@ extension NodeView {
     var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil }
 
     func showTextRaster(_ image: IOSurface?, for key: TextRasterKey) {
-        guard textRasterKey == key, let image else { return }
+        // An urgent paint can overtake its worker. Keep the accepted surface
+        // instead of committing identical pixels again when that worker ends.
+        guard textRasterKey == key, !textRasterReady, let image else { return }
         textRaster = image
         textRasterScale = key.scale
         textRasterReady = true

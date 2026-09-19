@@ -2,12 +2,38 @@
 // @ref LLP 1008 §3, LLP 1001 §5
 #if os(macOS)
 import AppKit
+import IOSurface
 import CoreText
 import CExact
 import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes() throws {
+        let presenter = Presenter()
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        func surface() throws -> IOSurface {
+            try XCTUnwrap(IOSurface(properties: [.width: 20, .height: 20, .bytesPerElement: 4]))
+        }
+        let first = try surface(), late = try surface(), replacement = try surface()
+        let key = TextRasterKey(spec: node.paragraphSpec(), size: CGSize(width: 20, height: 20),
+                                box: CGRect(x: 0, y: 0, width: 20, height: 20), scale: 1)
+        node.textRasterKey = key
+        node.showTextRaster(first, for: key)
+        node.showTextRaster(late, for: key)
+        XCTAssertTrue(node.textRaster === first, "a late worker must not replace accepted urgent pixels")
+        let next = TextRasterKey(spec: key.spec, size: key.size, box: key.box, scale: 2)
+        node.textRasterKey = next
+        node.textRasterReady = false
+        node.showTextRaster(late, for: key)
+        XCTAssertFalse(node.textRasterReady, "obsolete work cannot satisfy a changed key")
+        node.showTextRaster(nil, for: next)
+        XCTAssertFalse(node.textRasterReady, "a failed urgent paint must allow its worker to finish")
+        node.showTextRaster(replacement, for: next)
+        XCTAssertTrue(node.textRasterReady)
+        XCTAssertTrue(node.textRaster === replacement)
+    }
+
     func testFractionalInlineMetricsReuseKernelMeasuredBreaks() throws {
         _ = NSApplication.shared
         let presenter = Presenter()
