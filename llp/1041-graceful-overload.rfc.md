@@ -7967,3 +7967,82 @@ and`-runtime-v2`, control seal`a530df9a`, candidate seal`6ec9a38c`, and
 timer and painting-cohort reconstructions. Build sources match before/after;
 runtime checks2028 identities before launch, with no post-runtime source
 rehash claimed. Earlier failures, archives and timings remain intact.
+
+### 8.146 Linux CPU Paint: text and shape fills dominate the recorded span, 2026-09-19
+
+One fresh optimized diagnostic keeps§8.145's current kernel-cache product,
+f72 source, Reusable factory, ring pixel recorder, fonts and normalized lock.
+Only ignored observer code changes: eleven outer Raster method guards and a
+fixed scalar accumulator. No production rendering changes or new phase IDs.
+Each Paint26 parent carries counts and wall-time sums for begin, fill, stroke,
+image, text, clip push/pop, opacity push/pop, pointer and finish. Exact parent,
+input and frame-attempt identity, closed status, flags, count and elapsed bounds
+are checked. Missing, nested, overflowing or incomplete data refuses attribution.
+There are two clock reads and TLS bookkeeping per admitted method call; no
+per-glyph clocks, per-call allocations or retained rendering objects. Fixed
+recorder caps remain unchanged, and extra instrumentation cost is not zero or
+measured separately. Eight actual-recorder-core Rust checks and ten focused
+reader checks pass before the full build.
+
+The aarch64 ELF`3126cbc6` passes one optimized build and the original actual
+Linux workload once: full10,000 rows/32 updates at1024x768, three fixed2s input
+phases plus command-free2s. All36 handlers and18 exact ±40 wheel movements are
+inside their prefixes. Initial full History9 and three setup RGB buffers match
+the prior candidate. Final history naturally reaches17 rather than16: all
+10,000 rows and body-byte totals validate, the first9,968 rows remain exact,
+and the last32 preserve their other four fields. Final pixels close their own
+197/4744 picture/fence; they are not an equal-revision comparison with the old
+final image. No prior timing is paired with this instrumented diagnostic.
+
+Raw stderr equals the4,744-event journal. Independent reconstruction closes
+197 complete picture/Paint chains,1,099 turns and14,757 phase spans, with at
+most72 rows per turn and no missing/flagged Paint aggregates. Strict whole-turn
+containment selects12/19/12 Paints in idle/load/recovery. Loaded has seven
+complete timer turns, five containing Paint; timer4511 straddles the prefix
+boundary and is excluded. All eight silent timer turns contain Paint and
+advance0→8 without input or drain credit.
+
+| Silent cohort: eight Paints | Per-Paint aggregate median, ms | Sum, ms | Share of summed Paint |
+|---|---:|---:|---:|
+| Whole Paint |3.740035|28.276935|100%|
+| Text,392 calls |1.932441|14.459548|51.135%|
+| Fill,200 calls |1.520194|11.367376|40.200%|
+| Begin,8 calls |0.156188|1.175630|4.158%|
+| Unclassified remainder |0.144481|1.113424|3.938%|
+
+These medians describe each Paint's aggregate, not individual method calls;
+medians are not additive. Non-overlapping method sums are bounded by their
+own parent. Clip push totals0.007749ms and pop0.000500ms; pointer0.152332ms,
+finish0.000376ms. Stroke, image and opacity methods have zero calls in this
+cohort. Text includes ink-index construction/query, glyph-cache/raster work
+and drawing. Fill includes path construction and rasterization. Neither is
+isolated CPU, and the remainder is not a specific named algorithm. Across all
+19 strict loaded Paints, text/fill account for44.98%/45.39% of summed Paint.
+This supports investigating actual shape fills alongside text before selecting
+another generic glyph-blitter change; it does not establish a particular fill
+shape, cache policy or replacement rasterizer as the cause.
+
+Whole-turn misses remain. The eight silent timer turns have median9.266950ms,
+maximum12.887005ms and6/8 above8.333ms. The seven loaded timer turns have
+median9.250075ms, maximum10.109620ms and5/7 misses; only five paint. All-phase
+idle/load/recovery maxima are7.637528/10.109620/6.825983ms. This is one
+diagnostic, not repeated benefit, uninstrumented performance or physical120Hz.
+
+All2,006 actual source paths/23 links match before and after building; the
+three diagnostic source differences are explicit. Generated entry/plan/compat
+remain byte-identical to the current candidate. An initial local binding copy
+refuses a newly copied read-only destination; the owned destination-mode fix
+is preserved before any build. A later independent arithmetic script's exact
+wheel-input/ACK-input assumption fails because subsequent pointer packets can
+share the batch. Its corrected join uses the complete post-handler picture,
+forbids intervening key/wheel input, and still requires exact predecessor
+movement. Neither issue changes runtime acceptance or causes a native retry.
+Driver/outer exits are0; native−15 is intentional post-observation cleanup.
+Saved release`54798269` proves six runtime PIDs/four groups absent and5941 free.
+
+MAIN ignored`target/linux-paint-cost-source-v1` seal`67019dce` preserves source
+and pure checks;`target/paint-cost-evaluation` holds independent source, raw,
+aggregate, cohort and functional proofs. The private ink-pair checkout keeps
+`messages-paint-cost-build-v1` capture`5118f90e` and
+`messages-paint-cost-runtime-v1` capture`c0c085b4`. Historical archives remain
+unchanged. No new native SplitFacts reference is consumed or authorized.
