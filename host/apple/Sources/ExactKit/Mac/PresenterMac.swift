@@ -316,8 +316,15 @@ final class Presenter {
         for list in listViews.values {
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
                   let content = list.container.subviews.first as? NodeView else { continue }
+            let rows = content.container.subviews.compactMap { $0 as? NodeView }
+            let positions = rows.compactMap { Int($0.props["accessibilityPosInSet"] ?? "") }.sorted()
+            // Focus and interaction can pin a distant row. Its bounds do not
+            // cover the unmounted gap: use the normal viewport report until
+            // the mounted rows are contiguous again.
+            guard positions.count == rows.count, !positions.isEmpty,
+                  zip(positions, positions.dropFirst()).allSatisfy({ $1 == $0 + 1 }) else { continue }
             var cover = ListCover(top: .infinity, bottom: -.infinity, origin: content.frame.minY, atStart: false, atEnd: false)
-            for case let row as NodeView in content.container.subviews {
+            for row in rows {
                 let index = Int(row.props["accessibilityPosInSet"] ?? "") ?? 0, count = Int(row.props["accessibilitySetSize"] ?? "") ?? -1
                 if row.frame.minY < cover.top { cover.top = row.frame.minY; cover.atStart = index <= 1 }
                 if row.frame.maxY > cover.bottom { cover.bottom = row.frame.maxY; cover.atEnd = index == count }
