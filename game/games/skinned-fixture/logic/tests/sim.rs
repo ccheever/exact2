@@ -15,9 +15,10 @@ fn assets() -> &'static BTreeMap<String, Vec<u8>> {
     })
 }
 fn sim() -> Sim<SmallGame> {
-    let mut s = Sim::new(Options::default()).unwrap();
-    s.load_assets(|name| assets().get(name).cloned().ok_or(name.to_owned()))
-        .unwrap();
+    let mut s = Sim::with_assets(Options::default(), |name| {
+        assets().get(name).cloned().ok_or(name.to_owned())
+    })
+    .unwrap();
     s.viewport(1280., 720.);
     s
 }
@@ -30,6 +31,7 @@ fn pinned_pose_and_hash() {
         |_, _| {},
         animation::inspect,
     );
+    s.assert_pin(include_str!("../../pins.json"));
     let hash = s.world().hash();
     println!("tick60 0x{hash:016x}\n{pose}");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tick60.json");
@@ -40,13 +42,7 @@ fn pinned_pose_and_hash() {
     s.run(1000.);
     println!("tick120 0x{:016x}", s.world().hash());
     assert_eq!(s.world().tick(), 120);
-    exact_game::World::assert_pin(include_str!("../../pins.json"), "skinned-fixture", 60, hash);
-    exact_game::World::assert_pin(
-        include_str!("../../pins.json"),
-        "skinned-fixture",
-        120,
-        s.world().hash(),
-    );
+    s.assert_pin(include_str!("../../pins.json"));
 }
 #[test]
 fn paranoid_roundtrip_every_tick_and_mid_fade_fresh_process() {
@@ -235,8 +231,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
         type Args = Options;
         fn setup(w: &mut World, a: &Options) {
             SmallGame::setup(w, a);
-            w.get_mut::<Animator>("fox")
-                .unwrap()
+            w.require_mut::<Animator>("fox")
                 .blend_mut("travel")
                 .unwrap()
                 .clips[2]
@@ -371,7 +366,7 @@ fn first_presented_fox_matches_current_pose_in_fox_rectangle() {
             animation::step(w);
             if HISTORY != 0 {
                 let bind = animation::bind_pose(w.model("fox.model").unwrap());
-                let mut p = w.get_mut::<Pose>("fox").unwrap();
+                let mut p = w.require_mut::<Pose>("fox");
                 p.previous = if HISTORY == 1 { p.local.clone() } else { bind };
             }
         }

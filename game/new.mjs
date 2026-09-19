@@ -35,7 +35,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const argument = local ? quote(destination) : name;
   const proof = local ? quote(resolve(destination, 'proof.mjs')) : `game/games/${name}/proof.mjs`;
-  return `First bake creates the app workspace in .shells/ and captures Cargo.lock beside app.json.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun game/prove.mjs ${argument}
+  return `The template supplies Cargo.lock beside app.json; first bake resolves it offline and locked in .shells/.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun game/prove.mjs ${argument}
   bun ${proof} web`;
 }
 

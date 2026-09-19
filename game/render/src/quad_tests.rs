@@ -211,7 +211,7 @@ fn invalid_quads_are_journaled_without_refusing_valid_neighbors() {
 }
 
 #[test]
-fn pipelines_and_particle_capacity_are_ready_before_first_emitter() {
+fn particle_storage_and_pipelines_prepare_only_with_emitters() {
     let gpu = fixture::device().unwrap();
     let mut r = crate::renderer::RendererWithAssets::<true>::new(
         &gpu.device,
@@ -223,24 +223,57 @@ fn pipelines_and_particle_capacity_are_ready_before_first_emitter() {
         &gpu.queue,
         wgpu::TextureFormat::Rgba8Unorm,
     );
+    eprintln!(
+        "Beacons primitive renderer quad reservations: CPU/GPU {:?}",
+        primitive.quads.reserved_bytes()
+    );
+    assert_eq!(primitive.quads.particle_capacity(), 0);
+    assert_eq!(
+        primitive.quads.reserved_bytes(),
+        (
+            4096 * (size_of::<crate::quads::Order>() + size_of::<crate::quads::Draw>()),
+            0
+        )
+    );
     assert_eq!(
         primitive.quads.pipeline_count(),
-        if cfg!(target_arch = "wasm32") { 2 } else { 3 }
+        if cfg!(target_arch = "wasm32") { 0 } else { 1 }
     );
     let before = r.residency_work();
     assert_eq!(
         r.quads.pipeline_count(),
-        if cfg!(target_arch = "wasm32") { 5 } else { 6 }
+        if cfg!(target_arch = "wasm32") { 3 } else { 4 }
     );
     let mut w = World::new(60, 0);
     w.spawn((Transform::default(), Emitter::default()));
     w.propagate();
     crate::Feed::default().feed(&w, &mut r).unwrap();
-    assert_eq!(r.residency_work().since(before).pipeline_creations, 0);
-    assert_eq!(
-        r.quads.particle_capacity(),
-        emitter::PARTICLE_BUDGET as usize
-    );
+    assert_eq!(r.residency_work().since(before).pipeline_creations, 2);
+    let ready = r.residency_work();
+    crate::Feed::default().feed(&w, &mut r).unwrap();
+    assert_eq!(r.residency_work().since(ready).pipeline_creations, 0);
+    assert!(r.quads.particle_capacity() < emitter::PARTICLE_BUDGET as usize);
+    for count in [16, 40_000, 70_000] {
+        let e = w.query::<&Emitter>().iter().next().unwrap().0;
+        w.get_mut::<Emitter>(e).unwrap().state.births = vec![emitter::Birth {
+            count,
+            lifetime: 10.,
+            ..Default::default()
+        }];
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut r).unwrap();
+        let capacity = r.quads.reserved_bytes();
+        let work = r.residency_work();
+        let input = feed.frame(&w, 1., 1.);
+        r.quads.frame::<true>(&input);
+        r.quads.order::<true>(&gpu.device, &gpu.queue);
+        assert_eq!(r.quads.reserved_bytes(), capacity);
+        assert_eq!(r.residency_work().since(work).pipeline_creations, 0);
+        assert_eq!(
+            r.quads.instances(),
+            u64::from(count.min(emitter::PARTICLE_BUDGET))
+        );
+    }
 }
 
 #[test]
@@ -341,7 +374,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     let mut feed = crate::Feed::default();
     feed.feed(w, &mut r).unwrap();
     let input = feed.frame(w, 1., 1.);
-    r.quads.frame::<true>(&gpu.device, &gpu.queue, &input);
+    r.quads.frame::<true>(&input);
     r.quads.order::<true>(&gpu.device, &gpu.queue);
     assert_eq!(
         r.quads.draws.len(),

@@ -129,8 +129,12 @@ extension Canvases {
     func cancelMovedControls() {
         guard let m=module else {return}
         for e in entries.values {
-            for (contact,owner) in e.controls where owner.node != e.view.id {
-                guard session?.presenter.views[owner.node]?.inputCanvas !== e.view else {continue}
+            for (contact,owner) in e.controls {
+                let retained: Bool
+                if owner.node == e.view.id {
+                    retained = session?.presenter.views.values.contains { $0.props["action"] == owner.name && $0.inputCanvas === e.view } ?? false
+                } else { retained = session?.presenter.views[owner.node]?.inputCanvas === e.view }
+                guard !retained else {continue}
                 e.controls.removeValue(forKey:contact)
                 _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
             }

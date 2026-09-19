@@ -556,6 +556,9 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-game",
+ "exact-game-render",
+ "exact-gpu",
  "exact-runner",
 ]
 
@@ -2131,6 +2134,7 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
+ "sprites-fixture-logic",
 ]
 
 [[package]]
@@ -2152,6 +2156,7 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
+ "sprites-fixture-logic",
 ]
 
 [[package]]
@@ -2170,6 +2175,7 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
+ "sprites-fixture-logic",
 ]
 
 [[package]]

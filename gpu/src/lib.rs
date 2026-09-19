@@ -236,15 +236,11 @@ pub trait Surface {
     fn children_mode(&self) -> ChildrenMode {
         ChildrenMode::Overlay
     }
-    /// The children before the latest upload, requested by Composite { previous: true }.
-    fn previous_children(&mut self, _texture: Option<&wgpu::TextureView>) {}
     /// The `index`th direct child's texture (created or resized; contents
     /// update in place) and its frame in the canvas's points — `x, y, width,
     /// height`. A `None` texture with a non-empty frame means the host composites
     /// this child (web/Linux). `None` with an empty frame means it is gone.
     fn child(&mut self, _index: usize, _texture: Option<&wgpu::TextureView>, _frame: [f32; 4]) {}
-    /// How many direct children there are now (children past it are gone).
-    fn children_count(&mut self, _count: usize) {}
     /// Where the surface put the `index`th child: a 3×3 homography, row
     /// major, from the child's own points (origin at its top-left corner) to
     /// the canvas's points — the browser's `canvasTransform` — and its depth,
@@ -261,7 +257,13 @@ pub trait Surface {
     /// canvas's scale, premultiplied RGBA — for the surface to sample;
     /// `None` when there are none. Called when the texture is created or
     /// replaced; its contents update in place.
-    fn children(&mut self, _texture: Option<&wgpu::TextureView>) {}
+    /// `previous` is the texture before the latest upload when requested by Composite.
+    fn children(
+        &mut self,
+        _current: Option<&wgpu::TextureView>,
+        _previous: Option<&wgpu::TextureView>,
+    ) {
+    }
 }
 
 /// Where a surface put a child (LLP 1014 D5): see [`Surface::placement`].
@@ -851,7 +853,6 @@ impl Module {
             }
             inst.each.truncate(count);
         }
-        inst.surface.children_count(count);
         inst.dirty = true;
         true
     }
@@ -907,17 +908,15 @@ impl Module {
             };
             let texture = make("children");
             let view = texture.create_view(&Default::default());
-            inst.surface.children(Some(&view));
             let previous = matches!(
                 inst.surface.children_mode(),
                 ChildrenMode::Composite { previous: true }
             )
-            .then(|| {
-                let previous = make("previous children");
-                let view = previous.create_view(&Default::default());
-                inst.surface.previous_children(Some(&view));
-                previous
-            });
+            .then(|| make("previous children"));
+            let previous_view = previous
+                .as_ref()
+                .map(|p| p.create_view(&Default::default()));
+            inst.surface.children(Some(&view), previous_view.as_ref());
             inst.children = Some(Children {
                 texture,
                 previous,
@@ -1287,7 +1286,7 @@ impl Module {
                     ChildrenMode::Composite { previous: true }
                 )
                 .then(|| {
-                    let previous = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    gpu.device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("previous children"),
                         size,
                         mip_level_count: 1,
@@ -1298,14 +1297,14 @@ impl Module {
                             | wgpu::TextureUsages::COPY_DST
                             | wgpu::TextureUsages::COPY_SRC,
                         view_formats: &[],
-                    });
-                    let view = previous.create_view(&Default::default());
-                    inst.surface.previous_children(Some(&view));
-                    previous
+                    })
                 }),
             };
             let view = texture.create_view(&Default::default());
-            inst.surface.children(Some(&view));
+            let previous_view = previous
+                .as_ref()
+                .map(|p| p.create_view(&Default::default()));
+            inst.surface.children(Some(&view), previous_view.as_ref());
             inst.children = Some(Children {
                 texture,
                 previous,

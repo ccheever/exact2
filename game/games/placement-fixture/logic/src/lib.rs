@@ -106,12 +106,12 @@ impl Game for SmallGame {
         }
         let t = w.tick_end().seconds();
         let (sin, cos) = (math::sin(t * 0.6), math::cos(t * 0.6));
-        *w.get_mut::<Transform>("camera").unwrap() =
+        *w.require_mut::<Transform>("camera") =
             Transform::at(sin * 8., 3., cos * 8.).looking_at(Vec3::new(0., 1., 0.), Vec3::Y);
-        w.get_mut::<Transform>("cube").unwrap().position.x = math::sin(t) * 0.6;
+        w.require_mut::<Transform>("cube").position.x = math::sin(t) * 0.6;
         let lit = w.resource::<Lamp>().lit || args.pulls > 0;
         w.resource_mut::<Lamp>().lit = lit;
-        w.get_mut::<Material>("lamp").unwrap().emissive = if lit { [4., 2., 0.3] } else { [0.; 3] };
+        w.require_mut::<Material>("lamp").emissive = if lit { [4., 2., 0.3] } else { [0.; 3] };
         w.publish_record(&Hud { lit });
     }
 }

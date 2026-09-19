@@ -1118,7 +1118,7 @@ fn paused_setup_and_never_stepped_restore_use_bind_socket() {
 }
 
 #[test]
-fn stale_follower_keeps_last_composed_pose_while_explicit_socket_refuses() {
+fn skipped_animation_follower_restores_and_publishes_current_owner_and_offset() {
     let mut w = world();
     w.spawn_named(
         "owner",
@@ -1147,8 +1147,30 @@ fn stale_follower_keeps_last_composed_pose_while_explicit_socket_refuses() {
             w.step_clock();
         }
         assert!(socket(&w, "owner", "").unwrap_err().contains("stale"));
-        assert_eq!(w.global_position("charm"), Some(last));
+        assert_eq!(w.global_position("charm"), Some(last + Vec3::splat(15.)));
     }
+    let mut restored = world();
+    restored
+        .register::<Transform>()
+        .register::<Mesh>()
+        .register::<Animation>()
+        .register::<SocketFollow>();
+    restored.load(&w.save()).unwrap();
+    assert_eq!(
+        w.global_position("charm"),
+        restored.global_position("charm")
+    );
+    for next in [&mut w, &mut restored] {
+        next.begin_tick();
+        let position = next.global_position("charm").unwrap();
+        next.publish("attachment-x", crate::Value::Number(position.x as f64));
+        next.step_clock();
+    }
+    assert_eq!(
+        w.published("attachment-x"),
+        restored.published("attachment-x")
+    );
+    assert_eq!(w.hash(), restored.hash());
 }
 
 #[test]
@@ -1193,10 +1215,10 @@ fn deleting_controller_clears_pose_and_resumes_live_bind_composition() {
     );
     step(&mut w);
     w.step_clock();
-    let held = w.global_position("charm").unwrap();
+    let sampled = w.global_position("charm").unwrap();
     w.begin_tick();
     w.get_mut::<Transform>(owner).unwrap().position = Vec3::splat(10.);
-    assert_eq!(w.global_position("charm"), Some(held));
+    assert_eq!(w.global_position("charm"), Some(sampled + Vec3::splat(10.)));
     w.remove::<Animation>(owner);
     assert!(!w.has::<Pose>(owner));
     assert_eq!(w.global_position("charm"), Some(Vec3::splat(10.)));

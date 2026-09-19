@@ -6,8 +6,8 @@ fn sign_name_button_and_lamp_save_together() {
     sim.run(1000.);
     let w = sim.world();
     assert_eq!(w.query::<&Placed>().iter().count(), 3);
-    assert_eq!(w.get::<Placed>("sign").unwrap().facing, Facing::Fixed);
-    assert_eq!(w.get::<Placed>("name").unwrap().child, 2);
+    assert_eq!(w.require::<Placed>("sign").facing, Facing::Fixed);
+    assert_eq!(w.require::<Placed>("name").child, 2);
 }
 
 #[test]
@@ -18,12 +18,7 @@ fn proof_endpoint_pin() {
     sim.run(1000.);
     sim.run(4500.);
     assert_eq!(sim.world().tick(), 330);
-    World::assert_pin(
-        include_str!("../../pins.json"),
-        "placement-fixture",
-        330,
-        sim.world().hash(),
-    );
+    sim.assert_pin(include_str!("../../pins.json"));
 }
 
 #[test]
@@ -36,14 +31,14 @@ fn placed_sign_projection_receipt_at_1280_by_720() {
         let mut sim = Sim::<SmallGame>::new(Options::default()).unwrap();
         sim.run(ms);
         let w = sim.world();
-        let pose = *w.get::<Transform>("camera").unwrap();
+        let pose = *w.require::<Transform>("camera");
         let view = Mat4::from_rotation_translation(pose.rotation, pose.position).inverse();
         let size = Vec2::new(1280., 720.);
-        let p = w.get::<Placed>("sign").unwrap().project(
-            *w.get::<Transform>("sign").unwrap(),
+        let p = w.require::<Placed>("sign").project(
+            *w.require::<Transform>("sign"),
             Vec2::new(224., 50.),
             view,
-            w.get::<Camera>("camera").unwrap().matrix(size),
+            w.require::<Camera>("camera").matrix(size),
             size,
         );
         let h = p.homography;

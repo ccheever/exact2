@@ -261,7 +261,20 @@ fn stopped_pixels_identical_across_alphas_and_agent_seeks_feed_history() {
 #[test]
 fn bind_refusal_pause_messages_and_perf_do_not_need_a_device() {
     let mut surface = WorldSurface::<Greybox>::default();
-    assert!(surface.bind(&[], None).unwrap_err().0.contains("seed"));
+    assert!(surface
+        .bind(&[Value::Bool(false)], None)
+        .unwrap_err()
+        .0
+        .contains("seed"));
+    assert!(surface.sim().is_none());
+    surface.bind(&[], None).unwrap();
+    assert_eq!(
+        surface.sim().unwrap().save().unwrap(),
+        exact_game::Sim::<Greybox>::new(Default::default())
+            .unwrap()
+            .save()
+            .unwrap()
+    );
     surface
         .bind(
             &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],

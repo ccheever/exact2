@@ -523,7 +523,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                                     _ if named => {
                                         return err(
                                             "type-surface-argument",
-                                            "use either named or positional surface arguments",
+                                            format!("use either named or positional surface arguments (`{}` is named)", args.iter().find_map(|arg| match arg { Expr::NamedArg(name, _, _) => Some(name), _ => None }).unwrap()),
                                             arg.span(),
                                         )
                                     }

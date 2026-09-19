@@ -154,6 +154,7 @@ async function fixture(body) {
     write(`${dir}/app.json`, JSON.stringify({name, app:{id:`com.exact.${name}`,name}, game:{crate,type:'SmallGame'}}));
     pkg(`${dir}/logic`, crate, 'pub struct SmallGame;');
     write(`${dir}/logic/Cargo.toml`, readFileSync(resolve(root, dir, 'logic/Cargo.toml'), 'utf8').replace('[package]', '[package]\nworkspace="../.shells"'));
+    if (name !== 'foo' && existsSync(resolve(root,'game/games/foo/Cargo.lock'))) write(`${dir}/Cargo.lock`,readFileSync(resolve(root,'game/games/foo/Cargo.lock'),'utf8').replaceAll('foo',name));
     return resolve(root, dir);
   };
   try {
@@ -171,6 +172,8 @@ async function fixture(body) {
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
     const dir = game('foo'); process.env.EXACT_APP_DIR = dir;
+    prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true});
+    rmSync(resolve(dir,'.shells'),{recursive:true});
     body({root, dir, write, run, pkg, game, update:()=>prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true}), app:(name='foo')=>localResolveApp(name)});
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
@@ -458,10 +461,46 @@ test('R12 deploy captures initialized dependency submodules as source', () => fi
   mkdirSync(resolve(root,'vendor/absent-source'));
   run('git',['update-index','--add','--cacheinfo',`160000,${submoduleCommit},vendor/absent-source`]);
   run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
+  assert.throws(()=>snapshotOf(resolved,{},root), /vendor\/absent-source.*git submodule update --init vendor\/absent-source/);
+  run('git',['rm','--cached','vendor/absent-source']);
+  run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','remove absent fixture']);
   const snapshot=snapshotOf(resolved,{},root);
   try {
     assert.ok(snapshot.sources.some(source=>source.roles.includes('submodule')));
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.exactRoot,'vendor/fixture-source/data.txt'),'utf8'),'captured submodule');
   } finally {disposeSnapshot(snapshot);}
+}));
+
+
+test('R13 capture refuses tracked files under inferred game output roots',()=>fixture(({app,root,write,run})=>{
+  const resolved=app();resolved.cargoPackage('gpu');
+  run('cargo',['generate-lockfile','--offline']);run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  run('git',['init','-q']);run('git',['add','.']);run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
+  for(const output of ['target','.shells','dist','dist.previous','artifacts']) {
+    const path=`game/games/foo/${output}/source.rs`;write(path,'source');run('git',['add','-f',path]);
+    assert.throws(()=>snapshotOf(resolved,{dirty:true},root),error=>error.message.includes(path)&&/tracked/.test(error.message));
+    run('git',['rm','--cached',path]);rmSync(resolve(root,path));
+  }
+}));
+
+
+test('R13 stale shell lock without a captured lock refuses and is removed',()=>fixture(({app,dir})=>{
+  app().cargoPackage('gpu');rmSync(resolve(dir,'Cargo.lock'));
+  assert.throws(()=>app().cargoPackage('gpu'),/stale.*Cargo.lock|Cargo.lock.*stale/);
+  assert.equal(existsSync(resolve(dir,'.shells/Cargo.lock')),false);
+}));
+test('R13 ordinary workspace without a lock resolves metadata',()=>fixture(({app,root,pkg,write})=>{
+  process.env.EXACT_APP_DIR=resolve(root,'game/ordinary/plain');
+  pkg('game/ordinary/plain','plain-web');
+  write('game/ordinary/plain/app.json',JSON.stringify({name:'Plain',app:{id:'com.exact.plain',name:'Plain'}}));
+  write('game/ordinary/plain/app.contract','component App\n  view\n');
+  rmSync(resolve(root,'game/Cargo.lock'),{force:true});
+  assert.equal(app('plain').cargoPackage('web').name,'plain-web');
+}));
+test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixture(({app,dir,write,update})=>{
+  app().cargoPackage('gpu');const before=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
+  write('game/deps/exact-game-render/Cargo.toml',readFileSync(resolve(dir,'../../deps/exact-game-render/Cargo.toml'),'utf8').replace('version="0.1.0"','version="0.2.0"'));
+  assert.throws(()=>app().cargoPackage('gpu'),/locked|lock file/);
+  update();assert.ok(app().cargoPackage('gpu'));assert.notEqual(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),before);
 }));

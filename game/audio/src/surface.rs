@@ -3,14 +3,12 @@ use crate::AppleOutput as Device;
 #[cfg(all(not(test), target_arch = "wasm32"))]
 use crate::WebOutput as Device;
 #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
-use crate::{Listener, Output};
-use crate::{NullOutput, Player, Transport};
+use crate::{Listener, Output, Player, Transport};
 use exact_game::World;
 
 /// Lazy audio owner for the renderer's dependency-free presentation hook.
 /// Default construction and every seekable/headless frame open no device.
 pub struct SurfacePlayer {
-    null: Player<NullOutput>,
     #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
     device: Option<Player<Device>>,
     #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
@@ -25,7 +23,6 @@ pub struct SurfacePlayer {
 impl Default for SurfacePlayer {
     fn default() -> Self {
         Self {
-            null: Player::new(NullOutput, 48000),
             #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
             device: None,
             #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
@@ -118,19 +115,10 @@ impl SurfacePlayer {
                             playing,
                         },
                     );
-                    return;
                 }
             }
         }
-        let _ = (seekable, self.unlocked);
-        self.null.sync(
-            world,
-            None,
-            Transport {
-                generation: generation.wrapping_add(self.epoch),
-                playing,
-            },
-        );
+        let _ = (world, generation, playing, self.unlocked, self.epoch);
     }
     pub fn unlock(&mut self) {
         #[cfg(any(test, target_arch = "wasm32", target_os = "macos", target_os = "ios"))]
@@ -168,7 +156,7 @@ mod tests {
             let _ = surface.suspend(false);
             surface.unlock();
         }
-        assert_eq!(surface.null.cached_sounds(), 0);
+        assert!(surface.device.is_none());
         assert_eq!(test_device::ATTEMPTS.get(), 0);
         assert_eq!(test_device::SUSPENDS.get(), 0);
         assert_eq!(test_device::RESUMES.get(), 0);
@@ -243,7 +231,12 @@ mod test_device {
         let mut surface = super::SurfacePlayer::default();
         let world = exact_game::World::new(60, 0);
         surface.sync(&world, 0, true, false);
-        surface.sync(&world, 0, true, true);
+        let saved = world.save();
+        for generation in 1..4 {
+            surface.sync(&world, generation, true, true);
+            assert!(surface.device.is_none());
+            assert_eq!(world.save(), saved);
+        }
         surface.sync(&world, 0, true, false);
         assert_eq!(ATTEMPTS.get(), 1);
         assert_eq!(surface.retry_frames, 299);

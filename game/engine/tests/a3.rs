@@ -492,7 +492,8 @@ fn a19_integer_argument_and_default_bind_refuse_by_name() {
         9_007_199_254_740_991
     );
     let mut sim = Sim::<Seeded>::new(SeededArgs { seed: 1 }).unwrap();
-    assert!(sim.bind(&[], None).unwrap_err().contains("seed"));
+    sim.bind(&[], None).unwrap();
+    assert_eq!(sim.world().seed(), SeededArgs::default().seed);
     assert!(sim
         .bind(&[Value::Number(1.0), Value::Number(2.0)], None)
         .unwrap_err()

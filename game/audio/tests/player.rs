@@ -420,8 +420,12 @@ fn loop_journal_diff_survives_save_and_reports_changes_and_removal() {
 #[test]
 fn despawned_projectile_explosion_still_plays_at_saved_position() {
     let mut w = world();
-    let e = w.spawn(Transform::at(1.0, 0.0, 0.0));
+    let e = w.spawn(Transform::at(99.0, 0.0, 0.0));
     w.play("wind").at(e).start();
+    // Restored ownership still snapshots the final same-tick move at destruction.
+    let saved = w.save();
+    w.load(&saved).unwrap();
+    w.get_mut::<Transform>(e).unwrap().position.x = 1.;
     w.despawn(e);
     audio::step(&mut w);
     let save = w.save();

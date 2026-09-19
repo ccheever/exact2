@@ -247,6 +247,23 @@ impl Plan {
             }
         }
         for (i, surface) in self.surfaces.iter().enumerate() {
+            let expected = if surface.args.len == 0 {
+                SurfaceArgsMode::Empty
+            } else if self
+                .str(self.surface_arg(surface.args.iter().next().unwrap()).name)
+                .is_empty()
+            {
+                SurfaceArgsMode::Positional
+            } else {
+                SurfaceArgsMode::Named
+            };
+            if surface.mode != expected {
+                return Err(PlanError::BadReference {
+                    table: "surfaces",
+                    row: i as u32,
+                    field: "mode",
+                });
+            }
             let mut names = std::collections::BTreeSet::new();
             let mut positional = false;
             for id in surface.args.iter() {

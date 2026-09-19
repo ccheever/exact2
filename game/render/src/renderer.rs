@@ -11,6 +11,8 @@ use exact_gpu::wgpu;
 use glam::Vec3;
 use std::ops::Range;
 
+pub(crate) const RETIRED_BUDGET: u64 = 64 * 1024 * 1024;
+
 pub(crate) struct Mesh {
     pub(crate) indices: Range<u32>,
     pub(crate) vertex_bytes: u64,
@@ -96,7 +98,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
-    /// Reserves quad capacity up front; asset arenas may compact retired spans.
+    /// Particle capacity prepares with emitters; asset arenas may compact retired spans.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
         let pipelines = Pipelines::new(device, format);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -556,7 +558,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             0,
             bytes(&frame::uniform(frame, cascades.as_ref(), size)),
         );
-        self.quads.frame::<ASSETS>(device, queue, frame);
+        self.quads.frame::<ASSETS>(frame);
         // One total translucent order; opaque/primitive batches remain retained.
         if ASSETS {
             for (_, slot, depth) in &mut self.models.transparent {
@@ -937,10 +939,9 @@ mod packing_tests {
             &gpu.queue,
             wgpu::TextureFormat::Rgba8Unorm,
         );
-        let model = exact_game::bin::from_slice(include_bytes!(
-            "../../games/asset-fixture/assets/crate.model"
-        ))
-        .unwrap();
+        let model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
         renderer.prepare_model("hero.model", &model).unwrap();
         renderer.prepare_model("retired.model", &model).unwrap();
         renderer
@@ -957,9 +958,9 @@ mod packing_tests {
         renderer
             .vertices
             .grow(&gpu.device, &gpu.queue, 65 * 1024 * 1024);
-        assert!(renderer.retired_bytes(&live) > 64 * 1024 * 1024);
-        renderer.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live, &Default::default());
-        assert!(renderer.retired_bytes(&live) <= 64 * 1024 * 1024);
+        assert!(renderer.retired_bytes(&live) > crate::renderer::RETIRED_BUDGET);
+        renderer.compact_assets(&live, &Default::default());
+        assert!(renderer.retired_bytes(&live) <= crate::renderer::RETIRED_BUDGET);
         assert_eq!(renderer.mesh_uploads, uploads);
         assert_eq!(renderer.models.loaded["hero.model"].nodes, handles);
         assert!(renderer.meshes[handles[0].0 .0].vertex_bytes > 0);

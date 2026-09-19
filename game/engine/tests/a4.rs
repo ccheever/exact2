@@ -288,7 +288,7 @@ fn a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_
             "refusal cannot even advance the clock or journal"
         );
     }
-    assert!(one.bind(&[], Some(2000.0)).is_err());
+    assert!(one.bind(&[Value::Bool(false)], Some(2000.0)).is_err());
     assert_eq!(one.save().unwrap(), before);
     one.bind(&args(7.0, 1.0, false, 2.0), Some(1000.0)).unwrap();
     assert_eq!(one.world().tick(), 0);

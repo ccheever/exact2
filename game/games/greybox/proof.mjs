@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { proof } from '../../proof.mjs';
 import { audioProof } from '../../bench/probes/audio.mjs';
 
-await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
+if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
 const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   let session = await open();
   const s = session;

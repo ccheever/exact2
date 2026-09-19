@@ -11,13 +11,16 @@ private var recoveryLength: UInt32 = 0
 private var replacementLost = true
 private var replacements = 0
 private var controlEvents: [[String: Any]] = []
+private var boundObjects: [NSDictionary] = []
 final class SurfaceControlTests: XCTestCase {
     private func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
         let s = ExactApp.shared.makeSession(label: "control-test")
-        let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, _, _ in 0 },
+        let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, p, n in
+                if let p, let object = try? JSONSerialization.jsonObject(with: Data(bytes:p, count:n)) as? NSDictionary { boundObjects.append(object) }; return 0
+            },
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
             childrenMode: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
@@ -35,6 +38,14 @@ final class SurfaceControlTests: XCTestCase {
         let e = Canvases.Entry(view:canvas, name:"world", values:[]); e.id=1; e.wantsInput=true
         s.canvases.entries[100]=e; canvas.canvasInput=CanvasInput(view:canvas)
         return (s, canvas, button)
+    }
+    func testR13NamedAndEmptyArgumentsSurviveBatchBinding() {
+        let (s,_,_)=fixture();defer {s.destroy()}
+        for values: [String:Any] in [["restart":false,"seed":7,"paused":true], [:]] {
+            boundObjects.removeAll()
+            s.apply(Batch(ops:[["op":"surface","id":100,"name":"world","values":values]],timers:false,motion:false,clock:nil,error:nil))
+            XCTAssertEqual(boundObjects.last,values as NSDictionary)
+        }
     }
     func testContactIdentityIncludesCanvasAndReleaseRequest() {
         let (s, canvas, button) = fixture(); defer { s.destroy() }
@@ -83,7 +94,7 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertEqual(controlEvents.map {$0["phase"] as? String ?? $0["t"] as? String ?? ""},["cancel","blur"])
     }
     func testR12DuplicateActionsDoNotGuessRestoredNode() {
-        let (s,canvas,_)=fixture(); defer {s.destroy()}
+        let (s,canvas,first)=fixture(); defer {s.destroy()}
         let second=NodeView(id:102,kind:"button",presenter:s.presenter)
         second.props["action"]="jump";canvas.addSubview(second);s.presenter.views[102]=second
         let e=s.canvases.entries[100]!,m=s.canvases.module!
@@ -91,7 +102,8 @@ final class SurfaceControlTests: XCTestCase {
         bytes.withUnsafeBufferPointer {recoveryReply.update(from:$0.baseAddress!,count:$0.count)};recoveryLength=UInt32(bytes.count)
         e.restorePending=true;s.canvases.finishRestore(m,e)
         XCTAssertEqual(e.controls[7]?.node,canvas.id)
-        second.forget();XCTAssertNotNil(e.controls[7])
+        second.forget();second.removeFromSuperview();s.presenter.views.removeValue(forKey:second.id);s.canvases.cancelMovedControls();XCTAssertNotNil(e.controls[7])
+        first.forget();first.removeFromSuperview();s.presenter.views.removeValue(forKey:first.id);s.canvases.cancelMovedControls();XCTAssertNil(e.controls[7])
     }
     func testR12ReparentAndCrossViewRelease() {
         let (s,canvas,button)=fixture(); defer {s.destroy()}

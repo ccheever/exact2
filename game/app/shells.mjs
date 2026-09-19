@@ -131,11 +131,11 @@ export function gameShells(dir, game, workspace) {
       const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n${target}\n\n[dependencies]\n`;
       const dependencies = kind === 'gpu'
         ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n${bakeArt ? '\n[build-dependencies]\nexact-game-bake.workspace = true\n' : ''}`
-        : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;
+        : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n`;
       desired.set(shellName, {
         'Cargo.toml': header + dependencies,
         [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
-        ...(kind === 'gpu' ? bakeArt ? {'build.rs': `fn main() {\n    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n}\n`} : {} : {'build.rs': `fn main() {\n    exact_game_app::bake("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`}),
+        ...(kind === 'gpu' ? bakeArt ? {'build.rs': `fn main() {\n    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n}\n`} : {} : {'build.rs': `fn main() {\n    exact_game_app::bake_game::<game_logic::${type}>("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`}),
       });
     }
   }
@@ -167,19 +167,26 @@ export function gameShells(dir, game, workspace) {
   return game.crate.slice(0, -'-logic'.length);
 }
 
-// The source lock is captured once at the first bake. Later bakes are locked;
+// The template supplies the source lock. Every ordinary bake is locked;
 // dependency edits require an explicit update, never a publisher's cache choice.
 export function prepareGame(dir, game, source = gameRoot, {updateLock = false} = {}) {
-  gameShells(dir, game, source);
   const root = resolve(dir, '.shells'), lock = resolve(dir, 'Cargo.lock');
-  const captured = existsSync(lock);
-  if (!captured && existsSync(resolve(source, 'Cargo.lock'))) {
-    writeChanged(resolve(root, 'Cargo.lock'), readFileSync(resolve(source, 'Cargo.lock'), 'utf8'), false);
+  const captured = existsSync(lock), cached = resolve(root, 'Cargo.lock');
+  if (!captured && existsSync(cached)) {
+    rmSync(cached);
+    throw new Error(`${cached}: stale shell lock without a captured source Cargo.lock; removed it. Restore the source lock or explicitly --update-lock`);
   }
-  const result = spawnSync('cargo', ['metadata', '--offline', ...(captured && !updateLock ? ['--locked'] : []), '--format-version', '1'], {
-    cwd:root, encoding:'utf8', maxBuffer:64 * 1024 * 1024,
+  gameShells(dir, game, source);
+  if (!captured && !updateLock) {
+    const seed = resolve(source, 'new/Cargo.lock');
+    if (!existsSync(seed)) throw new Error(`${lock}: missing captured lock and template seed; create the game with game/new.mjs or explicitly --update-lock`);
+    const name = game.crate.replace(/-logic$/, '');
+    writeChanged(cached, readFileSync(seed, 'utf8').replaceAll('small-game', name), false);
+  }
+  const result = spawnSync('cargo', ['metadata', '--offline', ...(!updateLock ? ['--locked'] : []), '--format-version', '1'], {
+    cwd:root, env:{...process.env}, encoding:'utf8', maxBuffer:64 * 1024 * 1024,
   });
-  if (result.status !== 0) throw new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nTo capture dependency changes: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
+  if (result.status !== 0) throw new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nOffline resolution requires a populated Cargo cache: cargo fetch --locked --manifest-path ${JSON.stringify(resolve(root, "Cargo.toml"))}\nTo capture dependency changes: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
   if (!captured || updateLock) writeChanged(lock, readFileSync(resolve(root, 'Cargo.lock'), 'utf8'), captured);
   return JSON.parse(result.stdout);
 }

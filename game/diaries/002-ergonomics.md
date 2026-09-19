@@ -1194,4 +1194,244 @@ E8 keeps the host-less proof on GPU-less Linux and reuses one Chrome process for
 
 ## R12 — one workspace owner, one lock authority; the fixes of the reviews of 727afe41
 
-R12 (astra, 2026-09-19 01:30–02:39, receipt kept at `~/Library/Caches/exact2-game/briefs/receipt-R12.md`) made each game's logic crate a member of its own app-owned `.shells` workspace and nothing else; the engine workspace excludes `games` and `bench`. A game's `Cargo.lock` is captured beside `app.json` at the first bake, copied into the generated shell on every bake and deploy, and resolved `--locked --offline` thereafter — a stale or corrupt shell cache cannot choose versions, and a deliberate dependency change is an explicit `bun game/app/shells.mjs <game> --update-lock`. Resolution creates no workspace and runs no Cargo (paired warm medians: in-tree 0.113 ms, external 0.122 ms); the external-report scenario passes in 278 ms under its original 5 s timeout. The reviews' control-ownership items landed on every host with a red-then-green test each: reparenting a held control cancels its original contact (Apple, Linux, web); restored duplicate action names keep contact identity instead of guessing a node; Apple blur cancels per contact before the engine's blur; Space/Enter reach a pointer-held control while an editor keeps focus; Apple up/cancel resolves the captured owner, then the addressed canvas, then only a unique global contact. Proof inputs are enumerated from the repository root and returned relative to the caller (`host/web/gpu-glue.js` is in the hash when the proof runs from `game/`); the GPU device-lifecycle test is `#[ignore]`d with its reason and passes opt-in on a real two-device host; the Fox crop reads the screenshot's real dimensions; generation compares a SHA-256 tree inventory outside the new game (names, modes, bytes, mtimes, symlinks, empty directories). Validation: 535 engine tests, 31 per-game tests, 100 Apple tests, 186 Bun tests; seven Linux `--paranoid` proofs in every mode, seven headless web proofs, Beacons on macOS; a fresh clone with the captured locks proved Beacons on Linux in 64 s cold. The deploy dry run did not reach a classifier table: the root closure captures the sibling repo `snapback-sb4`, whose `vendor/llp` submodule holds a deliberately broken absolute fixture symlink — that refusal predates R12 (at 2ac2029f the same run refuses `vendor/ccheever-skills` as an uncaptured submodule) and is in QUEUE.md as the classifier's, not this lane's.
+R12 (astra, 2026-09-19 01:30–02:39, receipt kept at `~/Library/Caches/exact2-game/briefs/receipt-R12.md`) made each game's logic crate a member of its own app-owned `.shells` workspace and nothing else; the engine workspace excludes `games` and `bench`. A game's `Cargo.lock` is captured beside `app.json` at the first bake, copied into the generated shell on every bake and deploy, and resolved `--locked --offline` thereafter — a stale or corrupt shell cache cannot choose versions, and a deliberate dependency change is an explicit `bun game/app/shells.mjs <game> --update-lock`. Resolution creates no workspace and runs no Cargo (paired warm medians: in-tree 0.113 ms, external 0.122 ms); the external-report scenario passes in 278 ms under its original 5 s timeout. The reviews' control-ownership items landed on every host with a red-then-green test each: reparenting a held control cancels its original contact (Apple, Linux, web); restored duplicate action names keep contact identity instead of guessing a node; Apple blur cancels per contact before the engine's blur; Space/Enter reach a pointer-held control while an editor keeps focus; Apple up/cancel resolves the captured owner, then the addressed canvas, then only a unique global contact. Proof inputs are enumerated from the repository root and returned relative to the caller (`host/web/gpu-glue.js` is in the hash when the proof runs from `game/`); the GPU device-lifecycle test is `#[ignore]`d with its reason and passes opt-in on a real two-device host; the Fox crop reads the screenshot's real dimensions; generation compares a SHA-256 tree inventory outside the new game (names, modes, bytes, symlink targets, empty directories; corrected by R13 below). Validation: 535 engine tests, 31 per-game tests, 100 Apple tests, 186 Bun tests; seven Linux `--paranoid` proofs in every mode, seven headless web proofs, Beacons on macOS; a fresh clone with the captured locks proved Beacons on Linux in 64 s cold. The deploy dry run did not reach a classifier table: the root closure captures the sibling repo `snapback-sb4`, whose `vendor/llp` submodule holds a deliberately broken absolute fixture symlink — that refusal predates R12 (at 2ac2029f the same run refuses `vendor/ccheever-skills` as an uncaptured submodule) and is in QUEUE.md as the classifier's, not this lane's.
+
+
+## Archived guide receipts — moved 2026-09-19
+
+The following dated receipts are historical; their limitations and follower-cache policy describe those runs, not the current engine.
+
+## I1 simulator proof receipt — 2026-09-18, unfinished
+
+The iOS proof carrier now passes the explicit 1280×720 logical viewport through
+to the simulator. UIKit fits it into the phone window; screenshots are 3840×2160
+at simulator scale 3. Ordinary launches keep their native viewport. Greybox's HUD
+key forwarding now runs for ordinary controls as well as textareas. The simulator
+carrier reports `recognized` input delivery because UIKit cannot synthesize platform
+touches. This is asserted explicitly. Browser HTTP delivery gates, browser residency
+reload probes and physical Metal removal are unavailable on this host; shared
+readiness, rendering, save and pin assertions remain in the scripts.
+
+Simulator: **iPhone 17 Pro, iOS 26.5**,
+`0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`. Latest completed I1 receipts below
+include builds and build-lock contention, and are not runtime benchmarks. Linux
+time sums the three `--paranoid` subprocess wall times (Off, Save, FreshGame).
+Runs occurred while D4 was editing the shared tree, so this is not a verification
+of one frozen final revision. Logs are `/tmp/i1-<game>-<host>-retry.log` except
+Asset web (`/tmp/i1-asset-fixture-web-gate.log`) and the initial iOS Asset, Skinned,
+Particles and Placement runs (`/tmp/i1-<game>-ios.log`, Placement uses `placement`).
+
+| Game | Linux paranoid, seconds | Web, seconds | iOS, seconds | macOS, seconds |
+|---|---:|---:|---:|---:|
+| greybox | PASS, 61.193 | PASS, 24.479 | PASS, 123.920 | — |
+| beacons | PASS, 175.768 | PASS, 22.093 | FAIL: focus, 131.156 | FAIL: focus, 174.704 |
+| asset-fixture | PASS, 424.072 | PASS, 21.703 | FAIL: GPU limit, 54.138 | — |
+| skinned-fixture | FAIL: pins, 64.204 | FAIL, 23.594 | FAIL: GPU limit, 48.504 | — |
+| particles-fixture | PASS, 22.721 | PASS, 6.882 | PASS, 88.382 | — |
+| sprites-fixture | PASS, 71.871 | PASS, 8.889 | PASS, 106.574 | — |
+| placement-fixture | PASS, 25.153 | PASS, 7.733 | PASS, 48.289 | — |
+
+`bun game/prove.mjs greybox --hosts web,linux,ios --compare-saves` also passed:
+web 49.442 s, Linux 165.301 s, iOS 191.207 s, with byte-identical continuation
+saves. The summary is `games/greybox/artifacts/prove/summary.json`.
+`bun scripts/smoke.mjs host-ios` passed in 8.5 s (two embedded sessions, native
+navigation, bad-plan refusal and independent destruction). Apple builds used
+Xcode's developer directory with SDKROOT unset.
+
+Remaining failures are not skipped: Beacons' victory autofocus fails on both Apple
+hosts in shared `ExactKit/Accessibility.swift`; model pipelines need seven vertex
+storage buffers, but the shared GPU adapter fallback requests four on this simulator.
+Skinned's Linux/web observations now agree with each other but differ from its
+checked-in [Skinned pins](../games/skinned-fixture/pins.json).
+No I1 pin was changed.
+
+### Touch binding and measurements still owed
+
+`InputEvent::Control { name, id, phase, x, y, at_ms }` now feeds the existing named
+actions. A held contact composes with keyboard input; a stick uses a local origin
+and the existing 60-point radius. Up, cancel and blur release it. Three regressions
+cover keyboard/contact composition, local stick save/restore and queued-contact
+continuation in a fresh simulation. The engine change is 72 net production lines
+plus 116 test lines. This is only the engine half: no Contract block, host binding,
+Beacons touch controls or template default has been delivered. Connecting ordinary
+controls requires shared declaration/input-carrier files outside I1's enumerated
+scope; approval for that extension is pending. Existing Beacons instructions still
+describe keys.
+
+The Beacons iOS receipt (`games/beacons/artifacts/i1-ios/perf-ios.json`) reports
+33 draws, 14 instances and 2,523 triangles. All four timing rings have **zero
+samples**, so no frame-time claim follows. After-ready upload, pipeline and
+model/skin-buffer-reallocation counts are zero. Actual frame and placement/HUD
+measurements remain uncollected; Skinned cannot reach its capture because of the
+GPU-limit failure. Reading a live iOS run also requires a change to the executable
+adapter, beyond `ExactKit/IOS/**`. Simulator CPU/presentation measurements can
+compare this host on this Mac, but cannot provide real-device GPU timing, thermal
+behavior, battery cost or phone frame-rate guarantees.
+
+### Validation limits and all checked-in pins
+
+The initial game workspace run passed 530 tests with 15 ignored. All three new
+control tests passed. A later full run failed nine targets during concurrent edits;
+the third attempt stopped at two render-test E0308 errors. No fourth full attempt
+was made. All-target clippy passed; fmt still reports concurrent files outside the
+I1 edits. Root workspace build passed earlier; a later build waited on the shared
+Cargo lock and was cancelled. Harness tests passed (35 tests, 194 assertions),
+boot passed, and scoped caps passed with the staged I1 changes then unstaged.
+These are partial receipts, not a clean final-suite claim.
+
+| Game | Tick and continuation pins |
+|---|---|
+| greybox | [pins.json](../games/greybox/pins.json) |
+| beacons | [pins.json](../games/beacons/pins.json) |
+| asset-fixture | [pins.json](../games/asset-fixture/pins.json) |
+| skinned-fixture | [pins.json](../games/skinned-fixture/pins.json) |
+| particles-fixture | [pins.json](../games/particles-fixture/pins.json) |
+| sprites-fixture | [pins.json](../games/sprites-fixture/pins.json) |
+| placement-fixture | [pins.json](../games/placement-fixture/pins.json) |
+
+
+## I1b control carrier receipt — updated by R10a (2026-09-18)
+
+This receipt describes the current working tree on `17cfea2c`, including R10a
+and concurrent R10b edits. The earlier packaging block and temporary resolver
+patch were superseded by R9; they are not current limitations.
+
+Beacons and `game/new` expose accessible Move, Jump and Light buttons with
+`action="move"`, `action="jump"` and `action="light"`. A pointer down focuses its
+control unless a text editor is active, and owns its original action, contact ID and local origin until release.
+Renaming the action, including during keyboard autorepeat, does not retarget a held contact; clearing it or removing the
+node cancels that contact. Space/Enter uses the focused control. The move stick's
+60-point radius is independent of device pixel scale.
+
+Untargeted `state` exposes `world[0].input.controls`, `forwardedControls` and
+`controlContacts`. The last includes contact identity, action, origin, position
+and optional keyboard code, including queued edges. Fresh hosts use that record
+to release saved pointer and keyboard contacts without inventing another press.
+Restore rejects unknown saved action names before installing input or its queue.
+
+The renderer declares **8** storage bindings for the model path (5 scene + 3
+model); the device requests the adapter's supported capacity. Granted and
+required counts remain visible in `world[0].gpu`. Beacons' scene-only path
+requires 5. The iOS run granted 29 bindings.
+
+R10a regression checks cover immutable press bindings, focus, cancellation,
+restored ownership, capture loss, two pointers, CSS coordinates at DPR 3,
+disabled/hidden/inert controls, recovery no-ops and transactional web cutover.
+Shared Apple tests cover replacement loss during recovery and per-canvas
+one-time clock redelivery, including newly created surfaces. Linux tests cover
+passive and actionable descendants, placed siblings and the rotated inverse
+sampler. Agent tests execute the refusal advice as CLI operations; report tests
+reject diagnostics that preceded the failure, and placement comparisons require
+matching ticks (initial 0, moving 60).
+
+The R10a Beacons proof exercises pointer Jump, cancel → Move, focused Space,
+fresh-host pointer cancellation and release of restored Space. iOS delivery is
+labelled `recognized`: the agent hit-tests through UIKit and calls the shared
+control seam; UIKit does not synthesize a touch. The live simulator run collected
+65 frame samples and 66 renders, with 5 HUD children and no captures. Its frame
+interval p50/p95 was 16.6667/16.6667 ms; these are simulator CPU/presentation
+measurements, not GPU timings.
+
+The web asset proof passes real device destruction, fail-once recovery, identical
+pixels and unchanged preparation counts. A healthy recovery call also preserves
+the original canvas identities. R10a leaves deterministic simulation pins unchanged.
+
+R10a host receipts (ordinary mode, unchanged pins):
+
+| Proof | Linux | Web | macOS | iOS |
+|---|---|---|---|---|
+| Beacons controls and fresh restore | pass, 77.647 s | pass, 13.027 s | pass, 396.363 s | pass, 248.423 s |
+| Asset recovery | not rerun here | pass, 24.621 s | not rerun here | not rerun here |
+| Placement, pinned ticks 0 and 60 | pass, 438.120 s | pass, 11.098 s | not rerun here | not rerun here |
+
+The explicit Beacons web/Linux comparison passes with equal world hashes; the
+subsequent Linux autorepeat regression and full Beacons rerun pass with unchanged
+pins. Placement rectangles are identical across web/Linux at ticks 0 and 60.
+
+Final validation: game workspace **559 passed, 11 ignored, zero failures**, using
+`RUST_TEST_THREADS=2 CARGO_BUILD_JOBS=2` after stopping a stalled parallel rustdoc
+batch. The targeted `exact-gpu` / `contract-lower` run has 29 passes; ExactKit has
+91 on macOS, and the shared control/recovery suite has 3 on the specified iOS
+simulator. The combined web/Apple-build/proof Bun suite has 134 passes, including
+`--repin` and `--report` regressions. Game and Linux all-target Clippy, root/game
+fmt, root workspace build, boot and explicitly staged scoped caps pass. Caps
+files were unstaged afterward; no R10a commit was made.
+
+Some earlier proof descendant-process audits timed out; their explicit carrier
+shutdowns completed, but no successful descendant audit is claimed for those runs.
+
+
+## R9 recovery and simulator receipt (2026-09-18)
+
+Historical R9 measurements follow; the updated I1b/R10a receipt above records
+the current control, autofocus and recovery validation.
+
+A failed adapter retry can receive replacement texture bytes before device
+attachment. WorldSurface now invalidates device assets once per loss, retaining
+those arrivals through repeated failure reports and `device_ready`. The real
+WebGPU destruction/fail-once proof passes pixel equality and the original
+preparation counts (4 textures, 2 meshes, 21 pipelines, 1 model-buffer growth).
+The Metal surface-lifecycle regression calls the surface loss hooks directly,
+including a replacement that prepares assets and then fails. It requires identical
+pixels and preparation counts; it does not test native loss detection. Headless attachment still
+requests missing texture bytes.
+
+Development Carry adds freshly declared Animation, Blend and Animator components
+and replaces conflicting controller kinds while preserving the sampled Pose;
+Open remains byte-exact. A Carry that changes the controller kind changes the
+world hash; deterministic setup makes that change deterministic. The mutable
+post-restore hook includes the audio module adapter. Primitive pose reads on Sim
+and WorldSurface both say `pose inspection requires game.assets: true`, with a
+regression comparing them. The score diary links the retained Sitting #2 heading.
+
+The isolated Skinned macOS reproduction builds and passes. The existing hashed
+rustc dep-info resolver and its library/executable regression tests pass; no
+resolver edit was needed. The Apple clock fixture already uses `childrenMode:`; all 12 clock/recovery tests pass.
+GPU module clock selection now follows `ExactEnv.agentFreezes`, so platform-timed
+agent sessions sample live rings instead of suppressing stamps as seekable work.
+Both Skinned and Beacons iOS proofs pass with the same deterministic pins.
+
+**Historical standalone-iOS CPU/presentation figures, not real GPU timings.**
+These numbers do not cover macOS or the sample hosts.
+Simulator `0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`, 3840 × 2160 render pixels.
+Entries are p50 / p95 in milliseconds; the frame ring records presentation-clock
+intervals. Samples were taken after resetting each live window.
+
+| Game | Tick CPU | Feed CPU | Encode CPU | Frame interval | Samples: tick/feed/encode/frame |
+|---|---:|---:|---:|---:|---:|
+| Beacons | 0.0092 / 0.0110 | 0.0093 / 0.0103 | 0.8897 / 1.1074 | 16.6667 / 16.6667 | 63 / 63 / 62 / 61 |
+| Skinned | 0.0236 / 0.0335 | 0.2458 / 0.3132 | 1.1047 / 1.3852 | 16.6667 / 16.6667 | 69 / 69 / 66 / 65 |
+
+Beacons recorded 61 renders, 0 captures, 5 HUD children and 0 placed/hidden
+children; Skinned recorded 66 renders, 0 captures, 1 HUD child and 0 placed/hidden
+children. Both report zero after-ready residency work. Full samples are in each
+fixture's ignored `artifacts/perf-ios-live.json`; seekable rings remain unsampled.
+The current Fox proof crops the reported screen bounds, requires varied orange
+fur and more than 10% non-white pixels, and executes a 95%-white negative image.
+It asserts the proof viewport’s 16:9 aspect; other aspects are not claimed.
+
+Current validation and each review fix's regression are recorded in the
+[R11 receipt](#r11-review-fixes-and-app-owned-starter).
+All seven games pass Linux continuous, Save and FreshGame proofs with unchanged
+pins; Beacons passes all four hosts and Skinned passes macOS/iOS. ExactKit passes
+97 tests, including the formerly failing autofocus-reset case. Concurrent changes
+were retained; no commit was made.
+
+
+Socket followers hold the last composed pose during a skipped animation step in
+this session. That derived hold is neither hashed nor saved: restore (including
+paranoid Save/FreshGame) reconstructs from saved local Pose and current owner and
+offset. Deleting a controller removes Pose and resumes live bind-pose composition;
+`deleting_controller_clears_pose_and_resumes_live_bind_composition` tests that choice.
+Dead follower entries are pruned on propagation, even with no followers, and on
+queries including stale hits.
+
+
+## D5 — fourth whole review deletion pass (2026-09-19)
+
+D5 removes the unsaved follower hold, unconditional particle reservation, the surface audio adapter’s null Player, the Surface count callback and separate previous-composite callback, Feed’s filtering switch and unused renderer arguments; the guide’s 224-line receipt tail is archived above with its dates intact. Followers compose saved local joints with current owner/offset; the regression moves both across a skipped animation step, restores into a fresh world and publishes the same next-tick position. Particle pipelines and arenas prepare only with emitters, reserving the steady stream (including one interpolation tick) and growing at feeds for larger births. The primitive renderer used by Beacons measured **14,942,208 → 262,144 CPU bytes** and **5,242,880 → 0 GPU bytes** in the affected particle/order storage: CPU is actual Vec capacity × element size; GPU is the particle vertex buffer’s allocation size. These are reserved bytes, not RSS or total renderer memory; unchanged sprite/child and effect allocations are excluded. The release feed diagnostic now uses the same filtering path as games: 200k entities, all/1%/none moving p50 **0.4898/0.0094/0.0035 ms**, p95 **0.6267/0.0312/0.0052 ms**; 500k p50 **1.2627/0.0243/0.0055 ms**, p95 **1.4990/0.0552/0.0070 ms**, during concurrent builds, not a quiet comparative benchmark. Final validation: game workspace **545 passed, 11 ignored**, all-target clippy and both workspace formatting checks pass; root workspace build and **42** GPU/Caltrain tests pass; web host Bun tests **97 passed**. All seven games pass Linux continuous/Save/FreshGame across runs and retries; Skinned, Particles and Placement pass web, and Beacons passes macOS. Caltrain web functional checks pass, but its smoke exits nonzero solely for Chrome Keychain/encryption diagnostics. The initial workspace run found the removed null-player test reference; the second found a remaining stale-hold assertion; the third passes. Particle web initially found two after-ready buffer growths; steady-stream preparation fixes them and the rerun records zero after-ready residency work. Linux retries recovered readiness timeouts and Placement’s failed initial build/empty comparison baseline. Removed/replaced code-and-test lines by brief item 1–5: **119 / 24 / 17 / 40 / 37**, excluding other writers’ hunks and guide prose; item 6 moves **224** receipt lines, preserving dates. These are gross removals, not net reductions after replacements and regression additions. No pins or commits changed. D5 remains incomplete in two explicitly restricted engine sites: deleting World/scene’s now-empty propagation callback and installing component-owned audio detachment require the pending scope answers; `/tmp/d5-pending-engine.patch` contains those unapplied edits. Scoped caps passes with only explicit D5 paths staged and then unstaged.
+
+E9 — 2026-09-19 (Codex, one agent, uncommitted): added `nearest_xz_mut` with identity, named `require`/`require_mut` diagnostics, strip/sprite first-frame pairing, explicit `Motion::apply_local`, `Sim::with_assets` and `Sim::assert_pin`, and one-step `World::sounds`; games and the template use the corresponding idioms and named Contract calls. The guide now states depth-first translucent sorting and opaque emissive/bloom glow. Proof traversal and web artifact restoration share one implementation, placement owns its comparison entry point, residency helpers live beside the lifecycle, Beacons runs one ordinary session plus fresh-process continuation and exercises pointer Jump/Light on web/iOS, and receipts are host-keyed. First pins require Linux and web and reject explicit `--repin`; Chrome reuse releases keys/touch, clears origin storage while retaining HTTP cache, resets history and refreshes boot timing. The isolation regression first observed the previous stage’s IndexedDB secret/history and now passes; 91 proof/feel tests, six focused engine regressions, five Contract surface tests, all fixture logic targets (Beacons rerun), clippy, scoped formatting and scoped caps pass. All seven games pass host-less Linux, Linux Off/Save/FreshGame and web after serialized Beacons retries; Beacons also passes iOS/macOS, and placement’s direct host comparison passes. Warm Beacons whole commands measured 0.283 s Linux and 14.302 s web during concurrent validation; checked-in game pins did not move. Global game tests retain the other writer’s follower-removal failure (540 passed, one failed, 11 ignored); global formatting reports their Stack assertion. The starter suite’s third round timed out after its Linux proof passed; no fourth attempt or longer deadline was added. Broader root tests exposed Stack/Apple failures and were stopped with their owned process tree after prolonged unrelated TypeScript/producer checks; this is not a full root pass. Several proofs skipped descendant inventory when ps stalled, while recorded carrier shutdowns were awaited. `Placed::named_child` awaits approval for out-of-scope host/GPU identifier plumbing, and compile-time unknown argument-field checks are queued with the missing Rust-schema transport cost; runtime named-field refusals/defaults are verified. Concurrent hunks were preserved; no commit, clone, sub-agent, stash, or machine/disk check was added.
+
+
+R13 — 2026-09-19 (Codex/astra, one agent, uncommitted): surface calls now share `name=value` with component arguments; empty and short positional calls take Rust defaults, and game bakes refuse unknown names/excess arguments through the actual surface declaration. Plan v5 carries call mode and changes plan bytes; this lane changed no world/save pins. Beacons `world()` binds `seed=0, paused=false, restart=false`; the skinned fixture uses `world()` with `blend_bias=0`. Corrupt world saves run zero setups; valid restores run one, including FreshGame with registered physics. Capture refuses uninitialized submodules and tracked files under inferred output roots; nested source paths remain hashed. The template supplies the first-bake lock, stale shell-only locks refuse, offline cache prerequisites are explicit, and two new-game copies capture identical locks. DPR 2/3 crops, restored ambiguous-owner cancellation, retained Linux keyboard routing, all three host batch paths, and content-only generation inventories have regression coverage; raw transport key order is not a hash input. Validation: root build/boot and 234 requested root tests pass; game workspace 547 pass/12 explicit ignores; host-less games 32 pass/1 ignore; requested Bun suite 105 pass/2 skips; all seven Linux Off/Save/FreshGame and web proofs pass, as do skinned iOS at DPR 3 and Beacons macOS/iOS. The broad web suite remains 97 pass/one native-start timeout after three rounds; deploy retains its documented root-closure refusal. Formatter/symbol/diff tests pass (3 fmt, 5 symbols); `fmt --check` passes 14 of 43 Contract files and reports 29 formatting differences, listed verbatim with each finding’s red/green evidence in `~/Library/Caches/exact2-game/briefs/receipt-R13-astra-20260919.md`. As the last source change, after both files were unchanged for over ten minutes, controls moved to `host/linux/src/surface_controls.rs` and binding to `game/render/src/surface/args.rs`, leaving their parent files at 1,147/1,442 lines; the GPU retirement test is explicitly ignored and passed opt-in on a device. Post-split Linux/render tests, both workspace Clippy/format checks, scoped caps, Beacons Linux in all paranoid modes and skinned web pass; the index is clear.

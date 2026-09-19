@@ -399,7 +399,7 @@ function listen(entry) {
   const sendControl = (event, owner, phase, id, x = 0, y = 0) => send(event, {t:"control", name:owner.name, phase, id, x, y});
   const cancelRemoved = () => {
     for (const owners of [controls, controlKeys]) for (const [key, owner] of owners) {
-      if (owner.node && (!owner.node.isConnected || !owner.node.getAttribute("data-action") || owner.node.closest("[data-gpu-input]") !== el)) {
+      if (owner.node ? (!owner.node.isConnected || !owner.node.getAttribute("data-action") || owner.node.closest("[data-gpu-input]") !== el) : ![...el.querySelectorAll("button[data-action]")].some(node => node.isConnected && node.getAttribute("data-action") === owner.name && node.closest("[data-gpu-input]") === el)) {
         sendControl({timeStamp:performance.now()}, owner, "cancel", owners === controls ? key : key === "Space" ? 4294967294 : 4294967293);
         owners.delete(key);
       }

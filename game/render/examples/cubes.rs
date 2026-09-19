@@ -168,7 +168,6 @@ fn main() {
             });
         }
         let mut feed = Feed::default();
-        feed.filter_same_values(mode != "all");
         let mut renderer = gpu
             .as_ref()
             .map(|g| Renderer::new(&g.device, &g.queue, wgpu::TextureFormat::Rgba8Unorm));

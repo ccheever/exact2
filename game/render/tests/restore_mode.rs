@@ -225,6 +225,9 @@ fn named_bindings_use_args_defaults_and_preserve_atomic_live_restart_and_restore
             500.,
         ),
         (r#"{}"#, "[7,false,false,2]", 600.),
+        (r#"{}"#, "[]", 700.),
+        (r#"{"seed":9}"#, "[9]", 800.),
+        (r#"{}"#, "[]", 900.),
     ] {
         assert!(
             module.bind_json(named, named_json, Some(at)),
@@ -248,4 +251,31 @@ fn named_bindings_use_args_defaults_and_preserve_atomic_live_restart_and_restore
         assert!(module.restore(fresh, &saved, mode));
         assert_eq!(module.carry(fresh).unwrap(), Some(saved.clone()));
     }
+}
+
+#[test]
+fn r13_beacons_world_empty_binds_seed_zero_paused_false_restart_false() {
+    use exact_game::Args;
+    use exact_gpu::{Module, Registry};
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("world", 3, || {
+            Box::<WorldSurface<beacons_logic::Beacons>>::default()
+        })],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    module.set_seekable(true);
+    let empty = module.create_headless("world").unwrap();
+    let full = module.create_headless("world").unwrap();
+    assert_eq!(
+        beacons_logic::Options::default().values(),
+        vec![
+            exact_game::Value::Number(0.),
+            exact_game::Value::Bool(false),
+            exact_game::Value::Bool(false)
+        ]
+    );
+    assert!(module.bind_json(empty, "{}", None));
+    assert!(module.bind_json(full, "[0,false,false]", None));
+    assert_eq!(module.carry(empty).unwrap(), module.carry(full).unwrap());
 }

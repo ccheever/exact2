@@ -87,8 +87,7 @@ records, without per-instance CPU work on the primitive retained path.
 Feed checks storage write generations against each target history and reads only
 changed pages. It patches parented global poses into retained scratch, coalesces
 dirty runs and writes them. Same-value assignment filtering hashes changed pages
-only; `filter_same_values(false)` skips hashes for streams known to change every
-leased page. The default filters. There is no dense/probe/adaptive-skip policy.
+only. There is no filtering switch or dense/probe/adaptive-skip policy.
 Metadata still scales with allocated pages; selected pages are copied into scratch,
 not uploaded zero-copy. Parented pages are checked when any ancestor might move.
 Materials use the same generation gate, one history, and repack engine records
@@ -319,8 +318,10 @@ the sprite texture binding label, and a GPU test verifies named Sprite refusal.
 Retirement removes a sprite's drawable binding while retaining its resident
 texture for digest-checked redelivery. Compaction preserves only active bindings.
 The residency counters include quad pipelines and quad buffer growth. Particle
-pipelines and the full 65,536-particle arena prepare with the renderer; sprite
-pipelines prepare with the asset-capable renderer before its ready boundary.
+pipelines prepare with the first emitter; particle arenas reserve the emitter’s steady stream and grow for larger birth
+counts at feed preparation, never in the draw loop. The 65,536 ceiling is admission
+policy, not compulsory storage. Sprite pipelines prepare with the asset-capable
+renderer before its ready boundary.
 
 ## Placed children
 

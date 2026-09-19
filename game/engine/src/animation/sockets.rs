@@ -25,6 +25,12 @@ impl SocketFollow {
 #[derive(Default, Clone)]
 pub struct Motion(pub(super) Vec<(Entity, Option<String>, Playback)>);
 impl Motion {
+    /// Apply this tick's model-local displacement after the authored rotation.
+    pub fn apply_local(&self, w: &World, name: &str) {
+        w.require_mut::<Transform>(name)
+            .translate_local(self.root_motion(name));
+    }
+
     fn playback(&self, target: impl Into<crate::FollowTarget>) -> Option<&Playback> {
         let target = target.into();
         self.0
@@ -174,28 +180,10 @@ impl Component for SocketFollow {
         w.register::<Pose>();
         w.attachments = Some(crate::world::Attachments {
             pose: follower_pose,
-            propagate: |w| {
-                // Seed completed boundaries even when no presenter/audio query ran.
-                prune_follower_poses(w);
-                for (e, _) in w.query::<&SocketFollow>().iter() {
-                    let _ = w.current_global(e);
-                }
-            },
         });
     }
 }
-fn prune_follower_poses(w: &World) {
-    let stamp = (w.entities_revision(), w.membership::<SocketFollow>());
-    let mut cache = w.derived::<FollowerPoses>();
-    if cache.1 != Some(stamp) {
-        cache
-            .0
-            .retain(|entity, _| w.contains(*entity) && w.has::<SocketFollow>(*entity));
-        cache.1 = Some(stamp);
-    }
-}
 fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine3A> {
-    prune_follower_poses(w);
     let follow = w.get::<SocketFollow>(e)?;
     let target = match &follow.target {
         crate::FollowTarget::Entity(e) => *e,
@@ -204,15 +192,6 @@ fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine
     if !w.contains(target) {
         return None;
     }
-    if socket_stale(w, target) {
-        if let Some((old, pose)) = w.derived::<FollowerPoses>().0.get(&e) {
-            if *old == target {
-                return Some(*pose);
-            }
-        }
-    }
-    // A restored stale boundary still has its saved local joint pose. Explicit
-    // socket queries refuse it; followers can reconstruct without an authored snap.
     let socket = compose_socket(w, target, &follow.joint, remaining).ok()?;
     let pose = crate::Affine3A::from_mat4(socket)
         * crate::Affine3A::from_scale_rotation_translation(
@@ -220,50 +199,30 @@ fn follower_pose(w: &World, e: Entity, remaining: usize) -> Option<crate::Affine
             follow.offset.rotation,
             follow.offset.position,
         );
-    let mut cache = w.derived::<FollowerPoses>();
-    cache.0.insert(e, (target, pose));
     Some(pose)
 }
-#[derive(Default)]
-struct FollowerPoses(
-    BTreeMap<Entity, (Entity, crate::Affine3A)>,
-    Option<(u64, u64)>,
-);
 
 #[cfg(test)]
-mod cache_tests {
+mod apply_tests {
     use super::*;
     #[test]
-    fn dead_followers_are_pruned_even_without_remaining_followers() {
-        for restore in [false, true] {
-            let mut w = World::new(60, 0);
-            let target = w.spawn(Transform::default());
-            let e = w.spawn(SocketFollow::new(target, ""));
-            if restore {
-                w.load(&w.save()).unwrap();
-            }
-            w.derived::<FollowerPoses>()
-                .0
-                .insert(e, (target, crate::Affine3A::IDENTITY));
-            w.despawn(e);
-            w.propagate();
-            assert!(w.derived::<FollowerPoses>().0.is_empty());
-        }
-    }
-    #[test]
-    fn stale_hits_prune_dead_followers_before_returning() {
+    fn apply_local_uses_authored_rotation_and_keeps_markers() {
         let mut w = World::new(60, 0);
-        let target = w.spawn((Transform::default(), Animation::play("idle")));
-        let live = w.spawn(SocketFollow::new(target, ""));
-        let dead = w.spawn(SocketFollow::new(target, ""));
-        for e in [live, dead] {
-            w.derived::<FollowerPoses>()
-                .0
-                .insert(e, (target, crate::Affine3A::IDENTITY));
-        }
-        w.despawn(dead);
-        w.begin_tick();
-        assert!(follower_pose(&w, live, 10).is_some());
-        assert_eq!(w.derived::<FollowerPoses>().0.len(), 1);
+        let e = w.spawn_named("fox", Transform::default());
+        let motion = Motion(vec![(
+            e,
+            Some("fox".into()),
+            Playback {
+                root_motion: Vec3::X,
+                crossed: vec!["step".into()],
+                ..Default::default()
+            },
+        )]);
+        w.require_mut::<Transform>("fox").rotation = crate::Quat::from_rotation_y(1.);
+        let mut expected = *w.require::<Transform>("fox");
+        expected.translate_local(motion.root_motion("fox"));
+        motion.apply_local(&w, "fox");
+        assert_eq!(w.require::<Transform>("fox").position, expected.position);
+        assert!(motion.crossed("fox", "step"));
     }
 }

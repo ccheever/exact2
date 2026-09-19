@@ -126,7 +126,11 @@ impl Surface for AuroraSurface {
         exact_gpu::ChildrenMode::Composite { previous: false }
     }
 
-    fn children(&mut self, texture: Option<&wgpu::TextureView>) {
+    fn children(
+        &mut self,
+        texture: Option<&wgpu::TextureView>,
+        _previous: Option<&wgpu::TextureView>,
+    ) {
         self.children = texture.cloned();
         self.rebind = true;
     }

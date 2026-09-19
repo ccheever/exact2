@@ -9,12 +9,7 @@ fn tick300_and_restore() {
     a.run(2500.);
     let hash = a.world().hash();
     println!("particles tick300 0x{hash:016x}");
-    exact_game::World::assert_pin(
-        include_str!("../../pins.json"),
-        "particles-fixture",
-        300,
-        hash,
-    );
+    a.assert_pin(include_str!("../../pins.json"));
     assert_eq!(a.world().len(), 21);
     let count: u32 = a
         .world()

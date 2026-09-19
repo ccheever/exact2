@@ -1,7 +1,7 @@
 //! The first game: a capsule, landmarks, and one beacon. No host and no GPU.
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
-use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
+use exact_game::audio::{self, AudioListener, AudioSource, Synth};
 use exact_game::character::Character;
 use exact_game::Vec3Swizzles;
 use exact_game::{
@@ -27,9 +27,9 @@ pub struct Beacon {
     /// Emission envelope; the engine discovers its settling state automatically.
     pub glow: Spring,
 }
-/// Logic behind `canvas surface=world(seed, paused)`.
+/// Logic behind `canvas surface=world(seed: seed, paused: paused)`.
 pub struct Greybox;
-/// Typed canvas arguments in positional order.
+/// Typed canvas arguments bound by field name.
 #[derive(Default, exact_game::Args)]
 pub struct GreyboxArgs {
     /// Canvas setup argument.
@@ -54,10 +54,8 @@ impl Game for Greybox {
     }
     fn setup(world: &mut World, args: &Self::Args) {
         world.reseed(args.seed);
-        world.register_audio();
-        world
-            .resource_mut::<Sounds>()
-            .add(
+        world.sounds([
+            (
                 "footstep",
                 Synth::noise()
                     .seconds(0.09)
@@ -65,8 +63,8 @@ impl Game for Greybox {
                     .release(0.08)
                     .lowpass_hz(650.0)
                     .gain(0.4),
-            )
-            .add(
+            ),
+            (
                 "chime",
                 Synth::sine(880.0)
                     .seconds(0.8)
@@ -74,8 +72,8 @@ impl Game for Greybox {
                     .release(0.7)
                     .gain(0.3)
                     .layer(Synth::sine(1320.0).seconds(0.5).release(0.45).gain(0.12)),
-            )
-            .add(
+            ),
+            (
                 "wind",
                 Synth::noise()
                     .seconds(2.0)
@@ -85,7 +83,8 @@ impl Game for Greybox {
                     .lowpass_hz(380.0)
                     .gain(0.12)
                     .looped(),
-            );
+            ),
+        ]);
         world.spawn_named(
             "ground",
             (
@@ -161,7 +160,7 @@ impl Game for Greybox {
                 .character("player")
                 .step(input.stick_xz("move"), input.pressed("jump"));
             if motion.grounded {
-                let mut player = world.get_mut::<Player>("player").unwrap();
+                let mut player = world.require_mut::<Player>("player");
                 player.stride += motion.displacement.xz().length();
                 while player.stride >= 0.45 {
                     player.stride -= 0.45;
@@ -174,8 +173,9 @@ impl Game for Greybox {
             world.play("footstep").at("player").pitch(pitch).start();
         }
         if input.pressed("act") {
-            if let Some(entity) = world.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit) {
-                let mut beacon = world.get_mut::<Beacon>(entity).unwrap();
+            if let Some((entity, mut beacon)) =
+                world.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit)
+            {
                 beacon.lit = true;
                 beacon.glow.set_target(now, 1.0);
                 world.publish_record(&Hud { beacons: 1 });

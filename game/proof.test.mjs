@@ -1,9 +1,10 @@
 import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {agreePins, comparePlacement, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {checkSteadyResidency} from './games/asset-fixture/residency.mjs';
+import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
+import {checkSteadyResidency} from './proof.mjs';
+import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
 
 test('external app sources and assets invalidate receipts while docs and outputs stay excluded', () => {
@@ -361,7 +362,7 @@ test('explicit focus in a commit precedes autofocus and its authored side effect
 });
 
 test('KeyP forbids texture uploads and pipeline creation as well as requiring new geometry', async () => {
-  const {checkResidency}=await import('./games/asset-fixture/residency.mjs');
+  const {checkResidency}=await import('./proof.mjs');
   const state=(textureUploads=0,meshUploads=0,pipelineCreations=0)=>({ready:true,gpu:{afterReady:{textureUploads,meshUploads,pipelineCreations,modelSkinBufferReallocations:0}}});
   for (const error of ['none','texture','pipeline']) {
     const checks=[], responses=[{before:state(),after:state()}, {before:state(),after:state(1)}, {before:state(1),after:state(1)},
@@ -504,10 +505,10 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
   expect(comparePlacement(a,b)).toBe(true);
 });
 
-for (const scenario of ['report','repin','external-report']) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
+for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}`;
   // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario === 'external-report' ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  const directory = scenario.startsWith('external-report-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -515,6 +516,7 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(pins));
     writeFileSync(resolve(app,'proof.mjs'),`
       import {appendFileSync,mkdirSync,writeFileSync} from 'node:fs';
+      export function compare(rows) { if (rows.length !== 2) throw new Error('missing comparison rows'); console.log('COMPARE generic authored proof'); }
       if (import.meta.main) {
       const out=process.env.EXACT_PROOF_OUT, host=process.argv[2];
       appendFileSync(${JSON.stringify(resolve(app,'calls.jsonl'))},JSON.stringify({host,build:process.argv.includes('--build-only'),mode:process.env.EXACT_GAME_PARANOID})+'\\n');
@@ -534,20 +536,26 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
       const calls=readFileSync(resolve(app,'calls.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
       return {code,text:stdout+stderr,calls};
     };
-    if (scenario.endsWith('report')) {
+    if (scenario === 'report' || directory) {
+    const selected = command => !directory || scenario === `external-report-${command}`;
+    if (selected('ordinary')) {
     const ordinary=await run(['--report']);
     expect(ordinary.code).toBe(0);
     expect(ordinary.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
     expect(ordinary.text).toContain('REPORT linux 0: no recorded stalls or refusals');
     expect(JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
+    }
+    if (selected('repeat')) {
     const repeated=await run(['--repeat','2']);
     expect(repeated.code).toBe(0);
     expect(repeated.calls).toEqual(Array(2).fill({host:'linux',build:false,mode:'0'}));
-    if (directory) {
+    }
+    if (directory && selected('cwd')) {
       const here=await run(['--report'],{},true);
       expect(here.code).toBe(0);
       expect(here.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
     }
+    if (selected('failure')) {
     const started = performance.now();
     const failed=await run(['--hosts','linux','--report'],{R8B_FAIL:'1'});
     // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
@@ -556,7 +564,8 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
     const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
     expect(summary.status).toBe('FAIL');
-    for (const status of ['UNVERIFIED','PASS']) {
+    }
+    for (const status of ['UNVERIFIED','PASS'].filter(selected)) {
       const completed=await run(['--hosts','linux','--report','--compare-saves'],{R8B_UNVERIFIED:status==='UNVERIFIED'?'1':'0'});
       expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
       expect(completed.text).toContain(`| identical | ${status} |`);
@@ -571,6 +580,7 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
       expect(web.calls).toEqual([{host:'web',build:false,mode:'0'}]);
       const compared=await run(['--compare-saves'],{R8B_PASS_WEB:'1'});
       expect(compared.code).toBe(0);
+      expect(compared.text).toContain('COMPARE generic authored proof');
       expect(compared.calls.length).toBe(4);
       expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual(['linux','web']);
       const mixed=await run(['--hosts','linux,web','--compare-saves'],{R8B_PASS_WEB:'1',R8B_UNVERIFIED_HOST:'web'});
@@ -594,6 +604,12 @@ for (const scenario of ['report','repin','external-report']) test(`prove retains
     expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
     const empty={ticks:{},saves:{}};
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
+    for (const args of [['--repin'], ['--hosts','linux']]) {
+      const refused = await run(args);
+      expect(refused.code).toBe(1);
+      expect(refused.text).toContain(args[0] === '--repin' ? 'omit `--repin` for the first baseline' : 'first baseline requires linux and web');
+      expect(refused.calls).toEqual([]);
+    }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
     expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
@@ -753,4 +769,80 @@ test('R12 Fox crop accepts approximately 16:9 real screenshot coordinates', asyn
   for(let y=40;y<120;y++) for(let x=240;x<300;x++) data.set([160+(x%12)*8,70,25,255],(y*width+x)*4);
   const image={width,height,data}, screen={x:240,y:40,w:60,h:80};
   expect(foxPixels(image,screen,[width,height]).ok).toBe(true);
+});
+
+test('reused Chrome clears IndexedDB, history and held keys/contacts between stages', async () => {
+  const {open} = await import('../scripts/agent.mjs');
+  let generation = 0;
+  const released = [];
+  const server = Bun.serve({port:0, fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/released') { released.push(url.searchParams.get('event')); return new Response('ok'); }
+    return new Response(`<div id="exact-root" data-boot-ms="${++generation}"><button id="button">Input</button></div><script>
+      const button = document.getElementById('button');
+      for (const event of ['keyup','touchcancel']) addEventListener(event, e => fetch('/released?event='+event+(e.code || '')));
+      const database = () => new Promise((resolve,reject) => { const r=indexedDB.open('stage',1); r.onupgradeneeded=()=>r.result.createObjectStore('data'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error); });
+      window.exact={ready:Promise.resolve(), views:new Map([[1,button]]), agent:async request=>{
+        if(request.op==='layout') return {nodes:[{id:1,x:0,y:0,w:100,h:40}]};
+        const db=await database();
+        if(request.op==='write') { const tx=db.transaction('data','readwrite'); tx.objectStore('data').put('secret','key'); await new Promise(r=>tx.oncomplete=r); history.pushState({},'', '/one'); history.pushState({},'', '/two'); db.close(); return {}; }
+        const tx=db.transaction('data'); const r=tx.objectStore('data').get('key'); const value=await new Promise(ok=>r.onsuccess=()=>ok(r.result??null)); db.close(); return {value,history:history.length};
+      }};
+    </script>`, {headers:{'content-type':'text/html'}});
+  }});
+  let first, second;
+  try {
+    first = await open({host:'web',url:server.url.href});
+    await first.carrier.ask({op:'write'});
+    await first.carrier.input(1,'key',{key:'Shift',phase:'down'});
+    await first.carrier.input(1,'down',{});
+    second = await open({host:'web',url:server.url.href,reuse:first.carrier});
+    expect(second.carrier).toBe(first.carrier);
+    expect(await second.carrier.ask({op:'state'})).toEqual({value:null,history:1});
+    expect(released).toContain('keyupShiftLeft');
+    expect(released).toContain('touchcancel');
+    expect(second.boot).toBeGreaterThan(first.boot);
+  } finally { await (second ?? first)?.close(); server.stop(true); }
+}, 30000);
+
+test('paranoid traversal restores the ordinary artifact only on web', async () => {
+  const restored = [];
+  for (const host of ['linux','web']) {
+    const modes = [];
+    expect(await paranoidRuns(async mode => {modes.push(mode); return 0;}, async () => {restored.push(host); return 0;}, host)).toBe(false);
+    expect(modes).toEqual(['0','1','fresh-game']);
+  }
+  expect(restored).toEqual(['web']);
+});
+
+test('shared residency probe takes the authored replacement model name', async () => {
+  const {residencyProbe} = await import('./proof.mjs');
+  expect(residencyProbe('sample.model', 'texture.tex', 'reload.model').source).toContain("encode('reload.model')");
+  expect(() => residencyProbe('sample.model', 'texture.tex', 'longer.model-name')).toThrow('same byte length');
+});
+
+
+test('R13 output names nested in logic remain proof inputs and change the hash', async () => {
+  const {proofInputExcluded, proofInputFiles}=await import('./proof.mjs');
+  for(const name of ['target','.shells','dist','dist.previous','artifacts']) {
+    expect(proofInputExcluded(`game/games/beacons/logic/src/${name}/mod.rs`,'beacons')).toBe(false);
+    expect(proofInputExcluded(`game/games/beacons/${name}/mod.rs`,'beacons')).toBe(true);
+  }
+  const dir=mkdtempSync(resolve(tmpdir(),'r13-proof-'));
+  try {
+    const path=resolve(dir,'logic/src/target/mod.rs');mkdirSync(dirname(path),{recursive:true});writeFileSync(path,'before');
+    expect(proofInputFiles(dir,dir)).toContain('logic/src/target/mod.rs');
+    const hash=()=>{const value=buildInputHash('linux','target');for(const file of proofInputFiles(dir,dir)) value.update(file).update(readFileSync(resolve(dir,file)));return value.digest('hex');};
+    const before=hash();writeFileSync(path,'after');expect(hash()).not.toBe(before);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () => {
+  const {foxScreenshotPixels}=await import('./games/skinned-fixture/proof.mjs');
+  for(const scale of [2,3]) {
+    const w=160,h=90,width=w*scale,height=h*scale,data=new Uint8Array(width*height*4).fill(255);
+    for(let y=20*scale;y<40*scale;y++) for(let x=90*scale;x<120*scale;x++) data.set([150+(x%10)*8,70,20,255],(y*width+x)*4);
+    const result=foxScreenshotPixels({width,height,data},{x:90,y:20,w:30,h:20},{w,h,scale});
+    expect(result.ok).toBe(true);expect(result.crop).toEqual([90*scale,20*scale,120*scale,40*scale]);
+  }
 });

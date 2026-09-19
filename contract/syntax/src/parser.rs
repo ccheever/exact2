@@ -1050,13 +1050,23 @@ impl Parser {
         Ok(())
     }
 
+    fn named_arg(&mut self) -> R<Attr> {
+        let (name, span) = self.ident()?;
+        if self.at_punct(":") {
+            return self.err(
+                "syntax-named-argument",
+                format!("named arguments use `{name}=value`, not `{name}: value`"),
+            );
+        }
+        self.expect_punct("=")?;
+        let value = self.expr()?;
+        Ok(Attr { name, value, span })
+    }
+
     fn named_args(&mut self) -> R<Vec<Attr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
-            let (name, span) = self.ident()?;
-            self.expect_punct("=")?;
-            let value = self.expr()?;
-            out.push(Attr { name, value, span });
+            out.push(self.named_arg()?);
             if !self.eat_punct(",") {
                 break;
             }
@@ -1069,11 +1079,10 @@ impl Parser {
         let mut out = Vec::new();
         while !self.at_punct(")") {
             let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
-                && matches!(self.peek2(), TokenKind::Punct(":"))
+                && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
             {
-                let (name, span) = self.ident()?;
-                self.next();
-                Expr::NamedArg(name, Box::new(self.expr()?), span)
+                let Attr { name, value, span } = self.named_arg()?;
+                Expr::NamedArg(name, Box::new(value), span)
             } else {
                 self.expr()?
             };

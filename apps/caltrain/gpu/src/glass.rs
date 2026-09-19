@@ -89,15 +89,15 @@ impl Surface for GlassSurface {
         exact_gpu::ChildrenMode::Composite { previous: true }
     }
 
-    fn children(&mut self, texture: Option<&wgpu::TextureView>) {
+    fn children(
+        &mut self,
+        texture: Option<&wgpu::TextureView>,
+        previous: Option<&wgpu::TextureView>,
+    ) {
         self.children = texture.cloned();
+        self.previous = previous.cloned();
         self.rebind = true;
         self.fresh = true;
-    }
-
-    fn previous_children(&mut self, texture: Option<&wgpu::TextureView>) {
-        self.previous = texture.cloned();
-        self.rebind = true;
     }
 
     fn render(

@@ -66,7 +66,7 @@ export function resolveApp(nameOrCrate) {
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', '--no-deps', '--locked', '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }

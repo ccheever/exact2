@@ -142,7 +142,7 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
   action pause writes paused
     paused = not paused
   view
-    canvas surface=world(restart: again, seed: min(9, 7), paused: paused)
+    canvas surface=world(restart=again, seed=min(9, 7), paused=paused)
 "#;
     let compiled = contract::compile(source).unwrap();
     let plan = exact_plan::Plan::decode(&compiled.encode()).unwrap();
@@ -171,23 +171,23 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
     runner.advance(100.).unwrap();
     assert!(runner.take_surface_updates().is_empty());
     for (call, diagnostic) in [
+        ("world(seed=7, seed=8)", "duplicate surface argument `seed`"),
         (
-            "world(seed: 7, seed: 8)",
-            "duplicate surface argument `seed`",
+            "world(7, paused=false)",
+            "either named or positional surface arguments (`paused` is named)",
         ),
-        ("world(7, paused: false)", "either named or positional"),
-        ("world(seed: 7, false)", "either named or positional"),
-        ("world(seed: missing)", "unknown name `missing`"),
-        ("world(seed: min(a: 1, b: 2))", "named arguments belong"),
+        (
+            "world(seed=7, false)",
+            "either named or positional surface arguments (`seed` is named)",
+        ),
+        ("world(seed=missing)", "unknown name `missing`"),
+        ("world(seed=min(a=1, b=2))", "named arguments belong"),
     ] {
-        let bad = source.replace(
-            "world(restart: again, seed: min(9, 7), paused: paused)",
-            call,
-        );
+        let bad = source.replace("world(restart=again, seed=min(9, 7), paused=paused)", call);
         let error = contract::compile(&bad).unwrap_err().to_string();
         assert!(error.contains(diagnostic), "{error}");
     }
-    let child = "component App\n  state seed = 11\n  view\n    Scene(seed=seed)\ncomponent Scene\n  props\n    seed: number\n  view\n    canvas surface=world(seed: seed)\n";
+    let child = "component App\n  state seed = 11\n  view\n    Scene(seed=seed)\ncomponent Scene\n  props\n    seed: number\n  view\n    canvas surface=world(seed=seed)\n";
     let plan = contract::compile(child).unwrap();
     let mut inlined = Runner::boot(
         plan,
@@ -216,4 +216,77 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
         exact_plan::Plan::decode(&bad.encode()).is_err(),
         "decoder also refuses duplicate argument names"
     );
+}
+
+#[test]
+fn r13_empty_surface_call_and_v4_refusal() {
+    let plan = contract::compile("component App\n  view\n    canvas surface=world()\n").unwrap();
+    let mut runner = Runner::boot(
+        plan.clone(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.take_surface_updates()[0].arguments_json(), "{}");
+    let mut old = plan.encode();
+    old[4..8].copy_from_slice(&4u32.to_le_bytes());
+    assert!(matches!(
+        exact_plan::Plan::decode(&old),
+        Err(exact_plan::PlanError::UnsupportedVersion(4))
+    ));
+}
+#[test]
+fn r13_colon_call_refuses_with_equals_hint() {
+    let error = contract::compile("component App\n  view\n    canvas surface=world(seed: 7)\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("seed="), "{error}");
+}
+
+#[test]
+fn r13_bake_refuses_unknown_names_and_excess_positional_arguments() {
+    for (call, expected) in [
+        ("world(sead=7)", "sead"),
+        ("world(1, false, false, 4)", "got 4"),
+    ] {
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    canvas surface={call}\n"
+        ))
+        .unwrap();
+        let result = contract::bake_with_surface_arguments(plan, NoData, |_| {
+            Some(vec!["seed".into(), "paused".into(), "restart".into()])
+        });
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains(expected) && error.contains("seed, paused, restart"),
+            "{error}"
+        );
+    }
+    for call in ["world()", "world(7)", "world(seed=7)"] {
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    canvas surface={call}\n"
+        ))
+        .unwrap();
+        contract::bake_with_surface_arguments(plan, NoData, |_| {
+            Some(vec!["seed".into(), "paused".into(), "restart".into()])
+        })
+        .unwrap();
+    }
+}
+
+#[test]
+fn r13_surface_call_corpus_fixtures_roundtrip() {
+    for source in [
+        include_str!("../../corpus/surface-named.contract"),
+        include_str!("../../corpus/surface-empty.contract"),
+        include_str!("../../corpus/surface-short.contract"),
+    ] {
+        let p = contract::compile(source).unwrap();
+        assert_eq!(
+            exact_plan::Plan::decode(&p.encode()).unwrap().encode(),
+            p.encode()
+        );
+    }
 }

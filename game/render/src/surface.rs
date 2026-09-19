@@ -1,8 +1,10 @@
+mod args;
+
 use crate::{
     perf::{Perf, Stamp},
     Feed,
 };
-use exact_game::{Args, Clock, Game, Sim, World};
+use exact_game::{Clock, Game, Sim, World};
 use exact_gpu::{
     wgpu, AssetError, Frame, InputEvent, Lifecycle, Restore, Surface, SurfaceError, Value,
 };
@@ -37,7 +39,7 @@ pub trait Presentation: Default {
 }
 impl Presentation for () {}
 
-const RETIRED_BUDGET: u64 = 64 * 1024 * 1024;
+use crate::renderer::RETIRED_BUDGET;
 
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
@@ -254,56 +256,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.presentation.suspend(self.hidden || self.interrupted);
     }
     fn arguments(&self) -> Vec<(&'static str, Value)> {
-        G::Args::FIELDS
-            .iter()
-            .map(|(name, _)| *name)
-            .zip(G::Args::default().values())
-            .collect()
+        self.surface_arguments()
     }
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
-        if at_ms.is_some_and(|at| !at.is_finite()) {
-            return Err(SurfaceError("bind clock must be finite".into()));
-        }
-        if let Some(e) = &self.error {
-            return Err(e.clone());
-        }
-        if let Some(sim) = &mut self.sim {
-            let generation = sim.generation();
-            sim.bind_with(
-                values,
-                at_ms,
-                observer(
-                    &mut self.render,
-                    &mut self.placed,
-                    &mut self.perf,
-                    &mut self.trace,
-                    &mut self.error,
-                    false,
-                    0,
-                ),
-            )
-            .map_err(SurfaceError)?;
-            if generation != sim.generation() {
-                if let Some((_, feed)) = &mut self.render {
-                    feed.reset();
-                }
-                self.perf = Perf::default();
-            }
-        } else {
-            let mut sim = Sim::from_values(values).map_err(SurfaceError)?;
-            sim.defer_assets(ASSETS && self.device);
-            if let Some(at) = at_ms {
-                sim.advance(at, Clock::Seekable);
-            }
-            self.sim = Some(sim);
-        }
-        if let Err(error) = self.check_primitive_assets() {
-            self.sim = None;
-            self.asset_check = None;
-            return Err(error);
-        }
-        self.dirty = true;
-        Ok(())
+        self.bind_arguments(values, at_ms)
     }
     fn assets(&mut self) -> Vec<String> {
         if ASSETS {
@@ -447,7 +403,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             }
         }
         if renderer.retired_bytes(&live) > RETIRED_BUDGET {
-            renderer.compact_assets(format, &live, &touched);
+            renderer.compact_assets(&live, &touched);
         }
         self.finish_restore();
         self.assets_dirty = false;
@@ -709,9 +665,6 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
     fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
         self.placed.child(index, texture, frame);
         self.dirty = true;
-    }
-    fn children_count(&mut self, count: usize) {
-        self.placed.children.truncate(count);
     }
     fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
         self.placed.placement(index)
@@ -1077,10 +1030,8 @@ mod residency_tests {
         }
     }
     fn model() -> exact_game::asset::Model {
-        exact_game::bin::from_slice(include_bytes!(
-            "../../games/asset-fixture/assets/crate.model"
-        ))
-        .unwrap()
+        exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+            .unwrap()
     }
     #[test]
     #[ignore = "requires two real GPU devices; run explicitly on a GPU host"]
@@ -1091,7 +1042,7 @@ mod residency_tests {
         s.bind(&[], None).unwrap();
         let model = model();
         let bytes = exact_game::bin::to_vec(&model);
-        let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
         s.asset("hero.model", Ok(&bytes));
         s.asset(&model.textures[0], Ok(tex));
@@ -1131,15 +1082,14 @@ mod residency_tests {
     }
 
     #[test]
+    #[ignore = "requires a real GPU device; run cargo test -p exact-game-render retired_model_stays_hidden -- --ignored"]
     fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
-            return;
-        };
+        let gpu = exact_gpu::fixture::device().expect("a real GPU device is required");
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
         let mut model = model();
-        let texture = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        let texture = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
         s.asset("hero.model", Ok(&exact_game::bin::to_vec(&model)));
         s.asset(&model.textures[0], Ok(texture));
@@ -1198,7 +1148,7 @@ mod residency_tests {
         model.meshes[0].normals.resize(80_000 * 3, 0.);
         model.meshes[0].uvs.resize(80_000 * 2, 0.);
         let bytes = exact_game::bin::to_vec(&model);
-        let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+        let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
         s.asset("hero.model", Ok(&bytes));
         s.asset(&model.textures[0], Ok(tex));

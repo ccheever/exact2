@@ -6,8 +6,7 @@ fn atlas() -> Vec<u8> {
     bin::to_vec(&exact_game_bake::sprite(path).unwrap())
 }
 fn sim() -> Sim<SmallGame> {
-    let mut s = Sim::new(()).unwrap();
-    s.load_assets(|_| Ok::<_, String>(atlas())).unwrap();
+    let mut s = Sim::with_assets((), |_| Ok::<_, String>(atlas())).unwrap();
     s.viewport(1280., 720.);
     s
 }
@@ -23,12 +22,7 @@ fn tick300_and_restore() {
     let save = a.save().unwrap();
     a.run(2500.);
     println!("sprites tick300 0x{:016x}", a.world().hash());
-    exact_game::World::assert_pin(
-        include_str!("../../pins.json"),
-        "sprites-fixture",
-        300,
-        a.world().hash(),
-    );
+    a.assert_pin(include_str!("../../pins.json"));
     assert_eq!(a.world().tick(), 300);
     assert_eq!(a.get::<Emitter>("leaves").unwrap().state.alive, 200);
     let mut b = sim();

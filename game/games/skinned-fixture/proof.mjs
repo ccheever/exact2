@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
+import {checkSteadyResidency} from '../../proof.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import { residencyProbe, checkResidency, checkSteadyResidency } from '../asset-fixture/residency.mjs';
+import { residencyProbe, checkResidency } from '../../proof.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -24,8 +25,14 @@ export function foxPixels(image, screen, viewport) {
   return {ok:cropPixels>0 && fraction>.001 && nonwhiteFraction>.1 && shades.size>=8, orange,cropPixels,fraction,nonwhiteFraction,shades:shades.size,crop:[x0,y0,x1,y1]};
 }
 
+export function foxScreenshotPixels(image, screen, reply) {
+  const scale = reply.scale ?? image.width / reply.w;
+  if (!(reply.w > 0 && reply.h > 0 && scale > 0) || Math.abs(image.width - reply.w * scale) > 1 || Math.abs(image.height - reply.h * scale) > 1) return {ok:false, reason:'screenshot dimensions disagree with logical size and scale'};
+  return foxPixels(image, screen, [reply.w, reply.h]);
+}
+
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
-  const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex');
+  const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex','new.model');
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
     const reply = await probe.fetch(request); if(reply) return reply;
     const path = probe.assetPath(new URL(request.url).pathname);
@@ -59,13 +66,13 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   check('animated bounds are available through layout', !!layout.entity?.bounds, layout.entity?.bounds);
   if(host !== 'linux') {
     const path = resolve(out,`fox-mid-stride-${host}.png`);
-    await s.screenshot(path);
+    const screenshot = await s.screenshot(path);
     const image = decodePng(readFileSync(path));
-    const pixels=foxPixels(image, layout.entity.screen, [image.width,image.height]);
+    const pixels=foxScreenshotPixels(image, layout.entity.screen, screenshot);
     check('Fox screenshot has textured orange fur',pixels.ok,pixels);
     const white={...image,data:new Uint8Array(image.data).fill(255)};
     for(let i=0;i<image.data.length;i+=80) white.data.set(image.data.subarray(i,i+4),i);
-    check('95 percent white screenshot is rejected',!foxPixels(white,layout.entity.screen,[image.width,image.height]).ok);
+    check('95 percent white screenshot is rejected',!foxScreenshotPixels(white,layout.entity.screen,screenshot).ok);
   }
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();

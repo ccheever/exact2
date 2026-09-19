@@ -422,9 +422,6 @@ impl World {
     pub fn propagate(&mut self) {
         self.resolve_hierarchy(false)
             .expect("runtime cycles are repaired");
-        if let Some(attachments) = self.attachments {
-            (attachments.propagate)(self);
-        }
     }
     pub(crate) fn validate_hierarchy(
         &mut self,

@@ -50,11 +50,8 @@ impl Game for SmallGame {
             "player",
             (
                 Transform::at(0., 20., 0.),
-                Sprite {
-                    frame: [0, 0, 16, 16],
-                    ..Sprite::new("strip.tex", [24., 32.])
-                },
-                SpriteAnimation::new([[0, 0, 16, 16], [16, 0, 16, 16]], 6.),
+                SpriteAnimation::strip([0, 0], [16, 16], 2, 6.)
+                    .sprite(Sprite::new("strip.tex", [24., 32.])),
             ),
         );
         w.spawn_named(
@@ -86,8 +83,8 @@ impl Game for SmallGame {
     }
     fn tick(w: &mut World, input: &Input, _: &()) {
         let direction = input.stick_xz("move").x;
-        w.get_mut::<Transform>("player").unwrap().position.x += direction * 40. * w.dt();
-        w.get_mut::<Sprite>("player").unwrap().flip[0] = direction < 0.;
+        w.require_mut::<Transform>("player").position.x += direction * 40. * w.dt();
+        w.require_mut::<Sprite>("player").flip[0] = direction < 0.;
         for i in 0..3 {
             let x = w.global_position("player").unwrap().x * (0.15 + i as f32 * 0.2);
             w.get_mut::<Transform>(format!("parallax-{i}").as_str())

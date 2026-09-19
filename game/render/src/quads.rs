@@ -88,7 +88,7 @@ pub(crate) struct Quads {
     sprites: Vec<Item<Sprite>>,
     particle_data: Vec<Quad>,
     sprite_data: Vec<Quad>,
-    particle_arena: Arena,
+    particle_arena: Option<Arena>,
     sprite_arena: Option<Arena>,
     pub order: Vec<Order>,
     pub draws: Vec<Draw>,
@@ -112,11 +112,26 @@ impl Quads {
         self.work_pipelines()
     }
     #[cfg(test)]
+    pub fn reserved_bytes(&self) -> (usize, u64) {
+        (
+            self.particle_data.capacity() * size_of::<Quad>()
+                + self
+                    .particle_arena
+                    .as_ref()
+                    .map_or(0, |a| a.words.capacity() * size_of::<f32>())
+                + self.order.capacity() * size_of::<Order>()
+                + self.draws.capacity() * size_of::<Draw>(),
+            self.particle_arena
+                .as_ref()
+                .map_or(0, |a| a.buffer.capacity),
+        )
+    }
+    #[cfg(test)]
     pub fn particle_capacity(&self) -> usize {
         self.particle_data.capacity()
     }
     pub fn reallocations(&self) -> u64 {
-        self.particle_arena.reallocations
+        self.particle_arena.as_ref().map_or(0, |a| a.reallocations)
             + self.sprite_arena.as_ref().map_or(0, |a| a.reallocations)
     }
     pub fn work_pipelines(&self) -> u64 {
@@ -156,12 +171,12 @@ impl Quads {
             particles: Vec::new(),
             sprites: Vec::new(),
             sprite_data: Vec::with_capacity(if ASSETS { 4096 } else { 0 }),
-            particle_data: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize),
-            particle_arena: Arena::new(d, exact_game::emitter::PARTICLE_BUDGET as usize),
+            particle_data: Vec::new(),
+            particle_arena: None,
             sprite_arena: (ASSETS || cfg!(not(target_arch = "wasm32")))
                 .then(|| Arena::new(d, 4096)),
-            order: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
-            draws: Vec::with_capacity(exact_game::emitter::PARTICLE_BUDGET as usize + 4096),
+            order: Vec::with_capacity(4096),
+            draws: Vec::with_capacity(4096),
             layout,
             bind,
             particle_pipelines: None,
@@ -363,24 +378,55 @@ impl Quads {
         }
         self.sprite_data
             .reserve(sprites.saturating_sub(self.sprite_data.len()));
-        if self.particle_pipelines.is_none() {
+        let particles = self
+            .particles
+            .iter()
+            .map(|p| {
+                let emitter = &p.value;
+                let births = emitter
+                    .state
+                    .births
+                    .iter()
+                    .map(|b| u64::from(b.count))
+                    .sum::<u64>();
+                // Prepare a steady stream before ready, including the retained interpolation tick.
+                let stream = (emitter.rate as f64 * (emitter.lifetime as f64 + 1. / self.hz as f64))
+                    .ceil() as u64;
+                births
+                    .max(stream)
+                    .saturating_add(u64::from(emitter.state.burst))
+            })
+            .sum::<u64>()
+            .min(u64::from(exact_game::emitter::PARTICLE_BUDGET)) as usize;
+        if !self.particles.is_empty() {
+            let arena = self
+                .particle_arena
+                .get_or_insert_with(|| Arena::new(d, particles));
+            arena.reallocations += u64::from(arena.buffer.grow(d, q, (particles * 80) as u64));
+            arena
+                .words
+                .reserve((particles * 20).saturating_sub(arena.words.len()));
+            self.particle_data
+                .reserve(particles.saturating_sub(self.particle_data.len()));
+        }
+        let entries = particles + sprites + 4096;
+        self.order.reserve(entries.saturating_sub(self.order.len()));
+        self.draws.reserve(entries.saturating_sub(self.draws.len()));
+        if !self.particles.is_empty() && self.particle_pipelines.is_none() {
             let shader = source(d, include_str!("shaders/particle.wgsl"));
             self.particle_pipelines = Some(std::array::from_fn(|i| {
                 pipeline(d, &shader, &[&self.layout], i + 2)
             }));
         }
     }
-    pub fn frame<const ASSETS: bool>(
-        &mut self,
-        _d: &wgpu::Device,
-        _q: &wgpu::Queue,
-        f: &FrameInput<'_>,
-    ) {
+    pub fn frame<const ASSETS: bool>(&mut self, f: &FrameInput<'_>) {
         self.order.clear();
         self.draws.clear();
         self.particle_data.clear();
         self.sprite_data.clear();
-        self.particle_arena.words.clear();
+        if let Some(arena) = &mut self.particle_arena {
+            arena.words.clear();
+        }
         if let Some(arena) = &mut self.sprite_arena {
             arena.words.clear();
         }
@@ -498,10 +544,9 @@ impl Quads {
         for o in &self.order {
             let at = match o.kind {
                 Kind::Particle(_) => {
-                    let at = self.particle_arena.words.len() / 20;
-                    self.particle_arena
-                        .words
-                        .extend(self.particle_data[o.index].words);
+                    let arena = self.particle_arena.as_mut().unwrap();
+                    let at = arena.words.len() / 20;
+                    arena.words.extend(self.particle_data[o.index].words);
                     at as u32
                 }
                 Kind::Sprite(_) if ASSETS => {
@@ -520,7 +565,13 @@ impl Quads {
         if let Some(arena) = &mut self.sprite_arena {
             arena.upload(d, q);
         }
-        self.particle_arena.upload(d, q);
+        if let Some(arena) = &mut self.particle_arena {
+            assert!(
+                arena.words.len() as u64 * 4 <= arena.buffer.capacity,
+                "particles must prepare before drawing"
+            );
+            arena.buffer.write(q, 0, bytes(&arena.words));
+        }
     }
     pub fn draw<'a, const ASSETS: bool>(&'a self, pass: &mut wgpu::RenderPass<'a>, draw: &Draw) {
         pass.set_bind_group(0, &self.bind, &[]);
@@ -529,7 +580,10 @@ impl Quads {
                 pass.set_pipeline(
                     &self.particle_pipelines.as_ref().unwrap()[usize::from(additive)],
                 );
-                pass.set_vertex_buffer(0, self.particle_arena.buffer.raw.slice(..));
+                pass.set_vertex_buffer(
+                    0,
+                    self.particle_arena.as_ref().unwrap().buffer.raw.slice(..),
+                );
             }
             Kind::Sprite(i) if ASSETS => {
                 let s = &self.sprites[i].value;
@@ -556,7 +610,7 @@ impl Quads {
         matches!(draw.kind,Kind::Sprite(i) if self.sprites[i].value.alpha!=AlphaMode::Blend)
     }
     pub fn instances(&self) -> u64 {
-        ((self.particle_arena.words.len()
+        ((self.particle_arena.as_ref().map_or(0, |a| a.words.len())
             + self.sprite_arena.as_ref().map_or(0, |a| a.words.len()))
             / 20) as u64
     }

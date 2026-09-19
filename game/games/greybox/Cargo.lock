@@ -538,6 +538,9 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-game",
+ "exact-game-render",
+ "exact-gpu",
  "exact-runner",
 ]
 
@@ -914,6 +917,7 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
+ "greybox-logic",
 ]
 
 [[package]]
@@ -935,6 +939,7 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
+ "greybox-logic",
 ]
 
 [[package]]
@@ -951,6 +956,7 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
+ "greybox-logic",
 ]
 
 [[package]]

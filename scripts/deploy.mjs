@@ -262,6 +262,7 @@ function sourcePathspec(repo, app, exactRoot) {
       for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(dir, output));
     }
   }
+  if (app.manifest?.game) for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(app.dir, output));
   // Keep the lexical path as well as its canonical alias. In particular,
   // `target -> /shared/cache` is still the declared in-repo output root; if
   // we realpath it first, the symlink itself re-enters the source inventory.
@@ -333,8 +334,8 @@ function validateCapturedTree(source, sources, env, tree) {
   const absoluteLinks = [];
   for (const entry of entries.filter((item) => item.type === 'commit')) {
     const nested = canonicalPath(resolve(source.repo, entry.name));
-    if (!sources.some((candidate) => candidate.repo === nested) && existsSync(nested) && readdirSync(nested).length) {
-      refuse(`${source.repo}: ${entry.name} is a Git submodule whose repository is not in the captured Cargo source graph`);
+    if (!sources.some((candidate) => candidate.repo === nested)) {
+      refuse(`${source.repo}: ${entry.name} is an uncaptured Git submodule; run git submodule update --init ${entry.name}`);
     }
   }
   for (const entry of entries.filter((item) => item.type === 'blob')) {
@@ -377,6 +378,9 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
     const pathspec = sourcePathspec(source.repo, app, exactRoot);
     const excluded = pathspec.slice(1).filter((path) => path.startsWith(':(exclude,top,literal)'))
       .map((path) => path.slice(':(exclude,top,literal)'.length));
+    const tracked = gitText(source.repo, ['ls-files', '-z', '--cached'], 'could not inventory tracked output conflicts').split('\0');
+    const hidden = tracked.find(path => excluded.some(root => path === root || path.startsWith(`${root}/`)));
+    if (hidden) refuse(`${source.repo}: tracked source ${hidden} lies beneath an inferred output root; move the source or declare a different output root`);
     gitResult(source.repo, ['read-tree', source.commit], 'could not start the captured Git tree', { env });
     if (excluded.length) gitResult(source.repo, ['--literal-pathspecs', 'rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', ...excluded],
       'could not remove generated outputs from the captured tree', { env });
@@ -430,29 +434,30 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
-    ...cargoDependencyRoots(app, exactRoot),
   ];
   const repos = new Map();
-  for (const { role, cwd } of sourceRoots) {
-    const repo = repoTop(cwd, `source for ${role}`);
-    const existing = repos.get(repo);
-    if (existing) { existing.roles.add(role); continue; }
-    const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
-    if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
-    repos.set(repo, { repo, roles: new Set([role]), commit });
-    // Source dependencies can themselves contain initialized submodules.
-    // Capture their bytes and provenance too; never fetch or silently omit them.
-    for (const row of gitText(repo, ['ls-files', '--stage', '-z'], 'could not inventory source submodules').split('\0')) {
-      const match = /^160000 [0-9a-f]+ 0\t([\s\S]+)$/.exec(row);
-      if (!match) continue;
-      const nested = canonicalPath(resolve(repo, match[1]));
-      // An uninitialized, empty submodule has no live bytes. Preserve that
-      // absence in the private capture; building must not initialize it.
-      if (!existsSync(nested) || !readdirSync(nested).length) continue;
-      if (repoTop(nested, 'initialized source submodule') !== nested) refuse(`${repo}: initialize source submodule ${match[1]} before deployment`);
-      sourceRoots.push({role:'submodule', cwd:nested});
+  const discover = (sourceRoots) => {
+    for (const { role, cwd } of sourceRoots) {
+      const repo = repoTop(cwd, `source for ${role}`);
+      const existing = repos.get(repo);
+      if (existing) { existing.roles.add(role); continue; }
+      const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
+      if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
+      repos.set(repo, { repo, roles: new Set([role]), commit });
+      // Source dependencies can themselves contain initialized submodules.
+      // Capture their bytes and provenance too; never fetch or silently omit them.
+      for (const row of gitText(repo, ['ls-files', '--stage', '-z'], 'could not inventory source submodules').split('\0')) {
+        const match = /^160000 [0-9a-f]+ 0\t([\s\S]+)$/.exec(row);
+        if (!match) continue;
+        const nested = canonicalPath(resolve(repo, match[1]));
+        if (!existsSync(nested) || !readdirSync(nested).length) refuse(`${repo}: uninitialized submodule ${match[1]}; run git submodule update --init ${match[1]}`);
+        if (repoTop(nested, 'initialized source submodule') !== nested) refuse(`${repo}: uninitialized source submodule ${match[1]}; run git submodule update --init ${match[1]}`);
+        sourceRoots.push({role:'submodule', cwd:nested});
+      }
     }
-  }
+  };
+  discover(sourceRoots);
+  discover(cargoDependencyRoots(app, exactRoot));
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
   const common = commonParent(sourceList.map((source) => source.repo));

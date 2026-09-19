@@ -229,10 +229,7 @@ fn publication_drain_is_full_and_journal_is_an_indexed_ring() {
 }
 #[test]
 fn named_refusals_and_reads_do_not_change_the_hash() {
-    assert!(Sim::<Counter>::from_values(&[])
-        .err()
-        .unwrap()
-        .contains("paused"));
+    assert!(Sim::<Counter>::from_values(&[]).is_ok());
     assert!(Sim::<Counter>::from_values(&[Value::Number(1.0)])
         .err()
         .unwrap()
@@ -383,6 +380,94 @@ fn forwarded_keys_include_pending_downs_and_releases_without_changing_tick_held_
     assert!(state.contains(r#""held":[],"forwarded":["KeyE"]"#));
     key(&mut s, "KeyE", false, 0.0);
     assert!(s.agent(r#"{"op":"state"}"#).contains(r#""forwarded":[]"#));
+}
+
+#[test]
+fn agent_input_projection_preserves_pending_contacts_pause_and_restore() {
+    fn input_state(s: &mut Sim<Counter>) -> String {
+        let saved = s.save().unwrap();
+        let hash = s.world().hash();
+        let tick = s.world().tick();
+        let state = s.agent(r#"{"op":"state"}"#);
+        assert_eq!(s.agent(r#"{"op":"state"}"#), state);
+        assert_eq!(s.save().unwrap(), saved);
+        assert_eq!(s.world().hash(), hash);
+        assert_eq!(s.world().tick(), tick);
+        state
+            .split_once("\"input\":")
+            .unwrap()
+            .1
+            .split_once(",\"published\":")
+            .unwrap()
+            .0
+            .to_owned()
+    }
+    let mut s = sim();
+    key(&mut s, "KeyZ", true, 0.);
+    key(&mut s, "KeyA", true, 0.);
+    s.advance(17., Clock::Seekable);
+    key(&mut s, "KeyZ", false, 18.);
+    key(&mut s, "KeyM", true, 20.);
+    key(&mut s, "KeyA", true, 22.);
+    for (id, phase, at_ms) in [
+        (7, PointerPhase::Down, 23.),
+        (8, PointerPhase::Down, 24.),
+        (7, PointerPhase::Move, 25.),
+        (8, PointerPhase::Cancel, 26.),
+    ] {
+        s.input(InputEvent::Control {
+            name: "act".into(),
+            id,
+            phase,
+            x: at_ms as f32,
+            y: 10.,
+            at_ms,
+        });
+    }
+    let pending = input_state(&mut s);
+    assert!(
+        pending.contains(r#""held":["KeyA","KeyZ"],"forwarded":["KeyA","KeyM"]"#),
+        "{pending}"
+    );
+    assert!(
+        pending.contains(r#""controls":[],"forwardedControls":["act"]"#),
+        "{pending}"
+    );
+    assert!(pending.contains(r#""id":7,"action":"act""#), "{pending}");
+    assert!(!pending.contains(r#""id":8"#), "{pending}");
+    s.input(InputEvent::Control {
+        name: "missing".into(),
+        id: 9,
+        phase: PointerPhase::Down,
+        x: 0.,
+        y: 0.,
+        at_ms: 27.,
+    });
+    assert_eq!(input_state(&mut s), pending);
+    let mut restored = sim();
+    restored.restore(&s.save().unwrap()).unwrap();
+    assert_eq!(input_state(&mut restored), pending);
+    s.input(InputEvent::Blur { at_ms: 30. });
+    let blurred = input_state(&mut s);
+    assert!(
+        blurred.contains(r#""held":["KeyA","KeyZ"],"forwarded":[]"#),
+        "{blurred}"
+    );
+    assert!(
+        blurred.contains(r#""forwardedControls":[],"controlContacts":[]"#),
+        "{blurred}"
+    );
+    s.advance(100., Clock::Seekable);
+    s.bind(&CounterArgs { paused: true }.values(), None)
+        .unwrap();
+    key(&mut s, "KeyB", true, 40.);
+    let paused = input_state(&mut s);
+    assert!(
+        paused.contains(r#""held":["KeyB"],"forwarded":["KeyB"]"#),
+        "{paused}"
+    );
+    s.bind(&CounterArgs::default().values(), None).unwrap();
+    assert_eq!(input_state(&mut s), paused);
 }
 
 #[test]
@@ -938,16 +1023,73 @@ fn restore_constructs_once_and_failed_world_validation_is_atomic() {
         assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
         assert_eq!(s.save().unwrap(), saved);
     }
-    // Fail inside World::load, after argument validation and game construction.
+    // Invalid world headers must be rejected before setup has any side effects.
     let mut bad = saved.clone();
     let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
     bad[world] = b'!';
     assert!(s.restore(&bad).is_err());
-    assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
+    assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
     assert_eq!(s.save().unwrap(), saved);
     for mode in [Paranoid::Save, Paranoid::FreshGame] {
         s = s.paranoid(mode);
         s.run(17.0);
         assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1, "{mode:?}");
     }
+}
+
+#[test]
+fn r13_empty_and_short_calls_take_all_remaining_rust_defaults() {
+    #[derive(Args)]
+    struct Options {
+        seed: u64,
+        #[live]
+        paused: bool,
+        #[restart]
+        restart: bool,
+    }
+    impl Default for Options {
+        fn default() -> Self {
+            Self {
+                seed: 17,
+                paused: true,
+                restart: false,
+            }
+        }
+    }
+    struct Defaults;
+    impl Game for Defaults {
+        const ID: &'static str = "r13-defaults";
+        type Args = Options;
+        fn setup(w: &mut World, args: &Options) {
+            w.reseed(args.seed);
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    let mut empty = Sim::<Defaults>::from_values(&[]).unwrap();
+    assert_eq!(
+        empty.save().unwrap(),
+        Sim::<Defaults>::new(Options::default())
+            .unwrap()
+            .save()
+            .unwrap()
+    );
+    let short = Sim::<Defaults>::from_values(&[Value::Number(7.)]).unwrap();
+    let full =
+        Sim::<Defaults>::from_values(&[Value::Number(7.), Value::Bool(true), Value::Bool(false)])
+            .unwrap();
+    assert_eq!(short.save().unwrap(), full.save().unwrap());
+    empty.bind(&[Value::Number(7.)], None).unwrap();
+    assert_eq!(empty.world().hash(), full.world().hash());
+    assert!(empty
+        .agent(r#"{"op":"state"}"#)
+        .contains(r#""paused":true"#));
+    assert!(Sim::<Defaults>::from_values(&[
+        Value::Number(7.),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false)
+    ])
+    .err()
+    .unwrap()
+    .contains("got 4"));
 }

@@ -48,6 +48,7 @@ dependencies = [
 name = "asset-fixture-apple"
 version = "0.1.0"
 dependencies = [
+ "asset-fixture-logic",
  "exact-apple",
  "exact-game-app",
  "exact-runner",
@@ -69,6 +70,7 @@ dependencies = [
 name = "asset-fixture-linux"
 version = "0.1.0"
 dependencies = [
+ "asset-fixture-logic",
  "exact-game-app",
  "exact-linux",
  "exact-runner",
@@ -85,6 +87,7 @@ dependencies = [
 name = "asset-fixture-web"
 version = "0.1.0"
 dependencies = [
+ "asset-fixture-logic",
  "exact-game-app",
  "exact-runner",
  "exact-web",
@@ -602,6 +605,9 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-game",
+ "exact-game-render",
+ "exact-gpu",
  "exact-runner",
 ]
 

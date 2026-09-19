@@ -854,7 +854,9 @@ fn world_surface_retires_and_readds_a_real_placed_child() {
             .world_mut()
             .remove::<exact_game::Placed>(entity);
         assert_eq!(s.children_mode(), exact_gpu::ChildrenMode::Overlay);
-        s.children_count(0);
+        s.child(0, None, [0.; 4]);
+        s.child(1, None, [0.; 4]); // later removals must not recreate entries
+        assert!(s.placed.children.is_empty());
         fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
         assert!(s.placement(0).is_none());
         assert!(s.placed.children.is_empty());

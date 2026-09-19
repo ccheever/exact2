@@ -90,7 +90,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
     // The sky alone, then with a transparent children texture: the same
     // picture, pixel for pixel.
     let (alone, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
-    sky.children(Some(&children(&gpu, None)));
+    sky.children(Some(&children(&gpu, None)), None);
     let (clear, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(
         alone.data == clear.data,
@@ -100,7 +100,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
     // A white block in the middle: white ink where it is (the glow only
     // brightens), the sky untouched away from it.
     let block = (60, 40, 40, 40);
-    sky.children(Some(&children(&gpu, Some(block))));
+    sky.children(Some(&children(&gpu, Some(block))), None);
     let (composed, wants) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(wants, "still lit from the clock");
     composed.save("aurora-children");
@@ -134,7 +134,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
     );
 
     // The children gone: the sky alone again.
-    sky.children(None);
+    sky.children(None, None);
     let (again, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(again.data == alone.data, "no children, no ink");
 }

@@ -140,7 +140,7 @@ generation and `!paused`. `SurfacePlayer` owns a separate live/seekable clock fl
 a live input can construct WebAudio and invoke resume on the trusted gesture's
 stack before any frame; a seekable input constructs nothing. Seekable frames close
 any previous device. Native headless modules start seekable; other native targets
-use NullOutput. Failed device creation retries every 300 live sync frames, with
+own no player or device. Failed device creation retries every 300 live sync frames, with
 one warning per surface; seekable frames preserve that cooldown.
 
 The GPU seam is `Surface::lifecycle(Lifecycle)` (default no-op), with Hidden,

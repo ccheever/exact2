@@ -70,7 +70,7 @@ impl Game for SmallGame {
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         if input.pressed("mirror-charm") {
-            w.get_mut::<SocketFollow>("charm").unwrap().offset.scale.x *= -1.;
+            w.require_mut::<SocketFollow>("charm").offset.scale.x *= -1.;
         }
         if input.held("skip-animation") {
             return;
@@ -81,16 +81,15 @@ impl Game for SmallGame {
         } else {
             1.6 + args.blend_bias
         };
-        w.get_mut::<Animator>("fox").unwrap().set("speed", speed);
+        w.require_mut::<Animator>("fox").set("speed", speed);
         let motion = animation::step(w);
         if motion.crossed("fox", "step") {
             w.log("fox footstep");
         }
-        let mut fox = w.get_mut::<Transform>("fox").unwrap();
-        fox.rotation = Quat::from_rotation_y(-end.seconds() * 0.45);
-        fox.translate_local(motion.root_motion("fox"));
+        w.require_mut::<Transform>("fox").rotation = Quat::from_rotation_y(-end.seconds() * 0.45);
+        motion.apply_local(w, "fox");
         w.publish_record(&Hud {
-            motion: w.get::<Animator>("fox").unwrap().state().into(),
+            motion: w.require::<Animator>("fox").state().into(),
             tick: end.tick as u32,
         });
     }

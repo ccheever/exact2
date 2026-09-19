@@ -176,7 +176,15 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     const { targetInfos } = await cdp.send('Target.getTargets');
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
-    const call = (method, params) => cdp.send(method, params, sessionId);
+    const heldKeys = new Map();
+    const call = async (method, params) => {
+      const reply = await cdp.send(method, params, sessionId);
+      if (method === 'Input.dispatchKeyEvent') {
+        if (params.type === 'keyUp') heldKeys.delete(params.code);
+        else if (params.type === 'keyDown' || params.type === 'rawKeyDown') heldKeys.set(params.code, params);
+      }
+      return reply;
+    };
     cdp.listeners.push((msg) => {
       if (msg.sessionId !== sessionId) return;
       if (msg.method === 'Runtime.consoleAPICalled') hostLines.push(`console.${msg.params.type}: ` + msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '));
@@ -235,19 +243,31 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       async reset() {
-        // Navigate to a fresh document, keeping this Chrome process and HTTP cache.
-        hostLines.length = 0; gpuMs = null;
+        // Release browser-owned input while its original document still exists.
+        for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
+        if (contact) await call('Input.dispatchTouchEvent', {type:'touchCancel', touchPoints:[]});
+        await frame();
+        contact = null;
+        if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
+        touch = false;
+        await evaluate('sessionStorage.clear()');
+        await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
         await call('Page.navigate', {url:'about:blank'});
-        await call('Page.navigate', {url:page.href});
         const deadline = Date.now() + 30000;
-        while (!await evaluate("document.getElementById('exact-root')?.dataset.bootMs != null").catch(() => false)) {
+        while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
+          if (Date.now() > deadline) throw new Error('the reused page never left its old document');
+          await sleep(15);
+        }
+        hostLines.length = 0; gpuMs = null;
+        await call('Page.navigate', {url:page.href});
+        let boot;
+        while ((boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null)) == null) {
           if (Date.now() > deadline) throw new Error('the reused page never booted');
           await sleep(15);
         }
         await evaluate('exact.ready');
-        contact = null;
-        if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
-        touch = false;
+        await call('Page.resetNavigationHistory');
+        this.boot = Number(boot);
       },
       ask,
       async input(id, kind, opts) {

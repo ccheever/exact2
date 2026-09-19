@@ -1,4 +1,5 @@
 use crate::{Data, Vec2};
+use std::sync::Arc;
 
 /// Canvas regions used by discoverable touch controls (coordinates in points).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
@@ -78,6 +79,9 @@ struct Action {
 pub struct Actions {
     entries: Vec<Action>,
 }
+static NO_ACTIONS: Actions = Actions {
+    entries: Vec::new(),
+};
 impl Actions {
     /// No controls.
     pub fn new() -> Self {
@@ -290,7 +294,7 @@ pub(crate) struct ControlContact {
 #[derive(Clone, Default, Data)]
 pub struct Input {
     #[data(skip)]
-    pub(crate) actions: Actions,
+    actions: Option<Arc<Actions>>,
     pub(crate) keys: Vec<String>,
     pressed: Vec<String>,
     released: Vec<String>,
@@ -302,19 +306,22 @@ pub struct Input {
 impl Input {
     pub(crate) fn new(actions: Actions) -> Self {
         Self {
-            actions,
+            actions: (!actions.entries.is_empty()).then(|| Arc::new(actions)),
             ..Self::default()
         }
+    }
+    pub(crate) fn actions(&self) -> &Actions {
+        self.actions.as_deref().unwrap_or(&NO_ACTIONS)
     }
     pub(crate) fn validate(&self, event: &InputEvent) -> Result<(), String> {
         if !event.at_ms().is_finite() {
             return Err("input stamp must be finite".into());
         }
         if let InputEvent::Control { name, x, y, .. } = event {
-            if !self.actions.entries.iter().any(|a| &a.name == name) {
+            if !self.actions().entries.iter().any(|a| &a.name == name) {
                 return Err(format!(
                     "unknown control `{name}`; declared actions: {}",
-                    self.actions
+                    self.actions()
                         .entries
                         .iter()
                         .map(|a| a.name.as_str())
@@ -338,6 +345,9 @@ impl Input {
         Ok(())
     }
     pub(crate) fn validate_saved(&self, saved: &Self) -> Result<(), String> {
+        if saved.keys.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err("saved keys must be sorted and unique".into());
+        }
         if !saved.viewport.is_finite()
             || saved
                 .pointer
@@ -389,11 +399,11 @@ impl Input {
             .collect()
     }
     fn action(&self, name: &str) -> Option<&Action> {
-        let a = self.actions.entries.iter().find(|a| a.name == name);
+        let a = self.actions().entries.iter().find(|a| a.name == name);
         assert!(
             a.is_some(),
             "unknown action `{name}`; declared actions: {}",
-            self.actions
+            self.actions()
                 .entries
                 .iter()
                 .map(|a| a.name.as_str())
@@ -488,13 +498,14 @@ impl Input {
     }
     pub(crate) fn apply(&mut self, event: InputEvent) {
         let before: Vec<_> = self
-            .actions
+            .actions()
             .entries
             .iter()
             .map(|a| self.active(a))
             .collect();
         self.apply_state(event);
-        for (a, was) in self.actions.entries.iter().zip(before) {
+        let actions = self.actions.as_deref().unwrap_or(&NO_ACTIONS);
+        for (a, was) in actions.entries.iter().zip(before) {
             let now = self.active(a);
             if now && !was && !self.pressed.contains(&a.name) {
                 self.pressed.push(a.name.clone());
@@ -651,6 +662,71 @@ mod control_tests {
         }
     }
     #[test]
+    fn saved_keys_require_sorted_unique_order_before_restore_commits() {
+        use crate::{Clock, Game, Sim, World};
+        struct Keys;
+        impl Game for Keys {
+            const ID: &'static str = "saved-key-order";
+            type Args = ();
+            fn actions() -> Actions {
+                Actions::new().button("z", &["KeyZ"])
+            }
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(w: &mut World, input: &Input, _: &()) {
+                w.publish("held", input.held("z"));
+            }
+        }
+        let mut source = Sim::<Keys>::new(()).unwrap();
+        let mut live = Sim::<Keys>::new(()).unwrap();
+        live.advance(0., Clock::Seekable);
+        live.key_down("KeyB");
+        live.advance(17., Clock::Seekable);
+        live.key_down("KeyZ"); // Preserve a pending press across refusal too.
+        let before = live.save().unwrap();
+        let state = live.agent(r#"{"op":"state"}"#);
+        let hash = live.world().hash();
+        for keys in [
+            vec!["KeyZ", "KeyA"],
+            vec!["KeyA", "KeyA"],
+            vec!["KeyZ", "KeyA", "KeyZ"],
+        ] {
+            source.input.keys = keys.iter().map(|s| (*s).into()).collect();
+            let malformed = source.save().unwrap();
+            for bound in [false, true] {
+                let error = if bound {
+                    live.restore_bound(&malformed)
+                } else {
+                    live.restore(&malformed)
+                }
+                .unwrap_err()
+                .to_string();
+                assert!(
+                    error.contains("saved keys must be sorted and unique"),
+                    "{error}"
+                );
+                assert_eq!(live.save().unwrap(), before);
+                assert_eq!(live.agent(r#"{"op":"state"}"#), state);
+                assert_eq!(live.world().hash(), hash);
+            }
+        }
+        for keys in [vec![], vec!["KeyZ"], vec!["KeyA", "KeyZ"]] {
+            source.input.keys = keys.iter().map(|s| (*s).into()).collect();
+            let saved = source.save().unwrap();
+            let mut restored = Sim::<Keys>::new(()).unwrap();
+            restored.restore(&saved).unwrap();
+            assert_eq!(restored.save().unwrap(), saved);
+            restored.advance(1000., Clock::Seekable);
+            restored.key_up("KeyZ");
+            restored.advance(1017., Clock::Seekable);
+            assert!(!restored.input.keys.iter().any(|key| key == "KeyZ"));
+            assert_eq!(
+                restored.take_published().as_deref(),
+                Some(r#"{"held":false}"#)
+            );
+        }
+    }
+
+    #[test]
     fn saved_contacts_validate_origins_positions_and_keyboard_identity() {
         let mut original = input();
         original.apply(control("jump", 4294967294, PointerPhase::Down, 10., 20.));
@@ -706,6 +782,34 @@ mod control_tests {
         )
     }
     #[test]
+    fn cloned_inputs_keep_keys_contacts_and_edges_independent() {
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<Input>();
+        let mut original = input();
+        original.apply(InputEvent::Key {
+            code: "Space".into(),
+            down: true,
+            at_ms: 0.,
+        });
+        original.apply(control("move", 1, PointerPhase::Down, 10., 10.));
+        original.apply(control("move", 1, PointerPhase::Move, 70., 10.));
+        let saved = crate::bin::to_vec(&original);
+        let mut copy = original.clone();
+        copy.apply(InputEvent::Blur { at_ms: 0. });
+        assert!(!copy.held("jump"));
+        assert!(copy.released("jump"));
+        assert_eq!(copy.stick_xz("move"), crate::Vec3::ZERO);
+        assert!(original.held("jump") && original.pressed("jump"));
+        assert_eq!(original.stick_xz("move"), crate::Vec3::X);
+        assert_eq!(crate::bin::to_vec(&original), saved);
+        original.clear_edges();
+        assert!(!original.pressed("jump"));
+        assert!(copy.released("jump"));
+        copy.restore_dynamic(crate::bin::from_slice(&saved).unwrap());
+        assert!(copy.held("jump") && !copy.pressed("jump"));
+        assert_eq!(copy.stick_xz("move"), crate::Vec3::X);
+    }
+    #[test]
     fn app_controls_share_actions_with_keys_and_release_independently() {
         let mut input = input();
         input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
@@ -759,7 +863,7 @@ mod control_tests {
             const HZ: u32 = 60;
             type Args = ();
             fn actions() -> Actions {
-                input().actions
+                input().actions().clone()
             }
             fn setup(w: &mut World, _: &()) {
                 w.spawn_named("player", (Transform::default(),));

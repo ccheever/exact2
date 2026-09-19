@@ -402,7 +402,6 @@ pub(crate) type AttachmentDiagnostics = std::rc::Rc<std::cell::RefCell<Diagnosti
 struct Attachment {
     history: History,
     owner: Owner,
-    held: Option<Mat4>,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
     model_digest: u64,
@@ -466,44 +465,10 @@ impl Attachments {
             while at < self.items.len() && self.items[at].history.entity.index() < e.index() {
                 self.items.remove(at);
             }
-            if target.is_some_and(|target| exact_game::animation::socket_stale(w, target)) {
-                // Freeze the last composed boundary, including the owner and offset.
-                // A never-fed restored follower reconstructs its saved local pose.
-                let held = if self.items.get(at).is_some_and(|item| {
-                    item.history.entity == e && Some(item.owner.entity) == target
-                }) {
-                    Some(self.matrix(at, 1., self.items.len()))
-                } else {
-                    w.current_global(e).map(Mat4::from)
-                };
-                if let (Some(held), Some(target)) = (held, target) {
-                    self.warn(e, "stale", || format!("SocketFollow `{}`: socket target `{}` has a stale pose; keeping last composed pose", w.name(e).unwrap_or("unnamed"), w.name(target).unwrap_or("unnamed")));
-                    if self
-                        .items
-                        .get(at)
-                        .is_some_and(|item| item.history.entity == e)
-                    {
-                        self.items.remove(at);
-                    }
-                    self.items.insert(
-                        at,
-                        Attachment {
-                            history: History::new(e, pose(w, e).unwrap_or_default()),
-                            owner: Owner::new(w, target),
-                            held: Some(held),
-                            chain: Vec::new(),
-                            offset: follow.offset,
-                            model_digest: 0,
-                        },
-                    );
-                    at += 1;
-                    continue;
-                }
-            }
             let resolved = target
                 .ok_or_else(|| format!("unresolved target {:?}", follow.target))
                 .and_then(|target| {
-                    exact_game::animation::socket_matrix(w, target, &follow.joint).map(|_| target)
+                    exact_game::animation::socket_node(w, target, &follow.joint).map(|_| target)
                 });
             let target = match resolved {
                 Ok(target) => target,
@@ -553,7 +518,6 @@ impl Attachments {
                     Attachment {
                         history: History::new(e, home),
                         owner: Owner::new(w, target),
-                        held: None,
                         chain: vec![],
                         offset: follow.offset,
                         model_digest: exact_game::hash::of(model),
@@ -562,7 +526,6 @@ impl Attachments {
             }
             let item = &mut self.items[at];
             item.history.update(w, next_tick, parent_changed);
-            item.held = None;
             item.owner = self
                 .owners
                 .entry(target)
@@ -588,7 +551,10 @@ impl Attachments {
                 rest = exact_game::animation::bind_pose(model);
                 (&rest[..], &rest[..])
             };
-            let snap = initial || model_changed || snap(w, target, parent_changed);
+            let snap = initial
+                || model_changed
+                || exact_game::animation::socket_stale(w, target)
+                || snap(w, target, parent_changed);
             let mut node = Some(node);
             while let Some(i) = node {
                 let start = i as usize * 10;
@@ -612,9 +578,6 @@ impl Attachments {
         let item = &self.items[index];
         if remaining == 0 {
             return matrix(item.history.at(alpha));
-        }
-        if let Some(held) = item.held {
-            return held;
         }
         let owner = self.owner_matrix(&item.owner, alpha, remaining);
         item.chain.iter().fold(owner, |m, pair| {

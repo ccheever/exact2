@@ -739,3 +739,9 @@ component Row
   view
     button press=pick(item.id)
       text item.id
+
+---
+== syntax-named-argument
+component App
+  view
+    canvas surface=world(seed: 7)

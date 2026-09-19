@@ -32,12 +32,16 @@
 The [small example](../README.md#the-programming-model) is this crate's
 runnable doc-test. Only rustdoc includes the guide; editing it does not rebuild
 the runtime. `Game::Args` is a struct with `#[derive(Args)]`: a canvas can bind
-`world(seed: 7, paused: paused)`, with omitted fields taking Rust defaults.
+`world(seed=7, paused=paused)`, with omitted fields taking Rust defaults.
 Declaration order is positional order, `#[live]` avoids rebuilding, and decoding
 refuses before mutation. Named canvas bindings resolve to this same typed path.
 Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
 bound values for saves and agent state. Creation and restore share one constructor;
 restore supplies retained assets up front and calls setup once before loading.
+World format and size checks precede setup. Typed world data is then decoded once,
+using the registrations established by the chosen setup arguments, before replacing
+the receiver. Restoring saved arguments does not require the receiver's current
+setup to have registered the same components.
 
 Seekable advances observe the final tick's components, RNG and non-ambient
 resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
@@ -67,6 +71,14 @@ retain spare capacity.
 Undelivered `emit` messages remain saved, in order, but are excluded from the
 simulation hash. Host draining never changes that hash. Restore retains Input's
 viewport for headless touch continuation; a later host resize replaces it.
+Input clones share immutable action declarations. Keys, contacts and action edges
+remain independently owned; empty declarations need no shared allocation. This
+does not change the author API or saved input representation.
+Agent state projects pending input once, using Input's own event handling for
+keys and contacts; inspection does not advance or consume the queue.
+Restore refuses unsorted or duplicate held keys before committing the new state;
+ordinary input updates preserve that order. Agent arguments use the same validated
+JSON representation already maintained for saves, including after bind and restore.
 
 Storage revisions/membership serve derived caches. Every mutable row lease marks
 its page; query iteration marks once per visited page and caches its backing pointer,
@@ -118,8 +130,9 @@ restart a completed controller. Pose inspection validates both history lengths.
 Animation is explicit: `let motion = animation::step(w)` samples once; its owned
 result lets the game consume markers and call `transform.translate_local(...)`
 without holding playback leases. Controller registration never steps animation.
-SocketFollow registration installs pose resolution and boundary maintenance
-together; worlds without attachments link neither callback. Attachments
+SocketFollow registration installs pose resolution; worlds without attachments do
+not link it. Followers compose saved local poses with the current owner and offset,
+including skipped animation ticks. Attachments
 choose their joint with `SocketFollow::new("fox", "head").offset(t)` and never
 write simulation transforms. `animation::socket(w, target, joint)` returns the current
 world-space tick endpoint; the renderer composes displayed attachments from the

@@ -732,7 +732,7 @@ pub fn expr(e: &Expr) -> String {
         Expr::Some(inner, _) => format!("some({})", expr(inner)),
         Expr::Ident(n, _) => n.clone(),
         Expr::Member(base, field, _) => format!("{}.{field}", sub(base, 8)),
-        Expr::NamedArg(name, value, _) => format!("{name}: {}", expr(value)),
+        Expr::NamedArg(name, value, _) => format!("{name}={}", expr(value)),
         Expr::Call(name, a, _) => format!("{name}({})", args(a)),
         Expr::Unary(UnOp::Neg, inner, _) => {
             let text = sub(inner, 7);

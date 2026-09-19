@@ -1125,3 +1125,164 @@ PID audit confirmed every recorded browser/carrier PID was absent. Validation
 used a private Git index and changed no staged content.
 
 Evidence: `/Users/ccheever/projects/.exact-game-verification/save-framing/`.
+
+### Input declarations shared — 2026-09-19
+
+Input clones share their immutable action declarations through an optional Arc.
+Dynamic keys, contacts and edges remain independently owned, and Input retains
+Send + Sync. Empty controls allocate no owner. Save and host input projection no
+longer deep-copy declarations that the saved format already excludes.
+
+An external native probe compared empty controls, 3/64/512 buttons plus a stick,
+and Beacons. Allocation counting was disabled during timing. Three alternating
+pairs covered 23 workloads; nine workloads then received five longer adjacent
+pairs, alternating order, with seven timed batches per run.
+
+| Operation | Allocation calls before → after | Native result |
+|---|---:|---|
+| Clone 64 buttons plus stick | 275 → 7 | 97% faster in initial pairs |
+| Clone 512 buttons plus stick | 2,067 → 7 | over 99% faster in initial pairs |
+| Beacons host input read | 20 → 3 | 81–83% faster in longer pairs |
+| Beacons save | 185 → 168 | mixed in longer pairs |
+| Beacons construction | 174 → 175 | 0.3–3.9% slower in longer pairs |
+| Beacons restore | 949 → 950 | mixed in longer pairs |
+
+Populated declarations add one 40-byte owner allocation. Empty construction and
+live key-handling timings were mixed. Beacons host input requests 705 → 32 bytes
+per read; these are cumulative allocator requests, not peak resident memory.
+The construction cost is retained for the repeated copying savings; no frame-rate,
+restore-speed or universal save-speed improvement is claimed.
+
+The paired normal Beacons module shrinks **749,052 → 748,566 raw bytes** and
+**321,397 → 321,155 gzip bytes**. The 550,000-byte target remains open. All 69
+initial and 45 longer paired serialized results match byte for byte. A regression
+test checks clone independence, blur, edges, contacts and dynamic restore.
+
+The measured tree passes 538 game tests (11 ignored), build, all-target Clippy and
+formatting. Web/Linux proofs and Linux Save-every-tick/FreshGame retain existing
+pins; all 15 app-save comparisons agree with the previous implementation and
+across hosts. The web proof uses the measured module; explicit native rebuilding
+preserves both product hashes. All 55 recorded proof processes exited.
+The shared branch advanced independently during this work; these measurements
+describe the paired input change, with later integrated checks recorded separately.
+That later build and web/Linux proofs pass, with six more identical saves; tests
+and Clippy stop at an unrelated audio test reading removed `SurfacePlayer.null`
+(`game/audio/src/surface.rs:159`), and formatting reports concurrent edits.
+Caps and boot pass using a private index. The later browser descendant audit
+timed out; all 276 recorded carrier/browser PIDs were absent on a separate check.
+This is not a clean integrated-suite claim; source files changed during that run.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/input-declarations/`.
+
+### Agent input uses one projection — 2026-09-19
+
+Untargeted agent state now computes pending input once for forwarded keys,
+controls and contact details. The separate BTreeSet key replay is deleted.
+The shared projection sorts/deduplicates restored keys before applying events,
+preserving the previous reply even for noncanonical saved key order. Tick-held
+state stays separate, and reads consume neither input nor clock time.
+
+A frozen native source copy isolates this change from concurrent worktree edits.
+Eight workloads ran in five alternating pairs with seven timed batches each;
+four then ran five longer adjacent pairs at 10,000 reads per batch. Counting
+allocations was disabled during timing.
+
+| Agent state read | Allocation calls before → after | Requested bytes before → after |
+|---|---:|---:|
+| Empty | 31 → 31 | 2,277 → 2,277 |
+| Three controls, pending keys/contact | 119 → 103 | 6,368 → 5,601 |
+| 128 pending keys | 658 → 367 | 36,353 → 18,948 |
+| 64 contacts | 1,726 → 1,578 | 113,684 → 105,955 |
+| Beacons | 123 → 117 | 6,622 → 6,282 |
+
+Longer ordinary reads were 13–63% faster and 16-key reads 24–51% faster across
+five pairs, with substantial shared-machine variability. Beacons remained mixed
+(3.3% slower to 4.2% faster), as did empty reads. These are complete agent-state
+reads, not frame-rate measurements; requested bytes are not resident memory.
+The stripped native probe's file size is unchanged. No shipped-Wasm reduction is
+attributed to this slice while other module sources are changing.
+
+All 40 initial and 20 longer paired JSON replies and saves agree byte for byte;
+the five initial multi-step traces also agree through blur, pause and restore.
+Regressions check sorted forwarded keys, pending contact ownership, refusal,
+read-only inspection and restore, including unordered/duplicate saved keys.
+The full game workspace passes 545 tests (11 ignored), build, all-target Clippy
+and formatting; focused engine/input checks pass 148 tests (1 ignored). Caps,
+boot and whitespace checks pass with a private index. Web/Linux continuous and
+Linux Save-every-tick/FreshGame proofs preserve pins and all 15 save comparisons.
+The first native launch timed out before readiness; after the rebuilt products
+passed both reconstruction modes, the continuous retry passed in 0.32 s.
+All recorded proof PIDs exited; the full browser descendant inventory timed out.
+The 641-second workspace test command includes launch delays: a one-second sample
+of its audio test harness captured only `_dyld_start`, before Rust ran. The audio
+compile and formatting failures from the preceding slice are resolved in this tree.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/agent-input/`.
+
+### Input invariants checked at restore — 2026-09-19
+
+Restore now refuses unordered or duplicate held keys before replacing the live
+simulation. Tick updates already preserve sorted, unique keys, so agent projection
+no longer sorts every copied input. A regression first demonstrated acceptance of
+malformed saves, then checks atomic refusal through both restore forms and a valid
+restored release reaching gameplay. Valid save formats and bytes are unchanged.
+
+Agent state also reuses Sim's existing argument JSON, which construction, binding
+and restore already maintain for saves. No second cache or author API is added.
+Tests cover live/setup/restart edits, a rejected timed bind, both restore forms,
+reordered argument declarations, defaults, quotes, Unicode and float precision.
+
+Eight frozen native workloads ran in five alternating pairs with seven timing
+batches each. All 40 JSON/save pairs and five multi-step traces match exactly.
+Beacons state reads allocate **117 → 109** times and request **6,282 → 6,017 bytes**;
+the smaller cases save four allocations and 158 requested bytes each. These are
+allocator requests, not resident memory. Timing was mixed on the shared machine;
+no general speedup is claimed. The stripped native probe shrinks 949,360 → 949,344
+bytes. The baseline shipped module is 750,403 raw / 321,785 gzip bytes, but concurrent
+plan/world changes prevent attributing a subsequent shipped-size delta to this slice.
+
+The isolated snapshot passes 142 focused tests (1 ignored). The integrated workspace
+builds and passes Clippy, formatting, boot and whitespace checks. Its first complete
+test sweep had 537 passes, 9 failures and 12 ignored during concurrent restore/default
+changes. After their fixes, the affected engine, physics and renderer targets pass
+167, 3 and 5 tests; the renderer fixture now accepts defaults and still refuses a
+wrongly typed seed before constructing a simulation. Caps initially reported an
+unrelated 1,501-line Linux surface file; the subsequent integrated check passes.
+
+Linux continuous/Save/FreshGame and web continuous proofs pass. All 12 checkpoint
+and continuation files match the previous accepted run byte-for-byte. All 104
+recorded PIDs were absent on recheck; the complete web descendant audit timed out.
+One-second samples during long native launches contain only `_dyld_start`, before
+Rust. The subsequent integrated shipped module is **749,960 raw / 322,603 gzip
+bytes**, with no source drift during that build; this includes concurrent changes
+and is not an isolated delta for this slice.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/input-boundary/`.
+
+### Restore decodes once after choosing setup arguments — 2026-09-19
+
+Early full-world decoding added during the integration pass used the receiver's
+current type registrations. A new regression demonstrates a valid save refusing
+when its saved setup argument enables a component absent from the receiver's setup.
+Restore now checks the world container's format and size first, constructs setup
+once with the chosen arguments, and decodes/validates typed state once before
+replacing the receiver. FreshGame can again discard the old registrations entirely.
+Bad headers still refuse before setup; typed-data and clock refusals remain atomic.
+The two temporary-world helpers and the discarded full decode are gone.
+
+The frozen candidate passes 148 focused tests (1 ignored), including the new
+registration regression and the existing setup-count, refusal and FreshGame cases.
+Five alternating native benchmark pairs, seven timing batches per case, preserve
+all 25 saved files exactly. Beacons restore uses **1,542 → 936 allocations** and
+requests **1,122,501 → 772,010 bytes** per call; the 4,096-entity case uses
+262,418 → 151,750 allocations and requests 17,387,947 → 10,594,485 bytes. These are
+cumulative allocator requests, including zeroed allocations, not resident memory.
+Beacons restore was 24–45% faster across the five pairs; the 4,096-entity case was
+41–45% faster. These are shared-machine restore measurements, not frame timings.
+The stripped native probe is 811,968 → 795,456 bytes.
+
+The integrated shipped module measures **749,559 raw / 321,990 gzip bytes**. A
+concurrent renderer source change occurred between the before and after builds,
+so the 401-byte raw reduction is not attributed solely to this restore change.
+The full workspace and cross-host verification are still running.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/restore-once-current/`.

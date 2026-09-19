@@ -14,7 +14,7 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof } from '../../proof.mjs';
 
-await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
+if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
   const s = await open();
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');

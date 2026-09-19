@@ -66,6 +66,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 name = "bench-cubes-apple"
 version = "0.1.0"
 dependencies = [
+ "bench-cubes-logic",
  "exact-apple",
  "exact-game-app",
  "exact-runner",
@@ -86,6 +87,7 @@ dependencies = [
 name = "bench-cubes-linux"
 version = "0.1.0"
 dependencies = [
+ "bench-cubes-logic",
  "exact-game-app",
  "exact-linux",
  "exact-runner",
@@ -102,6 +104,7 @@ dependencies = [
 name = "bench-cubes-web"
 version = "0.1.0"
 dependencies = [
+ "bench-cubes-logic",
  "exact-game-app",
  "exact-runner",
  "exact-web",
@@ -583,6 +586,9 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-game",
+ "exact-game-render",
+ "exact-gpu",
  "exact-runner",
 ]
 

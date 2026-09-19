@@ -94,7 +94,7 @@ impl Game for SmallGame {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         if input.pressed("light") {
-            if let Some(mut beacon) = w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
                 beacon.lit = true;
                 beacon.glow.set_target(w.tick_end(), 1.0);
             }

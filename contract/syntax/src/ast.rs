@@ -644,7 +644,7 @@ pub enum Expr {
     Member(Box<Expr>, String, Span),
     /// `name(args)`.
     Call(String, Vec<Expr>, Span),
-    /// `name: value` in a surface call; not an expression outside that binding.
+    /// `name=value` in a surface call; not an expression outside that binding.
     NamedArg(String, Box<Expr>, Span),
     /// A unary operation.
     Unary(UnOp, Box<Expr>, Span),

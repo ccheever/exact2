@@ -476,11 +476,11 @@ fn loading_refusals_name_the_state_that_contains_pending_assets() {
 #[test]
 fn rearming_texture_delivery_invalidates_the_hosts_answered_name_each_time() {
     let mut s = Sim::<Loading>::new(()).unwrap();
-    let model: asset::Model = bin::from_slice(include_bytes!(
-        "../../games/asset-fixture/assets/crate.model"
-    ))
-    .unwrap();
-    let tex = include_bytes!("../../games/asset-fixture/assets/crate/0-srgb-straight.tex");
+    // The bake's tracked goldens, not the fixture game's ignored bake products:
+    // a fresh checkout compiles this suite before any game has been baked.
+    let model: asset::Model =
+        bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model")).unwrap();
+    let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
     s.take_assets();
     s.asset("crate.model", Some(&bin::to_vec(&model))).unwrap();
     for _ in 0..3 {

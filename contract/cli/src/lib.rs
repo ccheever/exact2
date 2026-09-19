@@ -553,6 +553,50 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
     Ok(())
 }
 
+/// Validate all canvas calls against the bake's actual surface declarations,
+/// including calls behind branches which are not mounted on the first frame.
+pub fn bake_with_surface_arguments<D: DataSource>(
+    plan: Plan,
+    data: D,
+    mut arguments: impl FnMut(&str) -> Option<Vec<String>>,
+) -> Result<Plan, BakeError> {
+    for surface in &plan.surfaces {
+        let name = plan.str(surface.name);
+        let declared = arguments(name).ok_or_else(|| BakeError::Lint {
+            id: "bake-surface-arguments",
+            message: format!("unknown surface `{name}`"),
+        })?;
+        let fields = declared.join(", ");
+        let refusal = if surface.mode == exact_plan::SurfaceArgsMode::Named {
+            surface
+                .args
+                .iter()
+                .map(|id| plan.str(plan.surface_arg(id).name))
+                .find(|arg| !declared.iter().any(|field| field == arg))
+                .map(|arg| {
+                    format!(
+                        "unknown surface argument `{arg}` for `{name}`; declared names: {fields}"
+                    )
+                })
+        } else if surface.args.len as usize > declared.len() {
+            Some(format!(
+                "surface `{name}` expected at most {} arguments ({fields}), got {}",
+                declared.len(),
+                surface.args.len
+            ))
+        } else {
+            None
+        };
+        if let Some(message) = refusal {
+            return Err(BakeError::Lint {
+                id: "bake-surface-arguments",
+                message,
+            });
+        }
+    }
+    bake(plan, data)
+}
+
 /// Boot the plan once against `data` and write every resource's boot value
 /// into the plan as compiled data. The result still validates and its bytes
 /// are a pure function of (source, data).

@@ -124,7 +124,7 @@ pub struct Sim<G: Game> {
     pub(crate) restored_from: Option<String>,
     settle_delay: std::cell::Cell<u32>,
     last_epoch: std::cell::Cell<u64>,
-    args_json: String,
+    pub(crate) args_json: String,
     pub(crate) input: Input,
     queue: VecDeque<Queued>,
     overflow_logged: bool,
@@ -148,6 +148,33 @@ pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 impl<G: Game> Sim<G> {
+    /// Construct and load assets with the same loader as `load_assets`.
+    pub fn with_assets<E: std::fmt::Display>(
+        args: G::Args,
+        loader: impl FnMut(&str) -> Result<Vec<u8>, E>,
+    ) -> Result<Self, String> {
+        let mut sim = Self::new(args)?;
+        sim.load_assets(loader).map_err(|e| e.to_string())?;
+        Ok(sim)
+    }
+    /// Assert a test hash against the game's single pins.json (included by its test).
+    /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
+    pub fn assert_pin(&self, pins: &str) {
+        let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
+        #[derive(Default, crate::Data)]
+        struct Pins {
+            ticks: std::collections::BTreeMap<String, String>,
+        }
+        let pins: Pins = crate::json::from_str(pins).expect("pins.json must contain ticks");
+        let expected = pins
+            .ticks
+            .get(&tick.to_string())
+            .unwrap_or_else(|| panic!("pin {tick} missing; run bun game/prove.mjs {game}"));
+        let got = format!("0x{got:016x}");
+        assert!(expected == &got,
+            "pin {tick} differs (expected {expected}, got {got}); if the change is intended: bun game/prove.mjs {game} --repin");
+    }
+
     /// Override EXACT_GAME_PARANOID for this simulation.
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = Self::reconstruction(mode);
@@ -428,15 +455,21 @@ impl<G: Game> Sim<G> {
         self.finish_assets();
         Ok(())
     }
+    fn decode_args(values: &[Value]) -> Result<G::Args, String> {
+        crate::args::arity(values, G::Args::FIELDS)?;
+        let mut complete = G::Args::default().values();
+        complete[..values.len()].clone_from_slice(values);
+        G::Args::decode(&complete)
+    }
     /// Build at tick zero with seed zero; setup may reseed from a named argument.
     pub fn from_values(values: &[Value]) -> Result<Self, String> {
-        Self::new(G::Args::decode(values)?)
+        Self::new(Self::decode_args(values)?)
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
-        Self::with_assets(args, Default::default())
+        Self::with_store(args, Default::default())
     }
-    fn with_assets(args: G::Args, assets: crate::asset::AssetStore) -> Result<Self, String> {
+    fn with_store(args: G::Args, assets: crate::asset::AssetStore) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
@@ -503,7 +536,7 @@ impl<G: Game> Sim<G> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
             return Err("bind clock must be finite".into());
         }
-        let args = G::Args::decode(values)?;
+        let args = Self::decode_args(values)?;
         args.check_scalars()?;
         G::validate(&args)?;
         let old_values = self.args.values();
@@ -1215,26 +1248,6 @@ impl<G: Game> Sim<G> {
         now.saturating_add(next.saturating_sub(self.world_us)) as f64 / 1000.0
     }
     /// Device state at the host boundary, including events waiting for a tick.
-    pub(crate) fn held_keys(&self) -> Vec<String> {
-        let mut keys: std::collections::BTreeSet<_> = self.input.keys.iter().cloned().collect();
-        for queued in &self.queue {
-            match &queued.event {
-                InputEvent::Key {
-                    code, down: true, ..
-                } => {
-                    keys.insert(code.clone());
-                }
-                InputEvent::Key {
-                    code, down: false, ..
-                } => {
-                    keys.remove(code);
-                }
-                InputEvent::Blur { .. } => keys.clear(),
-                _ => {}
-            }
-        }
-        keys.into_iter().collect()
-    }
     pub(crate) fn host_input(&self) -> Input {
         let mut input = self.input.clone();
         for queued in &self.queue {
@@ -1342,9 +1355,13 @@ impl<G: Game> Sim<G> {
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
             return Err(DataError::new("restore refused: EXSIM v5 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
         }
+        if self.setup_pending {
+            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
+        }
+        World::saved_payload(&s.world)?;
         let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
         let mut next =
-            Self::with_assets(bound, self.world.assets.clone()).map_err(DataError::new)?;
+            Self::with_store(bound, self.world.assets.clone()).map_err(DataError::new)?;
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
             return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));

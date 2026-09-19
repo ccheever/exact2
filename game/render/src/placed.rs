@@ -35,6 +35,19 @@ pub(crate) struct Placements {
 }
 impl Placements {
     pub fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+        if texture.is_none() && frame == [0.; 4] {
+            if let Some(child) = self.children.get_mut(index) {
+                *child = Child::default();
+            }
+            while self
+                .children
+                .last()
+                .is_some_and(|c| c.texture.is_none() && c.frame == [0.; 4])
+            {
+                self.children.pop();
+            }
+            return;
+        }
         if index > self.children.len() {
             return;
         }

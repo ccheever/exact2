@@ -191,6 +191,9 @@ test('--no-build reads existing 60 and 120 Hz bakes without running the proof bu
   const dir = mkdtempSync(join(tmpdir(), 'feel-bakes-'));
   const previous = process.env.FEEL_EXACT_DIST;
   try {
+    delete process.env.FEEL_EXACT_DIST;
+    expect(exactAdapter(cli(['exact', '--hz', '60'])).root).toEndWith('/dist');
+    expect(exactAdapter(cli(['exact', '--hz', '120'])).root).toEndWith('/target/feel120');
     // No developer-local bake is required: these are the adapter's three inputs.
     for (const name of ['index.html', 'exact.json', 'gpu_bg.wasm']) writeFileSync(join(dir, name), 'fixture');
     process.env.FEEL_EXACT_DIST = dir;

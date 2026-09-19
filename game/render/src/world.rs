@@ -220,7 +220,6 @@ impl Versions {
 pub struct Feed {
     assets: assets::Assets,
     versions: Option<Versions>,
-    filter_same_values: bool,
     tick: u64,
     history_pending: bool,
     groups: Vec<Group>,
@@ -244,7 +243,6 @@ impl Default for Feed {
         Self {
             assets: Default::default(),
             versions: None,
-            filter_same_values: true,
             tick: 0,
             history_pending: false,
             groups: Vec::new(),
@@ -275,11 +273,6 @@ impl Feed {
         diagnostics: scene::AttachmentDiagnostics,
     ) {
         self.scene.attachments.diagnostics = diagnostics;
-    }
-    /// Filter same-value assignments by hashing only pages with new write generations.
-    /// Enabled by default. Disable for streams known to change every leased page.
-    pub fn filter_same_values(&mut self, enabled: bool) {
-        self.filter_same_values = enabled;
     }
     /// Forget world history after replacement, retaining registered geometry and scratch.
     pub fn reset(&mut self) {
@@ -392,12 +385,7 @@ impl Feed {
                     }
                     values = &self.transform_page[..len];
                 }
-                if self.transforms[self.current].dirty(
-                    index,
-                    page.generation,
-                    values,
-                    self.filter_same_values,
-                ) {
+                if self.transforms[self.current].dirty(index, page.generation, values, true) {
                     if !self.scratch.is_empty()
                         && run + (self.scratch.len() / 10) as u32 != page.first
                     {
@@ -542,10 +530,7 @@ impl Feed {
                     );
                 }
                 let values = &self.material_page[..len * 12];
-                if self
-                    .materials
-                    .dirty(index, generation, values, self.filter_same_values)
-                {
+                if self.materials.dirty(index, generation, values, true) {
                     if !self.scratch.is_empty() && run + (self.scratch.len() / 12) as u32 != first {
                         r.materials(run, &self.scratch)?;
                         self.scratch.clear();

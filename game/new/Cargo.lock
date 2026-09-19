@@ -1557,54 +1557,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
-name = "placement-fixture-apple"
-version = "0.1.0"
-dependencies = [
- "exact-apple",
- "exact-game-app",
- "exact-runner",
- "placement-fixture-logic",
-]
-
-[[package]]
-name = "placement-fixture-gpu"
-version = "0.1.0"
-dependencies = [
- "exact-game-render",
- "placement-fixture-logic",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "placement-fixture-linux"
-version = "0.1.0"
-dependencies = [
- "exact-game-app",
- "exact-linux",
- "exact-runner",
- "placement-fixture-logic",
-]
-
-[[package]]
-name = "placement-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
-
-[[package]]
-name = "placement-fixture-web"
-version = "0.1.0"
-dependencies = [
- "exact-game-app",
- "exact-runner",
- "exact-web",
- "placement-fixture-logic",
-]
-
-[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2031,6 +1983,54 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
 dependencies = [
  "version_check",
+]
+
+[[package]]
+name = "small-game-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-game-app",
+ "exact-runner",
+ "small-game-logic",
+]
+
+[[package]]
+name = "small-game-gpu"
+version = "0.1.0"
+dependencies = [
+ "exact-game-render",
+ "small-game-logic",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "small-game-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-linux",
+ "exact-runner",
+ "small-game-logic",
+]
+
+[[package]]
+name = "small-game-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+]
+
+[[package]]
+name = "small-game-web"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-runner",
+ "exact-web",
+ "small-game-logic",
 ]
 
 [[package]]

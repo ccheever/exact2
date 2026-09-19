@@ -19,7 +19,7 @@ fn movement_and_light() {
         .ticks
         .contains_key("0")
     {
-        exact_game::World::assert_pin(pins, "small-game", 0, game.world().hash());
+        game.assert_pin(pins);
     }
     game.viewport(800., 600.);
     let hit = game
@@ -39,7 +39,7 @@ fn movement_and_light() {
         game.world().published("lit").unwrap().as_number(),
         Some(1.0)
     );
-    assert!(game.world().get::<Transform>("camera").unwrap().position.y > 9.0);
+    assert!(game.world().require::<Transform>("camera").position.y > 9.0);
 }
 
 #[test]
@@ -95,22 +95,14 @@ fn proximity_nearest_unlit_plinths_bounds_and_restart() {
     game.tap("KeyE");
     game.run(100.0);
     assert!(!game.get::<Beacon>("beacon-1").unwrap().lit);
-    game.world()
-        .get_mut::<Transform>("beacon-2")
-        .unwrap()
-        .position
-        .x = 3.0;
-    game.world()
-        .get_mut::<Transform>("player")
-        .unwrap()
-        .position
-        .x = 2.8;
+    game.world().require_mut::<Transform>("beacon-2").position.x = 3.0;
+    game.world().require_mut::<Transform>("player").position.x = 2.8;
     game.run(100.0);
     assert_eq!(
         game.world().published("near").unwrap().as_str(),
         Some("beacon-2")
     );
-    game.world().get_mut::<Beacon>("beacon-2").unwrap().lit = true;
+    game.world().require_mut::<Beacon>("beacon-2").lit = true;
     game.run(100.0);
     assert_eq!(
         game.world().published("near").unwrap().as_str(),

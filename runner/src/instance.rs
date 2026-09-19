@@ -136,6 +136,8 @@ pub struct SurfaceUpdate {
     pub view: ViewId,
     /// The surface's name in the app's GPU module.
     pub name: String,
+    /// The authored call mode survives even when no arguments were supplied.
+    pub mode: exact_plan::SurfaceArgsMode,
     /// Argument names in source order, or empty for positional arguments.
     pub names: Vec<String>,
     /// Its arguments, evaluated.
@@ -143,7 +145,8 @@ pub struct SurfaceUpdate {
 }
 
 impl SurfaceUpdate {
-    /// Positional JSON array or named JSON object consumed by the surface module.
+    /// Positional JSON array or named/empty JSON object consumed by the surface module.
+    /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
         fn value_json(value: &Value, out: &mut String) {
             use std::fmt::Write;
@@ -167,7 +170,7 @@ impl SurfaceUpdate {
                 }
             }
         }
-        let named = !self.names.is_empty();
+        let named = self.mode != exact_plan::SurfaceArgsMode::Positional;
         let mut out = String::from(if named { "{" } else { "[" });
         for (i, value) in self.values.iter().enumerate() {
             if i != 0 {
@@ -364,6 +367,7 @@ impl NodeInst {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
+                    mode: s.mode,
                     names: s
                         .args
                         .iter()

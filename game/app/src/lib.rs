@@ -13,6 +13,27 @@ impl DataSource for NoData {
 /// Bake the app named by the generated shell, with no JS or Rust module.
 /// `apple` selects macOS or iOS from Cargo's target OS.
 pub fn bake(platform: &str, app_dir: &str) {
+    bake_declared(platform, app_dir, None);
+}
+
+/// The game bake reflects the same surface declaration used by every host.
+pub fn bake_game<G: exact_game::Game>(platform: &str, app_dir: &str) {
+    use exact_gpu::Surface;
+    let surface = exact_game_render::WorldSurface::<G>::default();
+    bake_declared(
+        platform,
+        app_dir,
+        Some(
+            surface
+                .arguments()
+                .into_iter()
+                .map(|(name, _)| name.to_owned())
+                .collect(),
+        ),
+    );
+}
+
+fn bake_declared(platform: &str, app_dir: &str, arguments: Option<Vec<String>>) {
     let platform = if platform == "apple" {
         if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
             "ios"
@@ -33,7 +54,13 @@ pub fn bake(platform: &str, app_dir: &str) {
     }
     let plan = contract::compile_path(&app.join("app.contract"))
         .unwrap_or_else(|e| panic!("app.contract: {e}"));
-    let baked = contract::bake(plan, NoData).unwrap_or_else(|e| panic!("bake: {e:?}"));
+    let baked = match arguments {
+        Some(fields) => contract::bake_with_surface_arguments(plan, NoData, |name| {
+            (name == "world").then(|| fields.clone())
+        }),
+        None => contract::bake(plan, NoData),
+    }
+    .unwrap_or_else(|e| panic!("bake: {e}"));
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let manifest = contract::Manifest::read(&app).unwrap_or_else(|e| panic!("app.json: {e}"));

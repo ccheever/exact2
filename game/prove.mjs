@@ -3,7 +3,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, resolve} from 'node:path';
-import {equal, agreePins, webUnavailable, comparePlacement} from './proof.mjs';
+import {equal, agreePins, webUnavailable, paranoidRuns} from './proof.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
 const local = destination === '.' || destination?.includes('/');
@@ -21,6 +21,7 @@ const pinFile = resolve(app, 'pins.json');
 const previous = JSON.parse(readFileSync(pinFile, 'utf8'));
 // A first baseline is accepted only after the same all-mode/host agreement as repin.
 const firstPins = !Object.keys(previous.ticks ?? {}).length && !Object.keys(previous.saves ?? {}).length;
+if (firstPins && repin) throw new Error('omit `--repin` for the first baseline');
 if (firstPins && !repin) {
   console.log('No pins yet; filling the first baseline after every requested host and mode agrees.');
   repin = true;
@@ -29,13 +30,13 @@ const hosts = option('--hosts', repin || args.includes('--compare-saves') ? 'lin
 if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
   throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
 }
+if (firstPins && (!hosts.includes('linux') || !hosts.includes('web'))) throw new Error('first baseline requires linux and web');
 const root = resolve(app, 'artifacts/prove');
 mkdirSync(root, {recursive:true});
 const run = async (host, index, build = false, mode = '0') => {
   const out = resolve(root, `${host}-${mode}-${build ? 'build' : index}`);
+  rmSync(out, {recursive:true, force:true});
   mkdirSync(out, {recursive:true});
-  rmSync(resolve(out, 'summary.json'), {force:true});
-  rmSync(resolve(out, `placement-${host}.json`), {force:true});
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
   const child = spawn(process.execPath, ['./proof.mjs', host, ...(build ? ['--build-only'] : [])], {
     cwd:app,
@@ -52,10 +53,6 @@ const run = async (host, index, build = false, mode = '0') => {
   writeFileSync(resolve(out, 'run.log'), log);
   const summaryPath = resolve(out, 'summary.json');
   const summary = existsSync(summaryPath) ? {...JSON.parse(readFileSync(summaryPath, 'utf8')), repeat:index} : null;
-  if (summary && name === 'placement-fixture' && !build && !summary.failures?.length) {
-    const tuples = resolve(out, `placement-${host}.json`);
-    if (existsSync(tuples)) summary.placement = JSON.parse(readFileSync(tuples,'utf8'));
-  }
   if (args.includes('--report') && (!build || code !== 0) && summary) for (const hint of summary.facilities ?? []) console.log(`REPORT ${host} ${mode}: ${hint}`);
   if (code !== 0) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});
   return summary;
@@ -67,18 +64,18 @@ if (repin) {
   // A single web dist is mode-specific: bake and run each mode serially.
   for (const host of hosts) {
     let unavailable = false;
-    try {
-      for (const mode of ['0', '1', 'fresh-game']) {
-        try { rows.push(await run(host, 1, false, mode)); }
-        catch (error) {
-          if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: configured Chrome could not launch (ENOENT); repin will refuse the missing requested host. Set CHROME and rerun, or explicitly use --hosts linux.'); break; }
-          errors.push(error);
-        }
+    await paranoidRuns(async mode => {
+      if (unavailable) return 0;
+      try { rows.push(await run(host, 1, false, mode)); return 0; }
+      catch (error) {
+        if (mode === '0' && error.webUnavailable) { unavailable = true; console.log('WEB unavailable: repin refuses the missing requested host; set CHROME and rerun.'); }
+        else errors.push(error);
+        return 1;
       }
-    } finally {
-      // Leave ordinary mode's receipt/product, including after a refusal.
-      if (host === 'web' && !unavailable) try { await run(host, 0, true); } catch (error) { errors.push(error); }
-    }
+    }, async () => {
+      if (!unavailable) try { await run(host, 0, true); } catch (error) { errors.push(error); return 1; }
+      return 0;
+    }, host);
     if (!unavailable) exercised.push(host);
   }
   for (const error of errors) console.error(error.message);
@@ -122,13 +119,10 @@ for (const row of rows) {
   console.log(`| ${row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
 }
 for (const failure of failures) console.error(failure.reason);
-if (name === 'placement-fixture' && hosts.includes('linux') && hosts.includes('web')) {
-  try {
-    for (let index=1; index<=repeat; index++) comparePlacement(
-      rows.find(r=>r.host==='linux' && r.repeat===index)?.placement,
-      rows.find(r=>r.host==='web' && r.repeat===index)?.placement);
-    console.log('PLACEMENT web/Linux captured tuples agree within 0.5 px');
-  } catch(error) { console.error(error.message); failed=true; }
+if (hosts.length > 1) {
+  const entry = await import(script);
+  if (entry.compare) try { await entry.compare(rows, {root, repeat}); }
+  catch (error) { console.error(error.message); failed = true; }
 }
 const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
 console.log(`PROOF ${status} ${name}`);

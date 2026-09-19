@@ -131,19 +131,6 @@ export function proofStatus({failures, expected, pins, collecting = false, parti
     !Object.keys(expected[section] ?? {}).length || !equal(expected[section], pins[section]))) return 'UNVERIFIED';
   return 'PASS';
 }
-// Compare the captured hosts directly; separate oracle checks cannot prove parity.
-export function comparePlacement(linux, web, tolerance = 0.5) {
-  for (const sample of ['initial','moving']) {
-    if (!Number.isInteger(linux?.[sample]?.tick) || linux[sample].tick !== web?.[sample]?.tick) throw new Error(`placement parity ${sample}.tick differs`);
-  }
-  for (const sample of ['initial','moving']) for (const key of ['x','y','w','h']) {
-    const a=linux?.[sample]?.[key], b=web?.[sample]?.[key];
-    if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a-b)>tolerance)
-      throw new Error(`placement parity ${sample}.${key}: linux=${a}, web=${b}, tolerance=${tolerance} px`);
-  }
-  return true;
-}
-
 // A report describes only recorded failures/stalls, never guesses from successful calls.
 export function facilityReport(replies) {
   const success = (r, method) => r.method === method && r.reply != null && !r.error && !r.reply.error;
@@ -169,7 +156,9 @@ export function facilityReport(replies) {
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
     || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
-    || /(^|\/)(artifacts|dist|dist.previous|target|node_modules|tests|examples|\.shells)\//.test(file)
+    || /(^|\/)(node_modules|tests|examples)\//.test(file)
+    || ['target/', '.shells/', 'dist/', 'dist.previous/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
+    || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css)$/.test(file)
       && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
@@ -180,7 +169,7 @@ export function proofInputFiles(root, app) {
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
   const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
-    if (['.git','target','node_modules','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name)) return [];
+    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
@@ -192,13 +181,13 @@ export function proofInputFiles(root, app) {
   return [...new Set(sources)].sort().filter(file =>
     !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file))).sort();
 }
-export async function paranoidRuns(run, restore = async () => 0) {
+export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
   let failed = false;
   for (const mode of ['0', '1', 'fresh-game']) {
     try { failed = (await run(mode)) !== 0 || failed; }
     catch (error) { console.error(error); failed = true; }
   }
-  try { failed = (await restore()) !== 0 || failed; }
+  try { if (host === 'web') failed = (await restore()) !== 0 || failed; }
   catch (error) { console.error(error); failed = true; }
   return failed;
 }
@@ -206,7 +195,7 @@ export async function paranoidRuns(run, restore = async () => 0) {
 export async function proof(meta, script) {
   const app = fileURLToPath(new URL('.', meta.url)), name = basename(app);
   const root = fileURLToPath(new URL('..', import.meta.url));
-  const host = process.argv.slice(2).find(arg => !arg.startsWith('--')) ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts'));
+  const host = process.argv.slice(2).find(arg => !arg.startsWith('--')) ?? 'linux', out = resolve(process.env.EXACT_PROOF_OUT ?? resolve(app, 'artifacts', host));
   const buildOut = resolve(app, 'artifacts');
   mkdirSync(buildOut, {recursive:true});
   const dist = resolve(app, 'dist');
@@ -223,12 +212,11 @@ export async function proof(meta, script) {
       console.log(`PARANOID ${name} ${host} ${mode}: ${((performance.now()-started)/1000).toFixed(3)} s (including build)`);
       return code;
     }, async () => {
-      if (host !== 'web') return 0;
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host, '--build-only'], {
         env:{...process.env, EXACT_GAME_PARANOID:'0'}, stdio:'inherit',
       });
       return await new Promise((ok, reject) => { child.on('exit', ok); child.on('error', reject); });
-    });
+    }, host);
     process.exit(failed ? 1 : 0);
   }
   const finalWorlds = [];
@@ -406,9 +394,121 @@ export async function proof(meta, script) {
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'UNVERIFIED' && !collecting && !partial)
-      say(`UNVERIFIED: no pins — run bun game/prove.mjs '${app.replaceAll("'", "'\\''")}' --repin`);
+      say(`UNVERIFIED: no pins — run bun game/prove.mjs '${app.replaceAll("'", "'\\''")}'`);
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }
   process.exit(failures.length || (!collecting && !process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg)) && proofStatus({failures, expected:previousPins, pins}) !== 'PASS') ? 1 : 0);
+}
+
+export function checkSteadyResidency(world, check, say, host) {
+  if (host === 'linux' && world.device !== true) {
+    say('SKIP: no device — after-ready GPU residency');
+    return;
+  }
+  check('after-ready ticks do no recorded GPU residency work',
+    world.device === true && world.ready && Object.values(world.gpu.afterReady).every(n => n === 0), world.gpu);
+}
+
+// Fixture-only instrumentation of the real Surface ABI; no production agent verbs.
+export function residencyProbe(model, texture, popName) {
+  let receive, changedTexture = false;
+  if (typeof popName !== 'string' || Buffer.byteLength(popName) !== Buffer.byteLength(model) || popName === model)
+    throw new Error('replacement model name must differ and have the same byte length');
+  const source = `
+  document.addEventListener('keydown', async event => {
+    if (!['KeyR','KeyC','KeyP'].includes(event.code)) return;
+    event.stopImmediatePropagation(); event.preventDefault();
+    const entry = [...surfaces.values()][0];
+    const state = () => JSON.parse(gpu.gpu_agent(entry.id, '{"op":"state"}')).world;
+    const draw = () => render(entry, performance.now());
+    try {
+      const before = state(), saved = gpu.gpu_carry(entry.id), original = saved.slice(), samples = [];
+      if (event.code === 'KeyR') {
+        for (let i=0; i<21; i++) {
+          performance.mark('a3-restore-start');
+          if (!gpu.gpu_restore(entry.id, saved, 0)) throw new Error(gpu.gpu_error());
+          draw();
+          const sample = performance.measure('a3-restore', 'a3-restore-start').duration;
+          if (i) samples.push(sample);
+        }
+      } else {
+        // Replace only the Mesh asset name in a valid save with an equal-length name.
+        const from = new TextEncoder().encode('${model}'), to = new TextEncoder().encode('${popName}');
+        let replaced = false;
+        for (let i=0;i<=saved.length-from.length;i++) {
+          if(from.every((b,j)=>saved[i+j]===b)) { saved.set(to,i); replaced=true; }
+        }
+        if(!replaced) throw new Error('saved mesh name absent');
+        if(!gpu.gpu_restore(entry.id,saved,0)) throw new Error(gpu.gpu_error());
+        if(event.code === 'KeyC') {
+          // Drain retirement without fetching the temporary name, then carry the
+          // original scene back. This exercises host-authorized redelivery on
+          // the same device; a module swap would necessarily use a new renderer.
+          gpu.gpu_assets(entry.id); gpu.gpu_retired(entry.id);
+          if(!gpu.gpu_restore(entry.id,original,1)) throw new Error(gpu.gpu_error());
+        }
+        draw(); assets(entry); await settled(); draw();
+      }
+      const after = state();
+      if(event.code === 'KeyP') {
+        if(!gpu.gpu_restore(entry.id,original,0)) throw new Error(gpu.gpu_error());
+        draw(); assets(entry); await settled(); draw();
+      }
+      fetch('/__residency', {method:'POST',body:JSON.stringify({before,after,samples})});
+    } catch(error) { fetch('/__residency', {method:'POST',body:JSON.stringify({error:String(error)})}); }
+  }, true);
+`;
+  return {
+    source,
+    assetPath: path => path === `/assets/${popName}` ? `/assets/${model}` : path,
+    async textureResponse(path, file) {
+      if(!changedTexture || path !== `/assets/${texture}`) return null;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const marker=[109,105,112,115];
+      let p=bytes.findIndex((_,i)=>marker.every((b,j)=>bytes[i+j]===b))+4;
+      if(p<4 || bytes[p++]!==7) throw new Error('missing mip sequence');
+      while(bytes[p++] & 128) {}
+      if(bytes[p++]!==12) throw new Error('missing mip bytes');
+      while(bytes[p++] & 128) {}
+      bytes[p]^=127;
+      return new Response(bytes);
+    },
+    async fetch(request) {
+      if(new URL(request.url).pathname !== '/__residency') return null;
+      receive?.(await request.json()); return new Response('',{status:204});
+    },
+    async run(session, key='KeyR') {
+      let timer;
+      if(key==='KeyC') changedTexture=true;
+      const result = new Promise((ok,reject)=>{
+        receive=ok; timer=setTimeout(()=>reject(new Error('residency probe timeout')),20000);
+      });
+      try { await session.type('world',{key}); return await result; }
+      finally { clearTimeout(timer); receive=null; }
+    },
+  };
+}
+export async function checkResidency(probe, session, check, say) {
+  const restored = await probe.run(session);
+  if(restored.error) throw new Error(restored.error);
+  const unchanged = (a,b) => JSON.stringify(a.gpu) === JSON.stringify(b.gpu);
+  check('same-device save/restore: zero uploads, pipelines or reallocations', restored.before.ready && restored.after.ready && unchanged(restored.before,restored.after), restored.after.gpu);
+  const samples = (restored.samples ?? []).sort((a,b)=>a-b);
+  if (samples.length) say(`restore through first draw, browser performance trace: n=${samples.length}, p50=${samples[Math.floor(samples.length/2)].toFixed(3)} ms, p95=${samples[Math.ceil(samples.length*.95)-1].toFixed(3)} ms`);
+  else say('restore timing samples: none recorded by this host');
+  const delta = (a,b,key) => b.gpu.afterReady[key]-a.gpu.afterReady[key];
+  const changed = await probe.run(session, 'KeyC');
+  if(changed.error) throw new Error(changed.error);
+  check('changed texture carry uploads exactly one texture', changed.after.ready && delta(changed.before,changed.after,'textureUploads') === 1, changed);
+  check('changed texture carry reuses geometry, pipelines and model/skin capacity',
+    ['meshUploads','pipelineCreations','modelSkinBufferReallocations'].every(key=>delta(changed.before,changed.after,key)===0), changed.after.gpu);
+  const repeated = await probe.run(session, 'KeyC');
+  if(repeated.error) throw new Error(repeated.error);
+  check('same texture bytes redelivered reuse residency', repeated.after.ready && unchanged(repeated.before,repeated.after), repeated.after.gpu);
+  const popped = await probe.run(session, 'KeyP');
+  if(popped.error) throw new Error(popped.error);
+  check('new model name reuses textures and pipelines',
+    ['textureUploads','pipelineCreations'].every(key=>delta(popped.before,popped.after,key)===0), popped.after.gpu);
+  check('new model name uploads geometry after arrival', popped.after.ready && delta(popped.before,popped.after,'meshUploads') > 0, popped.after.gpu);
 }

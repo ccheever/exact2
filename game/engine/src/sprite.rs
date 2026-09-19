@@ -14,7 +14,8 @@ pub struct Sprite {
     pub flip: [bool; 2],
     /// Linear RGBA tint.
     pub color: [f32; 4],
-    /// Equal-depth translucent ordering; smaller layers draw first.
+    /// Translucency sorts back-to-front by depth first. At equal depth only,
+    /// smaller layers draw first; this is not a 2D z-order.
     pub layer: i32,
     /// Atlas rectangle [x, y, width, height] in texels from the upper-left.
     /// Zero width or height selects the entire texture.
@@ -120,6 +121,30 @@ impl Default for SpriteAnimation {
     }
 }
 impl SpriteAnimation {
+    /// Horizontal atlas strip, with checked texel coordinates.
+    pub fn strip(origin: [u16; 2], size: [u16; 2], frames: u16, fps: f32) -> Self {
+        Self::new(
+            (0..frames).map(|i| {
+                [
+                    origin[0]
+                        .checked_add(size[0].checked_mul(i).expect("sprite strip width overflow"))
+                        .expect("sprite strip coordinate overflow"),
+                    origin[1],
+                    size[0],
+                    size[1],
+                ]
+            }),
+            fps,
+        )
+    }
+    /// Pair with a sprite, initializing its rectangle before the first tick.
+    /// Works identically for strips and explicit, irregular frame lists.
+    pub fn sprite(self, mut sprite: Sprite) -> (Sprite, Self) {
+        if let Some(frame) = self.frames.first() {
+            sprite.frame = *frame;
+        }
+        (sprite, self)
+    }
     /// Build a looping animation from atlas rectangles.
     pub fn new(frames: impl IntoIterator<Item = [u16; 4]>, fps: f32) -> Self {
         Self {
@@ -184,5 +209,21 @@ mod tests {
         w.get_mut::<Sprite>(e).unwrap().texture = "two.tex".into();
         assert!(texture_names_changed(&w, &mut names));
         assert_eq!(names[0].1, "two.tex");
+    }
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+    #[test]
+    fn strip_initializes_the_same_first_frame_as_explicit_frames() {
+        let strip = SpriteAnimation::strip([4, 8], [16, 12], 2, 6.);
+        assert_eq!(strip.frames, [[4, 8, 16, 12], [20, 8, 16, 12]]);
+        let sprite = Sprite::new("strip.tex", [1., 1.]);
+        let (sprite, animation) = strip.sprite(sprite);
+        assert_eq!(sprite.frame, animation.frames[0]);
+        let (explicit, _) =
+            SpriteAnimation::new([[4, 8, 16, 12]], 6.).sprite(Sprite::new("strip.tex", [1., 1.]));
+        assert_eq!(sprite.frame, explicit.frame);
     }
 }

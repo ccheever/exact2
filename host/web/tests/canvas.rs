@@ -111,3 +111,23 @@ fn the_caltrain_app_boots_with_both_surfaces() {
     );
     assert_eq!(batch.matches("\"op\":\"surface\"").count(), 2);
 }
+
+#[test]
+fn r13_named_empty_and_short_contract_calls_survive_web_batch() {
+    for (call, values) in [
+        (
+            "world(restart=false, seed=7, paused=true)",
+            r#"{"restart":false,"seed":7,"paused":true}"#,
+        ),
+        ("world()", "{}"),
+        ("world(7)", "[7]"),
+    ] {
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    canvas surface={call}\n"
+        ))
+        .unwrap();
+        let (_, batch) =
+            exact_web::Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+        assert!(batch.contains(&format!("\"values\":{values}")), "{batch}");
+    }
+}

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { checkSteadyResidency } from '../asset-fixture/residency.mjs';
+import { checkSteadyResidency } from '../../proof.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
+if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');
   await w.run(2500);const mid=await w.snapshot(),save=resolve(out,'sparks-150.world');await w.save(save);

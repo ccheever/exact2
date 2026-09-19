@@ -109,7 +109,7 @@ fn surface_qualified_contacts_and_repeated_restore() {
     done(p, path);
 }
 #[test]
-fn restored_lookup_stays_inside_surface_and_missing_control_stays_held() {
+fn restored_lookup_stays_inside_surface_and_missing_control_cancels() {
     let (mut p, path) = fixture();
     let button = find(&p, "b-jump");
     restore(&mut p, "b", json!([{"id":7,"action":"jump"}]));
@@ -120,7 +120,7 @@ fn restored_lookup_stays_inside_surface_and_missing_control_stays_held() {
     assert!(p.control_input(button, "up", 0., 0., 7, 0.));
     restore(&mut p, "a", json!([{"id":8,"action":"old-action"}]));
     p.cancel_removed_controls();
-    assert_eq!(p.control_bindings.len(), 1);
+    assert!(p.control_bindings.is_empty());
     done(p, path);
 }
 #[test]
@@ -255,6 +255,19 @@ fn r12_duplicate_restored_actions_do_not_guess_an_owner() {
     ]);
     restore(&mut p, "a", json!([{"id":7,"action":"jump"}]));
     assert_eq!(p.control_bindings[&(a, 7)].view, None);
+    for (key, contact) in [("Space", u32::MAX - 1), ("Enter", u32::MAX - 2)] {
+        p.activation_key(key, true);
+        assert_eq!(p.control_bindings[&(a, contact)].name, "jump");
+        p.activation_key(key, false);
+        assert!(!p.control_bindings.contains_key(&(a, contact)));
+    }
+    p.host.apply_test_ops(&[exact_kernel::Op::SetChildren {
+        id: a,
+        children: vec![],
+    }]);
+    p.cancel_removed_controls();
+    assert!(!p.control_bindings.contains_key(&(a, 7)));
+
     done(p, path);
 }
 #[test]
@@ -278,4 +291,43 @@ fn r12_reparent_cancels_original_owner() {
     p.cancel_removed_controls();
     assert!(p.control_bindings.is_empty());
     done(p, path);
+}
+
+#[test]
+fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
+    for call in ["world(restart=false, seed=7, paused=true)", "world()"] {
+        let (path, compat) = super::tests::fixture();
+        let plan = contract::compile(&format!(
+            "component App\n  view\n    canvas surface={call} width=100 height=100\n"
+        ))
+        .unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            NoData,
+            (100., 100.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces.attempted = true;
+        p.surfaces.sync(&mut p.host, &p.compat, &p.assets);
+        let text = unsafe {
+            let ptr = p
+                .surfaces
+                .abi
+                .as_ref()
+                .unwrap()
+                .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(b"test_bound")(
+            );
+            std::ffi::CStr::from_ptr(ptr).to_str().unwrap().to_owned()
+        };
+        let expected = if call == "world()" {
+            json!({})
+        } else {
+            json!({"restart":false,"seed":7,"paused":true})
+        };
+        assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), expected);
+        done(p, path);
+    }
 }

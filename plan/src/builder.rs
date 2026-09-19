@@ -456,7 +456,18 @@ impl PlanBuilder {
             len: args.len() as u32,
         };
         let name = self.str(name);
-        self.plan.surfaces.push(SurfacesRow { name, args });
+        let mode = if args.len == 0 {
+            SurfaceArgsMode::Empty
+        } else if self
+            .plan
+            .str(self.plan.surface_args[args.start as usize].name)
+            .is_empty()
+        {
+            SurfaceArgsMode::Positional
+        } else {
+            SurfaceArgsMode::Named
+        };
+        self.plan.surfaces.push(SurfacesRow { name, args, mode });
         SurfacesId(self.plan.surfaces.len() as u32 - 1)
     }
 

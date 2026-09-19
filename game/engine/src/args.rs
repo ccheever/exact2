@@ -231,3 +231,31 @@ mod restart_tests {
         assert!(sim.agent(r#"{"op":"state"}"#).contains(r#""restarted":2"#));
     }
 }
+
+#[cfg(test)]
+mod author_tests {
+    use crate::{Game, Input, Sim, World};
+    struct Empty;
+    impl Game for Empty {
+        const ID: &'static str = "author-edges";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    #[test]
+    fn assets_constructor_and_pin_use_the_simulation_identity() {
+        let mut sim =
+            Sim::<Empty>::with_assets((), |_| Err::<Vec<u8>, _>("unexpected asset")).unwrap();
+        sim.run(1000.);
+        sim.assert_pin(&format!(
+            "{{\"ticks\":{{\"60\":\"0x{:016x}\"}}}}",
+            sim.world().hash()
+        ));
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sim.assert_pin("{\"ticks\":{}}")
+        }))
+        .unwrap_err();
+        let message = failure.downcast_ref::<String>().unwrap();
+        assert!(message.contains("author-edges") && message.contains("60"));
+    }
+}

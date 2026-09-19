@@ -36,12 +36,7 @@ fn forward_parity_and_seek_invariance() {
         one.world().get::<Transform>("player").unwrap().position,
         Vec3::new(0.0, 0.9, -5.3666644)
     );
-    exact_game::World::assert_pin(
-        include_str!("../../pins.json"),
-        "greybox",
-        90,
-        one.world().hash(),
-    );
+    one.assert_pin(include_str!("../../pins.json"));
 }
 #[test]
 fn beacon_messages_journal_and_settle() {
@@ -130,12 +125,7 @@ fn agent_snapshots_and_pick() {
     for (name, expected, request) in forms {
         let got = s.agent(request);
         if name == "state" {
-            exact_game::World::assert_pin(
-                include_str!("../../pins.json"),
-                "greybox",
-                0,
-                s.world().hash(),
-            );
+            s.assert_pin(include_str!("../../pins.json"));
         }
         let expected = expected
             .trim()

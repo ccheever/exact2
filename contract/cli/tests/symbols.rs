@@ -26,7 +26,7 @@ fn named_world_arguments_refer_to_values_not_field_labels() {
     let dir = std::env::temp_dir().join(format!("exact-named-symbols-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("app.contract");
-    let src = "component App\n  state paused = false\n  state again = false\n  view\n    canvas surface=world(paused: not paused, restart: again)\n";
+    let src = "component App\n  state paused = false\n  state again = false\n  view\n    canvas surface=world(paused=not paused, restart=again)\n";
     std::fs::write(&file, src).unwrap();
     let (defs, refs) = contract::symbols::symbols(&file).unwrap();
     let bindings: Vec<_> = refs.iter().filter(|r| r.span.line == 5).collect();

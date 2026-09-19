@@ -3,7 +3,7 @@ import {proof} from '../../proof.mjs';
 import {decodePng} from '../../../scripts/png.mjs';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
+if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   if(process.argv.includes('--capture40')) {
     const s=await open({size:[1280,720]});await s.tap('crowd');
     await s.clock('+0');await s.screenshot(resolve(out,`forty-${host}.png`));
@@ -91,3 +91,25 @@ await proof(import.meta,async ({pin, pinSave, open,check,equal,out,host,say})=>{
   await rw.run(4500);check('restored orbit keeps same hash',equal(await rw.snapshot(),end));
   await r.close();
 });
+
+// Compare the captured hosts directly; separate oracle checks cannot prove parity.
+export function comparePlacement(linux, web, tolerance = 0.5) {
+  for (const sample of ['initial','moving']) {
+    if (!Number.isInteger(linux?.[sample]?.tick) || linux[sample].tick !== web?.[sample]?.tick) throw new Error(`placement parity ${sample}.tick differs`);
+  }
+  for (const sample of ['initial','moving']) for (const key of ['x','y','w','h']) {
+    const a=linux?.[sample]?.[key], b=web?.[sample]?.[key];
+    if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a-b)>tolerance)
+      throw new Error(`placement parity ${sample}.${key}: linux=${a}, web=${b}, tolerance=${tolerance} px`);
+  }
+  return true;
+}
+
+export function compare(rows, {root, repeat}) {
+  if (!rows.some(r => r.host === 'linux') || !rows.some(r => r.host === 'web')) return;
+  for (let index = 1; index <= repeat; index++) {
+    const read = host => JSON.parse(readFileSync(resolve(root, `${host}-0-${index}`, `placement-${host}.json`), 'utf8'));
+    comparePlacement(read('linux'), read('web'));
+  }
+  console.log('PLACEMENT web/Linux captured tuples agree within 0.5 px');
+}

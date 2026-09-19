@@ -845,7 +845,6 @@ fn feed_cpu_cost() {
             let camera = w.spawn((Transform::default(), Camera::default()));
             w.load(&w.save()).unwrap(); // Clear setup-only fresh entities before steady measurements.
             let mut f = Feed::default();
-            f.filter_same_values(moving != n);
             let mut r = Recording {
                 record: false,
                 ..Recording::default()

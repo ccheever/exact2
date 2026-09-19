@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync, renameSync, lstatSync, readlinkSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync, renameSync, lstatSync, readlinkSync, chmodSync, symlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
@@ -30,7 +30,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','Cargo.lock','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
     rmSync(resolve(app, 'app.json'));
     rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
@@ -53,9 +53,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     // The starter must refuse an empty baseline. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
     await run('bun', [resolve(app, 'proof.mjs')], undefined, 1);
-    assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
+    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
     await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only']);
-    assert.match(readFileSync(resolve(app, 'artifacts/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
+    assert.match(readFileSync(resolve(app, 'artifacts/web/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const receipt = resolve(app, 'artifacts/build-linux.sha256');
     const before = JSON.parse(readFileSync(receipt, 'utf8'));
     const source = resolve(app, 'logic/src/lib.rs');
@@ -194,7 +194,7 @@ test.skipIf(process.platform !== 'darwin')('generation inside an empty author di
     assert.equal(treeHash(parent, app), before);
     assert.ok(!existsSync(resolve(app,'.shells')));
     assert.ok(!existsSync(resolve(app,'Cargo.toml')),'workspace scaffolding is generated and ignored');
-    assert.ok(!existsSync(resolve(app,'Cargo.lock')));
+    assert.ok(existsSync(resolve(app,'Cargo.lock')), 'the template source lock is copied inside the author directory');
   } finally { rmSync(parent,{recursive:true,force:true}); }
 },60000);
 
@@ -226,7 +226,7 @@ function treeHash(root, excluded) {
       hash.update(path.slice(root.length)).update(String(stat.mode));
       if(entry.isDirectory()) walk(path);
       else if(entry.isSymbolicLink()) hash.update(readlinkSync(path));
-      else hash.update(String(stat.mtimeMs)).update(readFileSync(path));
+      else hash.update(readFileSync(path));
     }
   };
   walk(root); return hash.digest('hex');
@@ -244,4 +244,44 @@ test('R12 tree hash detects outside bytes and empty directories, excluding only 
     const edited=treeHash(root,app);mkdirSync(resolve(root,'outside-directory'));
     assert.notEqual(treeHash(root,app),edited);
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('R13 generation hash ignores touch but sees modes and symlink targets; writes through directory symlinks are not seen',()=>{
+  const root=mkdtempSync(resolve(tmpdir(),'r13-tree-')), outside=mkdtempSync(resolve(tmpdir(),'r13-outside-'));
+  try {
+    const file=resolve(root,'source');writeFileSync(file,'same');const before=treeHash(root);
+    utimesSync(file,new Date(),new Date(Date.now()+10000));assert.equal(treeHash(root),before);
+    chmodSync(file,0o755);assert.notEqual(treeHash(root),before);
+    symlinkSync(outside,resolve(root,'link'));const linked=treeHash(root);
+    writeFileSync(resolve(outside,'file'),'outside');assert.equal(treeHash(root),linked);
+    rmSync(resolve(root,'link'));symlinkSync('source',resolve(root,'link'));assert.notEqual(treeHash(root),linked);
+  } finally {rmSync(root,{recursive:true,force:true});rmSync(outside,{recursive:true,force:true});}
+});
+
+
+test('R13 two copies of a new game bake offline locked with byte-identical captured locks',async()=>{
+  const {prepareGame,gameDefaults}=await import('./app/shells.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'r13-lock-copies-')));
+  try {
+    const a=resolve(root,'a/same-game'), b=resolve(root,'b/same-game');
+    createGame(a);createGame(b);
+    const before=readFileSync(resolve(a,'Cargo.lock'),'utf8');
+    for(const dir of [a,b]) prepareGame(dir,gameDefaults(dir).game);
+    assert.equal(readFileSync(resolve(a,'Cargo.lock'),'utf8'),before);
+    assert.equal(readFileSync(resolve(b,'Cargo.lock'),'utf8'),before);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('R13 an empty Cargo cache refuses offline resolution with an explicit prefetch command',async()=>{
+  const {prepareGame,gameDefaults}=await import('./app/shells.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'r13-empty-cache-'))),dir=resolve(root,'cache-game');
+  const previous=process.env.CARGO_HOME;
+  try {
+    createGame(dir);mkdirSync(resolve(root,'cargo-home'));process.env.CARGO_HOME=resolve(root,'cargo-home');
+    const lock=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
+    assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/offline/.test(error.message)&&/cargo fetch --locked --manifest-path/.test(error.message));
+    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),lock);
+  } finally {if(previous===undefined) delete process.env.CARGO_HOME;else process.env.CARGO_HOME=previous;rmSync(root,{recursive:true,force:true});}
 });

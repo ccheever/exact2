@@ -48,3 +48,18 @@ fn movement_seed_jump_and_save() {
     assert_eq!(a.get::<Transform>("player").unwrap().position.y, 0.9);
     assert_eq!(a.get::<Character>("player").unwrap().velocity.y, 0.0);
 }
+
+#[test]
+fn rust_defaults_and_positional_binding_have_identical_bytes() {
+    use exact_game::Value;
+    let omitted = Sim::<Beacons>::new(Options {
+        seed: 7,
+        ..Options::default()
+    })
+    .unwrap();
+    let positional =
+        Sim::<Beacons>::from_values(&[Value::Number(7.), Value::Bool(false), Value::Bool(false)])
+            .unwrap();
+    assert_eq!(omitted.save().unwrap(), positional.save().unwrap());
+    omitted.assert_pin(include_str!("../../pins.json"));
+}

@@ -144,7 +144,6 @@ struct Registration {
 // Installed together by the linked attachment component, never saved as state.
 pub(crate) struct Attachments {
     pub pose: fn(&World, Entity, usize) -> Option<crate::Affine3A>,
-    pub propagate: fn(&World),
 }
 
 /// One journal event. Reads never generate per-tick samples.
@@ -184,6 +183,7 @@ pub struct World {
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) attachments: Option<Attachments>,
+    pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
@@ -236,6 +236,7 @@ impl World {
             observation: ObservationState::Unknown,
             in_tick: false,
             attachments: None,
+            detach: None,
             state: State {
                 hz,
                 seed,
@@ -339,7 +340,9 @@ impl World {
         if !self.contains(e) {
             return false;
         }
-        crate::audio::detach(self, e);
+        if let Some(detach) = self.detach {
+            detach(self, e);
+        }
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
@@ -518,6 +521,16 @@ impl World {
         }
         self.storage::<C>()?.get_mut(e.index as usize)
     }
+    /// Require a named component, reporting both the entity and component on failure.
+    pub fn require<C: Component>(&self, name: &str) -> Ref<'_, C> {
+        self.get::<C>(name)
+            .unwrap_or_else(|| panic!("entity `{name}` requires component `{}`", C::NAME))
+    }
+    /// Mutably require a named component; the guard locks its component column.
+    pub fn require_mut<C: Component>(&self, name: &str) -> RefMut<'_, C> {
+        self.get_mut::<C>(name)
+            .unwrap_or_else(|| panic!("entity `{name}` requires component `{}`", C::NAME))
+    }
     /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
@@ -550,14 +563,14 @@ impl World {
     }
     /// Mutably borrow the closest matching component in an inclusive XZ radius.
     /// Selection uses nearest_xz_where's global positions and entity-index ties.
-    pub fn nearest_mut<C: Component>(
+    pub fn nearest_xz_mut<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
         predicate: impl FnMut(&C) -> bool,
-    ) -> Option<RefMut<'_, C>> {
+    ) -> Option<(Entity, RefMut<'_, C>)> {
         let entity = self.nearest_xz_where::<C>(origin, radius, predicate)?;
-        self.get_mut::<C>(entity)
+        Some((entity, self.get_mut::<C>(entity)?))
     }
     /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances and returned poses use global transforms; missing origins yield no rows.
@@ -869,19 +882,12 @@ impl World {
     /// Atomically replace simulation state. Registered types survive the replacement;
     /// caches, publications and events do not. The entity table precedes storages.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        if bytes.len() > crate::data::MAX_LOAD_BYTES {
-            return Err(DataError::new("save exceeds load size limit"));
-        }
-        if !bytes.starts_with(MAGIC) {
-            return Err(DataError::new(format!(
-                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
-                &bytes[..bytes.len().min(8)]
-            )));
-        }
-        let mut next = Self::new(1, 0);
+        let payload = Self::saved_payload(bytes)?;
+        let mut next = Self::new(self.hz(), 0);
         next.registry = self.registry.clone();
         next.attachments = self.attachments;
-        let mut r = bin::Decoder::new(&bytes[MAGIC.len()..]);
+        next.detach = self.detach;
+        let mut r = bin::Decoder::new(payload);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_hierarchy(&mut r)?;
@@ -894,6 +900,17 @@ impl World {
         next.assets = std::mem::take(&mut self.assets);
         *self = next;
         Ok(())
+    }
+    pub(crate) fn saved_payload(bytes: &[u8]) -> Result<&[u8], DataError> {
+        if bytes.len() > crate::data::MAX_LOAD_BYTES {
+            return Err(DataError::new("save exceeds load size limit"));
+        }
+        bytes.strip_prefix(MAGIC).ok_or_else(|| {
+            DataError::new(format!(
+                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
+                &bytes[..bytes.len().min(8)]
+            ))
+        })
     }
     fn validate_state(&self) -> Result<(), DataError> {
         if self.hz() == 0 {
@@ -1024,7 +1041,7 @@ mod save;
 use save::Free;
 
 #[cfg(test)]
-mod nearest_mut_tests {
+mod nearest_xz_mut_tests {
     use super::*;
     use crate::Transform;
     #[derive(Default, crate::Component)]
@@ -1033,14 +1050,19 @@ mod nearest_mut_tests {
     }
 
     #[test]
-    fn nearest_mut_selects_filters_and_releases_its_guard() {
+    fn nearest_xz_mut_selects_filters_and_releases_its_guard() {
         let mut w = World::new(120, 7);
         w.spawn_named("player", Transform::default());
         let first = w.spawn((Transform::at(1.5, 10.0, 0.0), Beacon::default()));
         let second = w.spawn((Transform::at(-1.5, 0.0, 0.0), Beacon::default()));
-        assert!(w.nearest_mut::<Beacon>("missing", 1.5, |_| true).is_none());
-        assert!(w.nearest_mut::<Beacon>("player", 1.49, |_| true).is_none());
-        if let Some(mut beacon) = w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        assert!(w
+            .nearest_xz_mut::<Beacon>("missing", 1.5, |_| true)
+            .is_none());
+        assert!(w
+            .nearest_xz_mut::<Beacon>("player", 1.49, |_| true)
+            .is_none());
+        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            assert_eq!(entity, first);
             beacon.lit = true;
         }
         assert!(w.get::<Beacon>(first).unwrap().lit);
@@ -1049,12 +1071,38 @@ mod nearest_mut_tests {
             w.nearest_xz_where::<Beacon>("player", 1.5, |b| !b.lit),
             Some(second)
         );
-        w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit)
+        w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit)
             .unwrap()
+            .1
             .lit = true;
-        assert!(w.nearest_mut::<Beacon>("player", 1.5, |b| !b.lit).is_none());
+        assert!(w
+            .nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit)
+            .is_none());
         let saved = w.save();
         w.load(&saved).unwrap();
         assert!(w.get::<Beacon>(first).unwrap().lit);
+    }
+}
+
+#[cfg(test)]
+mod required_tests {
+    use super::*;
+    #[test]
+    fn required_components_name_both_failures() {
+        let mut w = World::new(60, 0);
+        w.spawn_named("fox", crate::Transform::default());
+        w.require_mut::<crate::Transform>("fox").position.x = 3.;
+        assert_eq!(w.require::<crate::Transform>("fox").position.x, 3.);
+        for name in ["fox", "missing"] {
+            let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                w.require::<crate::Mesh>(name);
+            }))
+            .unwrap_err();
+            let message = failure.downcast_ref::<String>().unwrap();
+            assert!(
+                message.contains(name) && message.contains("Mesh"),
+                "{message}"
+            );
+        }
     }
 }

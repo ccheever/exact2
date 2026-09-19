@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
+import {checkSteadyResidency} from '../../proof.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import { residencyProbe, checkResidency, checkSteadyResidency } from './residency.mjs';
+import { residencyProbe, checkResidency } from '../../proof.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
+if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
   const web = host === 'web';
-  const residency = residencyProbe('crate.model','crate/0-srgb-straight.tex');
+  const residency = residencyProbe('crate.model','crate/0-srgb-straight.tex','extra.model');
   let gate, server, fail = false, lossDone;
   let textureRequests = 0;
   const next = () => {

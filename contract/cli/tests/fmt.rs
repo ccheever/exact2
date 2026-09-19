@@ -184,16 +184,14 @@ component Scene
     restart: bool
   view
     // World bindings share the ordinary Contract expression grammar.
-    canvas surface=world( restart:restart, seed: -0, paused: not paused, label: "雪" ) width="100%" height="100%" testId="world" // retain me
+    canvas surface=world( restart=restart, seed=-0, paused=not paused, label="雪" ) width="100%" height="100%" testId="world" // retain me
       button autofocus action="jump" testId="jump" padding=12
         text "Jump"
 "#;
     let formatted = format(src).unwrap();
     assert_eq!(shape(src), shape(&formatted));
     assert_eq!(formatted, format(&formatted).unwrap());
-    assert!(
-        formatted.contains("world(restart: restart, seed: -0, paused: not paused, label: \"雪\")")
-    );
+    assert!(formatted.contains("world(restart=restart, seed=-0, paused=not paused, label=\"雪\")"));
     assert!(formatted.contains("// retain me"));
     assert!(formatted.contains("// World bindings"));
     assert_eq!(

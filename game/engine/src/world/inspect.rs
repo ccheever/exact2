@@ -1,23 +1,6 @@
 use super::*;
 
 impl World {
-    /// Assert a test hash against the game's single pins.json (included by its test).
-    /// Unknown metadata fields are skipped by Data; no generated Rust is needed.
-    pub fn assert_pin(pins: &str, game: &str, tick: u64, got: u64) {
-        #[derive(Default, crate::Data)]
-        struct Pins {
-            ticks: BTreeMap<String, String>,
-        }
-        let pins: Pins = crate::json::from_str(pins).expect("pins.json must contain ticks");
-        let expected = pins
-            .ticks
-            .get(&tick.to_string())
-            .unwrap_or_else(|| panic!("pin {tick} missing; run bun game/prove.mjs {game} --repin"));
-        let got = format!("0x{got:016x}");
-        assert!(expected == &got,
-            "pin {tick} differs (expected {expected}, got {got}); if the change is intended: bun game/prove.mjs {game} --repin");
-    }
-
     /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
     pub fn mutation_epoch(&self) -> u64 {
         self.epoch.get()

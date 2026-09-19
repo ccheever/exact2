@@ -351,6 +351,21 @@ impl Surface for StackSurface {
     }
 
     fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+        if texture.is_none() && frame == [0.; 4] {
+            if let Some(card) = self.cards.get_mut(index) {
+                *card = CardState::new();
+            }
+            while self
+                .cards
+                .last()
+                .is_some_and(|c| c.texture.is_none() && c.frame == [0.; 4])
+            {
+                self.cards.pop();
+            }
+            self.targets();
+            self.settled = false;
+            return;
+        }
         if self.cards.len() <= index {
             self.cards.resize_with(index + 1, CardState::new);
         }
@@ -370,12 +385,6 @@ impl Surface for StackSurface {
             card.texture = None;
             card.bind_group = None;
         }
-        self.targets();
-        self.settled = false;
-    }
-
-    fn children_count(&mut self, count: usize) {
-        self.cards.truncate(count);
         self.targets();
         self.settled = false;
     }
@@ -609,5 +618,28 @@ mod tests {
             (x1 - 110.0).abs() < 1e-3 && (y1 - 70.0).abs() < 1e-3,
             "{x1} {y1}"
         );
+    }
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+    #[test]
+    fn removal_delivery_does_not_recreate_trailing_cards() {
+        let mut stack = StackSurface::default();
+        for i in 0..4 {
+            stack.child(i, None, [0., 0., 100., 50.]);
+        }
+        stack.child(1, None, [0.; 4]);
+        assert_eq!(
+            stack.cards.len(),
+            4,
+            "an interior removal preserves later children"
+        );
+        assert_eq!(stack.cards[2].frame, [0., 0., 100., 50.]);
+        for i in 1..4 {
+            stack.child(i, None, [0.; 4]);
+        }
+        assert_eq!(stack.cards.len(), 1);
     }
 }

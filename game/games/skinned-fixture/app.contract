@@ -10,7 +10,7 @@ component SmallGame
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
-        canvas surface=world(0) testId="world" width="100%" height="100%" position="relative"
+        canvas surface=world() testId="world" width="100%" height="100%" position="relative"
           column position="absolute" top=24 left=24 gap=6 padding=16 background-color="#202731"
             text "FOX / LOCAL POSES" font-size=20
             text `${hud.motion} · tick ${hud.tick}` testId="hud-state" aria-live="polite"

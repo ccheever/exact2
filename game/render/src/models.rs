@@ -385,7 +385,6 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Reclaim retired asset slots, preserving every live handle and pose history.
     pub(crate) fn compact_assets(
         &mut self,
-        _format: wgpu::TextureFormat,
         live: &std::collections::BTreeSet<String>,
         prepared: &std::collections::BTreeSet<String>,
     ) {
@@ -401,7 +400,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if let Some(skin) = &mut self.models.skinning {
             skin.compact_metadata(&self.device, &self.queue, false);
         }
-        if self.retired_bytes(live) > 64 * 1024 * 1024 {
+        if self.retired_bytes(live) > crate::renderer::RETIRED_BUDGET {
             if let Some(skin) = &mut self.models.skinning {
                 skin.compact_metadata(&self.device, &self.queue, true);
             }
@@ -939,10 +938,9 @@ mod retirement_regressions {
             &gpu.queue,
             wgpu::TextureFormat::Rgba8Unorm,
         );
-        let mut model: Model = exact_game::bin::from_slice(include_bytes!(
-            "../../games/asset-fixture/assets/crate.model"
-        ))
-        .unwrap();
+        let mut model: Model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
         model.materials[0].alpha_mode = AlphaMode::Blend;
         r.prepare_model("hero.model", &model).unwrap();
         let handles = r.models.loaded["hero.model"].nodes.clone();
@@ -1011,10 +1009,10 @@ mod retirement_regressions {
             live.insert(name);
             live.insert(tex); // immediately re-requested, still Pending
         }
-        assert!(r.retired_bytes(&live) > 64 * 1024 * 1024);
+        assert!(r.retired_bytes(&live) > crate::renderer::RETIRED_BUDGET);
         let before = r.residency_work();
-        r.compact_assets(wgpu::TextureFormat::Rgba8Unorm, &live, &Default::default());
-        assert!(r.retired_bytes(&live) <= 64 * 1024 * 1024);
+        r.compact_assets(&live, &Default::default());
+        assert!(r.retired_bytes(&live) <= crate::renderer::RETIRED_BUDGET);
         assert_eq!(r.models.loaded["hero.model"].nodes, hero);
         assert_eq!(r.models.materials[hero[0].1 .0].bind, bind);
         assert_eq!(

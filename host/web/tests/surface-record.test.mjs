@@ -35,13 +35,13 @@ export async function fixture(options = {}) {
   const glue = readFileSync(process.env.R8A_GLUE_SOURCE || new URL('../glue.js', import.meta.url), 'utf8');
   const applySource = glue.slice(glue.indexOf('function applyBatch(batch)'), glue.indexOf('\nfunction send(', glue.indexOf('function applyBatch(batch)')));
   const operationSource = glue.slice(glue.indexOf('function apply(batch)'), glue.indexOf('// Agent batches register', glue.indexOf('function apply(batch)')));
-  const applyOperations = new Function('exact', 'views', `
+  const applyOperations = new Function('exact', 'views', 'globalThis', `
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
     const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false;
     const prepareContexts = () => {}, refreshSymbols = () => {}, focusAutofocus = () => {}, positionContexts = () => {};
     const viewFor = (_, id) => views.get(id);
     ${operationSource}; return apply;
-  `)(exact, views);
+  `)(exact, views, {exact});
   const applyBatch = new Function('globalThis', 'apply', `const agentMode = false; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
@@ -459,7 +459,8 @@ test('R12 duplicate restored actions have no guessed node owner',async()=>{
   f.exact.worldCarry=new Uint8Array([7]);const canvas=f.create(1),a=restoredButton(f,canvas),b=restoredButton(f,canvas);canvas.buttons=[a,b];
   f.exact.finishRestore(1);a.isConnected=false;f.mutation();
   assert.deepEqual(f.events,[]);
-  assert.equal(f.exact.gpu.handle({op:'tap',id:1,contact:7,phase:'cancel'},null,x=>x).delivery,'recognized');
+  b.isConnected=false;canvas.buttons=[];f.mutation();
+  assert.equal(f.events.filter(e=>e.t==='control'&&e.phase==='cancel'&&e.id===7).length,1);
 });
 test('R12 pressed control routes Space from an editor without focusing',async()=>{
   const f=await fixture({input:true}),canvas=f.create(1),button=restoredButton(f,canvas),editor=f.document.activeElement=new f.Element('input');
@@ -472,4 +473,15 @@ test('R12 blur cancels restored bindings before the engine blur',async()=>{
   const f=await fixture({input:true,controlContacts:[{id:7,action:'jump',position:[1,2]}]});f.exact.worldCarry=new Uint8Array([7]);f.create(1);
   f.window.dispatchEvent(new Event('blur'));
   assert.deepEqual(f.events.map(e=>e.phase??e.t),['cancel','blur']);
+});
+
+
+test('R13 named and empty argument objects survive the web batch and GPU binding path',async()=>{
+  const f=await fixture(), seen=[];
+  f.gpu.gpu_bind_at=(id,json)=>{seen.push(JSON.parse(json));return true;};
+  f.create(1);
+  for(const values of [{restart:false,seed:7,paused:true},{}]) {
+    await f.applyBatch({ops:[{op:'surface',id:1,name:'world',values}],timers:false,motion:false});
+    assert.deepEqual(seen.at(-1),values);
+  }
 });

@@ -516,7 +516,7 @@ fn displayed_unresolved_follower_logs_once_and_falls_back() {
 }
 
 #[test]
-fn displayed_stale_follower_logs_once_by_name() {
+fn displayed_unavailable_follower_logs_once_by_name() {
     struct Skipped;
     impl exact_game::Game for Skipped {
         const ID: &'static str = "skipped-animation";
@@ -549,7 +549,9 @@ fn displayed_stale_follower_logs_once_by_name() {
     let errors: Vec<_> = a.diagnostics.borrow().values().cloned().collect();
     assert_eq!(errors.len(), 1);
     assert!(
-        errors[0].contains("charm") && errors[0].contains("head") && errors[0].contains("stale")
+        errors[0].contains("charm")
+            && errors[0].contains("rig.model")
+            && errors[0].contains("not loaded")
     );
 }
 
@@ -609,4 +611,72 @@ fn diagnostics_replace_changed_error_clear_on_fresh_world_and_survive_restore() 
     fresh.spawn(Transform::default());
     a.feed(&fresh, true, false, false, false);
     assert!(a.diagnostics.borrow().is_empty());
+}
+
+#[test]
+fn skipped_animation_display_uses_saved_joint_with_current_owner_and_offset() {
+    use exact_game::{
+        asset::{Content, Model, Node},
+        Animation, Mesh, Pose, SocketFollow,
+    };
+    struct Rig;
+    impl exact_game::Game for Rig {
+        const ID: &'static str = "stale-display";
+        const ASSETS: &'static [&'static str] = &["rig.model"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+    }
+    let model = Model {
+        nodes: vec![Node::default()],
+        ..Default::default()
+    };
+    let mut sim = exact_game::Sim::<Rig>::new(()).unwrap();
+    sim.deliver_asset("rig.model", Ok(Content::Model(model.clone())))
+        .unwrap();
+    let mut pose = Pose::default();
+    pose.previous = exact_game::animation::bind_pose(&model);
+    pose.local = pose.previous.clone();
+    pose.local[0] = 2.;
+    sim.world_mut().spawn_named(
+        "owner",
+        (
+            Transform::default(),
+            Mesh::asset("rig.model"),
+            Animation::play("idle"),
+            pose,
+        ),
+    );
+    sim.world_mut().spawn_named(
+        "charm",
+        (Transform::default(), SocketFollow::new("owner", "")),
+    );
+    sim.run(17.);
+    let mut a = scene::Attachments::default();
+    a.feed(sim.world(), true, false, false, false);
+    a.frame(1.);
+    sim.world_mut()
+        .get_mut::<Transform>("owner")
+        .unwrap()
+        .position
+        .x = 10.;
+    sim.world_mut()
+        .get_mut::<SocketFollow>("charm")
+        .unwrap()
+        .offset
+        .position
+        .x = 5.;
+    a.feed(sim.world(), false, true, false, false);
+    a.frame(1.);
+    assert_eq!(a.output[0].matrix.w_axis.x, 17.);
+    // Skipped ticks retain the local endpoint rather than replaying old bone interpolation.
+    a.frame(0.5);
+    assert_eq!(a.output[0].matrix.w_axis.x, 12.);
+    let save = sim.world().save();
+    sim.world_mut().load(&save).unwrap();
+    let mut fresh = scene::Attachments::default();
+    fresh.feed(sim.world(), true, false, false, false);
+    fresh.frame(1.);
+    a.frame(1.);
+    assert_eq!(a.output[0].matrix, fresh.output[0].matrix);
 }

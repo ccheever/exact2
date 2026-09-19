@@ -426,8 +426,20 @@ impl World {
     fn audio_boundary(&self) -> u64 {
         self.tick().saturating_add(u64::from(self.in_tick))
     }
+    /// Install saved audio types and sound definitions together.
+    pub fn sounds<S: AsRef<str>>(
+        &mut self,
+        definitions: impl IntoIterator<Item = (S, Synth)>,
+    ) -> &mut Self {
+        self.register_audio();
+        for (name, synth) in definitions {
+            self.resource_mut::<Sounds>().add(name.as_ref(), synth);
+        }
+        self
+    }
     /// Register audio types before loading a save; initialize resources only if absent.
     pub fn register_audio(&mut self) -> &mut Self {
+        self.detach = Some(detach);
         self.register::<AudioSource>()
             .register::<AudioListener>()
             .register_resource::<Sounds>()
@@ -540,7 +552,7 @@ impl Play<'_> {
     }
 }
 // Snapshot voices when removing their entity, after all author borrows end.
-pub(crate) fn detach(world: &World, entity: Entity) {
+fn detach(world: &World, entity: Entity) {
     if world.has_audio() {
         let mut voices = world.resource_mut::<Voices>();
         for voice in &mut voices.voices {
@@ -849,5 +861,21 @@ mod authoring_regression {
         assert_eq!(source.gain, 0.3);
         shared.play("chime").at(entity).start();
         assert_eq!(shared.resource::<Voices>().voices.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+    #[test]
+    fn sounds_installs_saved_types_and_definitions_together() {
+        let mut w = World::new(60, 7);
+        w.sounds([("step", Synth::noise().seconds(0.1))]);
+        w.play("step").start();
+        let saved = w.save();
+        let mut fresh = World::new(60, 7);
+        fresh.sounds([("step", Synth::noise().seconds(0.1))]);
+        fresh.load(&saved).unwrap();
+        assert_eq!(w.hash(), fresh.hash());
     }
 }
