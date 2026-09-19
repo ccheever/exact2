@@ -107,10 +107,7 @@ final class Presenter {
             object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
     }
 
-    deinit {
-        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
-        pumpLink?.invalidate()
-    }
+    deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
 
     /// How far past its visible part a paragraph's text is painted, and how
     /// close to that painted edge the visible part may come before the band
@@ -210,8 +207,8 @@ final class Presenter {
 
     // MARK: The pump — list fill and text admission, a slice per frame
 
-    private var pumpLink: CADisplayLink?
-    private let pumpTarget = PumpTarget()
+    private var pumpScheduled = false
+    private var pumpFollowsSlice = false
     private var listSyncPending = false
     private var textPending = false
 
@@ -242,21 +239,28 @@ final class Presenter {
     }
 
     private func startPump() {
-        guard pumpLink == nil else { return }
-        // A display link, not a timer: a slice's commit must keep one phase
-        // against the refresh. A free-running 120 Hz timer drifts through the
-        // frame, and about once a second its commit landed in the scrolling
-        // thread's own commit window and cost that frame — a hitch every
-        // 1.2 s with this thread idle (LLP 1044, the pump's first version).
-        pumpTarget.fire = { [weak self] in self?.pump() }
-        let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
-        link.add(to: .main, forMode: .common)
-        pumpLink = link
+        guard !pumpScheduled else { return }
+        pumpScheduled = true
+        // One shot, asked for only when something is owed: never a timer or a
+        // display link. A callback that woke this thread every frame — even to
+        // do nothing — beat against AppKit's scrolling thread and cost a frame
+        // every 1.16 s, as regular as a metronome (LLP 1044, the pump's first
+        // two versions). Later slices of the same work follow a few
+        // milliseconds apart, so they are separate frames' commits.
+        if pumpFollowsSlice {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.pumpFired() }
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.pumpFired() }
+        }
+    }
+
+    private func pumpFired() {
+        pumpScheduled = false
+        pump()
     }
 
     private func stopPump() {
-        pumpLink?.invalidate()
-        pumpLink = nil
+        pumpFollowsSlice = false
     }
 
     /// Everything the pump owes, now. The agent's wheel is synchronous — it
@@ -276,6 +280,12 @@ final class Presenter {
             let post = Self.signposts.beginInterval("pump-list")
             syncLists()
             Self.signposts.endInterval("pump-list", post)
+            if listSyncPending || textPending {
+                pumpFollowsSlice = true
+                startPump()
+            } else {
+                stopPump()
+            }
             return
         }
         if textPending {
@@ -283,7 +293,12 @@ final class Presenter {
             textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
             Self.signposts.endInterval("pump-text", post)
         }
-        if !listSyncPending && !textPending { stopPump() }
+        if listSyncPending || textPending {
+            pumpFollowsSlice = true
+            startPump()
+        } else {
+            stopPump()
+        }
     }
 
     private enum ListNeed { case nothing, soon, now }
@@ -903,10 +918,5 @@ extension NSRect {
     func insetBy(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) -> NSRect {
         NSRect(x: minX + left, y: minY + top, width: max(0, width - left - right), height: max(0, height - top - bottom))
     }
-}
-/// The display link's Objective-C target: `Presenter` is not an `NSObject`.
-final class PumpTarget: NSObject {
-    var fire: (() -> Void)?
-    @objc func tick(_ link: CADisplayLink) { fire?() }
 }
 #endif
