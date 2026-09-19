@@ -516,3 +516,7 @@ then implement bounded completion pumping and admission/fairness where measured.
 Keep module placement under LLP 1027.002; automatic windowing/image pressure and
 physical-display native sweeps remain follow-ups; the first slice drives AppKit
 and the Linux headless CPU renderer without claiming display frame timing.
+
+- Public UI coverage (LLP 1035.006): select the first settings slice (labels, buttons, switches, checkboxes, radio groups, and text entry), choose each platform's disposition, then implement and hand-check the concrete examples. The ordered catalog distinguishes accepted support from reviewed deferrals; drafting it does not admit every excluded capability.
+
+- Tooling follow-up (2026-09-19): `bun scripts/caps.test.mjs` still passes 59/61 after the Snapback 0.2.30 recovery. The absent-root watcher misses deletion (`created=true, deleted=false, recreated=true`), and diagnostic source/output isolation and failure cleanup fails. These match the saved 2026-09-17 findings; Apple packaging checks pass.
