@@ -1,5 +1,4 @@
 {
-  "game": "sprites-fixture",
   "ticks": {
     "300": "0x2e3d805eb6c89e55"
   },
@@ -9,6 +8,8 @@
   "hosts": [
     "linux"
   ],
+  "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux",
-  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
+  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
+  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
 }

@@ -60,3 +60,23 @@ duplicate declarations within a registry still refuse. Caps: 736 sources; boot:
 2 JavaScript modules, 1 wasm reference, 88,723 JS bytes, 3,298-byte page.
 The initial broad sweep exposed 18 rendering adapter failures (three newly
 incoming cases, plus the 15 previous cases); no rendering assertion is weakened.
+
+## Recorder-only pin reconciliation
+
+All seven commands `bun game/prove.mjs <game> --repin --hosts linux --reason ...`
+completed, each after continuous, Save and FreshGame agreed on the entire tick
+and save inventories. Receipts name Linux only. No web agreement is claimed.
+The following are the only changed values relative to `8b290b2`:
+
+| Game / key | Old | New | Reason |
+|---|---|---|---|
+| beacons / ticks 0 | `0x0d24c948c995ab14` | `0xb6e90714710c57ff` | Incoming engine Glow/gameplay state; world state |
+| beacons / ticks 90 | `0x4f198d7b34cba602` | `0x164306fd0014d2eb` | Incoming engine Glow/gameplay state; world state |
+| beacons / saves continuation | `8959bf658432452fac9bc4297f6053c1bcba8f455ee6fe3ce5de33eb11bdc478` | `53478fc1142c418fdb52961bfb365a8796eba8662bdf3466e34712cbaf08ffde` | Incoming engine Glow/gameplay state; EXSIM v7 continuation |
+| greybox / ticks 0 | `0x9a871d8582d905e7` | `0xf560b8cf6dd9601d` | Incoming engine Glow/gameplay state; world state |
+| greybox / ticks 90 | `0x71f43e51a13cc49f` | `0xc92812672686717e` | Incoming engine Glow/gameplay state; world state |
+| greybox / saves continuation | `efd556700b72639a941e4d4f3575bcb9f01bc28fae8ba55e10a19dd14ff61843` | `4a14675296f891ef23732a91a1a9698e028ccd4f57159dbe6505e975d483ada4` | Incoming engine Glow/gameplay state; EXSIM v7 continuation |
+
+Asset, particle, placement, skinned and sprite fixtures preserve all hash/save
+values. Their repins update provenance only. Live/fixed Lanterns remain empty
+until first Linux/web agreement; no manual baseline was published.

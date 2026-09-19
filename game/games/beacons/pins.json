@@ -1,15 +1,16 @@
 {
-  "game": "beacons",
   "ticks": {
-    "0": "0x0d24c948c995ab14",
-    "90": "0x4f198d7b34cba602"
+    "0": "0xb6e90714710c57ff",
+    "90": "0x164306fd0014d2eb"
   },
   "saves": {
-    "continuation": "8959bf658432452fac9bc4297f6053c1bcba8f455ee6fe3ce5de33eb11bdc478"
+    "continuation": "53478fc1142c418fdb52961bfb365a8796eba8662bdf3466e34712cbaf08ffde"
   },
   "hosts": [
     "linux"
   ],
+  "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts linux",
-  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
+  "at": "d39daaf49ba1659ad22db5cc1e88c6a51223947a",
+  "reason": "Fold engine 64b5af1 gameplay and EXSIM v7; continuous/Save/FreshGame agreement"
 }
