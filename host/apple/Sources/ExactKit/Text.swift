@@ -746,9 +746,16 @@ final class TextEngine {
         func run(_ run: ExactTextRun) -> Run {
             Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing))
         }
-        let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
-        // Metric-only keys match the geometry used by the colored presenter.
-        let spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
+        let spec: Spec
+        if let knownIdentity {
+            // A new width needs layout, but exact borrowed matching already
+            // proved these owned runs and metric fields are the same request.
+            spec = knownIdentity.geometry
+        } else {
+            let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+            // Metric-only keys match the geometry used by the colored presenter.
+            spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
+        }
         let started = CACurrentMediaTime()
         let identity = knownIdentity ?? residency.identityAfterBorrowedMiss(spec)
         if knownIdentity == nil, let metrics = residency.scalar(identity, kind: kind) {

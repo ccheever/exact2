@@ -1303,7 +1303,7 @@ extension TextGeometryTests {
         let before = borrowedDecodedRequests
         withBorrowedRequest(spec("new source")) { _ = e.measure($0) }
         withBorrowedRequest(value, width: 131) { _ = e.measure($0) }
-        XCTAssertEqual(borrowedDecodedRequests, before + 2, "cold source and new width retain decoder fallback")
+        XCTAssertEqual(borrowedDecodedRequests, before + 1, "only a cold source needs decoding; a new width reuses its matched identity")
         #endif
     }
 
@@ -1318,14 +1318,17 @@ extension TextGeometryTests {
         for var value in values {
             for policy in 0...2 {
                 value.overflowWrap = policy; value.lineClamp = policy == 1 ? 2 : 0; value.align = policy
-                let a = TextEngine(resolve: { _ in nil }), b = TextEngine(resolve: { _ in nil })
+                let a = TextEngine(resolve: { _ in nil })
+                #if BORROWED_LOOKUP_SENTINEL
+                let b = TextEngine(resolve: { _ in nil })
+                #endif
                 for width in [Float(-2), -1, -0.0, 0, 97.25, Float(97.25).nextUp, 160, 97.25] {
                     for height in [Float(-2), -1, 0, 73.5] {
                         withBorrowedRequest(value, width: width, height: height) { r in
                             #if BORROWED_LOOKUP_SENTINEL
                             let expected = b.originalMeasure(r)
                             #else
-                            let expected = b.measure(r)
+                            let expected = TextEngine(resolve: { _ in nil }).measure(r)
                             #endif
                             assertMetrics(a.measure(r), expected)
                             assertMetrics(a.measure(r), expected)
