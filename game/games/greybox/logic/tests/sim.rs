@@ -143,6 +143,12 @@ fn agent_snapshots_and_pick() {
         s.agent(r#"{"op":"wat"}"#),
         r#"{"tick":0,"error":"unknown op `wat`; use tree, screenshot, tap, type, state, layout, logs or clock"}"#
     );
+    let saved = s.save().unwrap();
+    assert!(s
+        .agent(r#"{"op":"layout","entity":"player","now":1000}"#)
+        .starts_with("{\"tick\":0,"));
+    assert_eq!(s.save().unwrap(), saved);
+    s.agent(r#"{"op":"clock","now":1000}"#);
     assert!(s
         .agent(r#"{"op":"layout","entity":"player","now":1000}"#)
         .starts_with("{\"tick\":60,"));

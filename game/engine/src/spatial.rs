@@ -410,7 +410,8 @@ impl<G: crate::Game> crate::Sim<G> {
     /// Missing entities, cameras and entirely near-clipped bounds return None.
     pub fn layout(&self, target: impl crate::Target) -> Option<EntityLayout> {
         let entity = target.entity(&self.world)?;
-        let [x, y, w, h] = layout(&self.world, self.input.viewport, entity).screen?;
+        let viewport = self.inspection_viewport.unwrap_or(self.input.viewport);
+        let [x, y, w, h] = layout(&self.world, viewport, entity).screen?;
         Some(EntityLayout {
             entity,
             screen: ScreenRect { x, y, w, h },
@@ -421,7 +422,10 @@ impl<G: crate::Game> crate::Sim<G> {
         if !point.is_finite() {
             return None;
         }
-        let view = View::new(&self.world, self.input.viewport)?;
+        let view = View::new(
+            &self.world,
+            self.inspection_viewport.unwrap_or(self.input.viewport),
+        )?;
         let (entity, distance, point) = pick(&self.world, &view, point)?;
         Some(PickHit {
             entity,

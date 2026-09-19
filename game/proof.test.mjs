@@ -888,4 +888,3 @@ test('capture replay validates actual artifacts and never executes imported scri
     expect(opened).toBe(1);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
-

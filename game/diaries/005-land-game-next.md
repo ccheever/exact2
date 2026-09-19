@@ -161,7 +161,9 @@ Native acknowledged detach and host reload transactions remain the DX increment.
 
 Capture gate: 404 engine tests pass (six ignored diagnostics); complete game
 workspace 641 pass / 14 fail / 22 ignored, with all 14 failures refusing the absent
-GPU adapter. App workspaces: 29 pass / three no-adapter failures / one ignored.
+GPU adapter. App workspaces initially: 28 pass / four failures / one ignored. One was the
+Greybox Rust layout/pick inspection-viewport regression corrected immediately
+after this commit; the other three refuse the absent adapter.
 Game and all eight app clippy/fmt pass; all 28 Linux normal/paranoid proofs pass,
 Bun 117 pass / one skip, caps and boot pass. Every pin is unchanged.
 
@@ -173,3 +175,11 @@ post-restore sample and fixed Beacons and the generated-game proof. Greybox's ex
 state snapshot adds only ownership/capture fields, retaining the pin placeholder.
 The exactTicks mock now requires the explicit clockState request. All prior
 assertions remain; no extra seek or tick was added to the proofs.
+
+Capture followup: public Rust layout/pick now share the inspection viewport.
+Greybox's original pick assertion passes; the original tick-60 layout assertion
+now follows an explicit clock operation, with new tick-zero and unchanged-save
+assertions proving the preceding layout read is inert. Complete repeated gate:
+641 workspace passes / 14 adapter failures / 22 ignored; 29 app passes / three
+adapter failures / one ignored; game/eight app clippy/fmt, all 28 Linux proofs,
+Bun 117 pass / one skip, caps and boot pass. Pins remain unchanged.
