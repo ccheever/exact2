@@ -44,6 +44,33 @@ and copies; a link to a page opens in the browser.
 A browser has no filesystem to open, so on the web the reader shows its
 welcome document and says so for anything else.
 
+## Smoothness continuation — 2026-09-19
+
+The overnight `lane/markdown-smooth` work is preserved and integrated with
+`origin/main` at `f61ff1c4`; the lower-hitch goal remains unproven. LLP 1044 is
+the inherited investigation, not a new design authority. Retained work increases
+measurement memo capacity, settles measured rows within one native call, defers
+retirement-only passes, permits AppKit responsive scrolling, and schedules list
+fill and text preparation in display-link slices.
+
+Independent source review found that a distant pinned row could conceal an
+unmounted gap from the new coverage fast path. Discontiguous mounted positions
+now force a viewport report; the native regression fixture scrolls into that gap.
+Offscreen text rasterization now admits at most two outstanding jobs without a
+backlog, retries deferred paragraphs, and does not retain retired NodeViews.
+
+A fresh 120 Hz full-corpus baseline retained Exact's 25.00 and 0.00 hitch ms/s
+against Legend's 4.17, 2.50 and 5.83; the third Exact trace ended before input and
+was rejected. This is too variable and incomplete to establish superiority.
+A shared AppKit backing experiment was removed: its uncontested repeat measured
+4.17 in one completed run versus 2.50/1.67 with ordinary backing; another shared
+backing run failed the document-movement check. Earlier diagnostic runs overlapped
+window inspection and are explicitly unsuitable for performance claims.
+All raw runs, failures, binary hashes and observer notes remain under
+`target/markdown-comparison/smooth/resume-*`. The observer now rejects a trial
+if another application takes the foreground during input. No final comparison
+of the integrated, bounded candidate is claimed yet.
+
 ## Performance work in progress — 2026-09-18
 
 Latest comparison: **Exact opens this README ahead of Legend, but Legend still
