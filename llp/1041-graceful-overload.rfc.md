@@ -7092,3 +7092,57 @@ Reverse binding `e6acb355` preserves the first archive. Copied raw manifests
 `f28d8a4f` / `c8cbf470` and cohort proof `8265a352` are under
 `target/ink-placement-integration/`. No new source or policy change accompanies
 this comparison.
+
+### 8.130 Linux timer split: native commit outweighs Runner advancement, 2026-09-19
+
+One optimized diagnostic build and one fresh functional cell preserve the
+§8.129 candidate and add only three existing observer scopes: RunnerAdvance30
+around `advance_timed`, HostCommit20 around `commit_effects`, and AfterCommit14
+around the presenter's `finish_commit`. Error forwarding, paint decisions,
+motion-only ticks, workload, caps and driver remain unchanged. This adds three
+records/six clock reads per normal advancement; it is not a performance A/B.
+
+The eighteen pure reader controls pass once. Old B's31 timer witnesses correctly
+produce unavailable/null split costs. The fresh native cell passes the full
+10,000/32 workload; independent reconstruction matches all5312 stderr events,
+1689 turns/17269 spans and191 closed picture chains. Each scored timer has one
+ordered30/20/14 child set with matching input/attempt, successful results and
+nonnegative remainder. The loaded split is:
+
+| Stage | Eight loaded calls, median | Loaded total | Seven strict silent calls, median |
+| --- | ---: | ---: | ---: |
+| Whole Tick | 2.429ms | 17.995ms | 3.449ms |
+| RunnerAdvance | 0.663ms | 4.992ms | 1.176ms |
+| HostCommit | 1.693ms | 12.420ms | 2.190ms |
+| AfterCommit | 0.071ms | 0.578ms | 0.133ms |
+| Unclassified remainder | 0.000646ms | 0.005792ms | 0.001500ms |
+
+HostCommit dominates this timer cohort, shifting the next investigation away
+from query/key work toward native commit/layout. RunnerAdvance still includes
+query settlement, shape validation, instance work and kernel application; it is
+not a query-only cost. HostCommit includes receipt processing, navigation,
+Motion, layout and presentation values. These spans do not identify shaping,
+layout-engine CPU or a safely removable layout. Inclusive parents are not added
+to their children, and the remainder includes observer bookkeeping.
+
+The silent fixed prefix proves eight advances0→8 and zero commands. Timer4638 is
+inside that prefix, but its owning turn1323 closes at4641 after the cutoff;
+its complete timing is excluded. Seven enclosed silent producer turns still
+exceed8.333ms, with20.438ms whole maximum and5.138ms Tick maximum. Loaded progress
+is8→16; idle/loaded/recovery whole maxima are14.291/15.013/12.052ms with12/14/12
+misses. The primary recorder reports no failure, with at most61 rows per turn.
+Final observer flush remains censored. This diagnostic proves no speedup or120Hz.
+
+All36 scheduled semantic handlers are in-window, including18 actual signed
+40-unit wheels. Full initial/final History9 at0/16 and all four saved RGB buffers
+match prior B; this is functional equivalence, not a timing control. Final
+frame191 closes cleanly through5312. All six runtime PIDs/four groups retire and
+port5941 is free; native SIGTERM follows successful observation deliberately.
+
+The41.423s build captures21 files /12,849,610B (`bad36c1e`, ELF `e88d221d`), with
+fresh private compilation and unchanged generated entry/plan/compat, fonts and
+external inputs. Exactly two source contents differ from B; an added
+`baselineB_SHA256` provenance field on the unchanged observer is kept separately
+from file identity. Runtime binding `630268db` and copied raw manifest `0dcac37d`
+cover23 files /24,969,118B. Independent lead timer/frame reconstructions
+`55002c8c` / `2845db37` live under `target/ink-placement-integration/`.
