@@ -6362,3 +6362,34 @@ index extent, feedback sequence and correction disposition, so an end-follow
 correction being lost to acknowledged-picture clamping is only a source hypothesis.
 A small existing presenter fixture is the next discriminator; the failed native
 evidence is not relabeled.
+
+### 8.113 Retained action qualification in Runner, 2026-09-18
+
+A retained picture can name a live keyed row whose curried action argument has
+changed. Generic dispatch correctly uses the new value; using it directly for
+the old picture can therefore deliver the wrong target. The existing test target
+reproduces that mismatch with one intended failure and six passing controls.
+An earlier typed-record fixture setup failure remains preserved.
+
+Runner now offers explicit capture, validation and bound dispatch for Press and
+Swiperight. The opaque witness includes a fresh per-boot origin, full NodeKey,
+handler/action identity and at most eight bounded scalars. Strings are checked
+before copying:1,024B each,4,096B total. Arguments admit only literal or direct
+slot/item/bound field projections; closed actions admit bounded literals,
+parameters and scalar root stores. Ambient reads, payload events, calls, effects,
+control flow and rich retained values refuse. Ordinary dispatch is unchanged.
+Deletion/remount, foreign Runner, reload or changed arguments refuse before
+action state, journal, effects or time change; unchanged bound IDs survive
+body-only updates. Existing mounted-tree lookup cost remains explicit.
+
+The three-path candidate passes nine integration and seven boundary tests plus
+strict Runner all-target Clippy. MAIN integrates exact bytes and passes all24
+now_screen tests and90 library tests, with Clippy/format/caps/boot checks. The
+47-file freeze is `exact2-runner-retained-action-binding/target/retained-action-binding/freeze-v1/`,
+manifestbbbde311/patche25015a7. Actual generated Messages handler compatibility
+was checked in the baseline only, not by the new candidate API in an app.
+
+Hosts still must qualify displayed geometry, live eligibility and binding before
+their own clock advance, then use bound dispatch's second validation. No host
+adapter or Messages worker activation is included; these are correctness
+prerequisites, not native latency or120Hz results.

@@ -10,7 +10,7 @@ mod admission;
 mod event;
 mod reorder;
 mod reorder_codec;
-pub use event::Event;
+pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
 mod carry;
 mod collection;
 mod source;
@@ -194,6 +194,7 @@ struct Timer {
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
+    action_binding_origin: std::rc::Rc<()>,
     data: D,
     kernel: Kernel,
     slots: Vec<Value>,
@@ -427,6 +428,7 @@ impl<D: DataSource> Runner<D> {
         let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
             plan,
+            action_binding_origin: std::rc::Rc::new(()),
             data,
             kernel,
             slots: Vec::new(),
