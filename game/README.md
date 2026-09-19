@@ -351,7 +351,7 @@ reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
 reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
-arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. When registration depends on arguments, put it in `Game::register(world, args)`: restore runs this hook on a scratch registry and fully decodes the world before gameplay setup. The hook must have no gameplay side effects. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
+arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register saved types, including those first spawned mid-game, with `world.register::<Projectile>()` in `Game::register(world, args)` so standalone saves and captures can restore them before setup. Follow argument-dependent declarations in this hook: restore runs this hook on a scratch registry and fully decodes the world before gameplay setup. The hook must have no gameplay side effects. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
 
 `layout world:entity` includes facing, signed horizontal bearing and mesh line of
 sight to an optional `to` target. Visibility samples eight corners, six face
@@ -494,9 +494,9 @@ Animation execution stays in [animation.rs](engine/src/animation.rs), linked by 
 that explicitly call it and by the model presentation executor for inspection/carry.
 The smaller [pose data core](engine/src/asset/pose.rs) contains saved local poses and
 rig geometry, without playback. `World` owns no animation-specific runtime field.
-Registration follows setup: spawning/registering a controller registers its produced
-`Pose`; its derived cache is created on first execution and excluded from saves. A game that spawns a type later registers it in setup so a
-fresh process can load it. Unregistered saved types refuse by name.
+Registering a controller also registers its produced `Pose`; its derived cache
+is created on first execution and excluded from saves. Put saved type declarations
+in `Game::register` so a fresh process can decode before setup. Unregistered saved types refuse by name.
 
 `let motion = animation::step(w)` returns owned markers/root motion. Apply movement
 with `motion.apply_local(w, "fox")` after authored rotation, then read `animation::socket` for a tick-boundary

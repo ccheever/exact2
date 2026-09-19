@@ -1002,9 +1002,7 @@ impl World {
     // available for games whose fixed types were registered by initial setup.
     pub(crate) fn inherit_registry(&mut self, live: &Self) {
         for (name, registration) in &live.registry {
-            self.registry
-                .entry(name)
-                .or_insert(*registration);
+            self.registry.entry(name).or_insert(*registration);
         }
         self.attachments = self.attachments.or(live.attachments);
         self.detach = self.detach.or(live.detach);
