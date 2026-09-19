@@ -173,6 +173,12 @@ impl<G: Game> Sim<G> {
         }
         if self.setup_pending && assets.ready() {
             self.world = Self::build(&self.args, self.world.assets.clone());
+            self.base = self
+                .world
+                .initializer()
+                .expect("deferred authored initializer exceeds its work bound");
+            self.base_args = self.args_json.clone();
+            self.reload = Default::default();
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }

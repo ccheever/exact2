@@ -72,6 +72,14 @@ pub(crate) fn make_cell<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Bo
     Box::new(Singleton::<C>::new(name, epoch))
 }
 impl<C: Data> Erased for Singleton<C> {
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        if index != 0 {
+            return Err(DataError::new("reload resource index differs"));
+        }
+        self.get_mut()
+            .ok_or_else(|| DataError::new("reload resource disappeared"))?
+            .read(r)
+    }
     fn has(&self, index: usize) -> bool {
         index == 0 && self.get().is_some()
     }

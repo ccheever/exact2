@@ -47,8 +47,9 @@ has not yet been certified.
 3. Typed kinds and hot joins: carried with engine Target and removal semantics.
 4. Static physics split and fixes: adapted to CapsuleHandle and decoded snapshot clones.
 5. Ownership, restore clock anchor, EXCAP v2: adapted and headless-verified.
-6. Three-way authored merge and EXSIM v7: pending. Full typed scratch decode must
-   precede setup/authored merge; restore tick/time agreement must be exact.
+6. Three-way authored merge and EXSIM v7: adapted and headless-verified.
+   Typed world decode and exact tick/time validation precede authored merging.
+   R14 will move the decode ahead of setup as well.
 7. Geometric layout and movement diagnostics: pending.
 8. Typed scenes and adapted Lanterns: pending.
 9. DX host transactions and handoff: pending.
@@ -183,3 +184,51 @@ assertions proving the preceding layout read is inert. Complete repeated gate:
 641 workspace passes / 14 adapter failures / 22 ignored; 29 app passes / three
 adapter failures / one ignored; game/eight app clippy/fmt, all 28 Linux proofs,
 Bun 117 pass / one skip, caps and boot pass. Pins remain unchanged.
+
+Authored restore uses a saved tick-zero projection and its construction arguments.
+Bound restore keeps all current arguments and the destination's cached initializer;
+unbound restore reconstructs its saved construction arguments once, then reinstates
+saved current live bindings. This avoids reauthoring initial values after a live
+binding changed. Open restores saved declarations exactly; Carry patches only
+unchanged runtime fields. The merge is after typed world load and exact tick/time
+validation, with a second hierarchy validation refusing cycles introduced by the
+combination. R14's typed-scratch-before-setup work remains its own incoming slice.
+
+The model adapter retains engine-owned controller membership but no longer
+reapplies existing clip/speed definitions over the merge's kept values. A new
+Carry/Open/repeat test checks runtime clip, speed and playback and untouched authored
+changes. G's audio Carry definition overlay is deliberately retained: fresh named
+Sounds win, runtime-only names and existing Voices survive. Generic merge reports
+are about the Data patch; these documented presentation ownership rules still apply.
+
+Entity Data now delegates to Writer::entity: ordinary codecs retain precisely the
+same index/generation encoding, while initializer projection records references by
+identity. This fixed the two incoming reference-remapping failures in one repair
+round. No assertion was relaxed. Additional tests cover v4/v5/v6 refusal, all
+current bound arguments, independent base/current arguments, invalid pending controls,
+exact one-tick-ahead refusal and a combined Parent cycle with atomic rollback.
+
+Reload's 200k reverse/interleaved/churn diagnostic passed in release: base
+11,672,475 bytes, new initializer 23,872,519 bytes, preparation 992.867085 ms,
+merge 2.45556701 s, peak RSS 992,060 kB. All 200k value/identity/skipped-state checks
+and the 500,000-item report/omission control passed. This is worst-case work, not
+an incremental reload or speedup claim.
+
+EXSIM7 pin refresh used only the engine recorder, each command
+`bun game/prove.mjs <game> --repin --hosts linux`. All continuous / Save / FreshGame
+values agreed and every world hash stayed unchanged. Web was not exercised;
+receipts honestly record Linux only and need the owner's cross-host run. Each
+continuation SHA256 below moved because EXSIM7 adds the initializer/base arguments,
+serialized queued-delivery flags and a new format header. No value was hand-edited.
+
+| Game | Old continuation SHA256 | New continuation SHA256 |
+|---|---|---|
+| asset-fixture | `6e49ed23ac776fa6f0f6df7198d8f3a7d310c9f93d00634dbba36f4f8a46c07a` | `a4be74d1e6e64d344abdc21e5359f99505c8ccaaeffc4a223046c6960b5d6b43` |
+| beacons | `1012a823b7ec264cfdd64c748a794691225ac186761d7e9d76f390bc626409e9` | `8959bf658432452fac9bc4297f6053c1bcba8f455ee6fe3ce5de33eb11bdc478` |
+| greybox | `d3e4364bdf399ae565efbde077bc3cf4bb829b3b855d4a067d06776e8bccae65` | `efd556700b72639a941e4d4f3575bcb9f01bc28fae8ba55e10a19dd14ff61843` |
+| particles-fixture | `6f850600b9b7a87f6e12d2c42adc587c8ef5dc9d48ecea1b2af51ecfbd34a7e6` | `0b6a72ae80d2e9bfb745a69d472e097824b41f3eeb541c1a771bd3bbeed14616` |
+| placement-fixture | `27f28608444a701e73c10a96d20bcb801c840b2f148bf30a1ba26592c6c51b8f` | `e1be13a0c7b30d37fe6651e3345b43f5766c32164bbfab24e9104bd3c66bea33` |
+| skinned-fixture | `0d50ebe6388c4db317aae21fb3a1f30269f9e67300c3a0ec50e82eec0b7e5a79` | `76b33c647ee21818ad4f2b31ac130872594f73485c09f0899a5ee78f1e3971d3` |
+| sprites-fixture | `ca774847c5db059a2dd7991927ce9c38578c8d0ed45ef34e788b99bcfe4c5b41` | `bc16e30a2114d3b219aabd6ede719a818876bf26eb6183175c4486f721c9d314` |
+
+Authored gate completed: 654 game-workspace passes / 14 adapter failures / 23 ignored; 29 app-workspace passes / 3 adapter failures / 1 ignored. Full game and all eight app clippy/fmt pass. All 28 Linux normal/paranoid executions pass, Bun 117 pass / 1 skip, caps and boot pass. The opt-in 200k reload timing test passed separately. Report contents survive repeated Save/FreshGame rebuilds as well as ordinary Carry/Open; combined valid authored/runtime parent edges that create a cycle refuse atomically after typed decode.

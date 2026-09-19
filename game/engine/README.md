@@ -64,8 +64,11 @@ be loaded as data. Other vectors remain structural sequences. Bulk readers claim
 the destination byte size once, including conversion from the temporary payload;
 custom readers must preserve this accounting.
 
-World containers are EXGAME v3; Sim containers are EXSIM v5. Older containers are
-refused by name, without migration. Sim's encoded world is one bytes field.
+World containers are EXGAME v3; Sim containers are EXSIM v7. Older containers are
+refused by name, without migration. Sim's encoded world and authored initializer are separate bytes fields; saved base
+construction arguments are distinct from current live bindings. A bound Carry
+three-way merges the initializer only after typed world decode and exact clock
+validation. Open retains saved world Data. Older EXSIM5/6 saves require recreation.
 Save headers and payloads are written into the same buffer; returned vectors may
 retain spare capacity.
 Undelivered `emit` messages remain saved, in order, but are excluded from the

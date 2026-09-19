@@ -4,12 +4,11 @@
     "90": "0x71f43e51a13cc49f"
   },
   "saves": {
-    "continuation": "d3e4364bdf399ae565efbde077bc3cf4bb829b3b855d4a067d06776e8bccae65"
+    "continuation": "efd556700b72639a941e4d4f3575bcb9f01bc28fae8ba55e10a19dd14ff61843"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs greybox --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "generated": "bun game/prove.mjs greybox --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

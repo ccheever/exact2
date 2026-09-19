@@ -279,3 +279,65 @@ fn r13_beacons_world_empty_binds_seed_zero_paused_false_restart_false() {
     assert!(module.bind_json(full, "[0,false,false]", None));
     assert_eq!(module.carry(empty).unwrap(), module.carry(full).unwrap());
 }
+
+struct EditedAnimation<const EDITED: bool>;
+impl<const EDITED: bool> Game for EditedAnimation<EDITED> {
+    const ID: &'static str = "three-way-animation";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        for name in ["untouched", "runtime"] {
+            w.spawn_named(
+                name,
+                (
+                    exact_game::Transform::default(),
+                    exact_game::Animation::play(if EDITED { "run" } else { "walk" })
+                        .speed(if EDITED { 2. } else { 1. }),
+                ),
+            );
+        }
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+#[test]
+fn carry_merges_animation_fields_once_and_keeps_runtime_clip_speed_and_playback() {
+    let source = Sim::<EditedAnimation<false>>::new(()).unwrap();
+    {
+        let mut runtime = source
+            .world()
+            .get_mut::<exact_game::Animation>("runtime")
+            .unwrap();
+        runtime.clip = "jump".into();
+        runtime.speed = 3.;
+        runtime.time = 0.375;
+    }
+    let bytes = source.save().unwrap();
+    for mode in [Restore::Carry, Restore::Open] {
+        let mut surface = WorldSurface::<
+            EditedAnimation<true>,
+            exact_game_render::ModelPresentation,
+            true,
+        >::default();
+        surface.bind(&[], None).unwrap();
+        surface.restore(&bytes, mode).unwrap();
+        {
+            let world = surface.sim().unwrap().world();
+            let untouched = world.get::<exact_game::Animation>("untouched").unwrap();
+            assert_eq!(
+                (&*untouched.clip, untouched.speed),
+                if mode == Restore::Carry {
+                    ("run", 2.)
+                } else {
+                    ("walk", 1.)
+                }
+            );
+            let runtime = world.get::<exact_game::Animation>("runtime").unwrap();
+            assert_eq!(
+                (&*runtime.clip, runtime.speed, runtime.time),
+                ("jump", 3., 0.375)
+            );
+        }
+        let saved = surface.carry().unwrap().unwrap();
+        surface.restore(&saved, mode).unwrap();
+        assert_eq!(surface.carry().unwrap().unwrap(), saved);
+    }
+}

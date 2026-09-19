@@ -155,6 +155,7 @@ impl<C: Data> Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError>;
     fn reset_observation(&self);
     #[cfg(test)]
     fn snapshot_uncached(
@@ -196,6 +197,11 @@ pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -
     })
 }
 impl<C: Data> Erased for Storage<C> {
+    fn patch(&self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut(index)
+            .ok_or_else(|| DataError::new("reload component disappeared"))?
+            .read(r)
+    }
     fn has(&self, index: usize) -> bool {
         self.raw.has(index)
     }

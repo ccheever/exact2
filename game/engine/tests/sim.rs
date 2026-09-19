@@ -521,13 +521,16 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x05"));
-    old[6] = 4;
-    assert!(s
-        .restore(&old)
-        .unwrap_err()
-        .to_string()
-        .contains("EXSIM v5"));
+    assert!(saved.starts_with(b"EXSIM\0\x07"));
+    for version in [4, 5, 6] {
+        old[6] = version;
+        assert!(s
+            .restore(&old)
+            .unwrap_err()
+            .to_string()
+            .contains("EXSIM v7"));
+        assert_eq!(s.save().unwrap(), saved);
+    }
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
@@ -556,7 +559,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v5"),
+            error.contains(&seen) && error.contains("EXSIM v7"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
@@ -1096,3 +1099,6 @@ fn r13_empty_and_short_calls_take_all_remaining_rust_defaults() {
 
 #[path = "sim/clock.rs"]
 mod clock;
+
+#[path = "sim/reload.rs"]
+mod reload;

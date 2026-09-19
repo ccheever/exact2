@@ -3,12 +3,11 @@
     "60": "0xb1365b0eb9a7c59d"
   },
   "saves": {
-    "continuation": "6e49ed23ac776fa6f0f6df7198d8f3a7d310c9f93d00634dbba36f4f8a46c07a"
+    "continuation": "a4be74d1e6e64d344abdc21e5359f99505c8ccaaeffc4a223046c6960b5d6b43"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs asset-fixture --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

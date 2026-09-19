@@ -3,12 +3,11 @@
     "330": "0x626f1c12836bea76"
   },
   "saves": {
-    "continuation": "27f28608444a701e73c10a96d20bcb801c840b2f148bf30a1ba26592c6c51b8f"
+    "continuation": "e1be13a0c7b30d37fe6651e3345b43f5766c32164bbfab24e9104bd3c66bea33"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs placement-fixture --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

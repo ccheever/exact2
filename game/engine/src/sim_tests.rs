@@ -87,7 +87,7 @@ fn restore_refuses_a_one_tick_ahead_clock() {
     let good = s.save().unwrap();
     let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
     saved.world_us = 10_000;
-    let mut bad = b"EXSIM\0\x05".to_vec();
+    let mut bad = b"EXSIM\0\x07".to_vec();
     bad.extend(bin::to_vec(&saved));
     assert!(s
         .restore(&bad)

@@ -175,7 +175,7 @@ incomplete prefix on exhaustion and a shared decode-allocation budget.
 
 `Sim::input` retains delivered-event pacing; `device_input` states that origin
 explicitly. `scheduled_input` keeps a future stamp under live pacing. EXCAP saves
-fractional scheduling and queued delivery metadata separately from EXSIM.
+fractional scheduling separately from EXSIM; EXSIM v7 retains queued delivery metadata.
 `handoff(agent)` releases keys and named controls; `Game::release_input` can also
 clear physical-input argument bindings. `rebase(now_ms, release_input)` changes
 the host anchor without advancing a tick. Ordinary state omits host timing;
@@ -270,6 +270,26 @@ operation and remains in that canvas's `state.world.restoreError` and journal;
 other operations continue on the fresh world. The capture replies with the byte count, world hash and tick; state
 reports `restored: true` until the next tick or setup-argument rebuild. Current app bindings win over saved
 arguments; `state.world.restoredFrom` shows the saved arguments while `restored` is true. Register types first spawned mid-game with `world.register::<Projectile>()` in `setup` so a fresh world can restore them. The iOS simulator carrier is driven by the same proof scripts. Explicit `size` uses a logical viewport fitted into the simulator window, so save bytes and projection checks use the same points as web/Linux; omit `size` to use the phone viewport. UIKit canvas input is labelled `recognized`, since UIKit exposes no synthetic touch constructor.
+
+Saves use **EXSIM v7**; v5/v6 are refused with recreate/inspect guidance and no
+migration. `restore(&[u8])` and `restore_bound(&[u8])` merge saved tick-zero Data,
+loaded runtime Data and the current authored initializer. Changed authored fields
+apply only while the runtime field still equals its saved base. `open_bound(&[u8])`
+and `from_save(&[u8])` restore exact saved world Data; bound forms retain every
+current app argument. Current live bindings and construction-base arguments are
+saved separately. Every path constructs one candidate and checks exact tick/time
+agreement before any authored patch, committing only after full validation.
+
+`state.world.reload` reports applied, kept, added, removed and unmatched fields,
+with 64 entries and an omitted count. Structural edits require restart, except
+for the existing model adapter's authored animation-controller membership. Existing
+animation clip/speed fields follow the three-way rule. The audio adapter retains
+its explicit Carry policy: fresh named sound definitions win, runtime-only names
+and already playing voices survive; Open keeps saved definitions. Reload projection
+refuses more than 1,000,000 slots, 256 storage types, 16M visits, 512 MiB projection
+work or a 128 MiB serialized base. Nested projection decode shares a 1 GiB allowance
+(or the importing capture's smaller allowance); malformed or over-budget restores
+leave the destination unchanged.
 
 `state world:*` reads every entity's components in one reply (512 maximum,
 then `truncated: true`); `state world:* under world:player` narrows to a subtree.

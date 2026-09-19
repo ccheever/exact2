@@ -3,12 +3,11 @@
     "300": "0x2e3d805eb6c89e55"
   },
   "saves": {
-    "continuation": "ca774847c5db059a2dd7991927ce9c38578c8d0ed45ef34e788b99bcfe4c5b41"
+    "continuation": "bc16e30a2114d3b219aabd6ede719a818876bf26eb6183175c4486f721c9d314"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs sprites-fixture --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

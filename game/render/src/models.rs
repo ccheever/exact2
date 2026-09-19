@@ -1054,7 +1054,7 @@ impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
     }
     fn after_restore(&mut self, world: &mut exact_game::World, mode: exact_gpu::Restore) {
         if let Some(definitions) = self.definitions.take() {
-            definitions.apply(world);
+            definitions.apply_membership(world);
         }
         self.inner.after_restore(world, mode);
     }

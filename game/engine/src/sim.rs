@@ -70,13 +70,14 @@ struct Queued {
     host_us: i64,
     world_us: Option<i64>,
     event: InputEvent,
-    #[data(skip)]
     delivered: bool,
 }
 #[derive(Default, Data)]
 struct Saved {
     game: String,
     world: Vec<u8>,
+    base: Vec<u8>,
+    base_args: String,
     args: String,
     input: Input,
     queue: Vec<Queued>,
@@ -126,6 +127,9 @@ impl Paranoid {
 /// The clock, bounded device queue, and a game's world, without a host or GPU.
 pub struct Sim<G: Game> {
     pub(crate) world: World,
+    base: Vec<u8>,
+    base_args: String,
+    pub(crate) reload: crate::world::reload::Report,
     setup_pending: bool,
     asset_mesh_revision: u64,
     asset_sprite_names: Vec<(crate::Entity, String)>,
@@ -262,7 +266,11 @@ impl<G: Game> Sim<G> {
         args.check_scalars()?;
         G::validate(&args)?;
         let world = Self::build(&args, assets);
+        let base = world.initializer().map_err(|e| e.to_string())?;
         Ok(Self {
+            base,
+            base_args: crate::json::to_string(&args).map_err(|e| e.to_string())?,
+            reload: Default::default(),
             setup_pending: !world.assets.ready(),
             world,
             asset_mesh_revision: u64::MAX,
@@ -343,12 +351,16 @@ impl<G: Game> Sim<G> {
             None
         } else {
             let world = Self::build(&args, self.world.assets.clone());
-            Some(world)
+            let base = world.initializer().map_err(|e| e.to_string())?;
+            Some((world, base))
         };
         if let Some(at) = at_ms {
             self.advance_with(at, Clock::Seekable, after);
         }
-        if let Some(mut world) = restart {
+        if let Some((mut world, base)) = restart {
+            self.base = base;
+            self.base_args = crate::json::to_string(&args).map_err(|e| e.to_string())?;
+            self.reload = Default::default();
             self.capture_fail("construction binding restarted the world; start a new capture");
             self.restarted += u64::from(
                 G::Args::FIELDS
@@ -943,7 +955,8 @@ impl<G: Game> Sim<G> {
             self.world.assets = assets;
         }
         let recorder = self.recorder.take();
-        self.restore(&bytes)
+        let reload = std::mem::take(&mut self.reload);
+        self.restore_into(&bytes, None, None, false)
             .unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
         assert_eq!(
             hash,
@@ -952,6 +965,7 @@ impl<G: Game> Sim<G> {
             mode, G::ID
         );
         self.recorder = recorder;
+        self.reload = reload;
         self.world_us = horizon;
         self.last_us = host;
         self.last_ms = last_ms;

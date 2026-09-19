@@ -1186,6 +1186,13 @@ impl Definitions {
         )
     }
     pub fn apply(self, w: &mut World) {
+        self.apply_inner(w, true);
+    }
+    /// Restore authored controller membership while retaining merged field values.
+    pub fn apply_membership(self, w: &mut World) {
+        self.apply_inner(w, false);
+    }
+    fn apply_inner(self, w: &mut World, fields: bool) {
         for (name, a, b, c) in self.0 {
             let Some(e) = w.named(&name) else { continue };
             // Membership is authored too: the saved world may predate this controller.
@@ -1214,6 +1221,9 @@ impl Definitions {
                         "animation carry `{name}`: controller insert refused"
                     ));
                 }
+            }
+            if !fields {
+                continue;
             }
             if let (Some(fresh), Some(mut old)) = (a, w.get_mut::<Animation>(e)) {
                 old.clip = fresh.clip;

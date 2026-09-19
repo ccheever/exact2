@@ -4,12 +4,11 @@
     "120": "0xd147cd9b2a8c62f7"
   },
   "saves": {
-    "continuation": "0d50ebe6388c4db317aae21fb3a1f30269f9e67300c3a0ec50e82eec0b7e5a79"
+    "continuation": "76b33c647ee21818ad4f2b31ac130872594f73485c09f0899a5ee78f1e3971d3"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs skinned-fixture --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

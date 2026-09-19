@@ -168,6 +168,12 @@ impl<'a> Decoder<'a> {
             patching: false,
         }
     }
+    pub(crate) fn patch(bytes: &'a [u8]) -> Self {
+        Self {
+            patching: true,
+            ..Self::new(bytes)
+        }
+    }
     /// An importing subsystem can tighten allocations without changing world saves.
     pub(crate) fn with_budget(bytes: &'a [u8], allocation_bytes: usize) -> Self {
         Self {

@@ -155,7 +155,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     fn commit_restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
         let sim = self.sim.as_mut().ok_or("world has not been bound")?;
         self.presentation.before_restore(sim.world(), mode);
-        sim.restore_bound(bytes).map_err(|e| e.to_string())?;
+        match mode {
+            Restore::Carry => sim.restore_bound(bytes),
+            Restore::Open => sim.open_bound(bytes),
+        }
+        .map_err(|e| e.to_string())?;
         self.presentation.after_restore(sim.world_mut(), mode);
         self.placed
             .attachments

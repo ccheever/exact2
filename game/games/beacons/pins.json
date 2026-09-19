@@ -4,12 +4,11 @@
     "90": "0x4f198d7b34cba602"
   },
   "saves": {
-    "continuation": "1012a823b7ec264cfdd64c748a794691225ac186761d7e9d76f390bc626409e9"
+    "continuation": "8959bf658432452fac9bc4297f6053c1bcba8f455ee6fe3ce5de33eb11bdc478"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "ca24f7d70f0bde59ffb88c07823735ffbb295387"
+  "generated": "bun game/prove.mjs beacons --repin --hosts linux",
+  "at": "73d652c38e447f09d6e3fffcb60f6562a47b6f0d"
 }

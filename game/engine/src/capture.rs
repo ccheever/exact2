@@ -362,7 +362,7 @@ impl<G: Game> Sim<G> {
         let capture = Capture {
             format: 2,
             game: G::ID.into(),
-            version: 5,
+            version: 7,
             build: build.into(),
             hz: G::HZ,
             seed: self.world.seed(),
@@ -516,7 +516,7 @@ impl<G: Game> Sim<G> {
         assets: crate::asset::AssetStore,
     ) -> Result<Self, DataError> {
         capture.validate()?;
-        if capture.game != G::ID || capture.version != 5 || capture.hz != G::HZ {
+        if capture.game != G::ID || capture.version != 7 || capture.hz != G::HZ {
             return Err(DataError::new(
                 "capture game/save version/fixed-step rate differs; current world retained",
             ));
@@ -943,7 +943,7 @@ mod tests {
             world: Vec<u8>,
             args: String,
         }
-        let mut bytes = b"EXSIM\0\x05".to_vec();
+        let mut bytes = b"EXSIM\0\x07".to_vec();
         bytes.extend(bin::to_vec(&Saved {
             game: game.into(),
             version: 1,
@@ -966,7 +966,7 @@ mod tests {
         w.begin_struct();
         w.field("queue");
         w.begin_seq(524_288);
-        let mut checkpoint = b"EXSIM\0\x05".to_vec();
+        let mut checkpoint = b"EXSIM\0\x07".to_vec();
         checkpoint.extend(w.finish());
         // The count fits the wire, but its Queued storage cannot fit the budget.
         // Budget refusal rather than an invalid-tag error proves no item is read.
