@@ -6993,3 +6993,53 @@ final source card `74d6de26`, patch `e5b40c3e`, original source card `44a999ad`.
 No native comparison has yet run for this shortcut. Section8.126's single
 diagnostic remains historical context, not a matched baseline or attribution
 of its Paint time to this function.
+
+### 8.128 First actual Linux cached-placement pair: lower Paint, mixed whole work, 2026-09-19
+
+One fresh A→B pair uses the existing frame-split control and one new optimized
+candidate containing exactly the two tested ink files. The five observer overlays,
+readers, fonts, generated Reusable entry/plan/compat and full10,000/32 recipe match.
+Both cells pass once; the earlier diagnostic cell is not substituted for A.
+This pair is fixed-viewport VKMS, not continuous resizing or physical120 evidence.
+
+Independent reconstruction matches stderr to all5223/4774 events and closes all
+192/199 four-field picture→submit→ACK chains. Strict phase prefixes contain one
+Refine and Paint child per FrameBuild, with matching owner/input/attempt and no
+boundary-straddling turn in these samples. Paint elapsed spans are:
+
+| Cohort | A→B Paint count | A→B median | A→B maximum |
+| --- | ---: | ---: | ---: |
+| Idle | 12→12 | 2.831→2.783ms | 3.409→3.297ms |
+| Loaded | 19→20 | 3.098→2.673ms | 6.359→4.776ms |
+| Recovery | 12→12 | 2.702→2.654ms | 3.310→3.171ms |
+| Separate command-free interval | 8→8 | 6.259→4.287ms | 7.282→5.117ms |
+
+Loaded producer progress is8→16 in both cells, but input/paint interleavings and
+picture counts differ. Both silent prefixes advance0→8 without commands or drain
+credit. Their Paint totals fall47.240→34.868ms while whole-turn totals rise
+140.579→145.049ms: recorded observer union rises60.637→71.741ms and Tick total
+rises22.077→26.971ms. All eight producer turns still exceed8.333ms in each cell;
+silent whole maxima are20.376→19.618ms.
+
+Loaded Tick medians also rise2.453→3.216ms, and whole maxima are18.000→18.169ms.
+Across the three input phases, FrameBuild totals are439.502→429.924ms and whole
+totals521.593→516.258ms, with308 versus205 turns and40 versus39 misses. These
+natural samples do not establish an overall latency improvement. Lower Paint
+time is a first-pair observation, not isolated Swash CPU attribution or repeated
+benefit. Subtracting recorded observer intervals does not reproduce an unobserved
+execution or undo scheduling/cache effects.
+
+All36 offered inputs per cell complete in-window, including18 actual signed40-unit
+wheels. Initial and final full History9 values match all10,000 records at revisions
+0 and16, including UTF-8 body-byte sums; whole snapshots differ in clock/state
+metadata. All four saved RGB buffers match across arms at2,359,296B each, with
+matching final boxes/scroll and the same offer schedule. Final frames192/199 are
+current and clean through their closing timing turn.
+
+B build exits0 in41.302s; capture `f3f8e456` proves the fresh private compilation
+and unchanged generated inputs. Runtime coordinators exit0; native SIGTERM is
+deliberate after observations. All12 recorded runtime PIDs/eight groups retire
+and port5941 is free. No retry, extra cell or rebuild ran. Runtime binding is
+`451ac84c`; copied raw manifests `8be64926` / `1d3a208d` cover46 files /48,762,292B.
+Lead reconstruction and full-state/pixel comparisons are under
+`target/ink-placement-integration/` (`82d8071a`, `7119a34d`, `ec15f6f8`).
