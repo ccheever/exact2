@@ -7856,3 +7856,43 @@ The private ink-pair checkout retains`target/observer-rgb-cost-v1` and`-v2`;
 MAIN`target/observer-cost-investigation` holds the independent48-sample arithmetic
 and the existing-span reconstruction, including§8.142's5/8 versus7/8 loaded
 painting qualification. Earlier captures and timings remain unchanged.
+
+### 8.144 A standard SHA-256 backend reduces the standalone observer primitive, 2026-09-19
+
+A fresh optimized Linux probe keeps§8.143's exact RGB extraction helper and
+full1024x768 input. Twenty-four alternating-order pairs compare sha2`0.10.9`
+default/std with ring`0.17.14`'s standard SHA-256 Context in the same binary.
+All48 full digests equal the captured2,359,296-byte RGB digest`e080ceb8`.
+Nine untimed pixel-count boundary controls check cross-backend equality,
+alpha-only invariance and changed-RGB detection; mutation is inapplicable for
+the empty input. Initialization, updates and finalization are timed. Input
+construction, comparisons and digest formatting happen outside sampling.
+
+| Extraction plus SHA-256 wall time,24 samples each | Minimum | Median | Maximum |
+|---|---:|---:|---:|
+| sha2 default/std, ms |3.926808|3.946725|4.635561|
+| ring standard backend, ms |0.885213|0.893879|1.020129|
+
+The AArch64 ELF`a043595f` uses the app's opt3, thin-LTO, one-codegen-unit,
+panic-abort release profile, debug0 and no incremental compilation. Actual
+ring features are alloc/default/dev_urandom_fallback. The VM reports SHA2
+support, and the captured standard dispatcher selects hardware support at
+runtime with a fallback. This is not an instruction trace or CPU attribution.
+The27 pinned dependency archives come from the existing cache and match their
+checksums; no dependency version, custom compression, forced CPU target or
+sha2 asm feature is introduced.
+
+One optimized build exits0 in1.972s and one primitive run exits0, with no retry
+or cleanup signal. The120s/30s guards and disk floor are unchanged; saved
+cleanup proves all10 recorded PIDs/eight groups absent and the Cargo lock
+released. Private`target/observer-rgb-backend-v1` preserves report`6eaefc05`
+and execution manifest`aa087425`. MAIN`target/observer-cost-investigation/`
+holds independent all48-sample/control arithmetic in`backend-independent.json`
+(`4449a067`) and selected final identity checks.
+
+This supports using the cheaper standard backend for subsequent recording.
+It establishes neither a whole-observer nor application speedup, and its
+difference must not be subtracted from earlier app timings. The prospective
+common observer changes pixel hashing and lowercase digest formatting only;
+snapshot hashing, workload, acceptance and quotas remain unchanged. A fresh
+application comparison is still required. No physical120Hz claim follows.
