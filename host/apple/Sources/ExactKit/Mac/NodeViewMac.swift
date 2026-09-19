@@ -17,6 +17,11 @@ private final class SymbolClip: NSView {
 enum Diag { static func on(_ name: String) -> Bool { ExactEnv.environment["EXACT_DIAG_" + name] != nil } }
 
 final class FlippedView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        if Diag.on("FLATTEN") { wantsLayer = true; canDrawSubviewsIntoLayer = true }
+    }
+    required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func prepareContent(in rect: NSRect) {
         super.prepareContent(in: Diag.on("NOOVERDRAW") ? visibleRect : rect)
@@ -536,7 +541,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
-        wantsLayer = kind != "text"
+        wantsLayer = kind != "text" && !Diag.on("FLATTEN")
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
@@ -1010,7 +1015,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         clipPath = ClipPath.path(s["clip_path"])
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
-        if kind != "text" || superview != nil { wantsLayer = true }
+        if kind != "text" || superview != nil { wantsLayer = !Diag.on("FLATTEN") }
         layer?.mask = ClipPath.mask(clipPath)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1083,7 +1088,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func prepareToMount() {
         guard kind == "text" else { return }
-        wantsLayer = true
+        wantsLayer = !Diag.on("FLATTEN")
         layer?.mask = ClipPath.mask(clipPath)
         layer?.zPosition = number("z_index")
         applyTransform()

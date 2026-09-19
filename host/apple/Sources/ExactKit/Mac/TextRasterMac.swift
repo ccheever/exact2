@@ -120,7 +120,7 @@ extension NodeView {
     /// Whether this paragraph's text is a rasterized sublayer rather than
     /// something `draw` paints. Asked by AppKit through `wantsUpdateLayer`.
     var rastersText: Bool {
-        guard kind == "text", isParagraph, !hasBoxPaint, !Capture.capturing, window != nil,
+        guard !Diag.on("FLATTEN"), kind == "text", isParagraph, !hasBoxPaint, !Capture.capturing, window != nil,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }
