@@ -66,7 +66,11 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
             }
         }
     }
-    let gpu = exact_game_render::exact_gpu::fixture::device().unwrap();
+    let Some(gpu) =
+        crate::test_device::device_or_skip(exact_game_render::exact_gpu::fixture::device())
+    else {
+        return;
+    };
     fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
         let data = assets();
         let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelPresentation, true>::default();

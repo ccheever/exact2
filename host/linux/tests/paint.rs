@@ -424,6 +424,12 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":2"#));
     p.tap(id(&p, "other")).unwrap();
     let other = id(&p, "other");
+    assert_eq!(
+        p.focus(),
+        None,
+        "pointer activation blurs the completed button"
+    );
+    p.type_key(other, "Tab", true).unwrap();
     assert_eq!(p.focus(), Some(other));
     p.clock(1000.0);
     p.clock(2000.0);

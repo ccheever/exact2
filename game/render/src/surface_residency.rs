@@ -256,7 +256,7 @@ fn identical_redelivery_survives_entry_and_post_acceptance_budget_compaction() {
 
 #[test]
 fn twenty_unique_models_bound_retirement_and_hash_only_at_delivery() {
-    let Ok(gpu) = exact_gpu::fixture::device() else {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
     let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
@@ -341,7 +341,7 @@ fn ready_reasons_name_declaration_and_render_failures() {
 }
 #[test]
 fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
-    let Ok(gpu) = exact_gpu::fixture::device() else {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
     let mut surface = WorldSurface::<Fox, crate::ModelPresentation, true>::default();

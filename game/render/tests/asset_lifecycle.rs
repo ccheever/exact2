@@ -216,7 +216,9 @@ impl Game for VisibleArt {
 }
 #[test]
 fn replacement_device_draws_identical_pixels() {
-    let gpu = exact_gpu::fixture::device().unwrap();
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut surface =
         WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
     surface.device_ready();

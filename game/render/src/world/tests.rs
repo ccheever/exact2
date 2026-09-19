@@ -503,6 +503,46 @@ fn zero_quaternion_cpu_pose_is_finite_identity() {
 }
 
 #[test]
+fn light_membership_uses_current_distance_then_entity_order() {
+    let mut sim = Sim::<Stop>::new(()).unwrap();
+    let w = sim.world_mut();
+    let camera = w.spawn((Transform::default(), Camera::default()));
+    for _ in 0..15 {
+        w.spawn((Transform::at(0., 1., 0.), PointLight::default()));
+    }
+    let old = w.spawn((Transform::at(-10., 0., 0.), PointLight::default()));
+    let challenger = w.spawn((Transform::at(10.1, 0., 0.), PointLight::default()));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(w, &mut r).unwrap();
+    sim.advance(0., Clock::Seekable);
+    sim.advance_with(17., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    let selected = |f: &Feed, e| f.scene.lights_for_test().contains(&e);
+    assert!(selected(&f, old));
+    for x in [0.2, 0., 0.2, 0.] {
+        sim.world().get_mut::<Transform>(camera).unwrap().position.x = x;
+        f.feed_to(sim.world(), &mut r).unwrap();
+        assert_eq!(selected(&f, old), x == 0.);
+        assert_eq!(selected(&f, challenger), x != 0.);
+        assert_eq!(f.scene.lights_for_test().len(), 16);
+    }
+    sim.world().get_mut::<Transform>(camera).unwrap().position.x = 2.;
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert!(!selected(&f, old));
+    assert!(selected(&f, challenger));
+    sim.world()
+        .get_mut::<Transform>(challenger)
+        .unwrap()
+        .position = Vec3::new(-10., 0., 0.);
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert!(
+        selected(&f, old),
+        "equal distances retain the lower entity index"
+    );
+    assert!(!selected(&f, challenger));
+}
+
+#[test]
 fn light_selection_matches_restored_current_state_with_twenty_lights() {
     let mut sim = Sim::<Stop>::new(()).unwrap();
     let w = sim.world_mut();
@@ -516,6 +556,11 @@ fn light_selection_matches_restored_current_state_with_twenty_lights() {
     let mut running = Feed::default();
     let mut r = Recording::default();
     running.feed_to(w, &mut r).unwrap();
+    assert_eq!(
+        running.scene.lights_for_test().len(),
+        16,
+        "empty selection cannot pass"
+    );
     sim.world().get_mut::<Transform>(camera).unwrap().position.x = 0.2;
     running.feed_to(sim.world(), &mut r).unwrap();
     let save = sim.save().unwrap();
