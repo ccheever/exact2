@@ -7146,3 +7146,65 @@ external inputs. Exactly two source contents differ from B; an added
 from file identity. Runtime binding `630268db` and copied raw manifest `0dcac37d`
 cover23 files /24,969,118B. Independent lead timer/frame reconstructions
 `55002c8c` / `2845db37` live under `target/ink-placement-integration/`.
+
+### 8.131 Linux advancing timers: layout accounts for nearly all native commit, 2026-09-19
+
+One further diagnostic build and one fresh full-workload cell wrap the existing
+`layout_motion`/`layout` expression in Geometry17, directly inside HostCommit20.
+Only that source content differs from the prior Timer capture. It adds one
+record/two clock reads per commit, preserving the expression, returned result,
+workload, caps and driver. The eighteen prior reader controls plus sixteen new
+geometry controls pass once; no production instrumentation is integrated.
+
+The cell passes full10,000/32 at fixed1024×768 with the ordinary reusable
+producer and default Region64. Independent reconstruction matches5064 journal
+events,1429 turns/16377 spans and194 closed picture chains. All32 strictly
+enclosed timers, eight per cohort, have the exact ordered Timer/Runner/Host/After
+join and one direct Geometry child. Layout reports CHANGED for all loaded and
+silent timers, UNCHANGED for idle and recovery; no error or unavailable result
+is observed in those cohorts.
+
+| Stage | Eight loaded calls, median | Loaded total | Eight silent calls, median | Silent total |
+| --- | ---: | ---: | ---: | ---: |
+| Whole Tick | 2.622ms | 20.942ms | 3.249ms | 24.276ms |
+| RunnerAdvance | 0.694ms | 6.251ms | 0.974ms | 7.510ms |
+| HostCommit | 1.765ms | 13.991ms | 2.044ms | 15.876ms |
+| Geometry, inside HostCommit | 1.741ms | 13.755ms | 2.004ms | 15.561ms |
+| HostCommit excluding Geometry | 0.028ms | 0.236ms | 0.040ms | 0.315ms |
+| AfterCommit | 0.082ms | 0.693ms | 0.116ms | 0.883ms |
+
+Geometry accounts for98.31%/98.01% of summed loaded/silent HostCommit intervals.
+This narrows the investigation to the existing layout path; it does not isolate
+text measurement, shaping or layout-engine CPU, or prove that layout can safely
+be skipped. Idle/recovery Geometry medians are both about0.007ms. Inclusive
+parents are not added to children, independent medians are not additive, and
+the remainder includes observer overhead. All50 raw timer witnesses join,
+including18 outside the scored cohorts;313 other Geometry scopes are not
+reassigned to timer costs. This is one instrumented cell, not a performance A/B.
+
+Whole-turn maxima remain13.705/18.637/11.728ms for idle/loaded/recovery, with
+12/15/11 misses above8.333333ms. All eight silent producer turns miss, with
+20.419ms maximum. Loaded/silent FrameBuild observer unions total121.779/63.705ms;
+their costs remain explicit. All32 scored Tick spans and52 scored Paint spans
+fit individually, which does not make their enclosing turns fit. Startup is
+separate at42.655ms; final recorder flush remains censored. No overall latency,
+CPU or physical120Hz improvement is established.
+
+All36 scheduled semantic handlers and18 actual signed40-unit wheels fall inside
+the fixed prefixes. Silence has eight advances0→8 and no commands; loaded
+progress is8→16. Unlike §8.130, this cell excludes no boundary timer and credits
+no drain. Full History9 at0/16, including all10,000 rows and body-byte totals,
+and all four saved RGB buffers equal prior Timer states. This establishes
+selected functional equality, not a historical timing control. Finalframe194
+is current and clean through5064. The six recorded runtime PIDs/four groups
+retire, port5941 is free, and native SIGTERM deliberately follows acceptance.
+
+The41.090s build captures21 files /12,849,957B (`eaeaa386`, ELF `9118c958`), with
+fresh private compilation and unchanged generated entry/plan/compat and other
+inputs. Binding `0cbccc1d` retains the existing60s native/20s setup/220s outer
+guards, quota and2.5GiB address-space cap. Raw `a991c30f` covers23 files
+/24,578,563B; final report `aca8b592` and manifest `92305c29` seal56 files
+/49,659,444B. Lead timer/frame/cohort reconstructions `460d8cd2` / `354e6d0e` /
+`32a7880c` independently match all32 component arrays, history, pixels and input
+joins. A console-only formatting SyntaxError is preserved separately; it caused
+no reader, runtime or source retry.
