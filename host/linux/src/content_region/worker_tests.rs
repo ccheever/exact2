@@ -151,37 +151,39 @@ fn repeated_destroy_recreate_cannot_refund_indivisible_running_work() {
 
 #[test]
 fn result_drop_reenters_mailbox_without_a_locked_destructor() {
-    // try_lock proves payload destruction is outside the mailbox mutex.
+    // Exercise the same clear path as Port::cancel without a live worker whose
+    // legitimate concurrent lock acquisition could make try_lock fail.
     struct DropCheck(Box<dyn FnOnce() + Send>);
     impl Drop for DropCheck {
         fn drop(&mut self) {
             (std::mem::replace(&mut self.0, Box::new(|| {})))();
         }
     }
-    struct Echo;
-    impl TextWork for Echo {
-        type Input = DropCheck;
-        type Output = DropCheck;
-        fn execute(&mut self, input: DropCheck) -> DropCheck {
-            input
-        }
-    }
-    let gate = ThreadSlot::default();
-    let port = gate.start(|| Echo).unwrap();
-    let shared = Arc::downgrade(&port.shared);
+    let shared = Arc::new(Shared::<(), DropCheck> {
+        state: Mutex::new(State {
+            pending: None,
+            completed: None,
+            running: None,
+            serial: 1,
+            desired: Some(1),
+            closed: false,
+        }),
+        ready: Condvar::new(),
+    });
+    let mailbox = Arc::downgrade(&shared);
     let checked = Arc::new(AtomicUsize::new(0));
     let flag = checked.clone();
-    port.submit(DropCheck(Box::new(move || {
-        let shared = shared.upgrade().unwrap();
-        assert!(shared.state.try_lock().is_ok());
-        flag.fetch_add(1, Ordering::SeqCst);
-    })))
-    .unwrap();
-    until(|| port.counts().completed == 1);
-    port.cancel();
+    shared.state.lock().unwrap().completed = Some((
+        1,
+        DropCheck(Box::new(move || {
+            let shared = mailbox.upgrade().unwrap();
+            assert!(shared.state.try_lock().is_ok());
+            flag.fetch_add(1, Ordering::SeqCst);
+        })),
+    ));
+    shared.clear(false);
     assert_eq!(checked.load(Ordering::SeqCst), 1);
-    drop(port);
-    until(|| !gate.occupied());
+    assert!(shared.state.lock().unwrap().completed.is_none());
 }
 
 #[test]
