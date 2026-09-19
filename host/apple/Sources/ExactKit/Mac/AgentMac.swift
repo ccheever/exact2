@@ -395,6 +395,7 @@ extension Agent {
                 guard let e = NSEvent(cgEvent: cg) else { return ["error": "no wheel event"] }
                 target.scrollWheel(with: e)
             }
+            session.presenter.settlePump()
             return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }

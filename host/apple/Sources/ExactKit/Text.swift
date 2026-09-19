@@ -430,6 +430,14 @@ final class TextEngine {
         return s
     }
 
+    /// The line ranges and baselines the kernel's measurement of `spec` at
+    /// `width` produced, if that measurement is still resident. Plain values:
+    /// a worker typesets its own lines from them (TextRasterMac.swift).
+    func measuredBreaks(_ spec: Spec, width: CGFloat) -> ([CFRange], [CGFloat])? {
+        guard spec.lineClamp == 0, let measured = residency.geometry(residency.identity(spec), width: width) else { return nil }
+        return (measured.lines.map { CTLineGetStringRange($0) }, measured.baselines)
+    }
+
     /// Wrap the complete source synchronously. Views/checkpoints keep accepted
     /// widths alive; a new width retires obsolete cache ownership before work.
     func paragraph(_ spec: Spec, width: CGFloat) -> Paragraph {

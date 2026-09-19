@@ -64,6 +64,7 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
+    let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
@@ -99,33 +100,181 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText(); self?.transformGeometry.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
     }
 
     deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
 
-    /// Layer-backed AppKit can ask an offscreen paragraph to repaint on resize.
-    /// Shape/paint only visible text; scrolling invalidates the newly exposed area.
-    func textVisibleRect(_ node: NodeView) -> NSRect {
-        node.convert(viewport.contentView.bounds, from: viewport.contentView)
-            .intersection(node.bounds).intersection(node.visibleRect)
+    /// How far past its visible part a paragraph's text is painted, and how
+    /// close to that painted edge the visible part may come before the band
+    /// is painted again.
+    ///
+    /// AppKit scrolls a contained list on its own thread and the main thread
+    /// follows (LLP 1044 F3), so whatever scrolls into view must already be
+    /// painted: a strip painted when it is exposed is a strip shown blank
+    /// first. Text is therefore painted for a band around the scrollport —
+    /// never for a whole long document, which layer-backed AppKit would
+    /// otherwise repaint offscreen — and a paragraph inside its band is only
+    /// composited. Bands are admitted a few per frame by `pump`, nearest
+    /// first, so mounting a row and rasterizing its text are different
+    /// frames; only text already visible is painted at once.
+    static let textBandReach: CGFloat = 1400
+    static let textBandSlack: CGFloat = 500
+    /// Paragraphs admitted to painting per pump slice, beyond the urgent ones.
+    static let textBandsPerSlice = 2
+    /// How far from the scrollport a paragraph's text is rasterized, and how
+    /// many rasters one pump slice may ask a worker for. Asking costs the main
+    /// thread a cached layout and an attributed string; the pixels are the
+    /// worker's (TextRasterMac.swift).
+    static let textRasterReach: CGFloat = 1600
+    static let textRastersPerSlice = 6
+
+    private func textBand(_ node: NodeView, reach: CGFloat) -> NSRect {
+        guard let document = node.enclosingScrollView?.documentView else { return node.bounds }
+        return node.convert(document.visibleRect, from: document)
+            .insetBy(dx: -reach, dy: -reach).intersection(node.bounds)
     }
 
-    func refreshVisibleText() {
+    /// The part of a paragraph whose text is painted: its band. A paragraph
+    /// with none paints no text until it is admitted — unless it is on screen.
+    func textVisibleRect(_ node: NodeView) -> NSRect {
+        if let band = visibleText[node.id] { return band }
+        guard !textBand(node, reach: 0).isEmpty else { return .zero }
+        let band = textBand(node, reach: Self.textBandReach)
+        visibleText[node.id] = band
+        return band
+    }
+
+    /// Bring bands up to date. Visible paragraphs always; others up to
+    /// `limit` of them (nil: all). True when some were left for a later slice.
+    @discardableResult
+    func refreshVisibleText(limit: Int? = nil) -> Bool {
         // Bounds notifications can arrive while a batch is still changing the
         // hierarchy. Query its final geometry once the outermost batch ends.
-        guard !applying else { return }
+        guard !applying else { return false }
         if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
         var next: [UInt32: NSRect] = [:]
-        for node in textViewportIndex!.candidates() {
-            let rect = textVisibleRect(node)
-            guard !rect.isEmpty else { continue }
-            next[node.id] = rect
-            for exposed in Self.exposedTextRects(rect, after: visibleText[node.id]) {
-                node.setNeedsDisplay(exposed)
+        var waiting: [(CGFloat, NodeView)] = []
+        var rasters: [(CGFloat, NodeView)] = []
+        for node in textViewportIndex!.candidates(reach: Self.textRasterReach) where node.needsTextRaster && node.rastersText {
+            // On screen without pixels: now. Otherwise nearest first, a few a slice.
+            if !textBand(node, reach: 0).isEmpty { textRasters.ensure(node, urgent: true) }
+            else { rasters.append((textBand(node, reach: Self.textRasterReach).height, node)) }
+        }
+        rasters.sort { $0.0 > $1.0 }
+        var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count
+        var rastersDeferred = false
+        for (_, node) in rasters {
+            guard rasterBudget > 0 else { rastersDeferred = true; break }
+            rasterBudget -= 1
+            textRasters.ensure(node, urgent: false)
+        }
+        for node in textViewportIndex!.candidates(reach: Self.textBandSlack) where node.needsTextRaster && !node.rastersText {
+            let want = textBand(node, reach: Self.textBandSlack)
+            guard !want.isEmpty else { continue }
+            let old = visibleText[node.id]
+            if let old, old.contains(want) { next[node.id] = old; continue }
+            let shown = textBand(node, reach: 0)
+            if !shown.isEmpty, old.map({ !$0.contains(shown) }) ?? true {
+                next[node.id] = admit(node, after: old)
+            } else {
+                if let old { next[node.id] = old }
+                // Nearest the scrollport first: `want` is what is within slack.
+                waiting.append((want.height * want.width, node))
             }
         }
+        waiting.sort { $0.0 > $1.0 }
+        var left = limit ?? waiting.count
+        var deferred = false
+        for (_, node) in waiting {
+            guard left > 0 else { deferred = true; break }
+            left -= 1
+            next[node.id] = admit(node, after: visibleText[node.id])
+        }
         visibleText = next
+        return deferred || rastersDeferred
+    }
+
+    private func admit(_ node: NodeView, after old: NSRect?) -> NSRect {
+        let band = textBand(node, reach: Self.textBandReach)
+        for exposed in Self.exposedTextRects(band, after: old) { node.setNeedsDisplay(exposed) }
+        return band
+    }
+
+    // MARK: The pump — list fill and text admission, a slice per frame
+
+    private var pumpTimer: Timer?
+    private var listSyncPending = false
+    private var textPending = false
+
+    /// A scroll container moved. Nothing here may take long: AppKit is inside
+    /// its scroll synchronizer, and the scrolling thread is waiting on it.
+    func scrolled() {
+        guard !applying else { return }
+        if listsNeedRowsNow() { syncLists() } else { listSyncPending = true }
+        // Only what is already on screen without paint; the rest is pumped.
+        textPending = refreshVisibleText(limit: 0) || textPending
+        if listSyncPending || textPending { startPump() }
+    }
+
+    /// After a batch: paint what is visible now, admit the rest over frames.
+    private func batchApplied() {
+        syncLists()
+        if refreshVisibleText(limit: Self.textBandsPerSlice) { textPending = true; startPump() }
+    }
+
+    private func startPump() {
+        guard pumpTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.pump() }
+        timer.tolerance = 0
+        RunLoop.main.add(timer, forMode: .common)
+        pumpTimer = timer
+    }
+
+    /// Everything the pump owes, now. The agent's wheel is synchronous — it
+    /// reads the tree right after — and so is anything that must not observe
+    /// a half-filled window (LLP 1012: an agent never waits).
+    func settlePump() {
+        if listSyncPending { listSyncPending = false; syncLists() }
+        refreshVisibleText()
+        textPending = false
+        pumpTimer?.invalidate()
+        pumpTimer = nil
+    }
+
+    /// One slice: the list window if it is owed, else a few text bands.
+    private func pump() {
+        if listSyncPending {
+            listSyncPending = false
+            syncLists()
+            return
+        }
+        if textPending { textPending = refreshVisibleText(limit: Self.textBandsPerSlice) }
+        if !listSyncPending && !textPending {
+            pumpTimer?.invalidate()
+            pumpTimer = nil
+        }
+    }
+
+    /// Whether a windowed list is close to showing past its mounted rows — a
+    /// jump, a scroller drag, a fling faster than the pump. Then it fills now.
+    private func listsNeedRowsNow() -> Bool {
+        for list in listViews.values {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
+                  let scroll = list.scroll, let content = list.container.subviews.first as? NodeView else { continue }
+            let visible = scroll.contentView.bounds
+            var top = CGFloat.infinity, bottom = -CGFloat.infinity
+            for case let row as NodeView in content.container.subviews {
+                top = min(top, row.frame.minY); bottom = max(bottom, row.frame.maxY)
+            }
+            guard top.isFinite else { return true }
+            let origin = content.frame.minY, extent = content.frame.height
+            let margin = visible.height * 0.35
+            let first = top + origin, last = bottom + origin
+            if visible.maxY + margin > last && bottom < extent - 1 { return true }
+            if visible.minY - margin < first && top > 1 { return true }
+        }
+        return false
     }
 
     /// Scrolling exposes strips of an existing backing store. Repainting the
@@ -182,6 +331,10 @@ final class Presenter {
         selection.structureChanged()
         visibleText.removeAll()
         textViewportIndex = nil
+        pumpTimer?.invalidate()
+        pumpTimer = nil
+        listSyncPending = false
+        textPending = false
         listGeometry.removeAll()
         listViews.removeAll()
     }
@@ -362,8 +515,7 @@ final class Presenter {
                 waiting = []
                 geometry?()
                 for (id, f) in q where views[id] != nil { f() }
-                syncLists()
-                refreshVisibleText()
+                batchApplied()
             }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
@@ -666,11 +818,13 @@ struct TextViewportIndex {
         }
     }
 
-    func candidates() -> [NodeView] {
+    /// Paragraphs within `reach` of each scroll document's visible rect.
+    func candidates(reach: CGFloat = 0) -> [NodeView] {
         var result: [NodeView] = []
         for group in groups {
-            let visible = group.document.visibleRect
-            guard !visible.isEmpty else { continue }
+            let shown = group.document.visibleRect
+            guard !shown.isEmpty else { continue }
+            let visible = shown.insetBy(dx: -reach, dy: -reach)
             // Prefix maxima include tall/overlapping paragraphs that start
             // before the viewport. Binary-searching only minY loses them.
             var lo = 0, hi = group.entries.count

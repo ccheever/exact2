@@ -44,6 +44,10 @@ final class TextSelection {
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
+    /// Whether anything is selected at all: the cheap question a paragraph
+    /// asks before the exact one (`range`).
+    var isActive: Bool { allListText || logicalAnchor != nil || (anchor != nil && focus != nil) }
+
     var paragraphs: [NodeView] {
         if let ordered { return ordered }
         guard let presenter else { return [] }

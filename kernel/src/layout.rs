@@ -49,9 +49,15 @@ fn from_available(space: AvailableSpace) -> AxisOffer {
     }
 }
 
+/// Offers one leaf keeps. One pass of block and flex intrinsic sizing asks a
+/// text leaf about six distinct (width, height) offers, and as many as
+/// thirteen; four slots rotated out inside a single pass, so every pass
+/// asked the host for all of them again (LLP 1044 F6).
+const LEAF_OFFERS: usize = 16;
+
 struct MeasuredNode {
     slot: u32,
-    // At most four offers per live node. Removing/rebuilding an engine node
+    // At most `LEAF_OFFERS` per live node. Removing/rebuilding an engine node
     // drops these metrics; explicit text/style invalidation clears them.
     measurements: Vec<Measurement>,
 }
@@ -339,7 +345,7 @@ impl LayoutTree {
                         invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
                         return MeasureOutput::ZERO;
                     }
-                    if context.measurements.len() == 4 {
+                    if context.measurements.len() == LEAF_OFFERS {
                         context.measurements.remove(0);
                     }
                     context.measurements.push(Measurement {

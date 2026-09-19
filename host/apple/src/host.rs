@@ -46,6 +46,11 @@ use ibex2::host::Secrets;
 use std::collections::BTreeMap;
 use transform_drag::TransformDrags;
 
+/// How many times one list report may measure, re-render and lay out before
+/// the batch goes out. A window settles in two; rows of zero height can ask
+/// for more, and the presenter's next report continues where this stopped.
+const LIST_SETTLE_PASSES: usize = 4;
+
 /// Why the host refused.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -639,13 +644,78 @@ impl<D: DataSource> Host<D> {
 
     /// Native list geometry; row heights come from the same kernel layout
     /// that supplied the presenter's frames, never a second text measurer.
+    ///
+    /// The window settles here. A row arrives at the estimated height; its
+    /// laid-out height then moves the extent and the rows after it. Those
+    /// heights are this kernel's own, so the correction needs no trip through
+    /// the presenter: measure, re-render and lay out until nothing moves, then
+    /// send one batch. The presenter used to apply the uncorrected rows, read
+    /// their frames back and call again — a second batch, a second apply and a
+    /// second set of whole-tree passes for every row mounted (LLP 1044 F7).
     pub fn list_viewport(
         &mut self,
         view: ViewId,
         geometry: exact_runner::ListViewport<'_>,
     ) -> String {
+        let mut geometry = geometry;
+        let mut receipts: Vec<Timed> = Vec::new();
+        let mut error = None;
+        for _ in 0..LIST_SETTLE_PASSES {
+            let rows = self.list_rows(view);
+            let before = self.list_scroll_top(view);
+            let pass = exact_runner::ListViewport {
+                rows: &rows,
+                ..geometry
+            };
+            match self.runner.list_viewport(view, pass) {
+                Ok(receipt)
+                    if receipt.created.is_empty()
+                        && receipt.destroyed.is_empty()
+                        && receipt.touched.is_empty() =>
+                {
+                    break;
+                }
+                Ok(receipt) => {
+                    receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    });
+                    // A content region lays out through its own batch path;
+                    // there the presenter's next report settles, as before.
+                    if self.content_region.is_some() {
+                        break;
+                    }
+                    if let Err(e) = self.compute_layout() {
+                        error = Some(e);
+                        break;
+                    }
+                    // The runner keeps the reading row where it was by moving
+                    // the offset; the next pass must window around that offset.
+                    match self.list_scroll_top(view) {
+                        after if after != before => {
+                            if let Some(top) = after {
+                                geometry.top = top;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => {
+                    error = Some(format!("{e:?}"));
+                    break;
+                }
+            }
+        }
+        if receipts.is_empty() && error.is_none() {
+            return self.finish(Batch::new(), None);
+        }
+        self.commit(&receipts, error)
+    }
+
+    /// Every mounted row wrapper of a list and its laid-out height.
+    fn list_rows(&self, view: ViewId) -> Vec<(ViewId, f64)> {
         let kernel = self.runner.kernel();
-        let rows: Vec<_> = kernel
+        kernel
             .node(view)
             .and_then(|list| list.children().first().copied())
             .and_then(|content| kernel.node(content))
@@ -656,27 +726,15 @@ impl<D: DataSource> Host<D> {
                     .filter_map(|id| kernel.node(id).map(|row| (id, row.frame.height as f64)))
                     .collect()
             })
-            .unwrap_or_default();
-        let geometry = exact_runner::ListViewport {
-            rows: &rows,
-            ..geometry
-        };
-        match self.runner.list_viewport(view, geometry) {
-            Ok(receipt)
-                if receipt.created.is_empty()
-                    && receipt.destroyed.is_empty()
-                    && receipt.touched.is_empty() =>
-            {
-                self.finish(Batch::new(), None)
-            }
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+            .unwrap_or_default()
+    }
+
+    /// The offset the runner last asked this list to take, if it has.
+    fn list_scroll_top(&self, view: ViewId) -> Option<f64> {
+        match self.runner.kernel().node(view)?.props.get(PropId::ScrollTop) {
+            Some(PropValue::Float(top)) => Some(*top),
+            Some(PropValue::Int(top)) => Some(*top as f64),
+            _ => None,
         }
     }
 
@@ -848,6 +906,31 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.height_projection = sample;
+        self.emit_layout(batch);
+        Ok(())
+    }
+
+    /// Lay the roots out and publish nothing: the frames a list's settle pass
+    /// reads. The batch's own `layout` follows and sends what moved, against
+    /// the mirror, so nothing computed here is lost or sent twice.
+    fn compute_layout(&mut self) -> Result<(), String> {
+        // Motion is synced per receipt by the commit that follows; this pass
+        // only needs row heights, under the height already being presented.
+        let sample = self.height_sample()?;
+        let projection = self.presented_height(sample);
+        let (w, h) = self.viewport;
+        for root in self.runner.roots() {
+            self.runner
+                .kernel_mut()
+                .compute_layout_presented(root, Offer::definite(w, h), projection)
+                .map_err(|e| format!("layout: {e:?}"))?;
+        }
+        Ok(())
+    }
+
+    /// The parent-relative frames and scroll content sizes that changed since
+    /// the presenter last heard them.
+    fn emit_layout(&mut self, batch: &mut Batch) {
         for id in self.preorder() {
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {
@@ -892,7 +975,6 @@ impl<D: DataSource> Host<D> {
             batch.collections(&collections);
             self.collections_json = collections;
         }
-        Ok(())
     }
 
     /// Every presentation value the engine changed, as `present` ops. At

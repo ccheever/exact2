@@ -45,6 +45,16 @@ private final class BlurBackground: NSVisualEffectView {
 /// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
 /// swallow it.
 final class ChainingScrollView: NSScrollView {
+    /// AppKit withdraws responsive scrolling from a subclass that overrides
+    /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
+    /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind
+    /// whatever else that thread is doing — mounting list rows, above all.
+    /// The override below only *routes*: a gesture it keeps goes to `super`
+    /// whole, which is the contract AppKit asks for. Compatible, so a
+    /// contained scroller moves on AppKit's scrolling thread and the main
+    /// thread follows it (LLP 1002 D4; LLP 1044 F3).
+    override class var isCompatibleWithResponsiveScrolling: Bool { true }
+
     /// Points per line for a wheel without precise deltas — the browser's
     /// tick.
     static let lineHeight: CGFloat = 40
@@ -182,6 +192,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var textParent: NodeView?
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
+    /// The paragraph's text as a worker-painted sublayer (TextRasterMac.swift).
+    var textRaster: CALayer?
+    var textRasterKey: TextRasterKey?
+    var textRasterReady = false
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -495,6 +509,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         textParent = nil
         textChildren.removeAll()
         invalidateText()
+        dropTextRaster()
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
         raster = nil
@@ -632,8 +647,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
-        presenter?.syncLists()
-        repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
+        // The list window and the text bands follow the scroll; they are not
+        // part of it (`Presenter.scrolled`).
+        presenter?.scrolled()
+        repaintThrough(); queueScrollEvent()
     }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
@@ -950,13 +967,21 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     // Empty container layers carry geometry and children, with no bitmap.
-    private var hasBoxPaint = false
+    private(set) var hasBoxPaint = false
     override var wantsUpdateLayer: Bool {
-        !hasBoxPaint && !Capture.capturing && kind != "text" && kind != "image"
+        if kind == "text" { return rastersText }
+        return !hasBoxPaint && !Capture.capturing && kind != "image"
             && kind != "canvas" && kind != "iframe"
     }
     override func updateLayer() {
         layer?.contents = nil
+        if kind == "text" {
+            // AppKit asks for its overdraw as well as for what is on screen.
+            // Only what is on screen without pixels is painted here, rather
+            // than shown blank; the rest is a worker's.
+            textRaster?.isHidden = false
+            presenter?.textRasters.ensure(self, urgent: !visibleRect.isEmpty)
+        }
         repaintThrough()
         if presenter?.views[id] === self { firstDraw() }
     }
@@ -970,7 +995,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
             || number("border_width_left", uniformBorder) > 0
-        layerContentsRedrawPolicy = wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
+        layerContentsRedrawPolicy = kind != "text" && wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
         updateSymbol()
         clipPath = ClipPath.path(s["clip_path"])
         // Inline text is unmounted run data. Its containing paragraph owns
@@ -1072,6 +1097,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.transformGeometry.changed()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if textRaster != nil { textRasterKey = nil; needsDisplay = true }
+    }
+
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
@@ -1085,6 +1115,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
+        if textRaster != nil { hideTextRaster() }
         repaintThrough()
         if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
             // A canvas nested under a canvas painted through its surface: its

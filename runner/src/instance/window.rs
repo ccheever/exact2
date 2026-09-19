@@ -346,7 +346,17 @@ impl ListWindow {
         );
         wanted.sort_unstable();
         wanted.dedup();
-        if !refresh && wanted == self.rendered {
+        // A row that has left the window costs nothing mounted, and retiring it
+        // costs a relayout. So a report that needs no new row changes nothing:
+        // the next pass that mounts one retires what is past the window then.
+        // What lingers is bounded by the rows between two such passes, O(W).
+        // (Nearly half of a reader's window changes only retired rows, each at
+        // the price of mounting one — LLP 1044 F7.)
+        if !refresh
+            && wanted
+                .iter()
+                .all(|index| self.rendered.binary_search(index).is_ok())
+        {
             return Ok(());
         }
         let Active::Rows { rows } = active else {
